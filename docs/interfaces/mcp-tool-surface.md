@@ -6,6 +6,12 @@ translates, and holds no domain logic ([ADR-0003](../adr/0003-unified-capability
 > Status: draft. This document is the agent-facing contract; the UI-facing one lives in
 > `http-websocket.md` (planned).
 
+## Interface scope
+
+This document covers **tools**. What the server exposes or uses beyond tool calls —
+elicitation, resources, prompts, roots, sampling — is decided in
+[`mcp-features.md`](mcp-features.md).
+
 ## What the agent sees
 
 Five things, in order of how much they matter to reliability:

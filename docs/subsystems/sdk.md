@@ -96,7 +96,9 @@ rather than from raw numbers, which is what makes creation approachable.
   but large, and the golden path only needs an emulator that already exists or can be
   started.
 - How to present licence acceptance to an *agent* consumer — a human UI can show a
-  dialog; an agent needs an explicit, auditable step.
+  dialog; an agent needs an explicit, auditable step. Candidate answer: **elicitation**
+  when the client supports it, with an explicit capability call as the fallback (see
+  [`interfaces/mcp-features.md`](../interfaces/mcp-features.md)).
 - Whether to surface `sdkmanager --list` output verbatim or model it (the output is
   a formatted table, and parsing it is version-sensitive).
 - Whether AVD creation should live here or in `emulator` — the boundary is

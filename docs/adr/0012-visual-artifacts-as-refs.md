@@ -19,6 +19,8 @@ returns the reference plus metadata (dimensions, format, byte size), not a
 filesystem path.
 
 - One component in the core owns the artifact store.
+- **Identifiers are URI-shaped** (e.g. `mydev://artifact/<id>`) so they can be exposed
+  as MCP resources later without a redesign.
 - Image delivery to a consumer (MCP image content, web UI) is an **adapter**
   concern that resolves the reference to bytes on demand.
 - Eviction is bounded by count, bytes and TTL.

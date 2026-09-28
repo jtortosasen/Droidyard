@@ -50,6 +50,7 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Subsystems | `subsystems/ui-automation.md` | ⏳ Planned |
 | Interfaces | `interfaces/http-websocket.md` | ⏳ Planned |
 | Interfaces | [`interfaces/mcp-tool-surface.md`](interfaces/mcp-tool-surface.md) | ✅ Draft |
+| Interfaces | [`interfaces/mcp-features.md`](interfaces/mcp-features.md) | ✅ Draft |
 | UI | `ui/web-ui.md` | ⏳ Planned |
 | Roadmap | [`roadmap/mvp.md`](roadmap/mvp.md) | ✅ Draft |
 | Skills | `skills/README.md` (format + packaging) | ⏳ Planned |
