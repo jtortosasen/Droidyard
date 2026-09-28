@@ -255,6 +255,27 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 - Protocol tests that spawn the real sidecar and assert the handshake, the method
   surface and failure behavior.
 
+## Unverified assumptions (spike candidates)
+
+**Structured compile errors with `file`, `line` and `column`.** We infer from the
+TAPI javadoc (`LineInFileLocation` exists) and from the reference implementation's
+code — which handles only `FileLocation` and therefore discards the line — that
+Kotlin/Compose compile errors arrive through the Problems API carrying all three
+fields. This is **not demonstrated end-to-end on a real Android project**, and it is
+the highest-value assumption in the subsystem.
+
+It is also the first implementation stage (`build.tasks` + `build.errors`), so the
+spike and the work are the same task:
+
+1. Take a small Kotlin/Compose project and introduce a deliberate compile error.
+2. Capture everything the Problems API emits for it, at the target Gradle version.
+3. Confirm the three fields, and record what is emitted when they are absent.
+
+If the assumption fails, `build.errors` must be redesigned around what is actually
+available (console parsing, or an init-script path), which changes the cost calculus
+of [ADR-0017](../adr/0017-gradle-execution-strategy.md) — including the case for the
+sidecar itself.
+
 ## Open questions
 
 - Sidecar JVM: detect on the machine vs. bundle a runtime (`jlink`).
