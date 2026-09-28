@@ -41,9 +41,10 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Architecture | [`architecture/workspace-state.md`](architecture/workspace-state.md) | ✅ Draft |
 | Architecture | [`architecture/process-lifecycle.md`](architecture/process-lifecycle.md) | ✅ Draft |
 | Subsystems | [`subsystems/adb-device.md`](subsystems/adb-device.md) | ✅ Draft |
-| Subsystems | `subsystems/emulator.md` | ⏳ Planned |
+| Subsystems | [`subsystems/emulator.md`](subsystems/emulator.md) | ✅ Draft |
 | Subsystems | [`subsystems/gradle.md`](subsystems/gradle.md) | ✅ Draft |
 | Subsystems | `subsystems/kotlin-lsp.md` | ⏳ Planned |
+| Subsystems | [`subsystems/sdk.md`](subsystems/sdk.md) | ✅ Draft |
 | Subsystems | `subsystems/git.md` | ⏳ Planned |
 | Subsystems | `subsystems/logcat.md` | ⏳ Planned |
 | Subsystems | `subsystems/ui-automation.md` | ⏳ Planned |

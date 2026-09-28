@@ -140,8 +140,22 @@ and no duplicate stores.
 
 ## Policy and safety
 
-- Emulator-preferred by default; physical devices need an enable flag **and** an exact
-  allowlist **and** the serial on every call.
+Physical devices are ordinary devices to us: same code path, same capabilities. What
+is specific to them is:
+
+- **States** — `unauthorized` and `offline` are surfaced with the fix ("accept the USB
+  debugging prompt on the device"), not as an empty device list.
+- **Wireless ADB** — pairing and connecting over the network is an adb-layer
+  capability, and it is the one that makes physical devices usable from the remote UI
+  scenario.
+- **Policy** — emulator-preferred by default; a physical device needs an enable flag,
+  an exact allowlist, and its serial on every call
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md)).
+
+What is *not* code is the procedure around them — enabling developer options, vendor
+quirks, accepting the prompt. That belongs in a skill
+([ADR-0011](../adr/0011-skills-agent-skills-standard.md)), not in the core.
+
 - Activation is **re-verified immediately before execution** (TOCTOU-safe), separate
   from tool annotations, which are only approval hints.
 - **All device output is untrusted data** (UI labels, logs, clipboard, package
@@ -169,11 +183,28 @@ and no duplicate stores.
 | Device disconnects mid-operation | Operation fails with the transport error; the workspace degrades, not the core |
 | adb missing | Capabilities remain listed; every device call explains how to fix it |
 
+## Screen viewing: on demand, not streamed
+
+Evidence from the prior art:
+
+| Implementation | Live frames | What it offers instead |
+| --- | --- | --- |
+| `dsh-android` | **Yes** — persistent `screencap` loop, PNG splitter, multipart fan-out | ~8 fps on an emulator, **2–5 fps over USB** |
+| `codex-android-mcp` | Kept the loop, but only to map coordinates; its multipart writer is dead code | Screenshots on demand |
+| `mobile-mcp` | **No** | Screenshots on demand, plus screen **recording** to a file |
+
+The one that streams is the one with a live device panel in its UI; the agent-only
+server never built it. And even the streaming implementation is a slideshow rather
+than video on real hardware.
+
+**Decision: the MVP does not stream.** Screenshots are captured on demand and returned
+as artifact references; the UI panel uses a refresh affordance. If a smooth live view
+is ever needed, the right answer is an **H.264 path** (scrcpy-style) behind a
+`StreamSource` seam — not a PNG-per-frame loop. We design the seam and do not build
+the pipeline.
+
 ## Open questions
 
-- Whether the MVP needs a live frame pipeline at all (screenshots on demand may be
-  enough) and when streaming becomes worth it — the device panel is the natural
-  driver.
 - The row abstraction for feeds whose controls are unlabelled: after the MVP.
 - OCR: deferred and pluggable ([ADR-0013](../adr/0013-ocr-optional-pluggable.md)).
 - Whether to pool short adb invocations or accept a process per call.

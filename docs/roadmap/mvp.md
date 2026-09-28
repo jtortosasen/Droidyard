@@ -56,7 +56,7 @@ image interpretation.
 - **Adapters**: MCP (stdio) for agents; HTTP/WebSocket (needed by phase 2); a thin
   CLI for development and testing.
 - **Capability domains**: `system`, `workspace`, `project`, `build`, `device`,
-  `emulator`, `file`, `git`, `operation`, `events`, `shell`.
+  `emulator`, `sdk`, `file`, `git`, `operation`, `events`, `shell`.
 - **Sample app** as the acceptance target.
 - **Minimal web UI** (phase 2), grown as needed rather than built to a fixed spec.
 - **`git.*` as the last item** — a thin wrapper over the `git` CLI. It is allowed to
@@ -82,6 +82,12 @@ image interpretation.
   ([ADR-0011](../adr/0011-skills-agent-skills-standard.md),
   [ADR-0014](../adr/0014-agent-distribution-model.md)).
 - **Windows** ([ADR-0002](../adr/0002-unix-first.md)).
+- **SDK provisioning and AVD creation.** `sdk.packages`, `sdk.install`,
+  `sdk.licenses`, `emulator.create` and `emulator.delete` are post-MVP: the golden
+  path only needs an emulator that already exists, and a package manager with licence
+  consent and gigabyte downloads is a large block that does not validate the
+  hypothesis. `sdk.requirements` **is** in scope precisely because it makes Gradle
+  failures explainable from day one.
 - **Refactors, rename, call hierarchy.**
 - **Batching.**
 
@@ -116,7 +122,9 @@ Deliverables (capabilities):
 - `project.*`: `modules`, `variants`.
 - `build.*`: `assemble`, `tasks` (list), `run` (arbitrary task), `errors`,
   `lastResult`.
-- `emulator.*`: `list`, `start`, `stop`.
+- `emulator.*`: `list`, `start`, `stop`, `wipe`.
+- `sdk.*`: `status`, `requirements` — read-only: what is installed, and what this
+  project needs but lacks.
 - `device.*`: `list`, `install`, `launch`, `logs` (snapshot + follow),
   `screenshot`, `uiTree`, `tapElement` (with assertions), `uninstall`.
 - `file.*`: `list`, `read`, `write` (needed by phase 2, useful now for fixtures).
@@ -173,7 +181,8 @@ a script), designed so the golden path is exercisable and reproducible in CI:
 | `workspace` | `open`, `describe`, `close` | 0 |
 | `project` | `modules`, `variants` | 1 |
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult` | 1 |
-| `emulator` | `list`, `start`, `stop` | 1 |
+| `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
+| `sdk` | `status`, `requirements` | 1 |
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `screenshot`, `uiTree`, `tapElement` | 1 |
 | `file` | `list`, `read`, `write`, `watch` | 1–2 |
 | `git` | `status`, `diff`, `log`, `branches` | last |
@@ -257,6 +266,8 @@ The emulator likewise belongs to the platform, not to us.
   capability layer, but no remote access, TLS or authentication effort in the MVP.
 - **UI priority order**: Logcat → build/Gradle tasks → Git → devices/screen; the
   editor comes later, with code intelligence.
+- **SDK provisioning is staged**: read-only requirement checking in the MVP, package
+  installation and AVD creation after it.
 - **The sample app** is the acceptance target; real projects come after the MVP.
 - **`file.*` is a first-class domain** (added to
   [`../architecture/capability-api.md`](../architecture/capability-api.md)).
