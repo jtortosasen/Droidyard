@@ -8,18 +8,18 @@ ambiguous meaning, the definition here wins.
 **Core** — the persistent native process that owns toolchain
 integration, state and the capability API. Written in Go
 ([ADR-0001](../adr/0001-core-runtime-go.md)). It is not an agent and not the UI.
-Concretely, it is the `aiodev serve` daemon, one per user
+Concretely, it is the `droidyard serve` daemon, one per user
 ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 
 ## Shim
 
 A stateless process that relays a client to the daemon over its Unix socket:
-`aiodev mcp` (stdio MCP) and `aiodev call` (CLI). Killing a shim ends a session, never
+`droidyard mcp` (stdio MCP) and `droidyard call` (CLI). Killing a shim ends a session, never
 the core ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 
 ## Session
 
-One adapter connection: one shim, one `aiodev call` invocation, or one WebSocket. It
+One adapter connection: one shim, one `droidyard call` invocation, or one WebSocket. It
 owns subscriptions and watches. An MCP session is bound to one project root. It does
 not own operations.
 
@@ -31,7 +31,7 @@ session can cancel it ([ADR-0020](../adr/0020-operation-contract.md)).
 
 ## Artifact
 
-A byte payload handed out as an opaque `aiodev://artifact/<id>` reference, never a path:
+A byte payload handed out as an opaque `droidyard://artifact/<id>` reference, never a path:
 a screenshot, a log capture, a build console. It is either *ephemeral* (memory, TTL) or
 *durable* (kept as long as its owning record), and it is read through `artifact.read`
 ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
@@ -95,7 +95,7 @@ harness, which drives it.
 
 ## MCP
 
-Model Context Protocol — the protocol by which `AioDevAndroid` exposes capabilities to an
+Model Context Protocol — the protocol by which Droidyard exposes capabilities to an
 agent. It is an *adapter* over the capability API, not the core's internal design.
 
 ## Tool
@@ -112,12 +112,12 @@ Separate from tools.
 ## Hook
 
 An extension point in an **agent harness**'s lifecycle (e.g. `preToolUse`,
-`sessionStart`). It belongs to the harness, not to `AioDevAndroid`.
+`sessionStart`). It belongs to the harness, not to Droidyard.
 
 ## Plugin
 
 A distribution/extension package for some host. Depending on the host it may
-bundle tools, skills, runtime state and UI integration. `AioDevAndroid` is not a plugin
+bundle tools, skills, runtime state and UI integration. Droidyard is not a plugin
 host in v1.
 
 ## Kotlin LSP

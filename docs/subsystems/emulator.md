@@ -106,7 +106,7 @@ What "detached and unreferenced" means in Go, where a literal port would leak
 zombies or tie the emulator to the daemon:
 
 - **`SysProcAttr{Setsid: true}`**: a new session and process group with no controlling
-  terminal. Ctrl-C or `SIGHUP` to a foreground `aiodev serve`, and group kills aimed at
+  terminal. Ctrl-C or `SIGHUP` to a foreground `droidyard serve`, and group kills aimed at
   our own children, never reach the emulator.
 - **stdio**: stdin from `/dev/null`; stdout and stderr to one file,
   `<state>/emulator/<avd>.log` ([ADR-0021](../adr/0021-persistence-format-and-location.md)),

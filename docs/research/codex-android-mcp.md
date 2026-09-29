@@ -49,7 +49,7 @@ Debug: `processes`, `backtrace`, `meminfo`, `app_info`.
 Coordinates are **normalized 0..1 of the live frame**. Target arg naming is
 **inconsistent** (`device` for core/log/debug, `serial` for UI/row/OCR).
 
-## Reusable ideas (high value for AioDevAndroid)
+## Reusable ideas (high value for Droidyard)
 
 1. **Capability definition decoupled from the transport adapter.** Exactly the
    seam our "one capability API, two consumers" needs. Write capabilities once,
@@ -119,7 +119,7 @@ Coordinates are **normalized 0..1 of the live frame**. Target arg naming is
 MIT. The Android domain modules are legally reusable; we would port the logic to Go
 and keep attribution in a third-party notices file.
 
-## Verdict for AioDevAndroid
+## Verdict for Droidyard
 
 The repo validates the thesis: a **standard-MCP STDIO server plus adb/Gradle
 tooling is portable across assistants today** — "Codex-specific" is essentially

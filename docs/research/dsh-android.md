@@ -76,7 +76,7 @@ prose.
 `discover / foregroundApp / launchApp / observe / tap / type / scroll / key /
 screenshot / dispose`, explicit serial, `coordinateSpace: "display-pixels"`.
 
-## Reusable ideas (high value for AioDevAndroid)
+## Reusable ideas (high value for Droidyard)
 
 1. **Serial is the only device identity.** One adb code path; no emulator vs.
    real-device split.
@@ -144,7 +144,7 @@ The repo is **MIT**, so the host-agnostic domain modules are legally reusable. W
 would **port** the logic to Go, not copy TypeScript; attribution would be kept in
 a third-party notices file if we lift specific algorithms.
 
-## Verdict for AioDevAndroid
+## Verdict for Droidyard
 
 dsh-android is a rich reference for *what Android operations should look like* and
 a cautionary tale for *how not to package them*. It also validates our core bet:

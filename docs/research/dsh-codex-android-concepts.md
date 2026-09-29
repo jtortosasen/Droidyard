@@ -2,7 +2,7 @@
 
 Conceptual model of how both repositories handle **adb, devices, emulators,
 streaming, automation, build/run, lifecycle and security** — and what is worth
-extracting for `AioDevAndroid`.
+extracting for Droidyard.
 
 They share one lineage, so their **domain model is identical**; the differences are
 almost entirely about *how the capability is exposed and governed*. Read together
@@ -220,7 +220,7 @@ The policy model is the most extractable artefact:
 Its limitations: policy is **env-var only and frozen at startup**, and errors still
 leak the `dsh-android:` brand internally before sanitisation.
 
-## 8. What to extract for `AioDevAndroid`
+## 8. What to extract for Droidyard
 
 1. **adb-centric, serial-as-identity, degrade-don't-refuse.** One adb path, an
    optional emulator, tools that load even when adb is absent.

@@ -134,7 +134,7 @@ The `profile` value (rule 6) summarises the Gradle side of the toolchain profile
   rest through the TAPI guarantee.
 - CI carries a version matrix with a **KGP axis** (2.3 vs 2.4) and an **AGP axis**
   (floor and latest), plus a non-blocking nightly "future" job and the **probe
-  canary**. The canary runs `aiodev-probe.init.gradle` against the Gradle floor and the
+  canary**. The canary runs `droidyard-probe.init.gradle` against the Gradle floor and the
   newest release, and against AGP floor and latest. It must return a model, and a
   broken field must degrade to `unknown`.
 - On Gradle below 8.13, and on any project with KGP < 2.4, Kotlin errors are

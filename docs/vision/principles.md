@@ -15,7 +15,7 @@ human-only and never exposed to agents
 
 ## 2. The core is AI-agnostic
 
-`AioDevAndroid` must be fully useful with no agent attached. The AI is a consumer, not a
+Droidyard must be fully useful with no agent attached. The AI is a consumer, not a
 dependency. The core does not know what a "prompt" is.
 
 ## 3. Lean by default
@@ -40,7 +40,7 @@ shell remains available as an escape hatch, not as the primary interface.
 shell:  adb shell input tap 540 1220
         -> arbitrary stdout -> consumer interprets
 
-aiodev:  device.tapElement(resourceId="...")
+droidyard:  device.tapElement(resourceId="...")
         -> structured result -> no coordinate discovery
 ```
 

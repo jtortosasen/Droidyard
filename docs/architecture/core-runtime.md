@@ -6,9 +6,9 @@ us stays open, and is listed at the end.
 
 ## What it encodes
 
-- **One binary, one daemon, many goroutines.** `aiodev serve` is the core; `aiodev mcp`
-  and `aiodev call` are shims that attach to it over a Unix socket; `aiodev ui`,
-  `aiodev trust <root>`, `aiodev status` and `aiodev stop` complete the CLI
+- **One binary, one daemon, many goroutines.** `droidyard serve` is the core; `droidyard mcp`
+  and `droidyard call` are shims that attach to it over a Unix socket; `droidyard ui`,
+  `droidyard trust <root>`, `droidyard status` and `droidyard stop` complete the CLI
   ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md) §Processes). Sidecars are separate
   processes ([ADR-0017](../adr/0017-gradle-execution-strategy.md)); nothing else is.
 - **Capabilities are the product; adapters are edges**
@@ -22,7 +22,7 @@ us stays open, and is listed at the end.
 ## Package layout
 
 ```text
-cmd/aiodev/                 entrypoint: subcommands serve | mcp | call | ui | trust | status | stop
+cmd/droidyard/                 entrypoint: subcommands serve | mcp | call | ui | trust | status | stop
 
 internal/
   daemon/                  single-instance lock, socket listener, handshake, sessions
@@ -45,9 +45,9 @@ internal/
     git/                   later
 
 adapters/
-  mcp/                     MCP adapter, inside the daemon; `aiodev mcp` only relays stdio
+  mcp/                     MCP adapter, inside the daemon; `droidyard mcp` only relays stdio
   httpapi/                 HTTP + WebSocket for the web UI
-  cli/                     `aiodev call <capability>`: native envelope over the socket
+  cli/                     `droidyard call <capability>`: native envelope over the socket
 
 sidecar/                   Kotlin TAPI sidecar (separate module, own build)
 ```

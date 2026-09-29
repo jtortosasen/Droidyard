@@ -23,7 +23,7 @@ capabilities via **MCP** and let an external agent provide the harness.
 
 ## Consequences
 
-- `AioDevAndroid` stays AI-agnostic and useful with no agent attached.
+- Droidyard stays AI-agnostic and useful with no agent attached.
 - The project is model- and vendor-neutral: any MCP-capable agent can use it.
 - We accept that some harness-level integrations (hooks, custom UI) are out of
   reach; they can be added later as non-essential adapters/plugins.
