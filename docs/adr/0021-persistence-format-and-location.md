@@ -36,21 +36,21 @@ a few KB per workspace, a few hundred build records.
 
 ### Location
 
-**Never inside the project tree**: no `.mydev/` directory, no `.gitignore` pollution,
+**Never inside the project tree**: no `.aiodev/` directory, no `.gitignore` pollution,
 read-only checkouts work.
 
 | | Linux | macOS |
 | --- | --- | --- |
-| State root | `$XDG_STATE_HOME/mydev` (default `~/.local/state/mydev`) | `~/Library/Application Support/mydev` |
-| User configuration (policy incl. trusted roots, JVM discovery, timeouts) | `$XDG_CONFIG_HOME/mydev` (default `~/.config/mydev`) | beside the state directory |
-| Socket | `$XDG_RUNTIME_DIR/mydev/`, else `<state>/run/` | `<state>/run/` |
-| Derived caches (deletable any time) | `$XDG_CACHE_HOME/mydev` | `~/Library/Caches/mydev` |
+| State root | `$XDG_STATE_HOME/aiodev` (default `~/.local/state/aiodev`) | `~/Library/Application Support/aiodev` |
+| User configuration (policy incl. trusted roots, JVM discovery, timeouts) | `$XDG_CONFIG_HOME/aiodev` (default `~/.config/aiodev`) | beside the state directory |
+| Socket | `$XDG_RUNTIME_DIR/aiodev/`, else `<state>/run/` | `<state>/run/` |
+| Derived caches (deletable any time) | `$XDG_CACHE_HOME/aiodev` | `~/Library/Caches/aiodev` |
 
-`MYDEV_STATE_DIR` overrides the state root; it is how tests get an isolated daemon.
+`AIODEV_STATE_DIR` overrides the state root; it is how tests get an isolated daemon.
 User configuration — policy, including trusted roots (ADR-0015 §5–6), JVM discovery,
 timeouts — is **not state**. It is written only by human channels (`policy.update`,
-`mydev trust`) or by hand, and is never migrated or reset with the state.
-`MYDEV_CONFIG_DIR` overrides its location; its format belongs to the configuration
+`aiodev trust`) or by hand, and is never migrated or reset with the state.
+`AIODEV_CONFIG_DIR` overrides its location; its format belongs to the configuration
 spec.
 
 ### Layout
@@ -63,7 +63,7 @@ spec.
 ├── workspaces.json      index: wsid → {root, name, lastOpenedAt}  ("recent workspaces")
 ├── emulator/<avd>.log   detached emulator launchers' output, read for the stderr tail
 ├── run/                 0700; per-launch runtime files
-│   ├── mydev.sock       the socket, where the location table puts it
+│   ├── aiodev.sock       the socket, where the location table puts it
 │   └── http-token       0600; HTTP bearer token, regenerated each start, deleted on exit
 └── ws/<wsid>/
     ├── workspace.json   durable workspace config: name, selected variant, preferences
@@ -100,7 +100,7 @@ recorded: they are not our children and are re-adopted through `adb`.
 
 `daemon.lock` is an exclusive `flock` (ADR-0019). The kernel releases it when the
 holder dies, so reclamation needs no pid check; the pid and start time in the file
-identify the holder for humans and for `mydev stop`. There are no per-workspace lock
+identify the holder for humans and for `aiodev stop`. There are no per-workspace lock
 files: one daemon per state root owns every workspace in it.
 
 ## Consequences
@@ -122,7 +122,7 @@ files: one daemon per state root owns every workspace in it.
 - **SQLite.** Transactions and queries we do not need yet, at the cost of cgo or a
   multi-megabyte pure-Go driver, and state that is no longer readable with `cat`.
   Revisit if the build registry grows query needs.
-- **A `.mydev/` directory in the project.** Pollutes the tree, needs ignoring,
+- **A `.aiodev/` directory in the project.** Pollutes the tree, needs ignoring,
   breaks on read-only checkouts, and would scatter the global state (recent workspaces,
   pid records) anyway. Rejected.
 - **An embedded key-value store (bbolt, Badger).** Opaque files and a dependency, for no

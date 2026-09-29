@@ -60,15 +60,15 @@ read the artifacts they are handed (B11).
   - Two agent windows on the same project become two cores fighting over one
     workspace lock.
   - Nothing says how the core is started (foreground, daemon, launchd/systemd) or how
-    `mydev call` (the CLI) reaches it.
+    `aiodev call` (the CLI) reaches it.
   - "The session is the process" is only true if the core *is* the stdio process, and
     that contradicts "persistent".
 - *Smallest fix:* write one ADR:
-  - a single long-lived `mydev serve` owns all state and listens on a Unix domain
+  - a single long-lived `aiodev serve` owns all state and listens on a Unix domain
     socket, plus loopback HTTP/WS for the UI;
-  - `mydev mcp` is a stdio↔socket shim that attaches to the daemon and auto-starts it
+  - `aiodev mcp` is a stdio↔socket shim that attaches to the daemon and auto-starts it
     if absent;
-  - `mydev call` works the same way;
+  - `aiodev call` works the same way;
   - define what an MCP "session" is (one shim connection), and what happens to
     in-flight operations when it disconnects (continue, or cancel).
 
@@ -151,8 +151,8 @@ single source for.**
   recorded as running", which requires persisted pids and lock files.
   `workspace-state.md` §Durable vs ephemeral says processes are ephemeral and "never
   persisted".
-- *Smallest fix:* JSON files under `$XDG_STATE_HOME/mydev/<wsid>/` on Linux and
-  `~/Library/Application Support/mydev/<wsid>/` on macOS, never inside the project
+- *Smallest fix:* JSON files under `$XDG_STATE_HOME/aiodev/<wsid>/` on Linux and
+  `~/Library/Application Support/aiodev/<wsid>/` on macOS, never inside the project
   tree. Plus a pid file holding pid and start time for lock reclamation. Make pid
   records an explicit durable exception.
 

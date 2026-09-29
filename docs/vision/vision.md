@@ -52,7 +52,7 @@ the agent uses is still worth building.
 
 ## What we are building
 
-A persistent local process (the **core**, codename `mydev`): one daemon per user,
+A persistent local process (the **core**): one daemon per user,
 which the web UI reaches over loopback HTTP and agents and scripts reach through thin
 stdio and CLI shims
 ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). It:
@@ -115,5 +115,5 @@ Design-phase targets. The MVP must meet 2, 3 and 4; criterion 1 is met in v1
 
 - A full Android Studio clone.
 - A proprietary LLM/agent harness or agent loop.
-- A cloud service. `mydev` is local-first.
+- A cloud service. `AioDevAndroid` is local-first.
 - An embedded emulator engine (we drive the existing one).

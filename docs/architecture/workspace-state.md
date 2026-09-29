@@ -100,7 +100,7 @@ any workspace.
   file exists.
 - A workspace is **trusted or not**
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). Trust comes from a
-  configured path prefix or an explicit human act — the UI, or `mydev trust` — and
+  configured path prefix or an explicit human act — the UI, or `aiodev trust` — and
   **never** from an MCP binding, because a repository can ship its own `.mcp.json`.
   Both kinds of decision are policy: they live in the user configuration, not in
   workspace state, so deleting `ws/<wsid>/` never grants or revokes trust. Trust is
@@ -122,8 +122,8 @@ Processes are ephemeral; the *record of what we spawned* is not. That record is 
 lets the next daemon find and reap orphans after a crash.
 
 Format and location are decided by [ADR-0021](../adr/0021-persistence-format-and-location.md):
-JSON files under `$XDG_STATE_HOME/mydev/` (Linux) or
-`~/Library/Application Support/mydev/` (macOS), per workspace under `ws/<wsid>/`,
+JSON files under `$XDG_STATE_HOME/aiodev/` (Linux) or
+`~/Library/Application Support/aiodev/` (macOS), per workspace under `ws/<wsid>/`,
 never inside the project tree.
 
 ## Concurrency model

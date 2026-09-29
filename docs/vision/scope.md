@@ -55,7 +55,7 @@ The authoritative list is the capability registry
 - HTTP + WebSocket server for the UI, loopback-only in the MVP
   ([http-websocket](../interfaces/http-websocket.md)).
 - MCP server for agents, over stdio in the MVP.
-- CLI (`mydev call`) for scripts and testing.
+- CLI (`aiodev call`) for scripts and testing.
 - A raw shell escape hatch for operations not yet modelled.
 
 ### UI (minimal)

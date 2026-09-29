@@ -1,7 +1,7 @@
 # Research: Prior Art Synthesis
 
 Cross-cutting conclusions from four external repositories, and what they imply for
-`mydev`. Per-repo detail: [`dsh-android.md`](dsh-android.md),
+`AioDevAndroid`. Per-repo detail: [`dsh-android.md`](dsh-android.md),
 [`codex-android-mcp.md`](codex-android-mcp.md),
 [`mobile-mcp.md`](mobile-mcp.md), [`android-skills.md`](android-skills.md).
 

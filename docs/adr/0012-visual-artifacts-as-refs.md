@@ -28,7 +28,7 @@ dead end for the agent on the golden path.
 
 ## Decision
 
-The core hands out **opaque, URI-shaped references** (`mydev://artifact/<id>`), never
+The core hands out **opaque, URI-shaped references** (`aiodev://artifact/<id>`), never
 filesystem paths. A reference comes with metadata:
 
 ```text
@@ -107,7 +107,7 @@ Adapters resolve references to bytes; the core owns the store:
 - `lastResult.consoleRef` stays valid across restarts, for exactly as long as the
   build record it belongs to.
 - A reference from an earlier daemon fails with a typed error that says what to re-run.
-- When MCP resources arrive, `resources/read` on a `mydev://artifact/…` URI is a
+- When MCP resources arrive, `resources/read` on a `aiodev://artifact/…` URI is a
   second projection of `artifact.read`, not a new store.
 
 ## Alternatives considered

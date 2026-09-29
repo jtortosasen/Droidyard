@@ -28,7 +28,7 @@ bare HTTP error and never reaches the capability layer.
 
 1. **Loopback only.** The default bind is `127.0.0.1` on a configurable fixed port. If
    the port is taken, an ephemeral port is used instead. `daemon.lock` (`http`) and
-   `mydev status` report the actual address. A non-loopback address is **refused at
+   `aiodev status` report the actual address. A non-loopback address is **refused at
    startup** in the MVP: LAN exposure needs its own ADR covering TLS and
    authentication ([adr/README](../adr/README.md) §Open decisions).
 2. **Host allowlist (stops DNS rebinding).** `Host` must be exactly
@@ -62,12 +62,12 @@ bare HTTP error and never reaches the capability layer.
    plain text: never as HTML or Markdown, and never as links. Artifacts are served only
    as `image/png`, `image/jpeg` or `text/plain; charset=utf-8`.
 
-**Bootstrapping the browser.** `mydev ui` (which auto-starts the daemon) opens
-`http://127.0.0.1:<port>/#token=<token>`. `mydev status` prints the same URL. A URL
+**Bootstrapping the browser.** `aiodev ui` (which auto-starts the daemon) opens
+`http://127.0.0.1:<port>/#token=<token>`. `aiodev status` prints the same URL. A URL
 fragment is never sent to a server and never appears in `Referer`. The UI moves the
 token into `sessionStorage` and strips it from the address bar. `sessionStorage` is
 scoped to the exact origin, port included. A tab opened without a token shows
-"run `mydev ui`". The static UI bundle is served without the token, because it
+"run `aiodev ui`". The static UI bundle is served without the token, because it
 contains no data. Rules 1–3 and 7 still apply to it.
 
 **Residual risk, stated plainly.** Any process running as the same user can read the
@@ -97,7 +97,7 @@ capabilities through ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §
 - The reply is **`200` with a response envelope**, even for rejections and failed
   operations. Consumers branch on `error.code`, never on the HTTP status.
 - A result that carries device- or app-derived data has `meta.untrusted: true`. The UI
-  finds out which fields to render inert from the schema's `x-mydev-untrusted` marks
+  finds out which fields to render inert from the schema's `x-aiodev-untrusted` marks
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1).
 - Other statuses come only from the baseline and from transport problems: `400`
   (malformed JSON), `401` (token), `403` (Host or Origin), `413` (body over 1 MiB) and
@@ -124,7 +124,7 @@ connection after two missed pongs.
 
 ### `GET /v1/artifacts/{id}`
 
-- `{id}` is the last segment of the artifact reference (`mydev://artifact/<id>`). The
+- `{id}` is the last segment of the artifact reference (`aiodev://artifact/<id>`). The
   UI builds this path from nothing else.
 - The route has the same semantics and authorization as `artifact.read`, and it is
   recorded as that operation. Only the encoding differs: raw bytes instead of JSON.

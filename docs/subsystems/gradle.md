@@ -368,7 +368,7 @@ Generic TAPI models give modules, tasks and directories, but not Android variant
 `compileSdk`, build-tools or plugin versions. Those come from **the probe**
 ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)):
 
-- **The only init script in the design**: `mydev-probe.init.gradle`, a few lines that
+- **The only init script in the design**: `aiodev-probe.init.gradle`, a few lines that
   put a small jar on the init-script classpath and apply a plugin registering a
   `ToolingModelBuilder`. The jar is plain Java (Java 8 bytecode, no Kotlin stdlib in the
   daemon), compiled against Gradle's public API at the floor.
