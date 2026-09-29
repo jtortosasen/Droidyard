@@ -7,9 +7,13 @@
 
 The core (`mydev`) is a persistent local process that must:
 
-- spawn and supervise many external processes (adb server, Gradle daemon, Kotlin
-  LSP, emulators, screenrecord, watchers),
-- speak JSON-RPC over stdio to the Kotlin LSP,
+- spawn and supervise external processes: its JVM sidecars (the Gradle Tooling API
+  sidecar, later the Kotlin LSP), per-operation `adb`/`git` commands, `logcat` and
+  `screenrecord` streams, and watchers;
+- start or use processes that belong to other tools without owning them: the `adb`
+  server, emulators, and the Gradle daemon, which is Gradle's own
+  ([process-lifecycle](../architecture/process-lifecycle.md));
+- speak JSON-RPC over stdio to its sidecars,
 - serve HTTP and WebSocket to the UI,
 - serve MCP to agents,
 - parse large volumes of tool output into structured data,
@@ -30,10 +34,13 @@ Implement the core in **Go**.
 - Single static binary, no runtime to install, easy to ship and start.
 - Strong standard library for process management, HTTP, sockets and JSON.
 - Mature libraries for WebSocket, file watching and MCP.
-- Must add an interop boundary for anything JVM-only (e.g. Gradle Tooling API)
-  as an optional sidecar, not embedded in the core.
-- The parsers for ADB / Gradle / Logcat output are written from scratch in
-  Go (they are small and well-defined).
+- Must add an interop boundary for anything JVM-only, as a sidecar and never embedded
+  in the core. The Gradle Tooling API is the first
+  ([ADR-0017](0017-gradle-execution-strategy.md)).
+- The parsers for ADB and Logcat output, and the console error extractor for what the
+  Tooling API does not structure (Kotlin, AAPT2 and similar compiler output;
+  [ADR-0022](0022-build-error-extraction.md)), are written from scratch in Go. They are
+  small, well defined and fixture-tested.
 - Go's GC and type system are a deliberate trade against Rust's compile-time
   guarantees; acceptable for an I/O- and orchestration-bound process.
 

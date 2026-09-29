@@ -37,9 +37,12 @@ Capabilities are expressed as commands (mutating, long-running) and queries
 - The UI and agents get identical semantics; a fix or feature reaches both.
 - Adapters stay thin and protocol-focused.
 - Requires an explicit capability contract (typing, versioning, events) to be
-  designed early — see `architecture/capability-api.md` (planned).
+  designed early. See [capability-api](../architecture/capability-api.md).
 - Raw shell is modelled as a capability too (`shell.exec`), so even the escape
   hatch flows through the same layer.
+- One deliberate exception: policy changes are human-only. They are capabilities for
+  the UI and CLI, and they are never exposed over MCP, so an agent cannot authorize
+  itself ([ADR-0015](0015-untrusted-data-authorization.md) §6).
 
 ## Alternatives considered
 

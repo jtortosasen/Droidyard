@@ -12,11 +12,11 @@ The tool surface itself is in
 | Feature | What it does | Verdict |
 | --- | --- | --- |
 | **Elicitation** | The server asks the **user**, through the client | ⭐ **Candidate — highest value** |
-| **Resources** (+ `subscribe`) | The client reads server-held data as context | 🟡 Candidate, after the MVP |
+| **Resources** (+ `subscribe`) | The client reads server-held data as context | 🟡 Candidate, after the MVP (`artifact_read` covers the MVP) |
 | **Prompts** | Server-provided prompt templates | 🟡 Candidate, only where needed |
 | **Logging** (`notifications/message`) | Structured log messages to the client | 🟢 Cheap, do it |
-| **Roots** | The client declares which directories are in scope | 🟢 Cheap, optional input |
-| **Progress** | Progress notifications for long operations | ✅ Already used |
+| **Roots** | The client declares which directories are in scope | 🟢 Cheap, optional input that can only narrow |
+| **Progress** | Progress notifications for long operations | ✅ Used during bounded waits |
 | **Sampling** | The server asks the **client's model** to generate | ❌ Rejected |
 | **Assistant-side hooks** | `PreToolUse`/`SessionStart`-style extension points | ❌ Not part of MCP; not adopted |
 
@@ -40,6 +40,10 @@ Rules:
 3. Not in the MVP core loop: the golden path needs none of it. It becomes worth
    building with the SDK provisioning stage, where the licence question actually
    arises.
+4. **Never a policy channel.** Elicitation does not enable devices or `shell.exec`,
+   and it does not trust a project root. A client in auto-approve mode would let the
+   agent grant itself access
+   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
 
 This also strengthens [ADR-0015](../adr/0015-untrusted-data-authorization.md): today,
 destructive operations are only *hinted* at. Elicitation is the first mechanism that
@@ -50,21 +54,21 @@ makes the confirmation real.
 MCP resources let the client read data the server holds, and `resources/subscribe`
 notifies it when that data changes.
 
-We already decided that screenshots and logs are **opaque references**
-([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)). Those references map directly
-to resource URIs:
+Artifacts are **opaque, URI-shaped references** (`mydev://artifact/<id>`,
+[ADR-0012](../adr/0012-visual-artifacts-as-refs.md)). In the MVP, agents read them
+through the `artifact_read` tool, and screenshots arrive inlined as images
+([`mcp-tool-surface.md`](mcp-tool-surface.md) §Images and artifacts). A tool is needed
+either way: many clients put resources under the user's control, not the model's.
 
-- `device_screenshot` returns a reference; a client that supports resources can read
-  it natively instead of receiving base64 inside a tool result.
-- A live `logcat` becomes a subscribable resource instead of a bounded follow call.
-- `build_lastResult` could be read as context without a tool call.
+Resources would add:
 
-**Design constraint this creates now, cheaply:** artifact identifiers should be
-**URI-shaped from the start** (e.g. `mydev://artifact/<id>`), so that exposing them as
-resources later is a mapping rather than a redesign.
+- `resources/read` on the same URI, as a second projection of `artifact.read`, for
+  clients that attach resources as context;
+- a live `logcat` as a subscribable resource, instead of a bounded follow call;
+- `build_lastResult` read as context without a tool call.
 
-Not for the MVP: the UI already has WebSocket, and this is value for the agent side
-only.
+Not for the MVP: `artifact_read` already closes the gap for agents, and the UI has its
+own route.
 
 ## 3. Prompts — a second channel for the same knowledge
 
@@ -90,10 +94,13 @@ Cheap, no design conflict. Do it when convenient.
 
 ## 5. Roots
 
-The client declares which directories are in scope. Useful as an **optional input** to
-the policy of allowed project roots ([ADR-0015](../adr/0015-untrusted-data-authorization.md))
-— never as the only source, because policy must be live-configurable and independent
-of any one client.
+The client declares which directories are in scope. Roots are an **optional input
+that can only narrow**: a root the client does not declare may be refused, but a
+declared root is never trusted because of it
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). They are never the
+session's binding source either: binding comes from `--root` or the cwd, so it is
+deterministic and visible in the server config
+([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 
 ## 6. Sampling — rejected
 
@@ -109,8 +116,10 @@ attractive and is the wrong direction:
 
 ## 7. Progress
 
-Already part of the design: long calls stream progress notifications and return their
-result ([`mcp-tool-surface.md`](mcp-tool-surface.md)).
+Sent during any wait when the client supplied a `progressToken`. It is a nicety, never
+relied on to keep a call alive: long calls return a running operation after a bounded
+wait ([ADR-0020](../adr/0020-operation-contract.md),
+[`mcp-tool-surface.md`](mcp-tool-surface.md) §Long-running work).
 
 ## 8. Assistant-side hooks — not adopted
 
@@ -133,6 +142,15 @@ Every feature is surface to implement, test and degrade gracefully. A feature
 supported badly is worse than one not advertised at all. So each item above is either
 implemented **with** a documented degradation path, or not advertised.
 
+## Transports
+
+The MVP transport is stdio, through the shim
+([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). Streamable HTTP, when
+added, is another adapter on the daemon's loopback listener. It inherits the Host,
+Origin and loopback rules of
+[`http-websocket.md`](http-websocket.md) §Security baseline, which the MCP
+specification also requires for that transport.
+
 ## Effect on existing documents
 
 - [`subsystems/sdk.md`](../subsystems/sdk.md): the licence-consent question has a
@@ -140,7 +158,7 @@ implemented **with** a documented degradation path, or not advertised.
 - [`mcp-tool-surface.md`](mcp-tool-surface.md): destructive annotations gain a real
   counterpart where the client supports elicitation.
 - [ADR-0012](../adr/0012-visual-artifacts-as-refs.md): artifact identifiers are
-  URI-shaped so they can become resources without a redesign.
+  URI-shaped, so resources become a second projection of `artifact.read`.
 
 ## Open questions
 

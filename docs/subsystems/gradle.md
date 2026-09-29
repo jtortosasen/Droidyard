@@ -1,24 +1,32 @@
 # Subsystem: Gradle
 
-How the core drives Gradle: task discovery, builds, tests, and structured errors.
-Implements [ADR-0017](../adr/0017-gradle-execution-strategy.md) (TAPI sidecar) and
-[ADR-0018](../adr/0018-gradle-version-support-policy.md) (version policy).
+How the core drives Gradle: the project model, task discovery, builds, structured
+errors and build outputs. Implements
+[ADR-0017](../adr/0017-gradle-execution-strategy.md) (TAPI sidecar),
+[ADR-0018](../adr/0018-gradle-version-support-policy.md) (version policy),
+[ADR-0022](../adr/0022-build-error-extraction.md) (error extraction) and
+[ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md) (Android project
+facts and build outputs).
 
-> Status: draft. Proposals for the items left open in ADR-0017 are marked
-> **Proposed** and need ratification before implementation.
+> Status: draft. The division of responsibility, the protocol, the output transport
+> and the sidecar JVM discovery are **ratified** (2026-09-29). Spikes S1 and S3
+> ([below](#spikes-before-the-sidecar-is-written)) run before the sidecar is written;
+> their results may amend the method surface and the extractor fixtures, not the
+> ownership model.
 
 ## Why a sidecar
 
-The Gradle Tooling API (TAPI) is the only way to get **structured** build
-information: real per-task outcomes, a failure tree with stable IDs, test events,
-and the Problems API (compiler errors with locations). TAPI is a Java API, so it
-cannot be called from the Go core.
+The Gradle Tooling API (TAPI) is the only supported way to get **structured** build
+information without touching the user's build: real per-task outcomes, a failure
+tree, test events, token-based cancellation, the project model in one configuration
+pass, daemon reuse and, where the project's toolchain supports it, the Problems API.
+TAPI is a Java API, so it cannot be called from the Go core.
 
 ```text
 core (Go)
   │  JSON-RPC over stdio
   ▼
-gradle-sidecar (Kotlin, JVM)
+gradle-sidecar (Kotlin, JVM)       one process, all roots (ADR-0019)
   │  Tooling API
   ▼
 Gradle daemon  ──▶  project build
@@ -26,125 +34,195 @@ Gradle daemon  ──▶  project build
 
 The sidecar is a **sidecar in the architecture's sense**
 ([process-lifecycle](../architecture/process-lifecycle.md)): started on demand,
-supervised, stopped when idle, never able to take the core down.
+supervised, stopped when idle, never able to take the core down. One sidecar serves
+every open root ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)); every
+method carries `root`.
+
+The Problems API does **not** cover the most common Android failures (Kotlin compiler
+errors on KGP < 2.4, AAPT2, manifest merger, KSP/kapt). Those come from the core's
+console extractor ([ADR-0022](../adr/0022-build-error-extraction.md)). The sidecar's
+case rests on the rest of the list above, not on errors alone.
 
 ## Division of responsibility
 
-**The core owns the state; the sidecar is an executor.**
-*(Proposed — this is the "where does build state live" item from ADR-0017.)*
+**The core owns the state; the sidecar is an executor.** *(Ratified.)*
 
 | Owns | Core | Sidecar |
 | --- | --- | --- |
-| Build registry, IDs, retention | ✅ | — |
-| Persistence of `lastResult` | ✅ | — |
-| Capability mapping and version gating policy | ✅ | — |
-| TAPI connection and its lifecycle | — | ✅ |
-| Progress/failure/problem extraction | — | ✅ |
-| Gradle daemon reuse | — | ✅ |
+| Build registry, IDs, retention, persistence | ✅ | — |
+| Capability mapping, version gating policy, toolchain profile | ✅ | — |
+| Console extractor, error merge, build outputs resolution | ✅ | — |
+| TAPI connections and their lifecycle | — | ✅ |
+| TAPI data: events, failure tree, failure-carried problems, models | — | ✅ |
+| The model probe (see [Project model](#project-model)) | — | ✅ |
+| Gradle daemon reuse | — | ✅ (Gradle's) |
 
-Rationale: persistence and `lastResult` survive restarts only if the core owns
-them; and the sidecar must be restartable (crash, upgrade, idle shutdown) without
-losing history. The core **allocates** build IDs and passes them in, so identity is
-consistent with the rest of the capability API.
+Rationale: history survives restarts only if the core owns it, and the sidecar must
+be restartable (crash, upgrade, idle shutdown) without losing anything. The core
+**allocates** build IDs and passes them in; the build ID **is** the operation ID
+([ADR-0020](../adr/0020-operation-contract.md)). The sidecar forwards console text
+raw; everything interpretive runs in the core, where it is pure Go and fixture-tested.
 
 ## Capability mapping
 
 | Capability | Sidecar method | Notes |
 | --- | --- | --- |
-| `build.tasks` | `tasks.list` | Structured, from the project model — not "run `tasks`" |
-| `build.assemble` | `build.run` | `assemble<Variant>`; returns a build id immediately |
-| `build.run` | `build.run` | Arbitrary task, foreground or background |
-| `build.test` | `build.test` | TAPI test launcher, with filters gated by capability |
-| `build.errors` | `build.result` / `problems` | Structured; see the error model |
-| `build.lastResult` | — | Served by the core from its registry |
-| `build.cancel` | `build.cancel` | Cancellation token, graceful |
-| events | notifications | Progress, output, problems, task/test results |
+| `project.modules` | `project.model` | From the cached model |
+| `project.variants` | `project.model` | Probe (exact); task-name heuristic as labelled fallback |
+| `build.tasks` | `project.model` | Filtered in the core; not "run `tasks`" |
+| `build.assemble` | `build.run` | `:<module>:assemble<Variant>`; result carries `outputs[]` |
+| `build.run` | `build.run` | Arbitrary tasks |
+| `build.test` | `build.test` | Post-MVP; filters gated by capability |
+| `build.errors` | — | Core, from the build record (merged sources) |
+| `build.lastResult` | — | Core, from the registry |
+| `sdk.requirements` (build side) | `project.model` | Probe facts + failure signatures ([below](#sdk-requirements-build-side)) |
+| cancellation | `build.cancel` | Reached through `operation.cancel`; there is no `build.cancel` capability |
+
+Long-running behaviour (how long a caller blocks, polling, cancel) is the operation
+contract's ([ADR-0020](../adr/0020-operation-contract.md)), not this subsystem's.
 
 ## Protocol
 
-**Transport**: JSON-RPC 2.0 over stdio, the same idiom as the Kotlin LSP.
-
-Handshake and methods *(Proposed)*:
+**Transport**: JSON-RPC 2.0 over the sidecar's stdio, the same idiom as the Kotlin
+LSP. *(Ratified.)*
 
 ```text
-hello              → { protocolVersion, sidecarVersion, tapiVersion, capabilities }
-connection.open    → { gradleVersion, source, javaHome, profile, validation }
-connection.close
-tasks.list         { root, filter?, group? }
-build.run          { buildId, root, tasks[], args?, background? }
-build.test         { buildId, root, task, filters? }
-build.status       { buildId }
-build.result       { buildId }
-build.cancel       { buildId }
+hello            → { protocolVersion, sidecarVersion, tapiVersion, java: {home, version} }
+connection.open  { root, javaHome?, env } → { gradleVersion, source, daemonJavaHome,
+                                              capabilities, profile, validation }
+connection.close { root }
+project.model    { root, probe: bool }    → ProjectModel (below)
+build.run        { buildId, root, tasks[], args[] } → { accepted }
+build.test       { buildId, root, task, filters? } → { accepted }
+build.cancel     { buildId }
+ping
 shutdown
 ```
 
 Notifications:
 
 ```text
-event.build.started      { buildId }
-event.build.progress     { buildId, phase, counts, activeTask }
-event.build.output       { buildId, lines[] }        // batched, see below
-event.build.taskFinished { buildId, path, outcome, durationMs, reason? }
-event.build.problem      { buildId, problem }
-event.test.finished      { buildId, suite, test, outcome, durationMs }
-event.build.finished     { buildId, outcome }
+event.build.started        { buildId }
+event.build.progress       { buildId, phase?, counts, activeTask }
+event.build.output         { buildId, stream, lines[] }        // batched, see below
+event.build.taskFinished   { buildId, path, outcome, durationMs, reason? }
+event.build.problem        { buildId, problem }                // live; see Error model
+event.build.problemSummary { buildId, problemId, suppressed }  // Gradle throttled events
+event.test.finished        { buildId, suite, test, outcome, durationMs }
+event.build.finished       { buildId, outcome, failures[], failureProblems[] }
 ```
 
-**Protocol versioning.** Core and sidecar ship as a **matched pair**; the handshake
-carries `protocolVersion` and the core refuses a mismatch with a clear error instead
-of degrading silently. (Versus Gradle versions, see below.)
+- `build.run` returns once the build is accepted; the terminal notification carries
+  the outcome, the failure tree and the failure-carried problems. There is no
+  `build.status`/`build.result`: the core already holds everything it was sent.
+- **Versioning.** Core and sidecar ship as a **matched pair**; the handshake carries
+  `protocolVersion` and the core refuses a mismatch with a clear error.
+- **No orphans.** The sidecar exits on stdin EOF, so a SIGKILLed core cannot leave it
+  running (plus `Pdeathsig` on Linux).
 
 ## Output: control vs. volume
 
-*(Proposed — the "transport for high-volume output" item.)*
-
-A build can emit hundreds of megabytes of console output. Sending one JSON message
-per line would be wasteful and would flood the pipe.
+*(Ratified.)*
 
 - **Control** (progress, task outcomes, problems) goes over JSON-RPC as normal
   notifications.
-- **Console output** is sent as **coalesced batches**: up to N lines or M bytes per
-  message, whichever comes first, with a small flush interval. Bounded message rate,
-  one pipe, no separate channel.
-- The **full console** is written by the core to a file under the workspace state
-  directory and referenced as an opaque artifact
-  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)); consumers read it by byte
-  offset. The UI streams it; MCP renders a bounded tail.
+- **Console output** is sent as **coalesced batches**, one pipe, no separate channel.
+  Working defaults: 200 lines or 64 KiB per message, flushed every 100 ms. TAPI colour
+  output is off, so the text carries no ANSI codes.
+- The core writes the **full console** to a **durable artifact** under the workspace
+  state directory ([ADR-0021](../adr/0021-persistence-format-and-location.md)) and
+  feeds the same stream to the console extractor. Consumers receive a reference, never
+  a path ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
+- Consumers read it through **`artifact.read`** (`{ref, offset, limit}`), which reports
+  `growing: true` while the build is running; the UI uses `GET /v1/artifacts/{id}` with
+  `Range` support. MCP renders a bounded tail.
 
 ## The build model
 
+Build-level and task-level vocabularies are separate.
+
 ```text
 Build
-├── id              allocated by the core
+├── id              allocated by the core (= operation id)
 ├── root            project root
-├── requests        tasks, args, test filters
+├── request         { tasks[], args[], module?, variant?, testFilters? }
+├── state           running | finished
+├── outcome         success | failed | cancelled          (build level, set when finished)
 ├── startedAt / finishedAt
-├── status          running | finished | cancelled
-├── outcome         SUCCESS | FAILED | UP_TO_DATE | FROM_CACHE | SKIPPED |
-│                   NO_SOURCE | CANCELLED
+├── taskSummary     { executed, upToDate, fromCache, noSource, skipped, failed }
 ├── tasks[]         { path, outcome, durationMs, reason?, provenance? }
-├── problems[]      structured errors/warnings (below)
-├── tests[]         { suite, test, outcome, durationMs }
+│                   outcome: SUCCESS | UP_TO_DATE | FROM_CACHE | NO_SOURCE | SKIPPED | FAILED
+├── problems[]      merged errors and warnings (see Error model)
 ├── failures[]      failure tree with stable ids
-├── gradleVersion   + source (wrapper|connector) + profile + validation
+├── tests[]         { suite, test, outcome: SUCCESS | FAILED | SKIPPED, durationMs }
+├── outputs[]       installable outputs (see Build outputs)
+├── profile         toolchain profile snapshot (see Version detection)
+├── extraction      { sources[], unrecognised }
 └── consoleRef      artifact reference
 ```
 
 Rules copied from the prior art because they are right:
 
-- **Outcome taxonomy with verbatim reasons** — "assembled" and "up-to-date" are
-  different answers, and an agent needs to tell them apart.
-- **Failure tree with stable IDs**, so `build.errors` can return a three-item
-  "recent error context" rather than megabytes of console.
-- **Available tasks ≠ executed tasks**: `build.tasks` lists what exists;
-  the build result lists what ran.
+- **Task outcomes with verbatim reasons.** "Assembled" and "up-to-date" are different
+  answers; `taskSummary` gives the build-level view of the same fact.
+- **Failure tree with stable IDs**, so `build.errors` can return a short "recent error
+  context" rather than megabytes of console.
+- **Available tasks ≠ executed tasks**: `build.tasks` lists what exists; the build
+  result lists what ran.
+
+## Build outputs
+
+The build → install handoff. `device.install` consumes this contract
+([adb-device](adb-device.md)).
+
+```text
+outputs[]
+└── { module: ":app", variant: "debug", applicationId: "com.example.app",
+      versionCode: 1, versionName: "1.0",
+      apks: [ { name: "app-debug.apk", filters: [], sizeBytes: 8123456 } ] }
+```
+
+- **One source: AGP's `output-metadata.json`** (the APK listing file: `applicationId`,
+  `variantName`, `elements[]` with `outputFile`, `versionCode`, `versionName`,
+  `filters`). No build script, version catalog or manifest is ever parsed for an
+  application id.
+- **Located, not assumed.** For every module whose `package<Variant>` task ended
+  `SUCCESS`, `UP_TO_DATE` or `FROM_CACHE` **in this build**, the core searches
+  `<buildDir>/outputs/apk/` (buildDir from the project model, depth-bounded) for the
+  `output-metadata.json` whose `variantName` matches. The task condition guarantees
+  the file describes this build's output, not a stale one.
+- **Missing is reported, not guessed.** No metadata, unreadable metadata or no
+  `applicationId` → no output for that variant, and the result says why.
+- **No paths in results.** The core keeps `(buildId, module, variant) → APK paths`
+  internally (principle 14).
+
+**Install reference** (the contract `device.install` accepts):
+
+```text
+build: { buildId?, module, variant }
+```
+
+- `buildId` omitted → the newest finished build in the workspace registry with a
+  matching output.
+- Resolution: exactly one APK with no filters → that APK. The core re-checks that the
+  file still exists with the recorded size and mtime before handing it to `adb`.
+- Errors: `NO_SUCH_OUTPUT` (no build produced it), `OUTPUT_STALE` (file gone or
+  changed; next step: rebuild), `UNSUPPORTED_OUTPUT` (shape outside MVP scope).
+- `device.launch` and `device.logs` take the `applicationId` from the same record.
+
+**MVP scope.** In: one unfiltered APK per variant, which is what a debug build of an
+application module produces. Out: ABI/density multi-APK outputs (listed with their
+`filters`, install refused with `UNSUPPORTED_OUTPUT`), App Bundles (`bundle<Variant>`
+needs bundletool and is not listed), `androidTest` APKs, dynamic-feature and instant
+apps.
 
 ## Error model
 
 ```json
 {
   "severity": "error",
+  "source": "failure",
+  "tool": "kotlin",
   "problemId": "kotlin.compiler.unresolved-reference",
   "file": "app/src/main/java/Foo.kt",
   "line": 83,
@@ -155,18 +233,147 @@ Rules copied from the prior art because they are right:
 }
 ```
 
-Non-negotiable: **file, line and column**. The reference implementation receives
-them from the Problems API and discards them (its location mapping only keeps the
-path). We keep them, and we keep the severity semantics of the target Gradle version
-aware that Gradle 9.6 changed how severity is assigned.
+- `source`: `failure` | `event` | `console` — which path produced the record.
+- `tool`: `kotlin` | `javac` | `kapt` | `ksp` | `aapt2` | `manifest-merger` | `agp` |
+  `gradle`.
+- `file` is relative to the project root; paths outside it are reported as given and
+  flagged `external`. `generated: true` marks locations in generated sources (kapt
+  stubs) that are not the user's code.
+- **`file` and `line` are required whenever the tool emits them; `column` whenever it
+  exists** (Kotlin and javac emit it, AAPT2 often does not). The reference
+  implementation receives locations from the Problems API and discards the line; we
+  keep all of it. Severity follows the target's semantics (Gradle 9.6 changed how it
+  is assigned).
+- `problemId`, `solutions` and `documentationLink` exist only for Problems API records.
 
-When the Problems API is not available on the target version (below 8.4), the
-capability degrades explicitly: the result says which extraction path was used,
-rather than silently returning fewer errors.
+### Three sources, merged
+
+Per [ADR-0022](../adr/0022-build-error-extraction.md). All three run whenever available.
+
+| Source | Gradle | Role |
+| --- | --- | --- |
+| Failure-carried problems (`Failure.getProblems()`) | 8.12+ | Authoritative for errors that failed the build; not subject to event throttling; the path Gradle 9.8 steers integrators toward |
+| Problems progress events | 8.12+ (decoded shape) | Live stream for the UI, and warnings, which never reach the failure |
+| Console extractor (core) | any | Everything the toolchain does not report structurally |
+
+Why both Problems paths: failures carry only what failed the build, and events are
+throttled per problem id (`ProblemSummariesEvent`). Neither alone is complete.
+
+Only the `Problem` shape introduced in 8.12 is decoded; locations on it arrive from
+8.13 (`getOriginLocations`). The 8.4–8.11 event shapes are not decoded: that range is
+covered by the extractor, which is cheaper than a second decoder for an API the
+current TAPI client no longer ships.
+
+### Console extractor
+
+Pure Go, in the core. Input: the console stream the sidecar forwards **and** the text
+of failure-tree nodes (AAPT2 and manifest-merger detail often lives only in the
+failure message). Starting set of recognised forms, to be replaced by the formats S1
+records:
+
+| Tool | Form | Yields |
+| --- | --- | --- |
+| Kotlin | `e: file:///abs/Foo.kt:83:12 message` (`w:` = warning); older `e: /abs/Foo.kt: (83, 12): message` | file, line, column |
+| javac | `/abs/Foo.java:83: error: message` + source line + caret line + `symbol:`/`location:` | column from the caret; continuation folded into the message |
+| kapt | javac form, often prefixed `e: `, under `build/tmp/kapt3/stubs/` | as javac, `generated: true` |
+| KSP | `e: [ksp] /abs/Foo.kt:12: message` (and the `file://` form) | file, line |
+| AAPT2 | `ERROR: /abs/res/layout/main.xml:12: AAPT: error: message`; also file-less `AAPT: error: …` | file, line when present |
+| Manifest merger | `/abs/AndroidManifest.xml:12:5-40 Error:` + indented lines; `Manifest merger failed : …` | file, line, column (range start) |
+| AGP SDK | licence-not-accepted and missing-package messages naming SDK package ids | `category: sdk.missing`, `package` |
+
+Each form is independent: a format change degrades one tool, not the extractor.
+
+### Merge rules
+
+1. Key: `(severity, file, line, column?, normalised message head)`.
+2. Same key from several sources → keep the richest record (failure > event >
+   console), filling a missing location from the others.
+3. Errors first in emission order, then warnings (capped, default 50; errors capped at
+   200 with a `truncated` count).
+4. **Nothing is lost silently.** If the build failed and no source recognised an
+   error, the result is `errors: []`, `extraction.unrecognised: true`, the root
+   failure messages and a bounded console tail. This is the only place a raw tail
+   appears, and it is labelled.
+
+## Project model
+
+`project.model` is one TAPI `BuildAction`: one configuration pass returns everything
+the `project.*`, `build.tasks` and build-side `sdk.requirements` capabilities need.
+*(Ratified.)*
+
+```text
+ProjectModel
+├── root, fingerprint
+├── gradle      { version, source, daemonJavaHome }
+├── plugins     { agp?, kgp?, kotlinBuiltIn? }            probe; "unknown" otherwise
+├── modules[]
+│   ├── path, name, dir (root-relative), buildDir (core-internal)
+│   ├── tasks[]  { name, path, group, description, public }
+│   └── android? { type: application | library | dynamic-feature | test,
+│                  namespace, compileSdk, buildToolsVersion, minSdk,
+│                  sdkDir (core-internal),
+│                  variants[] { name, buildType, flavors[] } }
+└── probe       { status: ok | partial | failed | skipped, notes[] }
+```
+
+- **Cost is real**: a configuration pass. The model is cached per
+  `(root, fingerprint)`; the fingerprint covers settings and build scripts,
+  `gradle.properties`, `local.properties`, version catalogs, the wrapper properties and
+  `buildSrc`/included build logic.
+- Composite builds: the root build only in the MVP.
+
+### The probe
+
+Generic TAPI models give modules, tasks and directories, but not Android variants,
+`compileSdk`, build-tools or plugin versions. Those come from **the probe**
+([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)):
+
+- **The only init script in the design**: `mydev-probe.init.gradle`, a few lines that
+  put a small jar on the init-script classpath and apply a plugin registering a
+  `ToolingModelBuilder`. The jar is plain Java (Java 8 bytecode, no Kotlin stdlib in the
+  daemon), compiled against Gradle's public API at the floor.
+- **Injected into `project.model` only, never into a user build.** It cannot fail
+  `build.*` by construction.
+- **What it reads**, each field isolated (a failure makes that field `unknown`, never
+  the model fetch):
+  - AGP and KGP versions, reflectively from the plugins' own version constants on the
+    project's build classpath (this covers AGP 9's built-in Kotlin);
+  - `namespace`, `compileSdk`, `buildToolsVersion`, `minSdk` and the SDK directory AGP
+    resolved (honouring `local.properties` `sdk.dir`), from AGP's public DSL;
+  - variants from `androidComponents.onVariants`, the public Variant API.
+- `project.model { probe: false }`, or any probe failure, still returns the generic
+  model.
+
+### Variants
+
+`project.variants` returns `{ module, variants[], source, exact }`.
+
+- **Probe available** → `source: probe`, `exact: true`, with build type and flavours.
+- **Otherwise** → `source: task-names`, `exact: false`: in each module, the variants
+  are the `X` for which both `assemble<X>` and `package<X>` exist, minus names ending
+  in `AndroidTest`, `UnitTest` or `TestFixtures`. `package<X>` exists only per variant
+  and only for APK-producing modules, which excludes the flavour and build-type
+  aggregates (`assembleDebug` in a flavoured project) and library modules. Names only;
+  no build-type/flavour split.
+- Either way, the build output's `variantName` confirms the variant after a build, so
+  a heuristic miss surfaces as `NO_SUCH_OUTPUT`, not as a wrong install.
+
+### SDK requirements (build side)
+
+`sdk.requirements` ([sdk](sdk.md)) gets two inputs from this subsystem:
+
+- **Proactive**, from the probe: per Android module, `compileSdk` (→
+  `platforms;android-N`), the effective `buildToolsVersion` (→ `build-tools;X`) and the
+  SDK directory AGP will use.
+- **Reactive**, from the extractor: AGP SDK signatures in a failed build, as
+  `category: sdk.missing` records naming the package.
+
+Without the probe, `sdk.requirements` answers from failure signatures only and says so
+(`source: failure-signatures`, `complete: false`).
 
 ## Task listing
 
-`build.tasks` returns structured tasks from the project model:
+`build.tasks` is a filter over the cached project model:
 
 ```json
 { "tasks": [
@@ -174,114 +381,178 @@ rather than silently returning fewer errors.
     "group": "build", "description": "Assembles main output..." } ] }
 ```
 
-- Filterable by group and name substring.
-- **Cost is real**: resolving the task model requires configuring the project. The
-  result is cached per `(root, build files fingerprint)` and invalidated when the
-  build files or the wrapper change.
+- Filterable by module, group and name substring. Variant-aware filtering goes through
+  `project.variants`, not through guessed prefixes.
 - Hidden tasks are opt-in (they are noise by default).
+
+## Concurrency
+
+**All TAPI operations for one root are serialised**, not only builds: a model fetch
+during a running build makes Gradle start a second daemon, because busy daemons are
+not reused. While a build runs, `project.model` answers from the cache (flagged
+`stale` if the fingerprint changed) instead of queueing behind it. Contention between
+builds is reported as `queued` with `blockedBy` ([ADR-0020](../adr/0020-operation-contract.md)).
 
 ## Lifecycle
 
-- **Lazy start**: the sidecar starts on the first `build.*` or `project.*` call that
+Every Gradle-touching call requires a **trusted** project root; an untrusted one fails
+with `WORKSPACE_UNTRUSTED` before anything is spawned
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
+
+- **Lazy start**: on the first `build.*`, `project.*` or `sdk.requirements` call that
   needs it, not at core start.
-- **Idle shutdown**: stopped after a configurable idle period (working default:
-  10 minutes), never while a build is running.
-- **Health**: the handshake covers startup; a lightweight ping covers liveness.
+- **Idle shutdown**: after a configurable idle period (working default: 10 minutes)
+  with no open operation on any root; never while a build is running.
+- **Health**: the handshake covers startup; `ping` covers liveness.
 - **Crash**: a sidecar crash mid-build fails that operation with a clear error and
   leaves the workspace `degraded`; the registry keeps the history. The next call
   restarts it.
 - **Never kill the Gradle daemon.** It belongs to Gradle and is reused across builds
   by design; an explicit stop is available but never implicit.
-- **No orphans**: the sidecar is a child of the core, killed on core shutdown.
+- **No orphans**: stdin EOF ends the sidecar; the core also stops it on shutdown.
 
 ## Environment and JVM
 
-- **Environment source** is explicit: inherit, shell-probed, or none. This matters on
-  macOS, where a GUI-launched core does not see the shell's `PATH`/`JAVA_HOME`.
-- **`javaHome` override** is available; otherwise we do not touch the daemon JVM.
-  The project (toolchains, daemon-JVM criteria) decides — we only **report** which
-  JVM was used.
-- **The sidecar's own JVM** targets an LTS release. Whether we detect it on the
-  machine or bundle a runtime is still **open**.
+- **Environment source** is explicit: inherit, shell-probed, or none. On macOS a
+  GUI-launched core does not see the shell's `PATH`/`JAVA_HOME`
+  ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md): the daemon's
+  environment is fixed at start).
 
-## Version detection and capability gating
+### Sidecar JVM discovery
+
+*(Ratified.)* The first candidate that is a runnable JVM **≥ 17** wins. Each candidate
+is validated (its `release` file or `java -version`), never assumed.
+
+1. The configured path (`gradle.sidecarJavaHome`).
+2. `JAVA_HOME` from the effective environment.
+3. `java` on the effective `PATH`, resolved through symlinks. The macOS
+   `/usr/bin/java` stub counts only if it resolves to a real JDK.
+4. macOS: `/usr/libexec/java_home -v 17+`.
+5. Android Studio's bundled JBR at known locations: macOS
+   `/Applications/Android Studio*.app/Contents/jbr/Contents/Home` and the same under
+   `~/Applications`; Linux `/opt/android-studio/jbr`, `~/android-studio/jbr` and the
+   JetBrains Toolbox install directories.
+
+Nothing found → `build.*` and `project.*` report `degraded`, listing each candidate
+and why it was rejected; the next step is `JAVA_HOME` or the config key. The chosen
+JVM and its source are reported in `system.health`. Bundling a runtime (`jlink`) is
+deferred.
+
+Why 2–3 before 4–5: they are exactly what `./gradlew` does, and the sidecar's JVM
+becomes the daemon's JVM by default (below). Mirroring the wrapper maximises daemon
+reuse with the user's terminal. Steps 4–5 find *a* JDK when the environment has none.
+
+### Daemon JVM
+
+- Precedence is Gradle's: the project's daemon JVM criteria
+  (`gradle/gradle-daemon-jvm.properties`) or `org.gradle.java.home` win; otherwise TAPI
+  uses the client's JVM, i.e. the sidecar's. We never select a daemon JVM; `javaHome`
+  is an explicit override only. We **report** the daemon JVM in every result.
+- **Consequence.** A daemon is reused only by clients with a compatible Java home and
+  JVM args. Android Studio defaults to its JBR, the terminal to `JAVA_HOME`: when they
+  differ, our builds, the terminal's and Studio's run in separate daemons, each
+  hundreds of megabytes. Spike S5 measures it; a project with daemon JVM criteria
+  removes the problem.
+- A JVM too new for the project's Gradle (e.g. JDK 21 with Gradle 8.0–8.4) fails with
+  Gradle's own message plus the `javaHome` override as the next step. No silent
+  switching.
+
+## Version detection and toolchain profile
 
 Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 
-1. **Detect twice**: parse the wrapper's `distributionUrl` before connecting (cheap,
-   for the UI), then read the authoritative version from `BuildEnvironment`.
-2. **Compute one `GradleCapabilities`** per connection: `problemsEvents`,
-   `problemDetails`, `problemLocations`, `buildPhaseEvents`, `testSpecFilters`,
-   `detailedFailure`, `versionInfo`, `taskProvenance`. Every decision passes through
-   it — no bare version comparisons scattered in the code.
-3. **Subscription-time decisions must be gated**: subscribing to a problem event on a
-   version that cannot emit it is a bug. Call-time optional methods stay wrapped in
+1. **Gradle, detected twice**: the wrapper's `distributionUrl` before connecting
+   (cheap, for the UI), then the authoritative version from `BuildEnvironment`.
+2. **`GradleCapabilities`**, one per connection, each flag from the documented `@since`:
+   `problemEvents` (8.12, the shape we decode), `problemLocations` (8.13),
+   `detailedFailure` (8.12), `problemSummaries` (8.12), `buildPhaseEvents` (7.6),
+   `testSpecFilters` (7.6), `versionInfo` (9.4), `taskProvenance`. Subscription-time
+   decisions are gated on these; call-time optional methods stay wrapped in
    `UnsupportedMethodException` catches regardless.
-4. **Report it** in every build result: version, source, profile
-   (`full`/`degraded`), and `validation` (`tested`/`untested`).
+3. **Plugin facts**, per project model: `agp`, `kgp`, `kotlinBuiltIn`, from the probe.
+   `unknown` if the probe did not run. Never parsed from build scripts or catalogs.
+4. **Expected error source per tool**, derived from 2 and 3:
+
+   | Tool | Structured when | Otherwise |
+   | --- | --- | --- |
+   | Kotlin (JVM) | `problemLocations` and KGP ≥ 2.4 | console |
+   | javac | `problemLocations` (javac reports since Gradle 8.9) | console |
+   | AAPT2, manifest merger, KSP, kapt | not assumed until S1 shows otherwise | console |
+
+   These choose which source is primary and what the result reports as expected. They
+   never switch the extractor off.
+5. **Report it** in every build result: Gradle version and source, AGP, KGP, `profile`
+   (`full` / `degraded` / `conservative`) and `validation` (`tested` / `untested` /
+   `unsupported`).
 
 ## Failure modes
 
 | Failure | Behavior |
 | --- | --- |
-| Gradle below the floor (8.0) | Fail fast naming floor, detected version and reason; explicit escape hatch to conservative mode |
+| Gradle below the floor (8.0) | Fail fast naming floor, detected version and reason; the explicit escape hatch runs the conservative profile ([ADR-0018](../adr/0018-gradle-version-support-policy.md)) |
 | Version newer than validated | Proceed with the newest capability set, marked `untested` |
+| No usable sidecar JVM | `degraded`; the error lists the candidates tried and why each was rejected |
 | Sidecar fails to start | Workspace `degraded`; `build.*` returns an actionable error; other capabilities unaffected |
 | Sidecar crashes mid-build | Operation fails with cause; registry keeps history; restart on next use |
-| Problems API unavailable | Explicit degradation, reported in the result — never fewer errors silently |
+| Probe fails, fully or per field | Generic model still returned; affected fields `unknown`; variants fall back to task names |
+| Problems API unavailable or partial | Console extractor covers it; the result reports the source per tool |
+| Failed build, nothing recognised | `unrecognised: true`, root failure messages and a bounded tail — never an empty success |
+| Output metadata missing | No output for that variant, with the reason; install gets `NO_SUCH_OUTPUT` |
 | Daemon OOM | Surface the daemon's own error and the memory flags it suggests; do not retry blindly |
 | Task not found | `build.tasks` is the discovery path; the error lists near-matches where possible |
 | No wrapper in the project | Report it; TAPI would otherwise silently use its own Gradle version |
 
 ## Persistence
 
-- Location: the workspace state directory (see
-  [workspace-state.md](../architecture/workspace-state.md)).
-- Written: the compact build result (the model above) per build, plus the console as
-  a separate artifact file.
-- **`lastResult` survives restarts**; the console is referenced, not inlined.
+Per [ADR-0021](../adr/0021-persistence-format-and-location.md):
+
+- The compact build result (the model above) per build in `ws/<wsid>/builds/`, and
+  the console as a durable artifact in `ws/<wsid>/artifacts/`.
+- **`lastResult` survives restarts**: the newest finished record. The console is
+  referenced, not inlined.
+- The output-path index behind `outputs[]` is persisted with the record, so an install
+  reference stays resolvable after a restart (subject to the `OUTPUT_STALE` check).
 - Retention: capped by count and age (working default: last 50 builds or 7 days),
   oldest first. Configurable.
 
 ## Testing
 
-- **Fixtures with pinned Gradle versions** (the reference implementation's pattern:
-  rewrite the wrapper's `distributionUrl` per fixture) so tests run against specific
-  targets rather than the build's own version.
-- **Compatibility matrix** per ADR-0018, including an **init-script canary** on the
-  floor version.
+- **Fixtures with pinned versions**: rewrite the wrapper's `distributionUrl` and the
+  plugin versions per fixture, so tests run against specific targets.
+- **Compatibility matrix** per ADR-0018, with a KGP axis (2.3 vs 2.4) and an AGP axis
+  (floor and latest).
+- **Extractor golden tests**: recorded real consoles and failure texts (from S1) in,
+  expected records out. Pure Go, no JVM.
+- **Probe canary**: the probe against the Gradle floor and the newest release, and AGP
+  floor and latest. It must return a model, and a broken field must degrade to
+  `unknown`, never fail the fetch.
 - **Daemon hygiene**: pinned `GRADLE_USER_HOME`, pinned `javaHome`, short daemon idle
   timeout, bounded workers — otherwise tests leak daemons.
 - Protocol tests that spawn the real sidecar and assert the handshake, the method
-  surface and failure behavior.
+  surface and failure behaviour.
 
-## Unverified assumptions (spike candidates)
+## Spikes before the sidecar is written
 
-**Structured compile errors with `file`, `line` and `column`.** We infer from the
-TAPI javadoc (`LineInFileLocation` exists) and from the reference implementation's
-code — which handles only `FileLocation` and therefore discards the line — that
-Kotlin/Compose compile errors arrive through the Problems API carrying all three
-fields. This is **not demonstrated end-to-end on a real Android project**, and it is
-the highest-value assumption in the subsystem.
+**S1 — error sources on real Android.** Matrix: KGP 2.3 vs 2.4 × Gradle 8.13 / 9.x ×
+AGP 8.x / 9.x. Errors: Kotlin, javac, AAPT2, manifest merger, KSP. For each, capture
+failure-carried problems, Problems events and the console. Output: which cells give
+structured locations (updates the table in step 4 above) and the recorded console
+formats (the extractor's fixtures). Whatever S1 finds, the extractor ships: the
+question it answers is which source is primary where, not whether we parse.
 
-It is also the first implementation stage (`build.tasks` + `build.errors`), so the
-spike and the work are the same task:
+**S3 — Android facts from a non-Studio client.** Run the probe on the sample app and
+on a flavoured, multi-module fixture across AGP 8.0 / 8.x / 9.x: which fields resolve,
+cost of the model fetch, and the accuracy of the task-name fallback against the
+probe's variants. If AGP DSL access proves brittle, evaluate AGP's builder model
+(ADR-0023 §Alternatives) before Phase 1 ends.
 
-1. Take a small Kotlin/Compose project and introduce a deliberate compile error.
-2. Capture everything the Problems API emits for it, at the target Gradle version.
-3. Confirm the three fields, and record what is emitted when they are absent.
-
-If the assumption fails, `build.errors` must be redesigned around what is actually
-available (console parsing, or an init-script path), which changes the cost calculus
-of [ADR-0017](../adr/0017-gradle-execution-strategy.md) — including the case for the
-sidecar itself.
+S5 (daemon reuse with the terminal and Android Studio) informs the JVM defaults but
+does not block.
 
 ## Open questions
 
-- Sidecar JVM: detect on the machine vs. bundle a runtime (`jlink`).
 - Whether to expose a raw "arbitrary Gradle arguments" escape hatch, mirroring
   `shell.exec`.
-- Whether `build.tasks` should be variant-aware (Android variants map to task
-  name prefixes) or purely model-driven.
-- Exact batching parameters for console output (lines/bytes/interval).
-- Whether to persist the console at all, or only on failure.
+- Whether to persist the console always, or only for failed builds.
+- Included builds (composite projects) in `project.model`.
+- Isolated Projects: whether the probe's per-project registration survives it (S3).

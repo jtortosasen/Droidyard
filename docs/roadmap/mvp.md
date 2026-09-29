@@ -19,8 +19,7 @@ from [`../vision/vision.md`](../vision/vision.md).
 > misinterpretations** than shell + adb + raw output.
 
 It is falsifiable by comparison: the same task, the same agent, the same project,
-run twice — once through our MCP surface, once through raw shell/adb. The metric is
-**agent tool calls and failed/retried calls to reach a verified end state**.
+run twice — once through our MCP surface, once through raw shell/adb.
 
 ## The golden path
 
@@ -32,29 +31,36 @@ On the sample app ([below](#sample-app)):
 | --- | --- | --- |
 | 1 | Open the project and list modules | `workspace.open`, `project.modules` |
 | 2 | Build the debug variant | `build.assemble` |
-| 3 | Introduce a compile error and recover | `build.errors` → file / line / message |
+| 3 | Introduce a compile error and recover | `build.errors` → file / line / column / message |
 | 4 | Start (or adopt) an emulator | `emulator.start` / `device.list` |
 | 5 | Install and launch the app | `device.install`, `device.launch` |
 | 6 | Observe: logs, screen, UI tree | `device.logs`, `device.screenshot`, `device.uiTree` |
-| 7 | Act and verify in one call | `device.tapElement` with an assertion |
+| 7 | Act and verify in one call | `device.tapElement`, `device.inputText` — with assertions |
 
-At no point does the agent parse raw stdout to complete a step.
+**The agent never parses raw stdout.** The *core* does parse build console output —
+that is its job, and it is how compile errors are extracted on real projects
+([ADR-0022](../adr/0022-build-error-extraction.md)). The guarantee is about the
+agent's surface, not about what happens underneath.
 
 **"Act and verify in one call"** means the agent's *interaction* is a single tool
 call, not that the work is magic. Without assertions the pattern is
 `tap → wait → screenshot → model interprets → decide` (three to five calls, with
-the model reading pixels). With assertions, one call taps, waits, checks the
-expected state (re-reads the tree, or polls for text) and returns
-`{ tapped, expected: { matched, afterMs } }`. Fewer round trips, fewer tokens, no
+the model reading pixels). With assertions, one call acts, waits, checks the
+expected state (re-reads the tree) and returns
+`{ acted, expected: { matched, afterMs } }`. Fewer round trips, fewer tokens, no
 image interpretation.
 
 ## Scope
 
 ### In scope
 
-- **Go core**: workspace state, capability API, process supervisor, event bus.
-- **Adapters**: MCP (stdio) for agents; HTTP/WebSocket (needed by phase 2); a thin
-  CLI for development and testing.
+- **Go core**: one daemon owning all state — workspaces, operations, the event bus,
+  the process supervisor — reachable over a Unix socket
+  ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+- **Adapters**: an MCP stdio shim and a CLI shim over that socket; HTTP/WebSocket on
+  loopback for the web UI (phase 2).
+- **Invocation contract**: `Start` / `Wait` / `Cancel`, with `operation.wait` and
+  `operation.cancel` ([ADR-0020](../adr/0020-operation-contract.md)).
 - **Capability domains**: `system`, `workspace`, `project`, `build`, `device`,
   `emulator`, `sdk`, `file`, `git`, `operation`, `events`, `shell`.
 - **Sample app** as the acceptance target.
@@ -70,11 +76,13 @@ image interpretation.
   [ADR-0007](../adr/0007-kotlin-lsp-sidecar.md) — the design stands, delivery is
   later.
 - **Debugger / JDWP** stepping and breakpoints.
-- **Multi-device concurrency.** One active device is acceptable; the core must not
-  be architected around a single global slot.
+- **Multi-device concurrency.** One device at a time is acceptable; devices are
+  always named explicitly, and the core must not be architected around a single
+  global slot.
 - **LAN exposure and access control.** The engine must be designed so it *can* be
   reached remotely — no localhost assumptions in the capability layer — but remote
-  access, TLS and authentication get no effort in the MVP.
+  access, TLS and authentication get no effort in the MVP. The loopback HTTP
+  baseline is still required before the UI ships (see Risks).
 - **Live screen streaming** to the UI. The device panel refreshes stills; streaming
   is a stretch goal inside phase 2, not required to close the MVP.
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
@@ -88,6 +96,8 @@ image interpretation.
   consent and gigabyte downloads is a large block that does not validate the
   hypothesis. `sdk.requirements` **is** in scope precisely because it makes Gradle
   failures explainable from day one.
+- **Split APKs, App Bundles, dynamic features and instant apps.** One unfiltered APK
+  per variant ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)).
 - **Refactors, rename, call hierarchy.**
 - **Batching.**
 
@@ -97,23 +107,32 @@ image interpretation.
 
 Deliverables:
 
-- Go module layout and the capability schema as the single source of truth, with
-  generation of Go types, the TypeScript client and MCP tool definitions.
+- **The daemon**: `mydev serve`, single-instance via `flock`, Unix socket with peer-uid
+  checks, and the `mydev mcp` / `mydev call` shims with auto-start
+  ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+- The capability registry and the schema as the single source of truth, with the
+  JSON Schema golden file generated and checked in. TypeScript generation is phase 2
+  ([ADR-0016](../adr/0016-capability-schema-in-go.md)).
+- The invocation contract: `Start` / `Wait` / `Cancel`, operation records and the
+  error shape ([ADR-0020](../adr/0020-operation-contract.md)).
 - Process supervisor with descriptors, lifecycle states, idle shutdown and
   no-orphans guarantees.
-- Workspace model: open / describe / close, durable vs ephemeral state.
-- HTTP + WebSocket server skeleton.
-- MCP adapter over the capability API (stdio).
-- Thin CLI (`mydev call <capability> --json`) for development.
+- Workspace model: open / describe / close, and persistence in the per-user state
+  directory ([ADR-0021](../adr/0021-persistence-format-and-location.md)).
+- HTTP + WebSocket server skeleton on loopback.
 
 Acceptance:
 
-- `system.capabilities` lists what is available and the core degrades to `degraded`
-  when `adb` is absent.
+- `system.capabilities` lists what is available and the core reports `degraded` when
+  `adb` is absent.
 - A supervised dummy sidecar starts lazily, idles out, and leaves no orphans after
   `workspace.close`.
 - The same capability is reachable from the CLI and from MCP with identical
   semantics.
+- Killing a shim does not stop an operation it started
+  ([ADR-0019](../adr/0020-operation-contract.md)).
+- The HTTP skeleton binds to **loopback only** and enforces the Host, Origin and
+  per-launch-token baseline ([`../interfaces/http-websocket.md`](../interfaces/http-websocket.md)).
 
 ### Phase 1 — Agent loop (the heart of the MVP)
 
@@ -121,30 +140,35 @@ Deliverables (capabilities):
 
 - `project.*`: `modules`, `variants`.
 - `build.*`: `assemble`, `tasks` (list), `run` (arbitrary task), `errors`,
-  `lastResult`.
+  `lastResult`, and the `outputs[]` record that `device.install` consumes
+  ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)).
 - `emulator.*`: `list`, `start`, `stop`, `wipe`.
 - `sdk.*`: `status`, `requirements` — read-only: what is installed, and what this
   project needs but lacks.
-- `device.*`: `list`, `install`, `launch`, `logs` (snapshot + follow),
-  `screenshot`, `uiTree`, `tapElement` (with assertions), `uninstall`.
-- `file.*`: `list`, `read`, `write` (needed by phase 2, useful now for fixtures).
-- `operation.*`, `events.*`, `shell.exec` (policy-gated).
+- `device.*`: `list`, `install`, `launch`, `logs` (snapshot + bounded follow),
+  `screenshot`, `uiTree`, `tapElement` (with assertions), `inputText`, `uninstall`.
+- `file.*`: `list`, `read`, `write`, `watch` (watch is needed by phase 2).
+- `operation.*`: `wait`, `cancel`.
+- `events.*`: `subscribe`, `unsubscribe` (adapter-side; not exposed as MCP tools).
+- `shell.exec` (**off by default**; a call returns `POLICY_SHELL_DISABLED`).
 
 Acceptance — the golden path is completed end-to-end by an **external agent**
 (Cursor / Claude / Codex, whichever is available) over MCP, against the sample app,
-with structured results at every step and no stdout parsing.
+with structured results at every step and **no stdout parsing by the agent**.
 
 ### Phase 2 — Minimal web UI (closes the MVP)
 
 Deliverables:
 
-- React + TypeScript app served by the core; CodeMirror 6 editor
+- React + TypeScript app served by the daemon; CodeMirror 6 editor
   ([ADR-0008](../adr/0008-frontend-react.md),
   [ADR-0009](../adr/0009-editor-component.md)).
 - Panels, in priority order: **Logcat**, **build / Gradle tasks**, **Git**,
   **devices + screen**, then project explorer and problems. A code viewer/editor is
   deferred: it only becomes useful with code intelligence.
 - TypeScript client generated from the capability schema.
+- The loopback HTTP baseline: bind to 127.0.0.1, Host and Origin checks, a
+  per-launch token.
 
 Stretch (not required to close the MVP): live screen stream to the device panel.
 
@@ -153,16 +177,17 @@ Acceptance:
 - The golden path is drivable from the browser, including reading the structured
   build errors and seeing device state.
 - **Same-primitive check**: the UI and the agent reach the golden path through the
-  same capabilities (verifiable in the capability trace).
+  same capabilities, verified from the capability trace (every call is an operation
+  record, [ADR-0020](../adr/0020-operation-contract.md)).
 
 ## Sample app
 
-A small Android project created for the MVP and kept in the repo (or generated by
-a script), designed so the golden path is exercisable and reproducible in CI:
+A small Android project created for the MVP and kept in the repo (or generated by a
+script), designed so the golden path is exercisable and reproducible in CI:
 
 - Kotlin + Jetpack Compose, one activity, a navigation with 2–3 screens.
 - A **form** (text input, button, validation) to exercise `uiTree` / `tapElement` /
-  text input.
+  `device.inputText`.
 - A **list with a counter** (e.g. items with a like count) to exercise element
   identity and, later, the row abstraction.
 - **`testTagsAsResourceId = true`** on the Compose root: Compose exposes no
@@ -172,6 +197,11 @@ a script), designed so the golden path is exercisable and reproducible in CI:
   `build.errors`.
 - A deliberate **crash path** (a button that throws) to exercise `device.logs`.
 - Instrumented test(s) or a scripted journey that defines the expected end state.
+- **Two fixtures of the same app**: one on a Kotlin plugin version **below 2.4** and
+  one **at or above**, because that is what decides whether Kotlin compiler errors
+  reach us structured or only through the console
+  ([ADR-0022](../adr/0022-build-error-extraction.md)). A real project confirms this
+  matters: the spike project runs KGP 2.0.21.
 
 ## MVP capability surface
 
@@ -183,29 +213,33 @@ a script), designed so the golden path is exercisable and reproducible in CI:
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult` | 1 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
-| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `screenshot`, `uiTree`, `tapElement` | 1 |
+| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1 |
 | `file` | `list`, `read`, `write`, `watch` | 1–2 |
 | `git` | `status`, `diff`, `log`, `branches` | last |
-| `operation` | `status`, `cancel` | 0 |
+| `operation` | `wait`, `cancel` | 0 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
-| `shell` | `exec` (policy-gated) | 1 |
+| `shell` | `exec` (off by default) | 1 |
+| `artifact` | `read` | 1 |
+| `policy` | `get`, `update` (human-only; never over MCP) | 1 |
 
-`code.*` is **not** part of the MVP. `git.*` is included but scheduled last and may
-slip.
+`build.test` and `code.*` are **not** part of the MVP. `git.*` is included but
+scheduled last and may slip.
 
 ## Definition of done
 
-- [ ] The golden path completes from an external agent with zero stdout parsing.
+- [ ] The golden path completes from an external agent with **zero stdout parsing by
+      the agent**.
 - [ ] The golden path completes from the browser.
-- [ ] `build.errors` returns structured `{file, line, message}` for a real Kotlin
-      compile failure.
-- [ ] `device.tapElement` verifies its effect in a single call.
-- [ ] `workspace.close` leaves no orphan processes.
-- [ ] Idle footprint: core process < 50 MB RSS, and the Gradle sidecar **stopped
-      when idle** (it is our JVM and must idle out). The Gradle daemon is
-      Gradle-managed, reused, and never killed implicitly.
-- [ ] A recorded comparison of agent steps: our MCP vs raw shell, on the golden
-      path.
+- [ ] `build.errors` returns structured `{file, line, column, message}` for a real
+      Kotlin compile failure — on both fixtures, the KGP < 2.4 one going through the
+      console extractor.
+- [ ] `device.tapElement` and `device.inputText` verify their effect in a single call.
+- [ ] `workspace.close` leaves no orphan processes. (**Not** the adb server, the
+      Gradle daemon or emulators: those are not ours and are meant to survive.)
+- [ ] Idle footprint reported **per process** (see Metrics), with the core under
+      50 MB RSS and the Gradle sidecar stopped when idle.
+- [ ] A recorded comparison of agent steps, tokens and failures: our MCP vs raw
+      shell, on the golden path.
 - [ ] `docs/README.md` updated; every deviation from the design recorded as an ADR.
 
 ## Metrics
@@ -218,61 +252,80 @@ binary. What differs is the **surface the agent works against**.
   chaining steps itself.
 - **Our case**: the agent calls semantic capabilities and receives JSON.
 
-Measured:
+### How the comparison is run
 
-- **Agent steps** (tool calls) and **failed/retried calls** on the golden path,
-  ours vs. the shell baseline.
+LLM variance swamps a single run, so the measurement is specified before it is taken:
+
+- **N ≥ 5 runs per arm** (ours and the shell baseline), same task, same starting
+  state, reset by script between runs.
+- **The agent and model version are pinned** and recorded; the same one is used for
+  both arms.
+- Recorded per run: **tool calls**, **failed/retried calls**, **tokens**, and
+  **wall time** to reach the verified end state.
+- **The success threshold is stated before running**: the hypothesis holds if our arm
+  uses at least **30 % fewer tool calls** with **no more failures** than the baseline.
+  *Needs ratification.*
+
+### Other measures
+
 - **Time to first useful result**: `workspace.open` → device list.
-- **Idle RSS of the core process only** (see the note below), and peak during a
-  build.
+- **Idle memory, reported per process** and honestly: the core (budget: under 50 MB
+  RSS), our Gradle sidecar (must be stopped when idle), the Gradle daemon, the Kotlin
+  daemon if present, and the emulator. The core's budget is ours to meet; the rest is
+  reported so the total is not a surprise.
 - **Orphan process count** after close (target: zero).
 
 Honest caveat: a strong agent with a plain shell is capable, and if the difference
 turns out to be small, the hypothesis fails. That is precisely why this is measured
-in the MVP rather than assumed. The task and the starting state must be fixed for
-the numbers to mean anything.
-
-**What the memory budget covers.** We measure the core process, not everything on
-the machine. Two JVMs may exist while working, and neither is the core:
-
-- the **Gradle daemon**, which belongs to Gradle: started on first build, kept alive
-  by Gradle for idle hours, reused across builds, never killed implicitly;
-- the **Gradle TAPI sidecar** ([ADR-0017](../adr/0017-gradle-execution-strategy.md)),
-  which is ours and therefore subject to our discipline: lazy start and idle
-  shutdown like any other sidecar.
-
-The emulator likewise belongs to the platform, not to us.
+in the MVP rather than assumed.
 
 ## Risks and unknowns
 
 | Risk | Mitigation |
 | --- | --- |
-| Gradle error parsing varies by AGP/Kotlin version | Fixture-driven tests; anchor on the file/line/message contract, degrade to raw tail |
+| Build error shapes vary by AGP, Kotlin plugin and producer | A core console extractor for Kotlin, javac, kapt, KSP, AAPT2 and manifest-merger messages, with golden tests from recorded output; the Problems API where the plugin versions deliver it; a labelled raw tail only when nothing is recognised ([ADR-0022](../adr/0022-build-error-extraction.md)) |
+| AAPT2 errors name AGP's *merged* resources, not source files | Verified in spike S1; decide between resolving the blame id and quoting the merged line ([spike findings](../research/spike-s1-error-formats.md)) |
 | Compose exposes no resource-ids | Ship the sample app with `testTagsAsResourceId`; fall back to text/content-desc |
 | `uiautomator dump` is flaky ("could not get idle state") | Retry once, then a cause-attributed error that routes to text/OCR later |
-| MCP client differences (tool limits, annotations) | Keep the exposed set small; verify against at least two assistants |
-| The comparison metric is noisy | Fix a scripted task and the exact starting state |
+| MCP client differences (tool timeouts, tool limits, annotations) | Bounded wait with `operation.wait`; keep the exposed set small; verify against at least two assistants (spike S2) |
+| The comparison metric is noisy | N runs, a pinned model, a scripted reset and a pre-stated threshold |
 | `adb` version/serial drift | Detect and surface the version; keep the adb surface conservative |
-| TAPI sidecar compatibility across Gradle/AGP versions | Pin and test supported versions; detect the Gradle version and fail with a clear, actionable error |
+| Gradle support range | Floor 8.0: fail fast below it with an escape hatch; newer versions proceed as `untested`; Gradle, AGP and Kotlin plugin versions detected and reported ([ADR-0018](../adr/0018-gradle-version-support-policy.md)) |
+| The probe is heavier than a heuristic | It is an init script plus a small jar, used only for `project.model` and never injected into a user's build. Revisit if a simpler path proves sufficient ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)) |
 
 ## Decisions fixed by this MVP
 
-- **MCP transport: stdio for the MVP** (works across assistants today; HTTP is an
-  adapter to add later). *Needs an ADR.*
+- **Topology**: one daemon per user, attached by stdio and CLI shims
+  ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). This settles MCP
+  transport: the stdio shim for the MVP, streamable HTTP later as another adapter.
+- **Invocation**: `Start` / `Wait` / `Cancel`; `operation.wait` and `operation.cancel`
+  are exposed; there is no domain-specific cancel
+  ([ADR-0020](../adr/0020-operation-contract.md)).
+- **Persistence**: JSON files in a per-user state directory, never inside the project
+  ([ADR-0021](../adr/0021-persistence-format-and-location.md)).
 - **No LSP in the MVP**; `code.*` is designed but not delivered.
-- **One active device**; multi-device is designed-for, not delivered.
+- **Devices are named explicitly**; multi-device concurrency is designed-for, not
+  delivered.
 - **`git.*` is in scope but last**, and may slip without blocking the MVP.
-- **LAN exposure is designed-for, not delivered**: no localhost assumptions in the
-  capability layer, but no remote access, TLS or authentication effort in the MVP.
+- **LAN exposure is designed-for, not delivered**; the loopback HTTP baseline is
+  required before the UI ships.
 - **UI priority order**: Logcat → build/Gradle tasks → Git → devices/screen; the
   editor comes later, with code intelligence.
 - **SDK provisioning is staged**: read-only requirement checking in the MVP, package
   installation and AVD creation after it.
 - **The sample app** is the acceptance target; real projects come after the MVP.
-- **`file.*` is a first-class domain** (added to
-  [`../architecture/capability-api.md`](../architecture/capability-api.md)).
+- **`file.*` is a first-class domain.**
 - **Gradle runs through a JVM Tooling API sidecar**
-  ([ADR-0017](../adr/0017-gradle-execution-strategy.md)), staged: `build.tasks` and
-  `build.errors` first, then execution.
+  ([ADR-0017](../adr/0017-gradle-execution-strategy.md)), staged per the amended ADR:
+  spikes S1/S3 → project model and `build.tasks` → execution with `build.errors` and
+  outputs → the probe → `build.test`.
 - **Gradle floor is 8.0**, with capability gating and a published supported range
   ([ADR-0018](../adr/0018-gradle-version-support-policy.md)).
+- **`shell.exec` is off by default**, and policy is never exposed over MCP — not even
+  in read-only form ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7).
+- **Project roots are trusted explicitly.** An untrusted root opens in restricted
+  mode, and capabilities that run project code fail with `WORKSPACE_UNTRUSTED`. Trust
+  never comes from an MCP binding. *Needs ratification* — the cost is friction on the
+  first agent session in a new project.
+- **Artifacts are read through one capability**, `artifact.read`, in two durability
+  classes ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).

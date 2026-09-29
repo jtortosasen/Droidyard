@@ -136,7 +136,7 @@ TAPI is a Java API, so we must pick:
 
 | | **A. JVM TAPI sidecar** | **B. `gradlew` CLI + init scripts** |
 | --- | --- | --- |
-| Structured problems (file/line/col) | Yes, native | Only via init script / console parsing |
+| Structured problems (file/line/col) | Native only where the toolchain reports them (Kotlin: KGP 2.4+ on Gradle 8.13+; javac: 8.13+ for our client); console extraction otherwise | Only via init script / console parsing |
 | Structured task listing | Yes (`GradleProject` model) | Only via a custom init-script task |
 | Test events | Yes | No |
 | Cancellation | Token-based, graceful | Kill the process |
@@ -155,6 +155,19 @@ rebuild the two hardest things with brittle techniques. Note the cost honestly: 
 is the largest deviation from "lean" so far, and it adds a JVM artifact to the repo.
 
 See [ADR-0017](../adr/0017-gradle-execution-strategy.md) for the recorded decision.
+
+**Correction (2026-09-29).** "Structured problems, native" in the table was
+overstated. Kotlin compiler messages reach the Problems API only from KGP 2.4.0, and
+AAPT2, manifest-merger and KSP/kapt errors are not known to reach it at all
+([gradle-version-compatibility](gradle-version-compatibility.md) §3.1). Error
+extraction therefore needs a console extractor under **either** option
+([ADR-0022](../adr/0022-build-error-extraction.md)), and it does not differentiate A
+from B. The recommendation stands on the other rows: task listing and the project
+model, test events, cancellation, progress, daemon reuse, and a model-only probe
+that never enters a build
+([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)). Idea 7 above
+(an init script with a custom task) is **not** our blueprint: we use no init script
+in builds.
 
 ## Legal note
 

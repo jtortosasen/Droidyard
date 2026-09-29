@@ -8,6 +8,46 @@ ambiguous meaning, the definition here wins.
 **Core** (codename `mydev`) — the persistent native process that owns toolchain
 integration, state and the capability API. Written in Go
 ([ADR-0001](../adr/0001-core-runtime-go.md)). It is not an agent and not the UI.
+Concretely, it is the `mydev serve` daemon, one per user
+([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+
+## Shim
+
+A stateless process that relays a client to the daemon over its Unix socket:
+`mydev mcp` (stdio MCP) and `mydev call` (CLI). Killing a shim ends a session, never
+the core ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+
+## Session
+
+One adapter connection: one shim, one `mydev call` invocation, or one WebSocket. It
+owns subscriptions and watches. An MCP session is bound to one project root. It does
+not own operations.
+
+## Operation
+
+The record of one invocation: id, state (`queued | running | completed | failed |
+cancelled`), result. Every call is one. Callers wait on it for a bounded time, and any
+session can cancel it ([ADR-0020](../adr/0020-operation-contract.md)).
+
+## Artifact
+
+A byte payload handed out as an opaque `mydev://artifact/<id>` reference, never a path:
+a screenshot, a log capture, a build console. It is either *ephemeral* (memory, TTL) or
+*durable* (kept as long as its owning record), and it is read through `artifact.read`
+([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
+
+## Policy
+
+The user's authorization rules: device allowlists, trusted project roots, and whether
+`shell.exec` is enabled. It is re-checked before every execution and changed only
+through human channels (UI, CLI, config file), never by an agent
+([ADR-0015](../adr/0015-untrusted-data-authorization.md)).
+
+## MVP and v1
+
+The *MVP* is the first release, which tests the hypothesis
+([roadmap/mvp](../roadmap/mvp.md)). *v1* is the first release meant for daily use: the
+MVP plus code intelligence and the other items marked v1 in [scope](scope.md).
 
 ## Capability API
 
@@ -17,27 +57,30 @@ HTTP, WebSocket, MCP, CLI — is an adapter over it
 
 ## Capability domain
 
-A namespace of related capabilities, e.g. `workspace`, `code`, `build`, `device`,
-`emulator`, `git`, `runtime`, `shell`.
+A namespace of related capabilities, e.g. `workspace`, `project`, `build`, `device`,
+`emulator`, `sdk`, `file`, `git`, `shell`, `code`. The authoritative list is the
+capability registry ([capability-api](../architecture/capability-api.md) §Naming).
 
 ## Adapter
 
 A protocol edge that translates between an external protocol and the capability
-API. v1 adapters: HTTP/WebSocket (UI), MCP (agents), CLI (humans/scripts).
+API. MVP adapters: HTTP/WebSocket (UI), MCP (agents), CLI (humans and scripts). All of
+them run inside the daemon.
 
 ## Workspace
 
-The unit of state in the core: a project root plus the processes, devices, build
-state and watchers associated with it. See `architecture/workspace-state.md`
-(planned).
+The unit of state in the core: a project root plus its build state, watchers and
+workspace-owned sidecars. Devices and emulators are global, not part of a workspace.
+See [workspace-state](../architecture/workspace-state.md).
 
 ## Sidecar
 
-An external long-lived process **supervised by the core but not embedded in it**,
-with its own lifecycle: started on demand, health-checked, and stopped when idle
-(e.g. the Kotlin LSP and the Gradle Tooling API bridge, both JVM). The Gradle daemon
-is *not* one of ours — it is started and kept alive by Gradle, and we never kill it
-implicitly.
+An external long-lived process **of ours**, supervised by the core but not embedded in
+it, with its own lifecycle: started on demand, health-checked, and stopped when idle.
+Examples are the Gradle Tooling API sidecar (JVM, one for all roots) and, later, the
+Kotlin LSP. The Gradle daemon is *not* a sidecar: Gradle starts it and keeps it alive,
+and we never kill it implicitly. The `adb` server and emulators are not sidecars
+either.
 
 ## Agent harness
 

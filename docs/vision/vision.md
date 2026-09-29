@@ -52,10 +52,13 @@ the agent uses is still worth building.
 
 ## What we are building
 
-A persistent local process (the **core**, codename `mydev`) that:
+A persistent local process (the **core**, codename `mydev`): one daemon per user,
+which the web UI reaches over loopback HTTP and agents and scripts reach through thin
+stdio and CLI shims
+([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). It:
 
-1. Manages the real Android toolchain: filesystem, processes, Git, Gradle,
-   ADB, the emulator, Kotlin LSP.
+1. Manages the real Android toolchain: filesystem, processes, Git, Gradle (through
+   the Tooling API), ADB, the emulator, and later the Kotlin LSP.
 2. Exposes a single, typed **capability API** — semantic operations that return
    **structured data**, not raw stdout.
 3. Serves a **lightweight web UI** over HTTP/WebSocket for humans (desktop and
@@ -87,15 +90,17 @@ wrapper", which we explicitly reject.
 ## What "lean" means here
 
 - The core must stay small in memory and fast to start.
-- No embedded JVM in the core unless proven necessary; JVM-based tools
-  (Kotlin LSP, the Gradle daemon) run as **external sidecars** that the core
-  supervises.
+- No embedded JVM in the core. The JVM-only tools we drive (the Gradle Tooling API,
+  later the Kotlin LSP) run as **our own sidecars**: supervised, started on demand and
+  stopped when idle. The Gradle daemon is Gradle's, not ours: Gradle starts it, reuses
+  it and idles it out.
 - The UI is not a desktop app: no Electron, no bundled Chromium.
 - Modules are separable; a feature that is not needed does not have to run.
 
 ## Success criteria (falsifiable)
 
-Design-phase targets, to be refined into the MVP:
+Design-phase targets. The MVP must meet 2, 3 and 4; criterion 1 is met in v1
+([scope](scope.md) §Terms):
 
 1. Open a real, non-trivial Android project and get go-to-definition, references
    and diagnostics **without launching Android Studio**.

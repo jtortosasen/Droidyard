@@ -1,18 +1,22 @@
 # Workspace State
 
-How the core models state. Everything the capability API
-([capability-api.md](capability-api.md)) does happens **inside a workspace**.
+How the core models state. Workspace-scoped capabilities
+([capability-api.md](capability-api.md) §Scope) operate **inside a workspace**;
+global ones (devices, emulators, the SDK, the core itself) do not.
 
 > Status: draft. Complements `process-lifecycle.md` (sibling document).
 
 ## What a workspace is
 
 A **workspace** is a rooted development context: a project directory plus the
-live resources attached to it (sidecar processes, devices, build state,
-watchers, subscriptions). It is the unit of isolation and the unit of state.
+live resources attached to it (workspace-owned sidecars, build state, watchers).
+It is the unit of isolation and the unit of state.
 
-The core can host **multiple workspaces**; they do not share sidecars or
-subscriptions.
+The core — one daemon per user ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md))
+— hosts **multiple workspaces**. Every workspace-scoped call names its target in the
+envelope's `workspace` field ([ADR-0020](../adr/0020-operation-contract.md)); there is
+no implicit "current workspace" in the core. An MCP session is bound to one root at
+attach, and its adapter fills the field.
 
 ## Lifecycle
 
@@ -41,67 +45,96 @@ subscriptions.
 `degraded` is a first-class state, not an error: a missing emulator or a crashed
 LSP must not make the whole workspace unusable.
 
+`workspace.open` on an already open workspace is a no-op returning its state, so
+several sessions (two agent windows, the UI) share one workspace. `workspace.close`
+closes it for all of them.
+
 ## State model
 
 ```text
 Workspace
-├── identity      id, name, root, sdkRoot, createdAt
+├── identity      id, name, root, sdkRoot, trusted, createdAt
 ├── project       modules, variants, build files, AGP/Gradle/Kotlin versions
 ├── code          lsp session ref, open documents, diagnostics cache, index state
-├── builds        running operations, last build/test result
-├── devices       known devices, connected devices, active device
-├── processes     supervised sidecars (see process-lifecycle.md)
-├── watchers      watched roots, filters, debounce state
-└── subscriptions active event subscriptions owned by consumers
+├── builds        running operations, build registry, last result
+├── processes     workspace-owned sidecars (the Kotlin LSP, later)
+└── watchers      watched roots, filters, debounce state
 ```
 
 Each section is owned by exactly one domain service
-(`workspace`, `project`, `code`, `build`, `device`, `emulator`, `runtime`, `git`,
-`system`). No adapter holds workspace state.
+(`workspace`, `project`, `code`, `build`, `file`, `git`). No adapter holds workspace
+state.
+
+What is **not** in a workspace: devices and emulators (global, below); the TAPI
+sidecar, which is shared by every root ([process-lifecycle](process-lifecycle.md));
+and subscriptions, which belong to the **session** that created them and may filter on
+any workspace.
 
 ## Identity and reuse
 
-- A workspace id is derived **deterministically from the project root path**, so
-  re-opening the same project reuses the same identity.
+- A workspace id is derived **deterministically from the canonical project root**:
+  `<basename>-<12 hex of sha256(root)>` ([ADR-0021](../adr/0021-persistence-format-and-location.md)).
+  Re-opening the same project reuses the same identity, and adapters may address a
+  workspace by root or by id.
 - Re-opening a workspace restores durable configuration and discards ephemeral
   state (see below).
-- Two cores must never manage the same workspace concurrently; a lock guards this.
+- Two cores never manage the same workspace: one daemon per state root owns every
+  workspace in it, guarded by the daemon's `flock` (ADR-0019). No per-workspace lock
+  file exists.
+- A workspace is **trusted or not**
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). Trust comes from a
+  configured path prefix or an explicit human act — the UI, or `mydev trust` — and
+  **never** from an MCP binding, because a repository can ship its own `.mcp.json`. An
+  untrusted workspace opens in restricted mode, where capabilities that run project
+  code fail with `WORKSPACE_UNTRUSTED`. **Opening a workspace never runs project
+  code.**
 
 ## Durable vs ephemeral state
 
 | Kind | Examples | Survives restart |
 | --- | --- | --- |
-| **Durable** | root, name, selected variant, preferences, recent workspaces | ✅ persisted |
-| **Derived** | project modules/variants, AGP/Gradle versions | ❌ re-discovered on open |
-| **Ephemeral** | running operations, LSP session/index, diagnostics, watchers, subscriptions | ❌ never persisted |
+| **Durable** | root, name, selected variant, preferences, recent workspaces, build registry and `lastResult`, durable artifacts (build consoles) | ✅ persisted |
+| **Durable exception** | **pid records** of supervised children — `{pid, pgid, startTime, command}` | ✅ persisted until reaped, for crash recovery only |
+| **Derived** | project modules/variants, AGP/Gradle versions | ❌ re-discovered on open (may be cached, deletable) |
+| **Ephemeral** | running operations, process *state*, LSP session/index, diagnostics, watchers, subscriptions | ❌ never persisted |
 
-Persistence format and location are an **open decision** (see
-`adr/README.md`). Working assumption: a small local store keyed by workspace id,
-human-inspectable.
+Processes are ephemeral; the *record of what we spawned* is not. That record is what
+lets the next daemon find and reap orphans after a crash.
+
+Format and location are decided by [ADR-0021](../adr/0021-persistence-format-and-location.md):
+JSON files under `$XDG_STATE_HOME/mydev/` (Linux) or
+`~/Library/Application Support/mydev/` (macOS), per workspace under `ws/<wsid>/`,
+never inside the project tree.
 
 ## Concurrency model
 
 - One writer per workspace section; mutations are serialised by the owning domain
   service.
-- Events are emitted with a **monotonic `seq` per workspace** so consumers can
-  detect gaps (see [capability-api.md](capability-api.md)).
-- Queries may run concurrently; long commands return operation handles rather than
-  holding a lock.
+- Events carry a **daemon-wide monotonic `seq`** and the workspace id (`null` for
+  global events), so consumers can order and resume
+  ([capability-api.md](capability-api.md) §Events).
+- Queries may run concurrently. Commands that need an exclusive resource (a build
+  root, a device) wait for it as `queued` operations rather than holding a
+  workspace-wide lock ([core-runtime](core-runtime.md) §Concurrency).
 
 ## Devices are not workspace-owned
 
 Connected devices and emulators are **global** to the core, not owned by a
-workspace. A workspace has an **active device** *selection*, but the device
-itself (and the `adb` server) is shared. This matters for teardown: closing a
-workspace must not disconnect devices or kill the shared `adb` server.
+workspace, and `device.*` / `emulator.*` / `sdk.status` are global capabilities. The
+device and the `adb` server are shared. A workspace keeps **no** "active device": every
+device call names its `device` explicitly, and the UI keeps its own selection
+client-side and passes it. This matters for teardown too: closing a workspace must not
+disconnect devices or kill the shared `adb` server.
 
 ## Cleanup and crash recovery
 
-- On graceful close: stop workspace-owned sidecars (subject to policy), drain and
-  cancel operations, release watchers and subscriptions.
-- On crash: the next start must detect **stale state** (orphan sidecars, stale
-  pids/sockets, lock files) and reconcile it rather than assuming a clean slate.
-- The workspace lock must be reclaimable if the previous owner is provably gone.
+- On graceful close: stop workspace-owned sidecars (subject to policy), close the
+  root's connection in the shared TAPI sidecar, drain and cancel the workspace's
+  operations, release watchers.
+- On crash: the next daemon reaps orphans from pid records (matching pid **and**
+  start time), removes the stale socket, and treats every workspace as closed until
+  reopened. It never assumes a clean slate.
+- The daemon lock is reclaimed by the kernel when the holder dies (`flock`).
 
 ## Observability
 
@@ -112,8 +145,6 @@ workspace must not disconnect devices or kill the shared `adb` server.
 
 ## Open questions
 
-- Persistence format and location (SQLite vs. plain files).
-- Exact lock/recovery mechanism for concurrent cores and crashes.
 - Whether a workspace can be *reopened* while operations are still draining, or
   must fully close first.
 - How much derived state (e.g. project module graph) to cache between restarts to

@@ -21,8 +21,9 @@ Every capability **declares its statefulness**:
 
 Discovery (`system.capabilities`) advertises the classification. Adapters must:
 
-- keep a session for stateful/streaming capabilities (stdio is naturally stateful;
-  HTTP requires an explicit session token; the web UI uses WebSocket);
+- keep a session for stateful/streaming capabilities (a stdio shim session is
+  naturally stateful; HTTP requires an explicit session token; the web UI uses
+  WebSocket — see [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md));
 - **reject** a stateful/streaming capability invoked without a session, rather than
   silently degrading.
 

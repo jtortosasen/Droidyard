@@ -1,0 +1,233 @@
+# Subsystem: UI automation
+
+Observing and acting on an app's UI through the accessibility tree: `device.uiTree`,
+`device.tapElement`, the selector and assertion vocabulary they share, and the input
+primitives underneath.
+
+> Status: draft. Device targeting, transport and the device model live in
+> [`adb-device.md`](adb-device.md). This document encodes the prior-art findings on
+> identity-first resolution and one-call verification
+> ([prior-art](../research/prior-art.md),
+> [concepts](../research/dsh-codex-android-concepts.md) §4,
+> [mobile-mcp](../research/mobile-mcp.md)).
+
+## Design rules
+
+- **Tree-only in v1.** Every match and every assertion reads the accessibility tree
+  from `uiautomator dump`. Screenshots are for humans and models, never an input to
+  matching. The prior art's `expect_text` polled **OCR**; OCR is out of v1
+  ([ADR-0013](../adr/0013-ocr-optional-pluggable.md)), so the assertions here are
+  defined on the tree alone.
+- **Identity first**: `resource-id` > content-desc / text > coordinates.
+- **Act and verify in one call** ([mvp](../roadmap/mvp.md) golden path step 7).
+- **An unmet expectation is a result, not an error** — like a failed build. Errors
+  mean the tap could not be performed.
+- **Device text is untrusted data** ([ADR-0015](../adr/0015-untrusted-data-authorization.md)):
+  compared as literal strings, never interpreted.
+
+## The tree: `device.uiTree`
+
+- `uiautomator dump /dev/tty`, with an `/sdcard` fallback plus cleanup, and one retry
+  on the well-known "could not get idle state" failure.
+- Dumps are **serialised per device**: `uiautomator` does not tolerate concurrent
+  dumps, so `uiTree` and the polls of a `tapElement` share one per-device dump lock.
+
+```text
+Snapshot
+├── snapshot     "s-81c2"; the daemon keeps the last few per device, for refs
+├── foreground   package of the top window
+├── display      { width, height, rotation }
+├── nodes[]
+│   ├── ref      "n12", valid with its snapshot only
+│   ├── class    short name: Button, TextView, View
+│   ├── id       resource-id (app package prefix stripped)
+│   ├── text, desc
+│   ├── bounds   [left, top, right, bottom], display pixels
+│   ├── flags    non-default only: clickable, scrollable, checkable, checked,
+│   │            selected, focused, password, disabled
+│   └── children
+├── truncated
+└── emptyReason  noMatch | pruned | noAccessibilityInfo
+```
+
+- **Compact**: flags appear only in their non-default state, and layout-only nodes (no
+  id, text, desc or flag) are folded into their parent.
+- **Bounded**: a byte cap (default ~40 KB) prunes the deepest levels first, with
+  `truncated: true` and a hint to narrow with `within` (a selector for the subtree to
+  return).
+- **Empty says why**: `within` matched nothing, the cap pruned everything below it, or
+  the window exposes no accessibility nodes at all (a WebView without accessibility,
+  Flutter without semantics, a canvas or a game).
+- **Compose caveat**: Compose exposes no resource-ids to uiautomator unless the app opts
+  in with `testTagsAsResourceId`. Never assume stable ids exist; fall back to
+  text/desc. The sample app opts in.
+
+## Selectors
+
+One grammar, used for the tap target, for `within`, and inside expectations:
+
+```json
+{ "id": "login_button" }
+{ "text": "Sign in", "class": "Button" }
+{ "desc": "Like", "within": { "id": "item_3" } }
+{ "ref": "n12", "snapshot": "s-81c2" }
+```
+
+- Fields `id`, `text`, `desc`, `class` combine with AND. `within` is an ancestor
+  selector (not nested further). `index` (0-based, document order) breaks an ambiguity
+  deliberately.
+- **`ref` resolves by identity, not by position.** The daemon looks the ref up in its
+  snapshot, takes that node's identity (class, id, text, desc, bounds) and finds it in
+  the fresh tree. Not found → `DEVICE_STALE_REF` with candidates. So `gone: {ref}`
+  means "that element is gone".
+
+### Resolution
+
+1. **Exact** match on every given field.
+2. None → **case-insensitive contains** on `text` and `desc` (`id` and `class` stay
+   exact). The result reports `matchedBy: exact | contains`.
+3. **Fold nested duplicates**: when a match and one of its ancestors both match (Compose
+   merges semantics, so a clickable row and its label often carry the same text), keep
+   the outermost.
+4. **Off-screen** matches (no intersection with the display, or zero area) are dropped;
+   if they were the only ones → `DEVICE_ELEMENT_OFFSCREEN`.
+5. More than one left and no `index` → `DEVICE_ELEMENT_AMBIGUOUS`, listing up to 10
+   candidates (ref, class, id, text, bounds).
+6. None → `DEVICE_ELEMENT_NOT_FOUND`, with near candidates and the tree's `emptyReason`
+   when it was empty.
+7. The one match is **disabled** → `DEVICE_ELEMENT_DISABLED`. Disabled targets are not
+   dropped in step 4: tapping one is a caller error worth naming.
+
+The tap lands at the centre of the node's visible bounds. When the node itself is not
+clickable, the result says so and names its nearest clickable ancestor, so a tap with
+no effect is explainable.
+
+## Acting: `device.tapElement`
+
+```json
+{
+  "device": "emulator-5554",
+  "target": { "text": "Sign in" },
+  "expect": [ { "appears": { "text": "Welcome" } },
+              { "gone": { "id": "login_form" } } ],
+  "timeoutMs": 5000,
+  "returnTree": false
+}
+```
+
+### Assertion vocabulary
+
+`expect` is a list (at most 5) of conditions, all of which must hold:
+
+| Condition | Holds when |
+| --- | --- |
+| `appears: Selector` | At least one on-screen node matches, in one dump |
+| `gone: Selector` | No node matches, in **two consecutive** successful dumps — a dump taken mid-transition can miss nodes that are still there |
+| `foreground: applicationId` | The top window belongs to this app — catches a crash or a navigation out of it |
+
+Counting (`expect_count` in the prior art) arrives with the row abstraction,
+post-MVP. There is no text-by-regex condition: `appears` with `text` (exact, then
+contains) covers the MVP's cases, such as a counter reading "Likes: 1".
+
+### Sequence and timing
+
+1. **Before**: dump, resolve the target, and evaluate every condition against this
+   tree. A condition that already holds is flagged **vacuous**.
+2. **Tap**: `input tap x y` in display pixels.
+3. **Settle**: wait `settleMs` (default 300 ms).
+4. **Poll**: dump again and again — each dump starts at least 250 ms after the previous
+   one started; a dump itself takes roughly 0.5–2 s — until every condition holds or
+   `timeoutMs` elapses (default 5 s, maximum 20 s).
+5. **Return.** With no `expect`: one dump after the settle, for `foreground` and the
+   optional tree, then return.
+
+The defaults are starting values: spike S6 measures dump latency and the idle-failure
+rate on API 34–36 and sets them. The 20 s cap keeps `tapElement` a bounded,
+non-long-running call ([ADR-0020](../adr/0020-operation-contract.md)).
+
+### Result
+
+```json
+{
+  "tapped": { "ref": "n12", "matchedBy": "exact", "class": "Button",
+              "text": "Sign in", "point": [540, 1210], "clickable": true },
+  "expect": { "matched": true, "afterMs": 840, "polls": 2, "failedDumps": 0,
+              "unmet": [], "vacuous": [] },
+  "foreground": { "before": "com.example.sample", "after": "com.example.sample" },
+  "tree": null
+}
+```
+
+- `matched: false` is a **completed** call. `unmet` lists each failing condition with
+  what the last tree showed (near candidates for `appears`, the still-present match for
+  `gone`).
+- **Vacuous conditions are flagged, not refused.** The prior art's probe guard refused
+  before tapping; flagging keeps the single round trip, and a vacuous match proves
+  nothing, which `vacuous` says.
+- **After the tap, never an error.** A dump that fails while polling counts as a poll
+  without an observation (`failedDumps`). If every poll failed, the result is
+  `matched: false` with the reason `noObservation`. Raising an error there would invite
+  a retry, and a retry taps twice. Only a failure *before* the tap is an error
+  (`DEVICE_UI_DUMP_FAILED`), and then nothing was tapped.
+- `returnTree: true` adds the last snapshot, saving a `uiTree` call at the cost of
+  tokens.
+
+### Concurrency
+
+A `tapElement` holds the device's **write lock** from the before-dump to the last
+poll, so two callers cannot interleave a tap with another's verification. `uiTree` is a
+read, and waits only for the dump lock.
+
+## Input primitives
+
+The adb verbs beneath UI actions. The MVP exposes `tapElement` and `inputText`;
+coordinate taps, swipes and scroll-to-find are later capabilities, and use
+these rules and the same `expect` vocabulary.
+
+- **Coordinates for coordinate-based actions are normalised 0..1**, resolved to pixels
+  using the **display size from a fresh screencap**, not `wm size` — which commonly
+  reports the portrait panel size even in landscape. This removes rotation math
+  entirely.
+- **Tree-derived actions work in display pixels**, because the tree's bounds are
+  already in that space.
+- **Text**: `input text` is ASCII-only. Text is escaped (`%s` for spaces, shell
+  metacharacters escaped); non-ASCII (CJK, emoji) goes through the ADBKeyboard IME if
+  installed, otherwise the call is **refused with an install hint — never silently
+  mistyped**.
+- **Rotation** pins `accelerometer_rotation=0` before setting `user_rotation`, so
+  auto-rotate cannot fight an explicit value.
+- **Device actions** (notifications, quick settings, lock, wake, assistant) are plain
+  adb verbs; `wm dismiss-keyguard` is best-effort and a locked device simply stays
+  locked.
+
+## Failure modes
+
+| Failure | Code | Behaviour |
+| --- | --- | --- |
+| Dump fails before the tap (after one retry) | `DEVICE_UI_DUMP_FAILED` | Cause-attributed; says whether to retry. Nothing tapped |
+| Target not found | `DEVICE_ELEMENT_NOT_FOUND` | Near candidates, and the tree's `emptyReason` |
+| Several targets | `DEVICE_ELEMENT_AMBIGUOUS` | Up to 10 candidates; `index` or a narrower selector resolves it |
+| Target off-screen | `DEVICE_ELEMENT_OFFSCREEN` | Its bounds and the display size |
+| Target disabled | `DEVICE_ELEMENT_DISABLED` | The node |
+| Stale ref | `DEVICE_STALE_REF` | Candidates with the same text/desc |
+| No accessibility info | `DEVICE_ELEMENT_NOT_FOUND`, `emptyReason: noAccessibilityInfo` | Points at `device.screenshot`; OCR is post-v1 |
+| Expectation unmet | — (completed) | `matched: false` with `unmet` |
+
+## To verify (spike S6)
+
+- The dump latency and the "could not get idle state" rate on API 34–36 emulators with
+  animated Compose UIs, and whether `/dev/tty` works on all of them.
+- Whether a Compose screen with an infinite animation ever lets `uiautomator` reach
+  idle, which would make polling impossible on that screen.
+- That the dump's top-window package reports `android` (not the app) while a crash
+  dialog is showing, which `foreground` relies on.
+
+## Post-MVP
+
+- **Row abstraction** for feeds whose controls are unlabelled: repeated isomorphic
+  siblings (≥ 3, same class, near-equal height) as rows, with counter parsing, and
+  `count` assertions built on it.
+- Coordinate taps, swipes, text input and scroll-to-find, sharing the `expect`
+  vocabulary.
+- An OCR backend behind the same conditions, for trees with no accessibility
+  information ([ADR-0013](../adr/0013-ocr-optional-pluggable.md)).

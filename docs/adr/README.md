@@ -34,20 +34,27 @@ buried in prose.
 | [0009](0009-editor-component.md) | Editor component — CodeMirror 6 | Accepted |
 | [0010](0010-capability-statefulness.md) | Statefulness declared per capability | Accepted |
 | [0011](0011-skills-agent-skills-standard.md) | Skills follow the Agent Skills standard | Accepted |
-| [0012](0012-visual-artifacts-as-refs.md) | Visual artifacts as in-memory bytes with refs | Accepted |
+| [0012](0012-visual-artifacts-as-refs.md) | Artifacts as opaque references, in two durability classes | Accepted |
 | [0013](0013-ocr-optional-pluggable.md) | OCR is optional and pluggable | Accepted |
 | [0014](0014-agent-distribution-model.md) | Agent distribution model | Accepted |
 | [0015](0015-untrusted-data-authorization.md) | Untrusted device data + authorization boundary | Accepted |
 | [0016](0016-capability-schema-in-go.md) | Capability schema defined in Go, published as JSON Schema | Accepted |
 | [0017](0017-gradle-execution-strategy.md) | Gradle execution strategy — TAPI sidecar | Accepted |
 | [0018](0018-gradle-version-support-policy.md) | Gradle version support policy | Accepted |
+| [0019](0019-process-topology-daemon-and-shims.md) | Process topology — one daemon, attached by stdio and CLI shims | Accepted |
+| [0020](0020-operation-contract.md) | Invocation contract — Start, Wait, Cancel, and explicit scope | Accepted |
+| [0021](0021-persistence-format-and-location.md) | Persistence — JSON files in a per-user state directory | Accepted |
+| [0022](0022-build-error-extraction.md) | Build error extraction — structured sources plus a core console extractor | Accepted |
+| [0023](0023-android-project-facts-and-build-outputs.md) | Android project facts and build outputs | Accepted |
 
 ## Open decisions (not yet ADRs)
 
 These were raised in the original sketch or in review and still need an ADR:
 
 - Project name (currently the provisional codename `mydev`).
-- MCP transport(s): streamable HTTP only, or also stdio.
-- Persistence format and location for workspace state.
 - Authentication/exposure model when the web UI is reachable on a LAN.
-- Whether the core should also expose a CLI adapter in v1.
+
+Settled since: MCP transport (stdio shim to a daemon for the MVP; streamable HTTP later
+as another adapter on it) and the CLI adapter (`mydev call`) in
+[ADR-0019](0019-process-topology-daemon-and-shims.md); persistence in
+[ADR-0021](0021-persistence-format-and-location.md).

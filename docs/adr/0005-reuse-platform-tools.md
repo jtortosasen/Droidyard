@@ -44,11 +44,12 @@ So dropping Android CLI does **not** mean Gradle covers everything; it means
 
 - No opaque dependency; full control over structured results and error mapping.
 - One less external tool to detect, version and reconcile.
-- We must implement orchestration the CLI used to provide: APK/AAB discovery,
+- We must implement orchestration the CLI used to provide: resolving installable
+  outputs from the build ([ADR-0023](0023-android-project-facts-and-build-outputs.md)),
   install flags, launch intents, incremental/delta install, and semantic element
   resolution via `uiautomator` / accessibility.
 - The ADB/device subsystem becomes central and must be designed carefully
-  (`subsystems/adb-device.md`, planned).
+  ([adb-device](../subsystems/adb-device.md), [emulator](../subsystems/emulator.md)).
 - Android CLI may still be used later as an optional accelerator if it offers
   something clearly better (e.g. delta install), but never as a dependency.
 

@@ -2,44 +2,130 @@
 
 - Status: Accepted
 - Date: 2026-09-27
+- Amended: 2026-09-29. What changed: how the untrusted mark travels; the project-root
+  trust gate; policy changes limited to human channels; `shell.exec` off by default;
+  the local transport baseline (review N4, N14, N15). Items 5–7 **need
+  ratification**.
 
 ## Context
 
-Everything read from a device or app (UI tree labels, log lines, clipboard,
-screenshots, package metadata) is **attacker-controllable** if the app under test
-is hostile. `codex-android-mcp` handles this with a mature policy layer: it
-re-checks authorization immediately before executing each call (mitigating TOCTOU)
-and explicitly separates that boundary from MCP annotations, which it treats as
-usability hints only, not enforcement. It also defaults to emulators and requires
-an explicit allowlist for physical devices.
+Everything read from a device or an app is **attacker-controllable** if the app under
+test is hostile. That covers UI tree labels, log lines, the clipboard, screenshots and
+package metadata. `codex-android-mcp` handles this with a mature policy layer:
+
+- it re-checks authorization immediately before each call, which mitigates TOCTOU;
+- it keeps that boundary separate from MCP annotations, which it treats as usability
+  hints only, never as enforcement;
+- it defaults to emulators and requires an explicit allowlist for physical devices.
+
+The first version of this ADR left four holes:
+
+- **How untrusted data is marked.** It never said how the mark travels.
+- **Project code.** It covered devices only, but Gradle executes the project's build
+  logic. Opening a repository you have not vetted is a code-execution decision.
+- **Policy changes.** It called policy "live-configurable through the capability
+  API", but no capability existed. Adding one would expose it over MCP, so an agent
+  could grant itself physical devices or `shell.exec`.
+- **The HTTP listener.** It said nothing about a loopback HTTP listener that any web
+  page can reach.
 
 ## Decision
 
-1. **Device/app output is untrusted data.** It is tagged as such at the API
-   boundary, and the MCP `instructions` tell agents not to treat it as commands.
-   We do not attempt heuristic "anti-prompt-injection" sanitisation of content.
-2. **Authorization is a distinct boundary**, re-validated immediately before
-   execution, separate from annotations.
-3. **Annotations are hints**, for client approval UX, never enforcement.
-4. **Default device policy: emulator-preferred.** Physical devices require an
-   enable flag, an exact allowlist, and the target on every call; device listings
-   are policy-filtered.
-5. Policy is **live-configurable** through the capability API/config store, not
-   frozen at startup via environment variables.
+1. **Device and app output is untrusted data.** It is declared **per field** and
+   signalled **per result**:
+   - Fields derived from the device or app are tagged in their Go result struct. The
+     generated JSON Schema, including the MCP `outputSchema`, carries
+     `"x-mydev-untrusted": true` on them.
+   - A descriptor's `Untrusted` flag is **derived**: it is true if any field of the
+     result is tagged.
+   - Each adapter signals the mark per result. MCP uses `_meta` plus a fixed header
+     and quoted strings in the text rendering
+     ([mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Untrusted data). HTTP
+     uses `meta.untrusted` in the response envelope, and the UI renders tagged fields
+     inert ([http-websocket](../interfaces/http-websocket.md) §Security baseline).
+   - An artifact inherits the mark of the capability that produced it.
+   - We do not attempt heuristic "anti-prompt-injection" sanitisation.
+   - Project content (source files, build output) is not marked. It is the user's own
+     code, which the agent already reads through its own tools.
+2. **Authorization is a distinct boundary.** It is re-validated immediately before
+   execution, separately from annotations.
+3. **Annotations are hints.** They serve the client's approval UX and are never
+   enforcement.
+4. **Default device policy: emulator-preferred.** A physical device requires an enable
+   flag, an exact allowlist entry, and its serial on every call. Device listings are
+   filtered by policy.
+5. **A project root must be trusted before its code runs.** Capabilities that make
+   Gradle configure or run the project (`project.*`, `build.*`, `sdk.requirements`)
+   need a trusted root. They are re-checked before execution like any other
+   authorization, and otherwise fail with `WORKSPACE_UNTRUSTED`, whose nextStep names
+   the human action.
+   - `workspace.open` itself **runs no project code**. An untrusted root opens in a
+     restricted mode: `file.*`, `git.*` and `workspace.describe` work, and `describe`
+     reports `trusted: false`.
+   - Git runs on an untrusted root with the repository's executable configuration
+     neutralised: `-c core.fsmonitor=false -c core.hooksPath=/dev/null`.
+   - A root becomes trusted if it falls under a prefix in the user's configuration,
+     or through an explicit human act (the UI, or `mydev trust <root>`). The decision
+     is recorded durably.
+   - An MCP binding never grants trust, whether it comes from `--root` or from the cwd.
+     A server configuration can be written by the repository itself (`.mcp.json`).
+   - MCP roots may **narrow** what is allowed and never widen it
+     ([mcp-features](../interfaces/mcp-features.md) §5).
+6. **Only humans change policy, and the trust boundary is the user account.**
+   - Policy covers the device rules, trusted roots and `shell.exec`. It lives in the
+     user configuration and changes without a restart, through human channels only:
+     - the UI and the CLI, through `policy.get` / `policy.update`;
+     - hand edits to the file, picked up on reload.
+   - These capabilities have **audience `human`**. The MCP adapter does not list them,
+     and the core rejects them from an MCP session by the session's client kind. This
+     is enforcement, not just omission from the list.
+   - This is the one deliberate exception to "every capability reaches both consumers"
+     ([principles](../vision/principles.md) #1): the agent must not be able to
+     authorize itself.
+   - **Residual risk.** A process running as the same user can connect to the socket
+     or read the HTTP token. That includes an agent's own shell, which could run
+     `mydev call policy.update`. Same-uid code is inside the trust boundary. The
+     defence is that our agent-facing surface offers no path to it, and that an
+     agent's own shell commands pass through its host's approval.
+7. **`shell.exec` is disabled by default.** Policy enables it globally or per
+   workspace. The tool stays listed when disabled, so the tool list is stable across
+   policy changes and prompt caches. A call fails with `POLICY_SHELL_DISABLED`.
+8. **Local transports have a baseline.** The Unix socket (`0600`, peer-uid check) is
+   defined in [ADR-0019](0019-process-topology-daemon-and-shims.md). The HTTP listener
+   is loopback-only and checks Host and Origin, with a per-launch bearer token and no
+   cookies ([http-websocket](../interfaces/http-websocket.md) §Security baseline).
 
 ## Consequences
 
-- Safer defaults for agents operating on real devices.
-- A per-call re-validation cost (cheap, and worth it).
-- Consumers must be able to distinguish trusted control data from untrusted device
-  payloads in results.
-- Policy changes do not require restarting the core.
+- Safer defaults for agents operating on real devices and on unvetted repositories.
+- Each call pays for re-validation. The cost is small and worth it.
+- Consumers can tell trusted control data from untrusted payloads at both levels: the
+  schema marks the fields, and every result carries a mark.
+- Policy changes do not require restarting the core, and the agent cannot make them.
+- Trusting a project once adds friction to the first agent session in it. The
+  mitigations are a configured trusted prefix (e.g. `~/src`), and an error whose
+  nextStep is the exact `mydev trust <root>` command. Elicitation is deliberately not a
+  mitigation, for the reason given in *Alternatives*.
+- Descriptors gain an `Audience` (`all | human`), and `Untrusted` becomes derived
+  ([core-runtime](../architecture/core-runtime.md) §The capability registry).
 
 ## Alternatives considered
 
-- **Annotations as enforcement** — they are client-side hints; unsafe as a
-  boundary. Rejected.
-- **Content sanitisation / injection heuristics** — unreliable and a false sense of
-  safety. Rejected in favour of tagging + instructions + policy.
-- **Startup-frozen env-only policy** — the codex-android-mcp limitation; rejected in
-  favour of live configuration.
+- **Annotations as enforcement.** They are client-side hints and unsafe as a boundary.
+  Rejected.
+- **Content sanitisation or injection heuristics.** Unreliable, and a false sense of
+  safety. Rejected in favour of marking, instructions and policy.
+- **A policy frozen at startup, set only through environment variables.** This is the
+  codex-android-mcp limitation. Rejected in favour of live configuration.
+- **Per-result marking only.** The UI could not tell which fields to render inert.
+  Rejected.
+- **Per-field wrapping inside payloads** (`{"untrusted": "…"}` on every string).
+  Noisy in every payload and schema, and it changes no behaviour. Rejected.
+- **Policy mutation over MCP, gated by elicitation**, including trusting a root.
+  Elicitation support varies, and a client in auto-approve mode would let the agent
+  approve itself. Rejected.
+- **Trust on first open.** Opening *is* the act an injected instruction would trigger.
+  Rejected.
+- **`shell.exec` enabled by default** for a single-user setup. It makes the widest
+  capability the default. It also contaminates the MVP comparison, because the agent
+  falls back to shell instead of semantic tools. Rejected; one policy toggle away.
