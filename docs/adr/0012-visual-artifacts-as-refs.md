@@ -46,7 +46,7 @@ ArtifactRef { ref, mediaType, bytes, durability: ephemeral | durable,
 
 | | **Ephemeral** | **Durable** |
 | --- | --- | --- |
-| Examples | screenshots, logcat captures, full `uiTree` dumps, `shell.exec` output | build consoles |
+| Examples | screenshots, logcat captures, `shell.exec` output | build consoles |
 | Storage | memory; large ones spill to the derived cache directory ([ADR-0021](0021-persistence-format-and-location.md)), which is wiped at daemon start | `<state>/ws/<wsid>/artifacts/` |
 | Lifetime | 15 min after creation, the same as operation retention ([ADR-0020](0020-operation-contract.md)); LRU eviction under a byte budget (working default 64 MiB; spill above 4 MiB) | the **owning record's** retention: a console lives and dies with its build record |
 | Survives a daemon restart | no | yes |

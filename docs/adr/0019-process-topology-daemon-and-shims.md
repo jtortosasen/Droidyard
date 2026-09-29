@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-09-29
+- Amended: 2026-09-29. What changed: the complete subcommand list (`ui`, `trust`); the
+  MCP session opens its bound root at start (verification pass).
 
 ## Context
 
@@ -40,10 +42,16 @@ daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
    MCP adapter runs inside the daemon. When a client kills the shim, only the session
    ends.
 3. **`mydev call` is the CLI adapter** over the same socket, speaking the native
-   capability envelope ([capability-api](../architecture/capability-api.md)).
-   `mydev status` and `mydev stop` complete the set.
-4. **Auto-start.** `mcp` and `call` try the socket; if nothing answers they spawn
-   `mydev serve --detach` and retry with backoff for up to 10 s. Detached means a new
+   capability envelope ([capability-api](../architecture/capability-api.md)). The
+   complete subcommand set is `serve`, `mcp`, `call`, `ui`, `trust`, `status`, `stop`:
+   - `mydev ui` opens the browser at the tokenised URL
+     ([http-websocket](../interfaces/http-websocket.md) §Security baseline);
+   - `mydev trust <root>` is a human channel over `policy.update` that adds the root
+     to the trusted roots ([ADR-0015](0015-untrusted-data-authorization.md) §5);
+   - `mydev status` and `mydev stop` report on and stop the daemon.
+4. **Auto-start.** Every subcommand except `serve`, `status` and `stop` tries the
+   socket; if nothing answers it spawns `mydev serve --detach` and retries with
+   backoff for up to 10 s. Detached means a new
    session (`setsid`), stdio redirected to `daemon.log`, cwd `/` — so a client that
    kills the shim's process group cannot reach the daemon. `--no-autostart` disables
    this. Running `mydev serve` in the foreground is equally supported; launchd/systemd
@@ -86,6 +94,11 @@ daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
   on one project; an agent that needs two configures two servers. MCP roots remain a
   policy input only ([mcp-features](../interfaces/mcp-features.md) §5), never a binding
   source: binding must be deterministic and visible in the server config.
+- **The binding opens its root, once.** When the MCP session initializes, the adapter
+  calls `workspace.open` on the bound root (no project code runs, and binding grants
+  no trust). If any client later closes that workspace, the binding stays and
+  workspace tools return `WORKSPACE_NOT_OPEN` until someone reopens it; the adapter
+  never reopens it by itself ([ADR-0020](0020-operation-contract.md) §Scope).
 - **Operations belong to the daemon, not the session.** When a session disconnects,
   the operations it started run to completion and land in their registries (a build
   finishes and becomes `build.lastResult`); only session-owned state is released. Every

@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-09-29
+- Amended: 2026-09-29. What changed: the `run/` directory and the HTTP token; user
+  configuration located outside the state directory.
 
 ## Context
 
@@ -40,12 +42,16 @@ read-only checkouts work.
 | | Linux | macOS |
 | --- | --- | --- |
 | State root | `$XDG_STATE_HOME/mydev` (default `~/.local/state/mydev`) | `~/Library/Application Support/mydev` |
+| User configuration (policy incl. trusted roots, JVM discovery, timeouts) | `$XDG_CONFIG_HOME/mydev` (default `~/.config/mydev`) | beside the state directory |
 | Socket | `$XDG_RUNTIME_DIR/mydev/`, else `<state>/run/` | `<state>/run/` |
 | Derived caches (deletable any time) | `$XDG_CACHE_HOME/mydev` | `~/Library/Caches/mydev` |
 
 `MYDEV_STATE_DIR` overrides the state root; it is how tests get an isolated daemon.
-User-edited configuration (policy, JVM discovery, timeouts) is not state and belongs to
-the configuration spec, not here.
+User configuration — policy, including trusted roots (ADR-0015 §5–6), JVM discovery,
+timeouts — is **not state**. It is written only by human channels (`policy.update`,
+`mydev trust`) or by hand, and is never migrated or reset with the state.
+`MYDEV_CONFIG_DIR` overrides its location; its format belongs to the configuration
+spec.
 
 ### Layout
 
@@ -56,6 +62,9 @@ the configuration spec, not here.
 ├── processes.json       pid records of supervised children (the durable exception, below)
 ├── workspaces.json      index: wsid → {root, name, lastOpenedAt}  ("recent workspaces")
 ├── emulator/<avd>.log   detached emulator launchers' output, read for the stderr tail
+├── run/                 0700; per-launch runtime files
+│   ├── mydev.sock       the socket, where the location table puts it
+│   └── http-token       0600; HTTP bearer token, regenerated each start, deleted on exit
 └── ws/<wsid>/
     ├── workspace.json   durable workspace config: name, selected variant, preferences
     ├── builds/

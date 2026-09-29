@@ -36,25 +36,42 @@ attach, and its adapter fills the field.
 | State | Meaning |
 | --- | --- |
 | `created` | Registered, root validated, nothing started yet. |
-| `opening` | Discovering project, starting required sidecars. |
-| `ready` | Usable; necessary sidecars healthy. |
-| `degraded` | Partially usable; one or more sidecars unavailable (e.g. LSP failed, no device). Capabilities report availability accordingly. |
-| `closing` | Shutting down sidecars and draining operations. |
+| `opening` | Loading durable configuration and any cached project facts. Runs **no** project code and spawns nothing in the MVP (below). |
+| `ready` | Usable. The project model has not necessarily been fetched: that happens lazily. |
+| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build, or a state file is from a newer version (ADR-0021). Capabilities report availability accordingly. |
+| `closing` | Cancelling the workspace's operations, shutting down workspace-owned sidecars. |
 | `closed` | All resources released. |
 
-`degraded` is a first-class state, not an error: a missing emulator or a crashed
-LSP must not make the whole workspace unusable.
+`degraded` is a first-class state, not an error: a crashed LSP or sidecar must not
+make the whole workspace unusable. (A missing device never degrades a workspace:
+devices are global, below.)
+
+**What `open` does**, completely: canonicalise the root and derive the id, validate
+that it is a readable directory, load `ws/<wsid>/workspace.json` and any cached
+project facts, evaluate trust from policy, and publish the lifecycle event. It does
+not contact the TAPI sidecar, does
+not fetch the project model, and does not start the Kotlin LSP (post-MVP, which
+imports the Gradle build and will therefore start lazily, for a trusted root only).
+
+**When the model is fetched**: on the first `project.*`, `build.*` or
+`sdk.requirements` call that needs it — never on open — and only for a trusted root;
+an untrusted one fails that call with `WORKSPACE_UNTRUSTED` before anything is spawned
+([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md),
+[gradle](../subsystems/gradle.md) §Lifecycle).
 
 `workspace.open` on an already open workspace is a no-op returning its state, so
 several sessions (two agent windows, the UI) share one workspace. `workspace.close`
-closes it for all of them.
+closes it for all of them: their operations in it end `cancelled`, and their next
+workspace-scoped call gets `WORKSPACE_NOT_OPEN`. The core never reopens a workspace
+implicitly; an MCP session opens its bound root once, at session start
+([ADR-0020](../adr/0020-operation-contract.md) §Scope).
 
 ## State model
 
 ```text
 Workspace
-├── identity      id, name, root, sdkRoot, trusted, createdAt
-├── project       modules, variants, build files, AGP/Gradle/Kotlin versions
+├── identity      id, name, root, sdkRoot, trusted (evaluated from policy, not stored), createdAt
+├── project       modules, variants, build files, AGP/Gradle/Kotlin versions (fetched lazily)
 ├── code          lsp session ref, open documents, diagnostics cache, index state
 ├── builds        running operations, build registry, last result
 ├── processes     workspace-owned sidecars (the Kotlin LSP, later)
@@ -82,12 +99,15 @@ any workspace.
   workspace in it, guarded by the daemon's `flock` (ADR-0019). No per-workspace lock
   file exists.
 - A workspace is **trusted or not**
-  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). Trust comes from a
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). Trust comes from a
   configured path prefix or an explicit human act — the UI, or `mydev trust` — and
-  **never** from an MCP binding, because a repository can ship its own `.mcp.json`. An
+  **never** from an MCP binding, because a repository can ship its own `.mcp.json`.
+  Both kinds of decision are policy: they live in the user configuration, not in
+  workspace state, so deleting `ws/<wsid>/` never grants or revokes trust. Trust is
+  re-evaluated before each call, so a grant takes effect without reopening. An
   untrusted workspace opens in restricted mode, where capabilities that run project
   code fail with `WORKSPACE_UNTRUSTED`. **Opening a workspace never runs project
-  code.**
+  code** (§Lifecycle).
 
 ## Durable vs ephemeral state
 
@@ -95,7 +115,7 @@ any workspace.
 | --- | --- | --- |
 | **Durable** | root, name, selected variant, preferences, recent workspaces, build registry and `lastResult`, durable artifacts (build consoles) | ✅ persisted |
 | **Durable exception** | **pid records** of supervised children — `{pid, pgid, startTime, command}` | ✅ persisted until reaped, for crash recovery only |
-| **Derived** | project modules/variants, AGP/Gradle versions | ❌ re-discovered on open (may be cached, deletable) |
+| **Derived** | project modules/variants, AGP/Gradle versions | ❌ fetched lazily on first use, trusted roots only (§Lifecycle); may be cached, deletable |
 | **Ephemeral** | running operations, process *state*, LSP session/index, diagnostics, watchers, subscriptions | ❌ never persisted |
 
 Processes are ephemeral; the *record of what we spawned* is not. That record is what
@@ -148,5 +168,5 @@ disconnect devices or kill the shared `adb` server.
 - Whether a workspace can be *reopened* while operations are still draining, or
   must fully close first.
 - How much derived state (e.g. project module graph) to cache between restarts to
-  speed up `opening`.
+  speed up the first `project.*` call.
 - Multi-root workspaces (one project root vs. several) — out of scope for v1?

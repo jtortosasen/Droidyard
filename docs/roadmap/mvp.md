@@ -62,7 +62,8 @@ image interpretation.
 - **Invocation contract**: `Start` / `Wait` / `Cancel`, with `operation.wait` and
   `operation.cancel` ([ADR-0020](../adr/0020-operation-contract.md)).
 - **Capability domains**: `system`, `workspace`, `project`, `build`, `device`,
-  `emulator`, `sdk`, `file`, `git`, `operation`, `events`, `shell`.
+  `emulator`, `sdk`, `file`, `git`, `artifact`, `policy`, `operation`, `events`,
+  `shell`.
 - **Sample app** as the acceptance target.
 - **Minimal web UI** (phase 2), grown as needed rather than built to a fixed spec.
 - **`git.*` as the last item** — a thin wrapper over the `git` CLI. It is allowed to
@@ -130,7 +131,7 @@ Acceptance:
 - The same capability is reachable from the CLI and from MCP with identical
   semantics.
 - Killing a shim does not stop an operation it started
-  ([ADR-0019](../adr/0020-operation-contract.md)).
+  ([ADR-0020](../adr/0020-operation-contract.md)).
 - The HTTP skeleton binds to **loopback only** and enforces the Host, Origin and
   per-launch-token baseline ([`../interfaces/http-websocket.md`](../interfaces/http-websocket.md)).
 
@@ -148,8 +149,6 @@ Deliverables (capabilities):
 - `device.*`: `list`, `install`, `launch`, `logs` (snapshot + bounded follow),
   `screenshot`, `uiTree`, `tapElement` (with assertions), `inputText`, `uninstall`.
 - `file.*`: `list`, `read`, `write`, `watch` (watch is needed by phase 2).
-- `operation.*`: `wait`, `cancel`.
-- `events.*`: `subscribe`, `unsubscribe` (adapter-side; not exposed as MCP tools).
 - `shell.exec` (**off by default**; a call returns `POLICY_SHELL_DISABLED`).
 
 Acceptance — the golden path is completed end-to-end by an **external agent**
@@ -283,8 +282,8 @@ in the MVP rather than assumed.
 
 | Risk | Mitigation |
 | --- | --- |
-| Build error shapes vary by AGP, Kotlin plugin and producer | A core console extractor for Kotlin, javac, kapt, KSP, AAPT2 and manifest-merger messages, with golden tests from recorded output; the Problems API where the plugin versions deliver it; a labelled raw tail only when nothing is recognised ([ADR-0022](../adr/0022-build-error-extraction.md)) |
-| AAPT2 errors name AGP's *merged* resources, not source files | Verified in spike S1; decide between resolving the blame id and quoting the merged line ([spike findings](../research/spike-s1-error-formats.md)) |
+| Build error shapes vary by AGP, Kotlin plugin and producer | A core console extractor for Kotlin, javac, kapt, KSP, AAPT2 and manifest-merger messages, with golden tests from recorded output. **Recorded so far: Kotlin, KSP and AAPT2, from the command line only** ([spike S1 run 1](../research/spike-s1-error-formats.md)); javac, kapt and manifest merger are still to record. The Problems API where the plugin versions deliver it; a labelled raw tail only when nothing is recognised ([ADR-0022](../adr/0022-build-error-extraction.md)) |
+| AAPT2 errors name AGP's *merged* resources, not source files | Observed in spike S1 run 1. Working assumption: report the virtual path labelled `merged: true` always, and quote the merged line where the file can be located. **Must be settled before `build.errors` is implemented** ([ADR-0022](../adr/0022-build-error-extraction.md) §Known open item) |
 | Compose exposes no resource-ids | Ship the sample app with `testTagsAsResourceId`; fall back to text/content-desc |
 | `uiautomator dump` is flaky ("could not get idle state") | Retry once, then a cause-attributed error that routes to text/OCR later |
 | MCP client differences (tool timeouts, tool limits, annotations) | Bounded wait with `operation.wait`; keep the exposed set small; verify against at least two assistants (spike S2) |
@@ -317,13 +316,15 @@ in the MVP rather than assumed.
 - **`file.*` is a first-class domain.**
 - **Gradle runs through a JVM Tooling API sidecar**
   ([ADR-0017](../adr/0017-gradle-execution-strategy.md)), staged per the amended ADR:
-  spikes S1/S3 → project model and `build.tasks` → execution with `build.errors` and
+  spikes **[S1 (one partial run so far; the Tooling API run is still pending) and S3]** →
+  project model and `build.tasks` → execution with `build.errors` and
   outputs → the probe → `build.test`.
 - **Gradle floor is 8.0**, with capability gating and a published supported range
   ([ADR-0018](../adr/0018-gradle-version-support-policy.md)).
-- **`shell.exec` is off by default**, and policy is never exposed over MCP — not even
-  in read-only form ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7).
-- **Project roots are trusted explicitly.** An untrusted root opens in restricted
+- **`shell.exec` is off by default** ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7),
+  and **policy is never exposed over MCP**, not even in read-only form (§6).
+- **Project roots are trusted explicitly** ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
+  An untrusted root opens in restricted
   mode, and capabilities that run project code fail with `WORKSPACE_UNTRUSTED`. Trust
   never comes from an MCP binding. *Needs ratification* — the cost is friction on the
   first agent session in a new project.

@@ -11,7 +11,9 @@ buried in prose.
 
 - Status: Proposed | Accepted | Superseded by ADR-XXXX | Deprecated
 - Date: YYYY-MM-DD
+- Amended: YYYY-MM-DD        (substantive edits after acceptance)
 - Supersedes: <optional>
+- Relates to: <optional>
 
 ## Context
 ## Decision

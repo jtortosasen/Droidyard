@@ -95,9 +95,9 @@ Each item below is a concrete change/addition to make, with a proposed home.
   boundary, not an annotation".
 - `process-lifecycle.md`: add per-device locking and concurrent-device support
   (reject single stream slot as a v1 limitation).
-- `subsystems/ui-automation.md` (planned): encode identity-first resolution,
+- `subsystems/ui-automation.md`: encode identity-first resolution,
   one-call verify, row abstraction, pure parsers.
-- `interfaces/mcp-tool-surface.md` (planned): annotations, server `instructions`,
+- `interfaces/mcp-tool-surface.md`: annotations, server `instructions`,
   explicit targets, output schemas.
 
 ## Safety and policy model worth adopting

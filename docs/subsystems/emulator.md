@@ -171,6 +171,9 @@ configuration: that is the AVD's business.
   [ADR-0020](../adr/0020-operation-contract.md)) and then adopts it.
 - Several emulators may be *running* at once; each is an ordinary device with its own
   lock ([adb-device](adb-device.md)).
+- A **short call queued behind a long one** fails with `OPERATION_QUEUE_TIMEOUT` after
+  20 s rather than waiting: `emulator.stop` behind a boot in progress, for instance
+  ([ADR-0020](../adr/0020-operation-contract.md) §States).
 
 ## Failure modes
 

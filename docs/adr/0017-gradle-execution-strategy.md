@@ -5,6 +5,9 @@
 - Amended: 2026-09-29 — staging re-sequenced, the error premise corrected
   ([ADR-0022](0022-build-error-extraction.md)), the pending design items ratified,
   sidecar JVM discovery decided.
+- Amended: 2026-09-29 — the error-location promise corrected to what the producers
+  emit (spike S1 run 1); S1's status stated; `build.cancel` marked as an internal
+  method.
 
 ## Context
 
@@ -86,7 +89,9 @@ have needed option C):
 
 0. **Spikes S1 and S3, before sidecar code.** They establish the error sources on
    real Android (KGP × Gradle × AGP) and the probe's feasibility, and they record the
-   console formats the extractor is tested against.
+   console formats the extractor is tested against. S1 run 1 recorded Kotlin, KSP and
+   AAPT2 formats on the command line for one version cell; the TAPI path and the
+   matrix are not yet run.
 1. **Sidecar skeleton + `project.model`** (generic TAPI model): `project.modules`,
    `build.tasks`.
 2. **Execution + errors together**: `build.run`/`build.assemble` over TAPI, console
@@ -109,10 +114,14 @@ The honest cost: this is the largest deviation from the "lean" goal so far.
 - The core stays Go and JVM-free; the JVM cost is isolated to one sidecar that idles
   out and serves every root ([ADR-0019](0019-process-topology-daemon-and-shims.md)).
 - We own a new artifact and an internal protocol, both of which need versioning.
-- `build.errors` returns `{file, line, column, severity, tool, source}` for every
-  toolchain, plus `problemId` and `solutions` where the Problems API supplies them —
-  still strictly better than the reference implementation, which drops line and
-  column.
+- `build.errors` returns `{severity, tool, source}` for every record, and `file`,
+  `line` and `column` **whenever the producer emits them**, plus `problemId` and
+  `solutions` where the Problems API supplies them. Not every producer emits all
+  three: in S1 run 1, Kotlin gave file, line and column; KSP gave no column; AAPT2
+  gave no column and no source file, only a merged-resource path
+  ([ADR-0022](0022-build-error-extraction.md) §Known open item). Keeping every field
+  a producer does emit is still strictly better than the reference implementation,
+  which drops line and column.
 - `build.tasks` becomes a first-class structured query instead of "run `tasks` and
   read the console".
 - The MVP's idle-memory budget must be restated: the sidecar is a JVM that exists
@@ -149,7 +158,9 @@ console parsing plus best-effort init-script output.
 Formerly "pending"; now ratified in [`gradle.md`](../subsystems/gradle.md):
 
 - **Method surface**: `hello`, `connection.open/close`, `project.model`, `build.run`,
-  `build.test`, `build.cancel`, `ping`, `shutdown`. S1/S3 may amend it.
+  `build.test`, `build.cancel`, `ping`, `shutdown`. `build.cancel` is the internal
+  sidecar method behind `operation.cancel`, not a capability
+  ([ADR-0020](0020-operation-contract.md)). S1/S3 may amend the surface.
 - **Where build state lives**: the core owns the registry, IDs, persistence, error
   merge and output resolution. The sidecar is an executor.
 - **High-volume output**: batched JSON-RPC notifications on the one pipe. The core

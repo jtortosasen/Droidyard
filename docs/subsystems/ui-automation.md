@@ -178,6 +178,39 @@ A `tapElement` holds the device's **write lock** from the before-dump to the las
 poll, so two callers cannot interleave a tap with another's verification. `uiTree` is a
 read, and waits only for the dump lock.
 
+## Typing: `device.inputText`
+
+```text
+device.inputText {device, text, target?, clear?, submit?, expect?}
+```
+
+- `target?` — a selector, the same vocabulary as `tapElement`. Omitted, the text goes
+  to whatever holds focus.
+- `clear?` — empty the field first (select-all, delete), only meaningful with a target.
+- `submit?` — press ENTER after typing.
+- `expect?` — the same assertion vocabulary, sequencing and timing as `tapElement`.
+
+**Delivery**, chosen by the text itself, never by guesswork:
+
+| Text | Path | On failure |
+| --- | --- | --- |
+| ASCII only | `input text`, with spaces as `%s` and shell metacharacters escaped | — |
+| Non-ASCII (CJK, emoji) | ADBKeyboard's `ADB_INPUT_B64` broadcast, when that IME is installed and selected | `DEVICE_TEXT_NOT_DELIVERABLE`, naming ADBKeyboard |
+
+Non-ASCII is **never silently mistyped**: without the IME the call fails and says what
+to install. The `method` in the result records which path was taken.
+
+**Result**: `{typed: true, characters, method: "input_text" | "adbkeyboard", matched?}`.
+`matched` appears only when `expect` was given.
+
+**The rules shared with `tapElement` apply unchanged**: after typing, the call never
+returns an error because a check failed — `matched: false` is a *completed* call, since
+an error would invite a retry and a retry types twice; and a check that was already
+true before typing is flagged `vacuous`.
+
+**Errors**: `DEVICE_ELEMENT_NOT_FOUND`, `DEVICE_ELEMENT_AMBIGUOUS`,
+`DEVICE_ELEMENT_DISABLED`, `DEVICE_TEXT_NOT_DELIVERABLE`.
+
 ## Input primitives
 
 The adb verbs beneath UI actions. The MVP exposes `tapElement` and `inputText`;
@@ -227,7 +260,6 @@ these rules and the same `expect` vocabulary.
 - **Row abstraction** for feeds whose controls are unlabelled: repeated isomorphic
   siblings (≥ 3, same class, near-equal height) as rows, with counter parsing, and
   `count` assertions built on it.
-- Coordinate taps, swipes, text input and scroll-to-find, sharing the `expect`
-  vocabulary.
+- Coordinate taps, swipes and scroll-to-find, sharing the `expect` vocabulary.
 - An OCR backend behind the same conditions, for trees with no accessibility
   information ([ADR-0013](../adr/0013-ocr-optional-pluggable.md)).

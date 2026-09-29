@@ -9,9 +9,10 @@ errors and build outputs. Implements
 facts and build outputs).
 
 > Status: draft. The division of responsibility, the protocol, the output transport
-> and the sidecar JVM discovery are **ratified** (2026-09-29). Spikes S1 and S3
-> ([below](#spikes-before-the-sidecar-is-written)) run before the sidecar is written;
-> their results may amend the method surface and the extractor fixtures, not the
+> and the sidecar JVM discovery are **ratified** (2026-09-29). Spike S1 has had one
+> partial run (command line only, one version cell); its TAPI run and S3
+> ([below](#spikes-before-the-sidecar-is-written)) come before the sidecar is written.
+> Their results may amend the method surface and the extractor fixtures, not the
 > ownership model.
 
 ## Why a sidecar
@@ -39,7 +40,8 @@ every open root ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)); 
 method carries `root`.
 
 The Problems API does **not** cover the most common Android failures (Kotlin compiler
-errors on KGP < 2.4, AAPT2, manifest merger, KSP/kapt). Those come from the core's
+errors on KGP < 2.4, AAPT2, manifest merger, KSP/kapt), according to the plugins'
+documentation; S1 has not yet observed the TAPI side. Those come from the core's
 console extractor ([ADR-0022](../adr/0022-build-error-extraction.md)). The sidecar's
 case rests on the rest of the list above, not on errors alone.
 
@@ -94,7 +96,7 @@ connection.close { root }
 project.model    { root, probe: bool }    → ProjectModel (below)
 build.run        { buildId, root, tasks[], args[] } → { accepted }
 build.test       { buildId, root, task, filters? } → { accepted }
-build.cancel     { buildId }
+build.cancel     { buildId }                // internal; the only route to it is operation.cancel
 ping
 shutdown
 ```
@@ -129,10 +131,11 @@ event.build.finished       { buildId, outcome, failures[], failureProblems[] }
 - **Console output** is sent as **coalesced batches**, one pipe, no separate channel.
   Working defaults: 200 lines or 64 KiB per message, flushed every 100 ms. TAPI colour
   output is off, so the text carries no ANSI codes.
-- The core writes the **full console** to a **durable artifact** under the workspace
-  state directory ([ADR-0021](../adr/0021-persistence-format-and-location.md)) and
-  feeds the same stream to the console extractor. Consumers receive a reference, never
-  a path ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
+- The core writes the **full console** of every build, failed or not, to a **durable
+  artifact** under the workspace state directory
+  ([ADR-0021](../adr/0021-persistence-format-and-location.md)) and feeds the same
+  stream to the console extractor. Consumers receive a reference, never a path
+  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
 - Consumers read it through **`artifact.read`** (`{ref, offset, limit}`), which reports
   `growing: true` while the build is running; the UI uses `GET /v1/artifacts/{id}` with
   `Range` support. MCP renders a bounded tail.
@@ -151,10 +154,10 @@ Build
 ├── startedAt / finishedAt
 ├── taskSummary     { executed, upToDate, fromCache, noSource, skipped, failed }
 ├── tasks[]         { path, outcome, durationMs, reason?, provenance? }
-│                   outcome: SUCCESS | UP_TO_DATE | FROM_CACHE | NO_SOURCE | SKIPPED | FAILED
+│                   outcome: success | upToDate | fromCache | noSource | skipped | failed
 ├── problems[]      merged errors and warnings (see Error model)
 ├── failures[]      failure tree with stable ids
-├── tests[]         { suite, test, outcome: SUCCESS | FAILED | SKIPPED, durationMs }
+├── tests[]         { suite, test, outcome: success | failed | skipped, durationMs }
 ├── outputs[]       installable outputs (see Build outputs)
 ├── profile         toolchain profile snapshot (see Version detection)
 ├── extraction      { sources[], unrecognised }
@@ -187,7 +190,7 @@ outputs[]
   `filters`). No build script, version catalog or manifest is ever parsed for an
   application id.
 - **Located, not assumed.** For every module whose `package<Variant>` task ended
-  `SUCCESS`, `UP_TO_DATE` or `FROM_CACHE` **in this build**, the core searches
+  `success`, `upToDate` or `fromCache` **in this build**, the core searches
   `<buildDir>/outputs/apk/` (buildDir from the project model, depth-bounded) for the
   `output-metadata.json` whose `variantName` matches. The task condition guarantees
   the file describes this build's output, not a stale one.
@@ -206,17 +209,19 @@ build: { buildId?, module, variant }
   matching output.
 - Resolution: exactly one APK with no filters → that APK. The core re-checks that the
   file still exists with the recorded size and mtime before handing it to `adb`.
-- Errors: `NO_SUCH_OUTPUT` (no build produced it), `OUTPUT_STALE` (file gone or
-  changed; next step: rebuild), `UNSUPPORTED_OUTPUT` (shape outside MVP scope).
+- Errors: `BUILD_OUTPUT_NOT_FOUND` (no build produced it), `BUILD_OUTPUT_STALE` (file gone or
+  changed; next step: rebuild), `BUILD_OUTPUT_UNSUPPORTED` (shape outside MVP scope).
 - `device.launch` and `device.logs` take the `applicationId` from the same record.
 
 **MVP scope.** In: one unfiltered APK per variant, which is what a debug build of an
 application module produces. Out: ABI/density multi-APK outputs (listed with their
-`filters`, install refused with `UNSUPPORTED_OUTPUT`), App Bundles (`bundle<Variant>`
+`filters`, install refused with `BUILD_OUTPUT_UNSUPPORTED`), App Bundles (`bundle<Variant>`
 needs bundletool and is not listed), `androidTest` APKs, dynamic-feature and instant
 apps.
 
 ## Error model
+
+Illustrative record from a Problems source (values invented):
 
 ```json
 {
@@ -227,7 +232,7 @@ apps.
   "file": "app/src/main/java/Foo.kt",
   "line": 83,
   "column": 12,
-  "message": "Unresolved reference: Bar",
+  "message": "Unresolved reference 'Bar'.",
   "solutions": ["import com.example.Bar"],
   "documentationLink": "https://..."
 }
@@ -236,14 +241,22 @@ apps.
 - `source`: `failure` | `event` | `console` — which path produced the record.
 - `tool`: `kotlin` | `javac` | `kapt` | `ksp` | `aapt2` | `manifest-merger` | `agp` |
   `gradle`.
-- `file` is relative to the project root; paths outside it are reported as given and
-  flagged `external`. `generated: true` marks locations in generated sources (kapt
-  stubs) that are not the user's code.
-- **`file` and `line` are required whenever the tool emits them; `column` whenever it
-  exists** (Kotlin and javac emit it, AAPT2 often does not). The reference
-  implementation receives locations from the Problems API and discards the line; we
-  keep all of it. Severity follows the target's semantics (Gradle 9.6 changed how it
-  is assigned).
+- `file` has three cases:
+  - inside the project: relative to the project root (the normal case);
+  - outside it: reported as given and flagged `external: true`;
+  - an AAPT2 **merged-resource path** (`<blame-id>:/values/values.xml`): reported
+    verbatim, flagged `merged: true`, and never presented as a source file. The record
+    may carry `excerpt`, the quoted line from the merged file (see
+    [Merged-resource paths](#merged-resource-paths-aapt2)).
+
+  `generated: true` marks locations in generated sources (kapt stubs) that are not the
+  user's code.
+- **`file`, `line` and `column` are required whenever the producer emits them, and
+  absent otherwise.** In S1 run 1, Kotlin emitted all three; KSP and AAPT2 emitted no
+  column, and AAPT2 no source file. javac's column is expected from its caret line
+  (not yet recorded). The reference implementation receives locations from the
+  Problems API and discards the line; we keep all of it. Severity follows the
+  target's semantics (Gradle 9.6 changed how it is assigned).
 - `problemId`, `solutions` and `documentationLink` exist only for Problems API records.
 
 ### Three sources, merged
@@ -267,21 +280,48 @@ current TAPI client no longer ships.
 ### Console extractor
 
 Pure Go, in the core. Input: the console stream the sidecar forwards **and** the text
-of failure-tree nodes (AAPT2 and manifest-merger detail often lives only in the
-failure message). Starting set of recognised forms, to be replaced by the formats S1
-records:
+of failure-tree nodes. Both are read because S1 run 1 found the Kotlin location only
+in the console and the AAPT2 location only inside the failure message. That run was
+on the command line with `--console=plain`; that the TAPI-forwarded console (colour
+off) carries the same lines is an assumption until S1 runs over TAPI.
 
-| Tool | Form | Yields |
-| --- | --- | --- |
-| Kotlin | `e: file:///abs/Foo.kt:83:12 message` (`w:` = warning); older `e: /abs/Foo.kt: (83, 12): message` | file, line, column |
-| javac | `/abs/Foo.java:83: error: message` + source line + caret line + `symbol:`/`location:` | column from the caret; continuation folded into the message |
-| kapt | javac form, often prefixed `e: `, under `build/tmp/kapt3/stubs/` | as javac, `generated: true` |
-| KSP | `e: [ksp] /abs/Foo.kt:12: message` (and the `file://` form) | file, line |
-| AAPT2 | `ERROR: /abs/res/layout/main.xml:12: AAPT: error: message`; also file-less `AAPT: error: …` | file, line when present |
-| Manifest merger | `/abs/AndroidManifest.xml:12:5-40 Error:` + indented lines; `Manifest merger failed : …` | file, line, column (range start) |
-| AGP SDK | licence-not-accepted and missing-package messages naming SDK package ids | `category: sdk.missing`, `package` |
+Recognised forms. **Observed** = recorded verbatim in S1 run 1 (Gradle 8.13,
+AGP 8.13.2, KGP 2.0.21, command line). **Expected** = from documentation or
+experience, not yet recorded; each needs a real recording before its golden test is
+final.
+
+| Tool | Form | Yields | Status |
+| --- | --- | --- | --- |
+| Kotlin | `e: file:///abs/Foo.kt:3:42 message` (`file://` URI) | file, line, column | Observed |
+| Kotlin | untagged `w: file:///…` warnings; the older `e: /abs/Foo.kt: (83, 12): message` | file, line, column | Expected |
+| KSP | `w: [ksp] /abs/Foo.kt:9: message` (plain path) | file, line; no column | Observed |
+| KSP | `e: [ksp] …` errors, same shape | file, line | Expected |
+| AAPT2 (link) | inside the failure message, under `Android resource linking failed`: `<blame-id>:/values/values.xml:210: error: message`, then file-less `error: failed linking references.` | merged path (`merged: true`), line; no column | Observed |
+| AAPT2 (compile) | malformed-resource errors, possibly naming the source path (`…/res/layout/main.xml:12: … AAPT: error: …`) | file, line when present | Expected; shape unknown |
+| javac | `/abs/Foo.java:83: error: message` + source line + caret line + `symbol:`/`location:` | column from the caret; continuation folded into the message | Expected |
+| kapt | javac form, often prefixed `e: `, under `build/tmp/kapt3/stubs/` | as javac, `generated: true` | Expected |
+| Manifest merger | `/abs/AndroidManifest.xml:12:5-40 Error:` + indented lines; `Manifest merger failed : …` | file, line, column (range start) | Expected |
+| AGP SDK | licence-not-accepted and missing-package messages naming SDK package ids | `category: sdk.missing`, `package` | Expected |
 
 Each form is independent: a format change degrades one tool, not the extractor.
+
+### Merged-resource paths (AAPT2)
+
+AAPT2 link errors name AGP's **merged** resources through an opaque blame id
+(`com.example.app-mergeDebugResources-42:/values/values.xml:210`), not the file the
+developer wrote ([ADR-0022](../adr/0022-build-error-extraction.md) §Known open item).
+The message still names the missing resource, which is actionable on its own.
+Options:
+
+1. **Resolve the blame id** to the source file through AGP's merged-resource
+   metadata. Undocumented intermediate state that changes between AGP versions.
+2. **Read the merged file and quote the line** (`excerpt`). Best-effort: locating the
+   file from the blame id also depends on AGP's intermediate layout, and whether it
+   survives the failed task on disk is unverified.
+3. **Report the virtual path as-is**, labelled `merged: true`.
+
+Working assumption: 3 always, plus 2 where the merged file can be located. The
+choice **must be settled before `build.errors` is implemented**.
 
 ### Merge rules
 
@@ -356,7 +396,7 @@ Generic TAPI models give modules, tasks and directories, but not Android variant
   aggregates (`assembleDebug` in a flavoured project) and library modules. Names only;
   no build-type/flavour split.
 - Either way, the build output's `variantName` confirms the variant after a build, so
-  a heuristic miss surfaces as `NO_SUCH_OUTPUT`, not as a wrong install.
+  a heuristic miss surfaces as `BUILD_OUTPUT_NOT_FOUND`, not as a wrong install.
 
 ### SDK requirements (build side)
 
@@ -397,7 +437,7 @@ builds is reported as `queued` with `blockedBy` ([ADR-0020](../adr/0020-operatio
 
 Every Gradle-touching call requires a **trusted** project root; an untrusted one fails
 with `WORKSPACE_UNTRUSTED` before anything is spawned
-([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
 
 - **Lazy start**: on the first `build.*`, `project.*` or `sdk.requirements` call that
   needs it, not at core start.
@@ -477,13 +517,17 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
    | --- | --- | --- |
    | Kotlin (JVM) | `problemLocations` and KGP ≥ 2.4 | console |
    | javac | `problemLocations` (javac reports since Gradle 8.9) | console |
-   | AAPT2, manifest merger, KSP, kapt | not assumed until S1 shows otherwise | console |
+   | AAPT2, manifest merger, KSP, kapt | not assumed; S1's TAPI run checks | console |
 
    These choose which source is primary and what the result reports as expected. They
    never switch the extractor off.
-5. **Report it** in every build result: Gradle version and source, AGP, KGP, `profile`
-   (`full` / `degraded` / `conservative`) and `validation` (`tested` / `untested` /
-   `unsupported`).
+5. **Report it** in every build result: Gradle version and source, AGP, KGP,
+   `profile` and `validation`. Both are defined in
+   [ADR-0018](../adr/0018-gradle-version-support-policy.md): `full` (Gradle ≥ 8.13,
+   every gated capability working), `degraded` (8.0–8.12, or a capability that failed
+   at call time; the result lists what is missing), `conservative` (below the floor
+   through the escape hatch); `tested` / `untested` / `unsupported` by CI row and
+   tier.
 
 ## Failure modes
 
@@ -497,7 +541,7 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 | Probe fails, fully or per field | Generic model still returned; affected fields `unknown`; variants fall back to task names |
 | Problems API unavailable or partial | Console extractor covers it; the result reports the source per tool |
 | Failed build, nothing recognised | `unrecognised: true`, root failure messages and a bounded tail — never an empty success |
-| Output metadata missing | No output for that variant, with the reason; install gets `NO_SUCH_OUTPUT` |
+| Output metadata missing | No output for that variant, with the reason; install gets `BUILD_OUTPUT_NOT_FOUND` |
 | Daemon OOM | Surface the daemon's own error and the memory flags it suggests; do not retry blindly |
 | Task not found | `build.tasks` is the discovery path; the error lists near-matches where possible |
 | No wrapper in the project | Report it; TAPI would otherwise silently use its own Gradle version |
@@ -511,7 +555,7 @@ Per [ADR-0021](../adr/0021-persistence-format-and-location.md):
 - **`lastResult` survives restarts**: the newest finished record. The console is
   referenced, not inlined.
 - The output-path index behind `outputs[]` is persisted with the record, so an install
-  reference stays resolvable after a restart (subject to the `OUTPUT_STALE` check).
+  reference stays resolvable after a restart (subject to the `BUILD_OUTPUT_STALE` check).
 - Retention: capped by count and age (working default: last 50 builds or 7 days),
   oldest first. Configurable.
 
@@ -521,8 +565,10 @@ Per [ADR-0021](../adr/0021-persistence-format-and-location.md):
   plugin versions per fixture, so tests run against specific targets.
 - **Compatibility matrix** per ADR-0018, with a KGP axis (2.3 vs 2.4) and an AGP axis
   (floor and latest).
-- **Extractor golden tests**: recorded real consoles and failure texts (from S1) in,
-  expected records out. Pure Go, no JVM.
+- **Extractor golden tests**: recorded real consoles and failure texts in, expected
+  records out. Pure Go, no JVM. S1 run 1 supplies Kotlin, KSP and AAPT2 (command
+  line); TAPI-forwarded recordings replace them where they differ, and every
+  "Expected" form in the extractor table needs its own recording.
 - **Probe canary**: the probe against the Gradle floor and the newest release, and AGP
   floor and latest. It must return a model, and a broken field must degrade to
   `unknown`, never fail the fetch.
@@ -540,6 +586,14 @@ structured locations (updates the table in step 4 above) and the recorded consol
 formats (the extractor's fixtures). Whatever S1 finds, the extractor ships: the
 question it answers is which source is primary where, not whether we parse.
 
+*Run 1 (2026-09-29), partial* — [findings](../research/spike-s1-error-formats.md):
+one project, one cell outside the matrix (Gradle 8.13, AGP 8.13.2, KGP 2.0.21), via
+`./gradlew --no-daemon --console=plain`. It recorded the Kotlin, KSP and AAPT2 forms
+marked Observed above and raised the merged-resource path problem. **Not yet run:**
+the TAPI path, the Problems API (failure-carried and events), the matrix, javac,
+kapt, manifest merger, a warm daemon. Run 2 needs a minimal TAPI client and starts
+with the KGP 2.3 vs 2.4 cells.
+
 **S3 — Android facts from a non-Studio client.** Run the probe on the sample app and
 on a flavoured, multi-module fixture across AGP 8.0 / 8.x / 9.x: which fields resolve,
 cost of the model fetch, and the accuracy of the task-name fallback against the
@@ -553,6 +607,5 @@ does not block.
 
 - Whether to expose a raw "arbitrary Gradle arguments" escape hatch, mirroring
   `shell.exec`.
-- Whether to persist the console always, or only for failed builds.
 - Included builds (composite projects) in `project.model`.
 - Isolated Projects: whether the probe's per-project registration survives it (S3).

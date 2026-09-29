@@ -35,13 +35,13 @@ we use the same adb as Android Studio and the same SDK as the emulator launcher.
 from the running server's kills and restarts that server — cutting off Android Studio
 and every other tool attached to it. Before first use, the core compares its client
 version (`adb version`) with the running server's (`host:version` on port 5037). On a
-mismatch it refuses device calls with `ADB_VERSION_MISMATCH`, naming both binaries and
+mismatch it refuses device calls with `DEVICE_ADB_VERSION_MISMATCH`, naming both binaries and
 the config key that selects the matching one. *(Recommended over "warn and proceed";
 needs ratification.)* If no server is running, the core starts one; starting is not
 killing.
 
 If nothing resolves, the core **still loads and registers every capability**; each
-device call then fails with `ADB_NOT_FOUND` and an explanation. Degrade, don't refuse.
+device call then fails with `DEVICE_ADB_NOT_FOUND` and an explanation. Degrade, don't refuse.
 `system.capabilities` reports device capabilities as unavailable with that reason, and
 `system.health` reports the resolved binary, its version and its source. Devices are
 global, so no workspace is degraded by this.
@@ -109,7 +109,7 @@ row except `device.list` takes `device`.
 | `device.uninstall` | MVP | G | `applicationId` |
 | `device.logs` | MVP | G | Snapshot or bounded follow, structured (§Logs) |
 | `device.screenshot` | MVP | G | Returns an **artifact reference**, never a path |
-| `device.uiTree`, `device.tapElement` | MVP | G | See [ui-automation](ui-automation.md) |
+| `device.uiTree`, `device.tapElement`, `device.inputText` | MVP | G | See [ui-automation](ui-automation.md) |
 | `device.forceStop` | post-MVP | G | `am force-stop` |
 | `device.processes`, `device.meminfo`, `device.appInfo`, `device.backtrace` | post-MVP | G | Parse into structured facts; empty is a fact, not a failure |
 
@@ -127,8 +127,8 @@ single source is AGP's `output-metadata.json`
 
 - `adb -s <serial> install -r <apk>`; `Failure [INSTALL_FAILED_…]` is detected even on
   exit 0 and reported as `DEVICE_INSTALL_FAILED` with the `INSTALL_FAILED_*` reason.
-- Output resolution errors are the build subsystem's: `NO_SUCH_OUTPUT`,
-  `OUTPUT_STALE`, `UNSUPPORTED_OUTPUT`.
+- Output resolution errors are the build subsystem's: `BUILD_OUTPUT_NOT_FOUND`,
+  `BUILD_OUTPUT_STALE`, `BUILD_OUTPUT_UNSUPPORTED`.
 - The result carries `applicationId`, which `launch`, `uninstall` and `logs` take.
 
 ### Launch
@@ -236,8 +236,8 @@ quirks, accepting the prompt. That belongs in a skill
 | Install rejected | `DEVICE_INSTALL_FAILED` | The `INSTALL_FAILED_*` reason as the cause |
 | Launch finds no launcher activity | `DEVICE_LAUNCH_FAILED` | The monkey output line as the cause |
 | Device disconnects mid-operation | `DEVICE_DISCONNECTED` | That operation fails with the transport error; other devices and workspaces are unaffected |
-| adb missing | `ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it |
-| adb client/server version mismatch | `ADB_VERSION_MISMATCH` | Both versions and binaries; the shared server is left alone |
+| adb missing | `DEVICE_ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it |
+| adb client/server version mismatch | `DEVICE_ADB_VERSION_MISMATCH` | Both versions and binaries; the shared server is left alone |
 
 UI automation failures are listed in [ui-automation](ui-automation.md) §Failure modes.
 

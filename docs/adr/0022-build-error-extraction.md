@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-09-29
+- Amended: 2026-09-29 — the S1 evidence scoped to what run 1 observed (command line,
+  one cell, three producers); golden-test coverage stated as to be recorded; the
+  AAPT2 open item given its caveat and a single wording.
 - Relates to: [ADR-0017](0017-gradle-execution-strategy.md),
   [ADR-0018](0018-gradle-version-support-policy.md)
 
@@ -14,8 +17,8 @@ Checked on 2026-09-29, the availability depends on three axes, not one:
   diagnostics to the Problems API. Only KGP **2.4.0** (July 2026) also writes
   **compiler messages** for Kotlin/JVM
   ([what's new in 2.4.0](https://kotlinlang.org/docs/whatsnew24.html)). Most Android
-  projects today are on KGP ≤ 2.3, where a Kotlin compile error exists only as console
-  text (`e: file:///…:L:C message`).
+  projects today are presumably on KGP ≤ 2.3 (2.4.0 is two months old; not measured),
+  where a Kotlin compile error exists only as console text (`e: file:///…:L:C message`).
 - **javac (Gradle version).** Reported to the Problems API since Gradle 8.9.
 - **Gradle and the TAPI client.** Problems events reach clients since 8.4, but the
   `Problem` shape the current client exposes dates from 8.12, and its origin
@@ -42,8 +45,10 @@ location) is available only as text.
 2. **The console extractor is a first-class component**, not a last resort. It is
    pure Go in the core, and runs over the console stream the sidecar forwards and over
    the text of failure-tree nodes. It recognises Kotlin, javac, kapt, KSP, AAPT2,
-   manifest-merger and AGP SDK-signature output. Each format is independent and
-   covered by golden tests built from recorded real output (spike S1).
+   manifest-merger and AGP SDK-signature output. Each format is independent and gets
+   golden tests built from recorded real output. Those recordings are **to be made**:
+   spike S1 run 1 covers Kotlin, KSP and AAPT2 on the command line only; javac, kapt,
+   manifest-merger and the TAPI-forwarded console are still to be recorded.
 3. **Merge and label.** Records are deduplicated on
    `(severity, file, line, column?, message head)`. The richest record wins
    (failure > event > console) and missing locations are filled from the others.
@@ -61,34 +66,44 @@ location) is available only as text.
 
 Details: [`subsystems/gradle.md`](../subsystems/gradle.md) §Error model.
 
-## Verified against real output (spike S1)
+## Observed in spike S1, run 1 (command line, one cell)
 
-Spike S1 ran this against `DopamineControl`, a real multi-module Compose project
-(Gradle 8.13, AGP 8.13.2, **KGP 2.0.21**). Raw output and method:
-[`../research/spike-s1-error-formats.md`](../research/spike-s1-error-formats.md).
+Run 1 used `DopamineControl`, a real multi-module Compose project (Gradle 8.13,
+AGP 8.13.2, **KGP 2.0.21**, which is outside the S1 matrix), through `./gradlew
+--no-daemon --console=plain`. Raw output, method and the full list of what was not
+run: [`../research/spike-s1-error-formats.md`](../research/spike-s1-error-formats.md).
 
 - **Kotlin** — `e: file://<absolute-path>:<line>:<column> <message>`. The path is a
   `file://` URI; a parser must strip the scheme and handle percent-encoding.
-- **KSP/Kotlin tagged warnings** — `w: [ksp] <path>:<line>: <message>`: **no column**.
-- **AAPT2** — `<blame-id>:/values/values.xml:<line>: error: <message>`.
-- **The failure tree carries no location.** The task fails with
-  "`Compilation error. See log for more details`". A consumer reading only the failure
-  tree learns nothing about *where*.
+- **KSP-tagged warning** — `w: [ksp] <path>:<line>: <message>`: **no column**.
+- **AAPT2** — `<blame-id>:/values/values.xml:<line>: error: <message>`, **no column**,
+  inside the failure message ("Android resource linking failed").
+- **For Kotlin, the failure carries no location.** The task fails with
+  "`Compilation error. See log for more details`"; on the command line the location
+  appeared only in the compiler's console line.
+
+**Not observed:** the TAPI path (console as forwarded, the failure tree as an object),
+the Problems API in either form, any matrix cell, a warm daemon, and javac, kapt and
+manifest-merger output. Which source is primary per tool therefore rests on the
+documentation cited in §Context until S1 runs over TAPI.
 
 ### Known open item: AAPT2 paths are not source paths
 
 The AAPT2 location names AGP's **merged** resources (`app-mergeDebugResources-42`),
-not the file the developer wrote. Options, none yet chosen:
+not the file the developer wrote. The message still names the missing resource, which
+is actionable on its own. Options:
 
 1. resolve the blame id through AGP's merged-resource metadata — undocumented
-   intermediate state, exactly what ADR-0018 rule 4 warns against;
-2. read the merged file at the reported path and quote the line, so the agent gets the
-   content and the message even without the original path;
-3. report the virtual path as-is, labelled.
+   intermediate state that changes between AGP versions;
+2. read the merged file and quote the line, so the agent gets the content and the
+   message even without the original path. Locating that file from an opaque blame id
+   also depends on AGP's intermediate layout (unverified), so this is best-effort;
+3. report the virtual path as-is, labelled as merged.
 
-A combination of 2 and 3 is the working assumption; it must be settled before
-`build.errors` is implemented, because resource-linking failures are the most common
-Android-specific breakage.
+Working assumption: 3 always, plus 2 where the merged file can be located. The
+choice **must be settled before `build.errors` is implemented**, because
+resource-linking failures are likely the most common Android-specific breakage (an
+assumption, not measured).
 
 ## Consequences
 

@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-09-27
+- Amended: 2026-09-29 — §Consequences said the UI "works on any device on the same
+  network". Deliberate narrowing: the MVP binds **loopback only**, and LAN exposure is
+  designed-for but not delivered
+  ([`interfaces/http-websocket.md`](../interfaces/http-websocket.md)).
 
 ## Context
 

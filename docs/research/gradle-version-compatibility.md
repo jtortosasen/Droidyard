@@ -107,9 +107,13 @@ Gradle only transports problems; plugins must report them. Two plugins matter:
   detail lives in the console and, for AAPT2 and the manifest merger, in the failure
   message.
 
-Consequence: structured Kotlin errors need Gradle ≥ 8.13 **and** KGP ≥ 2.4. Most
-Android projects in 2026 are on KGP ≤ 2.3. A console extractor is therefore
-first-class, not a fallback (ADR-0022). Spike S1 verifies the full matrix.
+Consequence: structured Kotlin errors need Gradle ≥ 8.13 **and** KGP ≥ 2.4 (per the
+documentation above). Most Android projects in 2026 are presumably on KGP ≤ 2.3
+(2.4.0 is recent; not measured). A console extractor is therefore first-class, not a
+fallback (ADR-0022). Spike S1 is to verify this across the matrix; its first run
+covered one cell outside it (KGP 2.0.21), on the command line only, and did not
+observe the Problems API
+([findings](spike-s1-error-formats.md)).
 
 ## 4. Where `gradle-mcp`'s fragility actually lives
 
@@ -158,16 +162,18 @@ policy gap.
   never from build scripts or version catalogs.
 - **Report it**: every build result should carry the Gradle version, its source
   (`wrapper` or `connector`), AGP and KGP versions, the capability profile
-  (`full` / `degraded` / `conservative`) and whether that version was `tested`,
-  `untested` or `unsupported`.
+  (`full` / `degraded` / `conservative`, defined in ADR-0018) and whether that version
+  was `tested`, `untested` or `unsupported`.
 
 ## 6. Recommended policy
 
 *As recommended on 2026-09-28. [ADR-0018](../adr/0018-gradle-version-support-policy.md)
-(amended 2026-09-29) supersedes it. The ADR makes the tiers exhaustive (7.3–7.x,
-including 7.6, becomes "below the floor", reachable through an escape hatch), defines
-the conservative profile, adds the KGP/AGP axis, and names the one init script (the
-model-only probe) that the canary targets.*
+(amended twice on 2026-09-29) supersedes it. The ADR moves 7.3–7.x, including 7.6,
+"below the floor", reachable through an escape hatch; puts 9.0 up to the minor below
+Tier A (including 9.1) in Tier B, which this table left out; defines `validation` and
+the three profiles; adds the KGP/AGP axis; and names the one init script (the
+model-only probe) that the canary targets. Tier B's "degradation for test filters"
+below does not hold: filters exist from 7.6.*
 
 | Tier | Versions | Commitment |
 | --- | --- | --- |

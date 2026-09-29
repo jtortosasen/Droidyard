@@ -145,16 +145,19 @@ background".
 ```
 
 - `operation.state`: `queued | running | completed | failed | cancelled`. A `queued`
-  operation names what it waits behind in `blockedBy`.
-- `result` is present iff `completed`; `error` iff `failed` or `cancelled`.
+  operation names what it waits behind in `blockedBy {operationId, capability}`.
+- `result` is present iff `completed`; `error` iff `failed` or `cancelled` (the latter
+  with `OPERATION_CANCELLED`). Never both.
 - A request rejected before it starts (unknown capability, bad params, missing
-  `workspace`, policy denial) has an `error` and **no** `operation`.
-- **A failed build is `completed`**, with `outcome: FAILED` in its result. `failed` is
-  reserved for calls that could not be performed.
+  `workspace`, a workspace not open, policy denial) has an `error` and **no**
+  `operation`.
+- **A failed build is `completed`**, with `outcome: "failed"` in its result. `failed`
+  is reserved for calls that could not be performed.
 
 ### Error model
 
-One shape everywhere — the envelope, MCP (`isError: true`), CLI output:
+One shape everywhere — the envelope, MCP (`isError: true`, the object as JSON text),
+CLI output:
 
 ```json
 {
@@ -174,6 +177,12 @@ One shape everywhere — the envelope, MCP (`isError: true`), CLI output:
 | `nextStep` | Optional. What the caller should do, naming capabilities by canonical name. |
 | `details` | Optional. Typed per `code`, declared in the schema. |
 
+**`<DOMAIN>`** is the domain that owns the failure, which is not always the domain of
+the capability called: `device.install` returns `BUILD_OUTPUT_STALE`. It is a
+capability domain (§Naming), or one of three reserved prefixes for failures that
+belong to no domain: `REQUEST` (the envelope), `SESSION` (the connection), `DAEMON` (the
+socket handshake). The list is closed; a new prefix is a schema change.
+
 **Versioning of codes.** Error codes are part of the published schema: each descriptor
 lists the codes it may return, and the golden file records them. Following the API's
 semantic version:
@@ -191,9 +200,17 @@ Codes carry no version suffix of their own.
 | Code | Meaning |
 | --- | --- |
 | `SESSION_REQUIRED` | A stateful/streaming capability was called without a session ([ADR-0010](../adr/0010-capability-statefulness.md)) |
+| `REQUEST_IDEMPOTENCY_CONFLICT` | An `idempotencyKey` was reused with different params (§Idempotency) |
+| `WORKSPACE_NOT_OPEN` | A workspace-scoped call named a root or id that is not open; nextStep `workspace.open` ([ADR-0020](../adr/0020-operation-contract.md)) |
+| `WORKSPACE_UNTRUSTED` | The workspace opened in restricted mode; the capability touches project code ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5) |
+| `OPERATION_NOT_FOUND` | `operation.wait`/`cancel` on an id that never existed or is past retention |
+| `OPERATION_CANCELLED` | The error of every `cancelled` operation |
+| `OPERATION_QUEUE_TIMEOUT` | A short call stayed `queued` past the queue bound; it never ran (§Operations and cancellation) |
 | `ARTIFACT_NOT_FOUND` / `ARTIFACT_EXPIRED` | The reference is unknown, or ephemeral and past its TTL ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) |
-| `WORKSPACE_UNTRUSTED` | The workspace opened in restricted mode; the capability touches project code ([ADR-0015](../adr/0015-untrusted-data-authorization.md)) |
 | `POLICY_SHELL_DISABLED` | `shell.exec` is not enabled ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7) |
+
+`DAEMON_VERSION_MISMATCH` is a handshake reply, not a capability error
+([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 
 ### Operations and cancellation
 
@@ -206,6 +223,11 @@ Codes carry no version suffix of their own.
   operation, and operations outlive the session that started them
   ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 - Terminal operations stay waitable for 15 minutes (at least the last 200).
+- **Queue bound.** A capability not flagged long-running that is still `queued` after
+  20 s fails with `OPERATION_QUEUE_TIMEOUT`, naming `blockedBy`; it never ran, so a
+  retry is safe. This keeps a `device.tapElement` queued behind a `device.install`, or
+  an `emulator.stop` behind a boot, from outliving a client timeout
+  ([ADR-0020](../adr/0020-operation-contract.md) §States).
 
 ### Idempotency
 
@@ -214,7 +236,7 @@ Codes carry no version suffix of their own.
 - Commands that accept an `idempotencyKey` (descriptor `AcceptsIdempotencyKey`) dedupe
   on `(workspace or global, capability, key)` within the retention window: a repeat
   returns the existing operation instead of starting new work; the same key with
-  different params is `IDEMPOTENCY_KEY_CONFLICT`.
+  different params is `REQUEST_IDEMPOTENCY_CONFLICT`.
 
 ## Scope: global vs workspace
 
@@ -228,6 +250,12 @@ outputs, which belong to a workspace. The device is still named explicitly.
 Adapters supply `workspace`: the UI from its own selection, the CLI from
 `--workspace` or the cwd, and MCP from the session's binding, so agents never pass it
 ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+
+The target must be **open**: the core never opens a workspace implicitly, and any
+other workspace-scoped call on a root that is not open gets `WORKSPACE_NOT_OPEN`. The
+MCP adapter opens its bound root once, when the session starts; after a
+`workspace.close` by any client it does not reopen it
+([ADR-0020](../adr/0020-operation-contract.md) §Scope).
 
 ## Classification of the MVP surface
 
@@ -360,9 +388,19 @@ not flail.
 
 ### Advertised output schemas
 
-Capabilities declare a result schema, and the MCP adapter registers it as
-`outputSchema`, so consumers can rely on a typed contract — not just
-`structuredContent`.
+Capabilities declare a result schema, and the MCP adapter registers an `outputSchema`
+for every tool, so consumers can rely on a typed contract — not just
+`structuredContent`. For a long-running tool that schema is the **operation view**
+`{operationId, capability, state, progress?, blockedBy?, result?}`, with the result
+schema nested under `result`, because the call may end before the operation does.
+Error results carry no structured content. The exact rule is in
+[ADR-0020](../adr/0020-operation-contract.md) §Adapter projections.
+
+### Enum spelling
+
+Enum values are lowerCamelCase: `success | failed | cancelled`, `upToDate`,
+`ephemeral`. SCREAMING_SNAKE is reserved for error codes, so a generator needs one
+casing rule per kind of token.
 
 ### One name for each target
 
@@ -383,9 +421,11 @@ session requirement accordingly. See §Classification.
 
 ### Untrusted outputs are marked
 
-Capabilities whose results carry device- or app-derived data are flagged in their
-descriptor ([ADR-0015](../adr/0015-untrusted-data-authorization.md)), and results say
-so. How the mark travels on each wire is an adapter concern.
+Result fields carrying device- or app-derived data are tagged `untrusted` in their Go
+result struct; the schema marks them, and the descriptor's `Untrusted` flag is
+**derived** from those tags, never written
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1). Results say so. How the
+mark travels on each wire is an adapter concern.
 
 ### Visual artifacts are references
 
@@ -412,7 +452,7 @@ are fixed by [ADR-0020](../adr/0020-operation-contract.md).
 | Adapter | Invocation | Long-running | Events |
 | --- | --- | --- | --- |
 | HTTP/WebSocket | one request endpoint carrying the envelope | `waitMs`, then `operation.wait` or events | WebSocket subscription |
-| MCP | one tool per capability; `workspace` from the session binding | bounded wait, then `operation_wait` / `operation_cancel` | progress notifications during a wait; `events.*` not exposed |
+| MCP | one tool per capability; `workspace` from the session binding, opened at session start | bounded wait returning the operation view, then `operation_wait` / `operation_cancel` | progress notifications during a wait; `events.*` not exposed |
 | CLI | `mydev call <domain>.<verb> --params …` over the socket | waits; Ctrl-C cancels; `--detach` | streamed to stderr or `--follow` |
 
 Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http-websocket.md) and
@@ -441,8 +481,9 @@ Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http
 ## Adding a capability — checklist
 
 1. Write the descriptor and its params/result structs in the owning domain package:
-   name, scope, kind, statefulness, long-running, untrusted, errors, availability,
-   `since`.
+   name, scope, kind, statefulness, long-running, errors, availability, `since`. Tag
+   device- or app-derived result fields `untrusted`; the descriptor's `Untrusted` flag
+   is derived from them.
 2. Implement the handler; honour `ctx` cancellation.
 3. Regenerate the JSON Schema golden file and review the diff.
 4. Ensure it returns structured data; add `raw` only if justified.
@@ -451,10 +492,14 @@ Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http
 ## Open questions
 
 - **Batching**: whether to support multiple invocations per round trip.
-- **Config file spec**: policy, JVM discovery, idle timeouts and paths are all
-  configured, but no document yet defines the file. It is needed before Phase 1.
+- **Config file spec**: policy (device rules, trusted roots, `shell.exec`), JVM
+  discovery, idle timeouts and paths are all configured, but no document yet defines
+  the file. It is user configuration, not state, and every policy decision — trust
+  included — is recorded there; its location is to be added to
+  [ADR-0021](../adr/0021-persistence-format-and-location.md). The format is needed
+  before Phase 1.
 
-Settled since the review: `shell.exec` is **off by default** and policy is
-**never** exposed over MCP ([ADR-0015](../adr/0015-untrusted-data-authorization.md)
-§7); authorization lives in the core, while each adapter owns its transport fence
-([`interfaces/http-websocket.md`](../interfaces/http-websocket.md)).
+Settled since the review: `shell.exec` is **off by default**
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7) and policy is **never**
+exposed over MCP (§6); authorization lives in the core, while each adapter owns its
+transport fence ([`interfaces/http-websocket.md`](../interfaces/http-websocket.md)).

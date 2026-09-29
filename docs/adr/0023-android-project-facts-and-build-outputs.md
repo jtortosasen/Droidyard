@@ -47,7 +47,7 @@ protocol), an init-script probe, and parsing build scripts or version catalogs.
    A variant is an `X` with both `assemble<X>` and `package<X>`, minus names ending in
    `AndroidTest`, `UnitTest` or `TestFixtures`.
 5. **Build outputs come from `output-metadata.json` only.** For each module whose
-   `package<Variant>` task ended `SUCCESS`, `UP_TO_DATE` or `FROM_CACHE` in this build,
+   `package<Variant>` task ended `success`, `upToDate` or `fromCache` in this build,
    the core finds the listing file under `<buildDir>/outputs/apk/` whose `variantName`
    matches. The file gives `applicationId`, `versionCode` and the APKs. The build result
    carries `outputs[] {module, variant, applicationId, versionCode, apks[]}` without

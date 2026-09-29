@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-09-27
+- Amended: 2026-09-29 — the invocation model is now fixed by
+  [ADR-0020](0020-operation-contract.md) (Start / Wait / Cancel, explicit workspace
+  scope); references updated to the documents that now exist.
 
 ## Context
 

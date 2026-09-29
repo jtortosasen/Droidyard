@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-09-27
+- Amended: 2026-09-29 — process ownership corrected (the Gradle daemon belongs to
+  Gradle, not to us), and Gradle output parsing is now the core's console extractor
+  ([ADR-0022](0022-build-error-extraction.md)), not a set of CLI parsers.
 
 ## Context
 

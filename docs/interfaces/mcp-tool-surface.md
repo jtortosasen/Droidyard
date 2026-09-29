@@ -27,6 +27,10 @@ elicitation, resources, prompts, roots, sampling — is decided in
     §5).
 - Operations belong to the daemon, not to the session. A client that disconnects
   cancels nothing.
+- **The adapter opens the bound root when the session starts** (`workspace.open`). If
+  any client closes it later, workspace tools return `WORKSPACE_NOT_OPEN` and the
+  adapter does **not** reopen it on its own
+  ([ADR-0020](../adr/0020-operation-contract.md) §Scope).
 
 ## What the agent sees
 
@@ -64,8 +68,12 @@ constrained for what clients accept:
   one is split, per the "discriminated tools" convention. Whether nested unions are
   safe is for spike S7 to establish.
 - `workspace` never appears. It is an envelope field that the adapter fills.
-- `outputSchema` is registered for every tool
-  ([capability-api](../architecture/capability-api.md) §Advertised output schemas).
+- `outputSchema` is registered for every tool: the **result schema** for a tool not
+  flagged long-running, and the **operation view**
+  `{operationId, capability, state, progress?, blockedBy?, result?}` for a long-running
+  tool and for `operation_wait` ([ADR-0020](../adr/0020-operation-contract.md) §Adapter
+  projections). One object, no top-level union — the capability's own result sits under
+  `result`.
 
 ## What is exposed, and what is not
 
@@ -89,9 +97,9 @@ Fixed by [ADR-0020](../adr/0020-operation-contract.md):
 
 | Concern | Mechanism |
 | --- | --- |
-| A tool not flagged long-running | The adapter waits for completion. Each such capability bounds itself. |
-| A long-running tool (build, boot, cold model fetch, log follow) | The adapter waits up to a **budget**: default 20 s, `mydev mcp --wait 45s`, always below the client's timeout. If the call finishes, the agent gets a plain result. If not, the result is a **successful** `{operationId, state, progress, blockedBy?}`, and its text says "still running: call `operation_wait`". |
-| `operation_wait {operationId, timeoutMs?}` | `timeoutMs` defaults to the budget and is capped at it, so this call also returns before a client timeout. A finished operation is rendered exactly as the original tool's result would have been. `structuredContent` is `{operationId, capability, state, result?}`. |
+| A tool not flagged long-running | The adapter waits for completion. If it stays `queued` past 20 s, the core **fails it before it runs** with `OPERATION_QUEUE_TIMEOUT`. Its own timeout bounds the rest, and the two together stay under 60 s. |
+| A long-running tool (build, boot, cold model fetch, log follow) | The adapter waits up to a **budget**: default 20 s, `mydev mcp --wait 45s`, always below the client's timeout. Its structured content is **always** the operation view: if the call finished, `result` is set and the text is the plain result. Otherwise the result is **successful** with `state` `queued` or `running`, and its text says "still running: call `operation_wait`". |
+| `operation_wait {operationId, timeoutMs?}` | `timeoutMs` defaults to the budget and is capped at it, so this call also returns before a client timeout. A finished operation is rendered exactly as the original tool's result would have been. `structuredContent` is the operation view. |
 | Cancellation | `operation_cancel {operationId}`. A `notifications/cancelled` on the **starting** call cancels the operation. On `operation_wait` it only abandons the wait. A disconnect never cancels. |
 | Progress | Sent during any wait when the client supplied a `progressToken`. A nicety, never relied on to keep a call alive. |
 | `emulator_start` cancelled | Stops waiting. The emulator keeps booting, because we do not own it ([emulator](../subsystems/emulator.md) §Timeouts). The tool description says so. |
@@ -167,7 +175,8 @@ tool descriptions.
 
 Each tool returns:
 
-- **structured content**: the typed object, matching the advertised `outputSchema`;
+- **structured content** on success: the object matching the advertised `outputSchema`.
+  Error results carry none;
 - a **compact text rendering** for clients that display text. It is **bounded**, with
   an explicit truncation hint when cut. It is also what the model actually reads.
 
@@ -210,9 +219,9 @@ A distinction worth being strict about:
 
 | Case | Shape |
 | --- | --- |
-| **The call could not be performed** (no device, adb missing, bad parameter, policy denial) | MCP tool error: `isError: true`, with `{code, message, cause, nextStep, details}` as structured content ([capability-api](../architecture/capability-api.md) §Error model) |
+| **The call could not be performed** (no device, adb missing, bad parameter, policy denial) | MCP tool error: `isError: true`, with **no** `structuredContent`; the error `{code, message, cause, nextStep, details}` as JSON in the text block ([ADR-0020](../adr/0020-operation-contract.md) §Adapter projections) |
 | **The build ran and failed** | A **successful** tool call returning a build result with `outcome: failed` and structured problems |
-| **Still running** | A **successful** tool call returning `{operationId, state: "running"}` |
+| **Still running** | A **successful** tool call returning the operation view with `state: "running"` or `"queued"` |
 
 Conflating them is how agents learn to retry the wrong things. A failed build is
 information, not an error.
@@ -253,7 +262,7 @@ applicable, because MCP ignores `destructiveHint` on read-only tools.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `system_capabilities` | ✓ | — | ✓ | | | | What is available, versions, what is degraded |
 | `system_health` | ✓ | — | ✓ | | | | Core liveness, resource state, environment in use |
-| `workspace_open` | | | ✓ | | | | Open the bound project root (restricted if untrusted) |
+| `workspace_open` | | | ✓ | | | | Reopen the bound root after a close (opened at session start; restricted if untrusted) |
 | `workspace_describe` | ✓ | — | ✓ | | | | Workspace state, including `trusted` |
 | `workspace_close` | | ✓ | ✓ | | | | Close for **all** sessions; cancels its operations |
 | `project_modules` | ✓ | — | ✓ | ✓ | | ✓ | Module list |

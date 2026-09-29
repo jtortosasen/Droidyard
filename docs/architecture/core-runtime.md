@@ -7,9 +7,9 @@ us stays open, and is listed at the end.
 ## What it encodes
 
 - **One binary, one daemon, many goroutines.** `mydev serve` is the core; `mydev mcp`
-  and `mydev call` are shims that attach to it over a Unix socket, and `mydev ui`,
-  `mydev trust <path>`, `mydev status` and `mydev stop` complete the CLI
-  ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). Sidecars are separate
+  and `mydev call` are shims that attach to it over a Unix socket; `mydev ui`,
+  `mydev trust <root>`, `mydev status` and `mydev stop` complete the CLI
+  ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md) §Processes). Sidecars are separate
   processes ([ADR-0017](../adr/0017-gradle-execution-strategy.md)); nothing else is.
 - **Capabilities are the product; adapters are edges**
   ([ADR-0003](../adr/0003-unified-capability-api.md)).
@@ -22,7 +22,7 @@ us stays open, and is listed at the end.
 ## Package layout
 
 ```text
-cmd/mydev/                 entrypoint: subcommands serve | mcp | call | status | stop
+cmd/mydev/                 entrypoint: subcommands serve | mcp | call | ui | trust | status | stop
 
 internal/
   daemon/                  single-instance lock, socket listener, handshake, sessions
@@ -85,6 +85,12 @@ Kind describes side effects; statefulness describes session needs. A "stream" is
 kind: it is `Statefulness: Streaming`. There is no per-capability version — see
 [capability-api](capability-api.md) §Discovery and versioning.
 
+Some descriptor facts are **derived at registration, never written**: `Untrusted` is
+true iff a field of the result struct is tagged `untrusted`
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1), and the MCP hints that
+`Annotations` does not override are derived as in
+[mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Annotations.
+
 The registry is the **single source** for: dispatch, JSON Schema generation, MCP tool
 definitions, CLI help, `system.capabilities`, and the capability tables in the docs.
 If it is not in the registry, it does not exist.
@@ -100,7 +106,8 @@ Cancel(id OpID) error
 ```
 
 - `Start` decodes params into the registered struct (unknown fields rejected), checks
-  `Workspace` against `Scope`, authorizes, records an **operation**, and schedules it.
+  `Workspace` against `Scope` and that the workspace is open (`WORKSPACE_NOT_OPEN`),
+  authorizes, records an **operation**, and schedules it.
   A rejection returns a typed error and creates no operation.
 - **Every invocation is an operation**, queries included. The caller decides how long
   to block by the deadline it passes to `Wait`; handlers never choose between
@@ -137,21 +144,26 @@ Cancel(id OpID) error
   and an agent building at once) becomes a `queued` operation, FIFO, reporting
   `blockedBy`; the caller's bounded wait returns that state. A queue deeper than 4 per
   root is rejected with `BUILD_QUEUE_FULL`. Cancelling a queued operation is immediate.
-- Device writes are serialised per device; reads proceed in parallel.
+- **Short calls have a queue bound.** A capability not flagged `LongRunning` that is
+  still queued after 20 s fails with `OPERATION_QUEUE_TIMEOUT` without having run
+  ([ADR-0020](../adr/0020-operation-contract.md) §States). The scheduler enforces it,
+  not the handler.
+- Device writes are serialised per device, and `emulator.start/stop/wipe` per AVD;
+  reads proceed in parallel.
 - A lock is never held while blocked on a subprocess without a timeout.
 
 ## State ownership
 
 | State | Owner | Lifetime |
 | --- | --- | --- |
-| Workspace (config, project facts) | `workspace` | durable config (ADR-0021) + rediscovered facts |
+| Workspace (config, project facts) | `workspace` | durable config (ADR-0021) + facts fetched lazily |
 | Operations | `capability` | in memory; terminal ones retained 15 min |
 | Build registry | `domain/build` | compact results persisted, retention applied (ADR-0021) |
 | Artifacts (screenshots, consoles) | `artifact` | bounded by TTL and size; consoles durable |
 | Live devices | `domain/device` | in memory; devices are not ours |
 | Pid records of supervised children | `process` via `store` | durable, until reaped (ADR-0021) |
 | Sessions and their subscriptions | `daemon` / `event` | the connection's lifetime |
-| Policy | `policy` | durable; changed through **human channels only** (UI, CLI, config file) — never over MCP ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7) |
+| Policy, trusted roots included | `policy` | the user configuration file — configuration, not state (ADR-0021); changed through **human channels only** (UI, CLI, hand edits) — never over MCP ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6) |
 
 ## Adapter boundary
 

@@ -66,7 +66,8 @@ The first version of this ADR left four holes:
      neutralised: `-c core.fsmonitor=false -c core.hooksPath=/dev/null`.
    - A root becomes trusted if it falls under a prefix in the user's configuration,
      or through an explicit human act (the UI, or `mydev trust <root>`). The decision
-     is recorded durably.
+     is recorded in the user configuration, as policy
+    ([ADR-0021](0021-persistence-format-and-location.md)).
    - An MCP binding never grants trust, whether it comes from `--root` or from the cwd.
      A server configuration can be written by the repository itself (`.mcp.json`).
    - MCP roots may **narrow** what is allowed and never widen it
