@@ -14,7 +14,7 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 | 3 | Approve | the owner | status `Approved` | the owner has read the Scope table, the step list, Not in this milestone and Unverified, and said go |
 | 4 | Implement | `implementer`, given the plan path | code; each step ticked with its evidence | every step and every Acceptance item ticked |
 | 5 | Verify | `verifier`, launched by the implementer, given the plan path as well as the change | a verdict | no blocking findings after the last fix round |
-| 6 | Close | the session that ran the workflow | plan status `Done`; `docs/README.md` §Where the work stands updated; new or amended ADRs indexed in `docs/adr/README.md` | the next milestone is named in §Where the work stands |
+| 6 | Close | the session that ran the workflow | plan status `Done`; its row in `docs/plans/README.md` updated to match; `docs/README.md` §Where the work stands updated; new or amended ADRs indexed in `docs/adr/README.md` | the next milestone is named in §Where the work stands, and `go test ./...` passes with the plans index in step |
 
 ## Rules between the steps
 
@@ -23,6 +23,7 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 - **Implementing.** One step at a time, in order. After each step, run its check and the four commands, then tick it with the evidence (`prove-change` skill). Plan changes during implementation are recorded under the plan's Changes, as `milestone-plan` §Following one says.
 - **Verifying.** The verifier gets the plan so it can check each Acceptance item against the code, and anything the plan put in scope that the change silently dropped.
 - **Closing.** Report what the implementer and the verifier actually established. An acceptance item proven only in part stays unticked, with a note saying which part was proven. A plan marked `Done` stays in `docs/plans/` as the record.
+- **One experiment, not a rule.** All four agents run Claude models: `implementer` on Sonnet, the other three on Opus, so the planner and its reviewer are the same model. Whether a reviewer from another model family catches what these miss is unmeasured (`docs/research/pstack.md` §5). Try it once for one plan at step 2, and once for one change to `schema/capabilities.json` at step 5. Run the same reviewer a second time on a non-Claude model, and give the owner both finding lists side by side. One way, not yet tried, is a temporary copy of the agent file with another `model:`, deleted afterwards. Do not change any agent's `model:` line; whether this becomes a rule is the owner's call. Delete this bullet once both runs are done.
 
 ## When not to use it
 

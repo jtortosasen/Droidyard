@@ -42,10 +42,10 @@ gofmt -l .
 go test ./...
 ```
 
-`gofmt -l .` must print nothing. For behaviour that a unit test cannot reach (a socket, a spawned shim, a killed process) exercise it for real where you can, and where you cannot, say so and label it unverified. Do not write "should work".
+`gofmt -l .` must print nothing. For behaviour that a unit test cannot reach (a socket, a spawned shim, a killed process), exercise it for real with the `verify-daemon` skill where you can. Where you cannot, say so and label it unverified. Do not write "should work".
 
 Before you report a milestone done, launch the `verifier` subagent on the change. Fix what it blocks, then verify again: fixes are where the new problems come from. Dismiss a finding only by citing the ADR or evidence that answers it.
 
 ## Report
 
-End with a plain report: what you implemented, mapped to the milestone's acceptance criteria; what you did not do and why; what you could not verify and why; every deviation and the ADR that records it; a summary of the `schema/capabilities.json` diff, or a statement that it did not change; and the actual result of the four commands. Do not round up.
+End with a plain report: what you implemented, mapped to the milestone's acceptance criteria; what you did not do and why; what you could not verify and why; every deviation and the ADR that records it; every verifier finding you dismissed, with the ADR clause or evidence that answers it and your reason; a summary of the `schema/capabilities.json` diff, or a statement that it did not change; and the actual result of the four commands. Do not round up. The owner is the only person who can overrule a dismissal, and cannot overrule one they never see.

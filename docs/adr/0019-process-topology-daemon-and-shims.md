@@ -3,7 +3,10 @@
 - Status: Accepted
 - Date: 2026-09-29
 - Amended: 2026-09-29. What changed: the complete subcommand list (`ui`, `trust`); the
-  MCP session opens its bound root at start (verification pass).
+  MCP session opens its bound root at start (verification pass); and an explicit
+  `DROIDYARD_STATE_DIR` wins over the XDG runtime location for the socket
+  ([ADR-0021](0021-persistence-format-and-location.md) §Location), because otherwise a
+  scratch instance would share a socket with the real daemon.
 
 ## Context
 
@@ -64,7 +67,10 @@ daemon per project root (`droidyard serve --root <path>`). See *Alternatives*.
    its shim connects to the winner. The lock holder removes a stale socket file before
    binding.
 6. **Socket.** Linux: `$XDG_RUNTIME_DIR/droidyard/droidyard.sock`, else `<state>/run/`. macOS:
-   `<state>/run/droidyard.sock`. Directory `0700`, socket `0600`, and the daemon checks the
+   `<state>/run/droidyard.sock`. **An explicit `DROIDYARD_STATE_DIR` wins over the XDG
+   location**, the socket included, so that one variable isolates an instance
+   ([ADR-0021](0021-persistence-format-and-location.md) §Location); without that rule a
+   scratch instance would share a socket with the real daemon on Linux. Directory `0700`, socket `0600`, and the daemon checks the
    peer uid (`SO_PEERCRED` / `getpeereid`). If the path exceeds `sun_path` (104 bytes
    on macOS), fall back to `/tmp/droidyard-<uid>/`. Framing: newline-delimited JSON.
 7. **Handshake.** The client's first line is

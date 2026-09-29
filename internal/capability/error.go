@@ -4,7 +4,7 @@ import "fmt"
 
 // ErrorCode is a stable identifier a consumer can branch on. It is never renamed and
 // never reused; new codes are added in a minor version and removed only in a major
-// one (ADR-0020 §Error model).
+// one (docs/architecture/capability-api.md §Error model).
 //
 // Shape: <DOMAIN>_<REASON>, where DOMAIN is the capability domain that owns the
 // failure, or one of the reserved prefixes REQUEST, SESSION and DAEMON.
