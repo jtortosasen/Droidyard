@@ -4,8 +4,8 @@
 - Date: 2026-09-27
 - Amended: 2026-09-29. What changed: how the untrusted mark travels; the project-root
   trust gate; policy changes limited to human channels; `shell.exec` off by default;
-  the local transport baseline (review N4, N14, N15). Items 5–7 **need
-  ratification**.
+  the local transport baseline (review N4, N14, N15). Items 5–7 were **ratified on
+  2026-09-29**.
 
 ## Context
 

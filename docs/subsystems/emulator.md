@@ -143,7 +143,7 @@ the process is not ours.
 2. **Boot it with `-wipe-data`** (implying a cold boot) through the boot sequence,
    skipping adoption.
 3. **Return `{device}`**: the AVD is left running, factory-fresh — the state a caller
-   wants after a wipe. *(Recommended; needs ratification.)* A caller who wants it
+   wants after a wipe. *Ratified 2026-09-29.* A caller who wants it
    stopped calls `emulator.stop`.
 
 Wiping without booting, by deleting the user-data images, is what Android Studio's

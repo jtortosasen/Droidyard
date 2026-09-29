@@ -4,8 +4,12 @@
 - **Reviewer**: Claude Opus 5.5 (high reasoning), run as an isolated reviewer subagent
 - **Scope**: everything under `docs/`
 - **Verdict**: **do not start implementation yet**
-- **Status**: findings unresolved. Fixes are tracked by the ADRs and edits they
-  imply, not by editing this document — it is the record of what was found.
+- **Status**: **resolved.** All twelve blocking issues and all twenty-one non-blocking
+  ones were closed in two rounds of fixes plus a verification pass; the four
+  contract-level blockers that the fixes themselves introduced were closed in a third.
+  The fifteen decisions left to the owner are recorded, closed, in
+  [`2026-09-29-ratifications.md`](2026-09-29-ratifications.md). This document is kept as
+  the record of what was found, not as a list of open work.
 
 ---
 

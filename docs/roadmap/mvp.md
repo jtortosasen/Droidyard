@@ -261,9 +261,13 @@ LLM variance swamps a single run, so the measurement is specified before it is t
   both arms.
 - Recorded per run: **tool calls**, **failed/retried calls**, **tokens**, and
   **wall time** to reach the verified end state.
-- **The success threshold is stated before running**: the hypothesis holds if our arm
-  uses at least **30 % fewer tool calls** with **no more failures** than the baseline.
-  *Needs ratification.*
+- **A pilot run comes first; the threshold is fixed afterwards — with one guard.**
+  *Ratified 2026-09-29: pilot first, threshold afterwards.* The pilot exists to **size**
+  the test — how much run-to-run variance the agent shows, and therefore how many runs
+  each arm needs. The threshold itself is fixed **before the comparison runs**, from the
+  question "is this difference worth building on", and **never from the pilot's observed
+  difference**, which would be grading on a curve. The pilot does not count as a
+  measurement.
 
 ### Other measures
 
@@ -290,7 +294,7 @@ in the MVP rather than assumed.
 | The comparison metric is noisy | N runs, a pinned model, a scripted reset and a pre-stated threshold |
 | `adb` version/serial drift | Detect and surface the version; keep the adb surface conservative |
 | Gradle support range | Floor 8.0: fail fast below it with an escape hatch; newer versions proceed as `untested`; Gradle, AGP and Kotlin plugin versions detected and reported ([ADR-0018](../adr/0018-gradle-version-support-policy.md)) |
-| The probe is heavier than a heuristic | It is an init script plus a small jar, used only for `project.model` and never injected into a user's build. Revisit if a simpler path proves sufficient ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)) |
+| The probe is heavier than a heuristic | *Ratified 2026-09-29: the probe.* It is an init script plus a small jar, used only for `project.model` and never injected into a user's build. Revisit if a simpler path proves sufficient ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)) |
 
 ## Decisions fixed by this MVP
 
@@ -326,7 +330,7 @@ in the MVP rather than assumed.
 - **Project roots are trusted explicitly** ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
   An untrusted root opens in restricted
   mode, and capabilities that run project code fail with `WORKSPACE_UNTRUSTED`. Trust
-  never comes from an MCP binding. *Needs ratification* — the cost is friction on the
-  first agent session in a new project.
+  never comes from an MCP binding. *Ratified 2026-09-29, accepting the cost: friction on
+  the first agent session in a new project.*
 - **Artifacts are read through one capability**, `artifact.read`, in two durability
   classes ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).

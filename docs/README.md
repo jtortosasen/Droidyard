@@ -52,8 +52,8 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Interfaces | [`interfaces/mcp-features.md`](interfaces/mcp-features.md) | ✅ Draft |
 | UI | `ui/web-ui.md` | ⏳ Planned |
 | Roadmap | [`roadmap/mvp.md`](roadmap/mvp.md) | ✅ Draft |
-| Reviews | [`reviews/2026-09-29-pre-implementation-review.md`](reviews/2026-09-29-pre-implementation-review.md) | 🔴 Open findings |
-| Reviews | [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md) | ⚖️ Awaiting owner |
+| Reviews | [`reviews/2026-09-29-pre-implementation-review.md`](reviews/2026-09-29-pre-implementation-review.md) | ✅ Resolved |
+| Reviews | [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md) | ✅ Closed |
 | Skills | `skills/README.md` (format + packaging) | ⏳ Planned |
 | Interfaces | `interfaces/distribution.md` (install snippets) | ⏳ Planned |
 | Decisions | [`adr/`](adr/README.md) | ✅ Started |

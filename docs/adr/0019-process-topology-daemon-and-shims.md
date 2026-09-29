@@ -112,8 +112,9 @@ daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
 The daemon runs until `mydev stop`, a signal, or a crash. It does **not** exit when the
 last session leaves: persistence is the point, and its idle cost is small because
 sidecars idle out ([process-lifecycle](../architecture/process-lifecycle.md)).
-*Needs ratification:* whether an auto-started daemon should instead idle-exit after a
-long quiet period — a product call about what a user expects to find running.
+**Ratified (2026-09-29): it does not idle-exit.** A daemon the user expects to find
+there is the point of persistence, and the cost of staying alive is small because
+sidecars idle out.
 
 If the daemon crashes, shims see EOF and exit with a message on stderr (the client
 shows the server as failed). The next shim auto-starts a fresh daemon, which reaps

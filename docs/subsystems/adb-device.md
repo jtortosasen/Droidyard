@@ -35,10 +35,11 @@ we use the same adb as Android Studio and the same SDK as the emulator launcher.
 from the running server's kills and restarts that server — cutting off Android Studio
 and every other tool attached to it. Before first use, the core compares its client
 version (`adb version`) with the running server's (`host:version` on port 5037). On a
-mismatch it refuses device calls with `DEVICE_ADB_VERSION_MISMATCH`, naming both binaries and
-the config key that selects the matching one. *(Recommended over "warn and proceed";
-needs ratification.)* If no server is running, the core starts one; starting is not
-killing.
+mismatch it **warns and proceeds**: device calls still run, the warning names both
+binaries and the config key that selects a matching adb, and `system.health` carries it.
+*Ratified 2026-09-29: warn and continue, rather than refuse.* The risk is accepted and
+recorded: restarting the shared server can interrupt another tool mid-operation.
+If no server is running, the core starts one; starting is not killing.
 
 If nothing resolves, the core **still loads and registers every capability**; each
 device call then fails with `DEVICE_ADB_NOT_FOUND` and an explanation. Degrade, don't refuse.
@@ -82,7 +83,7 @@ Convenience belongs to adapters, and each one still sends `device` explicitly:
 | Adapter | Where `device` comes from |
 | --- | --- |
 | Web UI | Its own device selection, kept client-side and sent on every call |
-| CLI | `--device`, else `ANDROID_SERIAL` — adb's own convention, set explicitly by the user *(needs ratification)* |
+| CLI | `--device`, else `ANDROID_SERIAL` — adb's own convention, set explicitly by the user. *Ratified 2026-09-29* |
 | MCP | The agent passes it; the server instructions say so. Sessions are bound to a workspace, never to a device |
 
 ## Transport to the device
@@ -237,7 +238,7 @@ quirks, accepting the prompt. That belongs in a skill
 | Launch finds no launcher activity | `DEVICE_LAUNCH_FAILED` | The monkey output line as the cause |
 | Device disconnects mid-operation | `DEVICE_DISCONNECTED` | That operation fails with the transport error; other devices and workspaces are unaffected |
 | adb missing | `DEVICE_ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it |
-| adb client/server version mismatch | `DEVICE_ADB_VERSION_MISMATCH` | Both versions and binaries; the shared server is left alone |
+| adb client/server version mismatch | **A warning, not an error**: both versions and binaries are reported by `system.health` and on the device call; the shared server is left alone |
 
 UI automation failures are listed in [ui-automation](ui-automation.md) §Failure modes.
 

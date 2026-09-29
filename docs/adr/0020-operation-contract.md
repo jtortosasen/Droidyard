@@ -5,8 +5,8 @@
 - Amended: 2026-09-29. What changed: `cancelled` carries an error, not a result; the
   queue bound for short calls; `WORKSPACE_NOT_OPEN`; the MCP operation view and
   error results under `outputSchema`; lowercase outcomes; `REQUEST_IDEMPOTENCY_CONFLICT`
-  (verification pass). The queue bound and the MCP session opening its bound root
-  **need ratification**.
+  (verification pass). The queue bound and the MCP session opening its bound root were
+  **ratified on 2026-09-29**.
 
 ## Context
 
