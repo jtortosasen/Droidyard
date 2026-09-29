@@ -1,7 +1,7 @@
-# mydev — Documentation
+# AioDevAndroid — Documentation
 
-> **Working codename: `mydev`** (provisional). A lean, agent-oriented Android
-> development runtime with a web UI.
+> A lean, agent-oriented Android development runtime: the `aiodev` daemon at the
+> centre, a web UI and an MCP surface for coding agents.
 
 **Status:** pre-alpha / design phase. Nothing is implemented yet. These documents
 are the source of truth for the design; the original brainstorm is kept only for
@@ -11,7 +11,7 @@ provenance.
 
 ## What this is
 
-`mydev` is a persistent, AI-agnostic runtime for Android development that aims to
+`AioDevAndroid` is a persistent, AI-agnostic runtime for Android development that aims to
 replace most day-to-day Android Studio usage without launching Android Studio or
 IntelliJ. It exposes a single internal capability API that is consumed by:
 
@@ -19,7 +19,7 @@ IntelliJ. It exposes a single internal capability API that is consumed by:
 - external **AI agents** through **MCP**.
 
 It deliberately does **not** implement its own LLM agent harness. The agent loop
-is provided by an external tool (Cursor, Codex, Claude, etc.); `mydev` provides
+is provided by an external tool (Cursor, Codex, Claude, etc.); `AioDevAndroid` provides
 the environment that agent operates on.
 
 See [`vision/vision.md`](vision/vision.md) for the full statement.

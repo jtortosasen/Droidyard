@@ -32,7 +32,7 @@ protocol), an init-script probe, and parsing build scripts or version catalogs.
    `(root, build-files fingerprint)`, and it serves `project.modules`,
    `project.variants`, `build.tasks`, the build side of `sdk.requirements`, and the
    AGP/KGP profile.
-2. **The probe** is the only init script in the design: `mydev-probe.init.gradle`,
+2. **The probe** is the only init script in the design: `aiodev-probe.init.gradle`,
    plus a small Java jar (Java 8 bytecode, no Kotlin stdlib) compiled against Gradle's
    public API at the floor. The jar registers a `ToolingModelBuilder`. It reads:
    - AGP and KGP versions, reflectively from the plugins' own version constants;

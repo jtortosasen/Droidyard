@@ -48,15 +48,16 @@ buried in prose.
 | [0021](0021-persistence-format-and-location.md) | Persistence — JSON files in a per-user state directory | Accepted |
 | [0022](0022-build-error-extraction.md) | Build error extraction — structured sources plus a core console extractor | Accepted |
 | [0023](0023-android-project-facts-and-build-outputs.md) | Android project facts and build outputs | Accepted |
+| [0024](0024-project-name-and-identifiers.md) | Project name and identifiers | Accepted |
 
 ## Open decisions (not yet ADRs)
 
 These were raised in the original sketch or in review and still need an ADR:
 
-- Project name (currently the provisional codename `mydev`).
 - Authentication/exposure model when the web UI is reachable on a LAN.
 
-Settled since: MCP transport (stdio shim to a daemon for the MVP; streamable HTTP later
-as another adapter on it) and the CLI adapter (`mydev call`) in
+Settled since: the project name and its identifiers in
+[ADR-0024](0024-project-name-and-identifiers.md); MCP transport (stdio shim to a daemon for the MVP; streamable HTTP later
+as another adapter on it) and the CLI adapter (`aiodev call`) in
 [ADR-0019](0019-process-topology-daemon-and-shims.md); persistence in
 [ADR-0021](0021-persistence-format-and-location.md).

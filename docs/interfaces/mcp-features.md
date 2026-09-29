@@ -54,7 +54,7 @@ makes the confirmation real.
 MCP resources let the client read data the server holds, and `resources/subscribe`
 notifies it when that data changes.
 
-Artifacts are **opaque, URI-shaped references** (`mydev://artifact/<id>`,
+Artifacts are **opaque, URI-shaped references** (`aiodev://artifact/<id>`,
 [ADR-0012](../adr/0012-visual-artifacts-as-refs.md)). In the MVP, agents read them
 through the `artifact_read` tool, and screenshots arrive inlined as images
 ([`mcp-tool-surface.md`](mcp-tool-surface.md) §Images and artifacts). A tool is needed

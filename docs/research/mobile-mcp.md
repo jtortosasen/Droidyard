@@ -16,7 +16,7 @@ screenshots and coordinates only as a fallback (games, canvas, visual checks).
 It is **not** a harness and makes no LLM calls — a pure MCP server. Since
 v1.0.0 it is a thin TypeScript wrapper over an external Go binary (`mobilecli`).
 
-This is the closest prior art to the "mydev as a portable MCP" goal: same
+This is the closest prior art to the "AioDevAndroid as a portable MCP" goal: same
 multi-assistant packaging problem, similar domain (devices, UI, screenshots,
 logs, crashes).
 
@@ -38,7 +38,7 @@ recording, UI element listing (text or JSON), orientation, GPS, clipboard,
 device logs, crash reports, and a **batch** tool that runs a sequence in one
 round trip.
 
-## Reusable ideas (high value for mydev)
+## Reusable ideas (high value for AioDevAndroid)
 
 1. **Explicit target everywhere.** No hidden mutable "current device"; every call
    takes the device id. Makes multi-device and concurrent-agent use correct and
@@ -97,7 +97,7 @@ round trip.
 10. **Batch annotation accuracy** (`destructiveHint:true` even for read-only
     sequences). If we build batching, derive accurate semantics.
 
-## Verdict for mydev
+## Verdict for AioDevAndroid
 
 Adopt the *shape*, not the implementation:
 

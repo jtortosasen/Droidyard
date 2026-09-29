@@ -13,7 +13,7 @@ kill it when the session ends. If that spawned process were the core:
 
 - the web UI and any running build would die with the agent session;
 - two agent windows on one project would be two cores contending for one workspace;
-- the CLI (`mydev call`) would have nothing to talk to.
+- the CLI (`aiodev call`) would have nothing to talk to.
 
 Separately, devices, emulators and the `adb` server are **global** resources shared by
 every workspace ([workspace-state](../architecture/workspace-state.md)). Per-device
@@ -21,40 +21,40 @@ write serialisation, emulator boot (the new serial is found by diffing `adb devi
 and frame pipelines are only correct if exactly one process owns them.
 
 Two shapes were evaluated seriously: one daemon hosting every workspace, and one
-daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
+daemon per project root (`aiodev serve --root <path>`). See *Alternatives*.
 
 ## Decision
 
 ```text
- MCP client ──stdio──▶ mydev mcp ──┐
- MCP client ──stdio──▶ mydev mcp ──┤  Unix socket              ┌─ TAPI sidecar (JVM, shared)
- terminal  ──────────▶ mydev call ─┼────────────▶ mydev serve ─┼─ Kotlin LSP (per workspace, later)
+ MCP client ──stdio──▶ aiodev mcp ──┐
+ MCP client ──stdio──▶ aiodev mcp ──┤  Unix socket              ┌─ TAPI sidecar (JVM, shared)
+ terminal  ──────────▶ aiodev call ─┼────────────▶ aiodev serve ─┼─ Kotlin LSP (per workspace, later)
  browser   ──HTTP/WS (loopback)────┘                           └─ adb server, emulators (not children)
 ```
 
 ### Processes
 
-1. **`mydev serve` is the core**: one long-lived daemon per user — precisely, per state
+1. **`aiodev serve` is the core**: one long-lived daemon per user — precisely, per state
    root ([ADR-0021](0021-persistence-format-and-location.md)). It owns all state, every
    workspace, every supervised process, and serves the web UI on loopback HTTP/WebSocket.
-2. **`mydev mcp` is a stdio shim.** It connects to the daemon's socket, sends a hello,
+2. **`aiodev mcp` is a stdio shim.** It connects to the daemon's socket, sends a hello,
    then relays MCP JSON-RPC in both directions. It holds no state and no MCP logic: the
    MCP adapter runs inside the daemon. When a client kills the shim, only the session
    ends.
-3. **`mydev call` is the CLI adapter** over the same socket, speaking the native
+3. **`aiodev call` is the CLI adapter** over the same socket, speaking the native
    capability envelope ([capability-api](../architecture/capability-api.md)). The
    complete subcommand set is `serve`, `mcp`, `call`, `ui`, `trust`, `status`, `stop`:
-   - `mydev ui` opens the browser at the tokenised URL
+   - `aiodev ui` opens the browser at the tokenised URL
      ([http-websocket](../interfaces/http-websocket.md) §Security baseline);
-   - `mydev trust <root>` is a human channel over `policy.update` that adds the root
+   - `aiodev trust <root>` is a human channel over `policy.update` that adds the root
      to the trusted roots ([ADR-0015](0015-untrusted-data-authorization.md) §5);
-   - `mydev status` and `mydev stop` report on and stop the daemon.
+   - `aiodev status` and `aiodev stop` report on and stop the daemon.
 4. **Auto-start.** Every subcommand except `serve`, `status` and `stop` tries the
-   socket; if nothing answers it spawns `mydev serve --detach` and retries with
+   socket; if nothing answers it spawns `aiodev serve --detach` and retries with
    backoff for up to 10 s. Detached means a new
    session (`setsid`), stdio redirected to `daemon.log`, cwd `/` — so a client that
    kills the shim's process group cannot reach the daemon. `--no-autostart` disables
-   this. Running `mydev serve` in the foreground is equally supported; launchd/systemd
+   this. Running `aiodev serve` in the foreground is equally supported; launchd/systemd
    units are an optional post-MVP convenience.
 5. **Single instance.** Before binding anything the daemon takes an exclusive `flock`
    on `<state>/daemon.lock` and writes `{pid, startTime, version, socket, http}` into
@@ -63,14 +63,14 @@ daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
    `stop`, and error messages). Racing auto-starts resolve themselves: the loser exits,
    its shim connects to the winner. The lock holder removes a stale socket file before
    binding.
-6. **Socket.** Linux: `$XDG_RUNTIME_DIR/mydev/mydev.sock`, else `<state>/run/`. macOS:
-   `<state>/run/mydev.sock`. Directory `0700`, socket `0600`, and the daemon checks the
+6. **Socket.** Linux: `$XDG_RUNTIME_DIR/aiodev/aiodev.sock`, else `<state>/run/`. macOS:
+   `<state>/run/aiodev.sock`. Directory `0700`, socket `0600`, and the daemon checks the
    peer uid (`SO_PEERCRED` / `getpeereid`). If the path exceeds `sun_path` (104 bytes
-   on macOS), fall back to `/tmp/mydev-<uid>/`. Framing: newline-delimited JSON.
+   on macOS), fall back to `/tmp/aiodev-<uid>/`. Framing: newline-delimited JSON.
 7. **Handshake.** The client's first line is
    `{"hello": {protocol, version, client: "mcp" | "cli", root?, cwd}}`. The daemon
    replies with its version and a session id, or with `DAEMON_VERSION_MISMATCH`
-   (nextStep: `mydev stop`, then retry). Shim and daemon are the same binary, so a
+   (nextStep: `aiodev stop`, then retry). Shim and daemon are the same binary, so a
    mismatch means an upgrade with a stale daemon still running.
 8. **Environment is the daemon's, fixed at start.** Shims do not forward their
    environment: the daemon's behaviour must not depend on which window called. A
@@ -81,7 +81,7 @@ daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
 
 ### Sessions
 
-- A **session** is one connection: one shim (= one MCP session), one `mydev call`
+- A **session** is one connection: one shim (= one MCP session), one `aiodev call`
   invocation, or one WebSocket. Plain HTTP requests have no session. This is the
   session of [ADR-0010](0010-capability-statefulness.md): stateful and streaming
   capabilities (subscriptions, watches) are owned by a session and released when it
@@ -109,7 +109,7 @@ daemon per project root (`mydev serve --root <path>`). See *Alternatives*.
 
 ### Lifetime
 
-The daemon runs until `mydev stop`, a signal, or a crash. It does **not** exit when the
+The daemon runs until `aiodev stop`, a signal, or a crash. It does **not** exit when the
 last session leaves: persistence is the point, and its idle cost is small because
 sidecars idle out ([process-lifecycle](../architecture/process-lifecycle.md)).
 **Ratified (2026-09-29): it does not idle-exit.** A daemon the user expects to find
@@ -131,7 +131,7 @@ improvement.
   field); the MCP adapter hides it behind session binding.
 - A daemon crash takes down every open workspace at once. Accepted: it is one user's
   local tool, and restart reconciliation exists anyway.
-- The daemon becomes something users see and stop; `mydev status` must be good.
+- The daemon becomes something users see and stop; `aiodev status` must be good.
 - Streamable-HTTP MCP, when added, is another adapter on the same daemon — no topology
   change.
 - The environment is captured per daemon, not per client (review risk R3, made

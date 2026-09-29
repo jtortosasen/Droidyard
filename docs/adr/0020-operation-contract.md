@@ -133,7 +133,7 @@ MCP specifics:
   shortest client tool timeout we target. A capability that cannot promise this is
   flagged `LongRunning`.
 - `LongRunning` ones get a **wait budget**: default 20 s, configurable per server
-  (`mydev mcp --wait 45s`), always below the client's tool timeout. Most device calls
+  (`aiodev mcp --wait 45s`), always below the client's tool timeout. Most device calls
   and warm builds finish inside it, and the agent sees a plain result.
 - **Output schemas.** MCP requires `structuredContent` to conform to the declared
   `outputSchema`, and a `LongRunning` tool returns either its result or a handle. So:

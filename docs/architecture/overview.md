@@ -12,10 +12,10 @@ and subsystem documents linked from [`../README.md`](../README.md).
    |   tablet/mobile)  |     |  provides the harness    |     |             |
    +---------+---------+     +------------+-------------+     +------+------+
              |                            |                          |
-             | HTTP / WebSocket           | MCP (stdio shim)         | CLI (mydev call)
+             | HTTP / WebSocket           | MCP (stdio shim)         | CLI (aiodev call)
              v                            v                          v
           +----------------------------------------------------------------+
-          |                  mydev: one daemon per user (Go)               |
+          |                  aiodev: one daemon per user (Go)               |
           +----------------------------------------------------------------+
 ```
 
@@ -67,9 +67,9 @@ Rules:
 Fixed by [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md):
 
 ```text
- MCP client ──stdio──▶ mydev mcp ──┐
- MCP client ──stdio──▶ mydev mcp ──┤  Unix socket
- terminal  ──────────▶ mydev call ─┼────────────▶ mydev serve (the core, one per user)
+ MCP client ──stdio──▶ aiodev mcp ──┐
+ MCP client ──stdio──▶ aiodev mcp ──┤  Unix socket
+ terminal  ──────────▶ aiodev call ─┼────────────▶ aiodev serve (the core, one per user)
  browser   ──HTTP/WS (loopback)────┘                  │
                                                       │ supervises (children, no orphans)
                                                       ├── Gradle TAPI sidecar (JVM, one for all roots)
