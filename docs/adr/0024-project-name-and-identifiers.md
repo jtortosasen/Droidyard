@@ -37,7 +37,7 @@ Derived identifiers, fixed here so they are decided once:
 | Configuration | `$XDG_CONFIG_HOME/droidyard` · beside the state directory on macOS |
 | Cache | `$XDG_CACHE_HOME/droidyard` · `~/Library/Caches/droidyard` |
 | Env overrides | `DROIDYARD_STATE_DIR`, `DROIDYARD_CONFIG_DIR` |
-| Socket | `<state>/run/droidyard.sock` |
+| Socket | `droidyard.sock` under `run/`; the full rule is in [ADR-0021](0021-persistence-format-and-location.md) |
 | Artifact URI scheme | `droidyard://artifact/<id>` |
 | MCP `_meta` key | `droidyard/untrusted` |
 | Untrusted HTTP header | `x-droidyard-untrusted` |

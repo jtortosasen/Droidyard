@@ -52,6 +52,7 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Interfaces | [`interfaces/mcp-features.md`](interfaces/mcp-features.md) | ✅ Draft |
 | UI | `ui/web-ui.md` | ⏳ Planned |
 | Roadmap | [`roadmap/mvp.md`](roadmap/mvp.md) | ✅ Draft |
+| Plans | [`plans/`](plans/) — one plan per milestone, dated records | ✅ Ready |
 | Reviews | [`reviews/2026-09-29-pre-implementation-review.md`](reviews/2026-09-29-pre-implementation-review.md) | ✅ Resolved |
 | Reviews | [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md) | ✅ Closed |
 | Skills | `skills/README.md` (format + packaging) | ⏳ Planned |
@@ -87,7 +88,7 @@ next.**
 Two things to read before the next milestones:
 
 - **Before the Gradle sidecar**: [`subsystems/gradle.md`](subsystems/gradle.md)
-  §Unverified assumptions and
+  §Spikes before the sidecar is written and
   [`research/spike-s1-error-formats.md`](research/spike-s1-error-formats.md). The second
   spike run has not happened, and it settles whether the sidecar keeps its
   justification.
