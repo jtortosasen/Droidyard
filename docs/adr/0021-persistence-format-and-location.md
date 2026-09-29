@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-29
 - Amended: 2026-09-29. What changed: the `run/` directory and the HTTP token; user
-  configuration located outside the state directory.
+  configuration located outside the state directory; an explicit `DROIDYARD_STATE_DIR`
+  now wins over the XDG runtime location for the socket.
 
 ## Context
 
@@ -47,6 +48,12 @@ read-only checkouts work.
 | Derived caches (deletable any time) | `$XDG_CACHE_HOME/droidyard` | `~/Library/Caches/droidyard` |
 
 `DROIDYARD_STATE_DIR` overrides the state root; it is how tests get an isolated daemon.
+
+**An explicit `DROIDYARD_STATE_DIR` wins over the XDG location for everything, the
+socket included.** Without that rule, on Linux the socket would land in
+`$XDG_RUNTIME_DIR/droidyard/` even when the state root was overridden, so a scratch or
+test instance would share a socket with the real daemon, and one variable would not be
+enough to isolate it. Isolating a run has to be a single, obvious act.
 User configuration — policy, including trusted roots (ADR-0015 §5–6), JVM discovery,
 timeouts — is **not state**. It is written only by human channels (`policy.update`,
 `droidyard trust`) or by hand, and is never migrated or reset with the state.

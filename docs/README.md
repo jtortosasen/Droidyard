@@ -65,6 +65,7 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Research | [`research/dsh-codex-android-concepts.md`](research/dsh-codex-android-concepts.md) | ✅ Draft |
 | Research | [`research/gradle-mcp.md`](research/gradle-mcp.md) | ✅ Draft |
 | Research | [`research/gradle-version-compatibility.md`](research/gradle-version-compatibility.md) | ✅ Draft |
+| Research | [`research/pstack.md`](research/pstack.md) | ✅ Draft |
 | Research | [`research/spike-s1-error-formats.md`](research/spike-s1-error-formats.md) | ⚠️ Partial — command-line path only |
 | Research | [`research/prior-art.md`](research/prior-art.md) | ✅ Draft |
 | Research | `research/android-toolchain.md` | ⏳ Planned |
