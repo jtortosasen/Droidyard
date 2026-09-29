@@ -24,7 +24,7 @@ so that:
 ```text
         web UI                 agents                  scripts
           |                      |                        |
-     HTTP / WebSocket     MCP (stdio shim)            CLI (aiodev call)
+     HTTP / WebSocket     MCP (stdio shim)            CLI (droidyard call)
           \                      |                        /
            \                     |      Unix socket      /
             +-----------+--------+--------+-------------+
@@ -453,7 +453,7 @@ are fixed by [ADR-0020](../adr/0020-operation-contract.md).
 | --- | --- | --- | --- |
 | HTTP/WebSocket | one request endpoint carrying the envelope | `waitMs`, then `operation.wait` or events | WebSocket subscription |
 | MCP | one tool per capability; `workspace` from the session binding, opened at session start | bounded wait returning the operation view, then `operation_wait` / `operation_cancel` | progress notifications during a wait; `events.*` not exposed |
-| CLI | `aiodev call <domain>.<verb> --params …` over the socket | waits; Ctrl-C cancels; `--detach` | streamed to stderr or `--follow` |
+| CLI | `droidyard call <domain>.<verb> --params …` over the socket | waits; Ctrl-C cancels; `--detach` | streamed to stderr or `--follow` |
 
 Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http-websocket.md) and
 [`interfaces/mcp-tool-surface.md`](../interfaces/mcp-tool-surface.md).

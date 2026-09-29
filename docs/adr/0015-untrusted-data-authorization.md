@@ -35,7 +35,7 @@ The first version of this ADR left four holes:
    signalled **per result**:
    - Fields derived from the device or app are tagged in their Go result struct. The
      generated JSON Schema, including the MCP `outputSchema`, carries
-     `"x-aiodev-untrusted": true` on them.
+     `"x-droidyard-untrusted": true` on them.
    - A descriptor's `Untrusted` flag is **derived**: it is true if any field of the
      result is tagged.
    - Each adapter signals the mark per result. MCP uses `_meta` plus a fixed header
@@ -65,7 +65,7 @@ The first version of this ADR left four holes:
    - Git runs on an untrusted root with the repository's executable configuration
      neutralised: `-c core.fsmonitor=false -c core.hooksPath=/dev/null`.
    - A root becomes trusted if it falls under a prefix in the user's configuration,
-     or through an explicit human act (the UI, or `aiodev trust <root>`). The decision
+     or through an explicit human act (the UI, or `droidyard trust <root>`). The decision
      is recorded in the user configuration, as policy
     ([ADR-0021](0021-persistence-format-and-location.md)).
    - An MCP binding never grants trust, whether it comes from `--root` or from the cwd.
@@ -85,7 +85,7 @@ The first version of this ADR left four holes:
      authorize itself.
    - **Residual risk.** A process running as the same user can connect to the socket
      or read the HTTP token. That includes an agent's own shell, which could run
-     `aiodev call policy.update`. Same-uid code is inside the trust boundary. The
+     `droidyard call policy.update`. Same-uid code is inside the trust boundary. The
      defence is that our agent-facing surface offers no path to it, and that an
      agent's own shell commands pass through its host's approval.
 7. **`shell.exec` is disabled by default.** Policy enables it globally or per
@@ -105,7 +105,7 @@ The first version of this ADR left four holes:
 - Policy changes do not require restarting the core, and the agent cannot make them.
 - Trusting a project once adds friction to the first agent session in it. The
   mitigations are a configured trusted prefix (e.g. `~/src`), and an error whose
-  nextStep is the exact `aiodev trust <root>` command. Elicitation is deliberately not a
+  nextStep is the exact `droidyard trust <root>` command. Elicitation is deliberately not a
   mitigation, for the reason given in *Alternatives*.
 - Descriptors gain an `Audience` (`all | human`), and `Untrusted` becomes derived
   ([core-runtime](../architecture/core-runtime.md) §The capability registry).

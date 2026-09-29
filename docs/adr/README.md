@@ -58,6 +58,6 @@ These were raised in the original sketch or in review and still need an ADR:
 
 Settled since: the project name and its identifiers in
 [ADR-0024](0024-project-name-and-identifiers.md); MCP transport (stdio shim to a daemon for the MVP; streamable HTTP later
-as another adapter on it) and the CLI adapter (`aiodev call`) in
+as another adapter on it) and the CLI adapter (`droidyard call`) in
 [ADR-0019](0019-process-topology-daemon-and-shims.md); persistence in
 [ADR-0021](0021-persistence-format-and-location.md).

@@ -106,7 +106,7 @@ capabilities belong in the core/MCP; skills stay procedural.
 - Greenfield integrations (client-side only, with backend reminders).
 - Testing strategy meta-workflow.
 
-## Reusable ideas (high value for AioDevAndroid)
+## Reusable ideas (high value for Droidyard)
 
 1. **Adopt the agentskills.io format verbatim.** It is the de-facto cross-assistant
    standard; shipping `<name>/SKILL.md` gives Claude + Codex + Cursor support
@@ -161,7 +161,7 @@ Apache-2.0. Adaptation is permitted with attribution and a "modified from
 android/skills" note, retention of notices, and no implied Google/Android
 endorsement (no trademark grant). Prefer linking canonical sources over vendoring.
 
-## Verdict for AioDevAndroid
+## Verdict for Droidyard
 
 Adopt the **format and the split** (knowledge vs. orchestrator, progressive
 disclosure, generated per-assistant manifests, graceful degradation). Replace the

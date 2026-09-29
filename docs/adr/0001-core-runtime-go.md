@@ -8,7 +8,7 @@
 
 ## Context
 
-The core (`AioDevAndroid`) is a persistent local process that must:
+The core (Droidyard) is a persistent local process that must:
 
 - spawn and supervise external processes: its JVM sidecars (the Gradle Tooling API
   sidecar, later the Kotlin LSP), per-operation `adb`/`git` commands, `logcat` and

@@ -13,9 +13,9 @@ The core is a supervisor. Its correctness depends on how well it starts, health-
 checks, restarts and stops the tools underneath it — and on how much RAM it lets
 them keep while idle. This document is the reference for that behaviour.
 
-The core itself is the `aiodev serve` daemon; how it is started, found and kept single
-is [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md). The `aiodev mcp` and
-`aiodev call` shims are clients, not supervised processes.
+The core itself is the `droidyard serve` daemon; how it is started, found and kept single
+is [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md). The `droidyard mcp` and
+`droidyard call` shims are clients, not supervised processes.
 
 ## Kinds of processes
 

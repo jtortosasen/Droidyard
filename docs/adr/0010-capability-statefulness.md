@@ -30,7 +30,7 @@ Discovery (`system.capabilities`) advertises the classification. Adapters must:
 
 - keep a session for stateful/streaming capabilities. A session is one connection
   ([ADR-0019](0019-process-topology-daemon-and-shims.md) §Sessions): a stdio shim (one
-  MCP session), one `aiodev call`, or one WebSocket. **Plain HTTP requests have no
+  MCP session), one `droidyard call`, or one WebSocket. **Plain HTTP requests have no
   session**; the web UI's session is its WebSocket;
 - **reject** a stateful/streaming capability invoked without a session with
   `SESSION_REQUIRED`, rather than silently degrading.

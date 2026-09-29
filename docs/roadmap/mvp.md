@@ -108,8 +108,8 @@ image interpretation.
 
 Deliverables:
 
-- **The daemon**: `aiodev serve`, single-instance via `flock`, Unix socket with peer-uid
-  checks, and the `aiodev mcp` / `aiodev call` shims with auto-start
+- **The daemon**: `droidyard serve`, single-instance via `flock`, Unix socket with peer-uid
+  checks, and the `droidyard mcp` / `droidyard call` shims with auto-start
   ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 - The capability registry and the schema as the single source of truth, with the
   JSON Schema golden file generated and checked in. TypeScript generation is phase 2

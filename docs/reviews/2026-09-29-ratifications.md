@@ -40,7 +40,7 @@ Full review: [`2026-09-29-pre-implementation-review.md`](2026-09-29-pre-implemen
 | Decision | Outcome | Where |
 | --- | --- | --- |
 | The hypothesis threshold | **A pilot run first, then the threshold** — with one guard: the pilot exists to *size* the test (run-to-run variance, and therefore how many runs each arm needs). The threshold itself is fixed **before the comparison runs**, from "is this difference worth building on", and **never from the pilot's observed difference**, which would be grading on a curve. The pilot is not a measurement. | `roadmap/mvp.md` §Metrics |
-| User configuration location | `$XDG_CONFIG_HOME/aiodev` (macOS: beside the state directory), **separate from state** so that deleting state cannot grant or revoke trust. | ADR-0021 |
+| User configuration location | `$XDG_CONFIG_HOME/droidyard` (macOS: beside the state directory), **separate from state** so that deleting state cannot grant or revoke trust. | ADR-0021 |
 
 ## Product decisions, same date
 
@@ -49,7 +49,7 @@ fifteen above.
 
 | Decision | Outcome | Where |
 | --- | --- | --- |
-| Project name | **`AioDevAndroid`**, with `aiodev` as the binary and CLI, and a fixed set of derived identifiers: state and config directories, env overrides, socket name, artifact URI scheme, MCP `_meta` key and HTTP header. Recorded once so it is not decided again. | [ADR-0024](../adr/0024-project-name-and-identifiers.md) |
+| Project name | **Droidyard**, with `droidyard` as the binary and CLI, and a fixed set of derived identifiers: state and config directories, env overrides, socket name, artifact URI scheme, MCP `_meta` key and HTTP header. Recorded once so it is not decided again. | [ADR-0024](../adr/0024-project-name-and-identifiers.md) |
 | Which assistants matter | **Cursor and OpenCode.** They are what the owner uses, and they are what spike S2 measures — the MVP's "verify against at least two" now has names. | `roadmap/mvp.md` |
 | Validation target | **DopamineControl**, the owner's real multi-module project with `build-logic` convention plugins, replaces the sample app as the acceptance target. CI keeps small synthetic fixtures, including two Kotlin-plugin versions. An acceptance run needs a clean checkout, because the project has uncommitted work. | `roadmap/mvp.md` |
 | Remote access | **After v1.** It is where the project started, but the MVP stays on loopback and the design already permits adding it without rework. | `roadmap/mvp.md` |
