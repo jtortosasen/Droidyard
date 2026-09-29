@@ -1,0 +1,105 @@
+{
+  "version": "0.1.0",
+  "capabilities": [
+    {
+      "name": "system.capabilities",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.1.0",
+      "description": "Lists every capability the core exposes, with its scope, statefulness, annotations and availability. This is the discovery entry point: it reports what is available rather than assuming a fixed surface.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "statefulness": {
+                  "type": "string"
+                },
+                "longRunning": {
+                  "type": "boolean"
+                },
+                "audience": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "unavailableReason": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
+      "name": "system.health",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.1.0",
+      "description": "Reports whether the core is alive, its version and how long it has been running.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "uptimeSeconds": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  ]
+}

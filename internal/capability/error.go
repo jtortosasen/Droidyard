@@ -1,0 +1,99 @@
+package capability
+
+import "fmt"
+
+// ErrorCode is a stable identifier a consumer can branch on. It is never renamed and
+// never reused; new codes are added in a minor version and removed only in a major
+// one (ADR-0020 §Error model).
+//
+// Shape: <DOMAIN>_<REASON>, where DOMAIN is the capability domain that owns the
+// failure, or one of the reserved prefixes REQUEST, SESSION and DAEMON.
+type ErrorCode string
+
+// Reserved, cross-cutting codes every adapter may see.
+const (
+	ErrSessionRequired            ErrorCode = "SESSION_REQUIRED"
+	ErrRequestIdempotencyConflict ErrorCode = "REQUEST_IDEMPOTENCY_CONFLICT"
+	ErrDaemonVersionMismatch      ErrorCode = "DAEMON_VERSION_MISMATCH"
+
+	ErrWorkspaceNotOpen   ErrorCode = "WORKSPACE_NOT_OPEN"
+	ErrWorkspaceUntrusted ErrorCode = "WORKSPACE_UNTRUSTED"
+
+	ErrOperationNotFound     ErrorCode = "OPERATION_NOT_FOUND"
+	ErrOperationCancelled    ErrorCode = "OPERATION_CANCELLED"
+	ErrOperationQueueTimeout ErrorCode = "OPERATION_QUEUE_TIMEOUT"
+
+	ErrArtifactNotFound ErrorCode = "ARTIFACT_NOT_FOUND"
+	ErrArtifactExpired  ErrorCode = "ARTIFACT_EXPIRED"
+
+	ErrPolicyShellDisabled ErrorCode = "POLICY_SHELL_DISABLED"
+
+	ErrCapabilityNotFound  ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"
+	ErrInvalidParams       ErrorCode = "REQUEST_INVALID_PARAMS"
+	ErrMissingWorkspace    ErrorCode = "REQUEST_MISSING_WORKSPACE"
+	ErrUnexpectedWorkspace ErrorCode = "REQUEST_UNEXPECTED_WORKSPACE"
+	ErrNotAllowedHere      ErrorCode = "REQUEST_NOT_ALLOWED_HERE"
+)
+
+// Error is the one error shape: the envelope, MCP error results and CLI output all
+// render this. MCP gets no structured content on an error; the object goes in the
+// text block (ADR-0020 §Adapter projections).
+type Error struct {
+	// Code is the only field consumers branch on.
+	Code ErrorCode
+	// Message is human-readable and non-normative. It is never parsed.
+	Message string
+	// Cause is what actually went wrong underneath: the tool, its exit status, the
+	// decisive line.
+	Cause string
+	// NextStep tells the caller what to do, naming capabilities by canonical name.
+	NextStep string
+	// Details is typed per code and declared in the schema.
+	Details map[string]any
+}
+
+func (e *Error) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	if e.Cause != "" {
+		return string(e.Code) + ": " + e.Message + " (" + e.Cause + ")"
+	}
+	return string(e.Code) + ": " + e.Message
+}
+
+// NewError starts an error with a code and a message.
+func NewError(code ErrorCode, message string) *Error {
+	return &Error{Code: code, Message: message}
+}
+
+// WithCause attaches what went wrong underneath.
+func (e *Error) WithCause(cause string) *Error { e.Cause = cause; return e }
+
+// WithNextStep tells the caller what to do about it.
+func (e *Error) WithNextStep(next string) *Error { e.NextStep = next; return e }
+
+// WithDetails attaches typed, code-specific context.
+func (e *Error) WithDetails(details map[string]any) *Error { e.Details = details; return e }
+
+// Errorf is NewError with formatting.
+func Errorf(code ErrorCode, format string, args ...any) *Error {
+	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+// AsError coerces any error into the contract's shape. An error that is already an
+// *Error passes through; anything else becomes a REQUEST_ code with its text as the
+// cause, so nothing is lost and nothing is invented.
+func AsError(err error) *Error {
+	if err == nil {
+		return nil
+	}
+	if e, ok := err.(*Error); ok {
+		return e
+	}
+	return &Error{
+		Code:    ErrInvalidParams,
+		Message: "the call failed",
+		Cause:   err.Error(),
+	}
+}
