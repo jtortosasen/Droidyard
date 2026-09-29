@@ -35,7 +35,7 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Vision | [`vision/principles.md`](vision/principles.md) | ✅ Draft |
 | Vision | [`vision/glossary.md`](vision/glossary.md) | ✅ Draft |
 | Architecture | [`architecture/overview.md`](architecture/overview.md) | ✅ Draft |
-| Architecture | `architecture/core-runtime.md` | ⏳ Planned |
+| Architecture | [`architecture/core-runtime.md`](architecture/core-runtime.md) | ✅ Draft |
 | Architecture | [`architecture/capability-api.md`](architecture/capability-api.md) | ✅ Draft |
 | Architecture | `architecture/adapters.md` | ⏳ Planned |
 | Architecture | [`architecture/workspace-state.md`](architecture/workspace-state.md) | ✅ Draft |
