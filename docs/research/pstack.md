@@ -19,7 +19,8 @@
 > - four skills: `adr`, `milestone-plan`, `milestone-workflow` and `prove-change`.
 >
 > This document compares pstack with that later state. `implementer.md` and
-> `verifier.md` did not yet refer to the plan files when they were read.
+> `verifier.md` have since been given a line each about the plan files, so they now
+> refer to them.
 
 ## What it is
 
