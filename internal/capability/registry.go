@@ -10,7 +10,7 @@ import (
 
 // namePattern is the canonical capability name: "<domain>.<verb>", lower camel after
 // the dot, never an underscore, so the MCP mapping (dot to underscore) is reversible
-// (ADR-0020 §Naming).
+// (docs/architecture/capability-api.md §Naming and namespaces).
 var namePattern = regexp.MustCompile(`^[a-z]+\.[a-z][A-Za-z0-9]*$`)
 
 // Registry holds every capability the core exposes. It is the single source for
@@ -93,7 +93,7 @@ func (r *Registry) All() []Descriptor {
 // ResolvedAnnotations are the four hints an MCP client receives. Read-only and
 // idempotent are derived and cannot be overridden; destructive defaults to true for
 // commands, because MCP's own default for an unannotated tool is more permissive
-// than ours (ADR-0015 §Annotations).
+// than ours (docs/interfaces/mcp-tool-surface.md §Annotations).
 type ResolvedAnnotations struct {
 	ReadOnly    bool
 	Destructive bool

@@ -60,7 +60,10 @@ This role has paid for itself. An earlier verification pass found four contract-
 plan states the scope, the ordered steps and the acceptance check for each. Read it and
 report which steps are met, which are partial, and which were quietly changed. A
 departure from the plan is a finding: either the plan was wrong and should have been
-updated, or the work drifted.
+updated, or the work drifted. Check the level on each `Evidence:` line against what
+actually ran (`prove-change` §Grade what you proved). A test against a fake connection
+is level 4, whatever the line says. You can rerun a level-5 claim with the
+`verify-daemon` skill; rerun it rather than trust the transcript.
 
 **Fixes that did not fix, and fixes that broke something.** When the work claims to
 resolve earlier findings, check each one against the text or code as it now stands:
@@ -97,6 +100,17 @@ go test ./...
 ```
 
 Read `schema/capabilities.json` directly and compare it against the descriptors and the documents. Inspect what changed with read-only commands such as `git diff` and `git log`. "It compiles" and "the tests pass" are evidence only of what the tests assert; read the tests and ask whether they would fail if the decision they name were reversed.
+
+**Tests that cannot fail.** Beside that criterion, ask of each new or changed test whether it would still pass if every function it calls returned its zero value (`nil`, `""`, `0`, `false`, an empty struct or slice). If it would, it observes nothing. The shapes:
+
+- **Weak assertion.** It asserts only `err == nil`, `got != nil`, `len(got) > 0` or the `ok` of a type assertion. The same goes for `err != nil` without checking which error: that passes on the wrong code, and error codes are contract here.
+- **Absence or call only.** It asserts only that something is empty, missing or false (`len(got) == 0`, `!strings.Contains(out, x)`), or only that a fake was called, not what it received or what state followed.
+- **Self-referential.** The expected value comes from the code under test or its helpers, for example `want := Generate(reg)` compared with another `Generate(reg)`.
+- **Constant pin.** It restates a constant the package defines (`if Version != "0.1.0"`). What the schema publishes (the version, capability names, listed error codes) is already pinned by the golden file.
+- **Fixture asserts fixture.** It compares what the test itself built, such as a table row or a fake's canned return, and the subject never runs in between, or its result is not what is compared.
+- **Skips itself.** A `t.Skip` when a real tool is absent passes on every machine without that tool. The package still prints `ok`, and only `-v` shows `SKIP`.
+
+A relation across two sources is not vacuous, for example every registered name having a schema entry: it checks agreement, not a value. For each vacuous test, the smallest fix is to call the subject with one concrete input and compare against a literal. For an absence, also assert the presence on the other input in the same test. Otherwise delete the test. It is blocking when it is the check a plan step names as its evidence, because that step is then unproven.
 
 Your shell is for observation. Do not change the working tree by any route, including redirection, `gofmt -w`, `go mod tidy` or `go test -update`; the permission rules block some of these, not all. Never regenerate the golden file: that makes the golden test pass against whatever the code now emits, which destroys the evidence you are checking.
 

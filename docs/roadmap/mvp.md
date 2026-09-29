@@ -149,6 +149,12 @@ Deliverables (capabilities):
 - `device.*`: `list`, `install`, `launch`, `logs` (snapshot + bounded follow),
   `screenshot`, `uiTree`, `tapElement` (with assertions), `inputText`, `uninstall`.
 - `file.*`: `list`, `read`, `write`, `watch` (watch is needed by phase 2).
+- `artifact.*`: `read` — screenshots, log captures and build consoles reach consumers
+  as opaque references, in two durability classes
+  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
+- `policy.*`: `get`, `update` — **human-only**, through the UI, the CLI or the config
+  file; the core rejects them from an MCP session
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
 - `shell.exec` (**off by default**; a call returns `POLICY_SHELL_DISABLED`).
 
 Acceptance — the golden path is completed end-to-end by an **external agent**

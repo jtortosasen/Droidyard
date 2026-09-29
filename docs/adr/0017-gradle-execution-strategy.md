@@ -134,6 +134,21 @@ task attribution and error extraction ourselves, accepting brittleness across Gr
 versions, and would likely reach into internal APIs — degrading structured errors to
 console parsing plus best-effort init-script output.
 
+## Alternatives considered
+
+The options are described under §Options; this section records why each was not
+chosen.
+
+- **B. `gradlew` CLI + init scripts.** Rejected. What the decision rests on (the
+  project model and task listing in one pass, per-task outcomes, the failure tree,
+  test events, cancellation tokens, daemon reuse) would be an init script in every
+  build, or console parsing, and rebuilding task attribution and error extraction
+  pushes toward Gradle internal APIs, the first thing to break on upgrades. The
+  console extractor does not favour B: it is needed under every option (§Decision).
+  What B would have cost is kept under §Consequences of option B (rejected).
+- **C. Hybrid.** Rejected as premature: two paths to maintain, to cover the same
+  ground.
+
 ## Recorded sub-decisions
 
 - **Version support**: see [ADR-0018](0018-gradle-version-support-policy.md) — a

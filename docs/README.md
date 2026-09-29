@@ -55,6 +55,7 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Plans | [`plans/`](plans/) — one plan per milestone, dated records | ✅ Ready |
 | Reviews | [`reviews/2026-09-29-pre-implementation-review.md`](reviews/2026-09-29-pre-implementation-review.md) | ✅ Resolved |
 | Reviews | [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md) | ✅ Closed |
+| Reviews | [`reviews/2026-09-29-session-retrospective.md`](reviews/2026-09-29-session-retrospective.md) | ✅ Record |
 | Skills | `skills/README.md` (format + packaging) | ⏳ Planned |
 | Interfaces | `interfaces/distribution.md` (install snippets) | ⏳ Planned |
 | Decisions | [`adr/`](adr/README.md) | ✅ Started |
@@ -82,8 +83,9 @@ next.**
 | --- | --- |
 | **Design** | Closed. 24 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
 | **Owner decisions** | 19 closed, recorded in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md). |
-| **Code** | **Milestone 1 — the capability contract, in process.** `internal/capability` (registry, typed errors, annotation derivation), `internal/schema` (Go to JSON Schema, with `schema/capabilities.json` as the committed golden file), `internal/domain/system`, and a `droidyard` CLI with `caps`, `schema` and `version`. **Nothing is reachable by an agent yet.** |
-| **Next** | **Milestone 1b — the daemon and the MCP adapter**: the Unix socket, `flock` single-instance, the handshake, the `droidyard mcp` stdio shim, and the tool translation with the operation view and typed errors. That is what makes the surface usable from Cursor and OpenCode. |
+| **Code** | **Milestone 1 — the capability contract, in process.** `internal/capability` (registry, typed errors, annotation derivation), `internal/schema` (Go to JSON Schema, with `schema/capabilities.json` as the committed golden file), `internal/doccheck` (the structural checks, which run with `go test`), `internal/domain/system`, and a `droidyard` CLI with `caps`, `schema` and `version`. **Nothing is reachable by an agent yet.** |
+| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.opencode/`](../.opencode/), on top of [`../AGENTS.md`](../AGENTS.md). The planning half has never been used. |
+| **Next** | **Milestone 1b — the daemon and the MCP adapter**, starting with a plan from the `planner` in `docs/plans/`. One decision blocks it: **no document chooses the Go MCP library**, so the plan should arrive marked `Blocked` with that decision drafted. |
 | **Then** | The JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`) — it proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
 
 Two things to read before the next milestones:

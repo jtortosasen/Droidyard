@@ -30,7 +30,8 @@ What exists, with paths. Baseline on YYYY-MM-DD: `go vet ./...` <result>, `go te
 - Schema: no change | <expected diff of `schema/capabilities.json`>
 - Needs: <earlier steps; real tools, or which fake>
 - Not here: <what a reader might expect that this step does not do, and why>
-- [ ] Done. Evidence: <command and decisive output>
+- Rests on: <the one fact this step's safety depends on, and the level (1 to 5) its proof needs> | —
+- [ ] Done. Evidence: L<n>, <command and decisive output>
 
 ## Not in this milestone
 

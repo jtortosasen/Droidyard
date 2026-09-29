@@ -1,6 +1,6 @@
 ---
 name: Prove a change
-description: Use before claiming that any Droidyard change works (after a plan step, a fix or a descriptor edit) and when writing the report of what was verified. Covers running and reading the checks, reviewing the schema/capabilities.json diff, exercising behaviour that unit tests cannot reach, and labelling what could not be verified.
+description: Use before claiming that any Droidyard change works (after a plan step, a fix or a descriptor edit) and when writing the report of what was verified. Covers running and reading the checks, reviewing the schema/capabilities.json diff, exercising behaviour that unit tests cannot reach, grading how far each claim was proven, and labelling what could not be verified.
 ---
 
 # Proving a change
@@ -30,19 +30,31 @@ A changed line that the change does not explain is a bug in the change. When a s
 
 ## Beyond unit tests
 
-A socket, `flock`, a spawned shim, a killed process or a real MCP client cannot be proven by a unit test with fakes. Exercise it for real where you can:
+A socket, `flock`, a spawned shim, a killed process or a real MCP client cannot be proven by a unit test with fakes: that is level 5 below, and only a real run reaches it.
 
 - Build outside the tree: `go build -o "$TMPDIR/droidyard" ./cmd/droidyard`. Never leave binaries in the repository.
-- Isolate state from the owner's own daemon. ADR-0021 fixes `DROIDYARD_STATE_DIR` as the override tests use. Until the code honours it, say that a run used the real state directory.
+- For the daemon, follow the `verify-daemon` skill. It launches an isolated instance, proves that instance is the one being driven, and stops only what it started. When you need something it does not cover, add it there instead of improvising.
 - Prefer a durable form over a one-off session: a Go test that drives the process over pipes or the socket, or a recorded MCP transcript kept as a golden test (the pre-implementation review, §What I would add if I owned the project, item 8).
 - Record what you ran, on what (OS, Go version, client and version for an MCP client), and quote the decisive line of output.
+
+## Grade what you proved
+
+For each fact a claim rests on, say how far its proof got:
+
+1. **Said**: stated, with nothing behind it.
+2. **Pointed**: you cited the line of code that does it.
+3. **Traced**: you walked the failure path through the code, and it does not reach.
+4. **Tested**: a test ran the real code, faking only the external boundary (`nothingInstalled`, a fake connection).
+5. **Reproduced**: with real processes, such as the built binary on a real socket, or a real client or tool.
+
+Most steps that look risky are safe because of one fact. Name it, and aim the highest level you can reach at it; evidence about everything else does not substitute. "Killing a shim does not stop an operation it started" (`docs/roadmap/mvp.md` Phase 0) rests on one fact: an operation's lifetime does not depend on the connection that started it (ADR-0019 §Sessions). A test against a fake connection proves that at level 4. Only killing a real `droidyard mcp` reaches level 5.
 
 ## Label what you did not prove
 
 Every claim in a report falls into one of three kinds:
 
-- **Verified**: the command or procedure, and what it showed.
-- **Not verified**: why not, and what would settle it (a spike, a real device, a client run).
+- **Verified (L2 to L5)**: the command or procedure, what it showed, and its level. Level 1 is never Verified.
+- **Not verified**: why not, and what would settle it (a spike, a real device, a client run). The gap between the level a fact needs and the level you reached belongs here.
 - **Assumed**: taken from a document, with the citation.
 
 Partial evidence is stated as partial, with what it covered and what it did not, as `docs/research/spike-s1-error-formats.md` does in its status table. Never write "should work".
