@@ -71,6 +71,33 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 
 ---
 
+## Where the work stands
+
+**The design is closed and verified. The first code milestone is done. The daemon is
+next.**
+
+| | State |
+| --- | --- |
+| **Design** | Closed. 24 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
+| **Owner decisions** | 19 closed, recorded in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md). |
+| **Code** | **Milestone 1 — the capability contract, in process.** `internal/capability` (registry, typed errors, annotation derivation), `internal/schema` (Go to JSON Schema, with `schema/capabilities.json` as the committed golden file), `internal/domain/system`, and a `droidyard` CLI with `caps`, `schema` and `version`. **Nothing is reachable by an agent yet.** |
+| **Next** | **Milestone 1b — the daemon and the MCP adapter**: the Unix socket, `flock` single-instance, the handshake, the `droidyard mcp` stdio shim, and the tool translation with the operation view and typed errors. That is what makes the surface usable from Cursor and OpenCode. |
+| **Then** | The JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`) — it proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
+
+Two things to read before the next milestones:
+
+- **Before the Gradle sidecar**: [`subsystems/gradle.md`](subsystems/gradle.md)
+  §Unverified assumptions and
+  [`research/spike-s1-error-formats.md`](research/spike-s1-error-formats.md). The second
+  spike run has not happened, and it settles whether the sidecar keeps its
+  justification.
+- **Before implementing `build.errors`**: the AAPT2 merged-resource decision in
+  [ADR-0022](adr/0022-build-error-extraction.md) §Known open item.
+
+Agent guidance for this repository lives in [`../AGENTS.md`](../AGENTS.md).
+
+---
+
 ## Conventions
 
 ### Documents
