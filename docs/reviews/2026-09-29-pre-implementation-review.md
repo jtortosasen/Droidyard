@@ -161,7 +161,7 @@ single source for.**
 **B7. `build.errors` rests on an assumption that is probably false for most real
 projects, and the version policy gates on the wrong axis.**
 
-- *Where:* `subsystems/gradle.md` §Unverified assumptions, ADR-0017 §Decision,
+- *Where:* `subsystems/gradle.md` §Spikes before the sidecar is written, ADR-0017 §Decision,
   ADR-0018 §Decision, `mvp.md` §Definition of done.
 - *Evidence:* the Kotlin 2.4.0 release notes say that in Kotlin 2.2 KGP began
   reporting *its own* diagnostics to the Problems API. Only in **2.4.0** does it "also

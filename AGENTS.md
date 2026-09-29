@@ -19,6 +19,15 @@ the agent loop belongs to the external assistant.
    **`docs/reviews/2026-09-29-ratifications.md`** — the findings that shaped the
    current design, and the nineteen decisions the owner made. Both are closed records.
 
+## Starting a milestone
+
+`docs/plans/` holds one plan per milestone, written before the code. The
+`milestone-workflow` skill says what happens in what order — plan, plan review, owner
+approval, implementation, verification, close — and which agent does each step. If a
+plan exists for the milestone you are about to work on, **follow it**; if the work
+forces a departure from it, say so and update the plan rather than drifting from it
+silently.
+
 ## Conventions
 
 - **Documents and commit messages are in English.**
@@ -60,7 +69,7 @@ need; if you think something should be added, write an ADR proposing it.
 
 ## Before touching the Gradle sidecar
 
-Read `docs/subsystems/gradle.md` §Unverified assumptions and
+Read `docs/subsystems/gradle.md` §Spikes before the sidecar is written and
 `docs/research/spike-s1-error-formats.md` first. The second spike run has not happened,
 and it is what settles whether the Tooling API sidecar keeps its justification: on a
 real project (Kotlin plugin 2.0.21), compiler errors exist only as console text, so the

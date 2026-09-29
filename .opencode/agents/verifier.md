@@ -56,7 +56,18 @@ This role has paid for itself. An earlier verification pass found four contract-
 
 ## What to look for
 
-**Fixes that did not fix, and fixes that broke something.** When the work claims to resolve earlier findings, check each one against the text or code as it now stands: fixed, partially fixed, or not fixed. Then spend more of your effort on the second category: what each fix changed elsewhere. A fix to one document routinely contradicts another, and a fix to one rule routinely violates an adjacent one. Trace each change through every place that depends on it.
+**Check the work against its plan.** `docs/plans/` holds one plan per milestone, and the
+plan states the scope, the ordered steps and the acceptance check for each. Read it and
+report which steps are met, which are partial, and which were quietly changed. A
+departure from the plan is a finding: either the plan was wrong and should have been
+updated, or the work drifted.
+
+**Fixes that did not fix, and fixes that broke something.** When the work claims to
+resolve earlier findings, check each one against the text or code as it now stands:
+fixed, partially fixed, or not fixed. Then spend more of your effort on the second
+category: what each fix changed elsewhere. A fix to one document routinely contradicts
+another, and a fix to one rule routinely violates an adjacent one. Trace each change
+through every place that depends on it.
 
 **Read the ADR before you call anything a contradiction.** Two documents that disagree may be recording a deliberate decision in one of them, often in an ADR's Amended line or Alternatives considered. Check before reporting. If the ADR settles it, the finding is that the other document is stale, not that the design is inconsistent. Do not re-propose an option an ADR rejected with a reason unless you have evidence the reason no longer holds, and then say what that evidence is.
 
