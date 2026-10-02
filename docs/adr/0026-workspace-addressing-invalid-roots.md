@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-03
+- Amended: 2026-10-03 — `workspace.describe` lists only `WORKSPACE_STATE_NEWER`; a root
+  that cannot be opened is never open. Wording fixes from the milestone 1c plan revision.
 - Relates to: ADR-0020 §Scope and workspace addressing, ADR-0021 §Format, `workspace-state.md` §Lifecycle
 
 ## Context
@@ -26,9 +28,9 @@ Two codes in the `WORKSPACE` domain; each descriptor that can return one lists i
 - **`WORKSPACE_ROOT_INVALID`** — the target of `workspace.open` is an absolute path that
   does not exist, is not a directory or cannot be read, or an id that no workspace index
   holds. The operation ends `failed`; validation is the handler's work in
-  [`workspace-state.md`](../architecture/workspace-state.md) §Lifecycle, so
-  [ADR-0020](0020-operation-contract.md) §Core primitives, whose `Start` rejection list
-  is unchanged. `details {target}`; nextStep "call `workspace.open` with the absolute
+  [`workspace-state.md`](../architecture/workspace-state.md) §Lifecycle, so `Start`'s
+  rejection list is unchanged ([ADR-0020](0020-operation-contract.md) §Core
+  primitives). `details {target}`; nextStep "call `workspace.open` with the absolute
   path of a readable project directory".
 - **`WORKSPACE_STATE_NEWER`** — `ws/<wsid>/workspace.json` carries a `schemaVersion`
   this daemon does not read. The workspace opens `degraded`; the file is never
@@ -39,7 +41,9 @@ Two codes in the `WORKSPACE` domain; each descriptor that can return one lists i
 An MCP binding to a bad root degrades to `WORKSPACE_NOT_OPEN` on every workspace tool
 until `workspace_open` shows the cause. [`workspace-state.md`](../architecture/workspace-state.md)
 §Lifecycle and [ADR-0021](0021-persistence-format-and-location.md) §Format name the
-codes, and the golden file lists them on `workspace.open` and `workspace.describe`.
+codes, and the golden file lists both on `workspace.open` and `WORKSPACE_STATE_NEWER`
+on `workspace.describe` (a root that cannot be opened is never open, so no other call
+reaches `WORKSPACE_ROOT_INVALID`).
 
 ## Consequences
 
@@ -57,8 +61,8 @@ codes, and the golden file lists them on `workspace.open` and `workspace.describ
 ## Alternatives considered
 
 - **`REQUEST_INVALID_PARAMS` for a bad path or id.** Gives a published code a second
-  meaning, which [`capability-api.md`](../architecture/capability-api.md) §Error model,
-  which forbids it for a target that is not a parameter.
+  meaning ([`capability-api.md`](../architecture/capability-api.md) §Error model); the
+  target is not a parameter.
 - **`WORKSPACE_NOT_OPEN` for a failed open.** Its nextStep is the call that just failed,
   so an agent loops on `workspace.open`.
 - **Reject at `Start` with a typed error and no operation.** Adds a filesystem check to
@@ -68,8 +72,8 @@ codes, and the golden file lists them on `workspace.open` and `workspace.describ
 - **Three codes (not found, not a directory, unreadable).** Every consumer reacts the
   same way, by fixing the path; `cause` already says which, so the split buys nothing.
 - **Treat a newer state file as corrupt.** Renames a newer version's state away on a
-  downgrade, which [ADR-0021](0021-persistence-format-and-location.md) §Format, which
-  requires it to be left untouched, forbids.
+  downgrade ([ADR-0021](0021-persistence-format-and-location.md) §Format), which
+  requires the file to be left untouched.
 - **Defer `WORKSPACE_STATE_NEWER` until a binary writes version 2.** Fewer codes now; no
   released binary writes a newer file, but `open` still must refuse to overwrite one and
   then has no way to say why. This alternative wins if the owner prefers fewer codes.

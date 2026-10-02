@@ -5,6 +5,8 @@
 - Amended: 2026-09-29. What changed: the `run/` directory and the HTTP token; user
   configuration located outside the state directory; an explicit `DROIDYARD_STATE_DIR`
   now wins over the XDG runtime location for the socket.
+- Amended: 2026-10-03 — the newer-state-file error is named `WORKSPACE_STATE_NEWER`
+  ([ADR-0026](0026-workspace-addressing-invalid-roots.md)).
 
 ## Context
 
@@ -28,8 +30,8 @@ a few KB per workspace, a few hundred build records.
 **JSON files, one per concern**, human-inspectable.
 
 - Every file carries `"schemaVersion": N`. Older versions are migrated in code on read.
-  A **newer** version is never overwritten: the workspace opens `degraded` with a clear
-  error.
+  A **newer** version is never overwritten: the workspace opens `degraded` with
+  `WORKSPACE_STATE_NEWER` ([ADR-0026](0026-workspace-addressing-invalid-roots.md)).
 - Writes are atomic: write `*.tmp`, `fsync`, `rename`, `fsync` the directory.
 - A file that fails to parse is renamed to `*.corrupt-<timestamp>`, treated as absent,
   and reported in `system.health`. Corrupt state never stops the daemon.

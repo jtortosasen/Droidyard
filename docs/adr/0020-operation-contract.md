@@ -10,6 +10,9 @@
 - Amended: 2026-10-02 — `operation.wait`'s descriptor lists `OPERATION_CANCELLED` beside
   `OPERATION_NOT_FOUND`: the waited operation's own error is forwarded (cross-family
   review of milestone 1b).
+- Amended: 2026-10-03 — pointers to [ADR-0026](0026-workspace-addressing-invalid-roots.md)
+  and [ADR-0027](0027-workspace-close-and-reopen.md): the failure codes of
+  `workspace.open` and the close/reopen rules.
 
 ## Context
 
@@ -111,6 +114,9 @@ handler decides whether to "run in the background".
 - `workspace.close` affects every session: it cancels the workspace's operations (their
   waiters see `cancelled`), and later calls get `WORKSPACE_NOT_OPEN` until some client
   opens it again.
+- A target that `workspace.open` cannot validate, and what `close` guarantees while it
+  drains, are fixed by [ADR-0026](0026-workspace-addressing-invalid-roots.md) and
+  [ADR-0027](0027-workspace-close-and-reopen.md).
 - `workspace` is an envelope field, not a parameter: schemas stay clean, and it mirrors
   the `workspace` field that events already carry. It is the workspace counterpart of
   the `device` rule — no implicit target at the capability layer.
