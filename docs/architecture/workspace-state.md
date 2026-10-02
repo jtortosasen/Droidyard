@@ -38,7 +38,7 @@ attach, and its adapter fills the field.
 | `created` | Registered, root validated, nothing started yet. |
 | `opening` | Loading durable configuration and any cached project facts. Runs **no** project code and spawns nothing in the MVP (below). |
 | `ready` | Usable. The project model has not necessarily been fetched: that happens lazily. |
-| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build, or a state file is from a newer version (ADR-0021). Capabilities report availability accordingly. |
+| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build, or a state file is from a newer version ([ADR-0021](../adr/0021-persistence-format-and-location.md) §Format, `WORKSPACE_STATE_NEWER`). Capabilities report availability accordingly. |
 | `closing` | Cancelling the workspace's operations, shutting down workspace-owned sidecars. |
 | `closed` | All resources released. |
 
@@ -60,10 +60,16 @@ an untrusted one fails that call with `WORKSPACE_UNTRUSTED` before anything is s
 [gradle](../subsystems/gradle.md) §Lifecycle).
 
 `workspace.open` on an already open workspace is a no-op returning its state, so
-several sessions (two agent windows, the UI) share one workspace. `workspace.close`
-closes it for all of them: their operations in it end `cancelled`, and their next
-workspace-scoped call gets `WORKSPACE_NOT_OPEN`. The core never reopens a workspace
-implicitly; an MCP session opens its bound root once, at session start
+several sessions (two agent windows, the UI) share one workspace. A target it cannot
+validate ends `failed` with `WORKSPACE_ROOT_INVALID`; a state file from a newer version
+opens the workspace `degraded` with `WORKSPACE_STATE_NEWER`
+([ADR-0026](../adr/0026-workspace-addressing-invalid-roots.md)). `workspace.close`
+closes it for all of them and completes at `closed`: entering `closing` rejects every
+other workspace-scoped call on it with `WORKSPACE_NOT_OPEN`, its operations are
+cancelled and drained for up to 10 s, and its sidecars stop; an `open` during `closing`
+waits and then opens, and a second `close` is a no-op
+([ADR-0027](../adr/0027-workspace-close-and-reopen.md)). The core never reopens a
+workspace implicitly; an MCP session opens its bound root once, at session start
 ([ADR-0020](../adr/0020-operation-contract.md) §Scope).
 
 ## State model
@@ -165,8 +171,6 @@ disconnect devices or kill the shared `adb` server.
 
 ## Open questions
 
-- Whether a workspace can be *reopened* while operations are still draining, or
-  must fully close first.
 - How much derived state (e.g. project module graph) to cache between restarts to
   speed up the first `project.*` call.
 - Multi-root workspaces (one project root vs. several) — out of scope for v1?
