@@ -50,8 +50,13 @@ type Requirements interface {
 	Missing(r capability.Requirement) (reason string, missing bool)
 }
 
+// Operations reports how many operations are in flight.
+type Operations interface {
+	Running() int
+}
+
 // Register adds the system capabilities to the registry.
-func Register(reg *capability.Registry, req Requirements) {
+func Register(reg *capability.Registry, req Requirements, ops Operations) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "system.health",
 		Kind:        capability.Query,
@@ -61,9 +66,15 @@ func Register(reg *capability.Registry, req Requirements) {
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			// In-flight work is the signal; the calling operation is not part of it.
+			running := ops.Running()
+			if call.OperationID != "" {
+				running--
+			}
 			return Health{
 				UptimeSeconds: int(time.Since(started).Seconds()),
 				Version:       Version,
+				Operations:    running,
 			}, nil
 		},
 	})

@@ -49,6 +49,7 @@ buried in prose.
 | [0022](0022-build-error-extraction.md) | Build error extraction — structured sources plus a core console extractor | Accepted |
 | [0023](0023-android-project-facts-and-build-outputs.md) | Android project facts and build outputs | Accepted |
 | [0024](0024-project-name-and-identifiers.md) | Project name and identifiers | Accepted |
+| [0025](0025-mcp-adapter-implementation.md) | MCP adapter implementation — mark3labs/mcp-go | Accepted |
 
 ## Open decisions (not yet ADRs)
 

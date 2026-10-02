@@ -40,16 +40,16 @@ const (
 // text block (ADR-0020 §Adapter projections).
 type Error struct {
 	// Code is the only field consumers branch on.
-	Code ErrorCode
+	Code ErrorCode `json:"code"`
 	// Message is human-readable and non-normative. It is never parsed.
-	Message string
+	Message string `json:"message"`
 	// Cause is what actually went wrong underneath: the tool, its exit status, the
 	// decisive line.
-	Cause string
+	Cause string `json:"cause,omitempty"`
 	// NextStep tells the caller what to do, naming capabilities by canonical name.
-	NextStep string
+	NextStep string `json:"nextStep,omitempty"`
 	// Details is typed per code and declared in the schema.
-	Details map[string]any
+	Details map[string]any `json:"details,omitempty"`
 }
 
 func (e *Error) Error() string {

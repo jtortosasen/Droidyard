@@ -3,9 +3,11 @@
 > A lean, agent-oriented Android development runtime: the `droidyard` daemon at the
 > centre, a web UI and an MCP surface for coding agents.
 
-**Status:** pre-alpha / design phase. Nothing is implemented yet. These documents
-are the source of truth for the design; the original brainstorm is kept only for
-provenance.
+**Status:** pre-alpha. Milestone 1b — the daemon and the MCP adapter — is implemented
+and verified: the capability contract, the daemon, the CLI and MCP shims and the MCP
+adapter are real, and the surface is reachable by an agent over MCP (OpenCode
+verified; Cursor not yet run). These documents are the source of truth for the
+design; the original brainstorm is kept only for provenance.
 
 ---
 
@@ -76,19 +78,19 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 
 ## Where the work stands
 
-**The design is closed and verified. The first code milestone is done. The daemon is
-next.**
+**The design is closed and verified. Milestone 1b — the daemon and the MCP adapter —
+is done and verified. The process supervisor and the workspace model are next.**
 
 | | State |
 | --- | --- |
-| **Design** | Closed. 24 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
-| **Owner decisions** | 19 closed, recorded in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md). |
-| **Code** | **Milestone 1 — the capability contract, in process.** `internal/capability` (registry, typed errors, annotation derivation), `internal/schema` (Go to JSON Schema, with `schema/capabilities.json` as the committed golden file), `internal/doccheck` (the structural checks, which run with `go test`), `internal/domain/system`, and a `droidyard` CLI with `caps`, `schema` and `version`. **Nothing is reachable by an agent yet.** |
-| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.opencode/`](../.opencode/), on top of [`../AGENTS.md`](../AGENTS.md). The planning half has never been used. |
-| **Next** | **Milestone 1b — the daemon and the MCP adapter**, starting with a plan from the `planner` in `docs/plans/`. One decision blocks it: **no document chooses the Go MCP library**, so the plan should arrive marked `Blocked` with that decision drafted. |
-| **Then** | The JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`) — it proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
+| **Design** | Closed. 25 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
+| **Owner decisions** | 19 closed in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md), plus the two 1b decisions: the MCP implementation ([ADR-0025](adr/0025-mcp-adapter-implementation.md)) and the macOS peer check with the per-root fallback ([ADR-0019](adr/0019-process-topology-daemon-and-shims.md) §6). |
+| **Code** | **Milestone 1b — the daemon and the MCP adapter — done and verified** ([plan](plans/m1b-daemon-and-mcp-adapter.md), status `Done`; acceptance A1 to A12 ticked at their stated levels). State root, socket path rules and single-instance `flock`; the Unix socket with the peer-uid check, handshake and sessions; the native envelope and `operation.wait` / `operation.cancel`; the `serve` (foreground and `--detach`), `mcp`, `call`, `status` and `stop` subcommands; the MCP adapter on `mark3labs/mcp-go`. **The surface is reachable by an agent over MCP** (OpenCode v2.0.18 verified; Cursor not run). |
+| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.opencode/`](../.opencode/), on top of [`../AGENTS.md`](../AGENTS.md). First full use on 1b: plan, three review rounds, implementation, two verification rounds — the verifier reproduced one missed lock race and one weak retention test, both fixed. |
+| **Next** | **Milestone 1c (proposed in the 1b plan) — the process supervisor and the workspace model**: descriptors, lifecycle, idle shutdown and no orphans; `workspace.open` / `describe` / `close` with ADR-0021 persistence; the MCP session binding (root resolve, open at session start). The owner confirms the milestone names in this table. |
+| **Then** | **Milestone 1d (proposed) — HTTP/WebSocket skeleton, the event bus and `events.*`**; then the JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`), which proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
 
-Two things to read before the next milestones:
+Three things to read before the next milestones:
 
 - **Before the Gradle sidecar**: [`subsystems/gradle.md`](subsystems/gradle.md)
   §Spikes before the sidecar is written and
@@ -97,6 +99,12 @@ Two things to read before the next milestones:
   justification.
 - **Before implementing `build.errors`**: the AAPT2 merged-resource decision in
   [ADR-0022](adr/0022-build-error-extraction.md) §Known open item.
+- **Before 1d**: per-connection MCP notifications need an `Amended:` line on
+  [ADR-0025](adr/0025-mcp-adapter-implementation.md). `mcp-go`'s `Listen` shares one
+  package-level session, so progress notifications can reach the wrong connection; the
+  first consumer is the progress notifications ADR-0020 requires. The candidate fix is
+  `server.NewInProcessSession` feeding `MCPServer.HandleMessage` (1b plan, §Not in this
+  milestone). 1b sends no notifications, so this is not a 1b gap.
 
 Agent guidance for this repository lives in [`../AGENTS.md`](../AGENTS.md).
 

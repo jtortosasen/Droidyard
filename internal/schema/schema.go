@@ -62,32 +62,6 @@ type AnnotationsSchema struct {
 	Reason      string `json:"-"`
 }
 
-// OperationView is what a long-running capability returns when the call has not
-// finished. It is one object with no top-level union: a finished call sets Result.
-type OperationView struct {
-	OperationID string          `json:"operationId"`
-	Capability  string          `json:"capability"`
-	State       string          `json:"state"`
-	Progress    *Progress       `json:"progress,omitempty"`
-	BlockedBy   *BlockedBy      `json:"blockedBy,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-}
-
-// Progress reports how far a long-running call has got.
-type Progress struct {
-	Phase   string `json:"phase,omitempty"`
-	Done    int    `json:"done"`
-	Total   int    `json:"total,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-// BlockedBy names what a queued operation is waiting behind.
-type BlockedBy struct {
-	OperationID string `json:"operationId,omitempty"`
-	Capability  string `json:"capability,omitempty"`
-	Reason      string `json:"reason,omitempty"`
-}
-
 // reflector is configured once: inlining everywhere, no additional properties, and
 // no "$schema" key in the output, which several clients object to.
 func reflector() *jsonschema.Reflector {
@@ -100,12 +74,30 @@ func reflector() *jsonschema.Reflector {
 
 // reflect produces a JSON Schema object for one Go value, inlined.
 func reflect(v any) (json.RawMessage, error) {
+	raw, err := json.Marshal(inlined(v))
+	if err != nil {
+		return nil, fmt.Errorf("reflecting %T: %w", v, err)
+	}
+	return raw, nil
+}
+
+func inlined(v any) *jsonschema.Schema {
 	s := reflector().Reflect(v)
 	s.Version = ""
 	s.ID = ""
-	raw, err := json.Marshal(s)
+	return s
+}
+
+// operationView is the output of a long-running capability: the operation view, with
+// the capability's own result schema, inlined, as its result
+// (ADR-0020 §Adapter projections). operation.wait keeps the view's open object, since
+// the schema that applies depends on the operation waited on.
+func operationView(result any) (json.RawMessage, error) {
+	view := inlined(capability.OperationView{})
+	view.Properties.Set("result", inlined(result))
+	raw, err := json.Marshal(view)
 	if err != nil {
-		return nil, fmt.Errorf("reflecting %T: %w", v, err)
+		return nil, fmt.Errorf("reflecting the operation view of %T: %w", result, err)
 	}
 	return raw, nil
 }
@@ -114,24 +106,20 @@ func reflect(v any) (json.RawMessage, error) {
 func Generate(reg *capability.Registry, version string) (*Document, error) {
 	doc := &Document{Version: version}
 
-	// The operation view is reflected once and reused.
-	viewSchema, err := reflect(OperationView{})
-	if err != nil {
-		return nil, err
-	}
-
 	for _, d := range reg.All() {
 		input, err := reflect(d.Params)
 		if err != nil {
 			return nil, fmt.Errorf("capability %s: %w", d.Name, err)
 		}
 
-		output := viewSchema
-		if !d.LongRunning {
+		var output json.RawMessage
+		if d.LongRunning {
+			output, err = operationView(d.Result)
+		} else {
 			output, err = reflect(d.Result)
-			if err != nil {
-				return nil, fmt.Errorf("capability %s: %w", d.Name, err)
-			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("capability %s: %w", d.Name, err)
 		}
 
 		a := d.ResolveAnnotations()

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -30,7 +31,9 @@ func (nothingInstalled) Missing(r capability.Requirement) (string, bool) {
 
 func registry() *capability.Registry {
 	reg := capability.NewRegistry()
-	system.Register(reg, nothingInstalled{})
+	ops := capability.NewOperations(reg)
+	system.Register(reg, nothingInstalled{}, ops)
+	ops.RegisterCapabilities()
 	return reg
 }
 
@@ -113,34 +116,54 @@ func TestSchemaObeysTheClientRules(t *testing.T) {
 
 // TestLongRunningCapabilitiesAdvertiseTheOperationView checks the decision that
 // resolved the output-schema problem: a long-running tool's output schema is the
-// operation view, not its result.
+// operation view, not its result, and the view's result is that capability's own
+// result schema, inlined (ADR-0020 §Adapter projections). The reference is the same
+// result type reflected as a capability that is not long-running.
 func TestLongRunningCapabilitiesAdvertiseTheOperationView(t *testing.T) {
+	type assembled struct {
+		Outcome string   `json:"outcome"`
+		APKs    []string `json:"apks,omitempty"`
+	}
 	reg := capability.NewRegistry()
-	reg.MustRegister(capability.Descriptor{
-		Name:        "build.assemble",
-		Kind:        capability.Command,
-		Scope:       capability.Workspace,
-		LongRunning: true,
-		Since:       "0.1.0",
-		Description: "Assembles a variant.",
-		Params:      struct{}{},
-		Result:      struct{}{},
-		Handler:     func(_ context.Context, _ *capability.Call) (any, error) { return nil, nil },
-	})
+	for _, longRunning := range []bool{true, false} {
+		name := "build.assemble"
+		if !longRunning {
+			name = "build.twin"
+		}
+		reg.MustRegister(capability.Descriptor{
+			Name:        name,
+			Kind:        capability.Command,
+			Scope:       capability.Workspace,
+			LongRunning: longRunning,
+			Since:       "0.1.0",
+			Description: "Assembles a variant.",
+			Params:      struct{}{},
+			Result:      assembled{},
+			Handler:     func(_ context.Context, _ *capability.Call) (any, error) { return nil, nil },
+		})
+	}
 
 	doc, err := schema.Generate(reg, "0.1.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out map[string]any
-	if err := json.Unmarshal(doc.Capabilities[0].Output, &out); err != nil {
-		t.Fatal(err)
+	outputs := map[string]map[string]any{}
+	for _, c := range doc.Capabilities {
+		var out map[string]any
+		if err := json.Unmarshal(c.Output, &out); err != nil {
+			t.Fatal(err)
+		}
+		outputs[c.Name] = out
 	}
-	props, _ := out["properties"].(map[string]any)
-	if _, ok := props["operationId"]; !ok {
-		t.Errorf("a long-running capability did not advertise the operation view: %s", doc.Capabilities[0].Output)
+	props, _ := outputs["build.assemble"]["properties"].(map[string]any)
+	for _, field := range []string{"operationId", "capability", "state", "progress", "blockedBy", "result"} {
+		if _, ok := props[field]; !ok {
+			t.Errorf("the long-running output lacks the view's %s: %v", field, outputs["build.assemble"])
+		}
 	}
-	if _, ok := props["result"]; !ok {
-		t.Errorf("the operation view has no result field: %s", doc.Capabilities[0].Output)
+	if !reflect.DeepEqual(props["result"], outputs["build.twin"]) {
+		r, _ := json.Marshal(props["result"])
+		w, _ := json.Marshal(outputs["build.twin"])
+		t.Errorf("the view's result is %s; want the capability's own result schema %s", r, w)
 	}
 }

@@ -7,6 +7,19 @@
   `DROIDYARD_STATE_DIR` wins over the XDG runtime location for the socket
   ([ADR-0021](0021-persistence-format-and-location.md) §Location), because otherwise a
   scratch instance would share a socket with the real daemon.
+- Amended: 2026-09-30 — the peer-credential check bound to `golang.org/x/sys/unix`
+  (`GetsockoptXucred` with `LOCAL_PEERCRED` on macOS, `GetsockoptUcred` on Linux): the
+  standard library has no peer-credential call on darwin (checked 2026-09-30), and the
+  same binding will read the pid-record start times of
+  [ADR-0021](0021-persistence-format-and-location.md) §Pid records.
+- Amended: 2026-09-30 (third pass) — the `sun_path` fallback socket is discriminated per
+  state root, because the bare `/tmp/droidyard-<uid>/` was shared by every state root and
+  one holder could unlink another's live socket; owner decision.
+- Amended: 2026-09-30 (fourth pass) — the hello carries an optional `waitMs`: the MCP
+  wait budget of `droidyard mcp --wait` ([ADR-0020](0020-operation-contract.md)
+  §Adapter projections) is a shim flag, and the adapter that applies it runs in the
+  daemon, so the hello is the only way it reaches it. Found implementing milestone 1b
+  step 8.
 
 ## Context
 
@@ -71,10 +84,14 @@ daemon per project root (`droidyard serve --root <path>`). See *Alternatives*.
    location**, the socket included, so that one variable isolates an instance
    ([ADR-0021](0021-persistence-format-and-location.md) §Location); without that rule a
    scratch instance would share a socket with the real daemon on Linux. Directory `0700`, socket `0600`, and the daemon checks the
-   peer uid (`SO_PEERCRED` / `getpeereid`). If the path exceeds `sun_path` (104 bytes
-   on macOS), fall back to `/tmp/droidyard-<uid>/`. Framing: newline-delimited JSON.
+   peer uid — `golang.org/x/sys/unix`: `GetsockoptXucred` with `LOCAL_PEERCRED` on
+   macOS, `GetsockoptUcred` on Linux (amended 2026-09-30). If the path exceeds `sun_path` (104 bytes
+   on macOS, 108 on Linux), fall back to `/tmp/droidyard-<uid>/<root-discriminator>/`,
+   where the discriminator is a short hash of the canonical state root, so two instances
+   of different state roots never share one fallback socket (amended 2026-09-30). Framing: newline-delimited JSON.
 7. **Handshake.** The client's first line is
-   `{"hello": {protocol, version, client: "mcp" | "cli", root?, cwd}}`. The daemon
+   `{"hello": {protocol, version, client: "mcp" | "cli", root?, cwd, waitMs?}}`
+   (`waitMs`: an MCP session's wait budget, amended 2026-09-30). The daemon
    replies with its version and a session id, or with `DAEMON_VERSION_MISMATCH`
    (nextStep: `droidyard stop`, then retry). Shim and daemon are the same binary, so a
    mismatch means an upgrade with a stale daemon still running.

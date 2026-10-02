@@ -12,7 +12,7 @@ the agent loop belongs to the external assistant.
 2. **`docs/roadmap/mvp.md`** — what the first version is, its phases, its definition of
    done, its metric, and what is explicitly out of scope.
 3. **`docs/architecture/capability-api.md`** — the contract everything else hangs off.
-4. **`docs/adr/README.md`** — 24 decisions, all accepted. **Before proposing a change
+4. **`docs/adr/README.md`** — 25 decisions, all accepted. **Before proposing a change
    to something an ADR covers, read that ADR: it records what was rejected and why.**
    A rejected option with a recorded reason is not an invitation to re-propose it.
 5. **`docs/reviews/2026-09-29-pre-implementation-review.md`** and
