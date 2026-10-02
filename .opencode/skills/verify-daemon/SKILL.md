@@ -1,15 +1,13 @@
 ---
 name: Verify the daemon
-description: Use when a Droidyard claim needs a real daemon to settle it (the socket, flock, shim auto-start, a killed shim or daemon, orphans after workspace.close, a real MCP stdio session), when a plan step's check is a level-5 run, and when the verifier reruns one. A rerunnable recipe against an isolated instance, in five sections (Launch, Doctor, Drive, Evidence, Cleanup). Draft until its first end-to-end run.
+description: Use when a Droidyard claim needs a real daemon to settle it (the socket, flock, shim auto-start, a killed shim or daemon, orphans after workspace.close, a real MCP stdio session), when a plan step's check is a level-5 run, and when the verifier reruns one. A rerunnable recipe against an isolated instance, in five sections (Launch, Doctor, Drive, Evidence, Cleanup), run end to end on macOS.
 ---
 
 # Verifying the daemon
 
-> **Status: draft, never run end to end.** In this build `serve`, `mcp` and `call` exit 1 with "not implemented" (`cmd/droidyard/main.go`), and no code reads `DROIDYARD_STATE_DIR` or `DROIDYARD_CONFIG_DIR`. Every command below is written from the documents for milestone 1b, not against a binary. Marked *assumed*: what no document fixes yet.
+> **Status: run end to end on 2026-09-30, macOS (Darwin 25.6.0), against the built binary, by step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`, and again after the milestone's verification fixes.** All five sections completed; Drive rows run: parity, auto-start and single instance, plus the OpenCode procedure. Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
-> The recipe counts only once one run has completed all five sections on one platform. That run promotes it: replace this block with the date, the OS and the plan step that ran it, and fix every command that proved wrong in the same change. A run that stops partway leaves it a draft, and its evidence is labelled as coming from a draft recipe.
->
-> Checked on 2026-09-29 (macOS, bash and zsh) against a stand-in script, not `droidyard`: every block parses; `run`, the fifo MCP helpers, `snapshot` and `count_orphans` behave as written; the Doctor's `lsof` line matches a real listening socket. That checks the shell, not the daemon.
+> A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which.
 
 ## Launch
 
@@ -29,10 +27,10 @@ run pre-health "$DY" call --no-autostart system.health && echo "STOP: a daemon t
 for i in $(seq 50); do [ -S "$SOCK" ] && break; sleep 0.2; done
 ```
 
-- **A short base under `/tmp`.** The socket path must fit `sun_path` (104 bytes on macOS); past that, ADR-0019 §6 falls back to `/tmp/droidyard-<uid>/`, which every instance shares, and isolation is lost silently. Under `/tmp` the socket path is about 47 bytes; under a resolved macOS `$TMPDIR` it is about 90, which leaves little margin. `cd -P` resolves `/tmp` to `/private/tmp` on macOS, so the paths the Doctor compares match.
-- **One variable isolates the socket on Linux too**: ADR-0021 §Location makes an explicit `DROIDYARD_STATE_DIR` win over `$XDG_RUNTIME_DIR`. ADR-0019 §6 still states the Linux rule without that clause; the Doctor checks it either way.
-- **`pre-health` must fail.** If it succeeds, the client ignored the scratch environment and reached another daemon. It proves nothing when no other daemon is running.
-- **Foreground `serve`, backgrounded by you**, so `$PID` is yours. Auto-start is a Drive scenario, not the launch.
+- **A short base under `/tmp`.** The socket path must fit `sun_path` (104 bytes on macOS). Past that, ADR-0019 §6 moves it to `/tmp/droidyard-<uid>/<hash of the state root>/`: still one socket per state root, but not `$SOCK`, so the Doctor fails. Under `/tmp` the socket path is about 47 bytes; under a resolved macOS `$TMPDIR` it is about 90. `cd -P` resolves `/tmp` to `/private/tmp` on macOS, so the paths the Doctor compares match.
+- **One variable isolates the socket on Linux too**: an explicit `DROIDYARD_STATE_DIR` wins over `$XDG_RUNTIME_DIR` (ADR-0021 §Location; ADR-0019 §6).
+- **`pre-health` must fail.** If it succeeds, the client ignored the scratch environment and reached another daemon. It proves nothing when no other daemon is running. `--no-autostart` keeps it from starting one.
+- **Foreground `serve`, backgrounded by you**, so `$PID` is yours. Auto-start is a Drive row, not the launch.
 - **The daemon's environment is fixed at start** (ADR-0019 §8). A scenario that needs another environment (no `adb` on `PATH`) needs its own launch.
 
 ## Doctor
@@ -47,13 +45,13 @@ run doctor-status "$DY" status && grep -qw "$PID" "$E/doctor-status.out"
 run doctor-health "$DY" call --no-autostart system.health
 ```
 
-In order: the process you started is alive (a failed bind shows in `serve.out`); the lock in the scratch state names it and the scratch socket (fields from ADR-0021 §Layout); that process is the one bound to the socket; the client side resolves the same state root (*assumed*: `status` prints the holder's pid); the socket answers through a shim. `system.health` alone cannot prove identity: its result is uptime, version and operation count (`internal/domain/system/system.go`), and any daemon of the same build reports the same version.
+In order: the process you started is alive (a failed bind shows in `serve.out`); the lock in the scratch state names it and the scratch socket (fields from ADR-0021 §Layout); that process is the one bound to the socket; the client side resolves the same state root (`status` prints `daemon pid <pid>` and exits 0 only if the socket answers); the socket answers through a shim. `system.health` alone cannot prove identity: its result is uptime, version and operation count, and any daemon of the same build reports the same version.
 
 ## Drive
 
-Pass `--no-autostart` everywhere except the auto-start scenario: with it, a mis-isolated client fails; without it, the client may start or reach a daemon that is not yours (ADR-0019 §4).
+Pass `--no-autostart` everywhere except the auto-start row: with it, a mis-isolated client fails; without it, the client may start or reach a daemon that is not yours (ADR-0019 §4).
 
-**CLI:** `run <name> "$DY" call --no-autostart <capability> '<params json>'`. The argument form of `call` is *assumed*; no document fixes it.
+**CLI:** `run <name> "$DY" call --no-autostart <capability> --params '<json>'`. It prints the response envelope and exits non-zero iff the envelope carries `error`.
 
 **MCP:** a scripted stdio session. A fifo keeps stdin open until you close it, because EOF ends the session, and `$SHIM` is the shim's own pid.
 
@@ -62,7 +60,7 @@ send() { printf '%s\n' "$1" | tee -a "$E/$N.sent" >&3; }
 await() { for i in $(seq 300); do jq -e --argjson i "$1" 'select(.id==$i)' "$E/$N.out" >/dev/null 2>&1 && return 0; sleep 0.1; done; return 1; }
 mcp_open() {
   N=$1; mkfifo "$E/$N.in"
-  "$DY" mcp --no-autostart --root "$R/proj" <"$E/$N.in" >"$E/$N.out" 2>"$E/$N.err" & SHIM=$!
+  "$DY" mcp --no-autostart <"$E/$N.in" >"$E/$N.out" 2>"$E/$N.err" & SHIM=$!
   exec 3>"$E/$N.in"
   send '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify-daemon","version":"0"}}}'
   await 0 && send '{"jsonrpc":"2.0","method":"notifications/initialized"}'
@@ -74,23 +72,68 @@ send '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_cap
 await 1; mcp_close
 ```
 
-`await` gives up after 30 s, above the adapter's default 20 s wait budget (`docs/interfaces/mcp-tool-surface.md`); a timeout is a failure, not a retry. The session binds `$R/proj` and opens it as a workspace (ADR-0019 §Sessions), so the workspace lands in the scratch state.
+`await` gives up after 30 s, above the default 20 s wait budget (`droidyard mcp --wait`); a timeout is a failure, not a retry. `mcp_close` ends the input: the shim half-closes the socket and exits 0 once the daemon ends the session, so `$N.exit` must read 0. Nothing is written to a session after its input ends, so await every response before closing. The session binds no workspace yet: `--root` and opening the bound root arrive with the workspace model (1c).
 
 | Phase 0 acceptance (`docs/roadmap/mvp.md`) | Drive | Passes when |
 | --- | --- | --- |
-| `system.capabilities` lists what is available; `degraded` without `adb` | Launch again with a `PATH` on which `command -v adb` prints nothing; `call system.capabilities` | `adb`-dependent capabilities are `available: false` with a reason; the core reports `degraded` |
-| The same capability from the CLI and MCP, identical semantics | `system.capabilities` through `call`, and through the session above | `jq -S .` of the CLI result equals `jq -S 'select(.id==1).result.structuredContent'` of `caps.out` |
-| Killing a shim does not stop an operation it started (ADR-0020; ADR-0019 §Sessions) | Start the plan's long-running capability in an MCP session, read the `operationId`, `kill -9 "$SHIM"`, then `call operation.wait` | The operation ends `succeeded`, not `cancelled` |
-| A dummy sidecar starts lazily, idles out, leaves no orphans after `workspace.close` | Call the capability that needs it; `snapshot`; wait past its idle timeout; `call workspace.close`; `count_orphans` | It appears in `processes.json` only after first use and leaves after idling; the count is 0 |
-| Auto-start and single instance (ADR-0019 §4, §5; mvp.md Phase 0 deliverables) | Without `serve`, `call system.health` with no `--no-autostart`; then a second `serve` on the same state | `daemon.lock` appears in the scratch state; with `PID=$(jq -r .pid "$DROIDYARD_STATE_DIR/daemon.lock")` the Doctor passes, and that pid is now yours to stop; the second `serve` exits non-zero |
-| Crash recovery (ADR-0021 §Pid records) | With a sidecar running, `snapshot`, `kill -9 "$PID"`, launch again, `count_orphans` | 0 once the new daemon has started |
-| HTTP on loopback only | `lsof -a -p "$PID" -iTCP -sTCP:LISTEN` | Listens on `127.0.0.1` or `::1` only. The Host, Origin and token checks are in `docs/interfaces/http-websocket.md` §Security baseline |
+| `system.capabilities` lists what is available; `degraded` without `adb` | Launch again with a `PATH` on which `command -v adb` prints nothing; `call system.capabilities`. Runnable from the device slice | `adb`-dependent capabilities are `available: false` with a reason; the core reports `degraded` |
+| The same capability from the CLI and MCP, identical semantics | `system.capabilities` through `call`, and through the session above | `jq -S .result` of the CLI envelope equals `jq -S 'select(.id==1).result.structuredContent'` of `caps.out` |
+| Killing a shim does not stop an operation it started (ADR-0020; ADR-0019 §Sessions) | Start a long-running capability in an MCP session, read the `operationId` of its view, `kill -9 "$SHIM"`, then `call operation.wait --params '{"operationId":"<id>"}'`. None ships before `device.logs` (device slice); `TestMCPCancellation` covers it on a fixture | The envelope's `operation.state` is `completed`, not `cancelled`, and `call` exits 0 |
+| A dummy sidecar starts lazily, idles out, leaves no orphans after `workspace.close` | Call the capability that needs it; `snapshot`; wait past its idle timeout; `call workspace.close`; `count_orphans`. Runnable from 1c | It appears in `processes.json` only after first use and leaves after idling; the count is 0 |
+| Auto-start and single instance (ADR-0019 §4, §5; mvp.md Phase 0 deliverables) | Stop the launched daemon, then two concurrent `call system.health` without `--no-autostart`; then a second `serve` on the same state (block below) | Both calls exit 0 with an envelope; `daemon.lock` appears in the scratch state; with `PID=$(jq -r .pid "$DROIDYARD_STATE_DIR/daemon.lock")` the Doctor passes, and that pid is now yours to stop; every other pid with a `starting` line in `daemon.log` has a `lost the lock` line and is gone; the second `serve` exits non-zero |
+| Crash recovery (ADR-0021 §Pid records) | With a sidecar running, `snapshot`, `kill -9 "$PID"`, launch again, `count_orphans`. Runnable from 1c | 0 once the new daemon has started |
+| HTTP on loopback only | `lsof -a -p "$PID" -iTCP -sTCP:LISTEN`. Runnable from 1d | Listens on `127.0.0.1` or `::1` only. The Host, Origin and token checks are in `docs/interfaces/http-websocket.md` §Security baseline |
 
-Run only the rows the milestone's plan puts in scope; the plan's step names the row it runs.
+Run only the rows the milestone's plan puts in scope; the plan's step names the row it runs. The two rows run at milestone 1b, after `mcp_open caps` above:
+
+```sh
+run parity-cli "$DY" call --no-autostart system.capabilities
+jq -S .result "$E/parity-cli.out" >"$E/parity.cli.json"
+jq -S 'select(.id==1).result.structuredContent' "$E/caps.out" >"$E/parity.mcp.json"
+cmp "$E/parity.cli.json" "$E/parity.mcp.json" && echo parity-ok
+
+run stop-launched "$DY" stop; for i in $(seq 50); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
+"$DY" call system.health >"$E/auto-a.out" 2>"$E/auto-a.err" & A=$!
+"$DY" call system.health >"$E/auto-b.out" 2>"$E/auto-b.err" & B=$!
+wait "$A"; echo $? >"$E/auto-a.exit"; wait "$B"; echo $? >"$E/auto-b.exit"
+PID=$(jq -r .pid "$DROIDYARD_STATE_DIR/daemon.lock")
+for f in "$E"/doctor-*; do mv "$f" "$E/launch.${f##*/}"; done   # keep the first Doctor's files
+# Run the Doctor again here, against the new $PID; then:
+LOG="$DROIDYARD_STATE_DIR/daemon.log"
+for p in $(sed -n 's/^droidyard serve (pid \([0-9]*\)): starting$/\1/p' "$LOG"); do
+  [ "$p" = "$PID" ] && continue
+  for i in $(seq 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done   # a loser gives up after 100 ms
+  grep -q "(pid $p): lost the lock" "$LOG" && ! kill -0 "$p" 2>/dev/null && echo "loser $p exited" || echo "FAIL: $p"
+done
+run second-serve "$DY" serve || echo "second serve exited $(cat "$E/second-serve.exit")"
+```
+
+A losing `serve` retries for 100 ms before it gives up, in case the lock was only a `status` or `stop` probe; the loop waits for that. If only one `starting` line appears, the second call reached the first daemon before starting its own: the row still holds, but the race was not exercised; `TestRacingAutoStarts` exercises it every time.
+
+**Real client (OpenCode):** a scratch project whose configuration starts the shim behind a recorder, so the wire is evidence. `$DY` and `$E` are expanded when the files are written.
+
+```sh
+cat >"$R/tap.sh" <<EOF
+#!/bin/sh
+tee -a "$E/wire.c2s.jsonl" | "$DY" mcp --no-autostart | tee -a "$E/wire.s2c.jsonl"
+EOF
+chmod +x "$R/tap.sh"
+cat >"$R/proj/opencode.jsonc" <<EOF
+{"mcp": {"servers": {"droidyard": {"type": "local", "command": ["$R/tap.sh"],
+  "environment": {"DROIDYARD_STATE_DIR": "$DROIDYARD_STATE_DIR"}, "codemode": false}}}}
+EOF
+opencode --version >>"$E/env"
+(cd "$R/proj" && opencode run --standalone --format json --print-logs --auto -m <provider/model> "<prompt naming the calls>" \
+  </dev/null >"$E/opencode.out" 2>"$E/opencode.err"); echo $? >"$E/opencode.exit"
+```
+
+- `opencode.err` should log `mcp connected server=droidyard tools=<n>` and no schema warning; `opencode.out` is the event stream, the wire files are what was sent and received.
+- OpenCode validates arguments against the `inputSchema` before sending: unknown keys are dropped and types coerced, so an out-of-schema argument never reaches the core. To see an error result, use a value the schema admits, such as `operation_wait` on an unknown id. Read what was sent from `wire.c2s.jsonl`, never from the model's summary.
+- The event stream shows the text rendering only; `structuredContent` is in `wire.s2c.jsonl`.
 
 ## Evidence
 
-Everything stays under `$E`. For each named step, `run` keeps the command line, stdout, stderr and exit code, and each MCP session keeps `<name>.sent`, `<name>.out`, `<name>.err` and `<name>.exit`. Keep `serve.out` (or `<state>/daemon.log` when auto-started), and the snapshots. The daemon's structured log carries one operation record per call (`docs/architecture/overview.md` §Observability). Which surface returns the full record is not decided yet; milestone 1b decides it. The report quotes the decisive line and gives `$R`. On a plan step it is level 5 evidence (`prove-change`).
+Everything stays under `$E`. For each named step, `run` keeps the command line, stdout, stderr and exit code; each MCP session keeps `<name>.sent`, `<name>.out`, `<name>.err` and `<name>.exit`. Keep `serve.out`, `<state>/daemon.log` once a daemon was auto-started, the wire files of a real-client run, and the snapshots. This build logs no operation records; which surface returns them (`docs/architecture/overview.md`, the capability trace) is an open owner question, not decided by milestone 1b. The report quotes the decisive line and gives `$R`. On a plan step it is level 5 evidence (`prove-change`).
 
 ## Cleanup
 

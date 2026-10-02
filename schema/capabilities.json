@@ -2,6 +2,125 @@
   "version": "0.1.0",
   "capabilities": [
     {
+      "name": "operation.cancel",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.1.0",
+      "description": "Asks a running operation to stop, whichever session started it. It does not wait: call operation.wait to see the operation end cancelled. Cancelling a finished operation does nothing.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "OPERATION_NOT_FOUND"
+      ],
+      "input": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId"
+        ]
+      },
+      "output": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
+      "name": "operation.wait",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.1.0",
+      "description": "Waits for an operation to finish, up to timeoutMs, and returns it: its state, its progress, and its result once completed. timeoutMs 0 reports the current state without waiting. Waiting never affects the operation.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "OPERATION_NOT_FOUND"
+      ],
+      "input": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
       "name": "system.capabilities",
       "kind": "query",
       "scope": "global",

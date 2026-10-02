@@ -132,6 +132,11 @@ type Handler func(ctx context.Context, call *Call) (any, error)
 
 // Call carries everything a handler needs beyond its decoded parameters.
 type Call struct {
+	// OperationID is the id Start returned, set before the handler runs. A domain
+	// that keeps its own records uses it as theirs: a build's id is its operation id
+	// (ADR-0020 §Operation capabilities). Empty for operation.wait and
+	// operation.cancel, which are not operations.
+	OperationID string
 	// Workspace is the canonical workspace id. Empty for global capabilities.
 	Workspace string
 	// Params is the decoded parameter struct.
@@ -186,7 +191,17 @@ type Descriptor struct {
 	Description string
 
 	Handler Handler
+
+	// unrecorded marks operation.wait and operation.cancel, whose calls are not
+	// operations (ADR-0020 §Core primitives). Unexported, so only this package can
+	// register such a capability.
+	unrecorded bool
 }
+
+// Recorded reports whether a call to the capability becomes an operation. Every
+// capability's does except operation.wait's and operation.cancel's: callers run those
+// through Invoke, never Start.
+func (d Descriptor) Recorded() bool { return !d.unrecorded }
 
 // Deprecation marks a capability as deprecated without removing it.
 type Deprecation struct {

@@ -13,4 +13,4 @@ the output.
 
 | Plan | Milestone | Status |
 | --- | --- | --- |
-| — | — | none yet |
+| [m1b-daemon-and-mcp-adapter.md](m1b-daemon-and-mcp-adapter.md) | 1b — the daemon and the MCP adapter | Done |
