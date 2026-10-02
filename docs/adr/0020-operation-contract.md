@@ -7,6 +7,9 @@
   error results under `outputSchema`; lowercase outcomes; `REQUEST_IDEMPOTENCY_CONFLICT`
   (verification pass). The queue bound and the MCP session opening its bound root were
   **ratified on 2026-09-29**.
+- Amended: 2026-10-02 — `operation.wait`'s descriptor lists `OPERATION_CANCELLED` beside
+  `OPERATION_NOT_FOUND`: the waited operation's own error is forwarded (cross-family
+  review of milestone 1b).
 
 ## Context
 
@@ -83,6 +86,9 @@ handler decides whether to "run in the background".
 ### Operation capabilities
 
 - `operation.wait {operationId, timeoutMs?}` → the `Outcome`; `timeoutMs: 0` polls.
+  The outcome is the waited operation's own, so the error it carries may be that
+  operation's (`OPERATION_CANCELLED` included); the descriptor lists that code and
+  `OPERATION_NOT_FOUND`.
 - `operation.cancel {operationId}`.
 - Both are global and stateless: operation ids are daemon-wide, so any session — or
   none — can wait on or cancel any operation.

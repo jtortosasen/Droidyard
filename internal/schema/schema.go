@@ -40,8 +40,9 @@ type CapabilitySchema struct {
 
 	Annotations AnnotationsSchema `json:"annotations"`
 
-	// Errors are the codes this capability may return, so a consumer can handle them
-	// without guessing (docs/architecture/capability-api.md §Error model).
+	// Errors are the codes this capability returns itself, so a consumer can handle
+	// them without guessing; a projecting capability passes the waited operation's code
+	// through as well (docs/architecture/capability-api.md §Error model).
 	Errors []string `json:"errors,omitempty"`
 
 	// Input is the MCP input schema: the parameter object, and nothing else. The

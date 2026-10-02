@@ -41,7 +41,7 @@ func (o *Operations) RegisterCapabilities() {
 		Description: "Waits for an operation to finish, up to timeoutMs, and returns it: its state, its progress, and its result once completed. timeoutMs 0 reports the current state without waiting. Waiting never affects the operation.",
 		Params:      WaitParams{},
 		Result:      OperationView{},
-		Errors:      []ErrorCode{ErrOperationNotFound},
+		Errors:      []ErrorCode{ErrOperationNotFound, ErrOperationCancelled},
 		Handler: func(ctx context.Context, call *Call) (any, error) {
 			p := call.Params.(WaitParams)
 			var deadline time.Time

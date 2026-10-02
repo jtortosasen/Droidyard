@@ -72,7 +72,7 @@ type Descriptor struct {
     Audience     Audience      // All | Human — Human is never exposed over MCP (policy.*)
     Params       any           // struct instance; schema generated from it
     Result       any           // struct instance; schema generated from it
-    Errors       []ErrorCode   // every code it may return; part of the published schema
+    Errors       []ErrorCode   // every code it returns itself; a projecting capability passes the waited code through
     Annotations  Annotations   // {Destructive *bool; OpenWorld *bool; Reason string}; nil = derived
     Availability []Requirement // needs adb, needs the sidecar, needs an SDK …
     Since        string        // API version that introduced it

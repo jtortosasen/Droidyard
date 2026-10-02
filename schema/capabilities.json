@@ -51,7 +51,8 @@
         "openWorldHint": false
       },
       "errors": [
-        "OPERATION_NOT_FOUND"
+        "OPERATION_NOT_FOUND",
+        "OPERATION_CANCELLED"
       ],
       "input": {
         "properties": {
@@ -117,7 +118,12 @@
           }
         },
         "additionalProperties": false,
-        "type": "object"
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
       }
     },
     {
