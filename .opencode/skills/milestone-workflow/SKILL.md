@@ -23,7 +23,6 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 - **Implementing.** One step at a time, in order. After each step, run its check and the four commands, then tick it with the evidence (`prove-change` skill). Plan changes during implementation are recorded under the plan's Changes, as `milestone-plan` §Following one says.
 - **Verifying.** The verifier gets the plan so it can check each Acceptance item against the code, and anything the plan put in scope that the change silently dropped.
 - **Closing.** Report what the implementer and the verifier actually established. An acceptance item proven only in part stays unticked, with a note saying which part was proven. A plan marked `Done` stays in `docs/plans/` as the record.
-- **One experiment, not a rule.** All four agents run Claude models: `implementer` on Sonnet, the other three on Opus, so the planner and its reviewer are the same model. Whether a reviewer from another model family catches what these miss is unmeasured (`docs/research/pstack.md` §5). Try it once for one plan at step 2, and once for one change to `schema/capabilities.json` at step 5. Run the same reviewer a second time on a non-Claude model, and give the owner both finding lists side by side. One way, not yet tried, is a temporary copy of the agent file with another `model:`, deleted afterwards. Do not change any agent's `model:` line; whether this becomes a rule is the owner's call. Delete this bullet once both runs are done.
 
 ## When not to use it
 
