@@ -64,9 +64,9 @@ type Meta struct {
 // operation_wait return (ADR-0020 §Adapter projections). It is one object with no
 // top-level union: a completed operation sets Result.
 type OperationView struct {
-	OperationID string     `json:"operationId"`
-	Capability  string     `json:"capability"`
-	State       State      `json:"state"`
+	OperationID string     `json:"operationId" jsonschema:"required"`
+	Capability  string     `json:"capability" jsonschema:"required"`
+	State       State      `json:"state" jsonschema:"required"`
 	Progress    *Progress  `json:"progress,omitempty"`
 	BlockedBy   *BlockedBy `json:"blockedBy,omitempty"`
 	Result      Object     `json:"result,omitempty"`

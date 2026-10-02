@@ -175,7 +175,8 @@ type Descriptor struct {
 	Params any
 	Result any
 
-	// Errors lists every code the handler may return. Part of the published schema.
+	// Errors lists every code the handler returns itself; a projecting capability
+	// passes the waited operation's code through. Part of the published schema.
 	Errors []ErrorCode
 
 	Annotations Annotations

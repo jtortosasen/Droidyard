@@ -184,8 +184,11 @@ belong to no domain: `REQUEST` (the envelope), `SESSION` (the connection), `DAEM
 socket handshake). The list is closed; a new prefix is a schema change.
 
 **Versioning of codes.** Error codes are part of the published schema: each descriptor
-lists the codes it may return, and the golden file records them. Following the API's
-semantic version:
+lists the codes the capability itself may return, and the golden file records them. A
+capability that projects another operation's outcome (`operation.wait`) passes that
+operation's error through unchanged: any unlisted code a consumer sees is the waited
+operation's failure (§Operations and cancellation). Following the API's semantic
+version:
 
 - a code, once published, is never renamed or given a new meaning;
 - new codes may be added in a minor version, so consumers must treat an unknown code as
@@ -215,7 +218,11 @@ Codes carry no version suffix of their own.
 ### Operations and cancellation
 
 - `operation.wait {operationId, timeoutMs?}` returns the same shape as the response
-  envelope; `timeoutMs: 0` is a status poll.
+  envelope; `timeoutMs: 0` is a status poll. Its `operation` is the waited operation, and
+  its `result` or `error` is that operation's own: `OPERATION_CANCELLED` when it ended
+  cancelled, the handler's typed error when it failed. Its descriptor lists the codes it
+  returns itself (`OPERATION_NOT_FOUND`) plus `OPERATION_CANCELLED`; any other code a
+  consumer sees is the waited operation's, passed through unchanged.
 - `operation.cancel {operationId}` requests cooperative cancellation: idempotent,
   immediate for `queued`, a no-op on terminal operations. There is **no**
   domain-specific cancel; for builds, the build id is the operation id.
