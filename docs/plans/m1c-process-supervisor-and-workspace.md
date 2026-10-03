@@ -105,6 +105,7 @@ Baseline on 2026-10-02 (macOS, go1.27): `go vet ./...` printed nothing; `go test
   - `TestSecondCloseWaitsAndCompletes`.
   - `TestStartsCheckAndRecordShareCloseLock` (B1, hook per Changes): not `closing` and close not returned for 200 ms; released, the operation ends `cancelled` before close returns.
   - `TestNewerIndexIsNeitherReadNorWritten`: open by root `ready`, by an unknown id `WORKSPACE_ROOT_INVALID`, bytes unchanged, `newerVersion` recorded, no `REQUEST_INVALID_PARAMS`.
+  - `TestUnreadableStateFailsTheOpen` (D1, added after the commit of steps 1 to 3; see Changes): `workspace.json` a directory, `workspaces.json` a directory (open by root and by id), the state directory `0500`: each open ends `failed` with `WORKSPACE_STATE_UNREADABLE`, `details.target` as given, nextStep "check the permissions and free space of the state directory", a non-empty cause, and the workspace not open. With the mapping reverted at the load site, three cases fail with `REQUEST_INVALID_PARAMS: the call failed (read …` / `(mkdir …`; reverted at the index-lookup site, the by-id case fails. `go test ./internal/schema -update`: the diff is one line in `workspace.open`'s `errors`, `+ "WORKSPACE_STATE_UNREADABLE"`.
   - `TestProductionDrainIs10s`; `TestWorkspaceIDIsOneIDPerRoot` in `internal/platform` (`/tmp/x`, `/private/tmp/x`, a case variant, a trailing slash: one id; `app-844551840eba` pinned against `shasum -a 256`).
 
   Seen failing, each mutation applied alone and restored (`shasum -c` OK after):
@@ -134,7 +135,32 @@ Baseline on 2026-10-02 (macOS, go1.27): `go vet ./...` printed nothing; `go test
 - Needs: steps 1, 3.
 - Not here: `droidyard trust` (Phase 1); relative paths for `--workspace` (the envelope takes an id or an absolute root; R5); MCP (step 5).
 - Rests on: the shims send the root as resolved and only the daemon canonicalises it, so the CLI, MCP and the core derive one id. Level 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 for the CLI path (a re-executed `serve` and re-executed `droidyard call` processes, real socket, macOS, go1.27.0 darwin/arm64); level 4 for the resolver and the flag. `go test -count=1 -race -v -run 'TestCLIAddressesWorkspaces|TestCorruptIndexIsReportedNotFatal|TestResolveRoot' ./cmd/droidyard`: three PASSes.
+  - `TestCLIAddressesWorkspaces`, a project with `settings.gradle.kts` and its subdirectory `app/src`:
+    - From the subdirectory, `call workspace.open` and `call workspace.describe` answer `root` = the project directory, `id` = `WorkspaceID(root)`, `name` its basename, `ready`, untrusted; `call system.health` from there exits 0 (the hello root fills workspace calls only).
+    - From `/`, `call --workspace <id> workspace.describe` returns byte-identical `result`; `call --workspace <root> system.health` exits non-zero with `REQUEST_UNEXPECTED_WORKSPACE` and no operation.
+    - `call workspace.close`, then `describe`: `WORKSPACE_NOT_OPEN`, non-zero.
+    - `stop`, a new `serve`: `describe` gets `WORKSPACE_NOT_OPEN`; `open` gives the same id and `createdAt`, and `workspaces.json` `lastOpenedAt` is later.
+    - `call --workspace /nonexistent workspace.open` gets `operation.state` `failed`, `error.code` `WORKSPACE_ROOT_INVALID`, non-zero.
+    - `daemon.Dial` with a hello claiming `0.1.0` gets `DAEMON_VERSION_MISMATCH`.
+  - `TestCorruptIndexIsReportedNotFatal`: `workspaces.json` garbage before `serve`; `serve` answers; `open` succeeds; `system.health` `stateProblems` = one `{file: "workspaces.json", problem: "corrupt", movedTo}`; the moved file holds the garbage byte for byte.
+  - `TestResolveRoot`: `settings.gradle` two levels up; `settings.gradle.kts` in the cwd; the nearest ancestor wins; none, so the cwd; a directory named `settings.gradle` ignored; an explicit root wins and a relative one is made absolute against the cwd.
+  - `go test -race -run TestWorkspaceFlagIsSentVerbatim ./adapters/cli`: `--workspace <v>` and `--workspace=<v>` parse, an empty value is a usage error, and the envelope carries `"workspace":"/Users/Me/./app"` verbatim.
+
+  Seen failing, each mutation applied alone and restored (`shasum -c` OK after):
+
+  | Mutation | Result |
+  | --- | --- |
+  | the resolver does not walk up | `TestResolveRoot` FAIL, and `TestCLIAddressesWorkspaces` FAIL |
+  | the resolver ignores `settings.gradle.kts` | "open from a subdirectory = {ID:src-…}" |
+  | the native handler ignores the hello root | "REQUEST_MISSING_WORKSPACE: workspace.open is workspace-scoped and the request names no workspace" |
+  | the hello root filled for global capabilities too | "REQUEST_UNEXPECTED_WORKSPACE: operation.wait is global" |
+  | `--workspace` not sent | "describe --workspace … from / exited 1: null", and in `adapters/cli` "the envelope sent: {…"waitMs":0}" |
+  | `call` sends no hello root | `REQUEST_MISSING_WORKSPACE` |
+  | `stateProblems` not wired | "stateProblems = []" |
+  | `lastOpenedAt` not refreshed on reopen | "lastOpenedAt … want later than …" |
+
+  Schema: before `-update`, `go test ./internal/schema` failed. Its output, diffed against the golden file, added only the `stateProblems` property in `system.health`'s output. After `-update`, `git diff schema/capabilities.json` against the steps 1 to 3 commit shows two hunks. The first is that property: an array of objects with `file`, `problem` (enum `corrupt`, `newerVersion`), `movedTo`, `required` `[file, problem]`, `additionalProperties` false. The second is D1's added `WORKSPACE_STATE_UNREADABLE` (Changes). `go build ./...` ok; `go vet ./...`, `GOOS=linux go vet ./...` and `gofmt -l .` print nothing; `go test -count=1 ./...` ok for twelve packages; `-race` ok on `internal/daemon`, `internal/workspace`, `adapters/...`, `cmd/droidyard`.
 
 ### 5. The MCP session binding, and opening the bound root at session start
 
@@ -274,4 +300,5 @@ Not questions: each follows from a cited document and is cheap to change. The ow
 
 - 2026-10-03, step 2: darwin `StartTime` calls `unix.SysctlKinfoProcSlice("kern.proc.pid", pid)` rather than `unix.SysctlKinfoProc`. Same sysctl, same binding (ADR-0019 `Amended: 2026-09-30` names the binding, not the function), but for a pid that no process holds, the single-record form returns `EIO`, the same error as a real failure. The slice form returns an empty slice instead (both observed with go1.27 and `golang.org/x/sys` v0.48.0 for pid 999999), and the step requires a distinct "no such process" result. No ADR change.
 - 2026-10-03, step 3: the Builds line puts the B1 test hook "inside `Start`, between the check and the recording". It is instead a test-only `capability.Workspaces` wrapper (`heldAdmit` in `internal/workspace/workspace_test.go`). The wrapper calls the real `Registry.Admit` and holds the `record` callback that `Admit` invokes after its open check, under the admission lock. That is the same point in the same lock, so no hook field ships in `Start`. The mutation the check names (check and recording under separate locks) fails the test: "close entered closed while Start held the admission lock".
-- 2026-10-03, step 3: the filesystem root `/` has basename `/`, which ADR-0021 §Layout's `<basename>-<12 hex>` would put into an id and into `ws/<wsid>/`. `WorkspaceID` names it `root`, so the id is `root-<12 hex>`. This fills a gap in ADR-0021 and is left to the owner to confirm or change there.
+- 2026-10-03, after steps 1 to 3 were committed (owner decision D1; ADR-0026 `Amended: 2026-10-03 (second pass)`): a state-file read or write that fails for any reason other than a corrupt file or a newer version (permissions, no space, an IO error) ends `workspace.open` `failed` with `WORKSPACE_STATE_UNREADABLE`, `details {target}`, nextStep "check the permissions and free space of the state directory". Before, it surfaced as `REQUEST_INVALID_PARAMS` through the generic fallback. The code is in `internal/capability/error.go` and listed in `workspace.open`'s `errors` only; `workspace.describe` touches no files and does not list it. Golden file: one line added.
+- 2026-10-03, step 3: the filesystem root `/` has basename `/`, which ADR-0021 §Layout's `<basename>-<12 hex>` would put into an id and into `ws/<wsid>/`. `WorkspaceID` names it `root`, so the id is `root-<12 hex>`. This fills a gap in ADR-0021 and is left to the owner to confirm or change there. The owner confirmed it as decision D2; no code change.

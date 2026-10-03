@@ -22,7 +22,7 @@ import (
 )
 
 // Usage is the call subcommand's synopsis.
-const Usage = "usage: droidyard call <capability> [--params <json>] [--detach] [--no-autostart]"
+const Usage = "usage: droidyard call <capability> [--workspace <id|root>] [--params <json>] [--detach] [--no-autostart]"
 
 // Exit statuses beyond 0 and 1.
 const (
@@ -34,7 +34,11 @@ const (
 
 // Call is one parsed `droidyard call`.
 type Call struct {
-	Capability  string
+	Capability string
+	// Workspace is --workspace, sent verbatim in the envelope: a workspace id or an
+	// absolute root (ADR-0020 §Scope and workspace addressing). Empty: the daemon
+	// uses the root this CLI named in its hello, for a workspace-scoped capability.
+	Workspace   string
 	Params      json.RawMessage
 	Detach      bool
 	NoAutostart bool
@@ -50,6 +54,19 @@ func Parse(args []string) (Call, error) {
 			c.NoAutostart = true
 		case a == "--detach":
 			c.Detach = true
+		case a == "--workspace" || strings.HasPrefix(a, "--workspace="):
+			v, ok := strings.CutPrefix(a, "--workspace=")
+			if !ok {
+				if i+1 == len(args) {
+					return c, errors.New("--workspace needs a workspace id or an absolute project root")
+				}
+				i++
+				v = args[i]
+			}
+			if v == "" {
+				return c, errors.New("--workspace needs a workspace id or an absolute project root")
+			}
+			c.Workspace = v
 		case a == "--params" || strings.HasPrefix(a, "--params="):
 			v, ok := strings.CutPrefix(a, "--params=")
 			if !ok {
@@ -109,7 +126,7 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 	go read(r, responses)
 
 	if !startsOperation(c.Capability) {
-		if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Params: c.Params}); err != nil {
+		if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Workspace: c.Workspace, Params: c.Params}); err != nil {
 			return 1, err
 		}
 		// operation.wait and operation.cancel are not operations: Ctrl-C only stops
@@ -126,7 +143,7 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 	}
 
 	zero := int64(0)
-	if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Params: c.Params, WaitMs: &zero}); err != nil {
+	if err := send(w, capability.RequestEnvelope{ID: startID, Capability: c.Capability, Workspace: c.Workspace, Params: c.Params, WaitMs: &zero}); err != nil {
 		return 1, err
 	}
 	first, err := await(responses, startID)

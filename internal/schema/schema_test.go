@@ -33,7 +33,7 @@ func (nothingInstalled) Missing(r capability.Requirement) (string, bool) {
 func registry() *capability.Registry {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
-	system.Register(reg, nothingInstalled{}, ops)
+	system.Register(reg, nothingInstalled{}, ops, nil)
 	ops.RegisterCapabilities()
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	return reg

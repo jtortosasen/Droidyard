@@ -7,6 +7,8 @@
   now wins over the XDG runtime location for the socket.
 - Amended: 2026-10-03 — the newer-state-file error is named `WORKSPACE_STATE_NEWER`
   ([ADR-0026](0026-workspace-addressing-invalid-roots.md)).
+- Amended: 2026-10-03 (second pass) — the filesystem root's workspace name is `root`
+  (`root-<12 hex>`), because its basename is `/`; owner decision.
 
 ## Context
 
@@ -85,6 +87,8 @@ spec.
 The workspace id is `<basename>-<12 hex of sha256(canonical root)>`: deterministic,
 and still readable when someone lists the directory. The canonical root is the
 symlink-resolved absolute path, using the on-disk case on case-insensitive volumes.
+The filesystem root's name is `root` (`root-<12 hex>`): its own basename is `/`, which
+would put a slash into `ws/<wsid>/` (amended 2026-10-03).
 
 ### Pid records: the durable exception
 

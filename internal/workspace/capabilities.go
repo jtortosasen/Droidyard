@@ -36,7 +36,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Description: "Opens the workspace for a project root, or returns its state if it is already open, so sessions share it. Opening reads droidyard's own state for the root and runs no project code. Workspace tools need an open workspace; an MCP session opens its bound root when it starts, so call this only to reopen it after a close.",
 		Params:      None{},
 		Result:      Info{},
-		Errors:      []capability.ErrorCode{ErrRootInvalid, ErrStateNewer},
+		Errors:      []capability.ErrorCode{ErrRootInvalid, ErrStateNewer, ErrStateUnreadable},
 		Annotations: capability.Annotations{
 			Destructive: &notDestructive,
 			Reason:      "registers a root and runs no project code",

@@ -220,6 +220,32 @@
           },
           "operations": {
             "type": "integer"
+          },
+          "stateProblems": {
+            "items": {
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "problem": {
+                  "type": "string",
+                  "enum": [
+                    "corrupt",
+                    "newerVersion"
+                  ]
+                },
+                "movedTo": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "file",
+                "problem"
+              ]
+            },
+            "type": "array"
           }
         },
         "additionalProperties": false,
@@ -352,7 +378,8 @@
       },
       "errors": [
         "WORKSPACE_ROOT_INVALID",
-        "WORKSPACE_STATE_NEWER"
+        "WORKSPACE_STATE_NEWER",
+        "WORKSPACE_STATE_UNREADABLE"
       ],
       "input": {
         "properties": {},

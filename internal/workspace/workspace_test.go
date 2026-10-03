@@ -651,3 +651,52 @@ func TestProductionDrainIs10s(t *testing.T) {
 		t.Errorf("drain %s", d)
 	}
 }
+
+// TestUnreadableStateFailsTheOpen: when droidyard's own state cannot be read or
+// written, for a reason other than a corrupt file or a newer version, open ends failed
+// with WORKSPACE_STATE_UNREADABLE, details.target as given, ADR-0026's nextStep, and
+// never REQUEST_INVALID_PARAMS (ADR-0026, second amendment).
+func TestUnreadableStateFailsTheOpen(t *testing.T) {
+	cases := map[string]func(t *testing.T, state, id string){
+		"workspace.json is a directory": func(t *testing.T, state, id string) {
+			os.MkdirAll(filepath.Join(state, "ws", id, "workspace.json", "x"), 0o700)
+		},
+		"workspaces.json is a directory": func(t *testing.T, state, id string) {
+			os.MkdirAll(filepath.Join(state, "workspaces.json", "x"), 0o700)
+		},
+		"workspaces.json is a directory, open by id": func(t *testing.T, state, id string) {
+			os.MkdirAll(filepath.Join(state, "workspaces.json", "x"), 0o700)
+		},
+		"the state directory is read-only": func(t *testing.T, state, id string) {
+			if os.Getuid() == 0 {
+				t.Skip("root writes through permissions")
+			}
+			os.Chmod(state, 0o500)
+			t.Cleanup(func() { os.Chmod(state, 0o700) })
+		},
+	}
+	for name, breakIt := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, 200*time.Millisecond)
+			root := project(t)
+			id, _ := platform.Current().WorkspaceID(root)
+			breakIt(t, h.st.Root(), id)
+			target := root
+			if strings.HasSuffix(name, "by id") {
+				target = id
+			}
+			out := h.invoke(t, CapOpen, target)
+			e := out.Error
+			if out.State != capability.StateFailed || e == nil || e.Code != ErrStateUnreadable || e.Details["target"] != target ||
+				e.NextStep != "check the permissions and free space of the state directory" || e.Cause == "" {
+				t.Fatalf("open: %+v (%+v); want failed with WORKSPACE_STATE_UNREADABLE", out, e)
+			}
+			if s := h.ws.State(root); s == Ready || s == Degraded || s == Opening {
+				t.Errorf("state %s after a failed open", s)
+			}
+			if _, err := h.ops.Start(context.Background(), capability.Request{Capability: "fixture.scoped", Workspace: root}); codeOf(err) != capability.ErrWorkspaceNotOpen {
+				t.Errorf("a call after the failed open: %v; want WORKSPACE_NOT_OPEN", err)
+			}
+		})
+	}
+}
