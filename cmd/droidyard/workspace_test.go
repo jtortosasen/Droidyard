@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -86,7 +87,7 @@ func TestCLIAddressesWorkspaces(t *testing.T) {
 		t.Fatalf("open from a subdirectory = %+v; want root %s, id %s, ready, untrusted", info, root, id)
 	}
 	described, code := callIn(t, state, sub, "workspace.describe")
-	if code != 0 || workspaceOf(t, described) != info {
+	if code != 0 || !reflect.DeepEqual(workspaceOf(t, described), info) {
 		t.Fatalf("describe from %s exited %d: %+v", sub, code, described)
 	}
 	if env, code := callIn(t, state, sub, "system.health"); code != 0 || env.Error != nil {
@@ -123,7 +124,7 @@ func TestCLIAddressesWorkspaces(t *testing.T) {
 	}
 	reopened, code := callIn(t, state, sub, "workspace.open")
 	again := workspaceOf(t, reopened)
-	if code != 0 || again.ID != id || !again.CreatedAt.Equal(info.CreatedAt) {
+	if code != 0 || again.ID != id || again.CreatedAt == nil || info.CreatedAt == nil || !again.CreatedAt.Equal(*info.CreatedAt) {
 		t.Errorf("reopened after a restart: exit %d, %+v; want id %s, createdAt %v", code, again, id, info.CreatedAt)
 	}
 	if after := lastOpenedAt(t, state, id); !after.After(before) {

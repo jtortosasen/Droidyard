@@ -79,7 +79,7 @@ func Register(reg *capability.Registry, req Requirements, ops Operations, proble
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Reports whether the core is alive, its version and how long it has been running.",
+		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, and any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched).",
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {

@@ -144,8 +144,13 @@ func TestUseStartsLazilyAndRecordsAtOnce(t *testing.T) {
 	default:
 	}
 	started, err := platform.StartTime(rec.PID)
-	if err != nil || started != rec.StartTime || rec.PGID != rec.PID || rec.ID != "lazy" || rec.Kind != SharedSidecar {
+	if err != nil || started != rec.StartTime || rec.ID != "lazy" || rec.Kind != SharedSidecar {
 		t.Errorf("record %+v; the live pid's start time is %d (%v)", rec, started, err)
+	}
+	// The recorded pgid is the kernel's: the process leads a group of its own, not
+	// the test's. TestStopKillsTheWholeGroup shows a helper in that group dies with it.
+	if pgid, err := syscall.Getpgid(rec.PID); err != nil || pgid != rec.PGID || pgid == syscall.Getpgrp() {
+		t.Errorf("the kernel's pgid of pid %d is %d (%v); recorded %d, the test's own %d", rec.PID, pgid, err, rec.PGID, syscall.Getpgrp())
 	}
 
 	os.WriteFile(gate, nil, 0o600)
@@ -257,8 +262,8 @@ func TestUseWithADoneContextSpawnsNothing(t *testing.T) {
 	d, ev := dummy(t, "late", WorkspaceScope("a"))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if l, err := s.Use(ctx, d); err == nil || l != nil {
-		t.Fatalf("Use with a done context = %v, %v; want an error", l, err)
+	if l, err := s.Use(ctx, d); !errors.Is(err, context.Canceled) || l != nil {
+		t.Fatalf("Use with a done context = %v, %v; want context.Canceled", l, err)
 	}
 	time.Sleep(300 * time.Millisecond)
 	if events(ev) != nil || len(onDisk(t, st)) != 0 || s.State(d.ID, d.Scope) != "" {

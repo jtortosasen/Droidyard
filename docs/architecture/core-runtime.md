@@ -29,8 +29,8 @@ internal/
   capability/              registry, descriptors, operations (Start/Wait/Cancel), typed errors
   schema/                  Go → JSON Schema generation and golden files
   workspace/               workspace model, lifecycle, durable configuration
-  store/                   durable JSON state, atomic writes, pid records (ADR-0021)
-  process/                 supervisor: descriptors, lifecycle, no-orphans
+  store/                   durable JSON state, atomic writes (ADR-0021)
+  process/                 supervisor: descriptors, pid records, lifecycle, no-orphans
   event/                   event bus, daemon-wide sequence, replay ring, subscriptions
   artifact/                single artifact store; URI-shaped refs; eviction
   policy/                  authorization boundary, allowlists, live configuration

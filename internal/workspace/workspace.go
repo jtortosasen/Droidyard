@@ -53,9 +53,9 @@ type Info struct {
 	Root    string `json:"root" jsonschema:"required"`
 	State   State  `json:"state" jsonschema:"required,enum=ready,enum=degraded"`
 	Trusted bool   `json:"trusted" jsonschema:"required"`
-	// CreatedAt is when the workspace was first opened, from workspace.json; zero
-	// while that file is of a newer version and unread.
-	CreatedAt  time.Time         `json:"createdAt" jsonschema:"required"`
+	// CreatedAt is when the workspace was first opened, from workspace.json. Absent
+	// while that file is of a newer version and unread: the time is not known.
+	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
 	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
 }
 
@@ -256,7 +256,16 @@ func (r *Registry) Open(target string) (Info, error) {
 		root = known
 	}
 
-	w := r.entry(id)
+	w := r.lookup(id)
+	if w == nil {
+		// Validated before it is registered, so a target that cannot be opened leaves
+		// no entry behind. A known workspace is validated below, under its tx: an open
+		// one is a no-op whatever its directory has become.
+		if err := readableDir(root); err != nil {
+			return Info{}, rootInvalid(target, err.Error())
+		}
+		w = r.entry(id)
+	}
 	w.tx.Lock()
 	defer w.tx.Unlock()
 	r.mu.Lock()
@@ -319,13 +328,15 @@ func (r *Registry) load(id, root string) (Info, error) {
 	case err != nil:
 		return Info{}, err
 	case out == store.Loaded:
-		info.CreatedAt = cfg.CreatedAt
+		created := cfg.CreatedAt
+		info.CreatedAt = &created
 	default: // absent, or corrupt and moved aside
 		cfg = config{Root: root, Name: name, CreatedAt: r.now().UTC()}
 		if err := r.opts.Store.Write(configFile(id), cfg); err != nil {
 			return Info{}, err
 		}
-		info.CreatedAt = cfg.CreatedAt
+		created := cfg.CreatedAt
+		info.CreatedAt = &created
 	}
 	if err := r.recordOpen(id, root, name); err != nil {
 		return Info{}, err
