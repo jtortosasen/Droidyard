@@ -149,7 +149,7 @@ background".
 - `result` is present iff `completed`; `error` iff `failed` or `cancelled` (the latter
   with `OPERATION_CANCELLED`). Never both.
 - A request rejected before it starts (unknown capability, bad params, missing
-  `workspace`, a workspace not open, policy denial) has an `error` and **no**
+  `workspace`, a workspace not open, a policy denial that needs no I/O) has an `error` and **no**
   `operation`.
 - **A failed build is `completed`**, with `outcome: "failed"` in its result. `failed`
   is reserved for calls that could not be performed.
@@ -351,7 +351,7 @@ subscription receives when it lost events.
 | `operation.progress` | `{done, total?, message?, phase?}` | 1d |
 | `events.gap` | the loss marker `{fromSeq, toSeq}`, `seq` equal to `toSeq` | 1d |
 | `build.progress`, `build.output` | Gradle progress and console lines | Phase 1 |
-| `device.logcat`, `device.screen`, `device.state` | device streams and state | device slice |
+| `device.logcat`, `device.screen`, `device.state` | device streams and state | with their producers: `device.logs` and later device milestones (not 1e) |
 | `process.lifecycle`, `process.output` | supervised sidecars | Phase 1, with the first shipped sidecar |
 | `operation.state` | operation transitions for the UI | Phase 2 |
 

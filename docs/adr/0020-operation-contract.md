@@ -15,6 +15,10 @@
   `workspace.open` and the close/reopen rules.
 - Amended: 2026-10-03 (second pass) — the bound-open failure returns `WORKSPACE_NOT_OPEN`
   ([ADR-0026](0026-workspace-addressing-invalid-roots.md)).
+- Amended: 2026-10-04 — a policy denial that needs device state to decide (a device's
+  kind needs `adb devices -l`) is decided at the re-check before the handler, so it
+  fails the operation instead of rejecting at `Start`; `Start` still does no I/O
+  (owner-delegated decision, milestone 1e, 2026-10-04, Q2).
 
 ## Context
 
@@ -52,10 +56,11 @@ Cancel(OpID) error                                     // cooperative, idempoten
   `operation.*` calls themselves are not recorded.
 - **`Start`** rejects synchronously — unknown capability, params that fail strict
   decoding, a missing or superfluous `workspace`, a workspace that is not open, a
-  policy denial — with a typed error and **no operation**. Otherwise it returns an id
+  policy denial that needs no I/O — with a typed error and **no operation**. Otherwise it returns an id
   without waiting. Authorization is re-checked immediately before the handler runs
   ([ADR-0015](0015-untrusted-data-authorization.md)); a denial there fails the
-  operation.
+  operation. A denial that needs device state (`DEVICE_NOT_ALLOWED`) is decided only
+  there (2026-10-04).
 - **`Wait`** returns `Outcome{state, result | error, progress, blockedBy?}`. A deadline
   in the past is a status snapshot. Waiting has no side effects: abandoning a wait does
   not touch the operation, and any number of callers may wait on the same one.

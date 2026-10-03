@@ -45,11 +45,14 @@ Snapshot
 │   ├── bounds   [left, top, right, bottom], display pixels
 │   ├── flags    non-default only: clickable, scrollable, checkable, checked,
 │   │            selected, focused, password, disabled
-│   └── children
+│   └── children the child nodes' refs ["n13", "n14"]
 ├── truncated
 └── emptyReason  noMatch | pruned | noAccessibilityInfo
 ```
 
+- **Flat**: `nodes[]` is in document order and `children` holds refs, not nested
+  nodes, so the published output schema stays fully inlined with no recursive type
+  (milestone 1e, Q1).
 - **Compact**: flags appear only in their non-default state, and layout-only nodes (no
   id, text, desc or flag) are folded into their parent.
 - **Bounded**: a byte cap (default ~40 KB) prunes the deepest levels first, with

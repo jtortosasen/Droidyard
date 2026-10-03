@@ -16,3 +16,4 @@ the output.
 | [m1b-daemon-and-mcp-adapter.md](m1b-daemon-and-mcp-adapter.md) | 1b — the daemon and the MCP adapter | Done |
 | [m1c-process-supervisor-and-workspace.md](m1c-process-supervisor-and-workspace.md) | 1c — the process supervisor and the workspace model | Done |
 | [m1d-http-websocket-and-events.md](m1d-http-websocket-and-events.md) | 1d — the HTTP/WebSocket skeleton, the event bus and `events.*` | Done |
+| [m1e-jvm-free-device-slice.md](m1e-jvm-free-device-slice.md) | 1e — the JVM-free device slice | Approved |
