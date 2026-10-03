@@ -63,6 +63,24 @@ type Server struct {
 
 	// extra are tools a test adds beside the registry's.
 	extra []server.ServerTool
+
+	// boundOpenHook, test-only, runs before a session's bound open.
+	boundOpenHook atomic.Pointer[func()]
+}
+
+// openCapability is the call that opens a session's bound root. Adapters name
+// capabilities, never import their domains (core-runtime.md §Adapter boundary).
+const openCapability = "workspace.open"
+
+// SetBoundOpenHook makes every later session run f before it opens its bound root.
+// Test-only: it lets a test hold the open and see that no MCP message is answered
+// meanwhile. Nil removes it.
+func (s *Server) SetBoundOpenHook(f func()) {
+	if f == nil {
+		s.boundOpenHook.Store(nil)
+		return
+	}
+	s.boundOpenHook.Store(&f)
 }
 
 // New builds the tool list: every capability not reserved to humans, named with its
@@ -105,11 +123,15 @@ func ToolName(capabilityName string) string {
 
 // Serve runs one MCP session until its input ends or ctx does. r must be the reader
 // that read the connection's hello, since it may already hold what followed. budget
-// bounds the session's waits (`droidyard mcp --wait`); zero means DefaultBudget.
-func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget time.Duration) error {
+// bounds the session's waits (`droidyard mcp --wait`); zero means DefaultBudget. root
+// is the session's binding, the hello's root (ADR-0019 §Sessions): Serve opens it
+// before it reads the first MCP message, and every workspace-scoped tool call names
+// it. Empty: no binding, and workspace tools get REQUEST_MISSING_WORKSPACE.
+func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget time.Duration, root string) error {
 	if budget <= 0 {
 		budget = DefaultBudget
 	}
+	s.openBound(ctx, root)
 	// One mcp-go server per connection: a second Listen on a shared server fails,
 	// because every Listen registers the same session id.
 	srv := server.NewMCPServer("droidyard", s.version,
@@ -119,7 +141,7 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 	srv.AddTools(s.tools...)
 	srv.AddTools(s.extra...)
 
-	c := &session{ctx: ctx, budget: budget}
+	c := &session{ctx: ctx, budget: budget, root: root}
 	stdio := server.NewStdioServer(srv)
 	stdio.SetErrorLogger(s.log)
 	server.WithWorkerPoolSize(workerPoolSize)(stdio)
@@ -144,7 +166,30 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 type session struct {
 	ctx    context.Context // the one given to Listen; it ends when the daemon stops
 	budget time.Duration
+	root   string // the bound root
 	gone   atomic.Bool
+}
+
+// openBound opens the session's bound root, once, before the session reads its first
+// MCP message, so no tool call can precede it (ADR-0019 §Sessions: "The binding opens
+// its root, once"; ADR-0020 §Adapter projections; plan m1c, R4). It runs as client mcp
+// and grants no trust (ADR-0015 §5). A failure does not fail the session: it is
+// logged, and workspace tools get WORKSPACE_NOT_OPEN until workspace_open shows the
+// cause (ADR-0026). Nothing reopens the workspace later (R13).
+func (s *Server) openBound(ctx context.Context, root string) {
+	if root == "" {
+		return
+	}
+	if f := s.boundOpenHook.Load(); f != nil {
+		(*f)()
+	}
+	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP})
+	switch {
+	case err != nil:
+		s.log.Printf("session bound to %s: %s was rejected: %v", root, openCapability, err)
+	case out.State != capability.StateCompleted:
+		s.log.Printf("session bound to %s: %s ended %s: %v", root, openCapability, out.State, out.Error)
+	}
 }
 
 func sessionOf(ctx context.Context) *session {
@@ -200,7 +245,7 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 			// operation_cancel answers at once; a cancel of the cancel has nothing
 			// to stop.
-			out, err := s.ops.Invoke(context.WithoutCancel(ctx), s.request(d, req.Params.RawArguments))
+			out, err := s.ops.Invoke(context.WithoutCancel(ctx), s.request(ctx, d, req.Params.RawArguments))
 			if err != nil {
 				return errorResult(capability.AsError(err)), nil
 			}
@@ -208,7 +253,7 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 		}
 	}
 	return func(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-		id, err := s.ops.Start(ctx, s.request(d, req.Params.RawArguments))
+		id, err := s.ops.Start(ctx, s.request(ctx, d, req.Params.RawArguments))
 		if err != nil {
 			return errorResult(capability.AsError(err)), nil
 		}
@@ -230,8 +275,14 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 	}
 }
 
-func (s *Server) request(d capability.Descriptor, args json.RawMessage) capability.Request {
-	return capability.Request{Capability: d.Name, Params: args, Client: capability.ClientMCP}
+// request is a tool call as the core sees it. A workspace-scoped one names the
+// session's bound root: agents never pass a workspace (ADR-0019 §Sessions).
+func (s *Server) request(ctx context.Context, d capability.Descriptor, args json.RawMessage) capability.Request {
+	req := capability.Request{Capability: d.Name, Params: args, Client: capability.ClientMCP}
+	if c := sessionOf(ctx); c != nil && d.Scope == capability.Workspace {
+		req.Workspace = c.root
+	}
+	return req
 }
 
 // operationWait waits at most the session's budget: timeoutMs defaults to it and is

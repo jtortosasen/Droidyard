@@ -46,6 +46,10 @@ func Main() {
 	if mode == "" {
 		return
 	}
+	if mode == Sidecar {
+		runSidecar()
+		os.Exit(0)
+	}
 	ready := "ready"
 	switch mode {
 	case Sleep:

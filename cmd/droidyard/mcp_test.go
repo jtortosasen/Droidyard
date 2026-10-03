@@ -41,10 +41,18 @@ func startShim(t *testing.T, state, name string, args ...string) *shim {
 // startShimArgs starts `droidyard <args>` as an MCP shim.
 func startShimArgs(t *testing.T, state, name string, args []string) *shim {
 	t.Helper()
+	return startShimIn(t, state, "", name, args)
+}
+
+// startShimIn starts `droidyard <args>` as an MCP shim with dir as its cwd; "" keeps
+// the test's.
+func startShimIn(t *testing.T, state, dir, name string, args []string) *shim {
+	t.Helper()
 	cmd := &exec.Cmd{
 		Path: os.Args[0],
 		Args: append([]string{"droidyard"}, args...),
 		Env:  append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state),
+		Dir:  dir,
 	}
 	s := &shim{t: t, name: name, cmd: cmd, lines: make(chan []byte, 64), stderr: new(bytes.Buffer), exited: make(chan error, 1)}
 	cmd.Stderr = s.stderr
