@@ -42,7 +42,7 @@ func TestOnlyLoopbackIsBound(t *testing.T) {
 // header is set on the request directly: a real server trims its trailing space, so
 // only the handler itself can be held to this.
 func TestEmptyTokenRefusesEverything(t *testing.T) {
-	h := Handler(nil, nil, "")
+	h := New(nil, nil, nil, "")
 	req := httptest.NewRequest("POST", "http://127.0.0.1:7317/v1/call", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer ")
 	req.Header.Set("Content-Type", "application/json")

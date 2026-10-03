@@ -114,14 +114,22 @@ capabilities through ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §
 One connection is one **session** (ADR-0019). Frames are JSON text messages:
 
 - client → server: `{"auth": …}` first, then request envelopes, the same as
-  `/v1/call`;
-- server → client: response envelopes (matched by `id`), and `{"event": <event
-  envelope>}` for the session's subscriptions.
+  `/v1/call`. A frame over 1 MiB (4 KiB before `auth`) closes the connection with
+  1009, a non-text frame with 1003;
+- server → client: response envelopes (matched by `id`), and `{"subscriptionId":
+  "<id>", "event": <event envelope>}` for the session's subscriptions. An event that
+  matches two subscriptions is sent once under each. A subscription's first frame,
+  replayed `since` events included, is written only after a response carrying its
+  `subscriptionId` has been written on this session (the subscribe's own, or a later
+  `operation.wait` when the subscribe answered `running`), so a client never sees an
+  id before the answer that gives it (milestone 1d, D5).
 
 Subscriptions (`events.subscribe`, `file.watch`) belong to the session and end with
 it. After a reconnect, the UI resumes with `since`
 ([capability-api](../architecture/capability-api.md) §Subscriptions). The per-session
-send buffer is bounded. When it overflows, the dropped events are replaced by an
+send buffer is bounded: a queue of 1024 events per subscription (working default),
+so a busy subscription never costs a quiet one its events. When it overflows, the
+dropped events are replaced by an
 `events.gap` marker and never lost silently. The server pings every 30 s and closes the
 connection after two missed pongs.
 

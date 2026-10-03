@@ -143,6 +143,7 @@ type Session struct {
 	mu     sync.Mutex
 	subs   map[string]*Subscription
 	closed bool
+	queue  int // envelopes a new subscription's queue holds; 0 is the bus's
 }
 
 var _ capability.Session = (*Session)(nil)
@@ -170,6 +171,15 @@ func (s *Session) Len() int {
 	return len(s.subs)
 }
 
+// SetQueue sets how many envelopes the queue of each subscription this session opens
+// from now on holds; n <= 0 is the bus's size. Test-only: it is how a test makes a
+// subscription overflow with a few events instead of a thousand.
+func (s *Session) SetQueue(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queue = n
+}
+
 // Close ends the session's subscriptions, and refuses new ones. It is idempotent.
 func (s *Session) Close() {
 	s.mu.Lock()
@@ -193,7 +203,7 @@ func (s *Session) subscribe(topics []string, since *Position) (string, error) {
 	var b [8]byte
 	rand.Read(b[:]) // never returns an error (crypto/rand, Go 1.24)
 	id := "sub-" + hex.EncodeToString(b[:])
-	s.subs[id] = s.bus.Subscribe(topics, since)
+	s.subs[id] = s.bus.subscribe(topics, since, s.queue)
 	return id, nil
 }
 
@@ -258,6 +268,9 @@ func Register(reg *capability.Registry) {
 			id, err := s.subscribe(topics, from)
 			if err != nil {
 				return nil, err
+			}
+			if hook := s.bus.subscribeHook.Load(); hook != nil {
+				(*hook)()
 			}
 			return SubscribeResult{SubscriptionID: id}, nil
 		},

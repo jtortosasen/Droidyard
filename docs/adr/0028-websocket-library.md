@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-10-03
 - Relates to: ADR-0006, ADR-0010, ADR-0019 §5, `docs/interfaces/http-websocket.md` §Security baseline
+- Amended: 2026-10-03 — the read limit is 4 KiB until the first frame authenticates,
+  then 1 MiB; fragmentation is the library's and no check exercises it (step 7
+  verification, milestone 1d).
 
 ## Context
 
@@ -26,10 +29,12 @@ Use `github.com/coder/websocket` **v1.8.15**, pinned in `go.mod`.
   and the library's own origin check is relaxed through `OriginPatterns` for exactly the
   `Host`/`Origin` pairs our rules allow (for example `Origin: http://localhost:<p>` on
   `Host: 127.0.0.1:<p>`).
-- Read limit 1 MiB, matching the request-body cap of `POST /v1/call`.
+- Read limit 4 KiB until the first frame authenticates, then 1 MiB, matching the
+  request-body cap of `POST /v1/call`; a larger frame closes with 1009, a non-text
+  frame with 1003.
 - The token is the first frame within 5 s or the connection closes with code `4401`;
-  fragmentation, close codes and ping/pong are held to the contract by the milestone's
-  checks.
+  close codes and ping/pong are held to the contract by the milestone's checks.
+  Fragmented messages are reassembled by the library and not exercised by any check.
 
 ## Consequences
 

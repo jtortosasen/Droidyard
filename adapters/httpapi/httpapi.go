@@ -1,6 +1,6 @@
 // Package httpapi is the HTTP adapter for the web UI (docs/interfaces/http-websocket.md):
 // a loopback listener, the security baseline run on every request before any route,
-// and POST /v1/call. Requests identify their adapter as ui (ADR-0015 §6). It
+// POST /v1/call and GET /v1/ws. Requests identify their adapter as ui (ADR-0015 §6). It
 // translates; it adds no domain logic.
 package httpapi
 
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
 )
 
 // DefaultPort is the fixed loopback port the UI is served on, until the configuration
@@ -58,14 +59,31 @@ func Listen(addr string) (net.Listener, error) {
 	return ln, err
 }
 
-// Handler serves the UI's HTTP side: the baseline, then GET / and POST /v1/call.
-// token is the per-launch token API requests must carry.
-func Handler(reg *capability.Registry, ops *capability.Operations, token string) http.Handler {
-	mux := http.NewServeMux()
-	mux.Handle("/v1/call", &caller{reg: reg, ops: ops})
-	mux.HandleFunc("/", page)
-	return &fence{next: mux, token: []byte(token)}
+// Server is the UI's HTTP side: the baseline, then GET /, POST /v1/call and, when it
+// has a bus, GET /v1/ws. token is the per-launch token API requests must carry (the
+// WebSocket carries it in its first frame instead).
+type Server struct {
+	handler http.Handler
+	ws      *wsHandler
 }
+
+// New builds the UI's HTTP side. A nil bus serves no WebSocket.
+func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, token string) *Server {
+	c := &caller{reg: reg, ops: ops}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/call", c)
+	s := &Server{}
+	if bus != nil {
+		s.ws = newWSHandler(c, bus, token)
+		mux.Handle(wsPath, s.ws)
+	}
+	mux.HandleFunc("/", page)
+	s.handler = &fence{next: mux, token: []byte(token)}
+	return s
+}
+
+// ServeHTTP implements http.Handler.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
 
 // fence runs the security baseline (http-websocket.md §Security baseline, rules 2 to
 // 7) on every request before any route, in the order of plan m1d, R2: the cheapest
@@ -96,16 +114,22 @@ func (f *fence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden host", http.StatusForbidden) // rule 2
 		return
 	}
-	if origins := r.Header.Values("Origin"); len(origins) > 0 &&
-		(len(origins) != 1 || (origins[0] != "http://127.0.0.1:"+p && origins[0] != "http://localhost:"+p)) {
+	origins := r.Header.Values("Origin")
+	if len(origins) > 0 && (len(origins) != 1 || (origins[0] != "http://127.0.0.1:"+p && origins[0] != "http://localhost:"+p)) {
 		http.Error(w, "forbidden origin", http.StatusForbidden) // rule 3
+		return
+	}
+	if r.URL.Path == wsPath && len(origins) == 0 {
+		http.Error(w, "the WebSocket needs an Origin", http.StatusForbidden) // rule 3: mandatory on the upgrade
 		return
 	}
 	if r.Method == http.MethodOptions {
 		http.Error(w, "no CORS", http.StatusForbidden) // rule 5
 		return
 	}
-	if api {
+	// The WebSocket authenticates by its first frame (rule 4): a browser's upgrade
+	// cannot carry Authorization. Every other method on that path still needs the token.
+	if api && !(r.URL.Path == wsPath && r.Method == http.MethodGet) {
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		// An empty token refuses everything: "" equals "" in a constant-time compare.
 		if !ok || len(f.token) == 0 || subtle.ConstantTimeCompare([]byte(got), f.token) != 1 {
@@ -177,7 +201,7 @@ func (c *caller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "malformed JSON", http.StatusBadRequest)
 		return
 	}
-	env, ok := c.answer(r.Context(), body)
+	env, ok := c.answer(r.Context(), body, nil)
 	if !ok {
 		return
 	}
@@ -186,8 +210,10 @@ func (c *caller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // answer runs one envelope: Start, then Wait for waitMs, or to the end without it. It
-// reports false when the client is gone and nothing should be written.
-func (c *caller) answer(ctx context.Context, body []byte) (capability.ResponseEnvelope, bool) {
+// reports false when the client is gone and nothing should be written. session is the
+// session the request came in on: nil for a plain HTTP request, a WebSocket's own
+// otherwise, and never a nil pointer inside a non-nil interface.
+func (c *caller) answer(ctx context.Context, body []byte, session capability.Session) (capability.ResponseEnvelope, bool) {
 	var req capability.RequestEnvelope
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
@@ -200,7 +226,7 @@ func (c *caller) answer(ctx context.Context, body []byte) (capability.ResponseEn
 			"the request is not a valid envelope").WithCause(err.Error())}, true
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
-	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: capability.ClientUI}
+	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: capability.ClientUI, Session: session}
 
 	var out capability.Outcome
 	var err error

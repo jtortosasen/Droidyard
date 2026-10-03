@@ -87,7 +87,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		HTTP: &daemon.HTTP{
 			Addr:    httpAddr,
 			Listen:  httpapi.Listen,
-			Handler: httpapi.Handler(reg, ops, token),
+			Handler: httpapi.New(reg, ops, bus, token),
 			Token:   token,
 		},
 		Log: log,
