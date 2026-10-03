@@ -3,11 +3,12 @@
 > A lean, agent-oriented Android development runtime: the `droidyard` daemon at the
 > centre, a web UI and an MCP surface for coding agents.
 
-**Status:** pre-alpha. Milestone 1b — the daemon and the MCP adapter — is implemented
-and verified: the capability contract, the daemon, the CLI and MCP shims and the MCP
-adapter are real, and the surface is reachable by an agent over MCP (OpenCode
-verified; Cursor not yet run). These documents are the source of truth for the
-design; the original brainstorm is kept only for provenance.
+**Status:** pre-alpha. Milestones 1b and 1c are implemented and verified: the
+capability contract, the daemon, the CLI and MCP shims, the MCP adapter, the process
+supervisor and the workspace model are real; the surface is reachable by an agent over
+MCP, bound to a project root (OpenCode verified; Cursor not yet run). These documents
+are the source of truth for the design; the original brainstorm is kept only for
+provenance.
 
 ---
 
@@ -79,17 +80,17 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 ## Where the work stands
 
 **The design is closed and verified. Milestone 1b — the daemon and the MCP adapter —
-is done and verified. Milestone 1c — the process supervisor and the workspace model —
-is approved and in implementation.**
+and milestone 1c — the process supervisor and the workspace model — are done and
+verified. Milestone 1d — the HTTP/WebSocket skeleton and the event bus — is next.**
 
 | | State |
 | --- | --- |
 | **Design** | Closed. 27 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
 | **Owner decisions** | 19 closed in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md), plus the two 1b decisions: the MCP implementation ([ADR-0025](adr/0025-mcp-adapter-implementation.md)) and the macOS peer check with the per-root fallback ([ADR-0019](adr/0019-process-topology-daemon-and-shims.md) §6). |
-| **Code** | **Milestone 1b — the daemon and the MCP adapter — done and verified** ([plan](plans/m1b-daemon-and-mcp-adapter.md), status `Done`; acceptance A1 to A12 ticked at their stated levels). State root, socket path rules and single-instance `flock`; the Unix socket with the peer-uid check, handshake and sessions; the native envelope and `operation.wait` / `operation.cancel`; the `serve` (foreground and `--detach`), `mcp`, `call`, `status` and `stop` subcommands; the MCP adapter on `mark3labs/mcp-go`. **The surface is reachable by an agent over MCP** (OpenCode v2.0.18 verified; Cursor not run). |
-| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.opencode/`](../.opencode/), on top of [`../AGENTS.md`](../AGENTS.md). First full use on 1b: plan, three review rounds, implementation, two verification rounds — the verifier reproduced one missed lock race and one weak retention test, both fixed. |
-| **Next** | **Milestone 1c — the process supervisor and the workspace model** ([plan](plans/m1c-process-supervisor-and-workspace.md), `Approved` 2026-10-03 after two review rounds; implementation in progress): descriptors, lifecycle, idle shutdown and no orphans; `workspace.open` / `describe` / `close` with ADR-0021 persistence and [ADR-0026](adr/0026-workspace-addressing-invalid-roots.md) / [ADR-0027](adr/0027-workspace-close-and-reopen.md); the MCP session binding (root resolve, open at session start). |
-| **Then** | **Milestone 1d (proposed) — HTTP/WebSocket skeleton, the event bus and `events.*`**; then the JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`), which proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
+| **Code** | **Milestones 1b and 1c — the daemon, the MCP adapter, the process supervisor and the workspace model — done and verified** ([1b plan](plans/m1b-daemon-and-mcp-adapter.md) A1–A12; [1c plan](plans/m1c-process-supervisor-and-workspace.md) status `Done`, A1–A9 at their stated levels). The 1b surface: state root, socket, `flock`, peer check, handshake, sessions, the native envelope and `operation.wait`/`cancel`; `serve`/`mcp`/`call`/`status`/`stop`; the MCP adapter on `mark3labs/mcp-go`. The 1c layer: durable JSON state and crash reaping, the workspace model (`workspace.open`/`describe`/`close` per ADR-0026/0027), the MCP session binding to a project root, and the process supervisor (lazy start, idle shutdown, no orphans). **Reachable by an agent over MCP, bound to a project** (OpenCode v2.0.18 verified; Cursor not run). |
+| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.opencode/`](../.opencode/), on top of [`../AGENTS.md`](../AGENTS.md). Used end to end on 1b (three plan rounds, two verification rounds) and again on 1c (two plan rounds, three verification rounds, whose findings the implementer fixed before close). |
+| **Next** | **Milestone 1d — the HTTP/WebSocket skeleton, the event bus and `events.*`** (proposed in the 1c plan): the loopback HTTP baseline with its security fence, `droidyard ui`, the lock's `http` field, subscriptions, and progress notifications — including the [ADR-0025](adr/0025-mcp-adapter-implementation.md) amendment the per-connection notification fix needs. |
+| **Then** | The JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`), which proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
 
 Three things to read before the next milestones:
 
