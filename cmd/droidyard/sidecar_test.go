@@ -24,12 +24,18 @@ import (
 const (
 	drainEnv    = "DROIDYARD_TEST_DRAIN"
 	shutdownEnv = "DROIDYARD_TEST_SHUTDOWN"
+	httpPortEnv = "DROIDYARD_TEST_HTTP_PORT"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
 // fixture.sidecar and shortens the bounds the test names (plan m1c step 7, R17).
 func installTestSeams() {
 	testCapabilities = registerSidecarFixture
+	// Test daemons bind an ephemeral port unless a test asks for one.
+	httpPort = 0
+	if v, err := strconv.Atoi(os.Getenv(httpPortEnv)); err == nil {
+		httpPort = v
+	}
 	if d, err := time.ParseDuration(os.Getenv(drainEnv)); err == nil {
 		testDrain = d
 	}

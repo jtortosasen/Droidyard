@@ -22,6 +22,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
 )
 
 // Instructions is sent in every initialize result: verbatim, the block of
@@ -56,6 +57,7 @@ type Schema struct {
 type Server struct {
 	version string
 	ops     *capability.Operations
+	bus     *event.Bus
 	tools   []server.ServerTool
 	log     *log.Logger
 
@@ -67,6 +69,38 @@ type Server struct {
 	boundOpenHook atomic.Pointer[func()]
 	// writerHook, test-only, runs before a session's writer picks its next message.
 	writerHook atomic.Pointer[func(pending func() (notifications, responses int))]
+	// subscribeHook, test-only, runs between a call's Start and its progress
+	// subscription.
+	subscribeHook atomic.Pointer[func()]
+	// forwardHook, test-only, runs before a progress forwarder's first read.
+	forwardHook atomic.Pointer[func(waitEnded <-chan struct{})]
+}
+
+// UseBus gives the adapter the bus progress is read from. Without one, no progress
+// notification is sent.
+func (s *Server) UseBus(b *event.Bus) { s.bus = b }
+
+// SetSubscribeHook makes every call that forwards progress run f after it started its
+// operation (operation_wait: after it took the bus position) and before it
+// subscribes. Test-only: holding it shows that progress reported meanwhile is not
+// lost. Nil removes it.
+func (s *Server) SetSubscribeHook(f func()) {
+	if f == nil {
+		s.subscribeHook.Store(nil)
+		return
+	}
+	s.subscribeHook.Store(&f)
+}
+
+// SetForwardHook makes every progress forwarder call f before its first read;
+// waitEnded is closed when its call's wait ends. Test-only: holding the forwarder
+// until then leaves every report queued for the end-of-wait drain. Nil removes it.
+func (s *Server) SetForwardHook(f func(waitEnded <-chan struct{})) {
+	if f == nil {
+		s.forwardHook.Store(nil)
+		return
+	}
+	s.forwardHook.Store(&f)
 }
 
 // AddTestTools adds tools beside the registry's for every later session. Test-only:
@@ -453,10 +487,18 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 		}
 	}
 	return func(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		// The position is taken before Start, so the subscription made after it
+		// replays any progress reported in between.
+		token := progressTokenOf(req)
+		var from event.Position
+		if token != nil && s.bus != nil {
+			from = s.bus.Position()
+		}
 		id, err := s.ops.Start(ctx, s.request(ctx, d, req.Params.RawArguments))
 		if err != nil {
 			return errorResult(capability.AsError(err)), nil
 		}
+		p := s.watch(ctx, token, id, from)
 		// A tool not flagged long-running is waited on fully; a long-running one for
 		// the session's budget, then answered with the operation still running.
 		var deadline time.Time
@@ -465,6 +507,7 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 			deadline, answer = time.Now().Add(budgetOf(ctx)), viewOf
 		}
 		out, err := s.ops.Wait(ctx, id, deadline)
+		p.end()
 		if err != nil {
 			if ctx.Err() != nil {
 				return s.abandoned(ctx, id, answer), nil
@@ -492,7 +535,16 @@ func (s *Server) request(ctx context.Context, d capability.Descriptor, args json
 // (docs/interfaces/mcp-tool-surface.md §Long-running work).
 func (s *Server) operationWait(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 	args := capTimeout(req.Params.RawArguments, budgetOf(ctx))
+	var target struct {
+		OperationID string `json:"operationId"`
+	}
+	json.Unmarshal(args, &target)
+	var p *progress
+	if token := progressTokenOf(req); token != nil && s.bus != nil && target.OperationID != "" {
+		p = s.watch(ctx, token, target.OperationID, s.bus.Position())
+	}
 	out, err := s.ops.Invoke(ctx, capability.Request{Capability: capability.OperationWait, Params: args, Client: capability.ClientMCP})
+	p.end()
 	if err == nil {
 		return viewOf(out), nil
 	}
@@ -501,11 +553,7 @@ func (s *Server) operationWait(ctx context.Context, req mcpgo.CallToolRequest) (
 	}
 	// Abandoned: say where the operation stands. A session that is gone is written
 	// nothing anyway.
-	var p struct {
-		OperationID string `json:"operationId"`
-	}
-	json.Unmarshal(args, &p)
-	snap, err := s.ops.Wait(context.Background(), p.OperationID, time.Now())
+	snap, err := s.ops.Wait(context.Background(), target.OperationID, time.Now())
 	if err != nil {
 		return errorResult(capability.AsError(err)), nil
 	}
@@ -619,5 +667,110 @@ func errorResult(e *capability.Error) *mcpgo.CallToolResult {
 	return &mcpgo.CallToolResult{
 		Content: []mcpgo.Content{mcpgo.NewTextContent(string(raw))},
 		IsError: true,
+	}
+}
+
+// progressTokenOf is the call's _meta.progressToken, or nil when it asked for none.
+func progressTokenOf(req mcpgo.CallToolRequest) mcpgo.ProgressToken {
+	if req.Params.Meta == nil {
+		return nil
+	}
+	return req.Params.Meta.ProgressToken
+}
+
+// progress forwards one operation's progress to the client, as notifications/progress
+// for the call's token, while the call waits on it (ADR-0020 §Adapter projections;
+// docs/interfaces/mcp-features.md §7). Nil forwards nothing.
+type progress struct {
+	s     *Server
+	ctx   context.Context // the call's: it names the session
+	token mcpgo.ProgressToken
+	op    string
+	sub   *event.Subscription
+
+	stop context.CancelFunc
+	done chan struct{} // closed when the forwarder has exited
+
+	// Owned by the forwarder until done, then by end.
+	sent bool
+	last int
+}
+
+// watch subscribes to operation.progress from the position from, taken before the
+// operation started or the wait began, and starts forwarding op's progress. It
+// returns nil when the call asked for no progress.
+func (s *Server) watch(ctx context.Context, token mcpgo.ProgressToken, op string, from event.Position) *progress {
+	if token == nil || s.bus == nil {
+		return nil
+	}
+	if f := s.subscribeHook.Load(); f != nil {
+		(*f)()
+	}
+	fctx, stop := context.WithCancel(context.Background())
+	p := &progress{s: s, ctx: ctx, token: token, op: op, stop: stop, done: make(chan struct{}),
+		sub: s.bus.Subscribe([]string{capability.ProgressTopic}, &from)}
+	go p.forward(fctx)
+	return p
+}
+
+func (p *progress) forward(ctx context.Context) {
+	defer close(p.done)
+	if f := p.s.forwardHook.Load(); f != nil {
+		(*f)(ctx.Done())
+	}
+	for ctx.Err() == nil {
+		e, err := p.sub.Next(ctx)
+		if err != nil {
+			return
+		}
+		p.send(e)
+	}
+}
+
+// end runs when the call's wait ends, before the call answers. It stops the forwarder
+// and waits for it, then sends what is already queued up to the bus position now,
+// without blocking: the bus delivers before Publish returns, so every report made
+// before the wait ended is queued by then. It never waits for that position to be
+// reached: it may belong to another topic. Then it closes the subscription, so nothing
+// is sent for the token after the answer.
+func (p *progress) end() {
+	if p == nil {
+		return
+	}
+	p.stop()
+	<-p.done
+	upTo := p.s.bus.Position().Seq
+	for {
+		e, ok := p.sub.TryNext()
+		if !ok || e.Seq > upTo {
+			break
+		}
+		p.send(e)
+	}
+	p.sub.Close()
+}
+
+// send forwards one of the operation's reports. Another operation's progress, a gap
+// marker and a report that does not exceed the last one sent are skipped: MCP requires
+// progress to increase, and progress is a nicety, never relied on.
+func (p *progress) send(e event.Event) {
+	if e.Topic != capability.ProgressTopic || e.Operation != p.op {
+		return
+	}
+	var r capability.Progress
+	if json.Unmarshal(e.Payload, &r) != nil || (p.sent && r.Done <= p.last) {
+		return
+	}
+	p.sent, p.last = true, r.Done
+	params := map[string]any{"progressToken": p.token, "progress": r.Done}
+	if r.Total > 0 {
+		params["total"] = r.Total
+	}
+	if r.Message != "" {
+		params["message"] = r.Message
+	}
+	if srv := server.ServerFromContext(p.ctx); srv != nil {
+		// A full session channel drops it (mcp-go's sendNotificationCore): accepted.
+		srv.SendNotificationToClient(p.ctx, "notifications/progress", params)
 	}
 }

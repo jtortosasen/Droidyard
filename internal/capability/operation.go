@@ -14,13 +14,15 @@ import (
 	"time"
 )
 
-// ClientKind is what a session's hello says it is (ADR-0019 §7). The core reads it
-// for one rule: human-audience capabilities are refused to MCP (ADR-0015 §6).
+// ClientKind is what a session's hello says it is (ADR-0019 §7), or ui for an HTTP
+// request (ADR-0015 §6). The core reads it for one rule: human-audience capabilities
+// are refused to MCP (ADR-0015 §6).
 type ClientKind string
 
 const (
 	ClientCLI ClientKind = "cli"
 	ClientMCP ClientKind = "mcp"
+	ClientUI  ClientKind = "ui"
 )
 
 // Retention of terminal operations (ADR-0020 §Retention): 15 minutes, and at least
@@ -87,12 +89,31 @@ type Workspaces interface {
 	Admit(target string, record func(id string)) bool
 }
 
+// Publisher puts an event on the daemon's bus (core-runtime.md §Events). The event
+// layer implements it; capability does not import it, so whatever publishes (the
+// workspace registry, the store) is given one. Publish never blocks on a subscriber.
+type Publisher interface {
+	// Publish stamps one event with the bus's epoch, the next seq and the time, and
+	// delivers it before it returns. workspace is the workspace id, "" for a global
+	// event; operation the operation id, or "".
+	Publish(topic, typ, workspace, operation string, payload any)
+}
+
+// Progress is published on operation.progress, type progress, with the operation id,
+// the operation's workspace and a Progress payload (core-runtime.md §Invocation:
+// "Progress goes to the event bus, tagged with the operation id"; plan m1d, D4).
+const (
+	ProgressTopic = "operation.progress"
+	ProgressType  = "progress"
+)
+
 // Operations is the operation store: every recorded call, keyed by a daemon-wide id.
 // An operation's lifetime belongs to the store, never to a caller's context: a
 // caller that stops waiting leaves the operation running (ADR-0020 §Core primitives).
 type Operations struct {
 	reg *Registry
 	ws  Workspaces
+	pub Publisher
 
 	mu       sync.Mutex
 	ops      map[string]*operation
@@ -108,6 +129,10 @@ func NewOperations(reg *Registry) *Operations {
 // UseWorkspaces gives the store the registry that admits workspace-scoped calls.
 // Without one, no workspace is open.
 func (o *Operations) UseWorkspaces(ws Workspaces) { o.ws = ws }
+
+// UsePublisher gives the store the bus its operations' progress is published on.
+// Without one, progress is only kept on the operation.
+func (o *Operations) UsePublisher(p Publisher) { o.pub = p }
 
 // Start validates a call, records it as an operation and runs its handler, returning
 // the operation id without waiting. A call rejected here gets a typed error and
@@ -137,9 +162,16 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 		Workspace:   target,
 		Params:      params,
 		Progress: func(done, total int, message string) {
+			p := Progress{Done: done, Total: total, Message: message}
 			o.mu.Lock()
-			op.progress = &Progress{Done: done, Total: total, Message: message}
+			op.progress = &p
+			workspace := op.workspace
 			o.mu.Unlock()
+			// Published before it returns, so a report made before the handler
+			// returned is on the bus before the operation ends.
+			if o.pub != nil {
+				o.pub.Publish(ProgressTopic, ProgressType, workspace, id, p)
+			}
 		},
 	}
 	record := func(workspace string) {

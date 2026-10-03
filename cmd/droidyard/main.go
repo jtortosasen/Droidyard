@@ -17,6 +17,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	"github.com/jtortosasen/droidyard/internal/event"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/store"
@@ -110,13 +111,16 @@ var (
 	testDrain time.Duration
 )
 
-// registry builds the shipped registry and the operation store that dispatches from
-// it, over the state store st and the supervisor sup, logging to log. internal/schema's
-// test builds the same set for the golden file. caps and schema, which run no
-// capability, pass nil for all three.
-func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations) {
+// registry builds the shipped registry, the operation store that dispatches from it
+// and the daemon's event bus, over the state store st and the supervisor sup, logging
+// to log. internal/schema's test builds the same set for the golden file. caps and
+// schema, which run no capability, pass nil for all three.
+func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
+	// The daemon's one event bus (core-runtime.md §Events).
+	bus := event.New(event.Options{})
+	ops.UsePublisher(bus)
 	var problems system.StateProblems
 	if st != nil {
 		problems = st.Problems
@@ -129,15 +133,15 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 		// marks the workspace closed (ADR-0027 §Decision).
 		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
 	}
-	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain, StopSidecars: stopSidecars}))
+	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain, StopSidecars: stopSidecars, Publisher: bus}))
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
-	return reg, ops
+	return reg, ops, bus
 }
 
 func printCaps() error {
-	reg, _ := registry(nil, nil, nil)
+	reg, _, _ := registry(nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -174,7 +178,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _ := registry(nil, nil, nil)
+	reg, _, _ := registry(nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

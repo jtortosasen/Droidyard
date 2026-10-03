@@ -58,6 +58,33 @@ type harness struct {
 	saw     atomic.Value // string
 	// stopped is when the stop-sidecars hook last ran: the end of a close's work.
 	stopped atomic.Value // time.Time
+	events  *recorder
+}
+
+// recorder is a capability.Publisher that keeps what it is given.
+type recorder struct {
+	mu     sync.Mutex
+	events []published
+}
+
+type published struct {
+	topic, typ, workspace, operation string
+	payload                          any
+}
+
+func (r *recorder) Publish(topic, typ, workspace, operation string, payload any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, published{topic, typ, workspace, operation, payload})
+}
+
+// take returns what was published since the last take.
+func (r *recorder) take() []published {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.events
+	r.events = nil
+	return out
 }
 
 func newHarness(t *testing.T, drain time.Duration) *harness {
@@ -71,11 +98,11 @@ func newHarness(t *testing.T, drain time.Duration) *harness {
 
 func newHarnessOn(t *testing.T, st *store.Store, drain time.Duration) *harness {
 	t.Helper()
-	h := &harness{st: st, log: &syncBuffer{}, started: make(chan string, 8), release: make(chan struct{})}
+	h := &harness{st: st, log: &syncBuffer{}, started: make(chan string, 8), release: make(chan struct{}), events: &recorder{}}
 	reg := capability.NewRegistry()
 	h.ops = capability.NewOperations(reg)
 	h.ops.RegisterCapabilities()
-	h.ws = New(Options{Store: st, Ops: h.ops, Drain: drain, Log: h.log,
+	h.ws = New(Options{Store: st, Ops: h.ops, Drain: drain, Log: h.log, Publisher: h.events,
 		StopSidecars: func(string) { h.stopped.Store(time.Now()) }})
 	Register(reg, h.ws)
 	type none struct{}
@@ -758,4 +785,75 @@ func TestInvalidOpensLeaveNoEntry(t *testing.T) {
 	if n := size(); n != 1 {
 		t.Errorf("one valid open left %d entries; want 1", n)
 	}
+}
+
+// TestTransitionsArePublished: every workspace transition is published on
+// workspace.lifecycle with the workspace id, the new state as its type and
+// {state, degradedBy?} as its payload; a no-op open publishes nothing
+// (workspace-state.md §Observability; plan m1d, D4).
+func TestTransitionsArePublished(t *testing.T) {
+	expect := func(t *testing.T, h *harness, what, id string, states ...State) []published {
+		t.Helper()
+		got := h.events.take()
+		var types []string
+		for _, e := range got {
+			types = append(types, e.typ)
+			l, ok := e.payload.(Lifecycle)
+			if e.topic != LifecycleTopic || e.workspace != id || e.operation != "" || !ok || string(l.State) != e.typ {
+				t.Errorf("%s: published %+v; want %s for %s, type the payload's state", what, e, LifecycleTopic, id)
+			}
+		}
+		var want []string
+		for _, s := range states {
+			want = append(want, string(s))
+		}
+		if !reflect.DeepEqual(types, want) {
+			t.Errorf("%s published %v; want %v", what, types, want)
+		}
+		return got
+	}
+
+	t.Run("open, a second open, close", func(t *testing.T) {
+		h := newHarness(t, 200*time.Millisecond)
+		root := project(t)
+		id, _ := platform.Current().WorkspaceID(root)
+		h.open(t, root)
+		expect(t, h, "open", id, Opening, Ready)
+		h.open(t, root)
+		expect(t, h, "a second open", id)
+		h.invoke(t, CapClose, root)
+		expect(t, h, "close", id, Closing, Closed)
+	})
+
+	t.Run("a newer workspace.json", func(t *testing.T) {
+		h := newHarness(t, 200*time.Millisecond)
+		root := project(t)
+		id, _ := platform.Current().WorkspaceID(root)
+		file := filepath.Join(h.st.Root(), "ws", id, "workspace.json")
+		os.MkdirAll(filepath.Dir(file), 0o700)
+		os.WriteFile(file, []byte(`{"schemaVersion":2}`), 0o600)
+		h.open(t, root)
+		got := expect(t, h, "open", id, Opening, Degraded)
+		if l, _ := got[len(got)-1].payload.(Lifecycle); l.DegradedBy == nil || l.DegradedBy.Code != ErrStateNewer {
+			t.Errorf("degraded carries %+v; want degradedBy WORKSPACE_STATE_NEWER", l)
+		}
+		if raw, _ := json.Marshal(got[0].payload); string(raw) != `{"state":"opening"}` {
+			t.Errorf("opening's payload encodes as %s; want no degradedBy", raw)
+		}
+	})
+
+	t.Run("an unreadable state directory", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("root writes through permissions")
+		}
+		h := newHarness(t, 200*time.Millisecond)
+		root := project(t)
+		id, _ := platform.Current().WorkspaceID(root)
+		os.Chmod(h.st.Root(), 0o500)
+		t.Cleanup(func() { os.Chmod(h.st.Root(), 0o700) })
+		if out := h.invoke(t, CapOpen, root); out.State != capability.StateFailed {
+			t.Fatalf("open: %+v; want failed", out)
+		}
+		expect(t, h, "a failed open", id, Opening, Closed)
+	})
 }

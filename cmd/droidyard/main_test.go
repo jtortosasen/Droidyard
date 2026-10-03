@@ -31,7 +31,7 @@ func TestShippedRegistryIsThePublishedOne(t *testing.T) {
 		published[c.Name] = true
 	}
 	shipped := map[string]bool{}
-	reg, _ := registry(nil, nil, nil)
+	reg, _, _ := registry(nil, nil, nil)
 	for _, d := range reg.All() {
 		shipped[d.Name] = true
 		if !published[d.Name] {
@@ -67,9 +67,27 @@ func TestAdaptersImportOnlyTheCore(t *testing.T) {
 		}
 	}
 	// The list is the adapters' real graph, not an empty or failed listing.
-	for _, want := range []string{"adapters/cli", "adapters/mcp", "internal/capability"} {
+	for _, want := range []string{"adapters/cli", "adapters/httpapi", "adapters/mcp", "internal/capability"} {
 		if !listed[want] {
 			t.Errorf("go list -deps ./adapters/... does not list %s: %s", want, out)
+		}
+	}
+}
+
+// TestTheDaemonImportsNoAdapter: internal/daemon is given the HTTP handler and the
+// session handlers; it never imports an adapter (core-runtime.md §Adapter boundary;
+// plan m1d, step 4).
+func TestTheDaemonImportsNoAdapter(t *testing.T) {
+	out, err := exec.Command("go", "list", "-deps", "../../internal/daemon").Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	if !strings.Contains(string(out), "internal/daemon") {
+		t.Fatalf("go list -deps did not list internal/daemon: %s", out)
+	}
+	for _, pkg := range strings.Fields(string(out)) {
+		if strings.Contains(pkg, "/droidyard/adapters/") {
+			t.Errorf("internal/daemon depends on %s", pkg)
 		}
 	}
 }

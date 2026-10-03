@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -58,13 +59,36 @@ type Options struct {
 	// Log receives one line per refused connection and per reconciled pid record.
 	// Nil discards.
 	Log io.Writer
+	// HTTP is the UI's listener; nil serves none. Built outside the daemon, so the
+	// daemon imports no adapter (core-runtime.md §Adapter boundary).
+	HTTP *HTTP
 }
+
+// HTTP is the UI's side of the daemon (docs/interfaces/http-websocket.md).
+type HTTP struct {
+	// Addr is the address asked for; Listen binds it, or another when it must.
+	Addr   string
+	Listen func(addr string) (net.Listener, error)
+	// Handler serves every request, the security baseline included.
+	Handler http.Handler
+	// Token is the per-launch token, written to run/http-token for the browser
+	// bootstrap and removed on exit.
+	Token string
+}
+
+// TokenFile is the per-launch HTTP token's path under the state root (ADR-0021
+// §Layout; http-websocket.md §Security baseline rule 4).
+const TokenFile = "run/http-token"
 
 // Daemon is a running daemon: it holds the lock and accepts on the socket.
 type Daemon struct {
 	opts Options
 	lock *Lock
 	ln   *net.UnixListener
+
+	httpSrv  *http.Server
+	httpLn   net.Listener
+	httpDone chan struct{} // closed when the HTTP server has stopped serving
 
 	ctx    context.Context // ends when shutdown closes the sessions
 	cancel context.CancelFunc
@@ -110,16 +134,101 @@ func Start(opts Options) (*Daemon, error) {
 			fmt.Fprintln(opts.Log, "droidyard: supervisor: no process can be started:", err)
 		}
 	}
+	d := &Daemon{opts: opts, lock: lock, sessions: make(map[*Session]struct{})}
+	// The HTTP listener is bound, and its token written, before the socket: whatever
+	// reaches the socket finds them (plan m1d, R3).
+	if opts.HTTP != nil {
+		if err := d.bindHTTP(); err != nil {
+			lock.Release()
+			return nil, err
+		}
+	}
 	ln, err := listen(opts.Socket)
 	if err != nil {
+		d.closeHTTP()
 		lock.Release()
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{opts: opts, lock: lock, ln: ln, ctx: ctx, cancel: cancel, sessions: make(map[*Session]struct{})}
+	d.ln = ln
+	d.ctx, d.cancel = context.WithCancel(context.Background())
+	if d.httpSrv != nil {
+		go func() {
+			defer close(d.httpDone)
+			d.httpSrv.Serve(d.httpLn)
+		}()
+	}
 	d.wg.Add(1)
 	go d.accept()
 	return d, nil
+}
+
+// bindHTTP binds the UI's listener and writes the token file.
+func (d *Daemon) bindHTTP() error {
+	h := d.opts.HTTP
+	ln, err := h.Listen(h.Addr)
+	if err != nil {
+		return fmt.Errorf("binding the HTTP listener: %w", err)
+	}
+	if err := writeToken(d.opts.State, h.Token); err != nil {
+		ln.Close()
+		removeToken(d.opts.State) // closeHTTP is a no-op without d.httpLn
+		return err
+	}
+	d.httpLn = ln
+	d.httpSrv = &http.Server{Handler: h.Handler, ReadHeaderTimeout: 10 * time.Second}
+	d.httpDone = make(chan struct{})
+	return nil
+}
+
+// closeHTTP stops the UI's listener, if any, and removes the token file.
+func (d *Daemon) closeHTTP() {
+	if d.httpLn == nil {
+		return
+	}
+	d.httpLn.Close()
+	removeToken(d.opts.State)
+}
+
+// HTTPAddr is the address the UI's listener is bound to, "" without one.
+func (d *Daemon) HTTPAddr() string {
+	if d.httpLn == nil {
+		return ""
+	}
+	return d.httpLn.Addr().String()
+}
+
+// writeToken writes the token to run/http-token, the file 0600 and its directory
+// 0700, as 64 hex digits and a newline (plan m1d, D8). A file a crashed daemon left is
+// replaced.
+func writeToken(state, token string) error {
+	path := filepath.Join(state, TokenFile)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("removing a stale %s: %w", TokenFile, err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", TokenFile, err)
+	}
+	_, err = f.WriteString(token + "\n")
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+func removeToken(state string) error {
+	err := os.Remove(filepath.Join(state, TokenFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // listen creates the socket's directory 0700, removes a stale socket, which only the
@@ -282,6 +391,17 @@ func (d *Daemon) Sessions() int {
 // ctx bounds the wait for operations and sessions to end.
 func (d *Daemon) Shutdown(ctx context.Context) error {
 	d.ln.Close()
+	// The HTTP listener stops accepting with the socket; requests in flight end with
+	// their waits, which the operations' shutdown ends.
+	httpStopped := make(chan struct{})
+	if d.httpSrv != nil {
+		go func() {
+			defer close(httpStopped)
+			d.httpSrv.Shutdown(ctx)
+		}()
+	} else {
+		close(httpStopped)
+	}
 
 	d.mu.Lock()
 	for s := range d.sessions {
@@ -318,6 +438,17 @@ func (d *Daemon) Shutdown(ctx context.Context) error {
 		waitErr = ctx.Err()
 	}
 
+	if d.httpSrv != nil {
+		select {
+		case <-httpStopped:
+		case <-ctx.Done():
+		}
+		d.httpSrv.Close()
+		<-d.httpDone
+		if err := removeToken(d.opts.State); err != nil {
+			fmt.Fprintln(d.opts.Log, "droidyard: removing the HTTP token:", err)
+		}
+	}
 	if err := os.Remove(d.opts.Socket); err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintln(d.opts.Log, "droidyard: removing the socket:", err)
 	}
