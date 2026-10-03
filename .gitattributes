@@ -1,0 +1,2 @@
+# Recorded device output is evidence: keep its bytes, CRLF included.
+internal/domain/device/testdata/** -text
