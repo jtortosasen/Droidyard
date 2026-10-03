@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -142,6 +143,13 @@ func Start(opts Options) (*Daemon, error) {
 			lock.Release()
 			return nil, err
 		}
+		// The lock named no HTTP address until now (ADR-0019 §5, amended): it does
+		// before the socket is bound, so a client that reaches the socket reads it.
+		if err := lock.SetHTTP(d.HTTPAddr()); err != nil {
+			d.closeHTTP()
+			lock.Release()
+			return nil, err
+		}
 	}
 	ln, err := listen(opts.Socket)
 	if err != nil {
@@ -195,6 +203,19 @@ func (d *Daemon) HTTPAddr() string {
 		return ""
 	}
 	return d.httpLn.Addr().String()
+}
+
+// ReadToken reads the per-launch HTTP token a running daemon wrote to run/http-token.
+func ReadToken(state string) (string, error) {
+	raw, err := os.ReadFile(filepath.Join(state, TokenFile))
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		return "", fmt.Errorf("%s is empty", TokenFile)
+	}
+	return token, nil
 }
 
 // writeToken writes the token to run/http-token, the file 0600 and its directory

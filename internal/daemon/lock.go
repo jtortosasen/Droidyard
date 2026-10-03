@@ -34,7 +34,8 @@ var ErrLocked = errors.New("another droidyard daemon holds the lock")
 // Lock is a held daemon.lock. The kernel releases it when the process dies, so a
 // crashed daemon never blocks the next one (ADR-0019 §5).
 type Lock struct {
-	f *os.File
+	f    *os.File
+	info LockInfo
 }
 
 // Acquire takes an exclusive, non-blocking flock on <state>/daemon.lock and writes
@@ -77,7 +78,39 @@ func Acquire(state string, info LockInfo) (*Lock, error) {
 		f.Close()
 		return nil, fmt.Errorf("writing %s: %w", path, err)
 	}
-	return &Lock{f: f}, nil
+	return &Lock{f: f, info: info}, nil
+}
+
+// SetHTTP records the UI's loopback address in the lock, rewriting the file in place
+// (plan m1d, step 5; ADR-0019 §5, amended). It writes the new record at offset 0 and
+// truncates to its length after, never the other way round, so a reader sees the old
+// record or the new one, never an empty file. That holds only because the new record is
+// never shorter than the old: the old one has "http":null, the new one a string. A
+// shorter record would leave the old one's tail, which a reader could see for an
+// instant, between the write and the truncate, so SetHTTP refuses one.
+func (l *Lock) SetHTTP(addr string) error {
+	info := l.info
+	info.HTTP = &addr
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	cur, err := l.f.Stat()
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", LockFile, err)
+	}
+	if int64(len(data)) < cur.Size() {
+		return fmt.Errorf("writing %s: the new record (%d bytes) is shorter than the current one (%d): a reader could see the old tail", LockFile, len(data), cur.Size())
+	}
+	if _, err := l.f.WriteAt(data, 0); err != nil {
+		return fmt.Errorf("writing %s: %w", LockFile, err)
+	}
+	if err := l.f.Truncate(int64(len(data))); err != nil {
+		return fmt.Errorf("writing %s: %w", LockFile, err)
+	}
+	l.info = info
+	return nil
 }
 
 // probeGrace is how long Acquire keeps trying while the lock is busy. Holder's probe
