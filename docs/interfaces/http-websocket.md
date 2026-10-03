@@ -115,7 +115,7 @@ One connection is one **session** (ADR-0019). Frames are JSON text messages:
 
 - client → server: `{"auth": …}` first, then request envelopes, the same as
   `/v1/call`. A frame over 1 MiB (4 KiB before `auth`) closes the connection with
-  1009, a non-text frame with 1003;
+  1009; a non-text frame closes with 4401 as the first frame and with 1003 after it;
 - server → client: response envelopes (matched by `id`), and `{"subscriptionId":
   "<id>", "event": <event envelope>}` for the session's subscriptions. An event that
   matches two subscriptions is sent once under each. A subscription's first frame,

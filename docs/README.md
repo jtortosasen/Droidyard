@@ -79,18 +79,19 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 
 ## Where the work stands
 
-**The design is closed and verified. Milestone 1b — the daemon and the MCP adapter —
-and milestone 1c — the process supervisor and the workspace model — are done and
-verified. Milestone 1d — the HTTP/WebSocket skeleton and the event bus — is next.**
+**The design is closed and verified. Milestones 1b (the daemon and the MCP adapter),
+1c (the process supervisor and the workspace model) and 1d (the HTTP/WebSocket
+skeleton, the event bus and `events.*`) are done and verified. Phase 0 is complete; the
+JVM-free device slice is next.**
 
 | | State |
 | --- | --- |
-| **Design** | Closed. 27 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
+| **Design** | Closed. 28 ADRs, all accepted. A pre-implementation review and a verification pass ran; every finding is resolved, including four blockers the fixes themselves introduced. |
 | **Owner decisions** | 19 closed in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md), plus the two 1b decisions: the MCP implementation ([ADR-0025](adr/0025-mcp-adapter-implementation.md)) and the macOS peer check with the per-root fallback ([ADR-0019](adr/0019-process-topology-daemon-and-shims.md) §6). |
-| **Code** | **Milestones 1b and 1c — the daemon, the MCP adapter, the process supervisor and the workspace model — done and verified** ([1b plan](plans/m1b-daemon-and-mcp-adapter.md) A1–A12; [1c plan](plans/m1c-process-supervisor-and-workspace.md) status `Done`, A1–A9 at their stated levels). The 1b surface: state root, socket, `flock`, peer check, handshake, sessions, the native envelope and `operation.wait`/`cancel`; `serve`/`mcp`/`call`/`status`/`stop`; the MCP adapter on `mark3labs/mcp-go`. The 1c layer: durable JSON state and crash reaping, the workspace model (`workspace.open`/`describe`/`close` per ADR-0026/0027), the MCP session binding to a project root, and the process supervisor (lazy start, idle shutdown, no orphans). **Reachable by an agent over MCP, bound to a project** (OpenCode v2.0.18 verified; Cursor not run). |
-| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.claude/`](../.claude/) (under `.opencode/` until 2026-10-03), on top of [`../AGENTS.md`](../AGENTS.md). Used end to end on 1b (three plan rounds, two verification rounds) and again on 1c (two plan rounds, three verification rounds, whose findings the implementer fixed before close). |
-| **Next** | **Milestone 1d — the HTTP/WebSocket skeleton, the event bus and `events.*`** (proposed in the 1c plan): the loopback HTTP baseline with its security fence, `droidyard ui`, the lock's `http` field, subscriptions, and progress notifications — including the [ADR-0025](adr/0025-mcp-adapter-implementation.md) amendment the per-connection notification fix needs. |
-| **Then** | The JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`), which proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
+| **Code** | **Milestones 1b and 1c — the daemon, the MCP adapter, the process supervisor and the workspace model — done and verified** ([1b plan](plans/m1b-daemon-and-mcp-adapter.md) A1–A12; [1c plan](plans/m1c-process-supervisor-and-workspace.md) status `Done`, A1–A9 at their stated levels). The 1b surface: state root, socket, `flock`, peer check, handshake, sessions, the native envelope and `operation.wait`/`cancel`; `serve`/`mcp`/`call`/`status`/`stop`; the MCP adapter on `mark3labs/mcp-go`. The 1c layer: durable JSON state and crash reaping, the workspace model (`workspace.open`/`describe`/`close` per ADR-0026/0027), the MCP session binding to a project root, and the process supervisor (lazy start, idle shutdown, no orphans). **Reachable by an agent over MCP, bound to a project** (OpenCode v2.0.18 verified; Cursor not run). **Milestone 1d done and verified** ([1d plan](plans/m1d-http-websocket-and-events.md) status `Done`, A1–A9 at their stated levels): per-connection MCP sessions, one event bus (`workspace.lifecycle`, `operation.progress`, resume with `since` and gap markers), MCP progress notifications, the loopback HTTP listener on 7317 behind the security fence, the per-launch token, `droidyard status`/`ui`, `SESSION_REQUIRED`, `events.subscribe`/`unsubscribe` at API 0.3.0, and the WebSocket session. |
+| **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.claude/`](../.claude/) (under `.opencode/` until 2026-10-03), on top of [`../AGENTS.md`](../AGENTS.md). Used end to end on 1b (three plan rounds, two verification rounds) and again on 1c (two plan rounds, three verification rounds, whose findings the implementer fixed before close). On 1d, run from Claude Code: Sonnet implements one step at a time, an Opus verifier and a DeepSeek cross-check review each step in parallel (`AGENTS.md` §Agents and models). |
+| **Next** | **Milestone 1e — the JVM-free device slice** (proposed): `device.list`, `device.screenshot`, `device.uiTree`, with the first artifact (`GET /v1/artifacts/{id}`, ADR-0012), the first untrusted capability (`meta.untrusted`, ADR-0015), `degraded` without `adb`, and probably `events.subscribe` `filter` (`device.logcat` by device). It needs a plan first (`milestone-workflow`). |
+| **Then** | The Gradle Tooling API sidecar, gated by spikes S1 run 2 and S3; `process.lifecycle` and `process.output` land with it (Phase 1), since no shipped capability starts a process before then. |
 
 Three things to read before the next milestones:
 
@@ -101,12 +102,10 @@ Three things to read before the next milestones:
   justification.
 - **Before implementing `build.errors`**: the AAPT2 merged-resource decision in
   [ADR-0022](adr/0022-build-error-extraction.md) §Known open item.
-- **Before 1d**: per-connection MCP notifications need an `Amended:` line on
-  [ADR-0025](adr/0025-mcp-adapter-implementation.md). `mcp-go`'s `Listen` shares one
-  package-level session, so progress notifications can reach the wrong connection; the
-  first consumer is the progress notifications ADR-0020 requires. The candidate fix is
-  `server.NewInProcessSession` feeding `MCPServer.HandleMessage` (1b plan, §Not in this
-  milestone). 1b sends no notifications, so this is not a 1b gap.
+- **Before the device slice**: it brings the first artifact route; fix the
+  `X-Mydev-Artifact-Growing` header name in
+  [`interfaces/http-websocket.md`](interfaces/http-websocket.md) §`GET /v1/artifacts/{id}`
+  (an old project name) when it lands.
 
 Agent guidance for this repository lives in [`../AGENTS.md`](../AGENTS.md).
 

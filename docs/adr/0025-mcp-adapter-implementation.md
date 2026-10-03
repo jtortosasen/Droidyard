@@ -9,7 +9,9 @@
 - Amended: 2026-10-03 — the `Listen` bullet replaced by a per-connection session feeding
   the public `MCPServer.HandleMessage` (`NewInProcessSession`): `Listen` served every
   connection from one package-level session and shared notifications, client info and
-  the protocol version across them. Owner-delegated decision D1, milestone 1d.
+  the protocol version across them. `mcp-go` drops a notification when a session's
+  100-slot channel is full (`sendNotificationCore`); the adapter accepts that for
+  progress, which is never relied on. Owner-delegated decision D1, milestone 1d.
 
 ## Context
 
