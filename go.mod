@@ -3,6 +3,7 @@ module github.com/jtortosasen/droidyard
 go 1.27
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/invopop/jsonschema v0.14.0
 	github.com/mark3labs/mcp-go v1.1.1
 	golang.org/x/sys v0.48.0

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtortosasen/droidyard/adapters/httpapi"
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
@@ -34,6 +35,7 @@ type slowResult struct {
 type inProcess struct {
 	d       *daemon.Daemon
 	mcp     *mcpadapter.Server
+	http    *httpapi.Server // the UI's HTTP side, for its test seams
 	ops     *capability.Operations
 	bus     *event.Bus
 	token   string        // the HTTP token
@@ -120,6 +122,7 @@ func startInProcessAt(t *testing.T, httpAddr string, extra func(reg *capability.
 	p.d = d
 	p.token = opts.HTTP.Token
 	p.mcp = mcpServer
+	p.http = opts.HTTP.Handler.(*httpapi.Server)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

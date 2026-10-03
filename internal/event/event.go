@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -82,6 +83,9 @@ type Bus struct {
 	ring      []Event
 	ringBytes int
 	subs      map[*Subscription]struct{}
+
+	// subscribeHook is a test seam: see SetSubscribeHook.
+	subscribeHook atomic.Pointer[func()]
 }
 
 var _ capability.Publisher = (*Bus)(nil)
@@ -177,7 +181,15 @@ func (b *Bus) gap(g Gap) Event {
 // (plan m1d, D4). The replay and the registration happen under the lock Publish
 // takes, so between them nothing is missed and nothing repeated.
 func (b *Bus) Subscribe(topics []string, since *Position) *Subscription {
-	s := &Subscription{bus: b, topics: map[string]bool{}, max: b.opts.Queue, ready: make(chan struct{}, 1)}
+	return b.subscribe(topics, since, 0)
+}
+
+// subscribe is Subscribe with a queue of queue envelopes; zero is the bus's.
+func (b *Bus) subscribe(topics []string, since *Position, queue int) *Subscription {
+	if queue <= 0 {
+		queue = b.opts.Queue
+	}
+	s := &Subscription{bus: b, topics: map[string]bool{}, max: queue, ready: make(chan struct{}, 1)}
 	for _, t := range topics {
 		s.topics[t] = true
 	}
@@ -203,6 +215,17 @@ func (b *Bus) Subscribe(topics []string, since *Position) *Subscription {
 	}
 	b.subs[s] = struct{}{}
 	return s
+}
+
+// SetSubscribeHook makes every events.subscribe call run f after it has created its
+// subscription and before it returns. Test-only: holding f leaves the operation
+// running while the subscription already exists and receives. Nil removes it.
+func (b *Bus) SetSubscribeHook(f func()) {
+	if f == nil {
+		b.subscribeHook.Store(nil)
+		return
+	}
+	b.subscribeHook.Store(&f)
 }
 
 // Subscription is one subscriber's view of the bus: the events of its topics, in seq

@@ -416,10 +416,22 @@ func (d *Daemon) Shutdown(ctx context.Context) error {
 	// their waits, which the operations' shutdown ends.
 	httpStopped := make(chan struct{})
 	if d.httpSrv != nil {
+		var stopping sync.WaitGroup
+		stopping.Add(1)
 		go func() {
-			defer close(httpStopped)
+			defer stopping.Done()
 			d.httpSrv.Shutdown(ctx)
 		}()
+		// A hijacked connection, a WebSocket, is not the HTTP server's to wait for: a
+		// handler that holds some says so, and shutdown waits for them within ctx.
+		if c, ok := d.opts.HTTP.Handler.(interface{ CloseSessions(context.Context) }); ok {
+			stopping.Add(1)
+			go func() {
+				defer stopping.Done()
+				c.CloseSessions(ctx)
+			}()
+		}
+		go func() { stopping.Wait(); close(httpStopped) }()
 	} else {
 		close(httpStopped)
 	}

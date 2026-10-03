@@ -367,6 +367,12 @@ read-only nor idempotent (milestone 1d; a query that writes is a `Kind` bug,
   ring buffer (count and byte caps), then continues live. If `since` is older than the
   buffer, or from another epoch, delivery starts with an `events.gap` marker. Events
   are never persisted.
+- **Bounds** (working defaults, milestone 1d, D5): the ring holds 4096 events or
+  4 MiB, whichever is reached first; each subscription has its own queue of 1024
+  events, and overflowing it costs that subscription a gap, not the session. On the
+  WebSocket an event arrives as `{"subscriptionId", "event"}`, never before the
+  response that gave the id ([http-websocket](../interfaces/http-websocket.md)
+  §`GET /v1/ws`).
 - Subscriptions belong to the session. Consumers unsubscribe explicitly; the core also
   cleans up on disconnect. `events.unsubscribe` of an unknown, ended or other
   session's id is a no-op returning `{}`, so no session can probe another's ids
