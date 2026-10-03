@@ -1,0 +1,59 @@
+Device fixtures for milestone 1e, step 1. Recorded by hand on 2026-10-04 on one machine
+(Apple Silicon Mac, macOS Darwin 25.6.0); never edited after recording, except the two
+redactions listed under Personal data.
+
+Tools: adb 1.0.41, 36.0.0-13206524 (platform-tools Pkg.Revision 36.0.0); emulator 36.6.11.0
+(build_id 15507667). Each AVD was booted with `emulator -avd <name> -no-snapshot-save
+-no-boot-anim -port <5554|5556>` and showed Settings > Display & touch, started with
+`adb shell am start -a android.settings.DISPLAY_SETTINGS`; no account was signed in.
+The shared adb server on 5037 was already running and was never stopped.
+
+AVDs (all google_apis_playstore images):
+  pixel9a          AVD Pixel_9a          API 36.1  emulator-5554  wm size 1080x2424  rotation 0
+  pixeltablet      AVD Pixel_Tablet      API 35    emulator-5556  wm size 2560x1600  rotation 1 (the screen was taken in portrait, so the PNG is the swapped 1600x2560)
+  mediumphonea17   AVD Medium_Phone_A17  API 37.1  emulator-5554  wm size 1080x2400  rotation 0
+
+Files per AVD prefix <p>:
+  <p>-boot-completed-during.txt   `adb -s <serial> shell getprop sys.boot_completed` every ~5 s from the emulator launch (error text while offline, empty, then 1)
+  <p>-boot-completed-after.txt    the same, after boot
+  <p>-am-start.txt                output of the am start above
+  <p>-getprop.txt                 `adb -s <serial> shell getprop`
+  <p>-emu-avd-name.txt            `adb -s <serial> emu avd name`
+  <p>-wm-size.txt                 `adb -s <serial> shell wm size`
+  <p>-screencap.png               `adb -s <serial> exec-out screencap -p` (stderr in <p>-screencap.stderr.txt, empty)
+  <p>-uidump-devtty.xml           `adb -s <serial> exec-out uiautomator dump /dev/tty`, raw: the document, then the status line "UI hierchary dumped to: /dev/tty" (adb's own typo) with no newline
+  <p>-uidump-devtty.stderr.txt    its stderr (empty); <p>-uidump-devtty.exit.txt its exit status and one wall-clock timing (2 s on each image; not a measurement)
+  <p>-uidump-sdcard-out.txt       `exec-out uiautomator dump /sdcard/window_dump.xml` output (status line only)
+  <p>-uidump-sdcard.xml           `exec-out cat /sdcard/window_dump.xml` (the file the /sdcard path writes), removed from the device after
+
+Once:
+  adb-version.txt                                  `adb version`
+  host-version-5037.txt                            raw reply to `000chost:version` read from 127.0.0.1:5037: OKAY then 0x0029 = 41 (a socket read, starts nothing)
+  devices-l-one-emulator-pixel9a.txt               `adb devices -l` with Pixel_9a up alone
+  devices-l-two-emulators-pixel9a-pixeltablet.txt  `adb devices -l` with Pixel_9a and Pixel_Tablet up
+  devices-l-one-emulator-a17.txt                   `adb devices -l` with Medium_Phone_A17 up alone
+
+Isolated-port fork observation, made BEFORE any emulator was booted (5037 held no emulator):
+  isolated-5037-before.txt   `adb devices -l` on 5037 first (no device)
+  fork-5199-stdout.txt / fork-5199-stderr.txt
+                             with ANDROID_ADB_SERVER_PORT=5199 and no server there, `perl -e 'setpgrp; exec @ARGV' adb devices -l`
+                             in the background; stdout held the empty listing, stderr "daemon not running; starting now at tcp:5199"
+  fork-5199-clientpid.txt    the client's pid from $! (so its pgid)
+  fork-5199-ps.txt           `ps -o pid,ppid,pgid,sess,command` of the forked server after the client exited:
+                             the server is in a process group of its own (pgid = its own pid, not the client's), ppid 1
+  then `ANDROID_ADB_SERVER_PORT=5199 adb kill-server`, and
+  isolated-5037-after.txt    `adb devices -l` on 5037 again: byte-identical to the first
+
+dev-tty labels, one per image (what `uiautomator dump /dev/tty` did on that image):
+pixel9a-screencap.png dev-tty: produced-document
+pixeltablet-screencap.png dev-tty: produced-document
+mediumphonea17-screencap.png dev-tty: produced-document
+
+PNG sizes (bytes): pixel9a 158701 (1080x2424); pixeltablet 318648 (1600x2560); mediumphonea17 150374 (1080x2400).
+Total committed in testdata/: see `du`; about 1.0 MB on disk, all files, PNGs 0.6 MB.
+
+Personal data: the screens show only Settings and the clock. getprop holds `ro.boot.qemu.adb.pubkey`,
+the host's adb public key with the comment "<user>@unknown", in all three getprop files, and adb-version.txt
+holds the home directory in the adb install path. Redacted by the orchestrating session on 2026-10-04
+(owner's standing instruction): the pubkey value is replaced by `REDACTED: the host adb public key (it
+names the user)` and `/Users/<name>` by `/Users/<user>`. No parser reads either value.
