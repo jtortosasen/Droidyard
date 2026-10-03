@@ -171,7 +171,29 @@ Baseline on 2026-10-02 (macOS, go1.27): `go vet ./...` printed nothing; `go test
 - Needs: steps 3, 4.
 - Not here: MCP roots (a policy input only, `mcp-features.md` §5); per-connection notifications (1d, ADR-0025 amendment, `docs/README.md` §Where the work stands); a real client (step 8).
 - Rests on: the open completes before the adapter reads the first MCP message, so no tool call can precede it. Level 4 (check (g): the real shim and socket, the open held by a test hook); the rest of the step at level 5. No dependency on `mcp-go`'s initialize hooks.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 for (a) to (f) (an in-process daemon with the shipped wiring, re-executed `droidyard mcp` shims over the real socket, a re-executed CLI for the close; macOS, go1.27.0 darwin/arm64), level 4 for (g). `go test -count=3 -race -run 'TestMCPSessionBindsAndOpensItsRoot|TestMCPBadBoundRootDegrades|TestMCPBoundOpenPrecedesTheFirstAnswer' ./cmd/droidyard` ok.
+  - `TestMCPSessionBindsAndOpensItsRoot`:
+    - (a) shim cwd `app/src/main` under a project with `settings.gradle`: `workspace_describe` `{}`, the first call after `initialize`, answers the project root, its id, `ready`, `trusted: false`; `tools/list` has three `workspace_*` tools, no `inputSchema` property naming a workspace or root.
+    - (b) `--root <a settings.gradle.kts project>` from that cwd binds the `--root` project.
+    - (c) a cwd with no such ancestor binds the cwd.
+    - (e) a second shim bound to the first's root describes the same `createdAt`, and `workspaces.json`'s mtime is unchanged by its open (a no-op).
+    - (d) after `droidyard call --workspace <root> workspace.close`, `workspace_describe` is `isError` with `WORKSPACE_NOT_OPEN` on two calls from the first session and one from the second (no reopen), until `workspace_open` answers `ready`, after which the second session's `describe` is `ready`.
+  - `TestMCPBadBoundRootDegrades` (f): `--root /nonexistent`: `initialize` and `tools/list` succeed; `workspace_describe` is `isError` `WORKSPACE_NOT_OPEN`; `workspace_open` is `isError` `WORKSPACE_ROOT_INVALID`, `details.target` `/nonexistent`; the daemon log has `session bound to /nonexistent: workspace.open ended failed: WORKSPACE_ROOT_INVALID`.
+  - `TestMCPBoundOpenPrecedesTheFirstAnswer` (g): `Server.SetBoundOpenHook` holds the bound open; the hook is reached, the client's `initialize` gets no line for 300 ms; released, the `initialize` reply arrives and `workspace_describe` answers `ready`.
+
+  Seen failing, each mutation applied alone and restored (`shasum -c` OK after):
+
+  | Mutation | Result |
+  | --- | --- |
+  | the bound open in a goroutine beside `Listen` | (g) "held: received a line that is not its own: {…"id":0,"result":{"protocolVersion"…"; (a) to (c) `WORKSPACE_NOT_OPEN` |
+  | no bound open | (a) "WORKSPACE_NOT_OPEN" |
+  | tool calls without the bound root | "REQUEST_MISSING_WORKSPACE" |
+  | the shim ignoring `--root` | (b) the cwd's project; (f) the test's cwd bound |
+  | the adapter reopening on `WORKSPACE_NOT_OPEN` | (d) "a, call 0 after the close: {…ready…}" |
+  | a failed bound open ending the session | (f) "the shim exited before answering … broken pipe" |
+  | the failure not logged | (f) "the daemon log does not record the failed bound open" |
+
+  `git diff schema/` empty. `go build ./...` ok; `go vet ./...`, `GOOS=linux go vet ./...` and `gofmt -l .` print nothing; `go test -count=1 ./...` ok for twelve packages; `-race` ok on `adapters/...` and `cmd/droidyard`. The hook is an exported setter on `adapters/mcp.Server` because the test that holds it lives in `cmd/droidyard`; `daemonOptions` now also returns the MCP server, so the in-process test can reach it. The existing MCP tests' shims now bind and open their own cwd's root as well (the state goes to their temporary state directory).
 
 ### 6. The supervisor: descriptors, lazy start, readiness, idle shutdown, stop
 
@@ -182,7 +204,35 @@ Baseline on 2026-10-02 (macOS, go1.27): `go vet ./...` printed nothing; `go test
 - Needs: steps 1, 2.
 - Not here: restart policy and health probes, and the per-root `connection.close` of a shared sidecar (with the first shipped sidecar: Not in this milestone); per-operation children such as `logcat` streams (device slice); `process.lifecycle` and `process.output` events (1d); idle-timeout defaults (`process-lifecycle.md` §Open questions; set by the first real sidecar); a workspace going `degraded` when a sidecar fails to start (`process-lifecycle.md` §Startup): its first consumer is a workspace sidecar, the Kotlin LSP, post-MVP, and the shared Gradle sidecar's failure handling belongs to Phase 1.
 - Rests on: the final `SIGKILL` reaches the group while its leader is still unreaped, so its pgid cannot have been reused. Level 5 for the effect on macOS; the reuse window itself cannot be provoked (Unverified).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 (real processes: the test binary re-executed as `processtest`'s sidecar dummy, macOS, go1.27.0 darwin/arm64). `go test -count=3 -race ./internal/process/...` ok. With `-v`, PASS for:
+  - `TestUseStartsLazilyAndRecordsAtOnce`: nothing runs and nothing is recorded before the first `Use`; with the dummy's ready line held on a gate file, `processes.json` gains the record while the state is `starting` and `Use` has not returned; `pgid` = `pid`, and `startTime` = `platform.StartTime` of the live pid; `Use` returns once the ready line comes, the lease's pid the recorded one, state `busy`.
+  - `TestIdleShutdownRespectsLeases`: idle 300 ms; a lease held 900 ms keeps it `busy`; released, `stopped` no earlier than 300 ms and within 1.3 s, pid dead, record removed; the next `Use` gets a new live pid.
+  - `TestStopKillsTheWholeGroup`: a dummy ignoring `SIGTERM` and EOF, with a helper ignoring `SIGTERM` in its group, lease held: after `Stop` both are dead, `Stop` took at least the 300 ms timeout, the dummy logged `SIGTERM`, the record is removed and the state `stopped`.
+  - `TestStopIsScoped`: `Stop(workspace:a)` kills a's dummy; workspace b's and the global one keep their pids and their two records.
+  - `TestUseWithADoneContextSpawnsNothing`: an error, no event file, no record, no state.
+  - `TestUnexpectedExitFails`: `SIGKILL` from outside gives `failed` and the record removed; the next `Use` starts a new pid.
+  - `TestNeverReadyFails`: `/usr/bin/false` fails `Use`, `failed`, no record.
+  - `TestShutdownStopsEverything`: a leased and an idle dummy dead, no records, then `Use` fails with `ErrClosed`.
+  - `TestOutputIsDrainedAndBounded`: an 8 MB flood finishes ("flooded" logged) with the sink at 50 lines and the last line the dummy's.
+  - `TestNewerRecordsFileSpawnsNothing`: `ErrUnrecordable`, the file byte-identical, no events, no state.
+  - `TestConcurrentUsesShareOneProcess`: eight racing uses share one pid and one record.
+
+  Seen failing, each mutation applied alone and restored (`shasum -c` OK after; mutation-run strays from P2 and P6 killed by hand):
+
+  | | Mutation | Result |
+  | --- | --- | --- |
+  | P1 | idle stop with a lease held | "with a lease held past the idle timeout: dead true, state stopped" |
+  | P2 | the pid signalled instead of the group | "dummy dead true, helper dead false" |
+  | P3 | the record written after readiness | "not within 5s: a record while the process starts" |
+  | P4 | `Use` ignoring a done ctx | "Use with a done context = &{…}, <nil>" |
+  | P5 | `Stop` matching every workspace scope | "workspace b's process was stopped" |
+  | P6 | no `SIGKILL` after the timeout | "dummy dead false, helper dead false" |
+  | P7 | output not drained after readiness | "not within 10s: the dummy wrote 8 MB" |
+  | P8 | an unbounded sink | "the sink holds 80001 lines; its bound is 50" |
+  | P9 | a newer `processes.json` ignored | "state "failed": something was spawned" |
+  | P10 | an unexpected exit leaving its record | "not within 5s: its record removed" |
+
+  `GOOS=linux go vet ./...` prints nothing (`Pdeathsig` and the locked-thread spawner compile). `go list -deps ./cmd/droidyard | grep -c processtest` prints 0. `git diff schema/` empty. `go build ./...` ok; `go vet ./...` and `gofmt -l .` print nothing; `go test -count=1 ./...` ok for twelve packages. Rests on: see Changes; the leader is reaped at once, and the group `SIGKILL` is sent only while the group has members. The lease API is `Pid` and `Release` only; the round trip that step 7's fixture needs is not built here.
 
 ### 7. Close and the daemon's lifetime drive the supervisor: the Phase 0 sidecar acceptance
 
@@ -302,3 +352,4 @@ Not questions: each follows from a cited document and is cheap to change. The ow
 - 2026-10-03, step 3: the Builds line puts the B1 test hook "inside `Start`, between the check and the recording". It is instead a test-only `capability.Workspaces` wrapper (`heldAdmit` in `internal/workspace/workspace_test.go`). The wrapper calls the real `Registry.Admit` and holds the `record` callback that `Admit` invokes after its open check, under the admission lock. That is the same point in the same lock, so no hook field ships in `Start`. The mutation the check names (check and recording under separate locks) fails the test: "close entered closed while Start held the admission lock".
 - 2026-10-03, after steps 1 to 3 were committed (owner decision D1; ADR-0026 `Amended: 2026-10-03 (second pass)`): a state-file read or write that fails for any reason other than a corrupt file or a newer version (permissions, no space, an IO error) ends `workspace.open` `failed` with `WORKSPACE_STATE_UNREADABLE`, `details {target}`, nextStep "check the permissions and free space of the state directory". Before, it surfaced as `REQUEST_INVALID_PARAMS` through the generic fallback. The code is in `internal/capability/error.go` and listed in `workspace.open`'s `errors` only; `workspace.describe` touches no files and does not list it. Golden file: one line added.
 - 2026-10-03, step 3: the filesystem root `/` has basename `/`, which ADR-0021 §Layout's `<basename>-<12 hex>` would put into an id and into `ws/<wsid>/`. `WorkspaceID` names it `root`, so the id is `root-<12 hex>`. This fills a gap in ADR-0021 and is left to the owner to confirm or change there. The owner confirmed it as decision D2; no code change.
+- 2026-10-03, step 6: the Rests on line says the final `SIGKILL` reaches the group "while its leader is still unreaped". In the supervisor the leader is reaped as soon as it exits: `cmd.Wait` runs in its own goroutine, and on macOS Go cannot wait without reaping. The safety rests on a different fact instead. The group `SIGKILL` is sent only when `kill(-pgid, 0)` shows the group still has members, both after the shutdown timeout and after an unexpected exit, and POSIX does not reuse a process group id while the group has members. What is left unverified is the window between that check and the kill. Keeping the leader unreaped would need `kqueue` `NOTE_EXIT` on darwin and `waitid(WNOWAIT)` on Linux, and nothing in 1c needs that.

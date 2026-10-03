@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -27,6 +31,8 @@ type slowResult struct {
 
 type inProcess struct {
 	d       *daemon.Daemon
+	mcp     *mcpadapter.Server
+	log     *lockedBuffer // the daemon's log, also copied to stderr
 	state   string
 	started chan string
 	release chan struct{}
@@ -34,7 +40,7 @@ type inProcess struct {
 
 func startInProcess(t *testing.T) *inProcess {
 	t.Helper()
-	p := &inProcess{state: shortDir(t), started: make(chan string, 4), release: make(chan struct{})}
+	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
 	st, err := store.New(p.state)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +86,7 @@ func startInProcess(t *testing.T) *inProcess {
 		}
 		return os.Getenv(k)
 	}}
-	opts, err := daemonOptions(st, env.SocketPath(p.state), reg, ops, os.Stderr)
+	opts, mcpServer, err := daemonOptions(st, env.SocketPath(p.state), reg, ops, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,12 +95,31 @@ func startInProcess(t *testing.T) *inProcess {
 		t.Fatal(err)
 	}
 	p.d = d
+	p.mcp = mcpServer
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		d.Shutdown(ctx)
 	})
 	return p
+}
+
+// lockedBuffer is a log the daemon writes while a test reads it.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 // call runs a re-executed `droidyard call` and returns its envelope and exit code.

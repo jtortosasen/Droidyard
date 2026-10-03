@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -178,13 +179,25 @@ func call(args []string) int {
 // stderr (ADR-0019 §Lifetime). It starts a daemon if none answers, unless
 // --no-autostart.
 func mcpShim(args []string) int {
-	const usage = "usage: droidyard mcp [--wait <duration>] [--no-autostart]"
+	const usage = "usage: droidyard mcp [--root <path>] [--wait <duration>] [--no-autostart]"
 	hello := daemon.Hello{Client: capability.ClientMCP}
 	autostart := true
+	explicitRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--no-autostart":
 			autostart = false
+		case a == "--root" || strings.HasPrefix(a, "--root="):
+			v, ok := strings.CutPrefix(a, "--root=")
+			if !ok && i+1 < len(args) {
+				i++
+				v = args[i]
+			}
+			if v == "" {
+				fmt.Fprintf(os.Stderr, "droidyard mcp: --root needs a project directory\n%s\n", usage)
+				return 2
+			}
+			explicitRoot = v
 		case a == "--wait" || strings.HasPrefix(a, "--wait="):
 			v, ok := strings.CutPrefix(a, "--wait=")
 			if !ok && i+1 < len(args) {
@@ -206,6 +219,13 @@ func mcpShim(args []string) int {
 			fmt.Fprintf(os.Stderr, "droidyard mcp: unexpected argument %q\n%s\n", a, usage)
 			return 2
 		}
+	}
+	// The session's binding (ADR-0019 §Sessions): --root, made absolute against the
+	// cwd, else the cwd's project root. The daemon opens it and canonicalises it.
+	if cwd, err := os.Getwd(); err == nil {
+		hello.Root = resolveRoot(explicitRoot, cwd)
+	} else if filepath.IsAbs(explicitRoot) {
+		hello.Root = filepath.Clean(explicitRoot)
 	}
 	conn, r, socket, err := connectOrStart(hello, autostart, nil)
 	if err != nil {

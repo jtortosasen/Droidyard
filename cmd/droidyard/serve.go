@@ -28,10 +28,10 @@ const shutdownTimeout = 15 * time.Second
 // daemonOptions wires the daemon: the registry's store, and a handler per client kind.
 // The MCP adapter gets the published schemas from here, so it never imports
 // internal/schema (docs/architecture/core-runtime.md §Adapter boundary).
-func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, error) {
+func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
-		return daemon.Options{}, err
+		return daemon.Options{}, nil, err
 	}
 	schemas := make(map[string]mcpadapter.Schema, len(doc.Capabilities))
 	for _, c := range doc.Capabilities {
@@ -39,7 +39,7 @@ func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops
 	}
 	mcpServer, err := mcpadapter.New(reg, ops, schemas, system.Version, log)
 	if err != nil {
-		return daemon.Options{}, err
+		return daemon.Options{}, nil, err
 	}
 	return daemon.Options{
 		State:   st.Root(),
@@ -52,13 +52,13 @@ func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
 				budget := time.Duration(s.Hello.WaitMs) * time.Millisecond
-				if err := mcpServer.Serve(ctx, s.Reader, s.Conn, budget); err != nil {
+				if err := mcpServer.Serve(ctx, s.Reader, s.Conn, budget, s.Hello.Root); err != nil {
 					fmt.Fprintf(log, "droidyard: MCP session %s ended: %v\n", s.ID, err)
 				}
 			},
 		},
 		Log: log,
-	}, nil
+	}, mcpServer, nil
 }
 
 // serve runs the daemon until SIGTERM or SIGINT (ADR-0019 §5). It returns the exit
@@ -97,7 +97,7 @@ func serve(args []string) int {
 	}
 	reg, ops := registry(st, os.Stderr)
 	socket := env.SocketPath(state)
-	opts, err := daemonOptions(st, socket, reg, ops, os.Stderr)
+	opts, _, err := daemonOptions(st, socket, reg, ops, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
