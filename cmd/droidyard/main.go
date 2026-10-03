@@ -1,7 +1,7 @@
 // Command droidyard is the Droidyard binary.
 //
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
-// daemon on its socket; `call`, `mcp`, `status` and `stop` talk to it. The subcommands still
+// daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it. The subcommands still
 // missing are recognised so the CLI surface is honest about what exists, and they say
 // plainly that they are not implemented yet.
 package main
@@ -46,11 +46,14 @@ Commands:
              The session is bound to --root, else to the project root of the
              current directory, and opens it when it starts.
              --wait bounds how long a long-running tool waits (default 20s).
-  status     Report on the running daemon.
+  status     Report on the running daemon: its socket, and the web UI's address
+             and tokenised URL.
   stop       Stop the running daemon.
+  ui         Open the web UI in the default browser, at the tokenised URL:
+             droidyard ui [--no-autostart]
+             ui starts a daemon when none answers, unless --no-autostart.
 
 Not implemented yet:
-  ui         Open the web UI.
   trust      Grant a project root trust.
 `
 
@@ -84,7 +87,9 @@ func main() {
 		os.Exit(stop())
 	case "mcp":
 		os.Exit(mcpShim(os.Args[2:]))
-	case "ui", "trust":
+	case "ui":
+		os.Exit(ui(os.Args[2:]))
+	case "trust":
 		fmt.Fprintf(os.Stderr, "droidyard %s: not implemented in this milestone.\n", cmd)
 		fmt.Fprintf(os.Stderr, "See docs/roadmap/mvp.md.\n")
 		os.Exit(1)

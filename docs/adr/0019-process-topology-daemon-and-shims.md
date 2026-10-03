@@ -22,8 +22,9 @@
   step 8.
 - Amended: 2026-10-03 — a session that can own stateful work is the WebSocket: the shim
   and `droidyard call` connections cannot subscribe and get `SESSION_REQUIRED` (D6); the
-  lock is rewritten after the HTTP listener binds so its fields name the live addresses
-  (D8). Owner-delegated decisions, milestone 1d.
+  lock is rewritten after the HTTP listener binds and before the socket binds, so a
+  client that reaches the socket finds the live addresses (D8). Owner-delegated
+  decisions, milestone 1d.
 
 ## Context
 
@@ -78,8 +79,8 @@ daemon per project root (`droidyard serve --root <path>`). See *Alternatives*.
    units are an optional post-MVP convenience.
 5. **Single instance.** Before binding anything the daemon takes an exclusive `flock`
    on `<state>/daemon.lock` and writes `{pid, startTime, version, socket, http}` into
-   it, rewriting it once the socket and the HTTP listener have bound so the fields name
-   the live addresses (2026-10-03). The kernel releases the lock when the daemon dies, so a crashed daemon never
+   it, rewriting it in place once the HTTP listener has bound and before the socket
+   binds, so a client that reaches the socket finds the live addresses (2026-10-03). The kernel releases the lock when the daemon dies, so a crashed daemon never
    blocks the next one; the file's contents only identify the holder (for `status`,
    `stop`, and error messages). Racing auto-starts resolve themselves: the loser exits,
    its shim connects to the winner. The lock holder removes a stale socket file before

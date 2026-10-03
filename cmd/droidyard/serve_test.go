@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -51,6 +52,7 @@ type process struct {
 	stdout *bytes.Buffer // read it only after wait
 	lines  chan string
 	exited chan error
+	stderr lockedBuffer // every stderr line, whether or not a test read it
 }
 
 func droidyard(t *testing.T, state string, args ...string) *process {
@@ -62,10 +64,16 @@ func droidyard(t *testing.T, state string, args ...string) *process {
 // test's.
 func droidyardIn(t *testing.T, state, dir string, args ...string) *process {
 	t.Helper()
+	return droidyardEnv(t, state, dir, nil, args...)
+}
+
+// droidyardEnv is droidyardIn with more environment, such as the test seams.
+func droidyardEnv(t *testing.T, state, dir string, env []string, args ...string) *process {
+	t.Helper()
 	cmd := &exec.Cmd{
 		Path: os.Args[0],
 		Args: append([]string{"droidyard"}, args...),
-		Env:  append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state),
+		Env:  append(append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state), env...),
 		Dir:  dir,
 	}
 	stdout := new(bytes.Buffer)
@@ -81,6 +89,7 @@ func droidyardIn(t *testing.T, state, dir string, args ...string) *process {
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
+			p.stderr.Write([]byte(sc.Text() + "\n"))
 			p.lines <- sc.Text()
 		}
 		close(p.lines)
@@ -167,8 +176,9 @@ func TestSecondServeLosesTheLock(t *testing.T) {
 	if info.PID != first.cmd.Process.Pid || info.Version != system.Version || info.Socket != env.SocketPath(state) || info.StartTime.IsZero() {
 		t.Fatalf("daemon.lock says %+v; want pid %d, version %s, socket %s and a start time", info, first.cmd.Process.Pid, system.Version, env.SocketPath(state))
 	}
-	if !bytes.Contains(raw, []byte(`"http":null`)) {
-		t.Errorf("daemon.lock has no \"http\":null until the HTTP server exists: %s", raw)
+	// The lock names the UI's address by the time serve listens (plan m1d, step 5).
+	if info.HTTP == nil || !regexp.MustCompile(`^127\.0\.0\.1:\d+$`).MatchString(*info.HTTP) || !bytes.Contains(raw, []byte(`"http":"127.0.0.1:`)) {
+		t.Errorf("daemon.lock names no loopback HTTP address once serve listens: %s", raw)
 	}
 
 	second := droidyard(t, state, "serve")

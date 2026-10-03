@@ -25,12 +25,22 @@ const (
 	drainEnv    = "DROIDYARD_TEST_DRAIN"
 	shutdownEnv = "DROIDYARD_TEST_SHUTDOWN"
 	httpPortEnv = "DROIDYARD_TEST_HTTP_PORT"
+	// launcherEnv names the file a re-executed `ui` writes the URL it would have opened
+	// to: no test opens a browser.
+	launcherEnv = "DROIDYARD_TEST_LAUNCHER"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
 // fixture.sidecar and shortens the bounds the test names (plan m1c step 7, R17).
 func installTestSeams() {
 	testCapabilities = registerSidecarFixture
+	openURL = func(url string) error {
+		path := os.Getenv(launcherEnv)
+		if path == "" {
+			return fmt.Errorf("the browser launcher was called, and the test set no %s", launcherEnv)
+		}
+		return os.WriteFile(path, []byte(url), 0o600)
+	}
 	// Test daemons bind an ephemeral port unless a test asks for one.
 	httpPort = 0
 	if v, err := strconv.Atoi(os.Getenv(httpPortEnv)); err == nil {

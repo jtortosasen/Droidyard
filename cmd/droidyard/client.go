@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -296,6 +297,107 @@ func status() int {
 	}
 	conn.Close()
 	fmt.Printf("socket %s answers\n", socket)
+	// The address and the URL come from the lock and run/http-token, which the daemon
+	// writes before it binds the socket (plan m1d, step 5). The lock is read again here,
+	// after the socket answered: the record read at the top may predate the daemon's
+	// rewrite that added "http". The token is printed here, on a terminal the user
+	// asked, and nowhere else (http-websocket.md §Bootstrapping).
+	httpInfo, err := daemon.ReadLock(state)
+	if err != nil {
+		fmt.Printf("http: %v\n", err)
+		return 0
+	}
+	switch addr, err := httpAddr(state, httpInfo); {
+	case err != nil:
+		fmt.Printf("http: %v\n", err)
+	default:
+		fmt.Printf("http %s\n", addr)
+		token, err := daemon.ReadToken(state)
+		if err != nil {
+			fmt.Printf("http token: %v\n", err)
+			return 0
+		}
+		fmt.Println(uiURL(addr, token))
+	}
+	return 0
+}
+
+// httpAddr is the UI's address the lock names. A lock that names none is a daemon
+// without an HTTP listener: one that cannot serve `ui`, and has to be restarted.
+func httpAddr(state string, info daemon.LockInfo) (string, error) {
+	if info.HTTP == nil || *info.HTTP == "" {
+		return "", fmt.Errorf("%s names no HTTP address: this daemon serves no web UI; run `droidyard stop` and start it again", filepath.Join(state, daemon.LockFile))
+	}
+	return *info.HTTP, nil
+}
+
+// uiURL is the tokenised URL that bootstraps the web UI: the token is in the
+// fragment, which a browser never sends to a server (http-websocket.md §Bootstrapping).
+func uiURL(addr, token string) string {
+	return "http://" + addr + "/#token=" + token
+}
+
+// openURL opens a URL in the default browser. A variable only so that this package's
+// tests can replace it in a re-executed binary, as they do testCapabilities.
+var openURL = openBrowser
+
+// openBrowser runs the platform's launcher (plan m1d, R4). The URL is in its argument
+// list while it runs (the plan's Unverified table flags this for the owner).
+func openBrowser(url string) error {
+	launcher := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		launcher = "open"
+	}
+	// None of exec's errors quotes the argument list, so the token stays out of them.
+	if err := exec.Command(launcher, url).Run(); err != nil {
+		return fmt.Errorf("running %s: %w", launcher, err)
+	}
+	return nil
+}
+
+// ui runs `droidyard ui`: it connects as `call` does, starting a daemon when none
+// answers unless --no-autostart, then opens the browser at the tokenised URL the lock
+// and run/http-token give (ADR-0019 §3, §4). It does not print the token.
+func ui(args []string) int {
+	autostart := true
+	for _, a := range args {
+		if a != "--no-autostart" {
+			fmt.Fprintf(os.Stderr, "droidyard ui: unexpected argument %q\nusage: droidyard ui [--no-autostart]\n", a)
+			return 2
+		}
+		autostart = false
+	}
+	conn, _, socket, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, autostart, nil)
+	if err != nil {
+		reportDialError("ui", socket, err)
+		return 1
+	}
+	conn.Close()
+	state, err := platform.Current().StateDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
+		return 1
+	}
+	info, err := daemon.ReadLock(state)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
+		return 1
+	}
+	addr, err := httpAddr(state, info)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
+		return 1
+	}
+	token, err := daemon.ReadToken(state)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "droidyard ui: reading the token: %v\n", err)
+		return 1
+	}
+	if err := openURL(uiURL(addr, token)); err != nil {
+		fmt.Fprintf(os.Stderr, "droidyard ui: opening the browser: %v\nOpen the address `droidyard status` prints instead.\n", err)
+		return 1
+	}
+	fmt.Printf("opened http://%s/ in the browser\n", addr)
 	return 0
 }
 
