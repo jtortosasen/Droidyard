@@ -1,5 +1,5 @@
 ---
-name: ADR
+name: adr
 description: Use when a Droidyard design decision must be recorded or changed. That happens when a plan hits a question the documents do not decide, when implementation forces a deviation from an accepted ADR, or when new evidence challenges one. Covers when to write a new ADR and when to amend, the format and `Amended:` line, and how to write Alternatives considered so they are worth reading.
 ---
 

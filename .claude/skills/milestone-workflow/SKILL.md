@@ -1,5 +1,5 @@
 ---
-name: Milestone workflow
+name: milestone-workflow
 description: Use when starting, resuming or closing a Droidyard milestone ("do milestone 1b", "what is next", "continue the daemon work"), or when implementing from a plan. Says what happens in what order (plan, plan review, owner approval, implementation, verification, close), which agent does each step, and what passes between them.
 ---
 

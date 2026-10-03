@@ -28,6 +28,26 @@ plan exists for the milestone you are about to work on, **follow it**; if the wo
 forces a departure from it, say so and update the plan rather than drifting from it
 silently.
 
+## Agents and models
+
+The project runs on Claude Code. Agents are in `.claude/agents/`, skills in
+`.claude/skills/`, and their tool limits in each agent's frontmatter: `disallowedTools`,
+plus `PreToolUse` hooks in `.claude/hooks/` (`guard-bash.sh observe` is an allowlist of
+observation commands, `readonly` a denylist of tree-changing ones;
+`guard-plans-only.sh` keeps the planner to `docs/plans/*.md`). The `milestone-workflow`
+skill says who does what.
+
+- **Main session** (Opus): runs the workflow, briefs the implementer one step at a time,
+  reviews the diff.
+- **`implementer`** (Sonnet). **`planner`, `plan-reviewer`, `verifier`** (Opus).
+- **Cross-model check** (DeepSeek through OpenCode, read-only):
+  `opencode run -m opencode-go/deepseek-v4.1-flash --agent verifier --auto "<brief>"`
+  (`-m` is required: OpenCode ignores the agent file's model). `.opencode/agents/` holds
+  only the `verifier` and `plan-reviewer` wrappers, which read the `.claude/agents/` body
+  and keep OpenCode's own edit and shell denials. Run it beside the Opus verifier when
+  a step closes, or for a second opinion on a design question. The main session triages
+  its findings; they never gate on their own.
+
 ## Conventions
 
 - **Documents and commit messages are in English.**

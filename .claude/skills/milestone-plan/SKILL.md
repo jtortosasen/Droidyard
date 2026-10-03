@@ -1,5 +1,5 @@
 ---
-name: Milestone plan
+name: milestone-plan
 description: Use when writing, revising, reviewing or following an implementation plan for a Droidyard milestone (docs/plans/*.md). Defines what a plan must contain here (pinned scope, ordered steps each with an acceptance check, the ADR clauses each step implements, what it does not do) and provides the template and the map of which document decides what.
 ---
 

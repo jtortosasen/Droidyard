@@ -1,5 +1,5 @@
 ---
-name: Verify the daemon
+name: verify-daemon
 description: Use when a Droidyard claim needs a real daemon to settle it (the socket, flock, shim auto-start, a killed shim or daemon, orphans after workspace.close, a real MCP stdio session), when a plan step's check is a level-5 run, and when the verifier reruns one. A rerunnable recipe against an isolated instance, in five sections (Launch, Doctor, Drive, Evidence, Cleanup), run end to end on macOS.
 ---
 

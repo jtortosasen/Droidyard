@@ -1,5 +1,5 @@
 ---
-name: Prove a change
+name: prove-change
 description: Use before claiming that any Droidyard change works (after a plan step, a fix or a descriptor edit) and when writing the report of what was verified. Covers running and reading the checks, reviewing the schema/capabilities.json diff, exercising behaviour that unit tests cannot reach, grading how far each claim was proven, and labelling what could not be verified.
 ---
 
