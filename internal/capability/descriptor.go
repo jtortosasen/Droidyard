@@ -142,6 +142,9 @@ type Call struct {
 	Workspace string
 	// Params is the decoded parameter struct.
 	Params any
+	// Session is the request's session; nil for a Stateless capability's call made
+	// without one. A Stateful or Streaming capability always has one.
+	Session Session
 	// Progress reports progress for a long-running call. Never nil.
 	Progress func(done, total int, message string)
 	// Untrusted marks result fields that carry device- or app-derived data, by

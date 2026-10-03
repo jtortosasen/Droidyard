@@ -12,6 +12,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
@@ -36,6 +37,7 @@ func registry() *capability.Registry {
 	system.Register(reg, nothingInstalled{}, ops, nil)
 	ops.RegisterCapabilities()
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
+	event.Register(reg)
 	return reg
 }
 

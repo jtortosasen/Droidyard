@@ -1,6 +1,101 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "capabilities": [
+    {
+      "name": "events.subscribe",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.3.0",
+      "description": "Subscribes the calling session to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. The events then arrive on the session, each naming the subscription, in seq order. With since {epoch, seq}, events after that point are replayed first; if they are no longer held, or the epoch is another daemon's, delivery starts with an events.gap marker and the caller must resync through queries. Only a WebSocket session can subscribe.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {
+          "topics": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "workspace.lifecycle",
+                "operation.progress"
+              ]
+            },
+            "type": "array",
+            "minItems": 1
+          },
+          "since": {
+            "properties": {
+              "epoch": {
+                "type": "string"
+              },
+              "seq": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "epoch",
+              "seq"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "topics"
+        ]
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId"
+        ]
+      }
+    },
+    {
+      "name": "events.unsubscribe",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateful",
+      "audience": "all",
+      "since": "0.3.0",
+      "description": "Ends one of the calling session's subscriptions. An id that is unknown, already ended or another session's is not an error: nothing happens.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId"
+        ]
+      },
+      "output": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
     {
       "name": "operation.cancel",
       "kind": "command",
