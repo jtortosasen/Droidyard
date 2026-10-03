@@ -1,0 +1,2 @@
+exit 0
+dev-tty dump wall seconds (1s resolution): 2

@@ -1,0 +1,4 @@
+01:49:21 [adb: device offline]
+01:49:26 [adb: device offline]
+01:49:31 []
+01:49:36 [1]
