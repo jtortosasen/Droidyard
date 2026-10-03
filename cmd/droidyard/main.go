@@ -9,6 +9,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/schema"
+	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 const usage = `Droidyard — a lean Android development runtime for humans and agents.
@@ -93,17 +96,20 @@ func (notInstalled) Missing(r capability.Requirement) (string, bool) {
 }
 
 // registry builds the shipped registry and the operation store that dispatches from
-// it. internal/schema's test builds the same set for the golden file.
-func registry() (*capability.Registry, *capability.Operations) {
+// it, over the state store st and logging to log. internal/schema's test builds the
+// same set for the golden file. caps and schema, which run no capability, pass a nil
+// store and log.
+func registry(st *store.Store, log io.Writer) (*capability.Registry, *capability.Operations) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	system.Register(reg, notInstalled{}, ops)
 	ops.RegisterCapabilities()
+	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log}))
 	return reg, ops
 }
 
 func printCaps() error {
-	reg, _ := registry()
+	reg, _ := registry(nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -140,7 +146,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _ := registry()
+	reg, _ := registry(nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

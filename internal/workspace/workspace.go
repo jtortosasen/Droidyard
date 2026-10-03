@@ -1,0 +1,437 @@
+// Package workspace is the workspace model: which project roots are open, their
+// lifecycle, and their durable configuration (docs/architecture/workspace-state.md;
+// ADR-0020 §Scope and workspace addressing; ADR-0021 §Layout; ADR-0026; ADR-0027).
+package workspace
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/store"
+)
+
+// The workspace codes (ADR-0026).
+const (
+	ErrRootInvalid capability.ErrorCode = "WORKSPACE_ROOT_INVALID"
+	ErrStateNewer  capability.ErrorCode = "WORKSPACE_STATE_NEWER"
+)
+
+// State is where a workspace stands (workspace-state.md §Lifecycle). `created` is not
+// held: a workspace is registered by the open that validates it.
+type State string
+
+const (
+	Opening  State = "opening"
+	Ready    State = "ready"
+	Degraded State = "degraded"
+	Closing  State = "closing"
+	Closed   State = "closed"
+)
+
+// DefaultDrain is how long a close waits for the workspace's cancelled operations
+// before it stops its sidecars and completes: the working default of ADR-0027, to move
+// to the configuration file in Phase 1.
+const DefaultDrain = 10 * time.Second
+
+// Info is the workspace object that workspace.open and workspace.describe return
+// (plan m1c, R6; ADR-0026 §Consequences).
+type Info struct {
+	ID      string `json:"id" jsonschema:"required"`
+	Name    string `json:"name" jsonschema:"required"`
+	Root    string `json:"root" jsonschema:"required"`
+	State   State  `json:"state" jsonschema:"required,enum=ready,enum=degraded"`
+	Trusted bool   `json:"trusted" jsonschema:"required"`
+	// CreatedAt is when the workspace was first opened, from workspace.json; zero
+	// while that file is of a newer version and unread.
+	CreatedAt  time.Time         `json:"createdAt" jsonschema:"required"`
+	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
+}
+
+// config is ws/<wsid>/workspace.json (plan m1c, R8).
+type config struct {
+	Root      string    `json:"root"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// index is workspaces.json: the workspaces this state root has known, for id
+// resolution (plan m1c, R8).
+type index struct {
+	Workspaces map[string]indexEntry `json:"workspaces"`
+}
+
+type indexEntry struct {
+	Root         string    `json:"root"`
+	Name         string    `json:"name"`
+	LastOpenedAt time.Time `json:"lastOpenedAt"`
+}
+
+const indexFile = "workspaces.json"
+
+func configFile(id string) string { return path.Join("ws", id, "workspace.json") }
+
+// Options configure a Registry.
+type Options struct {
+	// Store is the state under the state root. Open fails without one.
+	Store *store.Store
+	// Ops is the operation store whose workspace-scoped calls the registry admits,
+	// and whose operations a close cancels.
+	Ops *capability.Operations
+	// Env canonicalises roots; zero means platform.Current().
+	Env platform.Env
+	// Drain bounds a close's wait for its operations; zero means DefaultDrain.
+	Drain time.Duration
+	// StopSidecars stops the workspace's sidecars, after the drain and before the
+	// workspace is closed. Nil until the supervisor exists (step 7).
+	StopSidecars func(id string)
+	// Log receives a line per operation a close left running. Nil discards.
+	Log io.Writer
+}
+
+type workspace struct {
+	// tx serialises open and close of this workspace across the whole transition
+	// (ADR-0027).
+	tx sync.Mutex
+
+	// Written under Registry.mu; read without it.
+	state atomic.Value // State
+	// Guarded by Registry.mu.
+	info Info
+}
+
+// Registry is every workspace this daemon has opened in its life, and the index of the
+// ones the state root has known.
+type Registry struct {
+	opts Options
+	now  func() time.Time
+
+	// mu is the admission lock: an open check and the recording of the operation it
+	// admits (Admit), and a close entering closing, all take it.
+	mu sync.Mutex
+
+	// allMu guards the map only, so a state can be read while mu is held. Entries are
+	// never removed.
+	allMu sync.RWMutex
+	all   map[string]*workspace
+
+	indexMu     sync.Mutex
+	indexLoaded bool
+	indexNewer  bool
+	idx         index
+}
+
+// New returns an empty registry and makes it ops's admission control.
+func New(opts Options) *Registry {
+	if opts.Env.Getenv == nil {
+		opts.Env = platform.Current()
+	}
+	if opts.Drain == 0 {
+		opts.Drain = DefaultDrain
+	}
+	if opts.Log == nil {
+		opts.Log = io.Discard
+	}
+	r := &Registry{opts: opts, now: time.Now, all: map[string]*workspace{}}
+	if opts.Ops != nil {
+		opts.Ops.UseWorkspaces(r)
+	}
+	return r
+}
+
+// Drain is the bound a close waits for its operations.
+func (r *Registry) Drain() time.Duration { return r.opts.Drain }
+
+// resolve turns a target into an id: one starting with "/" is a root, canonicalised;
+// anything else is an id (plan m1c, R5).
+func (r *Registry) resolve(target string) (id, root string) {
+	if strings.HasPrefix(target, "/") {
+		return r.opts.Env.WorkspaceID(target)
+	}
+	return target, ""
+}
+
+// Admit implements capability.Workspaces.
+func (r *Registry) Admit(target string, record func(id string)) bool {
+	id, _ := r.resolve(target)
+	w := r.lookup(id)
+	if w == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !w.info.State.open() {
+		return false
+	}
+	record(id)
+	return true
+}
+
+func (r *Registry) lookup(id string) *workspace {
+	r.allMu.RLock()
+	defer r.allMu.RUnlock()
+	return r.all[id]
+}
+
+func (s State) open() bool { return s == Ready || s == Degraded }
+
+// State is the workspace's state, read without the admission lock; "" for one this
+// daemon has never opened.
+func (r *Registry) State(target string) State {
+	id, _ := r.resolve(target)
+	if w := r.lookup(id); w != nil {
+		return w.state.Load().(State)
+	}
+	return ""
+}
+
+// entry returns the workspace record for id, creating a closed one.
+func (r *Registry) entry(id string) *workspace {
+	r.allMu.Lock()
+	defer r.allMu.Unlock()
+	w := r.all[id]
+	if w == nil {
+		w = &workspace{info: Info{ID: id, State: Closed}}
+		w.state.Store(Closed)
+		r.all[id] = w
+	}
+	return w
+}
+
+// setState changes a workspace's state under the admission lock.
+func (r *Registry) setState(w *workspace, s State) {
+	r.mu.Lock()
+	w.info.State = s
+	w.state.Store(s)
+	r.mu.Unlock()
+}
+
+func rootInvalid(target, cause string) *capability.Error {
+	return capability.Errorf(ErrRootInvalid, "%q cannot be opened as a workspace", target).
+		WithCause(cause).
+		WithNextStep("call `workspace.open` with the absolute path of a readable project directory").
+		WithDetails(map[string]any{"target": target})
+}
+
+// Open opens the workspace target names, or returns its state if it is open
+// (workspace-state.md §Lifecycle). It runs no project code and spawns nothing
+// (ADR-0015 §5). A target that is not an existing, readable directory, or an id no
+// index holds, fails with WORKSPACE_ROOT_INVALID (ADR-0026). An open during a close
+// waits for the workspace to be closed, then opens it (ADR-0027).
+func (r *Registry) Open(target string) (Info, error) {
+	if r.opts.Store == nil {
+		return Info{}, errors.New("the workspace registry has no state store")
+	}
+	id, root := r.resolve(target)
+	if root == "" {
+		known, ok, err := r.knownRoot(id)
+		if err != nil {
+			return Info{}, err
+		}
+		if !ok {
+			return Info{}, rootInvalid(target, "no workspace index holds this id")
+		}
+		root = known
+	}
+
+	w := r.entry(id)
+	w.tx.Lock()
+	defer w.tx.Unlock()
+	r.mu.Lock()
+	if w.info.State.open() {
+		info := w.info
+		r.mu.Unlock()
+		return info, nil
+	}
+	r.mu.Unlock()
+
+	if err := readableDir(root); err != nil {
+		return Info{}, rootInvalid(target, err.Error())
+	}
+	r.setState(w, Opening)
+	info, err := r.load(id, root)
+	if err != nil {
+		r.setState(w, Closed)
+		return Info{}, err
+	}
+	r.mu.Lock()
+	w.info = info
+	w.state.Store(info.State)
+	r.mu.Unlock()
+	return info, nil
+}
+
+// readableDir checks that root is a directory this process can list.
+func readableDir(root string) error {
+	fi, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s is not a directory", root)
+	}
+	d, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if _, err := d.Readdirnames(1); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+// load reads or creates ws/<id>/workspace.json and records the open in the index. A
+// workspace.json of a newer version is left untouched and the workspace degrades
+// (ADR-0026).
+func (r *Registry) load(id, root string) (Info, error) {
+	name := filepath.Base(root)
+	info := Info{ID: id, Name: name, Root: root, State: Ready, Trusted: false}
+	var cfg config
+	out, err := r.opts.Store.Read(configFile(id), store.Version, &cfg)
+	switch {
+	case errors.Is(err, store.ErrNewer):
+		info.State = Degraded
+		info.DegradedBy = capability.Errorf(ErrStateNewer, "%s has a newer schemaVersion than this droidyard reads; it is left untouched", configFile(id)).
+			WithNextStep(fmt.Sprintf("upgrade droidyard, or delete `%s/` to reset this workspace", filepath.Join(r.opts.Store.Root(), "ws", id)))
+	case err != nil:
+		return Info{}, err
+	case out == store.Loaded:
+		info.CreatedAt = cfg.CreatedAt
+	default: // absent, or corrupt and moved aside
+		cfg = config{Root: root, Name: name, CreatedAt: r.now().UTC()}
+		if err := r.opts.Store.Write(configFile(id), cfg); err != nil {
+			return Info{}, err
+		}
+		info.CreatedAt = cfg.CreatedAt
+	}
+	if err := r.recordOpen(id, root, name); err != nil {
+		return Info{}, err
+	}
+	return info, nil
+}
+
+// loadIndex reads workspaces.json once. One of a newer version is neither read nor
+// written (plan m1c, R16). Called with indexMu held.
+func (r *Registry) loadIndex() error {
+	if r.indexLoaded {
+		return nil
+	}
+	r.idx = index{Workspaces: map[string]indexEntry{}}
+	var idx index
+	out, err := r.opts.Store.Read(indexFile, store.Version, &idx)
+	switch {
+	case errors.Is(err, store.ErrNewer):
+		r.indexNewer = true
+	case err != nil:
+		return err
+	case out == store.Loaded && idx.Workspaces != nil:
+		r.idx = idx
+	}
+	r.indexLoaded = true
+	return nil
+}
+
+// knownRoot is the root of the workspace id: one this daemon has opened, else one the
+// index holds.
+func (r *Registry) knownRoot(id string) (string, bool, error) {
+	if w := r.lookup(id); w != nil {
+		r.mu.Lock()
+		root := w.info.Root
+		r.mu.Unlock()
+		if root != "" {
+			return root, true, nil
+		}
+	}
+	r.indexMu.Lock()
+	defer r.indexMu.Unlock()
+	if err := r.loadIndex(); err != nil {
+		return "", false, err
+	}
+	e, ok := r.idx.Workspaces[id]
+	return e.Root, ok && e.Root != "", nil
+}
+
+func (r *Registry) recordOpen(id, root, name string) error {
+	r.indexMu.Lock()
+	defer r.indexMu.Unlock()
+	if err := r.loadIndex(); err != nil {
+		return err
+	}
+	if r.indexNewer {
+		return nil
+	}
+	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, LastOpenedAt: r.now().UTC()}
+	return r.opts.Store.Write(indexFile, r.idx)
+}
+
+// Describe is the state of an open workspace.
+func (r *Registry) Describe(id string) (Info, error) {
+	w := r.lookup(id)
+	if w == nil {
+		return Info{}, notOpen(id)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !w.info.State.open() {
+		return Info{}, notOpen(id)
+	}
+	return w.info, nil
+}
+
+func notOpen(id string) *capability.Error {
+	return capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", id).
+		WithNextStep("call workspace.open on it, then retry")
+}
+
+// Close closes the workspace target names for every session and returns once it is
+// closed (ADR-0027): it enters closing, which rejects every other workspace-scoped
+// call at Start; cancels the workspace's operations and waits for them up to the
+// drain bound, logging any still running, which end cancelled when their handlers
+// return; stops the workspace's sidecars; and marks it closed. It is not cancellable.
+// A close of a workspace that is not open, or a second close, completes as a no-op.
+func (r *Registry) Close(target string) error {
+	id, _ := r.resolve(target)
+	w := r.lookup(id)
+	if w == nil {
+		return nil
+	}
+	w.tx.Lock()
+	defer w.tx.Unlock()
+
+	r.mu.Lock()
+	if !w.info.State.open() {
+		r.mu.Unlock()
+		return nil
+	}
+	w.info.State = Closing
+	w.state.Store(Closing)
+	r.mu.Unlock()
+
+	if r.opts.Ops != nil {
+		ids := r.opts.Ops.CancelWorkspace(id)
+		deadline := r.now().Add(r.opts.Drain)
+		for _, op := range ids {
+			out, err := r.opts.Ops.Wait(context.Background(), op, deadline)
+			if err == nil && !out.State.Terminal() {
+				fmt.Fprintf(r.opts.Log, "droidyard: workspace %s: operation %s (%s) still running %s after its close; left to end cancelled\n",
+					id, op, out.Capability, r.opts.Drain)
+			}
+		}
+	}
+	if r.opts.StopSidecars != nil {
+		r.opts.StopSidecars(id)
+	}
+	r.setState(w, Closed)
+	return nil
+}

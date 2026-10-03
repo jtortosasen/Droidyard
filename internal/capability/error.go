@@ -40,9 +40,9 @@ const (
 // text block (ADR-0020 §Adapter projections).
 type Error struct {
 	// Code is the only field consumers branch on.
-	Code ErrorCode `json:"code"`
+	Code ErrorCode `json:"code" jsonschema:"required"`
 	// Message is human-readable and non-normative. It is never parsed.
-	Message string `json:"message"`
+	Message string `json:"message" jsonschema:"required"`
 	// Cause is what actually went wrong underneath: the tool, its exit status, the
 	// decisive line.
 	Cause string `json:"cause,omitempty"`

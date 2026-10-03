@@ -1,0 +1,104 @@
+package process
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/store"
+)
+
+func newStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// TestReconcileLeavesANewerFileUntouched: a processes.json this daemon cannot read is
+// never overwritten, nothing is reaped, the problem is recorded and the daemon goes on
+// (ADR-0021 §Format; plan m1c, R10).
+func TestReconcileLeavesANewerFileUntouched(t *testing.T) {
+	st := newStore(t)
+	path := filepath.Join(st.Root(), RecordsFile)
+	newer := []byte(`{"schemaVersion":2,"processes":[{"id":"x","pid":1,"pgid":1}]}`)
+	if err := os.WriteFile(path, newer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	if err := Reconcile(st, &log); err != nil {
+		t.Fatalf("Reconcile = %v; a newer file must not stop the daemon", err)
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, newer) {
+		t.Errorf("the newer file changed: %q", got)
+	}
+	if p := st.Problems(); len(p) != 1 || p[0].File != RecordsFile || p[0].Problem != store.ProblemNewerVersion {
+		t.Errorf("problems = %+v", p)
+	}
+	if !strings.Contains(log.String(), "newer schemaVersion") {
+		t.Errorf("log: %q", log.String())
+	}
+}
+
+// TestReconcileSurvivesACorruptFile: a corrupt processes.json is moved aside by the
+// store and reconciling goes on with no records.
+func TestReconcileSurvivesACorruptFile(t *testing.T) {
+	st := newStore(t)
+	if err := os.WriteFile(filepath.Join(st.Root(), RecordsFile), []byte("{garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	if err := Reconcile(st, &log); err != nil {
+		t.Fatal(err)
+	}
+	if p := st.Problems(); len(p) != 1 || p[0].Problem != store.ProblemCorrupt || p[0].MovedTo == "" {
+		t.Errorf("problems = %+v", p)
+	}
+}
+
+// TestReconcileNeverSignalsGroupZeroOrOne: kill(-0) is this daemon's own group and
+// kill(-1) every process of the user, so a record naming either is dropped even when
+// its pid and start time match. The record here is this test process itself.
+func TestReconcileNeverSignalsGroupZeroOrOne(t *testing.T) {
+	st := newStore(t)
+	self, err := platform.StartTime(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := Records{Processes: []Record{
+		{ID: "zero", PID: os.Getpid(), PGID: 0, StartTime: self},
+		{ID: "one", PID: os.Getpid(), PGID: 1, StartTime: self},
+	}}
+	if err := st.Write(RecordsFile, recs); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	if err := Reconcile(st, &log); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(log.String(), "SIGTERM") || strings.Count(log.String(), "not a valid pid and process group") != 2 {
+		t.Errorf("log:\n%s", log.String())
+	}
+	var left Records
+	if out, err := st.Read(RecordsFile, store.Version, &left); out != store.Loaded || err != nil || len(left.Processes) != 0 {
+		t.Errorf("after reconciling: %v, %v, %+v", out, err, left)
+	}
+}
+
+// TestReconcileWithoutAFileWritesNothing: a first start finds no records and creates
+// no file.
+func TestReconcileWithoutAFileWritesNothing(t *testing.T) {
+	st := newStore(t)
+	if err := Reconcile(st, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(st.Root(), RecordsFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("processes.json: %v", err)
+	}
+}

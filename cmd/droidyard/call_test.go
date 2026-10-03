@@ -13,6 +13,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/store"
 )
 
 // inProcess is the shipped wiring (registry(), daemonOptions) started in the test
@@ -34,7 +35,11 @@ type inProcess struct {
 func startInProcess(t *testing.T) *inProcess {
 	t.Helper()
 	p := &inProcess{state: shortDir(t), started: make(chan string, 4), release: make(chan struct{})}
-	reg, ops := registry()
+	st, err := store.New(p.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, ops := registry(st, os.Stderr)
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.block", Kind: capability.Command, Scope: capability.Global,
 		Description: "Blocks until released.", Params: struct{}{}, Result: struct{}{},
@@ -75,7 +80,7 @@ func startInProcess(t *testing.T) *inProcess {
 		}
 		return os.Getenv(k)
 	}}
-	opts, err := daemonOptions(p.state, env.SocketPath(p.state), reg, ops, os.Stderr)
+	opts, err := daemonOptions(st, env.SocketPath(p.state), reg, ops, os.Stderr)
 	if err != nil {
 		t.Fatal(err)
 	}

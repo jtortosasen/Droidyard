@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/schema"
+	"github.com/jtortosasen/droidyard/internal/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -27,7 +28,7 @@ const shutdownTimeout = 15 * time.Second
 // daemonOptions wires the daemon: the registry's store, and a handler per client kind.
 // The MCP adapter gets the published schemas from here, so it never imports
 // internal/schema (docs/architecture/core-runtime.md §Adapter boundary).
-func daemonOptions(state, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, error) {
+func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return daemon.Options{}, err
@@ -41,7 +42,8 @@ func daemonOptions(state, socket string, reg *capability.Registry, ops *capabili
 		return daemon.Options{}, err
 	}
 	return daemon.Options{
-		State:   state,
+		State:   st.Root(),
+		Store:   st,
 		Socket:  socket,
 		Version: system.Version,
 		UID:     os.Getuid(),
@@ -88,9 +90,14 @@ func serve(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	reg, ops := registry()
+	st, err := store.New(state)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "droidyard serve:", err)
+		return 1
+	}
+	reg, ops := registry(st, os.Stderr)
 	socket := env.SocketPath(state)
-	opts, err := daemonOptions(state, socket, reg, ops, os.Stderr)
+	opts, err := daemonOptions(st, socket, reg, ops, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
