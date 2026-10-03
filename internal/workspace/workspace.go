@@ -98,6 +98,20 @@ type Options struct {
 	StopSidecars func(id string)
 	// Log receives a line per operation a close left running. Nil discards.
 	Log io.Writer
+	// Publisher receives every transition on workspace.lifecycle. Nil publishes
+	// nothing.
+	Publisher capability.Publisher
+}
+
+// LifecycleTopic is where workspace transitions are published (workspace-state.md
+// §Observability): the event's type is the new state, its workspace the id, and its
+// payload a Lifecycle (plan m1d, D4).
+const LifecycleTopic = "workspace.lifecycle"
+
+// Lifecycle is a workspace.lifecycle event's payload.
+type Lifecycle struct {
+	State      State             `json:"state"`
+	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
 }
 
 type workspace struct {
@@ -209,12 +223,22 @@ func (r *Registry) entry(id string) *workspace {
 	return w
 }
 
-// setState changes a workspace's state under the admission lock.
+// setState changes a workspace's state under the admission lock, and publishes it.
 func (r *Registry) setState(w *workspace, s State) {
 	r.mu.Lock()
 	w.info.State = s
 	w.state.Store(s)
+	id := w.info.ID
 	r.mu.Unlock()
+	r.publish(id, s, nil)
+}
+
+// publish puts a transition on workspace.lifecycle. Transitions of one workspace are
+// serialised by its tx, so they are published in the order they happen.
+func (r *Registry) publish(id string, s State, degradedBy *capability.Error) {
+	if r.opts.Publisher != nil {
+		r.opts.Publisher.Publish(LifecycleTopic, string(s), id, "", Lifecycle{State: s, DegradedBy: degradedBy})
+	}
 }
 
 func rootInvalid(target, cause string) *capability.Error {
@@ -289,6 +313,7 @@ func (r *Registry) Open(target string) (Info, error) {
 	w.info = info
 	w.state.Store(info.State)
 	r.mu.Unlock()
+	r.publish(id, info.State, info.DegradedBy)
 	return info, nil
 }
 
@@ -440,6 +465,7 @@ func (r *Registry) Close(target string) error {
 	w.info.State = Closing
 	w.state.Store(Closing)
 	r.mu.Unlock()
+	r.publish(id, Closing, nil)
 
 	if r.opts.Ops != nil {
 		ids := r.opts.Ops.CancelWorkspace(id)

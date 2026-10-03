@@ -2,20 +2,26 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/jtortosasen/droidyard/adapters/httpapi"
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
@@ -28,10 +34,25 @@ import (
 // that this package's tests can shorten it in a re-executed binary.
 var shutdownTimeout = 15 * time.Second
 
-// daemonOptions wires the daemon: the registry's store, and a handler per client kind.
-// The MCP adapter gets the published schemas from here, so it never imports
-// internal/schema (docs/architecture/core-runtime.md §Adapter boundary).
-func daemonOptions(st *store.Store, sup *proc.Supervisor, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
+// httpPort is the UI's loopback port (plan m1d, D3). A variable only so that this
+// package's tests can set it in a re-executed binary: 0 there, so test daemons never
+// contend for the fixed port.
+var httpPort = httpapi.DefaultPort
+
+// newToken is a per-launch HTTP token: 256 random bits as 64 lowercase hex digits
+// (http-websocket.md §Security baseline rule 4; plan m1d, D8).
+func newToken() string {
+	var b [32]byte
+	rand.Read(b[:]) // never returns an error (crypto/rand, Go 1.24)
+	return hex.EncodeToString(b[:])
+}
+
+// daemonOptions wires the daemon: the registry's store, a handler per client kind, and
+// the UI's HTTP side on httpAddr with a token new at every start. The MCP adapter gets
+// the published schemas from here, so it never imports internal/schema
+// (docs/architecture/core-runtime.md §Adapter boundary), and reads operation progress
+// from bus.
+func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return daemon.Options{}, nil, err
@@ -44,6 +65,8 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket string, reg *ca
 	if err != nil {
 		return daemon.Options{}, nil, err
 	}
+	mcpServer.UseBus(bus)
+	token := newToken()
 	return daemon.Options{
 		State:      st.Root(),
 		Store:      st,
@@ -60,6 +83,12 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket string, reg *ca
 					fmt.Fprintf(log, "droidyard: MCP session %s ended: %v\n", s.ID, err)
 				}
 			},
+		},
+		HTTP: &daemon.HTTP{
+			Addr:    httpAddr,
+			Listen:  httpapi.Listen,
+			Handler: httpapi.Handler(reg, ops, token),
+			Token:   token,
 		},
 		Log: log,
 	}, mcpServer, nil
@@ -102,9 +131,9 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
-	reg, ops := registry(st, sup, os.Stderr)
+	reg, ops, bus := registry(st, sup, os.Stderr)
 	socket := env.SocketPath(state)
-	opts, _, err := daemonOptions(st, sup, socket, reg, ops, os.Stderr)
+	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1

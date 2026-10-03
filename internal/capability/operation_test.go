@@ -446,3 +446,79 @@ func TestOperationViewResultIsAnOpenObject(t *testing.T) {
 		t.Errorf("the result round-tripped as %s", back.Result)
 	}
 }
+
+// published is one Publish call a recordingPublisher saw.
+type published struct {
+	topic, typ, workspace, operation string
+	payload                          any
+}
+
+type recordingPublisher struct {
+	mu  sync.Mutex
+	got []published
+}
+
+func (r *recordingPublisher) Publish(topic, typ, workspace, operation string, payload any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.got = append(r.got, published{topic, typ, workspace, operation, payload})
+}
+
+type admitAs string
+
+func (a admitAs) Admit(target string, record func(id string)) bool {
+	record(string(a))
+	return true
+}
+
+// TestProgressIsPublished: a report through Call.Progress is kept on the operation and
+// published, before Progress returns, on operation.progress with type progress, the
+// operation id, the operation's workspace id ("" for a global one) and the payload
+// {done, total?, message?} (core-runtime.md §Invocation; plan m1d, D4).
+func TestProgressIsPublished(t *testing.T) {
+	reg := NewRegistry()
+	pub := &recordingPublisher{}
+	var seen []int
+	report := func(ctx context.Context, call *Call) (any, error) {
+		call.Progress(2, 5, "half")
+		pub.mu.Lock()
+		seen = append(seen, len(pub.got))
+		pub.mu.Unlock()
+		return result{}, nil
+	}
+	reg.MustRegister(Descriptor{Name: "fixture.report", Kind: Command, Scope: Global, Description: "Reports progress.",
+		Params: params{}, Result: result{}, Handler: report})
+	reg.MustRegister(Descriptor{Name: "fixture.reportin", Kind: Command, Scope: Workspace, Description: "Reports progress in a workspace.",
+		Params: params{}, Result: result{}, Handler: report})
+	ops := NewOperations(reg)
+	ops.UseWorkspaces(admitAs("ws-canonical"))
+	ops.UsePublisher(pub)
+
+	for _, c := range []struct{ name, target, want string }{{"fixture.report", "", ""}, {"fixture.reportin", "/some/root", "ws-canonical"}} {
+		pub.mu.Lock()
+		pub.got = nil
+		pub.mu.Unlock()
+		id, err := ops.Start(context.Background(), Request{Capability: c.name, Workspace: c.target})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := ops.Wait(context.Background(), id, time.Time{})
+		if err != nil || out.State != StateCompleted || out.Progress == nil || out.Progress.Done != 2 {
+			t.Fatalf("%s: %+v, %v", c.name, out, err)
+		}
+		pub.mu.Lock()
+		got := pub.got
+		pub.mu.Unlock()
+		if len(got) != 1 {
+			t.Fatalf("%s: published %+v; want one event", c.name, got)
+		}
+		e := got[0]
+		raw, _ := json.Marshal(e.payload)
+		if e.topic != ProgressTopic || e.typ != ProgressType || e.operation != id || e.workspace != c.want || string(raw) != `{"done":2,"total":5,"message":"half"}` {
+			t.Errorf("%s: published %+v (payload %s); want operation.progress/progress for %s in %q", c.name, e, raw, id, c.want)
+		}
+	}
+	if len(seen) != 2 || seen[0] != 1 || seen[1] != 1 {
+		t.Errorf("when Progress returned, %v events had been published; want 1 each time", seen)
+	}
+}

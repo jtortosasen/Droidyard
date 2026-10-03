@@ -16,6 +16,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
@@ -33,6 +34,9 @@ type slowResult struct {
 type inProcess struct {
 	d       *daemon.Daemon
 	mcp     *mcpadapter.Server
+	ops     *capability.Operations
+	bus     *event.Bus
+	token   string        // the HTTP token
 	log     *lockedBuffer // the daemon's log, also copied to stderr
 	state   string
 	started chan string
@@ -41,13 +45,30 @@ type inProcess struct {
 
 func startInProcess(t *testing.T) *inProcess {
 	t.Helper()
+	return startInProcessWith(t, nil)
+}
+
+// startInProcessWith is startInProcess with more test-only capabilities, registered
+// by extra before the daemon starts.
+func startInProcessWith(t *testing.T, extra func(reg *capability.Registry)) *inProcess {
+	t.Helper()
+	return startInProcessAt(t, "127.0.0.1:0", extra)
+}
+
+// startInProcessAt is startInProcessWith with the UI's listener asked for at httpAddr.
+func startInProcessAt(t *testing.T, httpAddr string, extra func(reg *capability.Registry)) *inProcess {
+	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
 	st, err := store.New(p.state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
-	reg, ops := registry(st, sup, os.Stderr)
+	reg, ops, bus := registry(st, sup, os.Stderr)
+	p.ops, p.bus = ops, bus
+	if extra != nil {
+		extra(reg)
+	}
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.block", Kind: capability.Command, Scope: capability.Global,
 		Description: "Blocks until released.", Params: struct{}{}, Result: struct{}{},
@@ -88,7 +109,7 @@ func startInProcess(t *testing.T) *inProcess {
 		}
 		return os.Getenv(k)
 	}}
-	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), reg, ops, io.MultiWriter(os.Stderr, p.log))
+	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +118,7 @@ func startInProcess(t *testing.T) *inProcess {
 		t.Fatal(err)
 	}
 	p.d = d
+	p.token = opts.HTTP.Token
 	p.mcp = mcpServer
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

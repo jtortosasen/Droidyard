@@ -26,8 +26,11 @@ check, ADR-0019). This baseline covers the HTTP listener only. The adapter enfor
 every rule **before** it resolves a capability. A request that fails a rule gets a
 bare HTTP error and never reaches the capability layer.
 
-1. **Loopback only.** The default bind is `127.0.0.1` on a configurable fixed port. If
-   the port is taken, an ephemeral port is used instead. `daemon.lock` (`http`) and
+1. **Loopback only.** The default bind is `127.0.0.1` on a fixed port, `7317` (outside
+   the Linux and macOS ephemeral ranges; not checked against the IANA registry). It
+   becomes configurable when the configuration file exists (Phase 1); until then it is
+   a constant (milestone 1d, D3). If the port is taken, an ephemeral port is used
+   instead. `daemon.lock` (`http`) and
    `droidyard status` report the actual address. A non-loopback address is **refused at
    startup** in the MVP: LAN exposure needs its own ADR covering TLS and
    authentication ([adr/README](../adr/README.md) §Open decisions).
