@@ -198,7 +198,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.1.0",
-      "description": "Reports whether the core is alive, its version and how long it has been running.",
+      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, and any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched).",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -357,8 +357,7 @@
           "name",
           "root",
           "state",
-          "trusted",
-          "createdAt"
+          "trusted"
         ]
       }
     },
@@ -444,8 +443,7 @@
           "name",
           "root",
           "state",
-          "trusted",
-          "createdAt"
+          "trusted"
         ]
       }
     }

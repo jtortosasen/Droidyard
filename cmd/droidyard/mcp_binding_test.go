@@ -148,7 +148,7 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 	a2.initialize("binding")
 	second := a2.workspaceTool(1, "workspace_describe")
 	boundReady(t, "(e) the second session", second, groovy)
-	if !second.info.CreatedAt.Equal(first.info.CreatedAt) {
+	if second.info.CreatedAt == nil || first.info.CreatedAt == nil || !second.info.CreatedAt.Equal(*first.info.CreatedAt) {
 		t.Errorf("(e) the second session sees createdAt %v; the first %v", second.info.CreatedAt, first.info.CreatedAt)
 	}
 	if after, _ := os.Stat(index); !after.ModTime().Equal(before.ModTime()) {

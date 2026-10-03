@@ -243,10 +243,16 @@ func (l *Lease) Release() {
 // process starts abandons the wait, not the start.
 func (s *Supervisor) Use(ctx context.Context, d Descriptor) (*Lease, error) {
 	for {
+		s.mu.Lock()
+		// Checked under the lock a lease is granted under, so no lease is granted on a
+		// context already done when the lock was taken. A cancellation that lands after
+		// this check is unordered with it by nature; a close that cancels the context
+		// then drains the operation and stops the workspace's sidecars, so a lease
+		// granted in that window does not outlive the close (ADR-0027).
 		if err := ctx.Err(); err != nil {
+			s.mu.Unlock()
 			return nil, fmt.Errorf("%s not started: %w", d.ID, err)
 		}
-		s.mu.Lock()
 		switch {
 		case s.closed:
 			s.mu.Unlock()

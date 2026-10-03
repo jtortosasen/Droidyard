@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -209,7 +212,7 @@ func TestOpenRegistersARoot(t *testing.T) {
 	root := project(t)
 	info := h.open(t, root)
 	wantID, _ := platform.Current().WorkspaceID(root)
-	if info.ID != wantID || info.Root != root || info.Name != filepath.Base(root) || info.State != Ready || info.Trusted || info.CreatedAt.IsZero() || info.DegradedBy != nil {
+	if info.ID != wantID || info.Root != root || info.Name != filepath.Base(root) || info.State != Ready || info.Trusted || info.CreatedAt == nil || info.CreatedAt.IsZero() || info.DegradedBy != nil {
 		t.Fatalf("open = %+v; want ready, untrusted, id %s", info, wantID)
 	}
 	for _, f := range []string{filepath.Join(h.st.Root(), "ws", wantID, "workspace.json"), filepath.Join(h.st.Root(), "workspaces.json")} {
@@ -217,20 +220,20 @@ func TestOpenRegistersARoot(t *testing.T) {
 			t.Errorf("%s: schemaVersion %d", f, v)
 		}
 	}
-	if again := h.open(t, root); again != info {
+	if again := h.open(t, root); !reflect.DeepEqual(again, info) {
 		t.Errorf("a second open = %+v; want the same state %+v", again, info)
 	}
 	if out := h.invoke(t, CapClose, root); out.State != capability.StateCompleted {
 		t.Fatalf("close: %+v", out)
 	}
-	if reopened := h.open(t, root); !reopened.CreatedAt.Equal(info.CreatedAt) {
+	if reopened := h.open(t, root); reopened.CreatedAt == nil || !reopened.CreatedAt.Equal(*info.CreatedAt) {
 		t.Errorf("reopening changed createdAt: %v → %v", info.CreatedAt, reopened.CreatedAt)
 	}
 
 	// A new daemon on the same state: the id resolves through the index.
 	restarted := newHarnessOn(t, mustStore(t, h.st.Root()), 200*time.Millisecond)
 	byID := restarted.open(t, wantID)
-	if byID.Root != root || !byID.CreatedAt.Equal(info.CreatedAt) {
+	if byID.Root != root || byID.CreatedAt == nil || !byID.CreatedAt.Equal(*info.CreatedAt) {
 		t.Errorf("open by id after a restart = %+v", byID)
 	}
 }
@@ -245,7 +248,8 @@ func mustStore(t *testing.T, root string) *store.Store {
 }
 
 // TestOpenRunsNoProjectCode: a root whose gradlew would leave a marker is opened and
-// the marker never appears (ADR-0015 §5; workspace-state.md §Lifecycle).
+// the marker never appears (ADR-0015 §5; workspace-state.md §Lifecycle); run
+// directly, the same script does leave it, so the check can see project code run.
 func TestOpenRunsNoProjectCode(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
 	root := project(t)
@@ -261,6 +265,12 @@ func TestOpenRunsNoProjectCode(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("opening ran project code: %v", err)
+	}
+	if out, err := exec.Command(filepath.Join(root, "gradlew")).CombinedOutput(); err != nil {
+		t.Fatalf("running gradlew directly: %v: %s", err, out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("gradlew run directly left no marker, so the check above proves nothing: %v", err)
 	}
 }
 
@@ -317,6 +327,11 @@ func TestNewerWorkspaceFileDegrades(t *testing.T) {
 		i, ok := info.(Info)
 		if !ok || i.State != Degraded || i.DegradedBy == nil || i.DegradedBy.Code != ErrStateNewer || i.DegradedBy.NextStep != wantNext {
 			t.Errorf("%s: %+v", name, info)
+		}
+		// The unread file's creation time is not known: no createdAt, rather than a
+		// zero time that reads as a date.
+		if raw, _ := json.Marshal(info); i.CreatedAt != nil || strings.Contains(string(raw), "createdAt") {
+			t.Errorf("%s of a degraded workspace carries createdAt: %s", name, raw)
 		}
 	}
 	raw, _ := os.ReadFile(file)
@@ -698,5 +713,33 @@ func TestUnreadableStateFailsTheOpen(t *testing.T) {
 				t.Errorf("a call after the failed open: %v; want WORKSPACE_NOT_OPEN", err)
 			}
 		})
+	}
+}
+
+// TestInvalidOpensLeaveNoEntry: a target that cannot be opened is not registered, so
+// a client trying many bad roots or ids does not grow the registry.
+func TestInvalidOpensLeaveNoEntry(t *testing.T) {
+	h := newHarness(t, 200*time.Millisecond)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	os.WriteFile(file, nil, 0o600)
+	size := func() int {
+		h.ws.allMu.RLock()
+		defer h.ws.allMu.RUnlock()
+		return len(h.ws.all)
+	}
+	for i := 0; i < 100; i++ {
+		for _, target := range []string{filepath.Join(dir, "missing-"+strconv.Itoa(i)), file + "/" + strconv.Itoa(i), "nothing-" + strconv.Itoa(i)} {
+			if out := h.invoke(t, CapOpen, target); out.State != capability.StateFailed || out.Error.Code != ErrRootInvalid {
+				t.Fatalf("open %s: %+v", target, out)
+			}
+		}
+	}
+	if n := size(); n != 0 {
+		t.Errorf("300 invalid opens left %d registry entries; want 0", n)
+	}
+	h.open(t, project(t))
+	if n := size(); n != 1 {
+		t.Errorf("one valid open left %d entries; want 1", n)
 	}
 }

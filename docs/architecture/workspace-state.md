@@ -62,7 +62,8 @@ an untrusted one fails that call with `WORKSPACE_UNTRUSTED` before anything is s
 `workspace.open` on an already open workspace is a no-op returning its state, so
 several sessions (two agent windows, the UI) share one workspace. A target it cannot
 validate ends `failed` with `WORKSPACE_ROOT_INVALID`; a state file from a newer version
-opens the workspace `degraded` with `WORKSPACE_STATE_NEWER`
+opens the workspace `degraded` with `WORKSPACE_STATE_NEWER`, and an unexpected
+state-file IO error ends `failed` with `WORKSPACE_STATE_UNREADABLE`
 ([ADR-0026](../adr/0026-workspace-addressing-invalid-roots.md)). `workspace.close`
 closes it for all of them and completes at `closed`: entering `closing` rejects every
 other workspace-scoped call on it with `WORKSPACE_NOT_OPEN`, its operations are
@@ -154,9 +155,10 @@ disconnect devices or kill the shared `adb` server.
 
 ## Cleanup and crash recovery
 
-- On graceful close: stop workspace-owned sidecars (subject to policy), close the
-  root's connection in the shared TAPI sidecar, drain and cancel the workspace's
-  operations, release watchers.
+- On graceful close: cancel and drain the workspace's operations (bounded,
+  [ADR-0027](../adr/0027-workspace-close-and-reopen.md)), stop its workspace-owned
+  sidecars (subject to policy), close the root's connection in the shared TAPI sidecar,
+  release watchers.
 - On crash: the next daemon reaps orphans from pid records (matching pid **and**
   start time), removes the stale socket, and treats every workspace as closed until
   reopened. It never assumes a clean slate.

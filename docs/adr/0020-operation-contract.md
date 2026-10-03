@@ -136,7 +136,8 @@ MCP specifics:
 
 - **The bound root is opened at session start.** When the MCP session initializes,
   the adapter calls `workspace.open` for its bound root (idempotent; runs no project
-  code). A failure does not fail the session: workspace tools then return the error.
+  code). A failure does not fail the session: workspace tools then return `WORKSPACE_NOT_OPEN`
+([ADR-0026](0026-workspace-addressing-invalid-roots.md)).
   If any client later closes the workspace, the binding stays, workspace tools return
   `WORKSPACE_NOT_OPEN`, and the adapter **does not reopen it by itself** — a close is a
   deliberate act; the agent may call `workspace_open`.
