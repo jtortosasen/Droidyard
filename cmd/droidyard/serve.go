@@ -17,18 +17,21 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/store"
 	"golang.org/x/sys/unix"
 )
 
-// shutdownTimeout bounds a graceful stop: operations cancelled, sessions closed.
-const shutdownTimeout = 15 * time.Second
+// shutdownTimeout bounds a graceful stop: operations cancelled, sessions closed. The
+// supervised processes stop on their own timeouts, outside it. A variable only so
+// that this package's tests can shorten it in a re-executed binary.
+var shutdownTimeout = 15 * time.Second
 
 // daemonOptions wires the daemon: the registry's store, and a handler per client kind.
 // The MCP adapter gets the published schemas from here, so it never imports
 // internal/schema (docs/architecture/core-runtime.md §Adapter boundary).
-func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
+func daemonOptions(st *store.Store, sup *proc.Supervisor, socket string, reg *capability.Registry, ops *capability.Operations, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return daemon.Options{}, nil, err
@@ -42,12 +45,13 @@ func daemonOptions(st *store.Store, socket string, reg *capability.Registry, ops
 		return daemon.Options{}, nil, err
 	}
 	return daemon.Options{
-		State:   st.Root(),
-		Store:   st,
-		Socket:  socket,
-		Version: system.Version,
-		UID:     os.Getuid(),
-		Ops:     ops,
+		State:      st.Root(),
+		Store:      st,
+		Supervisor: sup,
+		Socket:     socket,
+		Version:    system.Version,
+		UID:        os.Getuid(),
+		Ops:        ops,
 		Handlers: map[capability.ClientKind]daemon.Handler{
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
@@ -95,9 +99,12 @@ func serve(args []string) int {
 		fmt.Fprintln(os.Stderr, "droidyard serve:", err)
 		return 1
 	}
-	reg, ops := registry(st, os.Stderr)
+	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
+	// previous daemon are reconciled.
+	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
+	reg, ops := registry(st, sup, os.Stderr)
 	socket := env.SocketPath(state)
-	opts, _, err := daemonOptions(st, socket, reg, ops, os.Stderr)
+	opts, _, err := daemonOptions(st, sup, socket, reg, ops, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1

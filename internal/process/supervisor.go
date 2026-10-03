@@ -111,10 +111,12 @@ type Supervisor struct {
 	spawn chan spawnRequest
 	quit  chan struct{} // closed by Shutdown: the spawner thread ends
 
-	mu      sync.Mutex
-	procs   map[string]*proc
-	closed  bool
-	newer   bool // processes.json is of a newer version: nothing may be spawned
+	mu     sync.Mutex
+	procs  map[string]*proc
+	closed bool
+	// refuse says why nothing may be spawned: processes.json not loaded yet, of a
+	// newer version, or unreadable. Empty once loaded.
+	refuse  string
 	records []Record
 }
 
@@ -145,25 +147,39 @@ type proc struct {
 	finished chan struct{} // closed once stopped or failed, its record removed
 }
 
-// New returns a supervisor over the state in st. It reads processes.json, which
-// Reconcile has emptied: records it finds are kept, never overwritten unread, and one
-// of a newer version stops every spawn (plan m1c, R10).
-func New(opts Options) (*Supervisor, error) {
+// New returns a supervisor over the state in st. It spawns nothing until Load has
+// read processes.json, which the daemon calls once Reconcile has emptied it.
+func New(opts Options) *Supervisor {
 	if opts.Log == nil {
 		opts.Log = io.Discard
 	}
-	s := &Supervisor{st: opts.Store, log: opts.Log, spawn: make(chan spawnRequest), quit: make(chan struct{}), procs: map[string]*proc{}}
+	s := &Supervisor{st: opts.Store, log: opts.Log, spawn: make(chan spawnRequest), quit: make(chan struct{}),
+		procs: map[string]*proc{}, refuse: "processes.json has not been loaded"}
+	go s.spawner()
+	return s
+}
+
+// Load reads processes.json and lets Use spawn. Records it finds are kept, never
+// overwritten unread. One of a newer version, or one that cannot be read, keeps every
+// spawn refused (plan m1c, R10): a process the daemon cannot record could outlive it
+// unseen.
+func (s *Supervisor) Load() error {
 	var recs Records
-	switch out, err := s.st.Read(RecordsFile, store.Version, &recs); {
+	out, err := s.st.Read(RecordsFile, store.Version, &recs)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
 	case errors.Is(err, store.ErrNewer):
-		s.newer = true
+		s.refuse = "it has a newer schemaVersion"
+		return err
 	case err != nil:
-		return nil, fmt.Errorf("reading %s: %w", RecordsFile, err)
+		s.refuse = "it cannot be read: " + err.Error()
+		return fmt.Errorf("reading %s: %w", RecordsFile, err)
 	case out == store.Loaded:
 		s.records = recs.Processes
 	}
-	go s.spawner()
-	return s, nil
+	s.refuse = ""
+	return nil
 }
 
 // spawner starts every child from one goroutine locked to its OS thread for the
@@ -198,6 +214,10 @@ type Lease struct {
 // Pid is the leased process's pid.
 func (l *Lease) Pid() int { return l.p.pid }
 
+// Stdin is the leased process's stdin, the pipe the supervisor holds. Its output is
+// read from the log sink (Output).
+func (l *Lease) Stdin() io.Writer { return l.p.stdin }
+
 // Release ends the use. The last release starts the idle timer. Releasing twice, or
 // after the process stopped, does nothing.
 func (l *Lease) Release() {
@@ -231,9 +251,10 @@ func (s *Supervisor) Use(ctx context.Context, d Descriptor) (*Lease, error) {
 		case s.closed:
 			s.mu.Unlock()
 			return nil, ErrClosed
-		case s.newer:
+		case s.refuse != "":
+			why := s.refuse
 			s.mu.Unlock()
-			return nil, fmt.Errorf("%w: it has a newer schemaVersion", ErrUnrecordable)
+			return nil, fmt.Errorf("%w: %s", ErrUnrecordable, why)
 		}
 		p := s.procs[key(d.ID, d.Scope)]
 		if p == nil || p.state == Stopped || p.state == Failed {

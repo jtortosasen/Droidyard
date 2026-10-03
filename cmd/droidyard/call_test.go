@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
@@ -45,7 +46,8 @@ func startInProcess(t *testing.T) *inProcess {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, ops := registry(st, os.Stderr)
+	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
+	reg, ops := registry(st, sup, os.Stderr)
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.block", Kind: capability.Command, Scope: capability.Global,
 		Description: "Blocks until released.", Params: struct{}{}, Result: struct{}{},
@@ -86,7 +88,7 @@ func startInProcess(t *testing.T) *inProcess {
 		}
 		return os.Getenv(k)
 	}}
-	opts, mcpServer, err := daemonOptions(st, env.SocketPath(p.state), reg, ops, io.MultiWriter(os.Stderr, p.log))
+	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), reg, ops, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)
 	}

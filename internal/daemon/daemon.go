@@ -52,6 +52,9 @@ type Options struct {
 	Handlers map[capability.ClientKind]Handler
 	// Store is the durable state under State; nil means a store of its own over State.
 	Store *store.Store
+	// Supervisor runs the daemon's child processes. Start loads it once the pid
+	// records are reconciled; Shutdown stops what it runs. Nil: none.
+	Supervisor *process.Supervisor
 	// Log receives one line per refused connection and per reconciled pid record.
 	// Nil discards.
 	Log io.Writer
@@ -99,6 +102,13 @@ func Start(opts Options) (*Daemon, error) {
 	// Unreadable records never stop the daemon: what could be reaped was.
 	if err := process.Reconcile(opts.Store, opts.Log); err != nil {
 		fmt.Fprintln(opts.Log, "droidyard: reconcile:", err)
+	}
+	// Only now may the supervisor spawn: before anything is spawned, the records are
+	// reconciled (ADR-0021 §Pid records). One it cannot load spawns nothing.
+	if opts.Supervisor != nil {
+		if err := opts.Supervisor.Load(); err != nil {
+			fmt.Fprintln(opts.Log, "droidyard: supervisor: no process can be started:", err)
+		}
 	}
 	ln, err := listen(opts.Socket)
 	if err != nil {
@@ -263,8 +273,10 @@ func (d *Daemon) Sessions() int {
 }
 
 // Shutdown stops the daemon gracefully (docs/architecture/process-lifecycle.md
-// §Shutdown): stop accepting connections and requests, cancel running operations,
-// close the sessions, remove the socket, release the lock. A native session's callers
+// §Shutdown): stop accepting connections and requests, cancel and drain running
+// operations, stop the supervised processes, close the sessions, remove the socket,
+// release the lock. The processes stop on their descriptors' own timeouts whatever is
+// left of ctx, so operations that use up the deadline still leave none behind. A native session's callers
 // hear that their operations ended cancelled; an MCP session is written nothing more
 // once its input stops, since the adapter treats that as the end of the session.
 // ctx bounds the wait for operations and sessions to end.
@@ -279,6 +291,9 @@ func (d *Daemon) Shutdown(ctx context.Context) error {
 	d.mu.Unlock()
 
 	opsErr := d.opts.Ops.Shutdown(ctx)
+	if d.opts.Supervisor != nil {
+		d.opts.Supervisor.Shutdown()
+	}
 
 	// Give the sessions a moment to end by themselves; a native one first answers
 	// what was in flight.

@@ -26,6 +26,7 @@ const reexec = "DROIDYARD_TEST_REEXEC"
 func TestMain(m *testing.M) {
 	processtest.Main()
 	if os.Getenv(reexec) == "1" {
+		installTestSeams()
 		main()
 		os.Exit(0)
 	}

@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Status: run end to end on 2026-09-30, macOS (Darwin 25.6.0), against the built binary, by step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`, and again after the milestone's verification fixes.** All five sections completed; Drive rows run: parity, auto-start and single instance, plus the OpenCode procedure. Every other row names the milestone that makes it runnable. Not yet run on Linux.
+> **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md`** (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run: the shipped surface, parity (`system.capabilities` and `workspace.describe`), workspaces, the dummy-sidecar and crash-recovery rows as Go tests, and the OpenCode procedure with a bound session. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
 > A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which.
 
@@ -16,7 +16,7 @@ Run from the repository root, in one shell: later sections use these variables.
 ```sh
 R=$(mktemp -d /tmp/dy.XXXXXX); R=$(cd -P "$R" && pwd)
 export DROIDYARD_STATE_DIR="$R/state" DROIDYARD_CONFIG_DIR="$R/config"
-E="$R/evidence"; mkdir -p "$E" "$R/proj"
+E="$R/evidence"; mkdir -p "$E" "$R/proj"; : >"$R/proj/settings.gradle.kts"
 SOCK="$DROIDYARD_STATE_DIR/run/droidyard.sock"
 go build -o "$R/droidyard" ./cmd/droidyard && DY="$R/droidyard"
 { uname -sr; go version; git describe --always --dirty; } >"$E/env"
@@ -27,6 +27,7 @@ run pre-health "$DY" call --no-autostart system.health && echo "STOP: a daemon t
 for i in $(seq 50); do [ -S "$SOCK" ] && break; sleep 0.2; done
 ```
 
+- **`$R/proj` is a Gradle project root** (it holds `settings.gradle.kts`), so a session or CLI started inside it binds to it (ADR-0019 §Sessions).
 - **A short base under `/tmp`.** The socket path must fit `sun_path` (104 bytes on macOS). Past that, ADR-0019 §6 moves it to `/tmp/droidyard-<uid>/<hash of the state root>/`: still one socket per state root, but not `$SOCK`, so the Doctor fails. Under `/tmp` the socket path is about 47 bytes; under a resolved macOS `$TMPDIR` it is about 90. `cd -P` resolves `/tmp` to `/private/tmp` on macOS, so the paths the Doctor compares match.
 - **One variable isolates the socket on Linux too**: an explicit `DROIDYARD_STATE_DIR` wins over `$XDG_RUNTIME_DIR` (ADR-0021 §Location; ADR-0019 §6).
 - **`pre-health` must fail.** If it succeeds, the client ignored the scratch environment and reached another daemon. It proves nothing when no other daemon is running. `--no-autostart` keeps it from starting one.
@@ -51,6 +52,14 @@ In order: the process you started is alive (a failed bind shows in `serve.out`);
 
 Pass `--no-autostart` everywhere except the auto-start row: with it, a mis-isolated client fails; without it, the client may start or reach a daemon that is not yours (ADR-0019 §4).
 
+**The shipped surface.** The binary under test carries no test fixture and publishes the committed schema (test capabilities and the dummy sidecar live in `_test.go` files and `internal/process/processtest`). Each line prints nothing, or `0`:
+
+```sh
+"$DY" schema | cmp - schema/capabilities.json
+"$DY" caps | grep -c '^fixture\.'
+go list -deps ./cmd/droidyard | grep -c processtest
+```
+
 **CLI:** `run <name> "$DY" call --no-autostart <capability> --params '<json>'`. It prints the response envelope and exits non-zero iff the envelope carries `error`.
 
 **MCP:** a scripted stdio session. A fifo keeps stdin open until you close it, because EOF ends the session, and `$SHIM` is the shim's own pid.
@@ -60,7 +69,7 @@ send() { printf '%s\n' "$1" | tee -a "$E/$N.sent" >&3; }
 await() { for i in $(seq 300); do jq -e --argjson i "$1" 'select(.id==$i)' "$E/$N.out" >/dev/null 2>&1 && return 0; sleep 0.1; done; return 1; }
 mcp_open() {
   N=$1; mkfifo "$E/$N.in"
-  "$DY" mcp --no-autostart <"$E/$N.in" >"$E/$N.out" 2>"$E/$N.err" & SHIM=$!
+  "$DY" mcp --no-autostart --root "$R/proj" <"$E/$N.in" >"$E/$N.out" 2>"$E/$N.err" & SHIM=$!
   exec 3>"$E/$N.in"
   send '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify-daemon","version":"0"}}}'
   await 0 && send '{"jsonrpc":"2.0","method":"notifications/initialized"}'
@@ -72,16 +81,17 @@ send '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_cap
 await 1; mcp_close
 ```
 
-`await` gives up after 30 s, above the default 20 s wait budget (`droidyard mcp --wait`); a timeout is a failure, not a retry. `mcp_close` ends the input: the shim half-closes the socket and exits 0 once the daemon ends the session, so `$N.exit` must read 0. Nothing is written to a session after its input ends, so await every response before closing. The session binds no workspace yet: `--root` and opening the bound root arrive with the workspace model (1c).
+`await` gives up after 30 s, above the default 20 s wait budget (`droidyard mcp --wait`); a timeout is a failure, not a retry. `mcp_close` ends the input: the shim half-closes the socket and exits 0 once the daemon ends the session, so `$N.exit` must read 0. Nothing is written to a session after its input ends, so await every response before closing. The session is bound to `$R/proj` and opens it before it answers `initialize`: workspace tools act on it and take no workspace argument (ADR-0019 §Sessions; ADR-0020 §Adapter projections). The CLI names it with `--workspace "$R/proj"`, since the shell's cwd is the repository.
 
 | Phase 0 acceptance (`docs/roadmap/mvp.md`) | Drive | Passes when |
 | --- | --- | --- |
 | `system.capabilities` lists what is available; `degraded` without `adb` | Launch again with a `PATH` on which `command -v adb` prints nothing; `call system.capabilities`. Runnable from the device slice | `adb`-dependent capabilities are `available: false` with a reason; the core reports `degraded` |
-| The same capability from the CLI and MCP, identical semantics | `system.capabilities` through `call`, and through the session above | `jq -S .result` of the CLI envelope equals `jq -S 'select(.id==1).result.structuredContent'` of `caps.out` |
+| The same capability from the CLI and MCP, identical semantics | `system.capabilities` through `call`, and through the session above; `workspace.describe` likewise, in the workspace block below | `jq -S .result` of the CLI envelope equals `jq -S 'select(.id==1).result.structuredContent'` of `caps.out`; the same for `ws-describe-cli` and `ws.out` id 1 |
+| Workspaces: open, describe, close, and a bound session that is not reopened (ADR-0019 §Sessions; ADR-0020 §Scope and workspace addressing; ADR-0027) | The workspace block below | `open` and `describe` answer `ready`, `root` `$R/proj`, `trusted: false`; `close` exits 0; the session's `workspace_describe` after the close is `isError` with `WORKSPACE_NOT_OPEN`, both times |
 | Killing a shim does not stop an operation it started (ADR-0020; ADR-0019 §Sessions) | Start a long-running capability in an MCP session, read the `operationId` of its view, `kill -9 "$SHIM"`, then `call operation.wait --params '{"operationId":"<id>"}'`. None ships before `device.logs` (device slice); `TestMCPCancellation` covers it on a fixture | The envelope's `operation.state` is `completed`, not `cancelled`, and `call` exits 0 |
-| A dummy sidecar starts lazily, idles out, leaves no orphans after `workspace.close` | Call the capability that needs it; `snapshot`; wait past its idle timeout; `call workspace.close`; `count_orphans`. Runnable from 1c | It appears in `processes.json` only after first use and leaves after idling; the count is 0 |
+| A dummy sidecar starts lazily, idles out, leaves no orphans after `workspace.close` | The shipped binary has no sidecar (none before the Gradle sidecar, Phase 1), so the row is Go tests on the re-executed binary with a test-only fixture: `run sidecar-tests` in the block below | `ok`; each test counts orphans by pid and start time, as `count_orphans` does |
 | Auto-start and single instance (ADR-0019 §4, §5; mvp.md Phase 0 deliverables) | Stop the launched daemon, then two concurrent `call system.health` without `--no-autostart`; then a second `serve` on the same state (block below) | Both calls exit 0 with an envelope; `daemon.lock` appears in the scratch state; with `PID=$(jq -r .pid "$DROIDYARD_STATE_DIR/daemon.lock")` the Doctor passes, and that pid is now yours to stop; every other pid with a `starting` line in `daemon.log` has a `lost the lock` line and is gone; the second `serve` exits non-zero |
-| Crash recovery (ADR-0021 §Pid records) | With a sidecar running, `snapshot`, `kill -9 "$PID"`, launch again, `count_orphans`. Runnable from 1c | 0 once the new daemon has started |
+| Crash recovery (ADR-0021 §Pid records) | As the row above: `run crash-tests` in the block below | `ok`; no orphan once the new daemon answers |
 | HTTP on loopback only | `lsof -a -p "$PID" -iTCP -sTCP:LISTEN`. Runnable from 1d | Listens on `127.0.0.1` or `::1` only. The Host, Origin and token checks are in `docs/interfaces/http-websocket.md` §Security baseline |
 
 Run only the rows the milestone's plan puts in scope; the plan's step names the row it runs. The two rows run at milestone 1b, after `mcp_open caps` above:
@@ -108,9 +118,35 @@ done
 run second-serve "$DY" serve || echo "second serve exited $(cat "$E/second-serve.exit")"
 ```
 
+The two rows that are Go tests (they start their own isolated daemons, not `$PID`):
+
+```sh
+run sidecar-tests go test -count=1 -race -v -run 'TestSidecarStartsLazilyIdlesOutAndEndsWithClose|TestCloseCancelsTheLeaseHolderBeforeTheSidecar|TestCloseBoundsADrainALeaseHolderIgnores|TestStopLeavesNoSidecar|TestStopKillsSidecarsPastTheShutdownDeadline' ./cmd/droidyard
+run crash-tests go test -count=1 -race -v -run 'TestKilledDaemonsSidecarExitsOnEOF|TestKilledDaemonsStubbornSidecarIsReapedByTheNext|TestServeReapsOrphansBeforeItAnswers' ./cmd/droidyard
+```
+
+The workspace block, run before the auto-start row stops the launched daemon:
+
+```sh
+mcp_open ws
+run ws-open "$DY" call --no-autostart --workspace "$R/proj" workspace.open
+run ws-describe-cli "$DY" call --no-autostart --workspace "$R/proj" workspace.describe
+send '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_describe","arguments":{}}}'; await 1
+jq -S .result "$E/ws-describe-cli.out" >"$E/ws-parity.cli.json"
+jq -S 'select(.id==1).result.structuredContent' "$E/ws.out" >"$E/ws-parity.mcp.json"
+cmp "$E/ws-parity.cli.json" "$E/ws-parity.mcp.json" && echo ws-parity-ok
+run ws-close "$DY" call --no-autostart --workspace "$R/proj" workspace.close
+send '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"workspace_describe","arguments":{}}}'; await 2
+send '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"workspace_describe","arguments":{}}}'; await 3
+jq -c 'select(.id==2 or .id==3).result | [.isError, (.content[0].text|fromjson|.code)]' "$E/ws.out"
+mcp_close
+```
+
+The last `jq` prints `[true,"WORKSPACE_NOT_OPEN"]` twice: nothing reopened the workspace.
+
 A losing `serve` retries for 100 ms before it gives up, in case the lock was only a `status` or `stop` probe; the loop waits for that. If only one `starting` line appears, the second call reached the first daemon before starting its own: the row still holds, but the race was not exercised; `TestRacingAutoStarts` exercises it every time.
 
-**Real client (OpenCode):** a scratch project whose configuration starts the shim behind a recorder, so the wire is evidence. `$DY` and `$E` are expanded when the files are written.
+**Real client (OpenCode):** a scratch project whose configuration starts the shim behind a recorder, so the wire is evidence. `$DY` and `$E` are expanded when the files are written. The shim takes no `--root`: OpenCode starts it with `$R/proj` as its cwd, so it binds there, and that is part of what the run shows.
 
 ```sh
 cat >"$R/tap.sh" <<EOF
@@ -127,7 +163,8 @@ opencode --version >>"$E/env"
   </dev/null >"$E/opencode.out" 2>"$E/opencode.err"); echo $? >"$E/opencode.exit"
 ```
 
-- `opencode.err` should log `mcp connected server=droidyard tools=<n>` and no schema warning; `opencode.out` is the event stream, the wire files are what was sent and received.
+- `opencode.err` should log the connection, `message="mcp connected" server=droidyard tools=<n>` (`grep 'message="mcp connected" server=droidyard'`), and no schema warning; `opencode.out` is the event stream, the wire files are what was sent and received.
+- Name `workspace_describe` in the prompt. On the wire its result is `ready`, `root` `$R/proj`, `trusted: false`: `jq -c 'select(.result.structuredContent.root?) | .result.structuredContent | {state, root, trusted}' "$E/wire.s2c.jsonl"`.
 - OpenCode validates arguments against the `inputSchema` before sending: unknown keys are dropped and types coerced, so an out-of-schema argument never reaches the core. To see an error result, use a value the schema admits, such as `operation_wait` on an unknown id. Read what was sent from `wire.c2s.jsonl`, never from the model's summary.
 - The event stream shows the text rendering only; `structuredContent` is in `wire.s2c.jsonl`.
 

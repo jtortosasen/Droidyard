@@ -13,9 +13,11 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/store"
 	"github.com/jtortosasen/droidyard/internal/workspace"
@@ -99,11 +101,20 @@ func (notInstalled) Missing(r capability.Requirement) (string, bool) {
 	return string(r) + " was not found on this machine", true
 }
 
+// Seams for this package's tests only, set by TestMain in a re-executed test binary
+// before it calls main (plan m1c step 7, R17). The shipped binary never sets them.
+var (
+	// testCapabilities registers test-only capabilities beside the shipped ones.
+	testCapabilities func(reg *capability.Registry, sup *proc.Supervisor)
+	// testDrain replaces workspace.close's drain bound; zero keeps the default.
+	testDrain time.Duration
+)
+
 // registry builds the shipped registry and the operation store that dispatches from
-// it, over the state store st and logging to log. internal/schema's test builds the
-// same set for the golden file. caps and schema, which run no capability, pass a nil
-// store and log.
-func registry(st *store.Store, log io.Writer) (*capability.Registry, *capability.Operations) {
+// it, over the state store st and the supervisor sup, logging to log. internal/schema's
+// test builds the same set for the golden file. caps and schema, which run no
+// capability, pass nil for all three.
+func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	var problems system.StateProblems
@@ -112,12 +123,21 @@ func registry(st *store.Store, log io.Writer) (*capability.Registry, *capability
 	}
 	system.Register(reg, notInstalled{}, ops, problems)
 	ops.RegisterCapabilities()
-	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log}))
+	var stopSidecars func(id string)
+	if sup != nil {
+		// workspace.close stops the workspace's sidecars after its drain and before it
+		// marks the workspace closed (ADR-0027 §Decision).
+		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
+	}
+	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain, StopSidecars: stopSidecars}))
+	if testCapabilities != nil {
+		testCapabilities(reg, sup)
+	}
 	return reg, ops
 }
 
 func printCaps() error {
-	reg, _ := registry(nil, nil)
+	reg, _ := registry(nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -154,7 +174,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _ := registry(nil, nil)
+	reg, _ := registry(nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err
