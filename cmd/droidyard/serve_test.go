@@ -54,10 +54,18 @@ type process struct {
 
 func droidyard(t *testing.T, state string, args ...string) *process {
 	t.Helper()
+	return droidyardIn(t, state, "", args...)
+}
+
+// droidyardIn is droidyard run with dir as its working directory; "" keeps the
+// test's.
+func droidyardIn(t *testing.T, state, dir string, args ...string) *process {
+	t.Helper()
 	cmd := &exec.Cmd{
 		Path: os.Args[0],
 		Args: append([]string{"droidyard"}, args...),
 		Env:  append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state),
+		Dir:  dir,
 	}
 	stdout := new(bytes.Buffer)
 	cmd.Stdout = stdout

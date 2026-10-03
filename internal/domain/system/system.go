@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/store"
 )
 
 // Version is the API version reported by system.capabilities. It is the one semantic
@@ -20,6 +21,18 @@ type Health struct {
 	UptimeSeconds int    `json:"uptimeSeconds"`
 	Version       string `json:"version"`
 	Operations    int    `json:"operations"`
+	// StateProblems are the state files the daemon could not use: corrupt ones,
+	// moved aside, and ones of a newer version, left untouched (ADR-0021 §Format;
+	// plan m1c, R9).
+	StateProblems []StateProblem `json:"stateProblems,omitempty"`
+}
+
+// StateProblem is one state file the daemon could not use. File and MovedTo are
+// relative to the state root.
+type StateProblem struct {
+	File    string `json:"file" jsonschema:"required"`
+	Problem string `json:"problem" jsonschema:"required,enum=corrupt,enum=newerVersion"`
+	MovedTo string `json:"movedTo,omitempty"`
 }
 
 // CapabilityInfo is one capability as system.capabilities reports it.
@@ -55,8 +68,12 @@ type Operations interface {
 	Running() int
 }
 
+// StateProblems lists the state files the daemon could not use; the store's
+// Problems. Nil reports none.
+type StateProblems func() []store.Problem
+
 // Register adds the system capabilities to the registry.
-func Register(reg *capability.Registry, req Requirements, ops Operations) {
+func Register(reg *capability.Registry, req Requirements, ops Operations, problems StateProblems) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "system.health",
 		Kind:        capability.Query,
@@ -71,11 +88,17 @@ func Register(reg *capability.Registry, req Requirements, ops Operations) {
 			if call.OperationID != "" {
 				running--
 			}
-			return Health{
+			h := Health{
 				UptimeSeconds: int(time.Since(started).Seconds()),
 				Version:       Version,
 				Operations:    running,
-			}, nil
+			}
+			if problems != nil {
+				for _, p := range problems() {
+					h.StateProblems = append(h.StateProblems, StateProblem{File: p.File, Problem: p.Problem, MovedTo: p.MovedTo})
+				}
+			}
+			return h, nil
 		},
 	})
 

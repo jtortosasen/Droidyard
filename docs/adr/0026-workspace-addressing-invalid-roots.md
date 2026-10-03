@@ -4,6 +4,8 @@
 - Date: 2026-10-03
 - Amended: 2026-10-03 — `workspace.describe` lists only `WORKSPACE_STATE_NEWER`; a root
   that cannot be opened is never open. Wording fixes from the milestone 1c plan revision.
+- Amended: 2026-10-03 (second pass) — `WORKSPACE_STATE_UNREADABLE` added for an
+  unexpected state-file IO error; owner decision.
 - Relates to: ADR-0020 §Scope and workspace addressing, ADR-0021 §Format, `workspace-state.md` §Lifecycle
 
 ## Context
@@ -23,7 +25,7 @@ a clear error", names no code either.
 
 ## Decision
 
-Two codes in the `WORKSPACE` domain; each descriptor that can return one lists it.
+Three codes in the `WORKSPACE` domain; each descriptor that can return one lists it.
 
 - **`WORKSPACE_ROOT_INVALID`** — the target of `workspace.open` is an absolute path that
   does not exist, is not a directory or cannot be read, or an id that no workspace index
@@ -37,17 +39,22 @@ Two codes in the `WORKSPACE` domain; each descriptor that can return one lists i
   overwritten; `workspace.describe` and `workspace.open` carry the error in
   `degradedBy`; nextStep "upgrade droidyard, or delete `<state>/ws/<wsid>/` to reset
   this workspace" ([ADR-0021](0021-persistence-format-and-location.md) §Consequences).
+- **`WORKSPACE_STATE_UNREADABLE`** — reading or writing the state under `ws/<wsid>/` or
+  the index fails for any reason other than a corrupt file or a newer version:
+  permissions, no space, an IO error. The operation ends `failed`; `details {target}`;
+  nextStep "check the permissions and free space of the state directory". No call
+  borrows `REQUEST_INVALID_PARAMS` for this.
 
 An MCP binding to a bad root degrades to `WORKSPACE_NOT_OPEN` on every workspace tool
 until `workspace_open` shows the cause. [`workspace-state.md`](../architecture/workspace-state.md)
 §Lifecycle and [ADR-0021](0021-persistence-format-and-location.md) §Format name the
-codes, and the golden file lists both on `workspace.open` and `WORKSPACE_STATE_NEWER`
-on `workspace.describe` (a root that cannot be opened is never open, so no other call
-reaches `WORKSPACE_ROOT_INVALID`).
+codes, and the golden file lists all three on `workspace.open`, and `WORKSPACE_STATE_NEWER`
+alone on `workspace.describe` (a root that cannot be opened is never open, so no other
+call reaches `WORKSPACE_ROOT_INVALID`).
 
 ## Consequences
 
-- Both codes are published in the golden file; after publication they cannot be renamed
+- All three codes are published in the golden file; after publication they cannot be renamed
   or given a new meaning ([`capability-api.md`](../architecture/capability-api.md) §Error
   model).
 - An agent that opens a bad root gets one actionable error instead of borrowing a code

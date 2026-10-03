@@ -33,7 +33,9 @@ Commands:
   serve      Run the core daemon in the foreground, until SIGTERM or SIGINT;
              --detach runs it in a session of its own, logging to daemon.log.
   call       Call one capability and print its response envelope:
-             droidyard call <capability> [--params <json>] [--detach] [--no-autostart]
+             droidyard call <capability> [--workspace <id|root>] [--params <json>] [--detach] [--no-autostart]
+             --workspace names the workspace; without it, a workspace call uses
+             the project root of the current directory.
              Ctrl-C cancels the operation; --detach prints its id and returns.
              call and mcp start a daemon when none answers, unless --no-autostart.
   mcp        Attach an MCP stdio session to the daemon:
@@ -102,7 +104,11 @@ func (notInstalled) Missing(r capability.Requirement) (string, bool) {
 func registry(st *store.Store, log io.Writer) (*capability.Registry, *capability.Operations) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
-	system.Register(reg, notInstalled{}, ops)
+	var problems system.StateProblems
+	if st != nil {
+		problems = st.Problems
+	}
+	system.Register(reg, notInstalled{}, ops, problems)
 	ops.RegisterCapabilities()
 	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log}))
 	return reg, ops

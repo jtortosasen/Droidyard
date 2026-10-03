@@ -18,6 +18,10 @@ const (
 
 	ErrWorkspaceNotOpen   ErrorCode = "WORKSPACE_NOT_OPEN"
 	ErrWorkspaceUntrusted ErrorCode = "WORKSPACE_UNTRUSTED"
+	// ErrWorkspaceStateUnreadable: droidyard's own state for a workspace could not be
+	// read or written for a reason other than a corrupt file or a newer version
+	// (ADR-0026, amended 2026-10-03 second pass).
+	ErrWorkspaceStateUnreadable ErrorCode = "WORKSPACE_STATE_UNREADABLE"
 
 	ErrOperationNotFound     ErrorCode = "OPERATION_NOT_FOUND"
 	ErrOperationCancelled    ErrorCode = "OPERATION_CANCELLED"

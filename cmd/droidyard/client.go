@@ -146,7 +146,14 @@ func call(args []string) int {
 		close(interrupt)
 	}()
 
-	conn, r, socket, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, !c.NoAutostart, interrupt)
+	// The cwd's root goes in the hello; the daemon uses it for a workspace-scoped call
+	// without --workspace (plan m1c, R3).
+	cwd, _ := os.Getwd()
+	hello := daemon.Hello{Client: capability.ClientCLI}
+	if cwd != "" {
+		hello.Root = resolveRoot("", cwd)
+	}
+	conn, r, socket, err := connectOrStart(hello, !c.NoAutostart, interrupt)
 	if errors.Is(err, errInterrupted) {
 		fmt.Fprintln(os.Stderr, "droidyard call:", err)
 		return cli.ExitInterrupted

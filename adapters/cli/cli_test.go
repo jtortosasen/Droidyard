@@ -55,3 +55,36 @@ func TestCtrlCStopsAWaitThatIsNotAnOperation(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceFlagIsSentVerbatim: --workspace takes an id or an absolute root and the
+// envelope carries it as given; only the daemon resolves it
+// (ADR-0020 §Scope and workspace addressing; plan m1c, R5).
+func TestWorkspaceFlagIsSentVerbatim(t *testing.T) {
+	for _, args := range [][]string{
+		{"workspace.describe", "--workspace", "/Users/Me/./app"},
+		{"--workspace=/Users/Me/./app", "workspace.describe"},
+	} {
+		c, err := Parse(args)
+		if err != nil || c.Workspace != "/Users/Me/./app" || c.Capability != "workspace.describe" {
+			t.Errorf("Parse(%q) = %+v, %v", args, c, err)
+		}
+	}
+	for _, bad := range [][]string{{"workspace.describe", "--workspace"}, {"--workspace=", "workspace.describe"}} {
+		if _, err := Parse(bad); err == nil {
+			t.Errorf("Parse(%q) accepted a missing workspace", bad)
+		}
+	}
+
+	pr, pw := io.Pipe()
+	sent := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(pr).ReadString('\n')
+		sent <- line
+	}()
+	r, _ := fakeDaemon(`{"id":"cli-1","error":{"code":"WORKSPACE_NOT_OPEN","message":"no"}}`)
+	c := Call{Capability: "workspace.describe", Workspace: "/Users/Me/./app"}
+	c.Run(r, pw, Streams{Out: io.Discard, Err: io.Discard}, nil)
+	if line := <-sent; !strings.Contains(line, `"workspace":"/Users/Me/./app"`) {
+		t.Errorf("the envelope sent: %s", line)
+	}
+}

@@ -23,8 +23,9 @@ import (
 
 // The workspace codes (ADR-0026).
 const (
-	ErrRootInvalid capability.ErrorCode = "WORKSPACE_ROOT_INVALID"
-	ErrStateNewer  capability.ErrorCode = "WORKSPACE_STATE_NEWER"
+	ErrRootInvalid     capability.ErrorCode = "WORKSPACE_ROOT_INVALID"
+	ErrStateNewer      capability.ErrorCode = "WORKSPACE_STATE_NEWER"
+	ErrStateUnreadable                      = capability.ErrWorkspaceStateUnreadable
 )
 
 // State is where a workspace stands (workspace-state.md §Lifecycle). `created` is not
@@ -223,10 +224,21 @@ func rootInvalid(target, cause string) *capability.Error {
 		WithDetails(map[string]any{"target": target})
 }
 
+// stateUnreadable is a failure to read or write droidyard's own state for the
+// workspace: anything but a corrupt file or a newer version, which the store and load
+// handle (ADR-0026, second amendment).
+func stateUnreadable(target string, err error) *capability.Error {
+	return capability.Errorf(ErrStateUnreadable, "the state of workspace %q could not be read or written", target).
+		WithCause(err.Error()).
+		WithNextStep("check the permissions and free space of the state directory").
+		WithDetails(map[string]any{"target": target})
+}
+
 // Open opens the workspace target names, or returns its state if it is open
 // (workspace-state.md §Lifecycle). It runs no project code and spawns nothing
 // (ADR-0015 §5). A target that is not an existing, readable directory, or an id no
-// index holds, fails with WORKSPACE_ROOT_INVALID (ADR-0026). An open during a close
+// index holds, fails with WORKSPACE_ROOT_INVALID, and state that cannot be read or
+// written with WORKSPACE_STATE_UNREADABLE (ADR-0026). An open during a close
 // waits for the workspace to be closed, then opens it (ADR-0027).
 func (r *Registry) Open(target string) (Info, error) {
 	if r.opts.Store == nil {
@@ -236,7 +248,7 @@ func (r *Registry) Open(target string) (Info, error) {
 	if root == "" {
 		known, ok, err := r.knownRoot(id)
 		if err != nil {
-			return Info{}, err
+			return Info{}, stateUnreadable(target, err)
 		}
 		if !ok {
 			return Info{}, rootInvalid(target, "no workspace index holds this id")
@@ -262,7 +274,7 @@ func (r *Registry) Open(target string) (Info, error) {
 	info, err := r.load(id, root)
 	if err != nil {
 		r.setState(w, Closed)
-		return Info{}, err
+		return Info{}, stateUnreadable(target, err)
 	}
 	r.mu.Lock()
 	w.info = info
