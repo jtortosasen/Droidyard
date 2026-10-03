@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -42,10 +44,6 @@ const Instructions = `- This server is bound to one project; tools act on it wit
 // docs/reviews/2026-09-29-ratifications.md §Operational defaults).
 const DefaultBudget = 20 * time.Second
 
-// workerPoolSize is mcp-go's maximum. A tool call holds a worker for its whole wait,
-// and a call still queued behind the pool cannot be cancelled.
-const workerPoolSize = 100
-
 // Schema is one capability's published input and output schema, as internal/schema
 // generates them.
 type Schema struct {
@@ -62,10 +60,50 @@ type Server struct {
 	log     *log.Logger
 
 	// extra are tools a test adds beside the registry's.
-	extra []server.ServerTool
+	extraMu sync.Mutex
+	extra   []server.ServerTool
 
 	// boundOpenHook, test-only, runs before a session's bound open.
 	boundOpenHook atomic.Pointer[func()]
+	// writerHook, test-only, runs before a session's writer picks its next message.
+	writerHook atomic.Pointer[func(pending func() (notifications, responses int))]
+}
+
+// AddTestTools adds tools beside the registry's for every later session. Test-only:
+// shipped tools come from the registry alone.
+func (s *Server) AddTestTools(tools ...server.ServerTool) {
+	s.extraMu.Lock()
+	defer s.extraMu.Unlock()
+	s.extra = append(s.extra, tools...)
+}
+
+// SetWriterHook makes every session's writer call f before it picks its next message;
+// pending reports how many notifications and responses are queued for it. Test-only:
+// it lets a test hold the writer until both kinds are ready, so the order it then
+// writes them in is the writer's choice, not the scheduler's. Nil removes it.
+func (s *Server) SetWriterHook(f func(pending func() (notifications, responses int))) {
+	if f == nil {
+		s.writerHook.Store(nil)
+		return
+	}
+	s.writerHook.Store(&f)
+}
+
+// WithSessionID returns ctx carrying the daemon's id for the session Serve will run,
+// which then names its mcp-go session. Without it Serve makes up an id of its own.
+func WithSessionID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, sessionIDKey{}, id)
+}
+
+type sessionIDKey struct{}
+
+var unnamedSessions atomic.Int64
+
+func sessionIDOf(ctx context.Context) string {
+	if id, ok := ctx.Value(sessionIDKey{}).(string); ok && id != "" {
+		return id
+	}
+	return fmt.Sprintf("mcp-%d", unnamedSessions.Add(1))
 }
 
 // openCapability is the call that opens a session's bound root. Adapters name
@@ -132,39 +170,201 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 		budget = DefaultBudget
 	}
 	s.openBound(ctx, root)
-	// One mcp-go server per connection: a second Listen on a shared server fails,
-	// because every Listen registers the same session id.
+	// One mcp-go server per connection, and on it one session of the connection's
+	// own: notifications, client info, the protocol version and the requests
+	// notifications/cancelled can reach all belong to it (ADR-0025 §Decision, as
+	// amended 2026-10-03).
 	srv := server.NewMCPServer("droidyard", s.version,
 		server.WithToolCapabilities(false),
 		server.WithInstructions(Instructions),
 	)
 	srv.AddTools(s.tools...)
+	s.extraMu.Lock()
 	srv.AddTools(s.extra...)
+	s.extraMu.Unlock()
 
+	sess := server.NewInProcessSession(sessionIDOf(ctx), nil)
+	if err := srv.RegisterSession(ctx, sess); err != nil {
+		return fmt.Errorf("register session: %w", err)
+	}
 	c := &session{ctx: ctx, budget: budget, root: root}
-	stdio := server.NewStdioServer(srv)
-	stdio.SetErrorLogger(s.log)
-	server.WithWorkerPoolSize(workerPoolSize)(stdio)
-	stdio.SetContextFunc(func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, sessionKey{}, c)
-	})
-	return stdio.Listen(ctx, goneReader{r, c}, goneWriter{w, c})
+	rctx, cancelRequests := context.WithCancel(context.WithValue(srv.WithContext(ctx, sess), sessionKey{}, c))
+	defer cancelRequests()
+
+	wr := &writer{
+		out:       goneWriter{w, c},
+		notes:     sess.ClientNotifications(),
+		responses: make(chan mcpgo.JSONRPCMessage, 64),
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
+		hook:      &s.writerHook,
+	}
+	go wr.run()
+
+	var handlers sync.WaitGroup
+	err := s.read(rctx, goneReader{r, c}, srv, wr, &handlers)
+
+	// The session has ended, whatever ended it: nothing more is written to it. gone
+	// is set before the request contexts end, so a handler that sees its context
+	// end can tell a disconnect from a notifications/cancelled.
+	c.gone.Store(true)
+	cancelRequests()
+	handlers.Wait()
+	close(wr.stop)
+	<-wr.done
+	srv.UnregisterSession(ctx, sess.SessionID())
+	return err
+}
+
+// read runs the session's read loop until its input ends or ctx does. A request is
+// served on its own goroutine, its response queued for the writer; a notification
+// is handled here, in order, so notifications/cancelled reaches the request it
+// names; a response to a server request is dropped, since Droidyard sends none.
+func (s *Server) read(ctx context.Context, r io.Reader, srv *server.MCPServer, wr *writer, handlers *sync.WaitGroup) error {
+	lines := make(chan []byte)
+	failed := make(chan error, 1)
+	quit := make(chan struct{})
+	defer close(quit)
+	go func() {
+		br := bufio.NewReader(r)
+		for {
+			line, err := br.ReadBytes('\n')
+			if err != nil {
+				// A line cut short by the end of input is not a message.
+				failed <- err
+				return
+			}
+			select {
+			case lines <- line:
+			case <-quit:
+				return
+			}
+		}
+	}()
+
+	for {
+		var line []byte
+		select {
+		case line = <-lines:
+		case err := <-failed:
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var base struct {
+			ID     any             `json:"id,omitempty"`
+			Method string          `json:"method"`
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		parsed := json.Unmarshal(line, &base) == nil
+		switch {
+		case parsed && base.Method == "" && (len(base.Result) > 0 || len(base.Error) > 0):
+			// A response to a server request.
+		case parsed && base.ID != nil:
+			handlers.Add(1)
+			go func() {
+				defer handlers.Done()
+				wr.respond(s.handle(ctx, srv, base.ID, line))
+			}()
+		default:
+			// A notification, or a line mcp-go answers with a parse error.
+			wr.respond(s.handle(ctx, srv, nil, line))
+		}
+	}
+}
+
+// handle runs one message through mcp-go. A panic in a handler answers the request
+// with an internal error instead of ending the daemon.
+func (s *Server) handle(ctx context.Context, srv *server.MCPServer, id any, line []byte) (resp mcpgo.JSONRPCMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.log.Printf("panic serving an MCP message: %v", r)
+			if id != nil {
+				resp = mcpgo.NewJSONRPCError(mcpgo.NewRequestId(id), mcpgo.INTERNAL_ERROR, fmt.Sprintf("internal panic: %v", r), nil)
+			}
+		}
+	}()
+	return srv.HandleMessage(ctx, line)
+}
+
+// writer is the one goroutine that writes a session: responses, and the
+// notifications its handlers send. Before it writes a response it writes every
+// notification already queued, so a notification a handler sent before returning
+// precedes that handler's response on the wire.
+type writer struct {
+	out       io.Writer
+	notes     <-chan mcpgo.JSONRPCNotification
+	responses chan mcpgo.JSONRPCMessage
+	stop      chan struct{} // closed once no handler is left to respond
+	done      chan struct{}
+	hook      *atomic.Pointer[func(pending func() (notifications, responses int))]
+}
+
+// respond queues a response; nil is nothing to write.
+func (wr *writer) respond(m mcpgo.JSONRPCMessage) {
+	if m == nil {
+		return
+	}
+	select {
+	case wr.responses <- m:
+	case <-wr.stop:
+	}
+}
+
+func (wr *writer) run() {
+	defer close(wr.done)
+	for {
+		if f := wr.hook.Load(); f != nil {
+			(*f)(func() (int, int) { return len(wr.notes), len(wr.responses) })
+		}
+		select {
+		case n := <-wr.notes:
+			wr.write(n)
+		case m := <-wr.responses:
+			for drained := false; !drained; {
+				select {
+				case n := <-wr.notes:
+					wr.write(n)
+				default:
+					drained = true
+				}
+			}
+			wr.write(m)
+		case <-wr.stop:
+			return
+		}
+	}
+}
+
+func (wr *writer) write(m any) {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	wr.out.Write(append(raw, '\n'))
 }
 
 // session is what a tool handler needs to know about its connection.
 //
-// mcp-go ends a request's context in two cases that the context cannot tell apart: a
-// notifications/cancelled naming the request, and Listen ending once its input ends
-// or fails. The first must cancel the operation, the second must not
+// A request's context ends in two cases that the context cannot tell apart: a
+// notifications/cancelled naming the request, and the session ending once its input
+// ends or fails. The first must cancel the operation, the second must not
 // (ADR-0020 §Adapter projections: "A disconnect never cancels"). gone tells them
-// apart: the streams set it before they return an error, and Listen ends the request
-// contexts only after its read loop has seen that error.
+// apart: the reader sets it when the input fails, and Serve sets it before it ends
+// the request contexts.
 //
 // Once gone is set the session has ended, and nothing more is written to it: not the
 // answer to a call it abandoned, nor anything still in flight (owner decision,
 // 2026-09-30). The operations it started run on and stay waitable from any session.
 type session struct {
-	ctx    context.Context // the one given to Listen; it ends when the daemon stops
+	ctx    context.Context // the one given to Serve; it ends when the daemon stops
 	budget time.Duration
 	root   string // the bound root
 	gone   atomic.Bool
