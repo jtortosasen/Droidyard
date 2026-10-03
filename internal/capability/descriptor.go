@@ -137,7 +137,8 @@ type Call struct {
 	// (ADR-0020 §Operation capabilities). Empty for operation.wait and
 	// operation.cancel, which are not operations.
 	OperationID string
-	// Workspace is the canonical workspace id. Empty for global capabilities.
+	// Workspace is the canonical workspace id. Empty for global capabilities; the
+	// target as the envelope gave it for a RawTarget capability.
 	Workspace string
 	// Params is the decoded parameter struct.
 	Params any
@@ -168,6 +169,13 @@ type Descriptor struct {
 
 	// AcceptsIdempotencyKey says the call dedupes retries on the envelope's key.
 	AcceptsIdempotencyKey bool
+
+	// RawTarget marks workspace.open and workspace.close: Start admits the call
+	// whether or not its workspace is open, and the handler receives the envelope's
+	// target as given, to judge it itself (ADR-0026: validation is the handler's).
+	// Such a call is not an operation of the workspace, so a close never cancels or
+	// waits on an open or a close (ADR-0027). Not published.
+	RawTarget bool
 
 	Audience Audience
 

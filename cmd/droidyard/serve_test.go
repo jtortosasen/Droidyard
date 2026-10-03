@@ -16,6 +16,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/process/processtest"
 )
 
 // reexec makes the test binary run main instead of the tests, so a test can start
@@ -23,6 +24,7 @@ import (
 const reexec = "DROIDYARD_TEST_REEXEC"
 
 func TestMain(m *testing.M) {
+	processtest.Main()
 	if os.Getenv(reexec) == "1" {
 		main()
 		os.Exit(0)

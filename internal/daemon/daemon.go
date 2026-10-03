@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/store"
 )
 
 // Session is one connection after a successful hello (ADR-0019 §Sessions; ADR-0010).
@@ -48,7 +50,10 @@ type Options struct {
 	// Handlers serve a session by the client kind its hello names. A kind without a
 	// handler is refused.
 	Handlers map[capability.ClientKind]Handler
-	// Log receives one line per refused connection. Nil discards.
+	// Store is the durable state under State; nil means a store of its own over State.
+	Store *store.Store
+	// Log receives one line per refused connection and per reconciled pid record.
+	// Nil discards.
 	Log io.Writer
 }
 
@@ -66,11 +71,21 @@ type Daemon struct {
 	wg       sync.WaitGroup // the accept loop and every connection
 }
 
-// Start takes the single-instance lock, prepares run/ and the socket, and starts
-// accepting (ADR-0019 §5, §6).
+// Start takes the single-instance lock, reconciles the pid records a previous daemon
+// left, prepares run/ and the socket, and starts accepting (ADR-0019 §5, §6). The
+// records are reconciled by the lock holder, the single writer, before the socket is
+// bound, so no client reaches a daemon while a previous one's orphans live (ADR-0021
+// §Pid records).
 func Start(opts Options) (*Daemon, error) {
 	if opts.Log == nil {
 		opts.Log = io.Discard
+	}
+	if opts.Store == nil {
+		st, err := store.New(opts.State)
+		if err != nil {
+			return nil, err
+		}
+		opts.Store = st
 	}
 	lock, err := Acquire(opts.State, LockInfo{
 		PID:       os.Getpid(),
@@ -80,6 +95,10 @@ func Start(opts Options) (*Daemon, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	// Unreadable records never stop the daemon: what could be reaped was.
+	if err := process.Reconcile(opts.Store, opts.Log); err != nil {
+		fmt.Fprintln(opts.Log, "droidyard: reconcile:", err)
 	}
 	ln, err := listen(opts.Socket)
 	if err != nil {

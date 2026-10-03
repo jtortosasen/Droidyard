@@ -11,7 +11,7 @@ import (
 // Version is the API version reported by system.capabilities. It is the one semantic
 // version of the capability API, not a per-capability one
 // (docs/architecture/capability-api.md §Discovery and versioning).
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 var started = time.Now()
 
@@ -61,7 +61,7 @@ func Register(reg *capability.Registry, req Requirements, ops Operations) {
 		Name:        "system.health",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
-		Since:       Version,
+		Since:       "0.1.0", // the version that introduced it, pinned
 		Description: "Reports whether the core is alive, its version and how long it has been running.",
 		Params:      None{},
 		Result:      Health{},
@@ -83,7 +83,7 @@ func Register(reg *capability.Registry, req Requirements, ops Operations) {
 		Name:        "system.capabilities",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
-		Since:       Version,
+		Since:       "0.1.0", // the version that introduced it, pinned
 		Description: "Lists every capability the core exposes, with its scope, statefulness, annotations and availability. This is the discovery entry point: it reports what is available rather than assuming a fixed surface.",
 		Params:      None{},
 		Result:      Capabilities{},

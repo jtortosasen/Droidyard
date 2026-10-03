@@ -71,7 +71,7 @@ func (e Env) StateDir() (string, error) {
 // every client that uses one, reaches the same socket and makes the same fallback
 // decision.
 func (e Env) SocketPath(state string) string {
-	state = e.canonical(state)
+	state = e.Canonical(state)
 	dir := filepath.Join(state, "run")
 	if e.GOOS != "darwin" && e.Getenv("DROIDYARD_STATE_DIR") == "" {
 		if rt := e.xdg("XDG_RUNTIME_DIR"); rt != "" {
@@ -90,16 +90,34 @@ func (e Env) SocketPath(state string) string {
 // workspace ids. Deterministic, so every client finds its daemon; distinct per root,
 // so two instances never share a socket (ADR-0019 §6).
 func (e Env) discriminator(state string) string {
-	sum := sha256.Sum256([]byte(e.canonical(state)))
+	return hash12(e.Canonical(state))
+}
+
+func hash12(canonical string) string {
+	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// canonical is path as ADR-0021 §Layout canonicalises a root: symlinks resolved, so
+// WorkspaceID is the id of the workspace rooted at root, and that root canonicalised:
+// <basename>-<12 hex of sha256(canonical root)> (ADR-0021 §Layout). Every spelling of
+// one root (a symlink, another case on a volume that ignores it) gives one id, because
+// the id and every lookup by root canonicalise with Canonical. The filesystem root,
+// whose basename is "/", is named "root", so an id never holds a separator.
+func (e Env) WorkspaceID(root string) (id, canonical string) {
+	canonical = e.Canonical(root)
+	base := filepath.Base(canonical)
+	if base == string(filepath.Separator) {
+		base = "root"
+	}
+	return base + "-" + hash12(canonical), canonical
+}
+
+// Canonical is path as ADR-0021 §Layout canonicalises a root: symlinks resolved, so
 // /tmp/s and /private/tmp/s on macOS are one root, and each existing component in its
 // on-disk case, so /Users/Me and /users/me are one root on a volume that ignores
 // case. A path that does not exist yet is resolved as far as its nearest existing
 // ancestor, and the rest kept as spelled.
-func (e Env) canonical(path string) string {
+func (e Env) Canonical(path string) string {
 	resolve := e.Resolve
 	if resolve == nil {
 		resolve = resolveOnDisk

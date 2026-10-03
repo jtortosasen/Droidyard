@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "capabilities": [
     {
       "name": "operation.cancel",
@@ -224,6 +224,202 @@
         },
         "additionalProperties": false,
         "type": "object"
+      }
+    },
+    {
+      "name": "workspace.close",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.2.0",
+      "description": "Closes the workspace for every session: cancels its running operations, waits for them for up to 10 s, stops its processes, and returns once it is closed. Closing a workspace that is not open does nothing.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
+      "name": "workspace.describe",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.2.0",
+      "description": "Describes the open workspace: its id, root, state, whether it is trusted, and, when degraded, why.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "WORKSPACE_STATE_NEWER"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded"
+            ]
+          },
+          "trusted": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "degradedBy": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "cause": {
+                "type": "string"
+              },
+              "nextStep": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "root",
+          "state",
+          "trusted",
+          "createdAt"
+        ]
+      }
+    },
+    {
+      "name": "workspace.open",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.2.0",
+      "description": "Opens the workspace for a project root, or returns its state if it is already open, so sessions share it. Opening reads droidyard's own state for the root and runs no project code. Workspace tools need an open workspace; an MCP session opens its bound root when it starts, so call this only to reopen it after a close.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "WORKSPACE_ROOT_INVALID",
+        "WORKSPACE_STATE_NEWER"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded"
+            ]
+          },
+          "trusted": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "degradedBy": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "cause": {
+                "type": "string"
+              },
+              "nextStep": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "root",
+          "state",
+          "trusted",
+          "createdAt"
+        ]
       }
     }
   ]

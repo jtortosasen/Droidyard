@@ -13,6 +13,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/schema"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // update rewrites the golden file instead of comparing against it.
@@ -34,6 +35,7 @@ func registry() *capability.Registry {
 	ops := capability.NewOperations(reg)
 	system.Register(reg, nothingInstalled{}, ops)
 	ops.RegisterCapabilities()
+	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	return reg
 }
 

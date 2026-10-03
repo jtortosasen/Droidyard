@@ -232,7 +232,40 @@ func TestCaseOfARootIsTheOnDiskCase(t *testing.T) {
 	if a, b := e.discriminator(actual), e.discriminator(other); a != b {
 		t.Errorf("%s and %s got different discriminators (%s, %s)", actual, other, a, b)
 	}
-	if got := e.canonical(other + "/not-yet"); !strings.HasSuffix(got, "/CaseRoot/not-yet") {
+	if got := e.Canonical(other + "/not-yet"); !strings.HasSuffix(got, "/CaseRoot/not-yet") {
 		t.Errorf("canonical(%s) = %s; want the on-disk case, the missing tail as spelled", other+"/not-yet", got)
+	}
+}
+
+// TestWorkspaceIDIsOneIDPerRoot: /tmp/x, /private/tmp/x and a case variant are one
+// root, so one workspace id, <basename>-<12 hex of sha256(canonical root)>
+// (ADR-0021 §Layout). The hash is pinned: a change would orphan every ws/<wsid>/.
+func TestWorkspaceIDIsOneIDPerRoot(t *testing.T) {
+	if r, _ := filepath.EvalSymlinks("/tmp"); r != "/private/tmp" {
+		t.Skip("/tmp is not a symlink to /private/tmp here")
+	}
+	dir, err := os.MkdirTemp("/tmp", "WsCase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	base := filepath.Base(dir)
+	canonical := "/private/tmp/" + base
+	e := Current()
+	spellings := []string{dir, canonical, "/tmp/" + strings.ToLower(base), canonical + "/"}
+	if _, err := os.Stat(spellings[2]); err != nil {
+		spellings = spellings[:2] // a case-sensitive volume
+	}
+	want := base + "-" + hash12(canonical)
+	for _, s := range spellings {
+		if id, c := e.WorkspaceID(s); id != want || c != canonical {
+			t.Errorf("WorkspaceID(%s) = %s, %s; want %s, %s", s, id, c, want, canonical)
+		}
+	}
+	if id, _ := env("darwin", nil).WorkspaceID("/Users/me/app"); id != "app-844551840eba" {
+		t.Errorf("WorkspaceID(/Users/me/app) = %s; want app-844551840eba (shasum -a 256 of the path)", id)
+	}
+	if id, _ := env("darwin", nil).WorkspaceID("/"); !strings.HasPrefix(id, "root-") {
+		t.Errorf("the filesystem root's id is %q; want root-<hash>", id)
 	}
 }

@@ -56,6 +56,9 @@ type Outcome struct {
 type operation struct {
 	id         string
 	capability string
+	// workspace is the canonical id of the workspace the operation runs in; empty for
+	// a global call and for workspace.open and workspace.close.
+	workspace string
 
 	// Guarded by Operations.mu.
 	state           State
@@ -63,10 +66,25 @@ type operation struct {
 	err             *Error
 	progress        *Progress
 	cancelRequested bool
-	finished        time.Time
+	// forced: cancelled by a workspace close, so the operation ends cancelled
+	// whatever its handler returns (ADR-0027).
+	forced   bool
+	finished time.Time
 
 	cancel context.CancelFunc
 	done   chan struct{}
+}
+
+// Workspaces admits workspace-scoped calls. The workspace registry implements it;
+// capability does not import it, so the store is given one (UseWorkspaces).
+type Workspaces interface {
+	// Admit resolves target, a workspace id or an absolute root, to its canonical
+	// id and, if that workspace is open (ready or degraded), calls record with the
+	// id and returns true. The check and record run under the lock that a close
+	// takes to enter closing, so every admitted call is recorded before a close
+	// collects the workspace's operations to cancel them (ADR-0027). Otherwise it
+	// returns false and does not call record.
+	Admit(target string, record func(id string)) bool
 }
 
 // Operations is the operation store: every recorded call, keyed by a daemon-wide id.
@@ -74,6 +92,7 @@ type operation struct {
 // caller that stops waiting leaves the operation running (ADR-0020 §Core primitives).
 type Operations struct {
 	reg *Registry
+	ws  Workspaces
 
 	mu       sync.Mutex
 	ops      map[string]*operation
@@ -86,6 +105,10 @@ func NewOperations(reg *Registry) *Operations {
 	return &Operations{reg: reg, ops: make(map[string]*operation), now: time.Now}
 }
 
+// UseWorkspaces gives the store the registry that admits workspace-scoped calls.
+// Without one, no workspace is open.
+func (o *Operations) UseWorkspaces(ws Workspaces) { o.ws = ws }
+
 // Start validates a call, records it as an operation and runs its handler, returning
 // the operation id without waiting. A call rejected here gets a typed error and
 // creates no operation (ADR-0020 §Core primitives).
@@ -97,10 +120,13 @@ func (o *Operations) Start(ctx context.Context, req Request) (string, error) {
 	if !d.Recorded() {
 		return "", fmt.Errorf("capability %s is not an operation: call it through Invoke", d.Name)
 	}
-	return o.start(ctx, d, params, req.Workspace), nil
+	return o.start(ctx, d, params, req.Workspace)
 }
 
-func (o *Operations) start(ctx context.Context, d Descriptor, params any, workspace string) string {
+// start records the operation and runs its handler. A workspace-scoped call is
+// admitted first: its target must be an open workspace, and the call runs with the
+// workspace's canonical id (ADR-0020 §Scope and workspace addressing).
+func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string) (string, error) {
 	id := newID()
 	// The handler's context carries the caller's values but not its cancellation:
 	// only Cancel ends it.
@@ -108,7 +134,7 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, worksp
 	op := &operation{id: id, capability: d.Name, state: StateRunning, cancel: cancel, done: make(chan struct{})}
 	call := &Call{
 		OperationID: id,
-		Workspace:   workspace,
+		Workspace:   target,
 		Params:      params,
 		Progress: func(done, total int, message string) {
 			o.mu.Lock()
@@ -116,13 +142,27 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, worksp
 			o.mu.Unlock()
 		},
 	}
+	record := func(workspace string) {
+		op.workspace = workspace
+		call.Workspace = workspace
+		o.mu.Lock()
+		o.ops[id] = op
+		o.mu.Unlock()
+	}
 
-	o.mu.Lock()
-	o.ops[id] = op
-	o.mu.Unlock()
+	if d.Scope == Workspace && !d.RawTarget {
+		if o.ws == nil || !o.ws.Admit(target, record) {
+			cancel()
+			return "", Errorf(ErrWorkspaceNotOpen, "workspace %q is not open", target).
+				WithNextStep("call workspace.open on it, then retry")
+		}
+	} else {
+		record("")
+		call.Workspace = target
+	}
 
 	go o.run(hctx, op, d.Handler, call)
-	return id
+	return id, nil
 }
 
 func (o *Operations) run(ctx context.Context, op *operation, h Handler, call *Call) {
@@ -131,6 +171,9 @@ func (o *Operations) run(ctx context.Context, op *operation, h Handler, call *Ca
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch {
+	case op.forced:
+		op.state = StateCancelled
+		op.err = NewError(ErrOperationCancelled, "the operation was cancelled: its workspace was closed")
 	case err == nil:
 		op.state, op.result = StateCompleted, res
 	case op.cancelRequested:
@@ -192,6 +235,24 @@ func (o *Operations) Cancel(id string) error {
 	return nil
 }
 
+// CancelWorkspace cancels every running operation of the workspace id, as a close
+// does (ADR-0027): each ends cancelled with OPERATION_CANCELLED when its handler
+// returns, whatever it returns, unlike Cancel, under which a handler that returns a
+// result still completes. It does not wait, and returns the ids it cancelled.
+func (o *Operations) CancelWorkspace(id string) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var ids []string
+	for _, op := range o.ops {
+		if op.workspace == id && !op.state.Terminal() {
+			op.forced, op.cancelRequested = true, true
+			op.cancel()
+			ids = append(ids, op.id)
+		}
+	}
+	return ids
+}
+
 // Running counts the operations not yet in a terminal state.
 func (o *Operations) Running() int {
 	o.mu.Lock()
@@ -239,7 +300,11 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 		return Outcome{}, err
 	}
 	if d.Recorded() {
-		return o.Wait(ctx, o.start(ctx, d, params, req.Workspace), time.Time{})
+		id, err := o.start(ctx, d, params, req.Workspace)
+		if err != nil {
+			return Outcome{}, err
+		}
+		return o.Wait(ctx, id, time.Time{})
 	}
 
 	res, err := d.Handler(ctx, &Call{Params: params, Progress: func(int, int, string) {}})
