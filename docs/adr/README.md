@@ -52,6 +52,7 @@ buried in prose.
 | [0025](0025-mcp-adapter-implementation.md) | MCP adapter implementation — mark3labs/mcp-go | Accepted |
 | [0026](0026-workspace-addressing-invalid-roots.md) | Workspace addressing — invalid roots and newer state files | Accepted |
 | [0027](0027-workspace-close-and-reopen.md) | Workspace close and reopen — when close completes | Accepted |
+| [0028](0028-websocket-library.md) | WebSocket library — coder/websocket | Accepted |
 
 ## Open decisions (not yet ADRs)
 

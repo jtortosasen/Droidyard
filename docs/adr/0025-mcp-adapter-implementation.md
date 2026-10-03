@@ -6,6 +6,10 @@
   owner, not a gate at milestone 1b; criteria 1 to 6 are the gate.
 - Amended: 2026-09-30 (second pass) — references to the plan's step numbers dropped,
   because the plan reordered its steps; no decision changed.
+- Amended: 2026-10-03 — the `Listen` bullet replaced by a per-connection session feeding
+  the public `MCPServer.HandleMessage` (`NewInProcessSession`): `Listen` served every
+  connection from one package-level session and shared notifications, client info and
+  the protocol version across them. Owner-delegated decision D1, milestone 1d.
 
 ## Context
 
@@ -71,10 +75,12 @@ helpers.** Concretely:
 - The adapter constructs every result itself: `Content` (the text rendering),
   `RawStructuredContent` (the capability's result bytes; absent on errors),
   `IsError`, `Meta`. The library does not build error results for it.
-- The session runs on the daemon's socket:
-  `NewStdioServer(server).Listen(ctx, connReader, connWriter)`, with the shim still
-  relaying bytes. Newline-delimited JSON is both the MCP stdio framing and the socket
-  framing.
+- The session runs on the daemon's socket through **our own read loop**: each
+  connection's reader feeds `server.HandleMessage` with a context carrying that
+  connection's `server.NewInProcessSession`, so notifications, client info and the
+  protocol version stay per connection. The shim still relays bytes; newline-delimited
+  JSON is both the MCP stdio framing and the socket framing. (This replaced
+  `NewStdioServer(...).Listen(...)`; see the 2026-10-03 `Amended:` line.)
 - `WithInstructions` carries the block of
   [`mcp-tool-surface.md`](../interfaces/mcp-tool-surface.md) §Server instructions.
 - Upgrades are deliberate: bumping the module runs the milestone's transcript tests
