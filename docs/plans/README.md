@@ -14,4 +14,4 @@ the output.
 | Plan | Milestone | Status |
 | --- | --- | --- |
 | [m1b-daemon-and-mcp-adapter.md](m1b-daemon-and-mcp-adapter.md) | 1b — the daemon and the MCP adapter | Done |
-| [m1c-process-supervisor-and-workspace.md](m1c-process-supervisor-and-workspace.md) | 1c — the process supervisor and the workspace model | Approved |
+| [m1c-process-supervisor-and-workspace.md](m1c-process-supervisor-and-workspace.md) | 1c — the process supervisor and the workspace model | Done |
