@@ -717,7 +717,9 @@ func TestUnreadableStateFailsTheOpen(t *testing.T) {
 }
 
 // TestInvalidOpensLeaveNoEntry: a target that cannot be opened is not registered, so
-// a client trying many bad roots or ids does not grow the registry.
+// a client trying many bad roots or ids does not grow the registry; nor does a
+// workspace-scoped call at Start, which Admit rejects, on a target that is not open,
+// whether it names a missing path, a file, an unknown id or a real directory.
 func TestInvalidOpensLeaveNoEntry(t *testing.T) {
 	h := newHarness(t, 200*time.Millisecond)
 	dir := t.TempDir()
@@ -737,6 +739,20 @@ func TestInvalidOpensLeaveNoEntry(t *testing.T) {
 	}
 	if n := size(); n != 0 {
 		t.Errorf("300 invalid opens left %d registry entries; want 0", n)
+	}
+	unopened := t.TempDir()
+	for i := 0; i < 100; i++ {
+		for _, target := range []string{filepath.Join(dir, "missing-"+strconv.Itoa(i)), file + "/" + strconv.Itoa(i), "nothing-" + strconv.Itoa(i), unopened} {
+			for _, capName := range []string{"fixture.scoped", CapDescribe} {
+				id, err := h.ops.Start(context.Background(), capability.Request{Capability: capName, Workspace: target})
+				if id != "" || codeOf(err) != capability.ErrWorkspaceNotOpen {
+					t.Fatalf("Start %s on %s: %q, %v; want WORKSPACE_NOT_OPEN", capName, target, id, err)
+				}
+			}
+		}
+	}
+	if n := size(); n != 0 {
+		t.Errorf("800 calls rejected at Start left %d registry entries; want 0", n)
 	}
 	h.open(t, project(t))
 	if n := size(); n != 1 {

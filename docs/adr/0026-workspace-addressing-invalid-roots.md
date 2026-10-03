@@ -6,6 +6,8 @@
   that cannot be opened is never open. Wording fixes from the milestone 1c plan revision.
 - Amended: 2026-10-03 (second pass) — `WORKSPACE_STATE_UNREADABLE` added for an
   unexpected state-file IO error; owner decision.
+- Amended: 2026-10-03 (third pass) — the naming claims aligned with the documents
+  (`workspace-state.md` §Lifecycle names the three codes; §Format names the newer one).
 - Relates to: ADR-0020 §Scope and workspace addressing, ADR-0021 §Format, `workspace-state.md` §Lifecycle
 
 ## Context
@@ -47,9 +49,10 @@ Three codes in the `WORKSPACE` domain; each descriptor that can return one lists
 
 An MCP binding to a bad root degrades to `WORKSPACE_NOT_OPEN` on every workspace tool
 until `workspace_open` shows the cause. [`workspace-state.md`](../architecture/workspace-state.md)
-§Lifecycle names the codes, [ADR-0021](0021-persistence-format-and-location.md) §Format, which names the newer-file one, and the golden file lists all three on `workspace.open`, and `WORKSPACE_STATE_NEWER`
-alone on `workspace.describe` (a root that cannot be opened is never open, so no other
-call reaches `WORKSPACE_ROOT_INVALID`).
+§Lifecycle, which names the codes, and [ADR-0021](0021-persistence-format-and-location.md)
+§Format, which names the newer-file one: the golden file lists all three on
+`workspace.open`, and `WORKSPACE_STATE_NEWER` alone on `workspace.describe` (a root
+that cannot be opened is never open, so no other call reaches `WORKSPACE_ROOT_INVALID`).
 
 ## Consequences
 
