@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md`** (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run: the shipped surface, parity (`system.capabilities` and `workspace.describe`), workspaces, the dummy-sidecar and crash-recovery rows as Go tests, and the OpenCode procedure with a bound session. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
+> **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
 > A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which.
 
@@ -44,9 +44,11 @@ jq -e --arg p "$PID" --arg s "$SOCK" '(.pid|tostring)==$p and .socket==$s' "$DRO
 lsof -a -p "$PID" -U -Fn | grep -qxF "n$SOCK"      # Linux without lsof: ss -xlp | grep -F "$SOCK"
 run doctor-status "$DY" status && grep -qw "$PID" "$E/doctor-status.out"
 run doctor-health "$DY" call --no-autostart system.health
+HP=$(jq -r .http "$DROIDYARD_STATE_DIR/daemon.lock" | sed 's/.*://')
+lsof -nP -a -p "$PID" -iTCP -sTCP:LISTEN -Fn | grep -qxF "n127.0.0.1:$HP"
 ```
 
-In order: the process you started is alive (a failed bind shows in `serve.out`); the lock in the scratch state names it and the scratch socket (fields from ADR-0021 §Layout); that process is the one bound to the socket; the client side resolves the same state root (`status` prints `daemon pid <pid>` and exits 0 only if the socket answers); the socket answers through a shim. `system.health` alone cannot prove identity: its result is uptime, version and operation count, and any daemon of the same build reports the same version.
+In order: the process you started is alive (a failed bind shows in `serve.out`); the lock in the scratch state names it and the scratch socket (fields from ADR-0021 §Layout); that process is the one bound to the socket; the client side resolves the same state root (`status` prints `daemon pid <pid>` and exits 0 only if the socket answers); the socket answers through a shim; the lock's `http` port is the one `$PID` itself listens on (`-nP`: without it `lsof` prints `localhost:<port>`). `system.health` alone cannot prove identity: its result is uptime, version and operation count, and any daemon of the same build reports the same version.
 
 ## Drive
 
@@ -92,7 +94,8 @@ await 1; mcp_close
 | A dummy sidecar starts lazily, idles out, leaves no orphans after `workspace.close` | The shipped binary has no sidecar (none before the Gradle sidecar, Phase 1), so the row is Go tests on the re-executed binary with a test-only fixture: `run sidecar-tests` in the block below | `ok`; each test counts orphans by pid and start time, as `count_orphans` does |
 | Auto-start and single instance (ADR-0019 §4, §5; mvp.md Phase 0 deliverables) | Stop the launched daemon, then two concurrent `call system.health` without `--no-autostart`; then a second `serve` on the same state (block below) | Both calls exit 0 with an envelope; `daemon.lock` appears in the scratch state; with `PID=$(jq -r .pid "$DROIDYARD_STATE_DIR/daemon.lock")` the Doctor passes, and that pid is now yours to stop; every other pid with a `starting` line in `daemon.log` has a `lost the lock` line and is gone; the second `serve` exits non-zero |
 | Crash recovery (ADR-0021 §Pid records) | As the row above: `run crash-tests` in the block below | `ok`; no orphan once the new daemon answers |
-| HTTP on loopback only | `lsof -a -p "$PID" -iTCP -sTCP:LISTEN`. Runnable from 1d | Listens on `127.0.0.1` or `::1` only. The Host, Origin and token checks are in `docs/interfaces/http-websocket.md` §Security baseline |
+| HTTP on loopback only, behind the fence | The HTTP block below. The Host, Origin and token checks are in `docs/interfaces/http-websocket.md` §Security baseline | `lsof` lists `127.0.0.1:$HP` and nothing else; `evil.example` as Host 403, no token 401, a foreign Origin 403, `OPTIONS` 403, the token 200 with an envelope; `run/http-token` is `600` and `run/` `700`; `status` prints the URL whose port and token are the lock's and the file's; after Cleanup's `stop` the token file is gone |
+| WebSocket and events (ADR-0028; `http-websocket.md` §`GET /v1/ws`) | Go tests that start their own in-process daemons: `run ws-tests` and `run ev-tests` in the block below | `ok`. A real client over `/v1/ws` waits for the Phase 2 UI |
 
 Run only the rows the milestone's plan puts in scope; the plan's step names the row it runs. The two rows run at milestone 1b, after `mcp_open caps` above:
 
@@ -123,7 +126,27 @@ The two rows that are Go tests (they start their own isolated daemons, not `$PID
 ```sh
 run sidecar-tests go test -count=1 -race -v -run 'TestSidecarStartsLazilyIdlesOutAndEndsWithClose|TestCloseCancelsTheLeaseHolderBeforeTheSidecar|TestCloseBoundsADrainALeaseHolderIgnores|TestStopLeavesNoSidecar|TestStopKillsSidecarsPastTheShutdownDeadline' ./cmd/droidyard
 run crash-tests go test -count=1 -race -v -run 'TestKilledDaemonsSidecarExitsOnEOF|TestKilledDaemonsStubbornSidecarIsReapedByTheNext|TestServeReapsOrphansBeforeItAnswers' ./cmd/droidyard
+run ws-tests go test -count=1 -race -run 'TestWS' ./adapters/httpapi ./cmd/droidyard   # the 16 TestWS* tests are in cmd/droidyard; httpapi has none ("no tests to run")
+run ev-tests go test -count=1 -race -run 'TestEvents' ./cmd/droidyard
 ```
+
+The HTTP block (1d), run with the launched daemon up. `$DROIDYARD_STATE_DIR/run/http-token` is the bearer token:
+
+```sh
+TOK=$(cat "$DROIDYARD_STATE_DIR/run/http-token"); U="http://127.0.0.1:$HP/v1/call"; B='{"capability":"system.health"}'
+lsof -nP -a -p "$PID" -iTCP -sTCP:LISTEN | tee "$E/http-lsof.out"
+c() { n=$1; shift; curl -sS -o "$E/$n.out" -w '%{http_code}\n' "$@" >"$E/$n.code" 2>"$E/$n.err"; echo "$n $(cat "$E/$n.code")"; }
+c http-host    -H 'Host: evil.example' -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d "$B" "$U"   # 403
+c http-notoken -H 'Content-Type: application/json' -d "$B" "$U"                                                          # 401
+c http-origin  -H 'Origin: http://evil.example' -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d "$B" "$U"   # 403
+c http-options -X OPTIONS "$U"                                                                                           # 403
+c http-ok      -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d "$B" "$U"                          # 200, an envelope
+stat -f '%Lp %N' "$DROIDYARD_STATE_DIR/run/http-token" "$DROIDYARD_STATE_DIR/run" | tee "$E/http-stat.out"   # 600, 700 (Linux: stat -c '%a %n')
+[ "$(sed -n 's/^\(http:.*\)$/\1/p' "$E/doctor-status.out")" = "http://127.0.0.1:$HP/#token=$TOK" ] && echo url-matches
+ps -o rss= -p "$PID" | tee "$E/rss-idle.out"      # ADR-0025 criterion 7: recorded, not asserted
+```
+
+`droidyard ui --no-autostart` opens the tokenised URL in the default browser (macOS `open`); the daemon serves the placeholder at `GET /`. It opens a tab on the machine, so run it once, and record what you see: the recipe cannot observe the tab.
 
 The workspace block, run before the auto-start row stops the launched daemon:
 
@@ -195,6 +218,7 @@ run stop "$DY" stop
 for i in $(seq 50); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
 kill -0 "$PID" 2>/dev/null && kill -TERM "$PID"
 count_orphans final
+[ -e "$DROIDYARD_STATE_DIR/run/http-token" ] && echo "FAIL: token file left"
 echo "$R"
 ```
 
