@@ -81,8 +81,8 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 
 **The design is closed and verified. Milestones 1b (the daemon and the MCP adapter),
 1c (the process supervisor and the workspace model) and 1d (the HTTP/WebSocket
-skeleton, the event bus and `events.*`) are done and verified. Phase 0 is complete; the
-JVM-free device slice is next.**
+skeleton, the event bus and `events.*`) are done and verified. Phase 0 is complete except its
+`adb`-absent item, which the JVM-free device slice, next, closes.**
 
 | | State |
 | --- | --- |
@@ -102,10 +102,8 @@ Three things to read before the next milestones:
   justification.
 - **Before implementing `build.errors`**: the AAPT2 merged-resource decision in
   [ADR-0022](adr/0022-build-error-extraction.md) §Known open item.
-- **Before the device slice**: it brings the first artifact route; fix the
-  `X-Mydev-Artifact-Growing` header name in
-  [`interfaces/http-websocket.md`](interfaces/http-websocket.md) §`GET /v1/artifacts/{id}`
-  (an old project name) when it lands.
+- **Before device actions**: the dump lock and the scheduler's queue land in 1e;
+  `tapElement` and `inputText` build on them.
 
 Agent guidance for this repository lives in [`../AGENTS.md`](../AGENTS.md).
 

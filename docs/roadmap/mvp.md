@@ -124,8 +124,10 @@ Deliverables:
 
 Acceptance:
 
-- `system.capabilities` lists what is available and the core reports `degraded` when
-  `adb` is absent.
+- `system.capabilities` lists what is available, and when `adb` is absent it reports
+  the device capabilities unavailable with the reason, each device call failing with
+  `DEVICE_ADB_NOT_FOUND` (no workspace is degraded; `adb-device.md` §adb resolution
+  and degradation).
 - A supervised dummy sidecar starts lazily, idles out, and leaves no orphans after
   `workspace.close`.
 - The same capability is reachable from the CLI and from MCP with identical

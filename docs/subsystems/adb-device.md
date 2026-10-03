@@ -61,7 +61,9 @@ Device
 
 Details are best-effort: a flaky device still lists, its details simply stay sparse.
 Emulator detection uses the serial prefix **or** known product strings, so it does
-not depend on naming alone.
+not depend on naming alone. A device that `devices -l` reports with `usb:` is
+`physical` whatever its product says, and an unclassifiable device is `physical`, so
+the emulators-only default never admits an unknown device (milestone 1e).
 
 ## Targeting: `device` is required
 
@@ -76,7 +78,7 @@ without `device` fails schema validation at `Start`, before any operation exists
 | --- | --- | --- |
 | Serial not connected | `DEVICE_NOT_FOUND` | `details.online[]` lists the candidates; next step `device.list` or `emulator.start` |
 | Connected but unusable (`offline`, `unauthorized`, `recovery`, `sideload`, still booting) | `DEVICE_NOT_READY` | Names the state and its fix |
-| Not permitted by policy | `DEVICE_NOT_ALLOWED` | Rejected at `Start` as a policy denial ([ADR-0015](../adr/0015-untrusted-data-authorization.md)) |
+| Not permitted by policy | `DEVICE_NOT_ALLOWED` | Decided at the re-check just before the handler, after one `devices -l`, so the operation fails; `Start` does no adb I/O ([ADR-0015](../adr/0015-untrusted-data-authorization.md); [ADR-0020](../adr/0020-operation-contract.md), amended 2026-10-04) |
 
 Convenience belongs to adapters, and each one still sends `device` explicitly:
 
@@ -237,7 +239,9 @@ quirks, accepting the prompt. That belongs in a skill
 | Install rejected | `DEVICE_INSTALL_FAILED` | The `INSTALL_FAILED_*` reason as the cause |
 | Launch finds no launcher activity | `DEVICE_LAUNCH_FAILED` | The monkey output line as the cause |
 | Device disconnects mid-operation | `DEVICE_DISCONNECTED` | That operation fails with the transport error; other devices and workspaces are unaffected |
-| adb missing | `DEVICE_ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it |
+| adb missing, or `ADB` names no file | `DEVICE_ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it. A bad `ADB` value fails closed, naming the value, and is not skipped: another adb could mismatch the running server and restart it (milestone 1e, Q6) |
+| adb fails on the host (the server cannot start, `devices -l` times out or cannot be parsed) | `DEVICE_ADB_FAILED` | `cause` names the command, its exit status or timeout and the decisive line (milestone 1e, Q3) |
+| `screencap` fails or returns no PNG on a ready device | `DEVICE_SCREENSHOT_FAILED` | The command's decisive line as the cause (milestone 1e, Q3) |
 | adb client/server version mismatch | **A warning, not an error**: both versions and binaries are reported by `system.health` and on the device call; the shared server is left alone |
 
 UI automation failures are listed in [ui-automation](ui-automation.md) §Failure modes.

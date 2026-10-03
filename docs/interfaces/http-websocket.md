@@ -141,10 +141,14 @@ connection after two missed pongs.
   recorded as that operation. Only the encoding differs: raw bytes instead of JSON.
 - **Text** supports `Range: bytes=…`, with the same byte offsets as `artifact.read`.
   An artifact that is still growing (a running build's console) returns the bytes
-  written so far and `X-Mydev-Artifact-Growing: true`. To follow it live, subscribe to
+  written so far and a growing marker header, named in ADR-0024's identifier table when
+  growing artifacts land. To follow it live, subscribe to
   the `build.output` topic instead of polling.
 - **Images** accept `?maxEdge=<px>` and `?region=x,y,w,h` (normalised 0..1). The
   default is the original size.
+- An artifact produced by an untrusted capability (a screenshot) is served with
+  `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1; ADR-0024).
 - **Errors**: `404` with the typed error as the JSON body (`ARTIFACT_NOT_FOUND`), or
   `410` for `ARTIFACT_EXPIRED` ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
   A binary route cannot return a `200` envelope, so this is the one place where the

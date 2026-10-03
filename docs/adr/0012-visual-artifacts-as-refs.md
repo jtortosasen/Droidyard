@@ -5,6 +5,11 @@
 - Amended: 2026-09-29. What changed: the durability classes, reading artifacts
   (`artifact.read`), and image delivery to agents (review B11). The original decision
   covered visual artifacts in memory only.
+- Amended: 2026-10-04 — spill to the cache directory is deferred: until a producer
+  routinely exceeds 4 MiB (`device.logs` captures, `shell.exec` output), ephemeral
+  artifacts stay in memory under the byte budget; the cache location under an explicit
+  `DROIDYARD_STATE_DIR` is decided with that producer, as an ADR-0021 amendment
+  (owner-delegated decision, milestone 1e, 2026-10-04, Q4).
 
 ## Context
 
