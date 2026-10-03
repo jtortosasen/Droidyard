@@ -243,7 +243,27 @@ Baseline on 2026-10-02 (macOS, go1.27): `go vet ./...` printed nothing; `go test
 - Needs: steps 2, 3, 4, 6.
 - Not here: a shipped sidecar (none before the Gradle sidecar, Phase 1; R12); the recipe on the built binary (step 8).
 - Rests on: the orphan count compares pids and start times taken before the act, so a reused pid is not counted as a survivor. Level 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 (a re-executed `serve` with `fixture.sidecar` installed by `TestMain` in the re-executed binary, re-executed `droidyard call` and `droidyard stop`, the `processtest` sidecar dummy; macOS, go1.27.0 darwin/arm64). Orphans are counted as the recipe does: `platform.StartTime` of each pid snapshotted before the act, and a pid survives only if its start time is unchanged. `go test -count=2 -race -run 'TestSidecar|TestClose|TestStopLeaves|TestStopKills|TestKilled' ./cmd/droidyard` ok. PASS for:
+  - `TestSidecarStartsLazilyIdlesOutAndEndsWithClose`: after `open` no record and no event; the first `fixture.sidecar` leaves one record, its pid alive; past the 2 s idle timeout the pid is gone and the record removed; a second call gets a new pid; `workspace.close` returns with the dummy and its forked helper both gone, no record.
+  - `TestCloseCancelsTheLeaseHolderBeforeTheSidecar` (drain 200 ms): a context-honouring holder; when close returns, count 0 and no record; the holder's envelope is `cancelled` / `OPERATION_CANCELLED`; events `[ready lease held lease released use refused eof SIGTERM]`, "lease released" before "eof" and "SIGTERM".
+  - `TestCloseBoundsADrainALeaseHolderIgnores`: a context-ignoring holder of a dummy ignoring `SIGTERM` and EOF (shutdown 300 ms); close returns within the bound, the timeout and a 1.5 s margin, count 0; with the release file written, the holder ends `cancelled`, "use refused" is logged, and there is one "ready" and no record (no new dummy).
+  - `TestStopLeavesNoSidecar`: `droidyard stop` with a dummy and helper running: count 0 after it returns.
+  - `TestStopKillsSidecarsPastTheShutdownDeadline` (shutdown deadline 300 ms, dummy shutdown 500 ms): a context-ignoring holder, a dummy ignoring `SIGTERM` with a helper: count 0 after `stop` returns.
+  - `TestKilledDaemonsSidecarExitsOnEOF`: `SIGKILL` of `serve`; the EOF-honouring dummy exits by itself, logging "eof" (layer 1).
+  - `TestKilledDaemonsStubbornSidecarIsReapedByTheNext`: an EOF-ignoring dummy survives the `SIGKILL`, still recorded; the next `serve` is dialled every 50 ms; count 0 when it first answers (layer 3); a new `fixture.sidecar` then leaves exactly one record, the new pid.
+
+  Seen failing, each mutation applied alone and restored (`shasum -c` OK after; strays killed after each run):
+
+  | | Mutation | Result |
+  | --- | --- | --- |
+  | M1 | sidecars stopped before the drain | "events [ready lease held eof SIGTERM lease released use refused]: the lease must be released before the dummy is told to stop" |
+  | M2 | close completing before the sidecars are stopped (`go StopSidecars`) | "when close returned: survivors [99979 99980]" and two more tests |
+  | M3 | `supervisor.Shutdown` skipped once the shutdown context has expired | "after stop: survivors [180 179]" |
+  | M4 | close's hook not wired | survivors after close in three tests |
+  | M5 | the supervisor loaded before reconciling | "records [320 324]; want only the new dummy 324" |
+  | M6 | the supervisor never loaded | "processes.json has not been loaded" |
+
+  `go list -deps ./cmd/droidyard | grep -c processtest` prints 0; the fixture and its seams' values live in `_test.go` files; the shipped seams (`testCapabilities`, `testDrain`, `shutdownTimeout` as a variable) are unset in the shipped binary. `git diff schema/` empty. `go build ./...` ok; `go vet ./...`, `GOOS=linux go vet ./...` and `gofmt -l .` print nothing; `go test -count=1 ./...` ok for twelve packages; `-race` ok on `internal/process/...`, `internal/daemon`, `internal/workspace`, `cmd/droidyard`. Order of construction: see Changes (Load after Reconcile). Step 6's API gains `Lease.Stdin` for the round trip, whose answer is read from the log sink.
 
 ### 8. The recipe on the built binary, with a bound session and OpenCode
 
@@ -254,7 +274,17 @@ Baseline on 2026-10-02 (macOS, go1.27): `go vet ./...` printed nothing; `go test
 - Needs: steps 1 to 7; a real OpenCode.
 - Not here: a Linux run (no Linux host); Cursor (the owner's run; Unverified); the HTTP row (1d).
 - Rests on: the instance driven is the one started (the Doctor), and OpenCode starts a local MCP server with the project directory as its cwd. Level 5 for OpenCode only.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5, 2026-10-03, macOS (Darwin 25.6.0), go1.27.0 darwin/arm64, the built binary at `7620f6e-dirty` (steps 7 and 8 uncommitted), OpenCode v2.0.18 with model `github-copilot/claude-sonnet-5.5`. Run by the implementer as one script of the recipe's own commands (`$E/recipe-1c.sh`, its output `$E/recipe-1c.log`), with `R=/private/tmp/dy.MZtec4`, `E=$R/evidence`.
+  - Launch: `pre-health` exit 1; `serve` in the foreground.
+  - Doctor: all five checks ok at launch and again before Cleanup.
+  - Drive, the shipped surface: `"$DY" schema | cmp - schema/capabilities.json` printed nothing (`schema-cmp-ok`); `"$DY" caps | grep -c '^fixture\.'` 0; `go list -deps ./cmd/droidyard | grep -c processtest` 0.
+  - Drive, parity: `system.capabilities` CLI result and MCP `structuredContent` `cmp` identical (`parity-ok`), session exit 0. `workspace.describe` CLI result and MCP `structuredContent` identical (`ws-parity-ok`).
+  - Drive, the workspace row (session `mcp --root "$R/proj"`): `call --workspace "$R/proj" workspace.open` and `workspace.describe` exit 0 with `{"state":"ready","root":"/private/tmp/dy.MZtec4/proj","trusted":false}`; `workspace.close` exit 0; then the session's `workspace_describe` twice prints `[true,"WORKSPACE_NOT_OPEN"]` twice; session exit 0.
+  - Drive, the dummy-sidecar and crash-recovery rows, as step 7's tests (recipe Drive replaced, R12): `run sidecar-tests` (five tests) and `run crash-tests` (three, with step 2's `TestServeReapsOrphansBeforeItAnswers`), exit 0, every test PASS.
+  - Drive, OpenCode (`opencode run --standalone --format json --print-logs --auto` from `$R/proj`; the server is `tap.sh`, `droidyard mcp --no-autostart` with no `--root`): exit 0. `opencode.err` logs `message="mcp connected" server=droidyard tools=7`, with no `WARN` line. `wire.c2s.jsonl` has one `tools/call` of `workspace_describe` with `{}`. `wire.s2c.jsonl` answers `{"state":"ready","root":"/private/tmp/dy.MZtec4/proj","trusted":false}`, so the session was bound to OpenCode's cwd.
+  - Cleanup: `snapshot final` lists only the daemon (`final.procs`); `stop` exit 0; `count_orphans final` prints 0.
+
+  Recipe edits in `.opencode/skills/verify-daemon/SKILL.md`: Launch creates `$R/proj/settings.gradle.kts`; `mcp_open` passes `--root "$R/proj"`, and the Drive note says the session binds and opens it; the shipped-surface block; the workspace row and block; parity extended to `workspace.describe`; the dummy-sidecar and crash-recovery rows run step 7's tests; the OpenCode note checks `workspace_describe` on the wire; the status line. One correction after the run: v2.0.18 logs `message="mcp connected" server=droidyard`, not `mcp connected server=droidyard`; the note now says so, and its `grep` was run against `$E/opencode.err` (count 1). Not run: the auto-start and single-instance row (in scope at 1b, not named by this step); a Linux run; Cursor (the owner's). `git diff schema/` empty; `go build ./...` ok; `go vet ./...` and `gofmt -l .` print nothing; `go test -count=1 ./...` ok for twelve packages.
 
 ## Not in this milestone
 
@@ -353,3 +383,4 @@ Not questions: each follows from a cited document and is cheap to change. The ow
 - 2026-10-03, after steps 1 to 3 were committed (owner decision D1; ADR-0026 `Amended: 2026-10-03 (second pass)`): a state-file read or write that fails for any reason other than a corrupt file or a newer version (permissions, no space, an IO error) ends `workspace.open` `failed` with `WORKSPACE_STATE_UNREADABLE`, `details {target}`, nextStep "check the permissions and free space of the state directory". Before, it surfaced as `REQUEST_INVALID_PARAMS` through the generic fallback. The code is in `internal/capability/error.go` and listed in `workspace.open`'s `errors` only; `workspace.describe` touches no files and does not list it. Golden file: one line added.
 - 2026-10-03, step 3: the filesystem root `/` has basename `/`, which ADR-0021 §Layout's `<basename>-<12 hex>` would put into an id and into `ws/<wsid>/`. `WorkspaceID` names it `root`, so the id is `root-<12 hex>`. This fills a gap in ADR-0021 and is left to the owner to confirm or change there. The owner confirmed it as decision D2; no code change.
 - 2026-10-03, step 6: the Rests on line says the final `SIGKILL` reaches the group "while its leader is still unreaped". In the supervisor the leader is reaped as soon as it exits: `cmd.Wait` runs in its own goroutine, and on macOS Go cannot wait without reaping. The safety rests on a different fact instead. The group `SIGKILL` is sent only when `kill(-pgid, 0)` shows the group still has members, both after the shutdown timeout and after an unexpected exit, and POSIX does not reuse a process group id while the group has members. What is left unverified is the window between that check and the kill. Keeping the leader unreaped would need `kqueue` `NOTE_EXIT` on darwin and `waitid(WNOWAIT)` on Linux, and nothing in 1c needs that.
+- 2026-10-03, step 7: the Builds line says the daemon "reconciles before [the supervisor] exists". The workspace close hook and the test fixture need the supervisor when the registry is built, which happens before `daemon.Start` takes the lock. So `serve` builds the supervisor first: `process.New` reads nothing and spawns nothing. `daemon.Start` calls `Supervisor.Load` (reads `processes.json`) after `Acquire` and `Reconcile`, before the socket is bound, and until `Load` succeeds every `Use` fails with `ErrUnrecordable`. The property the plan wants, that nothing is spawned before the records are reconciled, holds. Step 6's `New` no longer reads the file; its tests call `Load`. The mutation that loads before reconciling fails `TestKilledDaemonsStubbornSidecarIsReapedByTheNext`: "records [320 324]; want only the new dummy 324".

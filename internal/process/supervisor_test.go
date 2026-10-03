@@ -31,8 +31,8 @@ func newSupervisor(t *testing.T) (*Supervisor, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(Options{Store: st, Log: testLog{t}})
-	if err != nil {
+	s := New(Options{Store: st, Log: testLog{t}})
+	if err := s.Load(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Shutdown)
@@ -349,12 +349,16 @@ func TestNewerRecordsFileSpawnsNothing(t *testing.T) {
 	newer := []byte(`{"schemaVersion":2,"processes":[]}`)
 	path := filepath.Join(st.Root(), RecordsFile)
 	os.WriteFile(path, newer, 0o600)
-	s, err := New(Options{Store: st})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := New(Options{Store: st})
 	t.Cleanup(s.Shutdown)
 	d, ev := dummy(t, "blocked", Global)
+	// Before Load (the daemon calls it after Reconcile), nothing is spawned either.
+	if _, err := s.Use(context.Background(), d); !errors.Is(err, ErrUnrecordable) {
+		t.Fatalf("Use before Load: %v; want ErrUnrecordable", err)
+	}
+	if err := s.Load(); !errors.Is(err, store.ErrNewer) {
+		t.Fatalf("Load of a newer processes.json: %v", err)
+	}
 	if _, err := s.Use(context.Background(), d); !errors.Is(err, ErrUnrecordable) {
 		t.Fatalf("Use with a newer processes.json: %v; want ErrUnrecordable", err)
 	}

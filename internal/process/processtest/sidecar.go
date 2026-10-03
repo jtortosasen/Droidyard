@@ -30,7 +30,7 @@ const SidecarEnv = "DROIDYARD_TEST_SIDECAR"
 // SidecarCommand is how a test describes the dummy to the supervisor: its command,
 // and the environment that selects the mode, the event file and the options.
 func SidecarCommand(events string, opts ...string) (command string, env []string) {
-	return os.Args[0], append(os.Environ(),
+	return self(), append(os.Environ(),
 		ModeEnv+"="+Sidecar, FileEnv+"="+events, SidecarEnv+"="+strings.Join(opts, ","))
 }
 
@@ -64,7 +64,7 @@ func runSidecar() {
 		}
 	}()
 	if _, ok := opts["fork-helper"]; ok {
-		h := exec.Command(os.Args[0])
+		h := exec.Command(self())
 		h.Env = append(os.Environ(), ModeEnv+"="+TermIgnored)
 		if err := h.Start(); err != nil {
 			os.Stderr.WriteString("processtest: " + err.Error() + "\n")
@@ -107,4 +107,13 @@ func runSidecar() {
 		select {}
 	}
 	os.Exit(0)
+}
+
+// self is the running test binary. os.Args[0] is not: a re-executed daemon names
+// itself droidyard.
+func self() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return os.Args[0]
 }
