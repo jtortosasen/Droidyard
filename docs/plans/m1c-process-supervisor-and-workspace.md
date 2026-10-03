@@ -1,6 +1,6 @@
 # Plan: Milestone 1c — the process supervisor and the workspace model
 
-- Status: Reviewed
+- Status: Approved
 - Date: 2026-10-02; revised 2026-10-03
 - Milestone: "Milestone 1c — the process supervisor and the workspace model" (`docs/README.md` §Where the work stands: "descriptors, lifecycle, idle shutdown and no orphans; `workspace.open` / `describe` / `close` with ADR-0021 persistence; the MCP session binding (root resolve, open at session start)")
 - Phase: `docs/roadmap/mvp.md` §Phase 0 (in part; see Scope)

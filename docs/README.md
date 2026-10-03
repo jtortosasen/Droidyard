@@ -79,7 +79,8 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 ## Where the work stands
 
 **The design is closed and verified. Milestone 1b — the daemon and the MCP adapter —
-is done and verified. The process supervisor and the workspace model are next.**
+is done and verified. Milestone 1c — the process supervisor and the workspace model —
+is approved and in implementation.**
 
 | | State |
 | --- | --- |
@@ -87,7 +88,7 @@ is done and verified. The process supervisor and the workspace model are next.**
 | **Owner decisions** | 19 closed in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md), plus the two 1b decisions: the MCP implementation ([ADR-0025](adr/0025-mcp-adapter-implementation.md)) and the macOS peer check with the per-root fallback ([ADR-0019](adr/0019-process-topology-daemon-and-shims.md) §6). |
 | **Code** | **Milestone 1b — the daemon and the MCP adapter — done and verified** ([plan](plans/m1b-daemon-and-mcp-adapter.md), status `Done`; acceptance A1 to A12 ticked at their stated levels). State root, socket path rules and single-instance `flock`; the Unix socket with the peer-uid check, handshake and sessions; the native envelope and `operation.wait` / `operation.cancel`; the `serve` (foreground and `--detach`), `mcp`, `call`, `status` and `stop` subcommands; the MCP adapter on `mark3labs/mcp-go`. **The surface is reachable by an agent over MCP** (OpenCode v2.0.18 verified; Cursor not run). |
 | **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.opencode/`](../.opencode/), on top of [`../AGENTS.md`](../AGENTS.md). First full use on 1b: plan, three review rounds, implementation, two verification rounds — the verifier reproduced one missed lock race and one weak retention test, both fixed. |
-| **Next** | **Milestone 1c — the process supervisor and the workspace model** ([plan](plans/m1c-process-supervisor-and-workspace.md), `Reviewed` 2026-10-03 after two review rounds; implementation awaits the owner's approval): descriptors, lifecycle, idle shutdown and no orphans; `workspace.open` / `describe` / `close` with ADR-0021 persistence and [ADR-0026](adr/0026-workspace-addressing-invalid-roots.md) / [ADR-0027](adr/0027-workspace-close-and-reopen.md); the MCP session binding (root resolve, open at session start). |
+| **Next** | **Milestone 1c — the process supervisor and the workspace model** ([plan](plans/m1c-process-supervisor-and-workspace.md), `Approved` 2026-10-03 after two review rounds; implementation in progress): descriptors, lifecycle, idle shutdown and no orphans; `workspace.open` / `describe` / `close` with ADR-0021 persistence and [ADR-0026](adr/0026-workspace-addressing-invalid-roots.md) / [ADR-0027](adr/0027-workspace-close-and-reopen.md); the MCP session binding (root resolve, open at session start). |
 | **Then** | **Milestone 1d (proposed) — HTTP/WebSocket skeleton, the event bus and `events.*`**; then the JVM-free device slice (`device.list`, `device.screenshot`, `device.uiTree`), which proves the contract, the adapters, artifacts and events with no Kotlin. The Gradle Tooling API sidecar comes after, gated by spikes S1 run 2 and S3. |
 
 Three things to read before the next milestones:
