@@ -49,7 +49,7 @@ All three adapters run in one daemon ([ADR-0019](../adr/0019-process-topology-da
 | **Operation** | The record of one invocation — id, state, result. **Every** invocation is one. |
 | **Streaming capability** | One whose statefulness is `streaming`: it produces events for a session. Not a separate kind. |
 | **Event** | A typed, timestamped message emitted by the core. |
-| **Session** | One adapter connection — an MCP shim, a CLI invocation, a WebSocket. Owns stateful resources. |
+| **Session** | One adapter connection — an MCP shim, a CLI invocation, a WebSocket. Only a session that can carry state and events, today the WebSocket, owns stateful resources ([ADR-0010](../adr/0010-capability-statefulness.md)). |
 | **Subscription** | A session's registration to receive events matching a filter. |
 
 ## Naming and namespaces
@@ -295,7 +295,7 @@ marked is `stateless`.
 | `sdk.requirements` | W | Q | | ✓ | |
 | `file.list`, `file.read` | W | Q | | | |
 | `file.write` | W | C | | | |
-| `file.watch` | W | Q | **streaming** | | |
+| `file.watch` | W | Q (to revisit, see below) | **streaming** | | |
 | `git.status`, `git.diff`, `git.log`, `git.branches` | W | Q | | | |
 | `shell.exec` | W | C | | ✓ | ✓ |
 | `artifact.read` | G | Q | | | ✓ |
@@ -340,7 +340,10 @@ operations belong to the daemon, not to a session.
   `operation.wait`, `device.list`).
 - `topic` groups events; `type` discriminates within a topic.
 
-The **subscribable topics** are a closed list; each landed with a milestone:
+The **topics** are a closed list; each lands with a milestone, and only a topic that
+has landed can be subscribed to (in 0.3.0: `workspace.lifecycle` and
+`operation.progress`). `events.gap` is not subscribable: it is the marker every
+subscription receives when it lost events.
 
 | Topic | Types / payload | Milestone |
 | --- | --- | --- |
@@ -352,8 +355,8 @@ The **subscribable topics** are a closed list; each landed with a milestone:
 | `process.lifecycle`, `process.output` | supervised sidecars | Phase 1, with the first shipped sidecar |
 | `operation.state` | operation transitions for the UI | Phase 2 |
 
-A subscription to a topic outside this list is rejected, and adding a topic is a
-minor-version change.
+A subscription to any other topic is rejected with `REQUEST_INVALID_PARAMS`, and
+adding a topic is a minor-version change.
 
 ### Subscriptions
 
@@ -361,7 +364,8 @@ minor-version change.
 returns a `subscriptionId`. Events are delivered in `seq` order per subscription.
 `events.subscribe` is a command: each call creates a subscription, so it is neither
 read-only nor idempotent (milestone 1d; a query that writes is a `Kind` bug,
-[mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Annotations).
+[mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Annotations). `file.watch` creates a subscription the same way and is still listed as a query;
+the milestone that ships it settles its kind.
 
 - **Resume** with `since`: the core replays matching events from a bounded in-memory
   ring buffer (count and byte caps), then continues live. If `since` is older than the

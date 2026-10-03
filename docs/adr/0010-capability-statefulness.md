@@ -34,8 +34,9 @@ Discovery (`system.capabilities`) advertises the classification. Adapters must:
 - keep a session for stateful/streaming capabilities. A session is one connection
   ([ADR-0019](0019-process-topology-daemon-and-shims.md) §Sessions), and only a
   connection that can carry the capability's state counts: the **WebSocket**. **Plain
-  HTTP requests have no session**; an MCP session and one `droidyard call` are one-shot
-  connections and cannot subscribe;
+  HTTP requests have no session**; an MCP session and a `droidyard call` cannot
+  subscribe, because neither has a channel to push events into (the native envelope
+  has no event frame, and a tool call cannot push after it returns);
 - **reject** a stateful/streaming capability invoked on a connection that cannot carry
   it (or on none) with `SESSION_REQUIRED`, rather than silently degrading.
 

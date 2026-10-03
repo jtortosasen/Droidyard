@@ -173,7 +173,8 @@ Deliverables:
   deferred: it only becomes useful with code intelligence.
 - TypeScript client generated from the capability schema.
 - The loopback HTTP baseline: bind to 127.0.0.1, Host and Origin checks, a
-  per-launch token.
+  per-launch token. Delivered early, in milestone 1d with the Phase 0 skeleton; Phase 2
+  adds no rule to it.
 
 Stretch (not required to close the MVP): live screen stream to the device panel.
 

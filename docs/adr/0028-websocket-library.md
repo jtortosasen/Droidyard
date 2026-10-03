@@ -30,8 +30,8 @@ Use `github.com/coder/websocket` **v1.8.15**, pinned in `go.mod`.
   `Host`/`Origin` pairs our rules allow (for example `Origin: http://localhost:<p>` on
   `Host: 127.0.0.1:<p>`).
 - Read limit 4 KiB until the first frame authenticates, then 1 MiB, matching the
-  request-body cap of `POST /v1/call`; a larger frame closes with 1009, a non-text
-  frame with 1003.
+  request-body cap of `POST /v1/call`; a larger frame closes with 1009; a non-text
+  frame closes with 4401 as the first frame and with 1003 after `auth`.
 - The token is the first frame within 5 s or the connection closes with code `4401`;
   close codes and ping/pong are held to the contract by the milestone's checks.
   Fragmented messages are reassembled by the library and not exercised by any check.
