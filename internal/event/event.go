@@ -114,6 +114,14 @@ func (b *Bus) Position() Position {
 	return Position{Epoch: b.epoch, Seq: b.seq}
 }
 
+// Subscriptions is how many subscriptions the bus holds: what a session's end must
+// bring back to zero.
+func (b *Bus) Subscriptions() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
+}
+
 // Publish implements capability.Publisher.
 func (b *Bus) Publish(topic, typ, workspace, operation string, payload any) {
 	b.publish(topic, typ, workspace, operation, payload)

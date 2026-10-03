@@ -25,6 +25,16 @@ const (
 	ClientUI  ClientKind = "ui"
 )
 
+// Session is a session that can carry the state and the stream of a stateful or
+// streaming capability (ADR-0010 §Decision as amended; plan m1d, D6): in 1d, only a
+// WebSocket connection. A CLI call, an MCP session and a plain HTTP request are not
+// one, so their requests carry none. The event layer implements it; capability does
+// not import it, and a handler asserts the session it needs.
+type Session interface {
+	// ID names the session, for logs and tests.
+	ID() string
+}
+
 // Retention of terminal operations (ADR-0020 §Retention): 15 minutes, and at least
 // the last 200.
 const (
@@ -42,6 +52,10 @@ type Request struct {
 	Params json.RawMessage
 	// Client is the calling session's kind.
 	Client ClientKind
+	// Session is the session the call came in on, when it can carry events; nil
+	// otherwise. A Stateful or Streaming capability is rejected without one, before
+	// any operation exists (ADR-0010; plan m1d, D6).
+	Session Session
 }
 
 // Outcome is an operation as Wait reports it. Result is set iff State is completed,
@@ -145,13 +159,13 @@ func (o *Operations) Start(ctx context.Context, req Request) (string, error) {
 	if !d.Recorded() {
 		return "", fmt.Errorf("capability %s is not an operation: call it through Invoke", d.Name)
 	}
-	return o.start(ctx, d, params, req.Workspace)
+	return o.start(ctx, d, params, req.Workspace, req.Session)
 }
 
 // start records the operation and runs its handler. A workspace-scoped call is
 // admitted first: its target must be an open workspace, and the call runs with the
 // workspace's canonical id (ADR-0020 §Scope and workspace addressing).
-func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string) (string, error) {
+func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session) (string, error) {
 	id := newID()
 	// The handler's context carries the caller's values but not its cancellation:
 	// only Cancel ends it.
@@ -161,6 +175,7 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 		OperationID: id,
 		Workspace:   target,
 		Params:      params,
+		Session:     session,
 		Progress: func(done, total int, message string) {
 			p := Progress{Done: done, Total: total, Message: message}
 			o.mu.Lock()
@@ -332,14 +347,14 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 		return Outcome{}, err
 	}
 	if d.Recorded() {
-		id, err := o.start(ctx, d, params, req.Workspace)
+		id, err := o.start(ctx, d, params, req.Workspace, req.Session)
 		if err != nil {
 			return Outcome{}, err
 		}
 		return o.Wait(ctx, id, time.Time{})
 	}
 
-	res, err := d.Handler(ctx, &Call{Params: params, Progress: func(int, int, string) {}})
+	res, err := d.Handler(ctx, &Call{Params: params, Session: req.Session, Progress: func(int, int, string) {}})
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -360,6 +375,12 @@ func (o *Operations) prepare(req Request) (Descriptor, any, error) {
 		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is for humans and cannot be called over MCP", d.Name).
 			WithNextStep("ask the user to run it from the UI or the CLI")
 	}
+	if d.Statefulness != Stateless && noSession(req.Session) {
+		// Before anything is recorded, for every adapter: a stateful or streaming
+		// capability is rejected rather than silently degraded (ADR-0010).
+		return Descriptor{}, nil, Errorf(ErrSessionRequired, "%s is %s: it needs a session that can carry its state, and this connection is not one", d.Name, d.Statefulness).
+			WithNextStep("subscribe over the WebSocket session, GET /v1/ws")
+	}
 	switch {
 	case d.Scope == Workspace && req.Workspace == "":
 		return Descriptor{}, nil, Errorf(ErrMissingWorkspace, "%s is workspace-scoped and the request names no workspace", d.Name)
@@ -372,6 +393,20 @@ func (o *Operations) prepare(req Request) (Descriptor, any, error) {
 			WithCause(err.Error())
 	}
 	return d, params, nil
+}
+
+// noSession reports whether s carries no session: nil, or an interface holding a nil
+// pointer, which a naive `== nil` would take for one.
+func noSession(s Session) bool {
+	if s == nil {
+		return true
+	}
+	v := reflect.ValueOf(s)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return v.IsNil()
+	}
+	return false
 }
 
 // decodeParams decodes raw into a fresh value of proto's type, strictly: an unknown

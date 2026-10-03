@@ -303,7 +303,7 @@ marked is `stateless`.
 | `policy.update` | G | C | | | |
 | `operation.wait` | G | Q | | | |
 | `operation.cancel` | G | C | | | |
-| `events.subscribe` | G | Q | **streaming** | | |
+| `events.subscribe` | G | C | **streaming** | | |
 | `events.unsubscribe` | G | C | **stateful** | | |
 
 Only three capabilities need a session. The bounded `device.logs` follow is a
@@ -357,15 +357,21 @@ minor-version change.
 
 ### Subscriptions
 
-`events.subscribe({ "topics": ["device.logcat"], "filter": { "device": "emulator-5554" }, "since": { "epoch": "d-5f1c", "seq": 80 } })`
+`events.subscribe({ "topics": ["workspace.lifecycle"], "since": { "epoch": "d-5f1c", "seq": 80 } })`
 returns a `subscriptionId`. Events are delivered in `seq` order per subscription.
+`events.subscribe` is a command: each call creates a subscription, so it is neither
+read-only nor idempotent (milestone 1d; a query that writes is a `Kind` bug,
+[mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Annotations).
 
 - **Resume** with `since`: the core replays matching events from a bounded in-memory
   ring buffer (count and byte caps), then continues live. If `since` is older than the
   buffer, or from another epoch, delivery starts with an `events.gap` marker. Events
   are never persisted.
 - Subscriptions belong to the session. Consumers unsubscribe explicitly; the core also
-  cleans up on disconnect.
+  cleans up on disconnect. `events.unsubscribe` of an unknown, ended or other
+  session's id is a no-op returning `{}`, so no session can probe another's ids
+  (milestone 1d, D7). `filter` is not accepted yet; it arrives as an optional
+  parameter.
 
 ## Structured vs raw output
 

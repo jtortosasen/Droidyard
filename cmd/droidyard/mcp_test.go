@@ -255,8 +255,19 @@ func TestMCPTranscript(t *testing.T) {
 		listed[name] = tool
 	}
 	golden := published(t)
+	stateless := 0
 	for name, g := range golden {
 		tool, ok := listed[mcpadapter.ToolName(name)]
+		if g["statefulness"] != "stateless" {
+			// A tool call has no channel to push into after it returns: a stateful or
+			// streaming capability, events.* among them, is published but not a tool
+			// (mcp-tool-surface.md §What is exposed).
+			if ok {
+				t.Errorf("tools/list has %s, a %v capability", mcpadapter.ToolName(name), g["statefulness"])
+			}
+			continue
+		}
+		stateless++
 		if !ok {
 			t.Errorf("tools/list lacks %s", mcpadapter.ToolName(name))
 			continue
@@ -283,6 +294,18 @@ func TestMCPTranscript(t *testing.T) {
 		if desc != g["description"] {
 			t.Errorf("%s: description %q; want the golden one", name, desc)
 		}
+	}
+	shipped := 0
+	for name := range listed {
+		if !strings.HasPrefix(name, "fixture_") {
+			shipped++
+		}
+		if strings.HasPrefix(name, "events_") {
+			t.Errorf("tools/list has %s: events.* are not tools", name)
+		}
+	}
+	if shipped != 7 || stateless != 7 {
+		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 7 of each", shipped, stateless)
 	}
 	for name := range listed {
 		if _, ok := golden[strings.Replace(name, "_", ".", 1)]; !ok && name != "fixture_block" && name != "fixture_slow" {

@@ -139,6 +139,7 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
 	}
 	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain, StopSidecars: stopSidecars, Publisher: bus}))
+	event.Register(reg)
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
