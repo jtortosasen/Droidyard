@@ -14,7 +14,7 @@ const (
 	plansIndex = "docs/plans/README.md"
 )
 
-// planStatuses and stepFields come from .opencode/skills/milestone-plan/templates/plan.md.
+// planStatuses and stepFields come from .claude/skills/milestone-plan/templates/plan.md.
 var (
 	planStatuses = map[string]bool{"Draft": true, "Blocked": true, "Reviewed": true, "Approved": true, "Done": true}
 	stepFields   = []string{"Builds", "Implements", "Check", "Schema", "Needs", "Not here"}
