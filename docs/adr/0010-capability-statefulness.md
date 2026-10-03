@@ -6,6 +6,9 @@
   has none; the WebSocket is the UI's session), and where session state lives — in the
   session, not the workspace; operations belong to the daemon
   ([ADR-0019](0019-process-topology-daemon-and-shims.md)).
+- Amended: 2026-10-03 — only a session that can carry stateful work counts (the
+  WebSocket): a CLI call, an MCP session and a plain HTTP request are rejected with
+  `SESSION_REQUIRED` (milestone 1d, owner-delegated decision D6).
 
 ## Context
 
@@ -29,11 +32,12 @@ Every capability **declares its statefulness**:
 Discovery (`system.capabilities`) advertises the classification. Adapters must:
 
 - keep a session for stateful/streaming capabilities. A session is one connection
-  ([ADR-0019](0019-process-topology-daemon-and-shims.md) §Sessions): a stdio shim (one
-  MCP session), one `droidyard call`, or one WebSocket. **Plain HTTP requests have no
-  session**; the web UI's session is its WebSocket;
-- **reject** a stateful/streaming capability invoked without a session with
-  `SESSION_REQUIRED`, rather than silently degrading.
+  ([ADR-0019](0019-process-topology-daemon-and-shims.md) §Sessions), and only a
+  connection that can carry the capability's state counts: the **WebSocket**. **Plain
+  HTTP requests have no session**; an MCP session and one `droidyard call` are one-shot
+  connections and cannot subscribe;
+- **reject** a stateful/streaming capability invoked on a connection that cannot carry
+  it (or on none) with `SESSION_REQUIRED`, rather than silently degrading.
 
 ## Consequences
 

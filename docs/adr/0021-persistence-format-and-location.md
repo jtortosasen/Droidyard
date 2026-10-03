@@ -9,6 +9,9 @@
   ([ADR-0026](0026-workspace-addressing-invalid-roots.md)).
 - Amended: 2026-10-03 (second pass) — the filesystem root's workspace name is `root`
   (`root-<12 hex>`), because its basename is `/`; owner decision.
+- Amended: 2026-10-03 (third pass) — runtime files (`daemon.lock`, `run/`) carry no
+  `schemaVersion`: they exist only while the daemon runs, and `run/http-token` is
+  deleted on exit (milestone 1d, owner-delegated decision D8).
 
 ## Context
 
@@ -83,6 +86,10 @@ spec.
     │   └── <buildId>.json   compact build result; the newest finished one is lastResult
     └── artifacts/       durable artifacts (e.g. build consoles), handed out as refs, never paths
 ```
+
+Runtime files — `daemon.lock` and everything under `run/` — are not versioned state:
+they carry no `schemaVersion`, they exist only while the daemon runs, and
+`run/http-token` is deleted on exit (2026-10-03, milestone 1d).
 
 The workspace id is `<basename>-<12 hex of sha256(canonical root)>`: deterministic,
 and still readable when someone lists the directory. The canonical root is the

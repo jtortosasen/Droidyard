@@ -20,6 +20,10 @@
   §Adapter projections) is a shim flag, and the adapter that applies it runs in the
   daemon, so the hello is the only way it reaches it. Found implementing milestone 1b
   step 8.
+- Amended: 2026-10-03 — a session that can own stateful work is the WebSocket: the shim
+  and `droidyard call` connections cannot subscribe and get `SESSION_REQUIRED` (D6); the
+  lock is rewritten after the HTTP listener binds so its fields name the live addresses
+  (D8). Owner-delegated decisions, milestone 1d.
 
 ## Context
 
@@ -74,7 +78,8 @@ daemon per project root (`droidyard serve --root <path>`). See *Alternatives*.
    units are an optional post-MVP convenience.
 5. **Single instance.** Before binding anything the daemon takes an exclusive `flock`
    on `<state>/daemon.lock` and writes `{pid, startTime, version, socket, http}` into
-   it. The kernel releases the lock when the daemon dies, so a crashed daemon never
+   it, rewriting it once the socket and the HTTP listener have bound so the fields name
+   the live addresses (2026-10-03). The kernel releases the lock when the daemon dies, so a crashed daemon never
    blocks the next one; the file's contents only identify the holder (for `status`,
    `stop`, and error messages). Racing auto-starts resolve themselves: the loser exits,
    its shim connects to the winner. The lock holder removes a stale socket file before
@@ -107,8 +112,9 @@ daemon per project root (`droidyard serve --root <path>`). See *Alternatives*.
 - A **session** is one connection: one shim (= one MCP session), one `droidyard call`
   invocation, or one WebSocket. Plain HTTP requests have no session. This is the
   session of [ADR-0010](0010-capability-statefulness.md): stateful and streaming
-  capabilities (subscriptions, watches) are owned by a session and released when it
-  ends.
+  capabilities (subscriptions, watches) are owned by a session that can carry them —
+  the WebSocket — and released when it ends; the shim and `droidyard call` connections
+  cannot subscribe and such calls are rejected with `SESSION_REQUIRED` (2026-10-03).
 - **Workspace binding (MCP).** At hello the shim resolves a root: `--root <path>` if
   given, else the nearest ancestor of its cwd containing `settings.gradle(.kts)`, else
   its cwd. The session is bound to that root for its lifetime, and the MCP adapter

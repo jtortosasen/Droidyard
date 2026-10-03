@@ -202,7 +202,7 @@ Codes carry no version suffix of their own.
 
 | Code | Meaning |
 | --- | --- |
-| `SESSION_REQUIRED` | A stateful/streaming capability was called without a session ([ADR-0010](../adr/0010-capability-statefulness.md)) |
+| `SESSION_REQUIRED` | A stateful/streaming capability was called on a connection that cannot carry it — plain HTTP, a CLI call or an MCP session; the WebSocket can ([ADR-0010](../adr/0010-capability-statefulness.md)) |
 | `REQUEST_IDEMPOTENCY_CONFLICT` | An `idempotencyKey` was reused with different params (§Idempotency) |
 | `WORKSPACE_NOT_OPEN` | A workspace-scoped call named a root or id that is not open; nextStep `workspace.open` ([ADR-0020](../adr/0020-operation-contract.md)) |
 | `WORKSPACE_UNTRUSTED` | The workspace opened in restricted mode; the capability touches project code ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5) |
@@ -340,9 +340,20 @@ operations belong to the daemon, not to a session.
   `operation.wait`, `device.list`).
 - `topic` groups events; `type` discriminates within a topic.
 
-Representative topics: `build.progress`, `build.output`, `device.logcat`,
-`device.screen`, `device.state`, `workspace.lifecycle`, `process.lifecycle`,
-`operation.state`.
+The **subscribable topics** are a closed list; each landed with a milestone:
+
+| Topic | Types / payload | Milestone |
+| --- | --- | --- |
+| `workspace.lifecycle` | the new state; `{state, degradedBy?}` | 1d |
+| `operation.progress` | `{done, total?, message?, phase?}` | 1d |
+| `events.gap` | the loss marker `{fromSeq, toSeq}`, `seq` equal to `toSeq` | 1d |
+| `build.progress`, `build.output` | Gradle progress and console lines | Phase 1 |
+| `device.logcat`, `device.screen`, `device.state` | device streams and state | device slice |
+| `process.lifecycle`, `process.output` | supervised sidecars | Phase 1, with the first shipped sidecar |
+| `operation.state` | operation transitions for the UI | Phase 2 |
+
+A subscription to a topic outside this list is rejected, and adding a topic is a
+minor-version change.
 
 ### Subscriptions
 
@@ -460,7 +471,7 @@ are fixed by [ADR-0020](../adr/0020-operation-contract.md).
 | --- | --- | --- | --- |
 | HTTP/WebSocket | one request endpoint carrying the envelope | `waitMs`, then `operation.wait` or events | WebSocket subscription |
 | MCP | one tool per capability; `workspace` from the session binding, opened at session start | bounded wait returning the operation view, then `operation_wait` / `operation_cancel` | progress notifications during a wait; `events.*` not exposed |
-| CLI | `droidyard call <domain>.<verb> --params …` over the socket | waits; Ctrl-C cancels; `--detach` | streamed to stderr or `--follow` |
+| CLI | `droidyard call <domain>.<verb> --params …` over the socket | waits; Ctrl-C cancels; `--detach` | none yet: `events.*` is WebSocket-only (1d); `--follow` waits for a native event frame |
 
 Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http-websocket.md) and
 [`interfaces/mcp-tool-surface.md`](../interfaces/mcp-tool-surface.md).
