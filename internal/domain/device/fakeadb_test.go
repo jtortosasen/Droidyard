@@ -58,7 +58,11 @@ func runFake(mode string) {
 			os.Exit(3)
 		}
 		pgid, _ := syscall.Getpgid(0)
-		os.WriteFile(os.Getenv(fakeInfo), []byte(fmt.Sprintf("%d %d %d", os.Getpid(), pgid, child.Pid)), 0o600)
+		// Written then renamed, so a test that polls for the file never reads it half
+		// written (it cancels, killing this process, as soon as the file exists).
+		info := os.Getenv(fakeInfo)
+		os.WriteFile(info+".tmp", []byte(fmt.Sprintf("%d %d %d", os.Getpid(), pgid, child.Pid)), 0o600)
+		os.Rename(info+".tmp", info)
 		if mode == modeForkExit {
 			fmt.Println("hello")
 			return
