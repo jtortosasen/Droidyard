@@ -159,7 +159,8 @@ func TestRunnerWithoutAStarterDoesNotRun(t *testing.T) {
 // TestInProcessRunnerKeepsTheRunnersContract pins the seam the fake adb goes through
 // (NewADBWithExec): Run's timeout, cancellation, output cap and exit-code semantics are
 // the process runner's, so a test over the fake proves what it would over a process. A
-// timeout is ErrTimeout and exit -1; a cancel is the context's error; a non-zero exit
+// timeout is ErrTimeout and exit -1; a cancel is the context's error, and an already
+// ended context starts no client; a non-zero exit
 // is in Output, not an error; the cap drops the rest and flags it.
 func TestInProcessRunnerKeepsTheRunnersContract(t *testing.T) {
 	dir := t.TempDir()
@@ -175,8 +176,13 @@ func TestInProcessRunnerKeepsTheRunnersContract(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	before := len(devicetest.Calls(t, dir))
 	if _, err := a.Run(ctx, path, time.Minute, 1<<10, "devices", "-l"); !errors.Is(err, context.Canceled) || errors.Is(err, ErrTimeout) {
 		t.Errorf("cancelled: err %v, want context.Canceled and not ErrTimeout", err)
+	}
+	// A client is not started under an ended context, as exec.CommandContext's would not be.
+	if got := devicetest.Calls(t, dir); len(got) != before {
+		t.Errorf("cancelled: the fake ran (%q); want no client started under an ended context", got)
 	}
 
 	os.Remove(filepath.Join(dir, "devices.hang"))
