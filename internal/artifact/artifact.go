@@ -49,16 +49,19 @@ type Durability string
 // DurabilityEphemeral lives in memory for the TTL.
 const DurabilityEphemeral Durability = "ephemeral"
 
-// Ref is ADR-0012's ArtifactRef record. Width and Height are set for images only.
+// Ref is ADR-0012's ArtifactRef record. Width and Height are set for images only. In
+// this milestone every artifact is device-derived, so a result that carries a Ref is
+// untrusted through its reference field (plan m1e R9; ADR-0015 §1): the tag is here so
+// that every capability returning the record inherits it.
 type Ref struct {
-	Ref        string     `json:"ref"`
-	MediaType  string     `json:"mediaType"`
-	Bytes      int        `json:"bytes"`
-	Durability Durability `json:"durability"`
-	ExpiresAt  time.Time  `json:"expiresAt"`
+	Ref        string     `json:"ref" jsonschema:"required" untrusted:"true"`
+	MediaType  string     `json:"mediaType" jsonschema:"required"`
+	Bytes      int        `json:"bytes" jsonschema:"required"`
+	Durability Durability `json:"durability" jsonschema:"required"`
+	ExpiresAt  time.Time  `json:"expiresAt" jsonschema:"required"`
 	Width      int        `json:"width,omitempty"`
 	Height     int        `json:"height,omitempty"`
-	Untrusted  bool       `json:"untrusted"`
+	Untrusted  bool       `json:"untrusted" jsonschema:"required"`
 }
 
 // Item is what a producer hands to Put. Producer is the canonical name of the

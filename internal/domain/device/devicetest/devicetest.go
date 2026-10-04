@@ -25,6 +25,7 @@
 //	<serial>.dumpsdcard         `-s <serial> exec-out uiautomator dump /sdcard/window_dump.xml`
 //	<serial>.catsdcard          `-s <serial> exec-out cat /sdcard/window_dump.xml`
 //	<serial>.rmsdcard           `-s <serial> shell rm -f /sdcard/window_dump.xml`
+//	<serial>.screencap          `-s <serial> exec-out screencap -p` (.out holds raw bytes: a PNG)
 //
 // `adb version` answers as client 1.0.41; any other invocation exits 9.
 package devicetest
@@ -151,6 +152,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".catsdcard"
 	case "shell rm -f /sdcard/window_dump.xml":
 		return args[1] + ".rmsdcard"
+	case "exec-out screencap -p":
+		return args[1] + ".screencap"
 	}
 	return ""
 }

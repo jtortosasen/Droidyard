@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/process"
@@ -39,6 +40,8 @@ type uiFixture struct {
 	dir string
 	adb *ADB
 	ops *capability.Operations
+	// store is the artifact store the fixture's device.screenshot writes to.
+	store *artifact.Store
 }
 
 func newUIFixture(t *testing.T, files map[string]string) *uiFixture {
@@ -65,10 +68,11 @@ func newUIFixturePort(t *testing.T, files map[string]string, port string) *uiFix
 	t.Cleanup(sup.Shutdown)
 	adb := NewADB(devicetest.Env(t, dir, port), sup.Spawn)
 	reg := capability.NewRegistry()
-	Register(reg, adb)
+	store := testStore(t)
+	Register(reg, adb, store)
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
-	return &uiFixture{dir: dir, adb: adb, ops: ops}
+	return &uiFixture{dir: dir, adb: adb, ops: ops, store: store}
 }
 
 func uiList(lines ...string) string { return listHead + strings.Join(lines, "") }
@@ -419,7 +423,7 @@ func TestUITreeRequiresDeviceAndAdb(t *testing.T) {
 	sup := process.New(process.Options{})
 	t.Cleanup(sup.Shutdown)
 	reg := capability.NewRegistry()
-	Register(reg, NewADB([]string{"HOME=" + t.TempDir(), "PATH="}, sup.Spawn))
+	Register(reg, NewADB([]string{"HOME=" + t.TempDir(), "PATH="}, sup.Spawn), testStore(t))
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 	id, err = ops.Start(context.Background(), capability.Request{Capability: "device.uiTree", Params: []byte(`{"device":"emulator-5554"}`)})
@@ -436,7 +440,7 @@ func TestUITreeRequiresDeviceAndAdb(t *testing.T) {
 // device.list's is not.
 func TestUITreeDescriptorAndMark(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg, NewADB(nil, nil))
+	Register(reg, NewADB(nil, nil), testStore(t))
 	var d capability.Descriptor
 	for _, x := range reg.All() {
 		if x.Name == "device.uiTree" {

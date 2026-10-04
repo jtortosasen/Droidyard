@@ -212,7 +212,7 @@ func TestListWithoutADB(t *testing.T) {
 // errors are the two codes the handler returns itself.
 func TestListDescriptor(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg, NewADB(nil, nil))
+	Register(reg, NewADB(nil, nil), testStore(t))
 	for _, d := range reg.All() {
 		if d.Name != "device.list" {
 			continue
@@ -271,7 +271,7 @@ func TestListReportsAVersionMismatch(t *testing.T) {
 
 	// Through the capability: the result carries it.
 	reg := capability.NewRegistry()
-	Register(reg, a)
+	Register(reg, a, testStore(t))
 	for _, d := range reg.All() {
 		if d.Name != "device.list" {
 			continue

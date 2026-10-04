@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
@@ -33,8 +34,9 @@ type ListResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// Register adds the device capabilities to reg: device.list and device.uiTree.
-func Register(reg *capability.Registry, adb *ADB) {
+// Register adds the device capabilities to reg: device.list, device.uiTree and
+// device.screenshot, which stores its image in store.
+func Register(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "device.list",
 		Kind:         capability.Query,
@@ -54,6 +56,7 @@ func Register(reg *capability.Registry, adb *ADB) {
 		},
 	})
 	registerUITree(reg, adb)
+	registerScreenshot(reg, adb, store)
 }
 
 // List runs `adb devices -l`, drops what the default policy hides (physical devices,

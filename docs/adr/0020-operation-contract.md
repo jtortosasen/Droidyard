@@ -19,6 +19,10 @@
   kind needs `adb devices -l`) is decided at the re-check before the handler, so it
   fails the operation instead of rejecting at `Start`; `Start` still does no I/O
   (owner-delegated decision, milestone 1e, 2026-10-04, Q2).
+- Amended: 2026-10-04 — a retained result that carries bulk bytes (`artifact.read`'s
+  `data`) keeps its metadata and drops the bytes once delivered, so retention never holds
+  what the artifact store's budget and TTL already bound (delegated decision, milestone
+  1e, step 7 verification).
 
 ## Context
 
@@ -85,7 +89,9 @@ Cancel(OpID) error                                     // cooperative, idempoten
   their domain's queue cap (e.g. `BUILD_QUEUE_FULL`); callers see `queued` through
   their bounded wait.
 - **Retention**: terminal operations stay waitable for 15 minutes and at least the last
-  200. Domain registries (builds) keep their own, longer history.
+  200. Domain registries (builds) keep their own, longer history. A retained result drops
+  bulk bytes once delivered (`artifact.read`'s `data`): a later wait returns the
+  metadata, and the caller re-reads the reference (2026-10-04).
 - `Invoke = Start + Wait(no deadline)` is a helper for tests and internal callers, not a
   second path.
 
