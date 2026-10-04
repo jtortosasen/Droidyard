@@ -25,7 +25,7 @@ compared with a per-platform split.
 ## adb resolution and degradation
 
 ```text
-ADB env var  →  configured adb.path  →  <host SDK>/platform-tools/adb  →  adb on PATH
+ADB env var  →  configured adb.path (with the configuration file)  →  <host SDK>/platform-tools/adb  →  adb on PATH
 ```
 
 The host SDK is resolved as in [sdk](sdk.md) §Host SDK. It comes before `PATH` so that
@@ -36,7 +36,8 @@ from the running server's kills and restarts that server — cutting off Android
 and every other tool attached to it. Before first use, the core compares its client
 version (`adb version`) with the running server's (`host:version` on port 5037). On a
 mismatch it **warns and proceeds**: device calls still run, the warning names both
-binaries and the config key that selects a matching adb, and `system.health` carries it.
+binaries and `ADB` (the config key, once the configuration file exists) as the way to
+select a matching adb, and `system.health` and the device call's `warnings` carry it.
 *Ratified 2026-09-29: warn and continue, rather than refuse.* The risk is accepted and
 recorded: restarting the shared server can interrupt another tool mid-operation.
 If no server is running, the core starts one; starting is not killing.
@@ -89,7 +90,7 @@ Convenience belongs to adapters, and each one still sends `device` explicitly:
 | Adapter | Where `device` comes from |
 | --- | --- |
 | Web UI | Its own device selection, kept client-side and sent on every call |
-| CLI | `--device`, else `ANDROID_SERIAL` — adb's own convention, set explicitly by the user. *Ratified 2026-09-29* |
+| CLI | `--device`, else `ANDROID_SERIAL` — adb's own convention, set explicitly by the user. *Ratified 2026-09-29*; not built in 1e (the CLI passes `device` in `--params`) |
 | MCP | The agent passes it; the server instructions say so. Sessions are bound to a workspace, never to a device |
 
 ## Transport to the device

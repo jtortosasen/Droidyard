@@ -190,6 +190,7 @@ typed contract.
   `device_screenshot`) gets an `ImageContent` block after the text, alongside the
   reference.
   - It is downscaled so its longest edge is at most **1024 px** (`--image-max-edge`,
+    not built in 1e,
     hard cap 2048), keeping the aspect ratio.
   - It is PNG, or JPEG at quality 85 if the PNG exceeds 512 KiB. These are working
     defaults, to be verified in S2.
@@ -200,8 +201,8 @@ typed contract.
     delivered at 461×1024 costs about 630 image tokens with Anthropic's `w·h/750`
     rule. That is why the instructions prefer the tree.
 - **Every reference is readable.** `artifact_read {ref, …}`
-  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) pages text by byte offset. A
-  negative offset reads from the end. For images it redelivers the artifact larger, or
+  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) pages text by byte offset (with
+  the first text artifact; 1e reads images only). A negative offset reads from the end. For images it redelivers the artifact larger, or
   cropped with a normalised `region`, within the hard cap, as an image block: at its
   `maxEdge`, or 1024 px when it gives none (an MCP agent never receives the stored
   bytes as base64), with the structured `delivered` and `mediaType` describing the
@@ -212,7 +213,9 @@ typed contract.
 - **Expiry**: an ephemeral reference (a screenshot, a log capture) expires after 15
   minutes or a daemon restart, with `ARTIFACT_EXPIRED` and a `nextStep` naming what to
   re-run. Build consoles stay readable as long as their build record.
-- `--no-inline-images` covers clients that reject image content. The reference and its
+- `--no-inline-images` (not built: cut from 1e because OpenCode accepted image blocks;
+  it lands with an ADR-0019 §7 amendment if a client refuses them) covers clients that
+  reject image content. The reference and its
   metadata remain. *Assumption:* **Cursor and OpenCode** accept `ImageContent`
   in tool results. MCP has no capability flag to detect this; spike S2 verifies it.
 
