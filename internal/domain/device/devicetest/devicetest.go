@@ -35,14 +35,22 @@
 // compare them with what it expected.
 //
 // `adb version` answers as client 1.0.41; any other invocation exits 9.
+//
+// Two ways to use it, one scenario format: Main/Env make the test binary itself the
+// adb, for tests whose subject is real process behaviour; Exec answers in process,
+// through device.NewADBWithExec, for everything else.
 package devicetest
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -57,7 +65,7 @@ func Main() {
 	if dir == "" {
 		return
 	}
-	os.Exit(run(dir, os.Args[1:]))
+	os.Exit(run(context.Background(), dir, os.Args[1:], os.Stdout, os.Stderr))
 }
 
 // Env is the environment that makes the fake the resolved adb. port is the adb server
@@ -90,33 +98,59 @@ func Calls(t *testing.T, dir string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
-func run(dir string, args []string) int {
+// logMu orders the calls.log append and the count of identical invocations, so that
+// concurrent in-process clients each get their own place among them. A re-executed
+// fake is one process per call and takes it uncontended.
+var logMu sync.Mutex
+
+// Exec returns the fake as an in-process adb client for device.NewADBWithExec: the
+// same scenario files and the same answers as the re-executed binary, with no process
+// start. It satisfies device.Exec (this package cannot import device). A hang waits
+// for ctx, as a client that is killed when its context ends.
+func Exec(dir string) func(ctx context.Context, path string, args []string) (stdout, stderr []byte, exitCode int, err error) {
+	return func(ctx context.Context, _ string, args []string) ([]byte, []byte, int, error) {
+		var so, se bytes.Buffer
+		code := run(ctx, dir, args, &so, &se)
+		return so.Bytes(), se.Bytes(), code, nil
+	}
+}
+
+// wait sleeps d, or until ctx ends; it reports whether the whole time passed.
+func wait(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func run(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 5 && args[0] == "-s" && args[2] == "push" && isReaderFile(args[4]) {
 		if b, err := os.ReadFile(args[3]); err == nil {
 			os.WriteFile(filepath.Join(dir, args[1]+".pushed"), b, 0o600)
 		}
 		args = []string{args[0], args[1], args[2], "LOCAL", args[4]}
 	}
-	if f, err := os.OpenFile(filepath.Join(dir, "calls.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
-		fmt.Fprintln(f, strings.Join(args, " "))
-		f.Close()
-	}
+	n := logCall(dir, args)
 	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
 	cat := func(name string) {
 		if b, err := os.ReadFile(filepath.Join(dir, name)); err == nil {
-			os.Stdout.Write(b)
+			stdout.Write(b)
 		}
 	}
-	hang := func() int { time.Sleep(time.Minute); return 0 }
+	hang := func() int { wait(ctx, time.Minute); return 0 }
 	if prefix := servedPrefix(args); prefix != "" {
-		return serve(dir, prefix, args)
+		return serve(ctx, dir, prefix, n, stdout, stderr)
 	}
 	switch {
 	case len(args) == 1 && args[0] == "version":
 		if has("version.hang") {
 			return hang()
 		}
-		fmt.Print("Android Debug Bridge version 1.0.41\nVersion 36.0.0-13206524\nInstalled as /fake/adb\n")
+		fmt.Fprint(stdout, "Android Debug Bridge version 1.0.41\nVersion 36.0.0-13206524\nInstalled as /fake/adb\n")
 		return 0
 	case len(args) == 2 && args[0] == "devices" && args[1] == "-l":
 		if has("devices.hang") {
@@ -124,7 +158,7 @@ func run(dir string, args []string) int {
 		}
 		cat("devices.out")
 		if b, err := os.ReadFile(filepath.Join(dir, "devices.err")); err == nil {
-			os.Stderr.Write(b)
+			stderr.Write(b)
 		}
 		if b, err := os.ReadFile(filepath.Join(dir, "devices.exit")); err == nil {
 			n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
@@ -144,8 +178,29 @@ func run(dir string, args []string) int {
 		cat(args[1] + ".avd")
 		return 0
 	}
-	fmt.Fprintln(os.Stderr, "fake adb: unexpected arguments:", strings.Join(args, " "))
+	fmt.Fprintln(stderr, "fake adb: unexpected arguments:", strings.Join(args, " "))
 	return 9
+}
+
+// logCall appends args to calls.log and returns this invocation's place among the
+// identical ones, counted from 1.
+func logCall(dir string, args []string) int {
+	logMu.Lock()
+	defer logMu.Unlock()
+	line := strings.Join(args, " ")
+	if f, err := os.OpenFile(filepath.Join(dir, "calls.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+		fmt.Fprintln(f, line)
+		f.Close()
+	}
+	n := 0
+	if b, err := os.ReadFile(filepath.Join(dir, "calls.log")); err == nil {
+		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			if l == line {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // servedPrefix names the scenario files that answer args, "" if they are not one of
@@ -187,23 +242,17 @@ func isReaderClasspath(a string) bool {
 	return strings.HasPrefix(a, "CLASSPATH=") && isReaderFile(strings.TrimPrefix(a, "CLASSPATH="))
 }
 
-// serve answers one invocation from its prefix's files, and brackets it in events.log
-// so a test can see which invocations overlapped.
-func serve(dir, prefix string, args []string) int {
+// serve answers one invocation, the nth of its identical ones, from its prefix's
+// files, and brackets it in events.log so a test can see which invocations
+// overlapped. A cancelled ctx ends it where a kill would: no "end", no more output.
+func serve(ctx context.Context, dir, prefix string, n int, stdout, stderr io.Writer) int {
 	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
 	event := func(what string) {
+		logMu.Lock()
+		defer logMu.Unlock()
 		if f, err := os.OpenFile(filepath.Join(dir, "events.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
 			fmt.Fprintln(f, what, prefix)
 			f.Close()
-		}
-	}
-	// n is this invocation's place among the identical ones: calls.log already holds it.
-	n := 0
-	if b, err := os.ReadFile(filepath.Join(dir, "calls.log")); err == nil {
-		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-			if l == strings.Join(args, " ") {
-				n++
-			}
 		}
 	}
 	name := prefix
@@ -212,18 +261,20 @@ func serve(dir, prefix string, args []string) int {
 	}
 	event("begin")
 	if has(name + ".hang") {
-		time.Sleep(time.Minute)
+		wait(ctx, time.Minute)
 		return 0
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, name+".delay")); err == nil {
 		ms, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-		time.Sleep(time.Duration(ms) * time.Millisecond)
+		if !wait(ctx, time.Duration(ms)*time.Millisecond) {
+			return 0
+		}
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, name+".out")); err == nil {
-		os.Stdout.Write(b)
+		stdout.Write(b)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, name+".err")); err == nil {
-		os.Stderr.Write(b)
+		stderr.Write(b)
 	}
 	event("end")
 	if b, err := os.ReadFile(filepath.Join(dir, name+".exit")); err == nil {

@@ -129,6 +129,10 @@ var (
 	// daemon's own. Tests replace it so none finds or runs this machine's adb or
 	// reaches the shared server on 5037.
 	adbEnviron = os.Environ
+	// adbExec, when set, runs every adb client in this process instead of starting it
+	// (device.NewADBWithExec): the fake adb of a test whose daemon runs in the test's
+	// own process. The shipped binary never sets it.
+	adbExec device.Exec
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -152,7 +156,12 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 	if sup != nil {
 		spawn = sup.Spawn
 	}
-	adb := device.NewADB(adbEnviron(), spawn)
+	var adb *device.ADB
+	if adbExec != nil {
+		adb = device.NewADBWithExec(adbEnviron(), adbExec)
+	} else {
+		adb = device.NewADB(adbEnviron(), spawn)
+	}
 	system.Register(reg, requirements{adb}, adb, ops, problems)
 	// The daemon's one artifact store, for the bus's epoch: a reference from an earlier
 	// daemon run is ARTIFACT_EXPIRED (ADR-0012). The caller closes it on shutdown.

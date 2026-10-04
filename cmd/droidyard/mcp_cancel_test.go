@@ -42,6 +42,7 @@ func waited(t *testing.T, p *inProcess, id, timeout string) (capability.Response
 // disconnect, by a killed shim or by the client ending its input, never does
 // (ADR-0020 §Adapter projections; ADR-0019 §Sessions).
 func TestMCPCancellation(t *testing.T) {
+	t.Parallel()
 	t.Run("a: notifications/cancelled cancels the operation", func(t *testing.T) {
 		p := startInProcess(t)
 		c, id, _ := startBlockingCall(t, p)

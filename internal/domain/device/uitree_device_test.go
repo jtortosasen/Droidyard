@@ -67,9 +67,7 @@ func newUIFixturePort(t *testing.T, files map[string]string, port string) *uiFix
 	for name, content := range base {
 		devicetest.Write(t, dir, name, []byte(content))
 	}
-	sup := process.New(process.Options{})
-	t.Cleanup(sup.Shutdown)
-	adb := NewADB(devicetest.Env(t, dir, port), sup.Spawn)
+	adb := newFake(t, dir, port)
 	reg := capability.NewRegistry()
 	store := testStore(t)
 	Register(reg, adb, store)
@@ -191,6 +189,7 @@ func TestUITreeGoldenFromRecordedDumps(t *testing.T) {
 // caller gets one result; the fake received exactly two dumps, and the /sdcard path
 // never ran (the retry is of the same path).
 func TestUITreeRetriesIdleFailureOnce(t *testing.T) {
+	quickIdleRetry(t)
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".dumptty#1.out":  idleLine,
 		uiSerial + ".dumptty#1.exit": "1",
@@ -211,6 +210,7 @@ func TestUITreeRetriesIdleFailureOnce(t *testing.T) {
 // DEVICE_UI_DUMP_FAILED with adb's line as the cause, within the 22 s dump deadline,
 // and never a third dump.
 func TestUITreeIdleFailureTwiceIsDumpFailed(t *testing.T) {
+	quickIdleRetry(t)
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".dumptty.out":  idleLine,
 		uiSerial + ".dumptty.exit": "1",
@@ -265,7 +265,7 @@ func TestUITreeFallsBackToSDCardAndRemovesTheFile(t *testing.T) {
 // the deadline can cut it), with the removal issued.
 func TestUITreeDeadlineBoundsAllAttempts(t *testing.T) {
 	old1, old2, old3 := dumpDeadline, dumpAttempt, cleanupReserve
-	dumpDeadline, dumpAttempt, cleanupReserve = 2*time.Second, 8*time.Second, 500*time.Millisecond
+	dumpDeadline, dumpAttempt, cleanupReserve = 500*time.Millisecond, 4*time.Second, 150*time.Millisecond
 	defer func() { dumpDeadline, dumpAttempt, cleanupReserve = old1, old2, old3 }()
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".dumptty.out":     "not a hierarchy\n",
@@ -281,6 +281,15 @@ func TestUITreeDeadlineBoundsAllAttempts(t *testing.T) {
 	if count(f.calls(t), sdRmCall) != 1 {
 		t.Errorf("calls %q: want the removal issued after the hung /sdcard dump", f.calls(t))
 	}
+}
+
+// quickIdleRetry shortens the settle time before an idle-state retry; the length of
+// the pause is TestUITreeIdleRetryPauses's subject, not these tests'.
+func quickIdleRetry(t *testing.T) {
+	t.Helper()
+	old := idleRetryPause
+	idleRetryPause = 10 * time.Millisecond
+	t.Cleanup(func() { idleRetryPause = old })
 }
 
 // maxOverlap is the most invocations of one prefix that were in flight at once, from
@@ -299,17 +308,17 @@ func maxOverlap(events []string, prefix string) int {
 	return m
 }
 
-// Decision (check e; the delay is long because under -race each fake adb call takes seconds): the daemon never issues two dumps to one device at once. Two
+// Decision (check e; the delay only has to outlast the scheduling of the second call): the daemon never issues two dumps to one device at once. Two
 // calls on one device: the second is queued behind the first (the lock is the
 // scheduler's, taken in Start) and the fake sees its dumps one after the other; on two
 // devices the dumps overlap. Without the dump key declared the first half fails.
 func TestUITreeDumpsAreSerialisedPerDevice(t *testing.T) {
 	two := withReader(map[string]string{
 		"devices.out":                     uiList(phoneLine, tabletLine),
-		uiSerial + ".reader.delay":        "2500",
+		uiSerial + ".reader.delay":        "200",
 		"emulator-5556.bootcompleted.out": "1\n",
 		"emulator-5556.reader.out":        fixture(t, "pixeltablet-uidump-devtty.xml"),
-		"emulator-5556.reader.delay":      "2500",
+		"emulator-5556.reader.delay":      "200",
 	}, fixture(t, "pixel9a-uidump-devtty.xml"))
 	f := newUIFixture(t, two)
 	a, err := f.start(t, uiSerial)
@@ -574,7 +583,11 @@ func TestUITreeRemovesTheSDCardFileWhenCancelled(t *testing.T) {
 		uiSerial + ".catsdcard.delay": "5000",
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(1500 * time.Millisecond); cancel() }()
+	// Cancel while the read is in flight (its delay is far longer than the test).
+	go func() {
+		waitLine(t, func() []string { return devicetest.Events(t, f.dir) }, "begin "+uiSerial+".catsdcard")
+		cancel()
+	}()
 	_, err := f.adb.dump(ctx, &target{adb: f.adb.Resolve().Path, serial: uiSerial})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the caller's cancellation", err)

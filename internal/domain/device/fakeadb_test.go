@@ -109,6 +109,31 @@ func childEnv() []string {
 	return append(env, fakeEnv+"="+modeChild)
 }
 
+// newFake is an ADB over the in-process fake adb answering from dir: no process is
+// started, so a test that is not about the process runner pays no process start. The
+// server port is one nothing listens on, or a test's own loopback fake.
+func newFake(t *testing.T, dir, port string) *ADB {
+	t.Helper()
+	return NewADBWithExec(devicetest.Env(t, dir, port), devicetest.Exec(dir))
+}
+
+// waitLine polls the fake's log (calls.log or events.log) until it holds line, so a
+// test cancels at the moment the call it means to interrupt is in flight, not after a
+// guessed sleep.
+func waitLine(t *testing.T, read func() []string, line string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, l := range read() {
+			if l == line {
+				return
+			}
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("the fake adb never logged %q", line)
+}
+
 // testStore is an artifact store for a test, closed with it.
 func testStore(t *testing.T) *artifact.Store {
 	t.Helper()

@@ -159,6 +159,7 @@ func (p *process) wait(t *testing.T) int {
 // non-zero without touching the holder's record; the kernel releases the lock when
 // the holder is killed; a signalled daemon releases it and exits 0.
 func TestSecondServeLosesTheLock(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 
 	first := droidyard(t, state, "serve")
@@ -225,6 +226,7 @@ func TestSecondServeLosesTheLock(t *testing.T) {
 // serve open daemon.lock, holds 20 ms more, and releases. It skips without lsof;
 // TestAcquireOutlastsAHolderProbe covers the fix in process everywhere.
 func TestServeStartsThroughAProbe(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("lsof"); err != nil {
 		t.Skip("lsof is not installed: the test cannot see serve open daemon.lock")
 	}

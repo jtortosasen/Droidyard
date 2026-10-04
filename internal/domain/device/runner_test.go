@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process"
 )
@@ -152,5 +153,38 @@ func TestRunnerWithoutAStarterDoesNotRun(t *testing.T) {
 	a := NewADB(fakeEnvFor(t, modeVersion, "1"), nil)
 	if _, err := a.Run(context.Background(), "x", time.Second, 1); !errors.Is(err, ErrNoStarter) {
 		t.Errorf("err = %v, want ErrNoStarter", err)
+	}
+}
+
+// TestInProcessRunnerKeepsTheRunnersContract pins the seam the fake adb goes through
+// (NewADBWithExec): Run's timeout, cancellation, output cap and exit-code semantics are
+// the process runner's, so a test over the fake proves what it would over a process. A
+// timeout is ErrTimeout and exit -1; a cancel is the context's error; a non-zero exit
+// is in Output, not an error; the cap drops the rest and flags it.
+func TestInProcessRunnerKeepsTheRunnersContract(t *testing.T) {
+	dir := t.TempDir()
+	devicetest.Write(t, dir, "devices.hang", nil)
+	a := newFake(t, dir, closedPort(t))
+	path := a.Resolve().Path
+
+	start := time.Now()
+	out, err := a.Run(context.Background(), path, 100*time.Millisecond, 1<<10, "devices", "-l")
+	if !errors.Is(err, ErrTimeout) || out.ExitCode != -1 || time.Since(start) > 5*time.Second {
+		t.Errorf("hang: err %v exit %d after %v; want ErrTimeout, -1, promptly", err, out.ExitCode, time.Since(start))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.Run(ctx, path, time.Minute, 1<<10, "devices", "-l"); !errors.Is(err, context.Canceled) || errors.Is(err, ErrTimeout) {
+		t.Errorf("cancelled: err %v, want context.Canceled and not ErrTimeout", err)
+	}
+
+	os.Remove(filepath.Join(dir, "devices.hang"))
+	devicetest.Write(t, dir, "devices.out", []byte("0123456789abcdef"))
+	devicetest.Write(t, dir, "devices.err", []byte("oops"))
+	devicetest.Write(t, dir, "devices.exit", []byte("3"))
+	out, err = a.Run(context.Background(), path, time.Minute, 10, "devices", "-l")
+	if err != nil || out.ExitCode != 3 || string(out.Stdout) != "0123456789" || !out.Truncated || string(out.Stderr) != "oops" {
+		t.Errorf("answer: err %v exit %d stdout %q stderr %q truncated %v; want exit 3 in Output, the first 10 bytes, truncated", err, out.ExitCode, out.Stdout, out.Stderr, out.Truncated)
 	}
 }

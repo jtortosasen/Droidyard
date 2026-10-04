@@ -29,6 +29,7 @@ func (p *inProcess) startedID(t *testing.T) string {
 // prints the id and leaves the operation running; and to ADR-0019 §Sessions: a killed
 // CLI does not stop the operation it started.
 func TestCLILongRunning(t *testing.T) {
+	t.Parallel()
 	t.Run("SIGKILL does not stop the operation", func(t *testing.T) {
 		p := startInProcess(t)
 		before := p.d.Sessions()
@@ -79,6 +80,7 @@ func TestCLILongRunning(t *testing.T) {
 // Ctrl-C ends the wait. The daemon here cannot bind (a file sits where run/ goes), so
 // without the interrupt the call would retry for 10 s.
 func TestCtrlCDuringAutoStart(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	if err := os.WriteFile(filepath.Join(state, "run"), nil, 0o600); err != nil {
 		t.Fatal(err)

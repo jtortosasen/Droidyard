@@ -70,6 +70,7 @@ func lastOpenedAt(t *testing.T, state, id string) time.Time {
 // durable state (workspace-state.md §Cleanup and crash recovery). Real processes: a
 // re-executed serve and re-executed CLIs.
 func TestCLIAddressesWorkspaces(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	root, sub := gradleProject(t)
 	id, _ := platform.Current().WorkspaceID(root)
@@ -163,6 +164,7 @@ func sockFor(state string) string {
 // aside, the daemon runs, open works, and system.health lists the problem (ADR-0021
 // §Format: "reported in system.health. Corrupt state never stops the daemon"; R9).
 func TestCorruptIndexIsReportedNotFatal(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	garbage := []byte("{not json at all\x00")
 	if err := os.WriteFile(filepath.Join(state, "workspaces.json"), garbage, 0o600); err != nil {

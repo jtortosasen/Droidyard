@@ -25,6 +25,7 @@ var defaultServerPort = "5037"
 type ADB struct {
 	env   []string
 	start Starter
+	exec  Exec // nil in production; a test's in-process stand-in for the client
 
 	mu    sync.Mutex
 	cache *versions
@@ -36,6 +37,20 @@ type ADB struct {
 // and the supervisor's Spawn; a nil start can resolve and report but not run.
 func NewADB(env []string, start Starter) *ADB {
 	return &ADB{env: append([]string(nil), env...), start: start}
+}
+
+// Exec is an in-process stand-in for starting an adb client, for tests whose subject
+// is not the process runner: it returns what the client would have written and its
+// exit code, and honours ctx as a killed client would. Run still owns the timeout, the
+// output cap and the mapping of a timeout or cancellation, so those behave as with a
+// real client. Production never sets one.
+type Exec func(ctx context.Context, path string, args []string) (stdout, stderr []byte, exitCode int, err error)
+
+// NewADBWithExec is NewADB whose clients are run by exec, in this process, instead of
+// started as processes. It exists for tests (the fake adb in devicetest); the daemon
+// does not use it.
+func NewADBWithExec(env []string, exec Exec) *ADB {
+	return &ADB{env: append([]string(nil), env...), exec: exec}
 }
 
 // Resolve finds adb again: a few stats, run on every availability check and device

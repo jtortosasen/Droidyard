@@ -224,6 +224,7 @@ func normalised(t *testing.T, raw []byte) any {
 // library, since it is not registered; the same result as the CLI; and a shim that
 // ends its session when its stdin ends.
 func TestMCPTranscript(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	before := p.d.Sessions()
 	c := startShim(t, p.state, "client")
@@ -388,6 +389,7 @@ func TestMCPTranscript(t *testing.T) {
 // (ADR-0025 criterion 4, as far as 1b uses it). Run under -race: a race inside mcp-go
 // fails it.
 func TestMCPSessionsAreSeparate(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	a := startShim(t, p.state, "a")
 	b := startShim(t, p.state, "b")
@@ -449,6 +451,7 @@ func TestMCPSessionsAreSeparate(t *testing.T) {
 // stdin is still open, the shim exits non-zero with a message on stderr, as a
 // crashed daemon's shims do (ADR-0019 §Lifetime).
 func TestMCPShimReportsAStoppedDaemon(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	c := startShim(t, p.state, "client")
 	c.initialize("idle")
@@ -466,6 +469,7 @@ func TestMCPShimReportsAStoppedDaemon(t *testing.T) {
 // means the default, so a sub-millisecond --wait is a usage error rather than a silent
 // 20 s.
 func TestMCPWaitRejectsWhatRoundsToZero(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	for _, v := range []string{"500us", "0s", "-1s", "soon"} {
 		p := droidyard(t, state, "mcp", "--no-autostart", "--wait", v)

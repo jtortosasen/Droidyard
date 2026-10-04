@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -62,13 +63,39 @@ func startInProcessWith(t *testing.T, extra func(reg *capability.Registry)) *inP
 // startInProcessAt is startInProcessWith with the UI's listener asked for at httpAddr.
 func startInProcessAt(t *testing.T, httpAddr string, extra func(reg *capability.Registry)) *inProcess {
 	t.Helper()
+	return startInProcessADB(t, httpAddr, extra, nil)
+}
+
+// adbSeam is the adb one in-process daemon is given: the environment it resolves adb
+// in and the clients it runs (nil exec: it would start them as processes).
+type adbSeam struct {
+	env  []string
+	exec device.Exec
+}
+
+// adbSeamMu orders the daemons that start at once (parallel tests): registry() reads
+// the package's adb seams, so a daemon that needs its own sets them, builds its
+// registry and puts them back, all under the lock.
+var adbSeamMu sync.Mutex
+
+// startInProcessADB is startInProcessAt with the adb the daemon is given; nil leaves the
+// seal TestMain put on the package (no adb to find).
+func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability.Registry), adb *adbSeam) *inProcess {
+	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
 	st, err := store.New(p.state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
+	adbSeamMu.Lock()
+	oldEnv, oldExec := adbEnviron, adbExec
+	if adb != nil {
+		adbEnviron, adbExec = func() []string { return adb.env }, adb.exec
+	}
 	reg, ops, bus, artifacts := registry(st, sup, os.Stderr)
+	adbEnviron, adbExec = oldEnv, oldExec
+	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.ops, p.bus, p.store = ops, bus, artifacts
 	if extra != nil {
@@ -184,6 +211,7 @@ func health(t *testing.T, env capability.ResponseEnvelope) system.Health {
 // Readings, operation.wait (a)); a rejection has an error and no operation
 // (docs/architecture/capability-api.md §Response envelope).
 func TestCallPrintsTheEnvelope(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 
 	first, code := p.call(t, "system.health")
@@ -209,6 +237,7 @@ func TestCallPrintsTheEnvelope(t *testing.T) {
 // yet terminal, itself excluded; a finished operation's retained record is not in
 // flight (plan Readings).
 func TestHealthCountsOperationsInFlight(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 
 	if env, _ := p.call(t, "system.health"); health(t, env).Operations != 0 {
@@ -242,6 +271,7 @@ func TestHealthCountsOperationsInFlight(t *testing.T) {
 // waits until the lock is released (ADR-0019 §3; ADR-0021 §Locking). The daemon exits
 // 0, its socket is gone, and a new daemon takes the lock.
 func TestStopEndsServe(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	first := droidyard(t, state, "serve")
 	first.expect(t, "listening")

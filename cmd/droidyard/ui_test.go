@@ -67,6 +67,7 @@ func killDaemonAtEnd(t *testing.T, state string) {
 // one; it is gone, and the port closed, once `stop` returns; the next start writes a
 // different token, and the old one is a 401 there; no log carries either token.
 func TestHTTPTokenFile(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	path := filepath.Join(state, daemon.TokenFile)
 	// What a crashed daemon left, with the wrong mode, in a directory with the wrong one.
@@ -147,6 +148,7 @@ func TestHTTPTokenFile(t *testing.T) {
 // dials the socket every 5 ms from serve's start and reads the lock at the first
 // answer; the address it finds is the one that serves GET /.
 func TestLockNamesTheHTTPAddressBeforeTheSocketAnswers(t *testing.T) {
+	t.Parallel()
 	state := shortDir(t)
 	srv := droidyard(t, state, "serve")
 	sock := sockFor(state)
@@ -188,6 +190,7 @@ func TestLockNamesTheHTTPAddressBeforeTheSocketAnswers(t *testing.T) {
 // the ephemeral fallback's included, and the token from run/http-token (http-websocket
 // .md §Security baseline rule 1; plan m1d, step 5).
 func TestStatusPrintsTheAddressAndTheURL(t *testing.T) {
+	t.Parallel()
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +226,7 @@ func TestStatusPrintsTheAddressAndTheURL(t *testing.T) {
 // §3, §4). The browser is a launcher that a re-executed binary replaces with a file
 // write (plan m1d, R4).
 func TestUIOpensTheTokenisedURL(t *testing.T) {
+	t.Parallel()
 	t.Run("a daemon is running", func(t *testing.T) {
 		state := shortDir(t)
 		srv, addr := serveOn(t, state)

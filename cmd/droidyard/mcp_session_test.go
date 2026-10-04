@@ -97,6 +97,7 @@ func (s *shim) recvWire() wireLine {
 // session, never another. Two re-executed shims on one daemon, ten concurrent calls
 // each, 20 notifications per call.
 func TestMCPSessionsAreTheirOwn(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	p.mcp.AddTestTools(notifyTool())
 	a := startShim(t, p.state, "a")
@@ -175,6 +176,7 @@ func TestMCPSessionsAreTheirOwn(t *testing.T) {
 // both are ready when it chooses: a writer free to take either first fails this
 // within 20 runs (-count=20) with probability 1 − 2⁻²⁰.
 func TestMCPNotificationPrecedesItsResponse(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	p.mcp.AddTestTools(notifyTool())
 	var off, bothReady atomic.Bool

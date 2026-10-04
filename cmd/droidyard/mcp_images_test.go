@@ -64,6 +64,7 @@ func longEdge(img image.Image) int { return max(img.Bounds().Dx(), img.Bounds().
 // artifact_read of the reference answers with an image block at its maxEdge (capped at
 // 2048) and no `data` in its structured content, the reference's own mark kept.
 func TestMCPScreenshotInlinesTheImage(t *testing.T) {
+	t.Parallel()
 	p, raw := shotDaemon(t, nil)
 	c := startShim(t, p.state, "client", "--wait", "5s")
 	c.initialize("images")
@@ -159,6 +160,7 @@ func TestMCPScreenshotInlinesTheImage(t *testing.T) {
 // back as image/jpeg, still within 1024 px; the structured reference still says the
 // stored artifact is a PNG.
 func TestMCPNoisyScreenshotIsJPEG(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	noise := image.NewRGBA(image.Rect(0, 0, 700, 1500))
 	for i := range noise.Pix {

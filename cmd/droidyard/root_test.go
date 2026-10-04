@@ -9,6 +9,7 @@ import (
 // TestResolveRoot: a shim names an explicit root, else the nearest ancestor of its cwd
 // holding settings.gradle or settings.gradle.kts, else its cwd (ADR-0019 §Sessions).
 func TestResolveRoot(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	groovy := filepath.Join(base, "groovy")
 	kts := filepath.Join(base, "kts")

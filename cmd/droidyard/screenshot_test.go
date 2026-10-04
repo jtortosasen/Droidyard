@@ -38,6 +38,7 @@ func shotDaemon(t *testing.T, extra map[string]string) (*inProcess, string) {
 // untrusted; artifact.read of it returns the fixture's bytes, marked too, and honours
 // maxEdge.
 func TestScreenshotThroughCLI(t *testing.T) {
+	t.Parallel()
 	p, raw := shotDaemon(t, nil)
 	env, code := p.call(t, "device.screenshot", "--params", `{"device":"emulator-5554"}`)
 	if code != 0 || env.Operation == nil || env.Operation.State != capability.StateCompleted {
@@ -92,6 +93,7 @@ func TestScreenshotThroughCLI(t *testing.T) {
 // CLI; a physical serial is DEVICE_NOT_ALLOWED and an unknown one DEVICE_NOT_FOUND;
 // nothing is stored by any of them.
 func TestScreenshotFailuresThroughCLI(t *testing.T) {
+	t.Parallel()
 	p, _ := shotDaemon(t, map[string]string{"emulator-5554.screencap.out": "Failed to take screenshot\n"})
 	for serial, code := range map[string]capability.ErrorCode{
 		"emulator-5554": device.ErrScreenshotFailed,

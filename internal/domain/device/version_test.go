@@ -71,7 +71,7 @@ func nonVersionCalls(t *testing.T, log string) int {
 	b, _ := os.ReadFile(log)
 	n := 0
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		if l != "" && !strings.HasPrefix(l, "version ") {
+		if l != "" && l != "version" && !strings.HasPrefix(l, "version ") {
 			n++
 		}
 	}
@@ -110,7 +110,7 @@ func TestServerVersion(t *testing.T) {
 	})
 	t.Run("different version warns and proceeds", func(t *testing.T) {
 		port, _ := fakeServer(t, newer)
-		a := newRunner(t, fakeEnvFor(t, modeVersion, port, fakeBuild+"=41"))
+		a := newFake(t, t.TempDir(), port)
 		st := a.Check(context.Background())
 		if !st.Found {
 			t.Fatal("a mismatch made adb not found: it must warn and proceed")
@@ -126,8 +126,9 @@ func TestServerVersion(t *testing.T) {
 		}
 	})
 	t.Run("no listener", func(t *testing.T) {
-		log := filepath.Join(t.TempDir(), "log")
-		a := newRunner(t, fakeEnvFor(t, modeVersion, closedPort(t), fakeBuild+"=41", fakeLog+"="+log))
+		dir := t.TempDir()
+		log := filepath.Join(dir, "calls.log")
+		a := newFake(t, dir, closedPort(t))
 		st := a.Check(context.Background())
 		if !st.Found || st.ServerVersion != "" || len(st.Warnings) != 0 {
 			t.Errorf("status = %+v, want found, no server version, no warning", st)
@@ -166,16 +167,22 @@ func TestAMalformedServerPortProbesNothing(t *testing.T) {
 // mtime changes": a second check runs `adb version` no more, and touching the binary
 // runs it again.
 func TestVersionIsCachedUntilTheBinaryChanges(t *testing.T) {
-	log := filepath.Join(t.TempDir(), "log")
-	// A copy of the fake, so its mtime can change without touching the test binary.
-	exe, _ := os.Executable()
-	data, _ := os.ReadFile(exe)
+	dir := t.TempDir()
+	// A stand-in file for adb, so its mtime can change without touching the test binary.
 	copyPath := filepath.Join(t.TempDir(), "adb")
-	os.WriteFile(copyPath, data, 0o755)
-	env := fakeEnvFor(t, modeVersion, closedPort(t), fakeBuild+"=41", fakeLog+"="+log)
+	os.WriteFile(copyPath, []byte("adb"), 0o755)
+	env := devicetest.Env(t, dir, closedPort(t))
 	env[0] = "ADB=" + copyPath
-	a := newRunner(t, env)
-	count := func() int { b, _ := os.ReadFile(log); return strings.Count(string(b), "version ") }
+	a := NewADBWithExec(env, devicetest.Exec(dir))
+	count := func() int {
+		n := 0
+		for _, c := range devicetest.Calls(t, dir) {
+			if c == "version" {
+				n++
+			}
+		}
+		return n
+	}
 	a.Check(context.Background())
 	a.Check(context.Background())
 	if n := count(); n != 1 {
@@ -204,8 +211,8 @@ func TestACancelledFirstCheckDoesNotPinAnEmptyVersion(t *testing.T) {
 	port, _ := fakeServer(t, []byte("OKAY0004002a"))
 	dir := t.TempDir()
 	devicetest.Write(t, dir, "version.hang", nil)
-	a := newRunner(t, devicetest.Env(t, dir, port))
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	a := newFake(t, dir, port)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	if st := a.Check(ctx); st.Version != "" {
 		t.Fatalf("hanging check reported version %q", st.Version)

@@ -14,15 +14,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 )
 
-// withADBEnviron makes the daemon the test starts resolve adb in env, through the
-// seam TestMain sealed; it restores the seal when the test ends.
-func withADBEnviron(t *testing.T, env []string) {
-	t.Helper()
-	old := adbEnviron
-	adbEnviron = func() []string { return env }
-	t.Cleanup(func() { adbEnviron = old })
-}
-
 func unusedPort(t *testing.T) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -43,8 +34,8 @@ func fixtureFile(t *testing.T, name string) string {
 	return string(b)
 }
 
-// fakeADBDaemon starts the shipped wiring in this process with the fake adb, answering
-// from files in a scenario directory, as the daemon's adb; the server port is one
+// fakeADBDaemon starts the shipped wiring in this process with the in-process fake adb,
+// answering from files in a scenario directory, as the daemon's adb; the server port is one
 // nothing listens on, so 5037 is never reached.
 func fakeADBDaemon(t *testing.T, files map[string]string) *inProcess {
 	t.Helper()
@@ -52,8 +43,9 @@ func fakeADBDaemon(t *testing.T, files map[string]string) *inProcess {
 	for name, content := range files {
 		devicetest.Write(t, dir, name, []byte(content))
 	}
-	withADBEnviron(t, devicetest.Env(t, dir, unusedPort(t)))
-	return startInProcess(t)
+	// The daemon runs in this process, so its adb clients can too: the fake answers
+	// from the scenario files without starting a process per call.
+	return startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, dir, unusedPort(t)), exec: devicetest.Exec(dir)})
 }
 
 func listOf(t *testing.T, env capability.ResponseEnvelope) []device.Device {
@@ -70,6 +62,7 @@ func listOf(t *testing.T, env capability.ResponseEnvelope) []device.Device {
 // its kind and the details; an unauthorized emulator with its state; a physical device
 // not at all (ADR-0015 §4).
 func TestDeviceListThroughCLI(t *testing.T) {
+	t.Parallel()
 	p := fakeADBDaemon(t, map[string]string{
 		"devices.out": "List of devices attached\n" +
 			"emulator-5554 device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 device:emu64a16k transport_id:1\n" +
@@ -101,6 +94,7 @@ func TestDeviceListThroughCLI(t *testing.T) {
 // TestDeviceListWithHangingDetails: three emulators whose getprop and console never
 // answer are all listed, with empty details, within the plan's 12 s.
 func TestDeviceListWithHangingDetails(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{"devices.out": "List of devices attached\n"}
 	for i, s := range []string{"emulator-5554", "emulator-5556", "emulator-5558"} {
 		files["devices.out"] += s + " device product:sdk_gphone16k_arm64 transport_id:" + string(rune('1'+i)) + "\n"
@@ -130,8 +124,8 @@ func TestDeviceListWithHangingDetails(t *testing.T) {
 // workspace opened in the same daemon is ready (plan m1e, R1; adb-device.md §adb
 // resolution and degradation).
 func TestDegradedWithoutADB(t *testing.T) {
-	withADBEnviron(t, []string{"HOME=" + t.TempDir(), "PATH=" + t.TempDir()})
-	p := startInProcess(t)
+	t.Parallel()
+	p := startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: []string{"HOME=" + t.TempDir(), "PATH=" + t.TempDir()}})
 
 	caps, code := p.call(t, "system.capabilities")
 	if code != 0 {

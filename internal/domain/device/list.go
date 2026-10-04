@@ -21,8 +21,11 @@ const (
 // devicesTimeout bounds `adb devices -l`; a variable so a test of the timeout is quick.
 var devicesTimeout = 5 * time.Second
 
+// detailsTimeout bounds all the details, in parallel, together; a variable so a test of
+// the timeout is quick.
+var detailsTimeout = 3 * time.Second
+
 const (
-	detailsTimeout = 3 * time.Second // all the details, in parallel, together
 	listOutputCap  = 64 << 10
 	propsOutputCap = 128 << 10
 	avdOutputCap   = 1 << 10

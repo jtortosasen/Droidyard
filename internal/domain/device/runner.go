@@ -47,6 +47,9 @@ type Output struct {
 // A non-zero exit is not an error: it is in Output.ExitCode. A client that exited 0
 // is a success even if a forked process still holds its output pipe.
 func (a *ADB) Run(ctx context.Context, path string, timeout time.Duration, limit int, args ...string) (Output, error) {
+	if a.exec != nil {
+		return a.runExec(ctx, path, timeout, limit, args)
+	}
 	if a.start == nil {
 		return Output{}, ErrNoStarter
 	}
@@ -84,6 +87,46 @@ func (a *ADB) Run(ctx context.Context, path string, timeout time.Duration, limit
 		return res, nil
 	}
 	return res, err
+}
+
+// runExec is Run over an in-process Exec: the same timeout, cap and error mapping, no
+// process.
+func (a *ADB) runExec(ctx context.Context, path string, timeout time.Duration, limit int, args []string) (Output, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// A client is not started under a context that has already ended (exec.CommandContext
+	// would not), so an Exec never sees such a call: a cleanup that inherits a cancelled
+	// context leaves no trace, as with a process.
+	var so, se []byte
+	var code int
+	var err error
+	if ctx.Err() == nil {
+		so, se, code, err = a.exec(ctx, path, args)
+	}
+	res := Output{ExitCode: code}
+	var c1, c2 bool
+	res.Stdout, c1 = capBytes(so, limit)
+	res.Stderr, c2 = capBytes(se, limit)
+	res.Truncated = c1 || c2
+	switch {
+	case ctx.Err() != nil:
+		res.ExitCode = -1
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return res, ErrTimeout
+		}
+		return res, ctx.Err()
+	case err != nil:
+		res.ExitCode = -1
+		return res, fmt.Errorf("starting adb: %w", err)
+	}
+	return res, nil
+}
+
+func capBytes(b []byte, limit int) ([]byte, bool) {
+	if len(b) > limit {
+		return append([]byte(nil), b[:limit]...), true
+	}
+	return append([]byte(nil), b...), false
 }
 
 // capped keeps the first max bytes written and discards the rest, still accepting

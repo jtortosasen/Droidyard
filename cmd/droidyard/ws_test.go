@@ -231,6 +231,7 @@ func waitSubscriptions(t *testing.T, p *inProcess, n int) {
 // 127.0.0.1 upgrades, and the same with the names swapped. Only a GET to /v1/ws is
 // exempt from the bearer token: any other method on it still needs one.
 func TestWSUpgradeFence(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	port := portOf(t, p.d.HTTPAddr())
 	ps := strconv.Itoa(port)
@@ -286,6 +287,7 @@ func TestWSUpgradeFence(t *testing.T) {
 // TestWSAuth: the first frame must be {"auth": "<token>"}; a wrong token, an envelope
 // or an empty auth closes with 4401 and answers nothing (rule 4).
 func TestWSAuth(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	for _, c := range []struct{ name, first string }{
 		{"a wrong token", `{"auth":"` + strings.Repeat("0", 64) + `"}`},
@@ -308,6 +310,7 @@ func TestWSAuth(t *testing.T) {
 // TestWSNonTextFrames: the auth frame must be text even when it carries the right
 // token, and a binary frame after auth ends the session with 1003.
 func TestWSNonTextFrames(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := dialWS(t, p)
 	w.writeFrame(websocket.MessageBinary, `{"auth":"`+p.token+`"}`)
@@ -327,6 +330,7 @@ func TestWSNonTextFrames(t *testing.T) {
 // TestWSPreAuthLimit: before auth a frame over 4 KiB closes with 1009; after auth the
 // limit is 1 MiB (TestWSFrameSize).
 func TestWSPreAuthLimit(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := dialWS(t, p)
 	w.writeText(`{"auth":"` + strings.Repeat("x", 5000) + `"}`)
@@ -341,6 +345,9 @@ func TestWSAuthDeadline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("waits 5 s")
 	}
+	// The 5 s is the default's, so the test waits it out; it is independent of every
+	// other test, so it waits beside the other parallel ones, not before or after them.
+	t.Parallel()
 	p := startWS(t)
 	w := dialWS(t, p)
 	start := time.Now()
@@ -354,6 +361,7 @@ func TestWSAuthDeadline(t *testing.T) {
 // by id; a subscription's events arrive as frames naming it, in seq order, around a
 // real workspace.open's own response (the order between them is not asserted).
 func TestWSSession(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := wsConnect(t, p)
 
@@ -405,6 +413,7 @@ func TestWSSession(t *testing.T) {
 // response first, on every run, and then the events after that point; with since of
 // another epoch the response is followed by an events.gap first (D4, D5).
 func TestWSResume(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	a := wsConnect(t, p)
 	a.subscribed("s1", lifecycleSubscribe)
@@ -480,6 +489,7 @@ func TestWSResume(t *testing.T) {
 // operation.wait answers with the id and the held events follow that response, never
 // before it (plan m1d, D5).
 func TestWSSubscriptionIDFirst(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	created, hold := make(chan struct{}, 1), make(chan struct{})
 	var once sync.Once
@@ -532,6 +542,7 @@ func TestWSSubscriptionIDFirst(t *testing.T) {
 // closes the connection with "message too big" (the library's default would close at
 // 32 KiB).
 func TestWSFrameSize(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	envelope := func(size int) string {
 		base := `{"capability":"system.health","id":""}`
@@ -557,6 +568,7 @@ func TestWSFrameSize(t *testing.T) {
 // and the gap ranges together cover every one of them, with no seq twice, in order,
 // and at least one gap. The hold, not socket buffering, decides that the queue fills.
 func TestWSOverflow(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	p.http.SetQueue(16)
 	w := wsConnect(t, p)
@@ -622,6 +634,7 @@ func TestWSOverflow(t *testing.T) {
 // TestWSTwoSubscriptions: an event that matches two subscriptions of one connection is
 // sent once under each id.
 func TestWSTwoSubscriptions(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := wsConnect(t, p)
 	a := w.subscribed("s1", lifecycleSubscribe)
@@ -654,6 +667,7 @@ func TestWSTwoSubscriptions(t *testing.T) {
 // session, and an operation started on it runs on to completed: a disconnect ends
 // waits, never operations (ADR-0019 §Sessions).
 func TestWSDisconnect(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := wsConnect(t, p)
 	w.subscribed("s1", lifecycleSubscribe)
@@ -733,6 +747,9 @@ func (r *rawClient) text(t *testing.T, s string) {
 // connected through many intervals; one that never answers is closed after two missed
 // pongs, which is neither at the first miss nor much after the second (§GET /v1/ws).
 func TestWSPing(t *testing.T) {
+	// Waits out several 400 ms intervals, so it waits beside the other parallel tests;
+	// its own timing window (200 ms of slack) is between its connection and the daemon.
+	t.Parallel()
 	p := startWS(t)
 	p.http.SetPingInterval(400 * time.Millisecond)
 
@@ -765,6 +782,7 @@ func TestWSPing(t *testing.T) {
 // end, within a bound, and take its subscription with it: a stuck writer must not
 // hide the missed pongs nor outlive them.
 func TestWSStuckWriter(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	p.http.SetPingInterval(200 * time.Millisecond)
 	stuck := dialRaw(t, p)
@@ -789,6 +807,7 @@ func TestWSStuckWriter(t *testing.T) {
 // ended, not when they were told to. A session whose writer is held cannot end; with
 // it held, Shutdown must still be waiting, and returns once the hold is released.
 func TestWSShutdownWaits(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := wsConnect(t, p)
 	gate := make(chan struct{})
@@ -831,6 +850,7 @@ func TestWSShutdownWaits(t *testing.T) {
 // TestWSEndsWithTheDaemon: stopping the daemon closes its WebSocket sessions with the
 // others, and their subscriptions with them (plan m1d, R10).
 func TestWSEndsWithTheDaemon(t *testing.T) {
+	t.Parallel()
 	p := startWS(t)
 	w := wsConnect(t, p)
 	w.subscribed("s1", lifecycleSubscribe)

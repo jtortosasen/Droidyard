@@ -50,6 +50,7 @@ func bodyOf(t *testing.T, resp *http.Response) []byte {
 // screenshot as raw bytes, image/png, marked X-Droidyard-Untrusted: true (R3), never
 // cached and never sniffed; ?maxEdge and ?region shape it as artifact.read does.
 func TestArtifactRouteServesTheScreenshot(t *testing.T) {
+	t.Parallel()
 	p, raw := shotDaemon(t, nil)
 	ref := screenshotRef(t, p)
 	id := strings.TrimPrefix(ref.Ref, artifact.RefPrefix)
@@ -105,6 +106,7 @@ func TestArtifactRouteServesTheScreenshot(t *testing.T) {
 // ARTIFACT_EXPIRED for one that once could have been (another daemon epoch), 400
 // REQUEST_INVALID_PARAMS for a malformed query or a region outside the image.
 func TestArtifactRouteErrorsAreTyped(t *testing.T) {
+	t.Parallel()
 	p, _ := shotDaemon(t, nil)
 	ref := screenshotRef(t, p)
 	parts := strings.Split(strings.TrimPrefix(ref.Ref, artifact.RefPrefix), ".") // e.<epoch>.<n>.<random>
