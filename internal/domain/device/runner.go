@@ -94,15 +94,13 @@ func (a *ADB) Run(ctx context.Context, path string, timeout time.Duration, limit
 func (a *ADB) runExec(ctx context.Context, path string, timeout time.Duration, limit int, args []string) (Output, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// A client is not started under a context that has already ended (exec.CommandContext
-	// would not), so an Exec never sees such a call: a cleanup that inherits a cancelled
+	// A client is not started under a context that has already ended, and the error is
+	// the one exec.CommandContext's start gives: a cleanup that inherits a cancelled
 	// context leaves no trace, as with a process.
-	var so, se []byte
-	var code int
-	var err error
-	if ctx.Err() == nil {
-		so, se, code, err = a.exec(ctx, path, args)
+	if err := ctx.Err(); err != nil {
+		return Output{}, fmt.Errorf("starting adb: %w", err)
 	}
+	so, se, code, err := a.exec(ctx, path, args)
 	res := Output{ExitCode: code}
 	var c1, c2 bool
 	res.Stdout, c1 = capBytes(so, limit)
