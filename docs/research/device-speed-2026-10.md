@@ -89,3 +89,11 @@ rest.
 Consequence: a dex reader with the flag is now justified by correctness as well as
 speed, and it is the first item of the on-device-agent spike: a one-shot reader (like
 mobium's) before any persistent server.
+
+> 2026-10-04, agent-device read at source (`callstack/agent-device` 0.21.20, the engine
+> under tester-army/e2e, moved from `callstackincubator`): its instrumentation APK opens
+> `UiAutomation` with `getUiAutomation()`, no flags (`SnapshotInstrumentation.java:360`),
+> so it suppresses other accessibility services, and in its persistent session
+> (`-e sessionPort`) for the session's whole life. Taps go through `adb shell input tap`;
+> text through an IME of its own, installed and selected (`android/ime-helper`), because
+> `input text` is ASCII-only — an option for `device.inputText` that 1f's plan weighs.
