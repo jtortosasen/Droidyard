@@ -201,7 +201,7 @@ func (s *Store) Get(ref string) (Entry, error) {
 			"the reference is not an artifact reference")
 	}
 	if epoch != s.epoch {
-		return Entry{}, expired("it was issued by an earlier daemon run")
+		return Entry{}, expired("it was issued by an earlier daemon run", "")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,7 +212,11 @@ func (s *Store) Get(ref string) (Entry, error) {
 	}
 	h := s.entries[counter]
 	if h == nil || subtle.ConstantTimeCompare([]byte(h.random), []byte(random)) != 1 {
-		return Entry{}, expired("it was evicted or is past its lifetime")
+		producer := ""
+		if h != nil {
+			producer = h.entry.Producer // known only while the counter is still held
+		}
+		return Entry{}, expired("it was evicted or is past its lifetime", producer)
 	}
 	s.lru.MoveToFront(h.elem)
 	return h.entry, nil
@@ -243,9 +247,14 @@ func (s *Store) Close() {
 	}
 }
 
-func expired(why string) *capability.Error {
-	return capability.NewError(capability.ErrArtifactExpired, "the artifact is gone: "+why).
-		WithNextStep("run the capability that produced the artifact again")
+// expired names the producing capability in nextStep when it is known: only the
+// wrong-random-bits miss still holds the entry; an evicted one took its producer along.
+func expired(why, producer string) *capability.Error {
+	next := "run the capability that produced the artifact again"
+	if producer != "" {
+		next = "run " + producer + " again"
+	}
+	return capability.NewError(capability.ErrArtifactExpired, "the artifact is gone: "+why).WithNextStep(next)
 }
 
 // parseID is strict: anything that is not exactly what Put emits is malformed.

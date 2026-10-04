@@ -308,6 +308,47 @@ func TestIDsCarryRandomBits(t *testing.T) {
 	}
 }
 
+// Decision: the random part is random, not derived from the counter. Two stores of the
+// same epoch each issue counter 1; only the random bits can tell their ids apart, so a
+// suffix computed from the counter (or any constant) makes the ids collide.
+func TestRandomPartIsNotDerivedFromTheCounter(t *testing.T) {
+	var ids []string
+	for range 2 {
+		s, _ := newStore(t, 1<<20) // same epoch each time
+		ids = append(ids, put(t, s, 1).Ref)
+	}
+	if !strings.Contains(ids[0], ".1.") || !strings.Contains(ids[1], ".1.") {
+		t.Fatalf("both stores should be at counter 1: %q %q", ids[0], ids[1])
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("same epoch and counter gave the same id %q: the suffix is not random", ids[0])
+	}
+}
+
+// Decision: ARTIFACT_EXPIRED's nextStep names the producing capability when the store
+// knows it (a held counter with the wrong random bits), and stays generic when it
+// cannot (evicted, or another epoch's id).
+func TestExpiredNextStepNamesTheProducerWhenKnown(t *testing.T) {
+	s, _ := newStore(t, 100)
+	held := put(t, s, 10)
+	parts := strings.Split(strings.TrimPrefix(held.Ref, RefPrefix), ".")
+	wrong := RefPrefix + strings.Join([]string{"e", parts[1], parts[2], "000000000000"}, ".")
+	_, err := s.Get(wrong)
+	e, ok := err.(*capability.Error)
+	if !ok || e.Code != capability.ErrArtifactExpired {
+		t.Fatalf("%v, want ARTIFACT_EXPIRED", err)
+	}
+	if !strings.Contains(e.NextStep, "device.screenshot") {
+		t.Errorf("nextStep %q does not name the producer", e.NextStep)
+	}
+	put(t, s, 100) // evicts held: the producer is no longer known
+	_, err = s.Get(held.Ref)
+	e = err.(*capability.Error)
+	if e.NextStep == "" || strings.Contains(e.NextStep, "device.screenshot") {
+		t.Errorf("evicted entry's nextStep = %q, want the generic one", e.NextStep)
+	}
+}
+
 // Decision: the store is safe under concurrent use (run with -race), and its byte
 // accounting survives eviction pressure.
 func TestConcurrentPutsAndGets(t *testing.T) {
