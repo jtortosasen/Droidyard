@@ -1,0 +1,591 @@
+{
+  "snapshot": "s-golden",
+  "foreground": "com.android.settings",
+  "display": {
+    "width": 1080,
+    "height": 2424,
+    "rotation": 0
+  },
+  "nodes": [
+    {
+      "ref": "n0",
+      "class": "FrameLayout",
+      "id": "content",
+      "bounds": [
+        0,
+        0,
+        1080,
+        2424
+      ],
+      "children": [
+        "n1"
+      ]
+    },
+    {
+      "ref": "n1",
+      "class": "ScrollView",
+      "id": "content_parent",
+      "bounds": [
+        0,
+        142,
+        1080,
+        2361
+      ],
+      "flags": [
+        "scrollable"
+      ],
+      "children": [
+        "n2",
+        "n6"
+      ]
+    },
+    {
+      "ref": "n2",
+      "class": "LinearLayout",
+      "id": "app_bar",
+      "bounds": [
+        0,
+        142,
+        1080,
+        289
+      ],
+      "children": [
+        "n3"
+      ]
+    },
+    {
+      "ref": "n3",
+      "class": "FrameLayout",
+      "id": "collapsing_toolbar",
+      "desc": "Display \u0026 touch",
+      "bounds": [
+        0,
+        142,
+        1080,
+        289
+      ],
+      "children": [
+        "n4"
+      ]
+    },
+    {
+      "ref": "n4",
+      "class": "ViewGroup",
+      "id": "action_bar",
+      "bounds": [
+        21,
+        142,
+        1080,
+        289
+      ],
+      "children": [
+        "n5"
+      ]
+    },
+    {
+      "ref": "n5",
+      "class": "ImageButton",
+      "desc": "Navigate up",
+      "bounds": [
+        21,
+        142,
+        168,
+        289
+      ],
+      "flags": [
+        "clickable"
+      ]
+    },
+    {
+      "ref": "n6",
+      "class": "FrameLayout",
+      "id": "content_frame",
+      "bounds": [
+        0,
+        289,
+        1080,
+        2361
+      ],
+      "children": [
+        "n7"
+      ]
+    },
+    {
+      "ref": "n7",
+      "class": "FrameLayout",
+      "id": "main_content",
+      "bounds": [
+        0,
+        289,
+        1080,
+        2361
+      ],
+      "children": [
+        "n8"
+      ]
+    },
+    {
+      "ref": "n8",
+      "class": "LinearLayout",
+      "id": "container_material",
+      "bounds": [
+        0,
+        289,
+        1080,
+        2361
+      ],
+      "children": [
+        "n9"
+      ]
+    },
+    {
+      "ref": "n9",
+      "class": "FrameLayout",
+      "id": "list_container",
+      "bounds": [
+        0,
+        289,
+        1080,
+        2361
+      ],
+      "children": [
+        "n10"
+      ]
+    },
+    {
+      "ref": "n10",
+      "class": "RecyclerView",
+      "id": "recycler_view",
+      "bounds": [
+        0,
+        289,
+        1080,
+        2361
+      ],
+      "flags": [
+        "scrollable",
+        "focused"
+      ],
+      "children": [
+        "n11",
+        "n12",
+        "n15",
+        "n16",
+        "n19",
+        "n22",
+        "n23",
+        "n29",
+        "n32",
+        "n35",
+        "n38",
+        "n39"
+      ]
+    },
+    {
+      "ref": "n11",
+      "class": "TextView",
+      "id": "title",
+      "text": "Brightness",
+      "bounds": [
+        63,
+        352,
+        1038,
+        403
+      ]
+    },
+    {
+      "ref": "n12",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        429,
+        1080,
+        621
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n13",
+        "n14"
+      ]
+    },
+    {
+      "ref": "n13",
+      "class": "TextView",
+      "id": "title",
+      "text": "Brightness level",
+      "bounds": [
+        84,
+        471,
+        378,
+        528
+      ]
+    },
+    {
+      "ref": "n14",
+      "class": "TextView",
+      "id": "summary",
+      "text": "83%",
+      "bounds": [
+        84,
+        528,
+        153,
+        579
+      ]
+    },
+    {
+      "ref": "n15",
+      "class": "TextView",
+      "id": "title",
+      "text": "Lock display",
+      "bounds": [
+        63,
+        689,
+        1038,
+        740
+      ]
+    },
+    {
+      "ref": "n16",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        766,
+        1080,
+        958
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n17",
+        "n18"
+      ]
+    },
+    {
+      "ref": "n17",
+      "class": "TextView",
+      "id": "title",
+      "text": "Lock screen",
+      "bounds": [
+        84,
+        808,
+        309,
+        865
+      ]
+    },
+    {
+      "ref": "n18",
+      "class": "TextView",
+      "id": "summary",
+      "text": "Show all notification content",
+      "bounds": [
+        84,
+        865,
+        548,
+        916
+      ]
+    },
+    {
+      "ref": "n19",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        963,
+        1080,
+        1155
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n20",
+        "n21"
+      ]
+    },
+    {
+      "ref": "n20",
+      "class": "TextView",
+      "id": "title",
+      "text": "Screen timeout",
+      "bounds": [
+        84,
+        1005,
+        366,
+        1062
+      ]
+    },
+    {
+      "ref": "n21",
+      "class": "TextView",
+      "id": "summary",
+      "text": "Not set",
+      "bounds": [
+        84,
+        1062,
+        203,
+        1113
+      ]
+    },
+    {
+      "ref": "n22",
+      "class": "TextView",
+      "id": "title",
+      "text": "Appearance",
+      "bounds": [
+        63,
+        1223,
+        1038,
+        1274
+      ]
+    },
+    {
+      "ref": "n23",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        1300,
+        1080,
+        1492
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n24",
+        "n25",
+        "n26",
+        "n27"
+      ]
+    },
+    {
+      "ref": "n24",
+      "class": "TextView",
+      "id": "title",
+      "text": "Dark theme",
+      "bounds": [
+        84,
+        1342,
+        298,
+        1399
+      ]
+    },
+    {
+      "ref": "n25",
+      "class": "TextView",
+      "id": "summary",
+      "text": "Will turn on when Bedtime starts",
+      "bounds": [
+        84,
+        1399,
+        616,
+        1450
+      ]
+    },
+    {
+      "ref": "n26",
+      "class": "LinearLayout",
+      "id": "two_target_divider",
+      "bounds": [
+        714,
+        1300,
+        859,
+        1492
+      ]
+    },
+    {
+      "ref": "n27",
+      "class": "LinearLayout",
+      "id": "widget_frame",
+      "bounds": [
+        859,
+        1300,
+        996,
+        1492
+      ],
+      "children": [
+        "n28"
+      ]
+    },
+    {
+      "ref": "n28",
+      "class": "Switch",
+      "id": "switchWidget",
+      "desc": "Dark theme",
+      "bounds": [
+        859,
+        1333,
+        996,
+        1459
+      ],
+      "flags": [
+        "clickable",
+        "checkable"
+      ]
+    },
+    {
+      "ref": "n29",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        1497,
+        1080,
+        1689
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n30",
+        "n31"
+      ]
+    },
+    {
+      "ref": "n30",
+      "class": "TextView",
+      "id": "title",
+      "text": "Display size \u0026 text",
+      "bounds": [
+        84,
+        1539,
+        423,
+        1596
+      ]
+    },
+    {
+      "ref": "n31",
+      "class": "TextView",
+      "id": "summary",
+      "text": "Font size, display size, bold text, outline text",
+      "bounds": [
+        84,
+        1596,
+        796,
+        1647
+      ]
+    },
+    {
+      "ref": "n32",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        1694,
+        1080,
+        1886
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n33",
+        "n34"
+      ]
+    },
+    {
+      "ref": "n33",
+      "class": "TextView",
+      "id": "title",
+      "text": "Navigation mode",
+      "bounds": [
+        84,
+        1736,
+        402,
+        1793
+      ]
+    },
+    {
+      "ref": "n34",
+      "class": "TextView",
+      "id": "summary",
+      "text": "Gesture navigation",
+      "bounds": [
+        84,
+        1793,
+        392,
+        1844
+      ]
+    },
+    {
+      "ref": "n35",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        1891,
+        1080,
+        2083
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n36",
+        "n37"
+      ]
+    },
+    {
+      "ref": "n36",
+      "class": "TextView",
+      "id": "title",
+      "text": "Screen saver",
+      "bounds": [
+        84,
+        1933,
+        323,
+        1990
+      ]
+    },
+    {
+      "ref": "n37",
+      "class": "TextView",
+      "id": "summary",
+      "text": "On / Clock",
+      "bounds": [
+        84,
+        1990,
+        254,
+        2041
+      ]
+    },
+    {
+      "ref": "n38",
+      "class": "TextView",
+      "id": "title",
+      "text": "Color",
+      "bounds": [
+        63,
+        2151,
+        1038,
+        2202
+      ]
+    },
+    {
+      "ref": "n39",
+      "class": "LinearLayout",
+      "bounds": [
+        0,
+        2228,
+        1080,
+        2361
+      ],
+      "flags": [
+        "clickable"
+      ],
+      "children": [
+        "n40"
+      ]
+    },
+    {
+      "ref": "n40",
+      "class": "TextView",
+      "id": "title",
+      "text": "Colors",
+      "bounds": [
+        84,
+        2294,
+        205,
+        2351
+      ]
+    }
+  ]
+}

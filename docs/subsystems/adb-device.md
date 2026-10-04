@@ -80,6 +80,10 @@ without `device` fails schema validation at `Start`, before any operation exists
 | Connected but unusable (`offline`, `unauthorized`, `recovery`, `sideload`, still booting) | `DEVICE_NOT_READY` | Names the state and its fix |
 | Not permitted by policy | `DEVICE_NOT_ALLOWED` | Decided at the re-check just before the handler, after one `devices -l`, so the operation fails; `Start` does no adb I/O ([ADR-0015](../adr/0015-untrusted-data-authorization.md); [ADR-0020](../adr/0020-operation-contract.md), amended 2026-10-04) |
 
+`DEVICE_NOT_READY` carries `details.state`: adb's own state (`offline`, `unauthorized`,
+`recovery`, `sideload`, `unknown`), or `booting` when `sys.boot_completed` is not `1`, or
+`unresponsive` when the device does not answer it (milestone 1e).
+
 Convenience belongs to adapters, and each one still sends `device` explicitly:
 
 | Adapter | Where `device` comes from |
