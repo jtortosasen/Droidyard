@@ -113,11 +113,7 @@ func (r requirements) Missing(req capability.Requirement) (string, bool) {
 	if res.Found {
 		return "", false
 	}
-	tried := make([]string, 0, len(res.Rejected))
-	for _, c := range res.Rejected {
-		tried = append(tried, c.Candidate+" ("+c.Reason+")")
-	}
-	return "adb was not found: set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH. Tried: " + strings.Join(tried, "; "), true
+	return res.NotFound(), true
 }
 
 // Seams for this package's tests only, set by TestMain in a re-executed test binary
@@ -156,6 +152,7 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 	}
 	adb := device.NewADB(adbEnviron(), spawn)
 	system.Register(reg, requirements{adb}, adb, ops, problems)
+	device.Register(reg, adb)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {

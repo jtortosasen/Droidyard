@@ -80,10 +80,15 @@ func (a *ADB) Check(ctx context.Context) Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cache == nil || a.cache.path != res.Path || !a.cache.mtime.Equal(fi.ModTime()) {
-		a.cache = &versions{path: res.Path, mtime: fi.ModTime()}
-		if out, err := a.Run(ctx, res.Path, versionTimeout, versionOutputCap, "version"); err == nil && out.ExitCode == 0 {
-			a.cache.client, a.cache.build = parseClientVersion(string(out.Stdout))
+		// The cache is assigned only after a successful run: a cancelled or timed-out
+		// first run must not pin an empty client version for the daemon's lifetime.
+		out, err := a.Run(ctx, res.Path, versionTimeout, versionOutputCap, "version")
+		if err != nil || out.ExitCode != 0 {
+			return st
 		}
+		v := &versions{path: res.Path, mtime: fi.ModTime()}
+		v.client, v.build = parseClientVersion(string(out.Stdout))
+		a.cache = v
 	}
 	v := a.cache
 	if v.server == "" {

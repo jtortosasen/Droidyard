@@ -2,6 +2,110 @@
   "version": "0.4.0",
   "capabilities": [
     {
+      "name": "device.list",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.4.0",
+      "description": "Lists the connected emulators with their serial (the value of every device argument), state (device, offline, unauthorized, recovery, sideload, unknown), kind and, best effort, model, product, Android version, API level and AVD name. Physical devices are hidden by default. Fails with DEVICE_ADB_NOT_FOUND when adb cannot be found and DEVICE_ADB_FAILED when adb fails on the host.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "devices": {
+            "items": {
+              "properties": {
+                "device": {
+                  "type": "string",
+                  "description": "The serial: the device's identity, and the value of every device argument."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "device",
+                    "offline",
+                    "unauthorized",
+                    "recovery",
+                    "sideload",
+                    "unknown"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "emulator",
+                    "physical"
+                  ]
+                },
+                "online": {
+                  "type": "boolean",
+                  "description": "True when the state is device."
+                },
+                "product": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "transportId": {
+                  "type": "string"
+                },
+                "androidVersion": {
+                  "type": "string",
+                  "description": "Best effort, from getprop; absent when the device did not answer in time."
+                },
+                "sdk": {
+                  "type": "integer",
+                  "description": "The API level; best effort, as androidVersion."
+                },
+                "avdName": {
+                  "type": "string",
+                  "description": "The emulator's AVD name; best effort, as androidVersion."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "device",
+                "state",
+                "kind",
+                "online"
+              ]
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "devices"
+        ]
+      }
+    },
+    {
       "name": "events.subscribe",
       "kind": "command",
       "scope": "global",

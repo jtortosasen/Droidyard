@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 )
 
 // The fake adb is this test binary re-executed, as internal/process/processtest does:
@@ -26,6 +28,7 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	devicetest.Main()
 	if mode := os.Getenv(fakeEnv); mode != "" {
 		runFake(mode)
 		os.Exit(0)
