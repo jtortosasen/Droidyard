@@ -795,8 +795,18 @@ func TestWSShutdownWaits(t *testing.T) {
 	var once sync.Once
 	release := func() { p.http.SetWriteHook(nil); once.Do(func() { close(gate) }) }
 	t.Cleanup(release)
-	p.http.SetWriteHook(func() { <-gate })
+	held := make(chan struct{})
+	var heldOnce sync.Once
+	p.http.SetWriteHook(func() { heldOnce.Do(func() { close(held) }); <-gate })
 	w.send("r1", "system.health", "", "", nil) // its response is held in the writer
+	// Shutdown only once the response is in the writer: sent at once, a loaded machine
+	// could close the session before the request reached the writer, and the session
+	// would end with nothing to wait for.
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the response never reached the writer")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
