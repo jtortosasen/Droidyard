@@ -5,6 +5,10 @@
 - Relates to: ADR-0005, ADR-0015, `docs/subsystems/ui-automation.md` §The tree,
   `docs/research/device-speed-2026-10.md`
 - Decided by the owner, 2026-10-04 ("utilicemos el .dex con el flag").
+- Amended: 2026-10-04 — measured on the implementation (milestone 1e step 10): a read
+  costs ~1.3 s end to end (push, `app_process` JVM start, the idle wait, removal), not
+  the spike's ~150 ms, which was connect-to-read only; still faster than the dump (2–8 s
+  observed). The dex is pushed and removed on every read.
 
 ## Context
 
@@ -48,8 +52,10 @@ same reason, PR #101).
 
 ## Consequences
 
-- No more suspended accessibility services, the observed kill avoided, and reads an
-  order of magnitude faster (~150 ms against ~2 s on the device; spike numbers).
+- No more suspended accessibility services, and the observed kill avoided (Qustodio
+  survived the reader after 215 s idle; the dump killed it 3 of 3). Reads are faster but
+  not by an order of magnitude: ~1.3 s end to end against 2–8 s for the dump, most of it
+  the JVM start and the idle wait; only a persistent server removes those.
 - The repository carries Java source and a binary artefact; changing the reader needs
   the Android SDK and a rebuild, and a checked hash keeps the binary honest.
 - `UiAutomation` is still one per device: a user's own instrumented test holding it
