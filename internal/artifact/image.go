@@ -9,9 +9,17 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
+	"sync/atomic"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
+
+// decodes counts the full image decodes this package makes itself, so a test can show
+// that a producer which hands in its decoded image is not decoded a second time.
+var decodes atomic.Int64
+
+// Decodes reports how many full image decodes this package has made (a test seam).
+func Decodes() int64 { return decodes.Load() }
 
 // Region is a crop in normalised 0..1 coordinates of the stored image: origin X, Y
 // and size W, H (artifact.read's `region`, ADR-0012 §Reading artifacts).
@@ -59,24 +67,44 @@ func (r Region) Validate() error {
 // means no limit. The returned width and height are the delivered ones. A bad region
 // or a negative maxEdge is REQUEST_INVALID_PARAMS.
 func Transform(data []byte, mediaType string, maxEdge int, region *Region) (out []byte, outType string, w, h int, err error) {
+	out, outType, w, h, _, err = transform(data, mediaType, maxEdge, region, nil)
+	return
+}
+
+// transform is Transform with the image already decoded when the caller has it (nil
+// otherwise), so a producer that had to decode it to validate it does not decode twice.
+// pix is the delivered pixels when they are at hand (decoded, cropped or scaled), else
+// nil.
+func transform(data []byte, mediaType string, maxEdge int, region *Region, decoded image.Image) (out []byte, outType string, w, h int, pix image.Image, err error) {
 	if maxEdge < 0 {
-		return nil, "", 0, 0, invalid("maxEdge must be positive")
+		return nil, "", 0, 0, nil, invalid("maxEdge must be positive")
 	}
 	if region != nil {
 		if err := region.Validate(); err != nil {
-			return nil, "", 0, 0, err
+			return nil, "", 0, 0, nil, err
 		}
 	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", 0, 0, fmt.Errorf("artifact: not a decodable image: %w", err)
+	var cw, ch int
+	if decoded != nil {
+		b := decoded.Bounds()
+		cw, ch = b.Dx(), b.Dy()
+	} else {
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if err != nil {
+			return nil, "", 0, 0, nil, fmt.Errorf("artifact: not a decodable image: %w", err)
+		}
+		cw, ch = cfg.Width, cfg.Height
 	}
-	if region == nil && (maxEdge == 0 || maxEdge >= max(cfg.Width, cfg.Height)) {
-		return data, mediaType, cfg.Width, cfg.Height, nil
+	if region == nil && (maxEdge == 0 || maxEdge >= max(cw, ch)) {
+		return data, mediaType, cw, ch, decoded, nil
 	}
-	src, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", 0, 0, fmt.Errorf("artifact: not a decodable image: %w", err)
+	src := decoded
+	if src == nil {
+		var err error
+		decodes.Add(1)
+		if src, _, err = image.Decode(bytes.NewReader(data)); err != nil {
+			return nil, "", 0, 0, nil, fmt.Errorf("artifact: not a decodable image: %w", err)
+		}
 	}
 	if region != nil {
 		src = crop(src, *region)
@@ -86,10 +114,10 @@ func Transform(data []byte, mediaType string, maxEdge int, region *Region) (out 
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, src); err != nil {
-		return nil, "", 0, 0, err
+		return nil, "", 0, 0, nil, err
 	}
 	b := src.Bounds()
-	return buf.Bytes(), "image/png", b.Dx(), b.Dy(), nil
+	return buf.Bytes(), "image/png", b.Dx(), b.Dy(), src, nil
 }
 
 // EncodeInline is the MCP adapter's rule for the image block: the longest edge at
@@ -97,20 +125,33 @@ func Transform(data []byte, mediaType string, maxEdge int, region *Region) (out 
 // JPEG at quality 85 when the PNG exceeds 512 KiB. A source that already fits is not
 // re-scaled, but is still turned into JPEG if its PNG is over the limit.
 func EncodeInline(data []byte, mediaType string, maxEdge int) (out []byte, outType string, w, h int, err error) {
+	return encodeInline(data, mediaType, maxEdge, nil)
+}
+
+// EncodeInlineDecoded is EncodeInline for a producer that has already decoded data
+// (img is data's pixels): the image is not decoded a second time.
+func EncodeInlineDecoded(data []byte, mediaType string, img image.Image, maxEdge int) (out []byte, outType string, w, h int, err error) {
+	return encodeInline(data, mediaType, maxEdge, img)
+}
+
+func encodeInline(data []byte, mediaType string, maxEdge int, decoded image.Image) (out []byte, outType string, w, h int, err error) {
 	if maxEdge <= 0 {
 		maxEdge = InlineMaxEdge
 	}
 	maxEdge = min(maxEdge, InlineMaxEdgeCap)
-	out, outType, w, h, err = Transform(data, mediaType, maxEdge, nil)
+	out, outType, w, h, img, err := transform(data, mediaType, maxEdge, nil, decoded)
 	if err != nil {
 		return nil, "", 0, 0, err
 	}
 	if outType == "image/jpeg" || len(out) <= InlinePNGLimit {
 		return out, outType, w, h, nil
 	}
-	img, _, err := image.Decode(bytes.NewReader(out))
-	if err != nil {
-		return nil, "", 0, 0, fmt.Errorf("artifact: not a decodable image: %w", err)
+	// The JPEG is made from the pixels transform had, not from a decode of its PNG.
+	if img == nil {
+		decodes.Add(1)
+		if img, _, err = image.Decode(bytes.NewReader(out)); err != nil {
+			return nil, "", 0, 0, fmt.Errorf("artifact: not a decodable image: %w", err)
+		}
 	}
 	// JPEG has no alpha: flatten onto white.
 	b := img.Bounds()

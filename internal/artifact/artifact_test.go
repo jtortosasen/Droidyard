@@ -388,3 +388,37 @@ func TestConcurrentPutsAndGets(t *testing.T) {
 		t.Fatalf("accounting drifted: sum %d bytes %d lru %d len %d", sum, s.Bytes(), s.lru.Len(), s.Len())
 	}
 }
+
+// Decision (plan m1e step 8): an artifact's inline variant is held with it and counts
+// against the budget as part of it: the store's bytes are both, the sweep releases both,
+// an eviction frees both, and Get hands the variant back as a copy of what was put.
+func TestInlineVariantIsHeldAndCounted(t *testing.T) {
+	s, clk := newStore(t, 1000)
+	inline := &Inline{Data: bytes.Repeat([]byte{'i'}, 100), MediaType: "image/jpeg", Width: 4, Height: 5}
+	r, err := s.Put(Item{Data: bytes.Repeat([]byte{'x'}, 300), MediaType: "image/png", Width: 8, Height: 9, Inline: inline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Bytes() != 400 || r.Bytes != 300 {
+		t.Errorf("bytes %d (record %d); want 400 held, 300 in the record", s.Bytes(), r.Bytes)
+	}
+	e, err := s.Get(r.Ref)
+	if err != nil || e.Inline == nil || e.Inline.MediaType != "image/jpeg" || e.Inline.Width != 4 || len(e.Inline.Data) != 100 {
+		t.Fatalf("Get: %+v, %v", e.Inline, err)
+	}
+	inline.Data[0] = 'Z'
+	if e2, _ := s.Get(r.Ref); e2.Inline.Data[0] != 'i' {
+		t.Error("the store holds the caller's slice, not a copy")
+	}
+	// 400 held; 700 more does not fit in 1000 beside it: the first is evicted.
+	if _, err := s.Put(Item{Data: bytes.Repeat([]byte{'y'}, 600), MediaType: "image/png", Inline: &Inline{Data: bytes.Repeat([]byte{'j'}, 200)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(r.Ref); code(err) != capability.ErrArtifactExpired || s.Bytes() != 800 {
+		t.Errorf("after the eviction: %v, %d bytes; want ARTIFACT_EXPIRED and 800", err, s.Bytes())
+	}
+	clk.Advance(DefaultTTL + time.Minute)
+	if s.Bytes() != 0 || s.Len() != 0 {
+		t.Errorf("the sweep left %d bytes in %d entries", s.Bytes(), s.Len())
+	}
+}

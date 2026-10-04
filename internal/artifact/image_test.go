@@ -352,3 +352,32 @@ func TestEncodeInlineOnFixtures(t *testing.T) {
 		t.Logf("%s: maxEdge 1024 PNG %dx%d %d bytes", name, tw, th, len(tr))
 	}
 }
+
+// Decision (plan m1e step 8, decode once): a producer that has decoded the image hands
+// the pixels in, and the inline encoder never decodes data again. The bytes passed here
+// are not a PNG at all, so an encoder that decodes them fails; the downscale path and
+// the JPEG path (a noisy image, over 512 KiB once scaled) both run from the pixels.
+func TestEncodeInlineDecodedDoesNotDecodeAgain(t *testing.T) {
+	notAPNG := []byte("not an image: a second decode of this fails")
+	out, typ, w, h, err := EncodeInlineDecoded(notAPNG, "image/png", quadrants(1500, 800), 1024)
+	if err != nil || typ != "image/png" || w != 1024 || h != 546 {
+		t.Fatalf("downscale: %s %dx%d err=%v", typ, w, h, err)
+	}
+	if got := decode(t, out).Bounds(); got.Dx() != 1024 || got.Dy() != 546 {
+		t.Errorf("the PNG is %v", got)
+	}
+	out, typ, w, h, err = EncodeInlineDecoded(notAPNG, "image/png", noisy(1400, 1400), 1024)
+	if err != nil || typ != "image/jpeg" || w != 1024 || h != 1024 {
+		t.Fatalf("jpeg: %s %dx%d err=%v", typ, w, h, err)
+	}
+	if _, format, err := image.Decode(bytes.NewReader(out)); err != nil || format != "jpeg" {
+		t.Errorf("not a JPEG: %s %v", format, err)
+	}
+	// The same result as the decoding entry point gives for real bytes.
+	real := encodePNG(t, quadrants(1500, 800))
+	a, _, aw, ah, _ := EncodeInline(real, "image/png", 1024)
+	b, _, bw, bh, _ := EncodeInlineDecoded(real, "image/png", decode(t, real), 1024)
+	if aw != bw || ah != bh || !bytes.Equal(a, b) {
+		t.Errorf("decoded and decoding entry points differ: %dx%d vs %dx%d", aw, ah, bw, bh)
+	}
+}

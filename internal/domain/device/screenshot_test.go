@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bytes"
 	"context"
 	"image/png"
 	"strings"
@@ -158,3 +159,43 @@ func TestScreenshotTimeout(t *testing.T) {
 
 // Decision (check, no host path): the result names no file: its JSON holds no path
 // and none of the daemon's directories.
+
+// Decision (plan m1e step 8, decode once): the capture is decoded once, for validation,
+// and that decode makes the inline variant the MCP adapter delivers; the store holds it
+// with the artifact. This test checks that the held variant is the recorded screen
+// downscaled to at most 1024 px with the bytes EncodeInline gives; that the capture is
+// not decoded a second time is TestScreenshotDecodesTheCaptureOnce.
+func TestScreenshotHoldsItsInlineVariant(t *testing.T) {
+	for _, img := range uiImages {
+		raw := fixture(t, img+"-screencap.png")
+		f := shotFixture(t, map[string]string{uiSerial + ".screencap.out": raw})
+		res := f.shoot(t, uiSerial).Result.(ScreenshotResult)
+		e, err := f.store.Get(res.Ref.Ref)
+		if err != nil || e.Inline == nil {
+			t.Fatalf("%s: %v, inline %v", img, err, e.Inline)
+		}
+		want, mt, w, h, err := artifact.EncodeInline([]byte(raw), "image/png", artifact.InlineMaxEdge)
+		if err != nil || e.Inline.MediaType != mt || e.Inline.Width != w || e.Inline.Height != h || !bytes.Equal(e.Inline.Data, want) {
+			t.Errorf("%s: inline %s %dx%d (%d bytes), want %s %dx%d (%d bytes)", img, e.Inline.MediaType, e.Inline.Width, e.Inline.Height, len(e.Inline.Data), mt, w, h, len(want))
+		}
+		if max(e.Inline.Width, e.Inline.Height) > artifact.InlineMaxEdge {
+			t.Errorf("%s: inline edge %dx%d is over %d", img, e.Inline.Width, e.Inline.Height, artifact.InlineMaxEdge)
+		}
+	}
+}
+
+// Decision (plan m1e step 8, decode once): the handler hands its one decode to the
+// inline encoder. artifact.Decodes counts the decodes the artifact package makes
+// itself; the handler's own decode is the validation one, so the count must not move
+// (a handler calling EncodeInline instead of EncodeInlineDecoded decodes again).
+func TestScreenshotDecodesTheCaptureOnce(t *testing.T) {
+	for _, img := range uiImages {
+		raw := fixture(t, img+"-screencap.png")
+		f := shotFixture(t, map[string]string{uiSerial + ".screencap.out": raw})
+		before := artifact.Decodes()
+		f.shoot(t, uiSerial)
+		if n := artifact.Decodes() - before; n != 0 {
+			t.Errorf("%s: the artifact package decoded the capture %d more times; want none", img, n)
+		}
+	}
+}

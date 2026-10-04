@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/event"
 )
@@ -58,6 +60,7 @@ type Server struct {
 	version string
 	ops     *capability.Operations
 	bus     *event.Bus
+	store   *artifact.Store
 	tools   []server.ServerTool
 	log     *log.Logger
 
@@ -79,6 +82,12 @@ type Server struct {
 // UseBus gives the adapter the bus progress is read from. Without one, no progress
 // notification is sent.
 func (s *Server) UseBus(b *event.Bus) { s.bus = b }
+
+// UseArtifacts gives the adapter the core's artifact store, which it resolves an image
+// reference in a result against (docs/architecture/core-runtime.md §Adapter boundary:
+// adapters resolve references to bytes, the core owns the store). Without one, a
+// result's image is not inlined.
+func (s *Server) UseArtifacts(a *artifact.Store) { s.store = a }
 
 // SetSubscribeHook makes every call that forwards progress run f after it started its
 // operation (operation_wait: after it took the bus position) and before it
@@ -508,7 +517,7 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 		// A tool not flagged long-running is waited on fully; a long-running one for
 		// the session's budget, then answered with the operation still running.
 		var deadline time.Time
-		answer := render
+		answer := func(out capability.Outcome) *mcpgo.CallToolResult { return s.render(out, req.Params.RawArguments) }
 		if d.LongRunning {
 			deadline, answer = time.Now().Add(budgetOf(ctx)), viewOf
 		}
@@ -613,12 +622,122 @@ func (s *Server) abandoned(ctx context.Context, id string, answer func(capabilit
 	return errorResult(capability.Errorf(capability.ErrOperationCancelled, "operation %s was cancelled at the client's request", id))
 }
 
-// render answers with a finished operation: its result, or its error.
-func render(out capability.Outcome) *mcpgo.CallToolResult {
+// render answers with a finished operation: its result, or its error. A result that
+// carries an image artifact gets the image as a block after its text (see inlineImage);
+// args are the call's arguments, for the maxEdge an artifact_read asked for.
+func (s *Server) render(out capability.Outcome, args json.RawMessage) *mcpgo.CallToolResult {
 	if out.State != capability.StateCompleted {
 		return errorResult(out.Error)
 	}
-	return resultOf(out.Result, out.Untrusted)
+	raw, err := json.Marshal(out.Result)
+	if err != nil {
+		return errorResult(capability.AsError(err))
+	}
+	im := s.inlineImage(raw, args)
+	if im == nil {
+		return resultOf(out.Result, out.Untrusted)
+	}
+	// A stored untrusted image is never inlined unmarked, whatever the result's flag.
+	r := resultOf(im.structured, out.Untrusted || im.untrusted)
+	if r.IsError {
+		return r
+	}
+	// The sizes go on a last line of the one text block, after the quoted JSON: ours,
+	// numbers and a media type only. The image block follows the text.
+	if t, ok := r.Content[0].(mcpgo.TextContent); ok {
+		t.Text += fmt.Sprintf("\nimage: stored %dx%d, delivered %dx%d, %s, %d KiB", im.stored[0], im.stored[1], im.w, im.h, im.mediaType, (len(im.data)+1023)>>10)
+		r.Content[0] = t
+	}
+	r.Content = append(r.Content, mcpgo.NewImageContent(base64.StdEncoding.EncodeToString(im.data), im.mediaType))
+	return r
+}
+
+// inlined is an image artifact's inline delivery.
+type inlined struct {
+	structured json.RawMessage // the result's JSON, without data
+	data       []byte
+	mediaType  string
+	w, h       int
+	stored     [2]int
+	untrusted  bool // the stored artifact's own flag (store path)
+}
+
+// inlineImage recognises a result that carries an image artifact (ADR-0012's
+// ArtifactRef: a droidyard://artifact/ `ref` and an image `mediaType`, which
+// device.screenshot and artifact.read share) and prepares its image block, or returns
+// nil. mcp-tool-surface.md §Images and artifacts: a longest edge of 1024 (an
+// artifact_read's maxEdge, capped at 2048), PNG, or JPEG at quality 85 above 512 KiB.
+// An artifact_read result already holds its bytes, as base64 `data`: they are taken out
+// of the structured content, which keeps the metadata only. Any other result is
+// resolved against the store, which holds the producer's inline variant when it had
+// the image decoded anyway. A failure to inline leaves the result as it was.
+func (s *Server) inlineImage(raw json.RawMessage, args json.RawMessage) *inlined {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	var ref, mt string
+	if json.Unmarshal(m["ref"], &ref) != nil || json.Unmarshal(m["mediaType"], &mt) != nil ||
+		!strings.HasPrefix(ref, artifact.RefPrefix) || !strings.HasPrefix(mt, "image/") {
+		return nil
+	}
+	im := &inlined{}
+	var edge struct {
+		MaxEdge int `json:"maxEdge"`
+	}
+	json.Unmarshal(args, &edge)
+
+	if rawData, ok := m["data"]; ok {
+		var b64 string
+		var stored struct{ Width, Height int }
+		json.Unmarshal(rawData, &b64)
+		data, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil || len(data) == 0 {
+			return nil
+		}
+		json.Unmarshal(m["stored"], &stored)
+		im.stored = [2]int{stored.Width, stored.Height}
+		delete(m, "data")
+		if im.data, im.mediaType, im.w, im.h, err = artifact.EncodeInline(data, mt, edge.MaxEdge); err != nil {
+			s.log.Printf("inlining the image of %s: %v", ref, err)
+			return nil
+		}
+		// The structured content describes what the agent receives: the inline
+		// encoder may have re-encoded (no or large maxEdge, the JPEG switch).
+		dm, _ := json.Marshal(map[string]int{"width": im.w, "height": im.h})
+		mtj, _ := json.Marshal(im.mediaType)
+		m["delivered"], m["mediaType"] = dm, mtj
+		if im.structured, err = json.Marshal(m); err != nil {
+			return nil
+		}
+		return im
+	}
+
+	// An artifact_read result that lost its bytes (`delivered` without `data`) is not
+	// a screenshot-like ref: inlining the whole stored image would not be the region
+	// the caller asked for.
+	if _, ok := m["delivered"]; ok {
+		return nil
+	}
+
+	if s.store == nil {
+		return nil
+	}
+	e, err := s.store.Get(ref)
+	if err != nil {
+		s.log.Printf("inlining the image of %s: %v", ref, err)
+		return nil
+	}
+	im.structured, im.stored, im.untrusted = raw, [2]int{e.Ref.Width, e.Ref.Height}, e.Ref.Untrusted
+	if e.Inline != nil {
+		im.data, im.mediaType, im.w, im.h = e.Inline.Data, e.Inline.MediaType, e.Inline.Width, e.Inline.Height
+		return im
+	}
+	if im.data, im.mediaType, im.w, im.h, err = artifact.EncodeInline(e.Data, e.Ref.MediaType, 0); err != nil {
+		s.log.Printf("inlining the image of %s: %v", ref, err)
+		return nil
+	}
+	return im
 }
 
 // Untrusted data over MCP (docs/interfaces/mcp-tool-surface.md §Untrusted data, items

@@ -114,7 +114,7 @@ func startInProcessAt(t *testing.T, httpAddr string, extra func(reg *capability.
 		}
 		return os.Getenv(k)
 	}}
-	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, io.MultiWriter(os.Stderr, p.log))
+	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, artifacts, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)
 	}

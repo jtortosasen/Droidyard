@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"image/png"
 	"strings"
 	"time"
@@ -76,7 +77,7 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 			WithCause("adb " + cmd + ": " + err.Error()).
 			WithNextStep("Check that the adb binary is executable, then retry.")
 	}
-	w, h, perr := checkPNG(out.Stdout)
+	img, perr := checkPNG(out.Stdout)
 	if err != nil || out.Truncated || out.ExitCode != 0 || perr != nil {
 		// A PNG that decodes wins over any text in it; otherwise the command's own
 		// output says whether the serial is gone.
@@ -85,9 +86,17 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 		}
 		return ScreenshotResult{}, screenshotFailed(cmd, out, err, perr)
 	}
+	// The one decode of the capture serves validation and the inline image the MCP
+	// adapter delivers (plan m1e, step 8): the adapter never decodes it again. An image
+	// that cannot be re-encoded is not one the device produced.
+	d, mt, iw, ih, ierr := artifact.EncodeInlineDecoded(out.Stdout, "image/png", img, artifact.InlineMaxEdge)
+	if ierr != nil {
+		return ScreenshotResult{}, screenshotFailed(cmd, out, nil, fmt.Errorf("the PNG cannot be re-encoded: %w", ierr))
+	}
+	inline := &artifact.Inline{Data: d, MediaType: mt, Width: iw, Height: ih}
 	ref, err := store.Put(artifact.Item{
-		Data: out.Stdout, MediaType: "image/png", Width: w, Height: h,
-		Untrusted: true, Producer: "device.screenshot",
+		Data: out.Stdout, MediaType: "image/png", Width: img.Bounds().Dx(), Height: img.Bounds().Dy(),
+		Untrusted: true, Producer: "device.screenshot", Inline: inline,
 	})
 	if err != nil {
 		return ScreenshotResult{}, err
@@ -101,24 +110,25 @@ var pngEnd = []byte("\x00\x00\x00\x00IEND\xaeB`\x82")
 // checkPNG accepts what screencap -p must print: a PNG signature, a header with a
 // positive size and the closing IEND chunk, so a cut stream is refused, and pixels
 // that decode, so a corrupt image is not stored and blamed on a later reader.
-func checkPNG(b []byte) (w, h int, err error) {
+func checkPNG(b []byte) (image.Image, error) {
 	if !bytes.HasPrefix(b, pngSignature) {
-		return 0, 0, errors.New("no PNG signature")
+		return nil, errors.New("no PNG signature")
 	}
 	if !bytes.HasSuffix(b, pngEnd) {
-		return 0, 0, errors.New("the PNG is cut: no closing chunk")
+		return nil, errors.New("the PNG is cut: no closing chunk")
 	}
 	cfg, err := png.DecodeConfig(bytes.NewReader(b))
 	if err != nil {
-		return 0, 0, fmt.Errorf("the PNG header is unreadable: %w", err)
+		return nil, fmt.Errorf("the PNG header is unreadable: %w", err)
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 {
-		return 0, 0, errors.New("the PNG has no size")
+		return nil, errors.New("the PNG has no size")
 	}
-	if _, err := png.Decode(bytes.NewReader(b)); err != nil {
-		return 0, 0, fmt.Errorf("the PNG pixels are corrupt: %w", err)
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("the PNG pixels are corrupt: %w", err)
 	}
-	return cfg.Width, cfg.Height, nil
+	return img, nil
 }
 
 func screenshotFailed(cmd string, out Output, runErr, pngErr error) *capability.Error {

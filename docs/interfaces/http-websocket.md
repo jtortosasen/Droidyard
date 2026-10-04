@@ -150,7 +150,9 @@ connection after two missed pongs.
   `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1; ADR-0024).
 - **Errors**: `404` with the typed error as the JSON body (`ARTIFACT_NOT_FOUND`), or
-  `410` for `ARTIFACT_EXPIRED` ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
+  `410` for `ARTIFACT_EXPIRED` ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)),
+  or `400` (`REQUEST_INVALID_PARAMS`) for a malformed or unknown query parameter, or
+  `500` for a failure of ours. `HEAD` is served too.
   A binary route cannot return a `200` envelope, so this is the one place where the
   status carries meaning.
 - The UI fetches with the `Authorization` header and displays the result through

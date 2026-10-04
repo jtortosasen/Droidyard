@@ -18,6 +18,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/adapters/httpapi"
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -51,8 +52,8 @@ func newToken() string {
 // the UI's HTTP side on httpAddr with a token new at every start. The MCP adapter gets
 // the published schemas from here, so it never imports internal/schema
 // (docs/architecture/core-runtime.md §Adapter boundary), and reads operation progress
-// from bus.
-func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
+// from bus and resolves an image reference against artifacts.
+func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, artifacts *artifact.Store, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return daemon.Options{}, nil, err
@@ -66,6 +67,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		return daemon.Options{}, nil, err
 	}
 	mcpServer.UseBus(bus)
+	mcpServer.UseArtifacts(artifacts)
 	token := newToken()
 	return daemon.Options{
 		State:      st.Root(),
@@ -134,7 +136,7 @@ func serve(args []string) int {
 	reg, ops, bus, artifacts := registry(st, sup, os.Stderr)
 	defer artifacts.Close()
 	socket := env.SocketPath(state)
-	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, os.Stderr)
+	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
