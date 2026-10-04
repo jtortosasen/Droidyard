@@ -179,14 +179,15 @@ func codeSpans(s string) []string {
 func lineNo(i int) int { return i + 1 }
 
 // markdownFiles lists the repository's own markdown, skipping the cloned research
-// material under .refs/ (git-ignored) and .git itself.
+// material under .refs/ (git-ignored), parallel workers' worktrees under
+// .claude/worktrees/ (git-ignored), and .git itself.
 func markdownFiles(fsys fs.FS) ([]string, error) {
 	var out []string
 	err := fs.WalkDir(fsys, ".", func(p string, e fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if e.IsDir() && (p == ".git" || p == ".refs" || p == "node_modules") {
+		if e.IsDir() && (p == ".git" || p == ".refs" || p == "node_modules" || p == ".claude/worktrees") {
 			return fs.SkipDir
 		}
 		if !e.IsDir() && strings.HasSuffix(p, ".md") {
@@ -205,7 +206,7 @@ func goFiles(fsys fs.FS) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		if e.IsDir() && (p == ".git" || p == ".refs") {
+		if e.IsDir() && (p == ".git" || p == ".refs" || p == ".claude/worktrees") {
 			return fs.SkipDir
 		}
 		if !e.IsDir() && strings.HasSuffix(p, ".go") {
