@@ -26,6 +26,13 @@
 //	<serial>.catsdcard          `-s <serial> exec-out cat /sdcard/window_dump.xml`
 //	<serial>.rmsdcard           `-s <serial> shell rm -f /sdcard/window_dump.xml`
 //	<serial>.screencap          `-s <serial> exec-out screencap -p` (.out holds raw bytes: a PNG)
+//	<serial>.push               `-s <serial> push <local> /data/local/tmp/droidyard-reader-<hash>.dex`
+//	<serial>.reader             `-s <serial> exec-out CLASSPATH=<that file> app_process /system/bin DroidyardReader`
+//	<serial>.rmreader           `-s <serial> shell rm -f <that file>`
+//
+// A push is logged in calls.log with its local path replaced by "LOCAL" (it is a
+// temporary file), and the bytes pushed are copied to <serial>.pushed, so a test can
+// compare them with what it expected.
 //
 // `adb version` answers as client 1.0.41; any other invocation exits 9.
 package devicetest
@@ -84,6 +91,12 @@ func Calls(t *testing.T, dir string) []string {
 }
 
 func run(dir string, args []string) int {
+	if len(args) == 5 && args[0] == "-s" && args[2] == "push" && isReaderFile(args[4]) {
+		if b, err := os.ReadFile(args[3]); err == nil {
+			os.WriteFile(filepath.Join(dir, args[1]+".pushed"), b, 0o600)
+		}
+		args = []string{args[0], args[1], args[2], "LOCAL", args[4]}
+	}
 	if f, err := os.OpenFile(filepath.Join(dir, "calls.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
 		fmt.Fprintln(f, strings.Join(args, " "))
 		f.Close()
@@ -141,6 +154,14 @@ func servedPrefix(args []string) string {
 	if len(args) < 4 || args[0] != "-s" {
 		return ""
 	}
+	switch {
+	case len(args) == 5 && args[2] == "push" && args[3] == "LOCAL" && isReaderFile(args[4]):
+		return args[1] + ".push"
+	case len(args) == 7 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader":
+		return args[1] + ".reader"
+	case len(args) == 6 && args[2] == "shell" && args[3] == "rm" && args[4] == "-f" && isReaderFile(args[5]):
+		return args[1] + ".rmreader"
+	}
 	switch strings.Join(args[2:], " ") {
 	case "shell getprop sys.boot_completed":
 		return args[1] + ".bootcompleted"
@@ -156,6 +177,14 @@ func servedPrefix(args []string) string {
 		return args[1] + ".screencap"
 	}
 	return ""
+}
+
+func isReaderFile(p string) bool {
+	return strings.HasPrefix(p, "/data/local/tmp/droidyard-reader-") && strings.HasSuffix(p, ".dex")
+}
+
+func isReaderClasspath(a string) bool {
+	return strings.HasPrefix(a, "CLASSPATH=") && isReaderFile(strings.TrimPrefix(a, "CLASSPATH="))
 }
 
 // serve answers one invocation from its prefix's files, and brackets it in events.log
