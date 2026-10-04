@@ -13,6 +13,7 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	goreflect "reflect"
 
 	"github.com/invopop/jsonschema"
 
@@ -75,18 +76,113 @@ func reflector() *jsonschema.Reflector {
 
 // reflect produces a JSON Schema object for one Go value, inlined.
 func reflect(v any) (json.RawMessage, error) {
-	raw, err := json.Marshal(inlined(v))
+	sch, err := inlined(v)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(sch)
 	if err != nil {
 		return nil, fmt.Errorf("reflecting %T: %w", v, err)
 	}
 	return raw, nil
 }
 
-func inlined(v any) *jsonschema.Schema {
+func inlined(v any) (*jsonschema.Schema, error) {
 	s := reflector().Reflect(v)
 	s.Version = ""
 	s.ID = ""
-	return s
+	if err := markUntrusted(goreflect.TypeOf(v), s, map[visit]bool{}); err != nil {
+		return nil, fmt.Errorf("%T: %w", v, err)
+	}
+	return s, nil
+}
+
+// markUntrusted puts the boolean "x-droidyard-untrusted": true on the property of each
+// field tagged untrusted, at every depth (ADR-0015 §1), by walking the Go type and its
+// inlined schema together. The keyword is set here, from the one tag the registry also
+// derives the descriptor's flag from, so the two cannot disagree. A tagged field it
+// cannot place (a type with its own JSONSchema(), a map whose values the reflector put
+// under patternProperties) is an error naming the type and field, never a silent miss.
+type visit struct {
+	t goreflect.Type
+	s *jsonschema.Schema
+}
+
+func markUntrusted(t goreflect.Type, s *jsonschema.Schema, seen map[visit]bool) error {
+	if t == nil {
+		return nil
+	}
+	if s != nil {
+		// A (type, schema node) pair is walked once. No type can reach this today:
+		// with DoNotReference the reflector itself overflows its stack on a
+		// self-referential type (observed on invopop/jsonschema v0.14.0), so such a
+		// result never gets here. The guard keeps this walk from being the thing that
+		// loops if that changes.
+		if seen[visit{t, s}] {
+			return nil
+		}
+		seen[visit{t, s}] = true
+	}
+	if s == nil {
+		has, err := capability.HasUntrusted(t)
+		if err != nil {
+			return err
+		}
+		if has {
+			return fmt.Errorf("%s has a field tagged %s, but its schema position cannot be found", t, capability.UntrustedTag)
+		}
+		return nil
+	}
+	switch t.Kind() {
+	case goreflect.Pointer:
+		return markUntrusted(t.Elem(), s, seen)
+	case goreflect.Slice, goreflect.Array:
+		return markUntrusted(t.Elem(), s.Items, seen)
+	case goreflect.Map:
+		return markUntrusted(t.Elem(), s.AdditionalProperties, seen)
+	case goreflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			name, omitted := capability.JSONName(f)
+			if (!f.IsExported() && !f.Anonymous) || omitted {
+				continue
+			}
+			if name == "" { // an embedded struct is flattened into this one
+				if err := markUntrusted(f.Type, s, seen); err != nil {
+					return err
+				}
+				continue
+			}
+			tagged, err := capability.FieldUntrusted(f)
+			if err != nil {
+				return fmt.Errorf("%s: %w", t, err)
+			}
+			var prop *jsonschema.Schema
+			if s.Properties != nil {
+				prop, _ = s.Properties.Get(name)
+			}
+			if prop == nil {
+				inner, err := capability.HasUntrusted(f.Type)
+				if err != nil {
+					return err
+				}
+				if tagged || inner {
+					return fmt.Errorf("%s.%s: tagged %s (or holding a tagged field), but its property %q is not in the schema", t, f.Name, capability.UntrustedTag, name)
+				}
+				continue
+			}
+			if tagged {
+				if prop.Extras == nil {
+					prop.Extras = map[string]any{}
+				}
+				prop.Extras[capability.UntrustedKeyword] = true
+			}
+			if err := markUntrusted(f.Type, prop, seen); err != nil {
+				return fmt.Errorf("%s.%s: %w", t, f.Name, err)
+			}
+		}
+	}
+	return nil
 }
 
 // operationView is the output of a long-running capability: the operation view, with
@@ -94,8 +190,15 @@ func inlined(v any) *jsonschema.Schema {
 // (ADR-0020 §Adapter projections). operation.wait keeps the view's open object, since
 // the schema that applies depends on the operation waited on.
 func operationView(result any) (json.RawMessage, error) {
-	view := inlined(capability.OperationView{})
-	view.Properties.Set("result", inlined(result))
+	view, err := inlined(capability.OperationView{})
+	if err != nil {
+		return nil, err
+	}
+	res, err := inlined(result)
+	if err != nil {
+		return nil, err
+	}
+	view.Properties.Set("result", res)
 	raw, err := json.Marshal(view)
 	if err != nil {
 		return nil, fmt.Errorf("reflecting the operation view of %T: %w", result, err)

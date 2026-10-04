@@ -133,3 +133,44 @@ func TestNothingIsWrittenOnceTheSessionIsGone(t *testing.T) {
 		t.Errorf("the session was written %q; want only what preceded its end", out.String())
 	}
 }
+
+// TestMarkedTextHasNoLineOfItsOwnAfterTheFixedLine: a result field that is already JSON
+// (json.RawMessage, capability.Object) is emitted as given, and a newline in it must not
+// become a line of text after the untrusted line (mcp-tool-surface.md §Untrusted data,
+// item 2). The marked text is the fixed line, one newline, and one line of compact JSON.
+func TestMarkedTextHasNoLineOfItsOwnAfterTheFixedLine(t *testing.T) {
+	type res struct {
+		Raw json.RawMessage   `json:"raw"`
+		Obj capability.Object `json:"obj"`
+	}
+	v := res{Raw: json.RawMessage("{\n  \"a\":\r\n 1\n}"), Obj: capability.Object("[1,\n2]")}
+	text := func(r *mcpgo.CallToolResult) string {
+		return r.Content[0].(mcpgo.TextContent).Text
+	}
+	for name, r := range map[string]*mcpgo.CallToolResult{
+		"resultOf": resultOf(v, true),
+		"viewOf":   viewOf(capability.Outcome{OperationID: "o", Capability: "c", State: capability.StateCompleted, Result: v, Untrusted: true}),
+	} {
+		if r.IsError || r.Meta == nil {
+			t.Fatalf("%s: not a marked result: %+v", name, r)
+		}
+		first, rest, _ := strings.Cut(text(r), "\n")
+		if first != untrustedFirstLine || strings.ContainsAny(rest, "\n\r") || !strings.Contains(rest, `"a":1`) {
+			t.Errorf("%s: text = %q; want the fixed line, then one line of compact JSON", name, text(r))
+		}
+	}
+}
+
+// TestMarkUntrustedRefusesAMultiLineText: markUntrusted itself compacts the text it is
+// given and refuses one that still holds a raw line break, whatever produced it, so the
+// guarantee does not rest on encoding/json compacting RawMessage on the way in.
+func TestMarkUntrustedRefusesAMultiLineText(t *testing.T) {
+	r := markUntrusted(&mcpgo.CallToolResult{}, "{\n\"a\":\n1}")
+	if r.IsError || r.Content[0].(mcpgo.TextContent).Text != untrustedFirstLine+"\n"+`{"a":1}` {
+		t.Errorf("whitespace newlines were not compacted: %+v", r)
+	}
+	// A newline inside a string is not valid JSON, so it cannot be compacted away.
+	if r := markUntrusted(&mcpgo.CallToolResult{}, "{\"a\":\"x\ny\"}"); !r.IsError {
+		t.Errorf("a text with a raw newline inside a string was marked: %+v", r)
+	}
+}

@@ -147,9 +147,10 @@ type Call struct {
 	Session Session
 	// Progress reports progress for a long-running call. Never nil.
 	Progress func(done, total int, message string)
-	// Untrusted marks result fields that carry device- or app-derived data, by
-	// field name, so the adapter can signal them per result (ADR-0015 §1).
-	Untrusted []string
+	// Untrusted is the handler's own mark for this result, set before it returns
+	// (artifact.read: an artifact carries its producer's mark, ADR-0015 §1). Nil
+	// leaves the descriptor's derived flag in force; non-nil sets the result's mark.
+	Untrusted *bool
 }
 
 // Descriptor is one capability. It is registered explicitly by its domain package at
@@ -204,11 +205,20 @@ type Descriptor struct {
 
 	Handler Handler
 
+	// untrusted is derived by Register from the tags on Result's fields, never
+	// written by hand (ADR-0015 §1).
+	untrusted bool
+
 	// unrecorded marks operation.wait and operation.cancel, whose calls are not
 	// operations (ADR-0020 §Core primitives). Unexported, so only this package can
 	// register such a capability.
 	unrecorded bool
 }
+
+// Untrusted reports whether the capability's result has a field tagged untrusted,
+// as Register derived it (ADR-0015 §1). A registered descriptor carries it; one that
+// never went through Register reports false.
+func (d Descriptor) Untrusted() bool { return d.untrusted }
 
 // Recorded reports whether a call to the capability becomes an operation. Every
 // capability's does except operation.wait's and operation.cancel's: callers run those

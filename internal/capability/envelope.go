@@ -60,6 +60,15 @@ type Meta struct {
 	Untrusted  bool  `json:"untrusted,omitempty"`
 }
 
+// Meta returns the envelope's meta for this outcome: untrusted when it is a result
+// that carries device- or app-derived data, and none otherwise (ADR-0015 §1).
+func (o Outcome) Meta() *Meta {
+	if o.Untrusted {
+		return &Meta{Untrusted: true}
+	}
+	return nil
+}
+
 // OperationView is the MCP projection of an operation: what a long-running tool and
 // operation_wait return (ADR-0020 §Adapter projections). It is one object with no
 // top-level union: a completed operation sets Result.

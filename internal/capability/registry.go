@@ -41,6 +41,11 @@ func (r *Registry) Register(d Descriptor) error {
 	if d.Description == "" {
 		return fmt.Errorf("capability %q: a description is required; it is what the agent reads", d.Name)
 	}
+	untrusted, err := deriveUntrusted(d.Result)
+	if err != nil {
+		return fmt.Errorf("capability %q: result: %w", d.Name, err)
+	}
+	d.untrusted = untrusted
 	if d.Annotations.Destructive != nil || d.Annotations.OpenWorld != nil {
 		if strings.TrimSpace(d.Annotations.Reason) == "" {
 			return fmt.Errorf("capability %q: an annotation override requires a reason", d.Name)

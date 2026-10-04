@@ -261,6 +261,7 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 			break
 		}
 		env.Result = raw
+		env.Meta = out.Meta()
 	case capability.StateFailed, capability.StateCancelled:
 		env.Error = out.Error
 	}
