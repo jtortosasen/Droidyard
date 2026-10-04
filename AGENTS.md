@@ -41,12 +41,17 @@ skill says who does what.
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
   §Verification by risk): Opus and DeepSeek together only for contract, security and
   concurrency changes and at close; DeepSeek alone otherwise.
-- **`implementer`** (Sonnet). **`planner`, `plan-reviewer`, `verifier`** (Opus).
+- **Implementer: DeepSeek through OpenCode** (owner's choice, 2026-10-04, to spare the
+  subscription's quota): `opencode run -m opencode-go/deepseek-v4.1-flash --agent
+  implementer --auto "<brief>"`, one plan step per run. It edits and tests but never
+  commits; the main session reviews the diff and commits. The Claude `implementer`
+  (Sonnet) is the fallback for a step DeepSeek fails twice.
+- **`planner`, `plan-reviewer`, `verifier`** (Opus).
 - **Cross-model check** (DeepSeek through OpenCode, read-only):
   `opencode run -m opencode-go/deepseek-v4.1-flash --agent verifier --auto "<brief>"`
   (`-m` is required: OpenCode ignores the agent file's model). `.opencode/agents/` holds
-  only the `verifier` and `plan-reviewer` wrappers, which read the `.claude/agents/` body
-  and keep OpenCode's own edit and shell denials. Run it beside the Opus verifier when
+  the `implementer`, `verifier` and `plan-reviewer` wrappers, which read the
+  `.claude/agents/` body and set OpenCode's own edit and shell permissions. Run it beside the Opus verifier when
   a step closes, or for a second opinion on a design question. The main session triages
   its findings; they never gate on their own.
 
