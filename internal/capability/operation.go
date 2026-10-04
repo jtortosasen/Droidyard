@@ -67,6 +67,10 @@ type Outcome struct {
 	Result      any
 	Error       *Error
 	Progress    *Progress
+	// Untrusted marks a result that carries device- or app-derived data: the
+	// descriptor's derived flag, unless the handler set its own through Call. Only a
+	// completed operation has a result to mark (ADR-0015 §1).
+	Untrusted bool
 }
 
 type operation struct {
@@ -81,6 +85,7 @@ type operation struct {
 	result          any
 	err             *Error
 	progress        *Progress
+	untrusted       bool
 	cancelRequested bool
 	// forced: cancelled by a workspace close, so the operation ends cancelled
 	// whatever its handler returns (ADR-0027).
@@ -208,12 +213,12 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 		call.Workspace = target
 	}
 
-	go o.run(hctx, op, d.Handler, call)
+	go o.run(hctx, op, d, call)
 	return id, nil
 }
 
-func (o *Operations) run(ctx context.Context, op *operation, h Handler, call *Call) {
-	res, err := h(ctx, call)
+func (o *Operations) run(ctx context.Context, op *operation, d Descriptor, call *Call) {
+	res, err := d.Handler(ctx, call)
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -223,6 +228,10 @@ func (o *Operations) run(ctx context.Context, op *operation, h Handler, call *Ca
 		op.err = NewError(ErrOperationCancelled, "the operation was cancelled: its workspace was closed")
 	case err == nil:
 		op.state, op.result = StateCompleted, res
+		op.untrusted = d.untrusted
+		if call.Untrusted != nil {
+			op.untrusted = *call.Untrusted
+		}
 	case op.cancelRequested:
 		op.state = StateCancelled
 		op.err = NewError(ErrOperationCancelled, "the operation was cancelled")
@@ -354,14 +363,21 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 		return o.Wait(ctx, id, time.Time{})
 	}
 
-	res, err := d.Handler(ctx, &Call{Params: params, Session: req.Session, Progress: func(int, int, string) {}})
+	call := &Call{Params: params, Session: req.Session, Progress: func(int, int, string) {}}
+	res, err := d.Handler(ctx, call)
 	if err != nil {
 		return Outcome{}, err
 	}
 	if out, ok := res.(Outcome); ok {
 		return out, nil
 	}
-	return Outcome{Capability: d.Name, State: StateCompleted, Result: res}, nil
+	// A non-Outcome result is marked like a recorded one: the descriptor's derived
+	// flag unless the handler set its own. Only operation.cancel reaches here today.
+	untrusted := d.untrusted
+	if call.Untrusted != nil {
+		untrusted = *call.Untrusted
+	}
+	return Outcome{Capability: d.Name, State: StateCompleted, Result: res, Untrusted: untrusted}, nil
 }
 
 // prepare runs every check that rejects a call before it becomes an operation.
@@ -492,6 +508,7 @@ func (o *Operations) snapshot(op *operation) Outcome {
 		State:       op.state,
 		Result:      op.result,
 		Error:       op.err,
+		Untrusted:   op.untrusted,
 	}
 	if op.progress != nil {
 		p := *op.progress

@@ -111,6 +111,7 @@ func handle(ctx context.Context, reg *capability.Registry, ops *capability.Opera
 			break
 		}
 		env.Result = raw
+		env.Meta = out.Meta()
 	case capability.StateFailed, capability.StateCancelled:
 		env.Error = out.Error
 	}
