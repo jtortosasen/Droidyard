@@ -57,3 +57,11 @@ the host's adb public key with the comment "<user>@unknown", in all three getpro
 holds the home directory in the adb install path. Redacted by the orchestrating session on 2026-10-04
 (owner's standing instruction): the pubkey value is replaced by `REDACTED: the host adb public key (it
 names the user)` and `/Users/<name>` by `/Users/<user>`. No parser reads either value.
+
+Real reader output (2026-10-04, ADR-0029 fix round): the embedded reader.dex (SHA-256
+b87f92d349e37f1368069e18c66f6448b7e7d0a997f278f7611c0132b667ea30) pushed to /data/local/tmp and run
+as dump.go runs it (`exec-out CLASSPATH=<dex> app_process /system/bin DroidyardReader`) on the running
+Pixel_9a (emulator-5554) with Settings > Display in front; the dex was removed afterwards.
+pixel9a-reader-display.xml  its stdout, exit 0, empty stderr. Same screen as pixel9a-uidump-devtty.xml;
+                            `uiautomator dump` was NOT run for it (it suspends other accessibility services).
+                            Personal data: none (Settings labels, battery "83%"; no accounts, names or ids).
