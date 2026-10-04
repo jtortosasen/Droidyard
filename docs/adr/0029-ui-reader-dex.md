@@ -5,6 +5,8 @@
 - Relates to: ADR-0005, ADR-0015, `docs/subsystems/ui-automation.md` §The tree,
   `docs/research/device-speed-2026-10.md`
 - Decided by the owner, 2026-10-04 ("utilicemos el .dex con el flag").
+- Extended by [ADR-0030](0030-persistent-ui-reader.md): the reader stays running; this
+  one-shot run becomes its fallback.
 - Amended: 2026-10-04 — measured on the implementation (milestone 1e step 10): a read
   costs ~1.3 s end to end (push, `app_process` JVM start, the idle wait, removal), not
   the spike's ~150 ms, which was connect-to-read only; still faster than the dump (2–8 s
