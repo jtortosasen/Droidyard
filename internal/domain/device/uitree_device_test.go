@@ -56,6 +56,9 @@ func newUIFixturePort(t *testing.T, files map[string]string, port string) *uiFix
 		"devices.out":                   uiList(phoneLine),
 		uiSerial + ".bootcompleted.out": "1\n",
 		uiSerial + ".dumptty.out":       fixture(t, "pixel9a-uidump-devtty.xml"),
+		// The reader cannot run unless a test says it can (withReader): the tests that
+		// predate ADR-0029 exercise the uiautomator dump path, now the fallback.
+		uiSerial + ".push.exit": "1",
 	}
 	for k, v := range files {
 		base[k] = v
@@ -73,6 +76,15 @@ func newUIFixturePort(t *testing.T, files map[string]string, port string) *uiFix
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 	return &uiFixture{dir: dir, adb: adb, ops: ops, store: store}
+}
+
+// withReader makes the fake's UI reader print doc, merged into files.
+func withReader(files map[string]string, doc string) map[string]string {
+	out := map[string]string{uiSerial + ".reader.out": doc, uiSerial + ".push.exit": "0"}
+	for k, v := range files {
+		out[k] = v
+	}
+	return out
 }
 
 func uiList(lines ...string) string { return listHead + strings.Join(lines, "") }
@@ -138,28 +150,40 @@ func mustFail(t *testing.T, out capability.Outcome, code capability.ErrorCode) *
 // change to them is a change to what agents see, so -update is deliberate.
 func TestUITreeGoldenFromRecordedDumps(t *testing.T) {
 	for _, img := range uiImages {
-		f := newUIFixture(t, map[string]string{uiSerial + ".dumptty.out": fixture(t, img+"-uidump-devtty.xml")})
-		s := mustComplete(t, f.tree(t, uiSerial))
-		if !strings.HasPrefix(s.ID, "s-") {
-			t.Errorf("%s: snapshot id %q", img, s.ID)
-		}
-		s.ID = "s-golden"
-		got, _ := json.MarshalIndent(s, "", "  ")
-		got = append(got, '\n')
-		path := filepath.Join("testdata", img+"-uitree.golden.json")
-		if *updateGolden {
-			if err := os.WriteFile(path, got, 0o644); err != nil {
-				t.Fatal(err)
+		doc := fixture(t, img+"-uidump-devtty.xml")
+		// Both paths give the one snapshot: the reader (no warning) and the dump
+		// fallback (the fallback's warning only).
+		for _, viaReader := range []bool{true, false} {
+			files := map[string]string{uiSerial + ".dumptty.out": doc}
+			if viaReader {
+				files = withReader(files, doc)
 			}
+			f := newUIFixture(t, files)
+			s := mustComplete(t, f.tree(t, uiSerial))
+			if !strings.HasPrefix(s.ID, "s-") {
+				t.Errorf("%s: snapshot id %q", img, s.ID)
+			}
+			if viaReader != (len(s.Warnings) == 0) {
+				t.Errorf("%s reader=%v: warnings %q", img, viaReader, s.Warnings)
+			}
+			s.ID, s.Warnings = "s-golden", nil
+			got, _ := json.MarshalIndent(s, "", "  ")
+			got = append(got, '\n')
+			path := filepath.Join("testdata", img+"-uitree.golden.json")
+			if *updateGolden && viaReader {
+				if err := os.WriteFile(path, got, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("%s: %v (run with -update to create it)", img, err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("%s reader=%v: snapshot differs from %s", img, viaReader, path)
+			}
+			refsExist(t, s)
 		}
-		want, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("%s: %v (run with -update to create it)", img, err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s: snapshot differs from %s", img, path)
-		}
-		refsExist(t, s)
 	}
 }
 
@@ -275,18 +299,18 @@ func maxOverlap(events []string, prefix string) int {
 	return m
 }
 
-// Decision (check e): the daemon never issues two dumps to one device at once. Two
+// Decision (check e; the delay is long because under -race each fake adb call takes seconds): the daemon never issues two dumps to one device at once. Two
 // calls on one device: the second is queued behind the first (the lock is the
 // scheduler's, taken in Start) and the fake sees its dumps one after the other; on two
 // devices the dumps overlap. Without the dump key declared the first half fails.
 func TestUITreeDumpsAreSerialisedPerDevice(t *testing.T) {
-	two := map[string]string{
+	two := withReader(map[string]string{
 		"devices.out":                     uiList(phoneLine, tabletLine),
-		uiSerial + ".dumptty.delay":       "800",
+		uiSerial + ".reader.delay":        "2500",
 		"emulator-5556.bootcompleted.out": "1\n",
-		"emulator-5556.dumptty.out":       fixture(t, "pixeltablet-uidump-devtty.xml"),
-		"emulator-5556.dumptty.delay":     "800",
-	}
+		"emulator-5556.reader.out":        fixture(t, "pixeltablet-uidump-devtty.xml"),
+		"emulator-5556.reader.delay":      "2500",
+	}, fixture(t, "pixel9a-uidump-devtty.xml"))
 	f := newUIFixture(t, two)
 	a, err := f.start(t, uiSerial)
 	if err != nil {
@@ -302,7 +326,7 @@ func TestUITreeDumpsAreSerialisedPerDevice(t *testing.T) {
 	}
 	mustComplete(t, f.wait(t, a))
 	mustComplete(t, f.wait(t, b))
-	if got := maxOverlap(devicetest.Events(t, f.dir), uiSerial+".dumptty"); got != 1 {
+	if got := maxOverlap(devicetest.Events(t, f.dir), uiSerial+".reader"); got != 1 {
 		t.Errorf("%d dumps to one device overlapped, want 1: %q", got, devicetest.Events(t, f.dir))
 	}
 
@@ -313,12 +337,12 @@ func TestUITreeDumpsAreSerialisedPerDevice(t *testing.T) {
 	mustComplete(t, f.wait(t, b))
 	var ev []string
 	for _, e := range devicetest.Events(t, f.dir) {
-		if strings.HasSuffix(e, ".dumptty") {
+		if strings.HasSuffix(e, ".reader") {
 			ev = append(ev, e)
 		}
 	}
 	first := slices.IndexFunc(ev, func(e string) bool { return strings.HasPrefix(e, "end ") })
-	if first < 0 || !slices.Contains(ev[:first], "begin "+uiSerial+".dumptty") || !slices.Contains(ev[:first], "begin emulator-5556.dumptty") {
+	if first < 0 || !slices.Contains(ev[:first], "begin "+uiSerial+".reader") || !slices.Contains(ev[:first], "begin emulator-5556.reader") {
 		t.Errorf("events %q: dumps to two devices should be in flight together", ev)
 	}
 }
@@ -481,12 +505,13 @@ func TestUITreeDescriptorAndMark(t *testing.T) {
 // loopback server says 42. The warning is adb's, so it is not under the untrusted mark.
 func TestUITreeCarriesTheVersionMismatchWarning(t *testing.T) {
 	port, _ := fakeServer(t, []byte("OKAY0004002a"))
-	f := newUIFixturePort(t, nil, port)
+	doc := fixture(t, "pixel9a-uidump-devtty.xml")
+	f := newUIFixturePort(t, withReader(nil, doc), port)
 	s := mustComplete(t, f.tree(t, uiSerial))
 	if len(s.Warnings) != 1 || !strings.Contains(s.Warnings[0], "version 42") || !strings.Contains(s.Warnings[0], "1.0.41") {
 		t.Errorf("warnings = %q, want the mismatch between client 1.0.41 and server 42", s.Warnings)
 	}
-	if s := mustComplete(t, newUIFixture(t, nil).tree(t, uiSerial)); len(s.Warnings) != 0 {
+	if s := mustComplete(t, newUIFixture(t, withReader(nil, doc)).tree(t, uiSerial)); len(s.Warnings) != 0 {
 		t.Errorf("warnings = %q with no server running", s.Warnings)
 	}
 }

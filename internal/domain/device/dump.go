@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/device/reader"
 )
 
 // ErrUIDumpFailed is the dump's own failure (ui-automation.md §Failure modes; plan
@@ -20,16 +24,29 @@ const ErrUIDumpFailed capability.ErrorCode = "DEVICE_UI_DUMP_FAILED"
 // dumpAttempt. The last cleanupReserve of the deadline is kept for removing the
 // /sdcard file, so that a dump that used its whole budget still cleans up inside it.
 // Variables so tests are quick.
+//
+// dumpAttempt is above uiautomator's own idle wait (about 10 s), so that its "could not
+// get idle state" reaches us as that message and is retried, instead of our timeout
+// cutting the attempt first. idleRetryPause is the settle time before that retry. The
+// reader (ADR-0029) is bounded by readerPush and readerRun, inside the same deadline.
 var (
 	dumpDeadline   = 22 * time.Second
-	dumpAttempt    = 10 * time.Second
+	dumpAttempt    = 12 * time.Second
 	cleanupReserve = 2 * time.Second
+	idleRetryPause = 800 * time.Millisecond
+	readerPush     = 5 * time.Second
+	readerRun      = 8 * time.Second
 )
 
 const (
 	dumpOutputCap = 8 << 20
 	sdcardDump    = "/sdcard/window_dump.xml"
 	idleFailure   = "could not get idle state"
+	// readerRemote is where the reader is pushed for a read and removed after it. The
+	// name carries the pinned digest, so two builds never share a file.
+	readerRemote = "/data/local/tmp/droidyard-reader-" + reader.SHA256 + ".dex"
+	// fallbackWarning is the warnings[] entry of a read that fell back (ADR-0029).
+	fallbackWarning = "The UI reader could not run on this device, so the screen was read with uiautomator dump, which suspended the device's other accessibility services while it ran."
 )
 
 // UITreeParams is device.uiTree's parameters.
@@ -75,7 +92,7 @@ func registerUITree(reg *capability.Registry, adb *ADB) {
 }
 
 func (a *ADB) uiTree(ctx context.Context, t *target) (Snapshot, error) {
-	doc, err := a.dump(ctx, t)
+	doc, warnings, err := a.read(ctx, t)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -83,8 +100,69 @@ func (a *ADB) uiTree(ctx context.Context, t *target) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, dumpFailed(err.Error())
 	}
-	s.Warnings = t.warnings
+	s.Warnings = append(slices.Clone(t.warnings), warnings...)
 	return s, nil
+}
+
+// read returns the screen's hierarchy document: from the UI reader (ADR-0029), which
+// keeps the device's other accessibility services running, and only when the reader
+// cannot run from `uiautomator dump`, with a warning that says so. One deadline covers
+// both. A serial that adb says is gone is DEVICE_DISCONNECTED either way; the caller's
+// own cancellation is returned as it is.
+func (a *ADB) read(ctx context.Context, t *target) ([]byte, []string, error) {
+	start := time.Now()
+	doc, kind, line := a.runReader(ctx, t, start)
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, nil, cerr
+	}
+	switch kind {
+	case dumpOK:
+		return doc, nil, nil
+	case dumpGone:
+		return nil, nil, disconnected(t.serial, line)
+	}
+	doc, err := a.dumpFrom(ctx, t, start)
+	if err != nil {
+		return nil, nil, err
+	}
+	return doc, []string{fallbackWarning}, nil
+}
+
+// runReader pushes the embedded reader, runs it with app_process and removes it. The
+// file is pushed on every read and removed after it, so the device keeps nothing between
+// reads: a copy left by a killed daemon is overwritten, never trusted, and no check of
+// its content is needed. The removal is issued whenever the push was, on a context that
+// outlives the work deadline by cleanupReserve and survives the caller's cancellation.
+func (a *ADB) runReader(parent context.Context, t *target, start time.Time) ([]byte, dumpKind, string) {
+	end := start.Add(dumpDeadline)
+	ctx, cancel := context.WithDeadline(parent, end.Add(-cleanupReserve))
+	defer cancel()
+	dir, err := os.MkdirTemp("", "droidyard-reader-")
+	if err != nil {
+		return nil, dumpOther, "temporary directory: " + err.Error()
+	}
+	defer os.RemoveAll(dir)
+	local := filepath.Join(dir, "reader.dex")
+	if err := os.WriteFile(local, reader.Dex(), 0o600); err != nil {
+		return nil, dumpOther, "temporary file: " + err.Error()
+	}
+	defer func() {
+		rctx, cancel := context.WithDeadline(context.WithoutCancel(parent), end)
+		defer cancel()
+		a.Run(rctx, t.adb, cleanupReserve, 1<<10, "-s", t.serial, "shell", "rm", "-f", readerRemote)
+	}()
+	const push = "push reader.dex"
+	out, err := a.Run(ctx, t.adb, readerPush, 1<<10, "-s", t.serial, "push", local, readerRemote)
+	if _, kind, line := classifyDump(t.serial, push, out, err, false); kind != dumpOK {
+		return nil, kind, line
+	}
+	const run = "exec-out app_process " + reader.Class
+	out, err = a.Run(ctx, t.adb, readerRun, dumpOutputCap, "-s", t.serial, "exec-out", "CLASSPATH="+readerRemote, "app_process", "/system/bin", reader.Class)
+	doc, kind, line := classifyDump(t.serial, run, out, err, true)
+	if kind == dumpIdle {
+		kind = dumpOther // the reader reads on a timeout; an idle message is not its retry
+	}
+	return doc, kind, line
 }
 
 func dumpFailed(cause string) *capability.Error {
@@ -109,7 +187,12 @@ const (
 // DEVICE_DISCONNECTED, read from the command's own output. All of it within
 // dumpDeadline; the caller's own cancellation is returned as it is.
 func (a *ADB) dump(ctx context.Context, t *target) ([]byte, error) {
-	start := time.Now()
+	return a.dumpFrom(ctx, t, time.Now())
+}
+
+// dumpFrom is dump with the deadline counted from start, so that a read that tried the
+// reader first spends one budget, not two.
+func (a *ADB) dumpFrom(ctx context.Context, t *target, start time.Time) ([]byte, error) {
 	wctx, cancel := context.WithDeadline(ctx, start.Add(dumpDeadline-cleanupReserve))
 	defer cancel()
 
@@ -138,6 +221,11 @@ func (a *ADB) dump(ctx context.Context, t *target) ([]byte, error) {
 			}
 			retried = true
 			last = line
+			// Let the screen settle before the retry (800 ms, as codex-android-mcp does).
+			select {
+			case <-time.After(idleRetryPause):
+			case <-wctx.Done():
+			}
 		default:
 			path++
 			last = line
