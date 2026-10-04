@@ -5,6 +5,8 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
+> **Device block run 2026-10-04 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+>
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
 > A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which.
@@ -87,7 +89,7 @@ await 1; mcp_close
 
 | Phase 0 acceptance (`docs/roadmap/mvp.md`) | Drive | Passes when |
 | --- | --- | --- |
-| `system.capabilities` lists what is available; `degraded` without `adb` | Launch again with a `PATH` on which `command -v adb` prints nothing; `call system.capabilities`. Runnable from the device slice | `adb`-dependent capabilities are `available: false` with a reason; the core reports `degraded` |
+| `system.capabilities` lists what is available; `degraded` without `adb` (R1: no `degraded` field) | The scrubbed launch in the Device block below: `env -i` with `HOME` at an empty directory and `PATH=/usr/bin:/bin`, since the host SDK default (`~/Library/Android/sdk`) resolves `adb` before `PATH` on a Mac that has the SDK | `device.list`, `device.uiTree` and `device.screenshot` are `available: false` with a reason, `artifact.read` is `available: true`; `call device.list` exits non-zero with `DEVICE_ADB_NOT_FOUND`; `system.health` has `adb.found: false` with every rejected candidate |
 | The same capability from the CLI and MCP, identical semantics | `system.capabilities` through `call`, and through the session above; `workspace.describe` likewise, in the workspace block below | `jq -S .result` of the CLI envelope equals `jq -S 'select(.id==1).result.structuredContent'` of `caps.out`; the same for `ws-describe-cli` and `ws.out` id 1 |
 | Workspaces: open, describe, close, and a bound session that is not reopened (ADR-0019 §Sessions; ADR-0020 §Scope and workspace addressing; ADR-0027) | The workspace block below | `open` and `describe` answer `ready`, `root` `$R/proj`, `trusted: false`; `close` exits 0; the session's `workspace_describe` after the close is `isError` with `WORKSPACE_NOT_OPEN`, both times |
 | Killing a shim does not stop an operation it started (ADR-0020; ADR-0019 §Sessions) | Start a long-running capability in an MCP session, read the `operationId` of its view, `kill -9 "$SHIM"`, then `call operation.wait --params '{"operationId":"<id>"}'`. None ships before `device.logs` (device slice); `TestMCPCancellation` covers it on a fixture | The envelope's `operation.state` is `completed`, not `cancelled`, and `call` exits 0 |
@@ -187,9 +189,58 @@ opencode --version >>"$E/env"
 ```
 
 - `opencode.err` should log the connection, `message="mcp connected" server=droidyard tools=<n>` (`grep 'message="mcp connected" server=droidyard'`), and no schema warning; `opencode.out` is the event stream, the wire files are what was sent and received.
+- For the device slice, name `device_list`, `device_uiTree` and `device_screenshot`: `tools=11`; `jq -c 'select(.result.content?)|{id,blocks:[.result.content[]|{type,mimeType}]}' "$E/wire.s2c.jsonl"` shows the image block after the text on the screenshot call. OpenCode may spend calls on its own `execute` tool search first; read what was sent from `wire.c2s.jsonl`.
 - Name `workspace_describe` in the prompt. On the wire its result is `ready`, `root` `$R/proj`, `trusted: false`: `jq -c 'select(.result.structuredContent.root?) | .result.structuredContent | {state, root, trusted}' "$E/wire.s2c.jsonl"`.
 - OpenCode validates arguments against the `inputSchema` before sending: unknown keys are dropped and types coerced, so an out-of-schema argument never reaches the core. To see an error result, use a value the schema admits, such as `operation_wait` on an unknown id. Read what was sent from `wire.c2s.jsonl`, never from the model's summary.
 - The event stream shows the text rendering only; `structuredContent` is in `wire.s2c.jsonl`.
+
+**Device block (1e, run 2026-10-04; `docs/plans/m1e-jvm-free-device-slice.md` step 9).** Needs a booted emulator (`Pixel_9a`, portrait) and `adb` from the host SDK. Never kill or restart the shared adb server on 5037: note its pid first (`lsof -nP -iTCP:5037 -sTCP:LISTEN`) and compare at the end. The daemon launched in Launch uses the normal environment. A device with another app that depends on an accessibility service (the owner's Qustodio) goes to the foreground first, so the `uiTree` row means something.
+
+```sh
+# degraded (R1): a scrubbed launch, its own state; the host SDK default would otherwise resolve adb
+mkdir -p "$R/home" "$R/dstate" "$R/dconfig"
+D() { env -i HOME="$R/home" PATH=/usr/bin:/bin DROIDYARD_STATE_DIR="$R/dstate" DROIDYARD_CONFIG_DIR="$R/dconfig" "$@"; }
+D "$DY" serve >"$E/deg-serve.out" 2>&1 &
+for i in $(seq 50); do [ -S "$R/dstate/run/droidyard.sock" ] && break; sleep 0.2; done
+D "$DY" call --no-autostart system.capabilities >"$E/deg-caps.out"
+jq -c '.result.capabilities[]|select(.name|test("^device\\.|^artifact\\."))|{name,available}' "$E/deg-caps.out"
+D "$DY" call --no-autostart device.list >"$E/deg-list.out"; echo "exit $?"          # 1, DEVICE_ADB_NOT_FOUND
+D "$DY" call --no-autostart system.health | jq -c .result.adb.found                  # false
+D "$DY" stop
+
+# normal launch (Launch), then, with the emulator in the foreground app:
+C="$DY call --no-autostart"; EM='{"device":"emulator-5554"}'
+adb shell monkey -p <package> -c android.intent.category.LAUNCHER 1; adb shell pidof <package>   # note the pid
+adb logcat -c
+run list $C device.list                                  # emulator-5554, kind emulator, avdName Pixel_9a
+run uitree $C device.uiTree --params "$EM"               # nodes, meta.untrusted true, wc -c < 40960
+adb shell pidof <package>                                # unchanged
+adb logcat -d | grep -i 'flags=0x\|malfunction'          # flags=0x1 only (ADR-0029)
+run detach $C device.uiTree --detach --params "$EM"; OP=$(tr -d '\n' <"$E/detach.out"); sleep 0.4
+run cancel $C operation.cancel --params "{\"operationId\":\"$OP\"}"
+run cwait $C operation.wait --params "{\"operationId\":\"$OP\"}"     # .operation.state cancelled
+adb shell ps -A | grep -i 'uiautomator\|app_process'; adb shell ls /data/local/tmp | grep droidyard   # nothing left
+run ui3 $C device.uiTree --params "$EM"                  # succeeds at once
+run shot $C device.screenshot --params "$EM"; REF=$(jq -r .result.ref "$E/shot.out")
+run read $C artifact.read --params "{\"ref\":\"$REF\"}"   # stored size == adb shell wm size
+ID=${REF#droidyard://artifact/}; TOK=$(cat "$DROIDYARD_STATE_DIR/run/http-token")
+curl -sS -D "$E/art.hdr" -o "$E/art.png" -w '%{http_code}\n' -H "Authorization: Bearer $TOK" "http://127.0.0.1:$HP/v1/artifacts/$ID"   # 200 image/png, X-Droidyard-Untrusted: true
+# RSS for ADR-0025 / Q5: twenty screenshots, each followed by an artifact.read (alternating maxEdge 512), then again 16 minutes later
+ps -o rss= -p "$PID"
+# (OpenCode, below, with a prompt naming device_list, device_uiTree and device_screenshot)
+
+# 410 after a restart: `droidyard stop`, a new `serve`, then the same $ID answers 410 ARTIFACT_EXPIRED
+
+# (2b), LAST of the device rows, with no emulator booted (`adb -s emulator-5554 emu kill`, then wait until `ps aux | grep qemu-system` is empty and `adb devices` lists nothing:
+# a dying emulator is still listed for ~20 s and an adb server on 5199 would attach to it). A server the daemon forks on an isolated port:
+adb devices -l >"$E/devices.2b.before"
+export ANDROID_ADB_SERVER_PORT=5199          # in the second daemon's environment only
+DROIDYARD_STATE_DIR="$R/s2b" DROIDYARD_CONFIG_DIR="$R/c2b" "$DY" serve & P2=$!
+DROIDYARD_STATE_DIR="$R/s2b" DROIDYARD_CONFIG_DIR="$R/c2b" "$DY" call --no-autostart device.list
+S=$(lsof -nP -iTCP:5199 -sTCP:LISTEN -t)     # the forked server: pid, lstart, pgid differ from $P2's (ps -o pid=,lstart=,pgid=)
+DROIDYARD_STATE_DIR="$R/s2b" DROIDYARD_CONFIG_DIR="$R/c2b" "$DY" stop   # $S stays alive, same pid and start time
+ANDROID_ADB_SERVER_PORT=5199 adb kill-server; unset ANDROID_ADB_SERVER_PORT
+adb devices -l | cmp - "$E/devices.2b.before"   # identical; then boot Pixel_9a again if it was running before
 
 ## Evidence
 

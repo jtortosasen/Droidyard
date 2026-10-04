@@ -172,7 +172,7 @@ What the documents settle that a reader might take for a choice.
 - Needs: steps 1 to 8. Hardware: an Apple Silicon Mac with the SDK at `~/Library/Android/sdk` and the `Pixel_9a` AVD (android-36.1); OpenCode with a configured provider; a USB phone, optional.
 - Not here: Cursor; Linux; DopamineControl, which is not needed until a capability acts on an app.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-04, Pixel_9a API 36.1, evidence `/private/tmp/dy.7Pknqq`; binary 886d9a3 for degraded, list, cancel, screenshot, route and RSS, 20c3845 (final) for the 410, Qustodio `uiTree`, OpenCode and (2b) rows. Degraded (`env -i`): the three device capabilities unavailable with a reason, `artifact.read` available, `DEVICE_ADB_NOT_FOUND`, `adb.found: false`. `device.list`; `uiTree` with Qustodio in the foreground: `flags=0x1` only, no malfunction, pid unchanged, `meta.untrusted`; a cancelled `uiTree` leaves no `app_process` nor dex, and the next read succeeds; screenshot equals `wm size`; the route gives 200, `image/png`, `X-Droidyard-Untrusted`; 410 after a restart. (2b), last, emulator down: a server on 5199 survives `droidyard stop`, 5037's listing identical. OpenCode v2.0.18: `tools=11`, the image block accepted and described. RSS: 18.9 MB idle, 127 MB after 20 screenshots and 20 reads, 17.5 MB 16 minutes later. 0 orphans; the shared adb server (pid 48737) untouched. Physical device: not run (none attached).
 
 ### 10. The UI reader dex (ADR-0029), before step 9's level-5 run
 
@@ -239,6 +239,7 @@ Document edits the orchestrating session made on 2026-10-04 (done): `http-websoc
 
 | Assumption | Steps resting on it | What settles it |
 | --- | --- | --- |
+| Peak RSS during a burst of reads (127 MB for 20 screenshots and 20 reads); no bound on concurrent `artifact.read` decode buffers | 7, 9 | measured once; a bound on concurrent image work if the UI or agents read in parallel |
 | `device.uiTree` (`uiautomator dump`) suspends the device's other accessibility services while it reads; it killed an app that depends on its own (Qustodio, after ~3 min idle, 2 of 2) | 6, 9 | known limitation of 1e; the flagged dex reader (`docs/research/device-speed-2026-10.md` §Addendum) is the spike before the device-actions milestone |
 | `uiautomator dump /dev/tty` works on the images this machine has, and the XML shape holds for them | 6 | step 1's per-image fact at level 5 for API 35, 36.1, 37.1; other API levels and the idle-failure rate stay with spike S6 |
 | No other tool (Android Studio, a second daemon) dumps the same device while the daemon does; the lock is the daemon's own | 6 | not settled; step 9 records `uiautomator` processes after a cancelled dump |
@@ -266,6 +267,7 @@ Document edits the orchestrating session made on 2026-10-04 (done): `http-websoc
 
 ## Changes
 
+- 2026-10-04 — step 9. Q5's measurement: idle RSS stays inside the 50 MB target (18.9 MB, and 17.5 MB once the artifacts' TTL has passed), so the 64 MiB artifact budget stands. A burst of 20 screenshots and 20 reads peaks at 127 MB, more than the artifacts themselves (~10 MB): the transient decode and downscale buffers (~95 MB per full-size read, the step 8 verifier's estimate) and Go returning heap to the OS lazily; not bounded in 1e (Unverified). (2b) needs the emulator gone from `adb devices`, ~20 s after `emu kill`.
 - 2026-10-04 — step 10 rulings (Opus verifier, DeepSeek cross-check): the dex is pushed and removed on every read (a file left by a killed daemon is overwritten, not trusted), its SHA-256 checked at run time before the push; `--min-api 24` (dex 037 is refused by ART below 24, so older devices fall back because `app_process` cannot load it, not because of the in-dex check); a null root ends `DEVICE_UI_DUMP_FAILED` without fallback; the published `uiTree` description names the reader; the reader's real output, recorded on the Pixel_9a, is compared with the dump of the same screen (the earlier tests fed it the dump's bytes). Step 9's cancel row greps `app_process` as well.
 - 2026-10-04 — step 8 rulings (Opus verifier): the screenshot's inline variant is made at capture from the one decode and held in the store, counted in the budget (~47% of the stored bytes on the fixtures; step 9's RSS row covers it); over MCP `artifact_read` without `maxEdge` is inlined at 1024 and its structured `delivered`/`mediaType` describe the block sent (`mcp-tool-surface.md`); the sizes go on a third line of the untrusted text block; the route answers 400 for an unknown query parameter and 500 for a failure of ours (`http-websocket.md`). Not fixed, recorded: a read whose client leaves before completion is never delivered, so its retained result keeps `data` until retention drops it (15 minutes).
 - 2026-10-04 — the idle-retry changes move from step 8 to step 10 (both edit `dump.go`); steps 8 and 10 run in parallel, step 10 in an isolated worktree.
