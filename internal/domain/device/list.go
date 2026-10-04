@@ -33,7 +33,7 @@ type ListResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// Register adds the device capabilities to reg: device.list.
+// Register adds the device capabilities to reg: device.list and device.uiTree.
 func Register(reg *capability.Registry, adb *ADB) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "device.list",
@@ -53,6 +53,7 @@ func Register(reg *capability.Registry, adb *ADB) {
 			return ListResult{Devices: devices, Warnings: warnings}, nil
 		},
 	})
+	registerUITree(reg, adb)
 }
 
 // List runs `adb devices -l`, drops what the default policy hides (physical devices,
@@ -71,30 +72,16 @@ func (a *ADB) List(ctx context.Context) ([]Device, error) {
 func (a *ADB) list(ctx context.Context) ([]Device, []string, error) {
 	res := a.Resolve()
 	if !res.Found {
-		return nil, nil, capability.NewError(ErrADBNotFound, "adb was not found").
-			WithCause(res.NotFound()).
-			WithNextStep("Set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH, then call device.list again.")
+		return nil, nil, adbNotFound(res, "device.list")
 	}
 	// Compares the client's version with the running server's before the first device
 	// call, once per resolved binary: a mismatch is a warning on system.health, not an
 	// error here (ratifications §Operational defaults).
 	warnings := a.Check(ctx).Warnings
 
-	out, err := a.Run(ctx, res.Path, devicesTimeout, listOutputCap, "devices", "-l")
-	if cerr := ctx.Err(); cerr != nil {
-		return nil, nil, cerr
-	}
+	listed, err := a.listAll(ctx, res.Path)
 	if err != nil {
-		return nil, nil, adbFailed(res.Path, a.serverPort(), "devices -l", out, err)
-	}
-	if out.ExitCode != 0 {
-		return nil, nil, adbFailed(res.Path, a.serverPort(), "devices -l", out, nil)
-	}
-	listed, err := ParseDevices(string(out.Stdout))
-	if err != nil {
-		return nil, nil, capability.NewError(ErrADBFailed, "adb devices -l answered something this version cannot read").
-			WithCause(err.Error()).
-			WithNextStep("Run `adb devices -l` yourself; if it works, report the output as a bug.")
+		return nil, nil, err
 	}
 	visible := listed[:0:0]
 	for _, d := range listed {
@@ -179,4 +166,34 @@ func decisiveLine(out Output) string {
 		}
 	}
 	return ""
+}
+
+// adbNotFound is DEVICE_ADB_NOT_FOUND for a resolution that found nothing.
+func adbNotFound(res Resolution, again string) *capability.Error {
+	return capability.NewError(ErrADBNotFound, "adb was not found").
+		WithCause(res.NotFound()).
+		WithNextStep("Set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH, then call " + again + " again.")
+}
+
+// listAll runs `adb devices -l` with the adb at path and parses it: every device adb
+// reports, physical ones included. Its errors are the contract's DEVICE_ADB_FAILED, or
+// ctx's own when the caller cancelled.
+func (a *ADB) listAll(ctx context.Context, path string) ([]Device, error) {
+	out, err := a.Run(ctx, path, devicesTimeout, listOutputCap, "devices", "-l")
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, cerr
+	}
+	if err != nil {
+		return nil, adbFailed(path, a.serverPort(), "devices -l", out, err)
+	}
+	if out.ExitCode != 0 {
+		return nil, adbFailed(path, a.serverPort(), "devices -l", out, nil)
+	}
+	listed, err := ParseDevices(string(out.Stdout))
+	if err != nil {
+		return nil, capability.NewError(ErrADBFailed, "adb devices -l answered something this version cannot read").
+			WithCause(err.Error()).
+			WithNextStep("Run `adb devices -l` yourself; if it works, report the output as a bug.")
+	}
+	return listed, nil
 }

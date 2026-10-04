@@ -123,15 +123,37 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 }
 
 // TestOnlyTaggedFieldsPublishTheKeyword: the keyword appears in the published schema of
-// a capability exactly when its result has a tagged field. The shipped capabilities have
-// none (system.health reports the host's own state, not the device's), so none carries it
-// and the golden file is unchanged by the machinery; the fixture with a tagged field does.
+// a capability exactly when its result has a tagged field. Of the shipped capabilities
+// that is device.uiTree alone (system.health and device.list report the host's own state
+// and the list of serials, not device text, R6), and in it exactly nodes, foreground and
+// display: the snapshot id, truncated, hint and emptyReason are the daemon's.
 func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
-	if got := generate(t); bytes.Contains(got, []byte(capability.UntrustedKeyword)) {
-		t.Errorf("the published schema carries %s before any shipped field is tagged", capability.UntrustedKeyword)
+	doc, err := schema.Generate(registry(), "test")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if h, ok := registry().Lookup("system.health"); !ok || h.Untrusted() {
-		t.Errorf("system.health: found=%v, descriptor flag = %v; it must be false (host state, R6)", ok, h.Untrusted())
+	for _, c := range doc.Capabilities {
+		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
+		if want := c.Name == "device.uiTree"; has != want {
+			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
+		}
+		d, _ := registry().Lookup(c.Name)
+		if d.Untrusted() != (c.Name == "device.uiTree") {
+			t.Errorf("%s: descriptor flag = %v", c.Name, d.Untrusted())
+		}
+		if c.Name != "device.uiTree" {
+			continue
+		}
+		var out map[string]any
+		if err := json.Unmarshal(c.Output, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{"nodes", "foreground", "display", "snapshot", "truncated", "hint", "emptyReason"} {
+			_, isTrue := prop(t, out, f)[capability.UntrustedKeyword].(bool)
+			if want := f == "nodes" || f == "foreground" || f == "display"; isTrue != want {
+				t.Errorf("device.uiTree.%s: marked untrusted = %v, want %v", f, isTrue, want)
+			}
+		}
 	}
 	raw, _ := json.Marshal(untrustedFixture(t, false))
 	if !bytes.Contains(raw, []byte(capability.UntrustedKeyword)) {

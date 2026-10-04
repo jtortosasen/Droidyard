@@ -31,30 +31,32 @@ const (
 // nodes, foreground and display carry device or app text, so they are untrusted whole
 // fields (ADR-0015 §1); the id, truncated, hint and emptyReason are the daemon's.
 type Snapshot struct {
-	ID          string    `json:"snapshot"`
-	Foreground  string    `json:"foreground" untrusted:"true"`
-	Display     UIDisplay `json:"display" untrusted:"true"`
-	Nodes       []UINode  `json:"nodes" untrusted:"true"`
+	ID          string    `json:"snapshot" jsonschema:"required"`
+	Foreground  string    `json:"foreground" jsonschema:"required" untrusted:"true"`
+	Display     UIDisplay `json:"display" jsonschema:"required" untrusted:"true"`
+	Nodes       []UINode  `json:"nodes" jsonschema:"required" untrusted:"true"`
 	Truncated   bool      `json:"truncated,omitempty"`
 	Hint        string    `json:"hint,omitempty"`
 	EmptyReason string    `json:"emptyReason,omitempty"`
+	// Warnings are adb's (client/server version mismatch), not the device's: untagged.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // UIDisplay is the root window's extent and the hierarchy's rotation.
 type UIDisplay struct {
-	Width    int `json:"width"`
-	Height   int `json:"height"`
-	Rotation int `json:"rotation"`
+	Width    int `json:"width" jsonschema:"required"`
+	Height   int `json:"height" jsonschema:"required"`
+	Rotation int `json:"rotation" jsonschema:"required"`
 }
 
 // UINode is one kept node. Children are refs of nodes that exist in Snapshot.Nodes.
 type UINode struct {
-	Ref      string   `json:"ref"`
+	Ref      string   `json:"ref" jsonschema:"required"`
 	Class    string   `json:"class,omitempty"`
 	ID       string   `json:"id,omitempty"`
 	Text     string   `json:"text,omitempty"`
 	Desc     string   `json:"desc,omitempty"`
-	Bounds   [4]int   `json:"bounds"`
+	Bounds   [4]int   `json:"bounds" jsonschema:"required"`
 	Flags    []string `json:"flags,omitempty"`
 	Children []string `json:"children,omitempty"`
 }
