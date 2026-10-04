@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	proc "github.com/jtortosasen/droidyard/internal/process"
@@ -99,12 +100,24 @@ func main() {
 	}
 }
 
-// notInstalled stands in until the requirement checks exist: every external tool is
-// reported missing, with the reason, rather than the capability vanishing.
-type notInstalled struct{}
+// requirements reports what is missing: adb through the device package, which
+// resolves it afresh on every question, and every other external tool as missing
+// until its own check exists, with the reason, rather than the capability vanishing.
+type requirements struct{ adb *device.ADB }
 
-func (notInstalled) Missing(r capability.Requirement) (string, bool) {
-	return string(r) + " was not found on this machine", true
+func (r requirements) Missing(req capability.Requirement) (string, bool) {
+	if req != capability.RequiresADB {
+		return string(req) + " was not found on this machine", true
+	}
+	res := r.adb.Resolve()
+	if res.Found {
+		return "", false
+	}
+	tried := make([]string, 0, len(res.Rejected))
+	for _, c := range res.Rejected {
+		tried = append(tried, c.Candidate+" ("+c.Reason+")")
+	}
+	return "adb was not found: set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH. Tried: " + strings.Join(tried, "; "), true
 }
 
 // Seams for this package's tests only, set by TestMain in a re-executed test binary
@@ -114,6 +127,10 @@ var (
 	testCapabilities func(reg *capability.Registry, sup *proc.Supervisor)
 	// testDrain replaces workspace.close's drain bound; zero keeps the default.
 	testDrain time.Duration
+	// adbEnviron is the environment adb is resolved in and its clients run with: the
+	// daemon's own. Tests replace it so none finds or runs this machine's adb or
+	// reaches the shared server on 5037.
+	adbEnviron = os.Environ
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -130,7 +147,15 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 	if st != nil {
 		problems = st.Problems
 	}
-	system.Register(reg, notInstalled{}, ops, problems)
+	// Every adb client is started through the supervisor's locked spawner and given
+	// the daemon's whole environment (plan m1e, R8). Without a supervisor (caps,
+	// schema) adb can be resolved and reported but not run.
+	var spawn device.Starter
+	if sup != nil {
+		spawn = sup.Spawn
+	}
+	adb := device.NewADB(adbEnviron(), spawn)
+	system.Register(reg, requirements{adb}, adb, ops, problems)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {

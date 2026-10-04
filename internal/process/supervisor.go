@@ -197,6 +197,23 @@ func (s *Supervisor) spawner() {
 	}
 }
 
+// Spawn starts cmd through the locked spawner thread, in a process group of its own
+// (and, on Linux, with Pdeathsig), for a child that is neither supervised nor
+// recorded: a short per-operation command whose caller waits for it itself
+// (ADR-0021 §Pid records: such commands are not recorded; process-lifecycle.md
+// §Shutdown, layer 2). It overwrites cmd.SysProcAttr. The caller owns the child: it
+// must call cmd.Wait.
+func (s *Supervisor) Spawn(cmd *exec.Cmd) error {
+	cmd.SysProcAttr = sysProcAttr()
+	done := make(chan error, 1)
+	select {
+	case s.spawn <- spawnRequest{cmd: cmd, done: done}:
+		return <-done
+	case <-s.quit:
+		return ErrClosed
+	}
+}
+
 func key(id string, scope Scope) string { return id + "\x00" + string(scope) }
 
 func (s *Supervisor) logf(format string, args ...any) {

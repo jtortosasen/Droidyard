@@ -95,7 +95,7 @@ What the documents settle that a reader might take for a choice.
 - Needs: step 1 (`host:version` bytes, the forked server's process group); Q6.
 - Not here: device capabilities (step 3); the `adb.path` and `sdk.root` keys (R5); `sdk.status`.
 - Rests on: no adb call the daemon makes, finished, timed out or cancelled, and no stop of the daemon, kills an adb server, including one the daemon's own call forked. Level 3 here; level 5 in step 9 row (2b), on an isolated port.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-04, macOS. `Resolve(env)` (explicit environment; `ADB` → host SDK [`ANDROID_HOME`, `ANDROID_SDK_ROOT`, derived from `adb` on `PATH`, per-OS default] → `PATH`; Q6 fail-closed); `device.ADB.Run`/`Check`, clients started through the new `process.Supervisor.Spawn` (own group, Pdeathsig on Linux), only the client's pid killed, `WaitDelay` 250 ms, output capped while read, exit 0 under `ErrWaitDelay` reported as success; `host:version` a socket read on the injected port, parsed on step 1's `OKAY00040029`; a set-but-malformed `ANDROID_ADB_SERVER_PORT` probes nothing rather than 5037. `system.health` gains `adb`; `system.Version` 0.4.0. Level 3 (fakes: the re-executed test binary as adb, loopback listeners, temporary directories; nothing ran the real adb or reached 5037, whose server kept its pid throughout). Mutations seen failing, then restored: `PATH` before the host SDK, `ANDROID_SDK_ROOT` before `ANDROID_HOME`, a mismatch as an error, a group kill, no `Setpgid`, no `WaitDelay` (`Run` hangs), Q6 falling through, the malformed port falling back to 5037. Verified by the DeepSeek cross-check (six reversals rerun, no blocker); the Opus verifier stalled twice without a report (infrastructure), so this step has one reviewer. Schema: 0.3.0 → 0.4.0, the `system.health` description, and its optional `adb` object; nothing else. `go build`, `go vet` clean; `gofmt -l .` printed nothing; `go test -count=1 ./...` ok; `-race -count=3` on the step's tests ok. Level 5 is step 9.
 
 ### 3. `device.list`, and `degraded` without `adb`
 
@@ -253,4 +253,4 @@ Document edits the orchestrating session made on 2026-10-04 (done): `http-websoc
 
 ## Changes
 
-None.
+- 2026-10-04 — step 2. Not in the plan, kept: `cmd/droidyard` gets an `adbEnviron` seam (`var adbEnviron = os.Environ`), sealed in `TestMain` (`HOME` nonexistent, `PATH` empty), because the existing tests reach `system.health` on the real registry and, unsealed, ran this machine's adb and dialled 5037. The server version is cached only once a server answered, so a server that starts later is compared at the next check (one refused dial while none listens). The exit-0 `Run` bound in the test is 2 s, not 1 s: the re-executed fake starts slowly under `-race`. A set-but-malformed `ANDROID_ADB_SERVER_PORT` probes nothing (DeepSeek cross-check): a fallback to 5037 could reach the server the caller meant to avoid.

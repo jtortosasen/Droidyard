@@ -66,7 +66,7 @@ func startAt(t *testing.T, uid int, state, socket string) *harness {
 	h := &harness{block: blocker{started: make(chan blocked, 4), release: make(chan struct{})}}
 	reg := capability.NewRegistry()
 	h.ops = capability.NewOperations(reg)
-	system.Register(reg, none{}, h.ops, nil)
+	system.Register(reg, none{}, nil, h.ops, nil)
 	h.ops.RegisterCapabilities()
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.block", Kind: capability.Command, Scope: capability.Global,

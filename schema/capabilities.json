@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "capabilities": [
     {
       "name": "events.subscribe",
@@ -293,7 +293,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.1.0",
-      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, and any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched).",
+      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), and where adb was found, its version and any warning (adb).",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -341,6 +341,61 @@
               ]
             },
             "type": "array"
+          },
+          "adb": {
+            "properties": {
+              "found": {
+                "type": "boolean"
+              },
+              "path": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "serverVersion": {
+                "type": "string"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "rejected": {
+                "items": {
+                  "properties": {
+                    "candidate": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "candidate",
+                    "source",
+                    "reason"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "found",
+              "warnings",
+              "rejected"
+            ]
           }
         },
         "additionalProperties": false,
