@@ -55,6 +55,10 @@ that is no longer its default path.
   protocol instead of spawning the client (`adb-device.md` lists both as open);
   `filter`/`maxDepth` on `uiTree`; drop the systemui bars.
 
+> 2026-10-04, after milestone 1e: ADR-0029 now covers the one-shot reader (only a
+> persistent server still needs an ADR), and the "cheap, now" items were done in 1e
+> (the idle retry in step 10, decode-once in step 8).
+
 ## Addendum: `uiautomator dump` suppresses other accessibility services (2026-10-04)
 
 `uiautomator dump` (what `device.uiTree` runs) opens `UiAutomation` without

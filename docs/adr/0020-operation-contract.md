@@ -18,10 +18,10 @@
 - Amended: 2026-10-04 — a policy denial that needs device state to decide (a device's
   kind needs `adb devices -l`) is decided at the re-check before the handler, so it
   fails the operation instead of rejecting at `Start`; `Start` still does no I/O
-  (owner-delegated decision, milestone 1e, 2026-10-04, Q2).
+  (owner decision, milestone 1e, 2026-10-04, Q2).
 - Amended: 2026-10-04 — a retained result that carries bulk bytes (`artifact.read`'s
   `data`) keeps its metadata and drops the bytes once delivered, so retention never holds
-  what the artifact store's budget and TTL already bound (delegated decision, milestone
+  what the artifact store's budget and TTL already bound, except a read whose client left before delivery, kept until retention drops it (delegated decision, milestone
   1e, step 7 verification).
 
 ## Context
