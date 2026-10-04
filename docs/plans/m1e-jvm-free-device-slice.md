@@ -228,6 +228,7 @@ Document edits the orchestrating session made on 2026-10-04 (done): `http-websoc
 
 | Assumption | Steps resting on it | What settles it |
 | --- | --- | --- |
+| `device.uiTree` (`uiautomator dump`) suspends the device's other accessibility services while it reads; it killed an app that depends on its own (Qustodio, after ~3 min idle, 2 of 2) | 6, 9 | known limitation of 1e; the flagged dex reader (`docs/research/device-speed-2026-10.md` §Addendum) is the spike before the device-actions milestone |
 | `uiautomator dump /dev/tty` works on the images this machine has, and the XML shape holds for them | 6 | step 1's per-image fact at level 5 for API 35, 36.1, 37.1; other API levels and the idle-failure rate stay with spike S6 |
 | No other tool (Android Studio, a second daemon) dumps the same device while the daemon does; the lock is the daemon's own | 6 | not settled; step 9 records `uiautomator` processes after a cancelled dump |
 | `foreground` is the root node's package, including when a crash dialog shows | 6 | spike S6 (`ui-automation.md` §To verify) |
