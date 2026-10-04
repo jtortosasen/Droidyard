@@ -169,3 +169,14 @@ func envMap(env []string) map[string]string {
 	}
 	return m
 }
+
+// NotFound explains, for a person or an agent, that adb was not found, what was tried
+// and what to set. It is the one text system.capabilities' reason and a device call's
+// DEVICE_ADB_NOT_FOUND both carry.
+func (r Resolution) NotFound() string {
+	tried := make([]string, 0, len(r.Rejected))
+	for _, c := range r.Rejected {
+		tried = append(tried, c.Candidate+" ("+c.Reason+")")
+	}
+	return "adb was not found: set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH. Tried: " + strings.Join(tried, "; ")
+}

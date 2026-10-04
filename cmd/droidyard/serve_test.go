@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
@@ -26,6 +27,7 @@ const reexec = "DROIDYARD_TEST_REEXEC"
 
 func TestMain(m *testing.M) {
 	processtest.Main()
+	devicetest.Main() // a fake adb, when a test names a scenario directory
 	// No test of this package may find or run the machine's adb, or reach the shared
 	// adb server (plan m1e, step 2): an environment with no ADB, no SDK, an empty PATH.
 	adbEnviron = func() []string { return []string{"HOME=/nonexistent-droidyard-test", "PATH="} }

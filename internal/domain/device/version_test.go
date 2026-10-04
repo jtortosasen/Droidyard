@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 )
 
 // hostVersionReply is what a real adb server answered to "000chost:version" in step 1
@@ -191,5 +194,25 @@ func TestCheckWithNoAdbReportsEveryCandidate(t *testing.T) {
 	st := a.Check(context.Background())
 	if st.Found || len(st.Rejected) == 0 || st.Warnings == nil {
 		t.Errorf("status = %+v, want not found with candidates and a non-nil warnings list", st)
+	}
+}
+
+// TestACancelledFirstCheckDoesNotPinAnEmptyVersion: a first `adb version` that never
+// finishes (the caller's context ends) leaves nothing cached, so the next check learns
+// the client version and the mismatch warning still works.
+func TestACancelledFirstCheckDoesNotPinAnEmptyVersion(t *testing.T) {
+	port, _ := fakeServer(t, []byte("OKAY0004002a"))
+	dir := t.TempDir()
+	devicetest.Write(t, dir, "version.hang", nil)
+	a := newRunner(t, devicetest.Env(t, dir, port))
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if st := a.Check(ctx); st.Version != "" {
+		t.Fatalf("hanging check reported version %q", st.Version)
+	}
+	os.Remove(filepath.Join(dir, "version.hang"))
+	st := a.Check(context.Background())
+	if !strings.HasPrefix(st.Version, "1.0.41") || len(st.Warnings) != 1 {
+		t.Errorf("second check = %+v, want client 1.0.41 and the mismatch warning", st)
 	}
 }

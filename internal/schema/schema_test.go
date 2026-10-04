@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/schema"
@@ -35,6 +36,7 @@ func registry() *capability.Registry {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	system.Register(reg, nothingInstalled{}, nil, ops, nil)
+	device.Register(reg, device.NewADB(nil, nil))
 	ops.RegisterCapabilities()
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg)
