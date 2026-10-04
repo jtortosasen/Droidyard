@@ -211,8 +211,8 @@ typed contract.
   `consoleRef`. `artifact_read {ref, offset: -16384}` reads further back, including
   while the build is still running.
 - **Expiry**: an ephemeral reference (a screenshot, a log capture) expires after 15
-  minutes or a daemon restart, with `ARTIFACT_EXPIRED` and a `nextStep` naming what to
-  re-run. Build consoles stay readable as long as their build record.
+  minutes or a daemon restart, with `ARTIFACT_EXPIRED` and a `nextStep` to re-run the
+  capability that produced it (named when the store still knows it). Build consoles stay readable as long as their build record.
 - `--no-inline-images` (not built: cut from 1e because OpenCode accepted image blocks;
   it lands with an ADR-0019 §7 amendment if a client refuses them) covers clients that
   reject image content. The reference and its

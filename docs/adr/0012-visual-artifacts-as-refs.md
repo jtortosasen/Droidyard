@@ -9,7 +9,7 @@
   routinely exceeds 4 MiB (`device.logs` captures, `shell.exec` output), ephemeral
   artifacts stay in memory under the byte budget; the cache location under an explicit
   `DROIDYARD_STATE_DIR` is decided with that producer, as an ADR-0021 amendment
-  (owner-delegated decision, milestone 1e, 2026-10-04, Q4).
+  (owner decision, milestone 1e, 2026-10-04, Q4).
 - Amended: 2026-10-04 — `ARTIFACT_EXPIRED`'s `nextStep` names the producing capability
   when the store still holds a record of it; for an evicted reference or one from an
   earlier epoch it says to re-run the capability that produced it, without naming it

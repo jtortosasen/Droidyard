@@ -33,8 +33,8 @@ primitives underneath.
   accessibility services keep running. `uiautomator dump /dev/tty` (with its `/sdcard`
   fallback and one idle retry) only when the reader cannot run, with a warning that it
   suspended them.
-- Dumps are **serialised per device**: `uiautomator` does not tolerate concurrent
-  dumps, so `uiTree` and the polls of a `tapElement` share one per-device dump lock.
+- Dumps are **serialised per device**: Android allows one `UiAutomation` at a time per
+  device (the reader, ADR-0029) and `uiautomator` does not tolerate concurrent dumps, so `uiTree` and the polls of a `tapElement` share one per-device dump lock.
 
 ```text
 Snapshot
