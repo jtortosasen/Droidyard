@@ -38,6 +38,7 @@ func lifecycle(t *testing.T, sub *event.Subscription) (states []string, workspac
 // by its unsubscribe; the session's end leaves the bus with none of its subscriptions
 // (plan m1d, step 6; ADR-0010 as amended; capability-api.md §Subscriptions).
 func TestEventsThroughASession(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	a, b := event.NewSession(p.bus, "ses-a"), event.NewSession(p.bus, "ses-b")
 	run := func(s *event.Session, name, workspace, params string) (capability.Outcome, error) {
@@ -114,6 +115,7 @@ func TestEventsThroughASession(t *testing.T) {
 // MCP client kind (the MCP adapter lists no events tool at all; see
 // TestMCPTranscript). ADR-0010 as amended; plan m1d, D6.
 func TestEventsNeedASessionThatCanCarryThem(t *testing.T) {
+	t.Parallel()
 	p, _ := startHTTP(t, "127.0.0.1:0")
 	port := portOf(t, p.d.HTTPAddr())
 	subscribeParams := `{"topics":["workspace.lifecycle"]}`

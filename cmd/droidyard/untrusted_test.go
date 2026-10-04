@@ -81,6 +81,7 @@ func metaOf(t *testing.T, r toolResult) map[string]any {
 // http-websocket.md §POST /v1/call). Each adapter is its own row: the mark is set in the
 // adapter's envelope, so one adapter passing says nothing of another.
 func TestUntrustedMarkOnTheEnvelopes(t *testing.T) {
+	t.Parallel()
 	p, _, _ := startUntrusted(t)
 
 	t.Run("CLI", func(t *testing.T) {
@@ -147,6 +148,7 @@ func TestUntrustedMarkOnTheEnvelopes(t *testing.T) {
 // neither. operation_wait carries the waited operation's mark, and a call still running
 // has none, since it has no result yet.
 func TestUntrustedMarkOverMCP(t *testing.T) {
+	t.Parallel()
 	p, release, started := startUntrusted(t)
 	c := startShim(t, p.state, "client", "--wait", "300ms")
 	c.initialize("untrusted")

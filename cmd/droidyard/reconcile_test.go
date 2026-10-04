@@ -31,6 +31,9 @@ func gone(pid int) bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) 
 //     process that reused a recorded pid: never signalled;
 //   - a record of a pid already reaped: dropped.
 func TestServeReapsOrphansBeforeItAnswers(t *testing.T) {
+	// It waits out proc.TermGrace (5 s) and shares nothing with other tests: its state
+	// directory, helpers and daemon are its own.
+	t.Parallel()
 	state := shortDir(t)
 	bTerm := filepath.Join(t.TempDir(), "b-sigterm")
 

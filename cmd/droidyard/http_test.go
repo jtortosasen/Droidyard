@@ -150,6 +150,7 @@ func checkHeaders(t *testing.T, what string, resp *http.Response, api bool) {
 // nothing (ADR-0019 §Sessions). Real TCP, the real net/http server, the shipped
 // wiring.
 func TestHTTPFence(t *testing.T) {
+	t.Parallel()
 	p, count := startHTTP(t, "127.0.0.1:0")
 	addr := p.d.HTTPAddr()
 	if host, _, _ := net.SplitHostPort(addr); host != "127.0.0.1" {
@@ -303,6 +304,7 @@ func TestHTTPFence(t *testing.T) {
 // actually bound, never the one asked for (rule 1, rules 2 and 3); with the port free,
 // it binds that one.
 func TestHTTPFallsBackToAnEphemeralPort(t *testing.T) {
+	t.Parallel()
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

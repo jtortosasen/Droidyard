@@ -88,6 +88,7 @@ func boundReady(t *testing.T, what string, c boundCall, root string) {
 // (ADR-0019 §Sessions; ADR-0020 §Adapter projections; ADR-0015 §5).
 // Real shims over the real socket, under -race.
 func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 
 	// (a) The cwd is a subdirectory of a project with settings.gradle: describe, the
@@ -182,6 +183,7 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 // and workspace_open shows the cause, WORKSPACE_ROOT_INVALID with the bound root as
 // its target; the failure is in the daemon log (ADR-0026 §Decision; plan m1c, R13).
 func TestMCPBadBoundRootDegrades(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	s := startShim(t, p.state, "bad", "--root", "/nonexistent")
 	s.initialize("binding")
@@ -209,6 +211,7 @@ func TestMCPBadBoundRootDegrades(t *testing.T) {
 // The open is held on the test hook: initialize gets no answer meanwhile; released,
 // initialize is answered, and the first tool call finds the workspace ready.
 func TestMCPBoundOpenPrecedesTheFirstAnswer(t *testing.T) {
+	t.Parallel()
 	p := startInProcess(t)
 	root, _ := projectWith(t, "settings.gradle")
 	held, release := make(chan struct{}), make(chan struct{})

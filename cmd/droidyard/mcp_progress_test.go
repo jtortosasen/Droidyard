@@ -183,6 +183,7 @@ func wantProgress(t *testing.T, what string, got []int, want ...int) {
 // session only its own (ADR-0020 §Adapter projections; mcp-features.md §7; plan m1d,
 // step 3). Re-executed shims on an in-process daemon; run -count=20 under -race.
 func TestMCPProgress(t *testing.T) {
+	t.Parallel()
 	t.Run("a: reports before the answer, none after", func(t *testing.T) {
 		p, f := startProgress(t)
 		// The adapter is held between Start and its subscription while report 1 is

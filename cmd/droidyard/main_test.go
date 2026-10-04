@@ -49,6 +49,7 @@ func TestShippedRegistryIsThePublishedOne(t *testing.T) {
 // and artifact from this module, never domain/*, schema, daemon or platform
 // (docs/architecture/core-runtime.md §Adapter boundary; ADR-0025 §Consequences).
 func TestAdaptersImportOnlyTheCore(t *testing.T) {
+	t.Parallel()
 	out, err := exec.Command("go", "list", "-deps", "../../adapters/...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
@@ -78,6 +79,7 @@ func TestAdaptersImportOnlyTheCore(t *testing.T) {
 // session handlers; it never imports an adapter (core-runtime.md §Adapter boundary;
 // plan m1d, step 4).
 func TestTheDaemonImportsNoAdapter(t *testing.T) {
+	t.Parallel()
 	out, err := exec.Command("go", "list", "-deps", "../../internal/daemon").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)

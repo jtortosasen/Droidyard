@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/reader"
 )
 
@@ -123,7 +124,7 @@ func TestUITreeDisconnectedDuringTheReader(t *testing.T) {
 // deadline can have cut it.
 func TestUITreeReaderSharesTheDumpDeadline(t *testing.T) {
 	old1, old2, old3, old4 := dumpDeadline, dumpAttempt, cleanupReserve, readerRun
-	dumpDeadline, dumpAttempt, cleanupReserve, readerRun = 2*time.Second, 8*time.Second, 500*time.Millisecond, 8*time.Second
+	dumpDeadline, dumpAttempt, cleanupReserve, readerRun = 500*time.Millisecond, 4*time.Second, 150*time.Millisecond, 4*time.Second
 	defer func() { dumpDeadline, dumpAttempt, cleanupReserve, readerRun = old1, old2, old3, old4 }()
 	f := newUIFixture(t, withReader(map[string]string{
 		uiSerial + ".reader.hang":  "",
@@ -147,7 +148,7 @@ func TestUITreeReaderSharesTheDumpDeadline(t *testing.T) {
 // state" waits idleRetryPause first, and is not an /sdcard fallback.
 func TestUITreeIdleRetryPauses(t *testing.T) {
 	old := idleRetryPause
-	idleRetryPause = time.Second
+	idleRetryPause = 200 * time.Millisecond
 	defer func() { idleRetryPause = old }()
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".dumptty#1.out":  idleLine,
@@ -169,7 +170,10 @@ func TestUITreeIdleRetryPauses(t *testing.T) {
 func TestUITreeReaderRemovesTheDexWhenCancelled(t *testing.T) {
 	f := newUIFixture(t, withReader(map[string]string{uiSerial + ".reader.delay": "5000"}, pixelDoc(t)))
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(1500 * time.Millisecond); cancel() }()
+	go func() {
+		waitLine(t, func() []string { return devicetest.Events(t, f.dir) }, "begin "+uiSerial+".reader")
+		cancel()
+	}()
 	_, _, err := f.adb.read(ctx, &target{adb: f.adb.Resolve().Path, serial: uiSerial})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the caller's cancellation", err)

@@ -20,7 +20,7 @@ func scenario(t *testing.T, files map[string]string) (*ADB, string) {
 	for name, content := range files {
 		devicetest.Write(t, dir, name, []byte(content))
 	}
-	return newRunner(t, devicetest.Env(t, dir, closedPort(t))), dir
+	return newFake(t, dir, closedPort(t)), dir
 }
 
 func asCapError(t *testing.T, err error) *capability.Error {
@@ -104,14 +104,18 @@ func TestListSurvivesHangingDetails(t *testing.T) {
 	for _, s := range []string{"emulator-5554", "emulator-5556", "emulator-5558"} {
 		files[s+".getprop.hang"], files[s+".avd.hang"] = "", ""
 	}
+	// The details budget injected short: the hang is cut by it, not by a test timeout.
+	old := detailsTimeout
+	detailsTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { detailsTimeout = old })
 	a, _ := scenario(t, files)
 	start := time.Now()
 	got, err := a.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(start); d > 12*time.Second {
-		t.Errorf("took %v, want under 12 s", d)
+	if d := time.Since(start); d > 12*time.Second || d > detailsTimeout+time.Second {
+		t.Errorf("took %v, want under 12 s and within the %v details budget", d, detailsTimeout)
 	}
 	if len(got) != 3 {
 		t.Fatalf("listed %d devices, want all 3: %+v", len(got), got)
@@ -142,7 +146,7 @@ func TestListNoticesOnStderrAreNotDevices(t *testing.T) {
 // what happened, never an empty device list.
 func TestListHostFailuresAreDeviceADBFailed(t *testing.T) {
 	old := devicesTimeout
-	devicesTimeout = 300 * time.Millisecond
+	devicesTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { devicesTimeout = old })
 
 	cases := []struct {
@@ -177,9 +181,12 @@ func TestListHostFailuresAreDeviceADBFailed(t *testing.T) {
 // TestListCancelledIsNotAnADBFailure: a caller that gives up gets its own cancellation,
 // and only the client is killed.
 func TestListCancelledIsNotAnADBFailure(t *testing.T) {
-	a, _ := scenario(t, map[string]string{"devices.hang": ""})
+	a, dir := scenario(t, map[string]string{"devices.hang": ""})
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
+	go func() {
+		waitLine(t, func() []string { return devicetest.Calls(t, dir) }, "devices -l")
+		cancel()
+	}()
 	_, err := a.List(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
@@ -259,7 +266,7 @@ func TestListReportsAVersionMismatch(t *testing.T) {
 	port, _ := fakeServer(t, []byte("OKAY0004002a"))
 	dir := t.TempDir()
 	devicetest.Write(t, dir, "devices.out", []byte("List of devices attached\n"))
-	a := newRunner(t, devicetest.Env(t, dir, port))
+	a := newFake(t, dir, port)
 	_, warnings, err := a.list(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -289,13 +296,17 @@ func TestListReportsAVersionMismatch(t *testing.T) {
 // TestListCancelledDuringDetails: a caller that gives up while the details run gets
 // its cancellation, not a completed list of sparse devices.
 func TestListCancelledDuringDetails(t *testing.T) {
-	a, _ := scenario(t, map[string]string{
+	a, dir := scenario(t, map[string]string{
 		"devices.out":                "List of devices attached\nemulator-5554 device transport_id:1\n",
 		"emulator-5554.getprop.hang": "",
 		"emulator-5554.avd.hang":     "",
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(700 * time.Millisecond); cancel() }()
+	go func() {
+		// The details are in flight once getprop has been asked for.
+		waitLine(t, func() []string { return devicetest.Calls(t, dir) }, "-s emulator-5554 shell getprop")
+		cancel()
+	}()
 	got, err := a.List(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("List = %+v, %v; want context.Canceled", got, err)
@@ -307,7 +318,7 @@ func TestListCancelledDuringDetails(t *testing.T) {
 // not an adb fault; only adb's own timeout is).
 func TestListDeadlineIsNotAnADBFailure(t *testing.T) {
 	a, _ := scenario(t, map[string]string{"devices.hang": ""})
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	_, err := a.List(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -325,7 +336,7 @@ func TestListFailureNamesTheConfiguredPort(t *testing.T) {
 	dir := t.TempDir()
 	devicetest.Write(t, dir, "devices.exit", []byte("1"))
 	port := closedPort(t)
-	a := newRunner(t, devicetest.Env(t, dir, port))
+	a := newFake(t, dir, port)
 	_, err := a.List(context.Background())
 	ce := asCapError(t, err)
 	if !strings.Contains(ce.NextStep, "port "+port+" ") || strings.Contains(ce.NextStep, "port 5037") {

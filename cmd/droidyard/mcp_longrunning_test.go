@@ -51,6 +51,7 @@ func decodeTool(t *testing.T, line []byte, id int) toolResult {
 // structured content, and notifications/cancelled on operation_wait abandoning only
 // the wait.
 func TestMCPLongRunning(t *testing.T) {
+	t.Parallel()
 	t.Run("the budget, then operation_wait", func(t *testing.T) {
 		p := startInProcess(t)
 		c := startShim(t, p.state, "client", "--wait", "200ms")

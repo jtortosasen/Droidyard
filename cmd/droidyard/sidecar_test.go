@@ -185,12 +185,15 @@ type sidecarCase struct {
 
 func newSidecarCase(t *testing.T, env map[string]string) *sidecarCase {
 	t.Helper()
+	// The bounds are the daemon's: it alone is given them (not the test process, whose
+	// environment other tests share), so sidecar tests can run beside each other.
+	var daemonEnv []string
 	for k, v := range env {
-		t.Setenv(k, v)
+		daemonEnv = append(daemonEnv, k+"="+v)
 	}
 	c := &sidecarCase{t: t, state: shortDir(t), events: filepath.Join(t.TempDir(), "events")}
 	c.root, c.sub = gradleProject(t)
-	c.srv = droidyard(t, c.state, "serve")
+	c.srv = droidyardEnv(t, c.state, "", daemonEnv, "serve")
 	c.srv.expect(t, "listening")
 	if env, code := callIn(t, c.state, c.sub, "workspace.open"); code != 0 {
 		t.Fatalf("open: %+v", env.Error)
@@ -281,12 +284,13 @@ func indexOf(events []string, e string) int { return slices.Index(events, e) }
 // removed; starts again as a new process; and when workspace.close returns, it and
 // the helper it forked are gone and unrecorded (ADR-0027 §Consequences).
 func TestSidecarStartsLazilyIdlesOutAndEndsWithClose(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, nil)
 	if len(c.records()) != 0 || len(c.eventList()) != 1 || c.eventList()[0] != "" {
 		t.Fatalf("after open: records %v, events %v; want none", c.records(), c.eventList())
 	}
 
-	first := c.sidecar(sidecarParams{IdleMs: 2000, ShutdownMs: 300})
+	first := c.sidecar(sidecarParams{IdleMs: 800, ShutdownMs: 300})
 	if recs := c.records(); len(recs) != 1 || recs[0] != first || len(snap(t, first).survivors()) != 1 {
 		t.Fatalf("after the first use: records %v, pid %d", recs, first)
 	}
@@ -309,6 +313,7 @@ func TestSidecarStartsLazilyIdlesOutAndEndsWithClose(t *testing.T) {
 // holds the dummy's lease and waits for it to end before the dummy gets its signal;
 // the cancelled operation cannot start the dummy again (ADR-0027 §Decision).
 func TestCloseCancelsTheLeaseHolderBeforeTheSidecar(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, map[string]string{drainEnv: "200ms"})
 	holder := c.held(sidecarParams{Options: []string{"ignore-eof"}, IdleMs: 60_000, ShutdownMs: 300,
 		ReleaseFile: filepath.Join(t.TempDir(), "never")})
@@ -339,6 +344,7 @@ func TestCloseCancelsTheLeaseHolderBeforeTheSidecar(t *testing.T) {
 // with nothing left. Released later, the holder ends cancelled and cannot start a new
 // dummy (ADR-0027 §Decision, §Consequences).
 func TestCloseBoundsADrainALeaseHolderIgnores(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, map[string]string{drainEnv: "200ms"})
 	release := filepath.Join(t.TempDir(), "release")
 	holder := c.held(sidecarParams{Options: []string{"ignore-eof", "ignore-term"}, IdleMs: 60_000, ShutdownMs: 300,
@@ -375,6 +381,7 @@ func TestCloseBoundsADrainALeaseHolderIgnores(t *testing.T) {
 
 // TestStopLeavesNoSidecar: `droidyard stop` with a dummy running leaves none.
 func TestStopLeavesNoSidecar(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, nil)
 	pid := c.sidecar(sidecarParams{Options: []string{"fork-helper"}, IdleMs: 60_000, ShutdownMs: 300})
 	before := snap(t, pid, c.helper())
@@ -390,6 +397,7 @@ func TestStopLeavesNoSidecar(t *testing.T) {
 // and its helper are killed on the dummy's own shutdown timeout: the supervisor does
 // not take the spent deadline (process-lifecycle.md §Shutdown).
 func TestStopKillsSidecarsPastTheShutdownDeadline(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, map[string]string{shutdownEnv: "300ms"})
 	c.held(sidecarParams{Options: []string{"ignore-eof", "ignore-term", "fork-helper"}, IdleMs: 60_000, ShutdownMs: 500,
 		ReleaseFile: filepath.Join(t.TempDir(), "never"), IgnoreContext: true})
@@ -403,6 +411,7 @@ func TestStopKillsSidecarsPastTheShutdownDeadline(t *testing.T) {
 // TestKilledDaemonsSidecarExitsOnEOF: layer 1. A daemon killed outright closes the
 // dummy's stdin by dying, and a dummy that honours EOF exits by itself.
 func TestKilledDaemonsSidecarExitsOnEOF(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, nil)
 	before := snap(t, c.sidecar(sidecarParams{IdleMs: 60_000, ShutdownMs: 300}))
 	c.srv.cmd.Process.Signal(syscall.SIGKILL)
@@ -417,6 +426,7 @@ func TestKilledDaemonsSidecarExitsOnEOF(t *testing.T) {
 // EOF outlives a daemon killed outright; the next serve reaps it from its pid record
 // before its socket answers (ADR-0021 §Pid records; ADR-0019 §Lifetime).
 func TestKilledDaemonsStubbornSidecarIsReapedByTheNext(t *testing.T) {
+	t.Parallel()
 	c := newSidecarCase(t, nil)
 	before := snap(t, c.sidecar(sidecarParams{Options: []string{"ignore-eof"}, IdleMs: 60_000, ShutdownMs: 300}))
 	c.srv.cmd.Process.Signal(syscall.SIGKILL)

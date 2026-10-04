@@ -12,6 +12,7 @@ import (
 // holder, on the CLI, POST /v1/call and MCP operation_wait. Each adapter builds its
 // own projection of the Outcome, so one passing says nothing of another.
 func TestQueuedOperationOnEveryAdapter(t *testing.T) {
+	t.Parallel()
 	release, started := make(chan struct{}), make(chan string, 4)
 	p := startInProcessWith(t, func(reg *capability.Registry) {
 		reg.MustRegister(capability.Descriptor{

@@ -27,6 +27,7 @@ func uiTreeDaemon(t *testing.T) *inProcess {
 // capability, and its mark is on the envelope the CLI prints and, over MCP, in _meta
 // and the fixed first text line, with the forged device text kept inside the quoted JSON.
 func TestUITreeIsMarkedUntrustedOnCLIAndMCP(t *testing.T) {
+	t.Parallel()
 	p := uiTreeDaemon(t)
 	env, code := p.call(t, "device.uiTree", "--params", `{"device":"emulator-5554"}`)
 	if code != 0 || env.Operation == nil || env.Operation.State != capability.StateCompleted {
