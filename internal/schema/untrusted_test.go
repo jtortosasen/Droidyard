@@ -124,9 +124,10 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 
 // TestOnlyTaggedFieldsPublishTheKeyword: the keyword appears in the published schema of
 // a capability exactly when its result has a tagged field. Of the shipped capabilities
-// that is device.uiTree alone (system.health and device.list report the host's own state
-// and the list of serials, not device text, R6), and in it exactly nodes, foreground and
-// display: the snapshot id, truncated, hint and emptyReason are the daemon's.
+// that is device.uiTree (exactly nodes, foreground and display: the snapshot id,
+// truncated, hint and emptyReason are the daemon's), device.screenshot (its reference
+// field, R9) and artifact.read (its data); system.health and device.list report the
+// host's own state and the list of serials, not device text (R6).
 func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	doc, err := schema.Generate(registry(), "test")
 	if err != nil {
@@ -134,22 +135,38 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		if want := c.Name == "device.uiTree"; has != want {
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "artifact.read": true}
+		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}
 		d, _ := registry().Lookup(c.Name)
-		if d.Untrusted() != (c.Name == "device.uiTree") {
+		if d.Untrusted() != tagged[c.Name] {
 			t.Errorf("%s: descriptor flag = %v", c.Name, d.Untrusted())
-		}
-		if c.Name != "device.uiTree" {
-			continue
 		}
 		var out map[string]any
 		if err := json.Unmarshal(c.Output, &out); err != nil {
 			t.Fatal(err)
 		}
+		// The artifact results tag one field each, and only it.
+		for name, only := range map[string]string{"device.screenshot": "ref", "artifact.read": "data"} {
+			if c.Name != name {
+				continue
+			}
+			props, _ := out["properties"].(map[string]any)
+			for f := range props {
+				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
+				isTrue := v
+				if isTrue != (f == only) {
+					t.Errorf("%s.%s: marked untrusted = %v, want %v", name, f, isTrue, f == only)
+				}
+			}
+		}
+		if c.Name != "device.uiTree" {
+			continue
+		}
 		for _, f := range []string{"nodes", "foreground", "display", "snapshot", "truncated", "hint", "emptyReason"} {
-			_, isTrue := prop(t, out, f)[capability.UntrustedKeyword].(bool)
+			v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
+			isTrue := v
 			if want := f == "nodes" || f == "foreground" || f == "display"; isTrue != want {
 				t.Errorf("device.uiTree.%s: marked untrusted = %v, want %v", f, isTrue, want)
 			}

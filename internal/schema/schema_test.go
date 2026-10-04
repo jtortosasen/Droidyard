@@ -10,7 +10,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
@@ -36,7 +38,12 @@ func registry() *capability.Registry {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	system.Register(reg, nothingInstalled{}, nil, ops, nil)
-	device.Register(reg, device.NewADB(nil, nil))
+	store, err := artifact.New(artifact.Options{Epoch: "schema"})
+	if err != nil {
+		panic(err)
+	}
+	device.Register(reg, device.NewADB(nil, nil), store)
+	artifacts.Register(reg, store)
 	ops.RegisterCapabilities()
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg)

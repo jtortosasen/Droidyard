@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 )
 
@@ -106,4 +107,15 @@ func childEnv() []string {
 		}
 	}
 	return append(env, fakeEnv+"="+modeChild)
+}
+
+// testStore is an artifact store for a test, closed with it.
+func testStore(t *testing.T) *artifact.Store {
+	t.Helper()
+	s, err := artifact.New(artifact.Options{Epoch: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	return s
 }

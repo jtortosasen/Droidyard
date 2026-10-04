@@ -95,6 +95,7 @@ type operation struct {
 	blockedBy       *BlockedBy
 	waiter          *waiter // set while queued
 	untrusted       bool
+	slim            func(any) any // the descriptor's Slim, applied after first delivery
 	cancelRequested bool
 	// forced: cancelled by a workspace close, so the operation ends cancelled
 	// whatever its handler returns (ADR-0027).
@@ -420,6 +421,7 @@ func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, c
 		op.err = NewError(ErrOperationCancelled, "the operation was cancelled: its workspace was closed")
 	case err == nil:
 		op.state, op.result = StateCompleted, res
+		op.slim = d.Slim
 		op.untrusted = d.untrusted
 		if call.Untrusted != nil {
 			op.untrusted = *call.Untrusted
@@ -705,11 +707,17 @@ func (o *Operations) prune() {
 func (o *Operations) snapshot(op *operation) Outcome {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	result := op.result
+	if op.state == StateCompleted && op.slim != nil {
+		// The first delivery carries the full result; what the operation keeps from
+		// here on is the slim one. Done under o.mu, so two waiters never both get it.
+		op.result, op.slim = op.slim(op.result), nil
+	}
 	out := Outcome{
 		OperationID: op.id,
 		Capability:  op.capability,
 		State:       op.state,
-		Result:      op.result,
+		Result:      result,
 		Error:       op.err,
 		Untrusted:   op.untrusted,
 	}

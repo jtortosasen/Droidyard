@@ -14,6 +14,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/adapters/httpapi"
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -38,8 +39,9 @@ type inProcess struct {
 	http    *httpapi.Server // the UI's HTTP side, for its test seams
 	ops     *capability.Operations
 	bus     *event.Bus
-	token   string        // the HTTP token
-	log     *lockedBuffer // the daemon's log, also copied to stderr
+	store   *artifact.Store // the daemon's artifact store
+	token   string          // the HTTP token
+	log     *lockedBuffer   // the daemon's log, also copied to stderr
 	state   string
 	started chan string
 	release chan struct{}
@@ -66,8 +68,9 @@ func startInProcessAt(t *testing.T, httpAddr string, extra func(reg *capability.
 		t.Fatal(err)
 	}
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
-	reg, ops, bus := registry(st, sup, os.Stderr)
-	p.ops, p.bus = ops, bus
+	reg, ops, bus, artifacts := registry(st, sup, os.Stderr)
+	t.Cleanup(artifacts.Close)
+	p.ops, p.bus, p.store = ops, bus, artifacts
 	if extra != nil {
 		extra(reg)
 	}

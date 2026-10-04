@@ -10,6 +10,10 @@
   artifacts stay in memory under the byte budget; the cache location under an explicit
   `DROIDYARD_STATE_DIR` is decided with that producer, as an ADR-0021 amendment
   (owner-delegated decision, milestone 1e, 2026-10-04, Q4).
+- Amended: 2026-10-04 — `ARTIFACT_EXPIRED`'s `nextStep` names the producing capability
+  when the store still holds a record of it; for an evicted reference or one from an
+  earlier epoch it says to re-run the capability that produced it, without naming it
+  (no tombstones are kept; delegated decision, milestone 1e, step 7).
 
 ## Context
 
@@ -65,8 +69,8 @@ ArtifactRef { ref, mediaType, bytes, durability: ephemeral | durable,
 - The producer also sets a per-artifact size cap.
 - An expired reference is distinguishable from one that never existed:
   `ARTIFACT_EXPIRED` (evicted, or issued by an earlier daemon epoch) versus
-  `ARTIFACT_NOT_FOUND`. The `nextStep` of `ARTIFACT_EXPIRED` names the capability to
-  re-run.
+  `ARTIFACT_NOT_FOUND`. The `nextStep` of `ARTIFACT_EXPIRED` says to re-run the capability
+  that produced it, and names it when the store still knows it (2026-10-04).
 
 ### Reading artifacts
 

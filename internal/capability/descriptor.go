@@ -223,6 +223,12 @@ type Descriptor struct {
 
 	Handler Handler
 
+	// Slim, when set, replaces a completed result with a small one once the result
+	// has been delivered to its first caller, so a retained operation does not hold a
+	// large payload for the retention period (ADR-0020 §Retention; plan m1e, step 7).
+	// Not published: it shapes what operation.wait returns later, never the schema.
+	Slim func(result any) any
+
 	// untrusted is derived by Register from the tags on Result's fields, never
 	// written by hand (ADR-0015 §1).
 	untrusted bool

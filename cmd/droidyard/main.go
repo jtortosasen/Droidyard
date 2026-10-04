@@ -15,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
@@ -133,7 +135,7 @@ var (
 // and the daemon's event bus, over the state store st and the supervisor sup, logging
 // to log. internal/schema's test builds the same set for the golden file. caps and
 // schema, which run no capability, pass nil for all three.
-func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus) {
+func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (core-runtime.md §Events).
@@ -152,7 +154,14 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 	}
 	adb := device.NewADB(adbEnviron(), spawn)
 	system.Register(reg, requirements{adb}, adb, ops, problems)
-	device.Register(reg, adb)
+	// The daemon's one artifact store, for the bus's epoch: a reference from an earlier
+	// daemon run is ARTIFACT_EXPIRED (ADR-0012). The caller closes it on shutdown.
+	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch})
+	if err != nil {
+		panic(err) // the bus mints a well-formed epoch
+	}
+	device.Register(reg, adb, artifacts)
+	artifactcap.Register(reg, artifacts)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {
@@ -165,11 +174,11 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
-	return reg, ops, bus
+	return reg, ops, bus, artifacts
 }
 
 func printCaps() error {
-	reg, _, _ := registry(nil, nil, nil)
+	reg, _, _, _ := registry(nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -206,7 +215,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _ := registry(nil, nil, nil)
+	reg, _, _, _ := registry(nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err
