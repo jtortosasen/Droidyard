@@ -101,7 +101,7 @@ func handle(ctx context.Context, reg *capability.Registry, ops *capability.Opera
 	}
 
 	if out.OperationID != "" {
-		env.Operation = &capability.OperationStatus{ID: out.OperationID, State: out.State, Progress: out.Progress}
+		env.Operation = &capability.OperationStatus{ID: out.OperationID, State: out.State, Progress: out.Progress, BlockedBy: out.BlockedBy}
 	}
 	switch out.State {
 	case capability.StateCompleted:

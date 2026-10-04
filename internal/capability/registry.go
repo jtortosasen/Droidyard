@@ -3,6 +3,7 @@ package capability
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -55,6 +56,16 @@ func (r *Registry) Register(d Descriptor) error {
 		// Not an error by itself, but worth stating: human-only capabilities are
 		// rejected at the MCP transport, not hidden (ADR-0015 §6).
 		_ = d
+	}
+
+	if d.unrecorded && (d.Resource != nil || d.Authorize != nil) {
+		// Invoke runs a non-recorded handler directly: no lock, no re-check.
+		return fmt.Errorf("capability %q: a non-recorded capability runs outside the scheduler, so it cannot set Resource or Authorize", d.Name)
+	}
+	if d.Resource != nil && !d.LongRunning && !slices.Contains(d.Errors, ErrOperationQueueTimeout) {
+		// A call that can queue and is not long-running can fail at the queue bound
+		// (ADR-0020 §Queue bound), so the published contract must list the code.
+		return fmt.Errorf("capability %q: takes a resource lock and is not long-running, so Errors must list %s", d.Name, ErrOperationQueueTimeout)
 	}
 
 	r.mu.Lock()
