@@ -53,6 +53,7 @@ buried in prose.
 | [0026](0026-workspace-addressing-invalid-roots.md) | Workspace addressing — invalid roots and newer state files | Accepted |
 | [0027](0027-workspace-close-and-reopen.md) | Workspace close and reopen — when close completes | Accepted |
 | [0028](0028-websocket-library.md) | WebSocket library — coder/websocket | Accepted |
+| [0029](0029-ui-reader-dex.md) | UI reads through a one-shot dex reader that keeps accessibility services running | Accepted |
 
 ## Open decisions (not yet ADRs)
 

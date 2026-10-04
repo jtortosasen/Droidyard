@@ -14,7 +14,7 @@ primitives underneath.
 ## Design rules
 
 - **Tree-only in v1.** Every match and every assertion reads the accessibility tree
-  from `uiautomator dump`. Screenshots are for humans and models, never an input to
+  from the reader (ADR-0029). Screenshots are for humans and models, never an input to
   matching. The prior art's `expect_text` polled **OCR**; OCR is out of v1
   ([ADR-0013](../adr/0013-ocr-optional-pluggable.md)), so the assertions here are
   defined on the tree alone.
@@ -27,8 +27,12 @@ primitives underneath.
 
 ## The tree: `device.uiTree`
 
-- `uiautomator dump /dev/tty`, with an `/sdcard` fallback plus cleanup, and one retry
-  on the well-known "could not get idle state" failure.
+- Droidyard's own reader ([ADR-0029](../adr/0029-ui-reader-dex.md)): a small dex run with
+  `app_process`, pushed to `/data/local/tmp/` and removed after the read, connecting
+  `UiAutomation` with `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`, so the device's other
+  accessibility services keep running. `uiautomator dump /dev/tty` (with its `/sdcard`
+  fallback and one idle retry) only when the reader cannot run, with a warning that it
+  suspended them.
 - Dumps are **serialised per device**: `uiautomator` does not tolerate concurrent
   dumps, so `uiTree` and the polls of a `tapElement` share one per-device dump lock.
 
