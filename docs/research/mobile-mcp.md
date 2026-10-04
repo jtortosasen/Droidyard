@@ -4,6 +4,11 @@
 - License: Apache-2.0
 - Language: TypeScript / Node.js (CommonJS, Node >= 20)
 - Analyzed: 2026-09-27 (version observed: 1.0.5)
+- Amended: 2026-10-04 — since mobilecli's September 2026 releases, mobile-mcp's default
+  path is a per-user daemon plus a persistent on-device server (a pushed dex run with
+  `app_process`, reached over `adb forward`, `UiAutomation` held warm), not a process per
+  call; "avoid" items below that assume per-call spawning describe 1.0.0. See
+  [device-speed-2026-10](device-speed-2026-10.md).
 - Local clone: `.refs/mobile-mcp`
 
 ## What it is
