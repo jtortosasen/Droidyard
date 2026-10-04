@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
 // Version is the API version reported by system.capabilities. It is the one semantic
 // version of the capability API, not a per-capability one
 // (docs/architecture/capability-api.md §Discovery and versioning).
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 var started = time.Now()
 
@@ -25,6 +26,11 @@ type Health struct {
 	// moved aside, and ones of a newer version, left untouched (ADR-0021 §Format;
 	// plan m1c, R9).
 	StateProblems []StateProblem `json:"stateProblems,omitempty"`
+	// ADB is where adb was found (or every place it was not), its version and the
+	// running server's, and warnings such as a client/server mismatch
+	// (adb-device.md §adb resolution and degradation). Absent when the daemon has
+	// no adb subsystem.
+	ADB *device.Status `json:"adb,omitempty"`
 }
 
 // StateProblem is one state file the daemon could not use. File and MovedTo are
@@ -63,6 +69,11 @@ type Requirements interface {
 	Missing(r capability.Requirement) (reason string, missing bool)
 }
 
+// ADB reports adb's resolution and versions for system.health: device.ADB.Check.
+type ADB interface {
+	Check(ctx context.Context) device.Status
+}
+
 // Operations reports how many operations are in flight.
 type Operations interface {
 	Running() int
@@ -73,13 +84,13 @@ type Operations interface {
 type StateProblems func() []store.Problem
 
 // Register adds the system capabilities to the registry.
-func Register(reg *capability.Registry, req Requirements, ops Operations, problems StateProblems) {
+func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "system.health",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, and any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched).",
+		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), and where adb was found, its version and any warning (adb).",
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -97,6 +108,10 @@ func Register(reg *capability.Registry, req Requirements, ops Operations, proble
 				for _, p := range problems() {
 					h.StateProblems = append(h.StateProblems, StateProblem{File: p.File, Problem: p.Problem, MovedTo: p.MovedTo})
 				}
+			}
+			if adb != nil {
+				st := adb.Check(ctx)
+				h.ADB = &st
 			}
 			return h, nil
 		},
