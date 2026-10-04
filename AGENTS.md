@@ -38,7 +38,9 @@ observation commands, `readonly` a denylist of tree-changing ones;
 skill says who does what.
 
 - **Main session** (Opus): runs the workflow, briefs the implementer one step at a time,
-  reviews the diff.
+  reviews the diff. Review depth follows the step's risk (`milestone-workflow`
+  §Verification by risk): Opus and DeepSeek together only for contract, security and
+  concurrency changes and at close; DeepSeek alone otherwise.
 - **`implementer`** (Sonnet). **`planner`, `plan-reviewer`, `verifier`** (Opus).
 - **Cross-model check** (DeepSeek through OpenCode, read-only):
   `opencode run -m opencode-go/deepseek-v4.1-flash --agent verifier --auto "<brief>"`
@@ -63,6 +65,9 @@ skill says who does what.
 - **Do not overstate.** If the second spike has not run, the document says so.
 
 ## Build and test
+
+`.githooks/pre-commit` runs these and refuses a failing commit; enable it once per clone
+with `git config core.hooksPath .githooks`.
 
 ```sh
 go build ./...

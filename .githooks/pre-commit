@@ -1,0 +1,29 @@
+#!/bin/sh
+# Refuses a commit the checks would fail. Enabled per clone with:
+#   git config core.hooksPath .githooks
+# A commit touching only documents runs the document checks; anything else runs the
+# four commands of AGENTS.md §Build and test. Bypass only knowingly: git commit --no-verify.
+set -u
+
+staged=$(git diff --cached --name-only --diff-filter=ACMRD)
+[ -z "$staged" ] && exit 0
+
+fail() {
+	echo "pre-commit: $1 — commit refused" >&2
+	exit 1
+}
+
+if ! printf '%s\n' "$staged" | grep -qvE '^(docs/|AGENTS\.md$|\.claude/|\.opencode/)'; then
+	go test -count=1 ./internal/doccheck >/dev/null || fail "go test ./internal/doccheck failed"
+	exit 0
+fi
+
+unformatted=$(gofmt -l . 2>/dev/null)
+[ -n "$unformatted" ] && fail "gofmt -l lists: $unformatted"
+go build ./... || fail "go build failed"
+go vet ./... || fail "go vet failed"
+out=$(go test -count=1 ./... 2>&1) || {
+	printf '%s\n' "$out" | grep -v '^droidyard' | grep -E -A8 '^(--- FAIL|panic)' >&2
+	fail "go test failed"
+}
+exit 0

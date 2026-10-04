@@ -75,6 +75,10 @@ A relation across two sources is not vacuous, for example every registered name 
 
 Your shell is for observation. Do not change the working tree by any route, including redirection, `gofmt -w`, `go mod tidy` or `go test -update`; the permission rules block some of these, not all. Never regenerate the golden file: that makes the golden test pass against whatever the code now emits, which destroys the evidence you are checking.
 
+## Timebox
+
+Read and reason before you run anything. Run the package tests once, and at most two or three mutations, each with `go test -overlay`, narrowed with `-run` and `-timeout 120s`; mark any other claimed mutation "not rerun" rather than running it. Never leave a test running in the background to wait on. Write the report as soon as you have it: a report that never arrives is worth nothing.
+
 ## Report
 
 Lead with the verdict: can the work proceed, yes or no, and in one or two lines what blocks it. Then:
