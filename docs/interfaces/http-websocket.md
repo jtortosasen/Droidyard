@@ -139,7 +139,8 @@ connection after two missed pongs.
   UI builds this path from nothing else.
 - The route has the same semantics and authorization as `artifact.read`, and it is
   recorded as that operation. Only the encoding differs: raw bytes instead of JSON.
-- **Text** supports `Range: bytes=…`, with the same byte offsets as `artifact.read`.
+- **Text** (with the first text artifact; 1e serves images only) supports
+  `Range: bytes=…`, with the same byte offsets as `artifact.read`.
   An artifact that is still growing (a running build's console) returns the bytes
   written so far and a growing marker header, named in ADR-0024's identifier table when
   growing artifacts land. To follow it live, subscribe to

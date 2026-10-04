@@ -38,7 +38,7 @@ primitives underneath.
 
 ```text
 Snapshot
-├── snapshot     "s-81c2"; the daemon keeps the last few per device, for refs
+├── snapshot     "s-81c2"; kept per device for refs from device.tapElement on (1e mints one per read)
 ├── foreground   package of the top window
 ├── display      { width, height, rotation }
 ├── nodes[]
@@ -51,7 +51,7 @@ Snapshot
 │   │            selected, focused, password, disabled
 │   └── children the child nodes' refs ["n13", "n14"]
 ├── truncated
-└── emptyReason  noMatch | pruned | noAccessibilityInfo
+└── emptyReason  noMatch (with `within`, later) | pruned | noAccessibilityInfo
 ```
 
 - **Flat**: `nodes[]` is in document order and `children` holds refs, not nested

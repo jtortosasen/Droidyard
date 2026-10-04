@@ -468,9 +468,10 @@ Screenshots and streams return opaque references, not filesystem paths
 
 ## Discovery and versioning
 
-- `system.capabilities` returns every capability with its schema, scope, kind,
-  statefulness, long-running flag, `since`/`deprecated` markers, and **availability**
-  (e.g. whether an emulator or the Gradle sidecar can run).
+- `system.capabilities` returns every capability with its scope, kind, statefulness,
+  long-running flag, audience, description and **availability** with the reason when
+  unavailable (e.g. no `adb`); the full schema with `since` (and later `deprecated`)
+  markers is `droidyard schema` / `schema/capabilities.json`.
 - The API has one semantic version, reported by `system.capabilities` and the
   socket handshake. Capabilities are **not** versioned individually: a breaking change
   to one is a new name or a major version. `since` records the API version that
