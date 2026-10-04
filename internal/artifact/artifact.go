@@ -1,0 +1,310 @@
+// Package artifact is the core's artifact store: opaque, URI-shaped references to
+// bytes a capability produced (ADR-0012). This is the ephemeral class only, in memory:
+// a 15-minute lifetime from creation (the same as operation retention, ADR-0020), LRU
+// eviction under a byte budget, and a timer that releases expired bytes without a read.
+// Spill to the cache directory is deliberately not implemented (ADR-0012, Amended
+// 2026-10-04); the durable class waits for the Gradle build milestone.
+//
+// A reference is "droidyard://artifact/<id>" and consumers never parse it. The id is
+// "<class>.<epoch>.<counter>.<random>": the durability class ("e"), the daemon epoch
+// the event bus mints, a per-epoch counter from 1, and 48 random bits. The counter is
+// what lets a miss be classified without tombstones: a counter at or below the highest
+// issued was once valid (ARTIFACT_EXPIRED), one above it never was (ARTIFACT_NOT_FOUND).
+package artifact
+
+import (
+	"container/list"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+)
+
+const (
+	// RefPrefix is the scheme and host of every reference.
+	RefPrefix = "droidyard://artifact/"
+	// DefaultTTL is the ephemeral lifetime, counted from creation (ADR-0012).
+	DefaultTTL = 15 * time.Minute
+	// DefaultBudget is ADR-0012's working byte budget, kept by plan m1e Q5.
+	DefaultBudget int64 = 64 << 20
+
+	classEphemeral = "e"
+	randomHexLen   = 12
+)
+
+// ErrTooLarge is returned by Put for an artifact bigger than the whole budget: it
+// could only be stored by evicting everything, and even then it would not fit.
+var ErrTooLarge = errors.New("artifact larger than the store's byte budget")
+
+// Durability is the artifact's class. Only ephemeral exists in this milestone.
+type Durability string
+
+// DurabilityEphemeral lives in memory for the TTL.
+const DurabilityEphemeral Durability = "ephemeral"
+
+// Ref is ADR-0012's ArtifactRef record. Width and Height are set for images only.
+type Ref struct {
+	Ref        string     `json:"ref"`
+	MediaType  string     `json:"mediaType"`
+	Bytes      int        `json:"bytes"`
+	Durability Durability `json:"durability"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	Width      int        `json:"width,omitempty"`
+	Height     int        `json:"height,omitempty"`
+	Untrusted  bool       `json:"untrusted"`
+}
+
+// Item is what a producer hands to Put. Producer is the canonical name of the
+// capability that made it; it stays in the store's entry and is not part of Ref.
+type Item struct {
+	Data      []byte
+	MediaType string
+	Width     int
+	Height    int
+	Untrusted bool
+	Producer  string
+}
+
+// Entry is a held artifact. Data is shared with the store: a reader must not modify it.
+type Entry struct {
+	Ref      Ref
+	Data     []byte
+	Producer string
+}
+
+// Timer is the stoppable half of a scheduled function.
+type Timer interface{ Stop() bool }
+
+// Clock is the store's seam for time: tests drive it by hand, so no test waits minutes.
+type Clock interface {
+	Now() time.Time
+	AfterFunc(d time.Duration, f func()) Timer
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time { return time.Now() }
+func (realClock) AfterFunc(d time.Duration, f func()) Timer {
+	return time.AfterFunc(d, f)
+}
+
+// Options configures a Store; zero values take the documented defaults.
+type Options struct {
+	// Epoch is the daemon epoch, the bus's (internal/event). Required: it may not
+	// contain '.', '/' or whitespace, because the id is split on '.'.
+	Epoch  string
+	TTL    time.Duration
+	Budget int64
+	Clock  Clock
+}
+
+type held struct {
+	entry   Entry
+	random  string
+	counter uint64
+	expires time.Time
+	elem    *list.Element // in lru; front is the most recently used
+}
+
+// Store is safe for concurrent use.
+type Store struct {
+	epoch  string
+	ttl    time.Duration
+	budget int64
+	clock  Clock
+
+	mu      sync.Mutex
+	entries map[uint64]*held
+	lru     *list.List // of *held
+	used    int64
+	highest uint64 // the highest counter issued
+	timer   Timer
+}
+
+// New returns an empty store for one daemon epoch.
+func New(o Options) (*Store, error) {
+	if o.Epoch == "" || strings.ContainsAny(o.Epoch, "./ \t\r\n") {
+		return nil, fmt.Errorf("artifact: invalid epoch %q", o.Epoch)
+	}
+	if o.TTL <= 0 {
+		o.TTL = DefaultTTL
+	}
+	if o.Budget <= 0 {
+		o.Budget = DefaultBudget
+	}
+	if o.Clock == nil {
+		o.Clock = realClock{}
+	}
+	return &Store{
+		epoch: o.Epoch, ttl: o.TTL, budget: o.Budget, clock: o.Clock,
+		entries: map[uint64]*held{}, lru: list.New(),
+	}, nil
+}
+
+// Put stores a copy of it.Data and returns its reference record. It evicts the least
+// recently used entries until the new one fits the budget.
+func (s *Store) Put(it Item) (Ref, error) {
+	size := int64(len(it.Data))
+	if size > s.budget {
+		return Ref{}, ErrTooLarge
+	}
+	var rb [randomHexLen / 2]byte
+	if _, err := rand.Read(rb[:]); err != nil {
+		return Ref{}, err
+	}
+	data := append([]byte(nil), it.Data...)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepLocked()
+	for s.used+size > s.budget {
+		s.removeLocked(s.lru.Back().Value.(*held))
+	}
+	s.highest++
+	h := &held{random: hex.EncodeToString(rb[:]), counter: s.highest, expires: s.clock.Now().Add(s.ttl)}
+	h.entry = Entry{
+		Ref: Ref{
+			Ref:        RefPrefix + classEphemeral + "." + s.epoch + "." + strconv.FormatUint(h.counter, 10) + "." + h.random,
+			MediaType:  it.MediaType,
+			Bytes:      len(data),
+			Durability: DurabilityEphemeral,
+			ExpiresAt:  h.expires,
+			Width:      it.Width,
+			Height:     it.Height,
+			Untrusted:  it.Untrusted,
+		},
+		Data:     data,
+		Producer: it.Producer,
+	}
+	h.elem = s.lru.PushFront(h)
+	s.entries[h.counter] = h
+	s.used += size
+	s.armLocked()
+	return h.entry.Ref, nil
+}
+
+// Get resolves a reference (or a bare id, as the HTTP route has it) and marks the
+// entry most recently used; reading does not extend its lifetime. A miss is a
+// capability error: ARTIFACT_EXPIRED when the id was, or could have been, valid in an
+// earlier epoch or earlier in this one; ARTIFACT_NOT_FOUND when it never could have been.
+func (s *Store) Get(ref string) (Entry, error) {
+	epoch, counter, random, ok := parseID(strings.TrimPrefix(ref, RefPrefix))
+	if !ok {
+		return Entry{}, capability.NewError(capability.ErrArtifactNotFound,
+			"the reference is not an artifact reference")
+	}
+	if epoch != s.epoch {
+		return Entry{}, expired("it was issued by an earlier daemon run")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepLocked()
+	if counter > s.highest {
+		return Entry{}, capability.NewError(capability.ErrArtifactNotFound,
+			"no artifact has this reference")
+	}
+	h := s.entries[counter]
+	if h == nil || subtle.ConstantTimeCompare([]byte(h.random), []byte(random)) != 1 {
+		return Entry{}, expired("it was evicted or is past its lifetime")
+	}
+	s.lru.MoveToFront(h.elem)
+	return h.entry, nil
+}
+
+// Bytes is the total size of the artifacts the store holds in memory right now. It
+// does not sweep: it is what the timer must bring down on its own.
+func (s *Store) Bytes() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.used
+}
+
+// Len is the number of artifacts held in memory right now, like Bytes.
+func (s *Store) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+// Close stops the sweep timer. The store stays usable; the next Put re-arms it.
+func (s *Store) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.timer != nil {
+		s.timer.Stop()
+		s.timer = nil
+	}
+}
+
+func expired(why string) *capability.Error {
+	return capability.NewError(capability.ErrArtifactExpired, "the artifact is gone: "+why).
+		WithNextStep("run the capability that produced the artifact again")
+}
+
+// parseID is strict: anything that is not exactly what Put emits is malformed.
+func parseID(id string) (epoch string, counter uint64, random string, ok bool) {
+	parts := strings.Split(id, ".")
+	if len(parts) != 4 || parts[0] != classEphemeral || parts[1] == "" {
+		return
+	}
+	c, err := strconv.ParseUint(parts[2], 10, 64)
+	if err != nil || c == 0 || strconv.FormatUint(c, 10) != parts[2] {
+		return
+	}
+	if len(parts[3]) != randomHexLen {
+		return
+	}
+	for _, r := range parts[3] {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return
+		}
+	}
+	return parts[1], c, parts[3], true
+}
+
+func (s *Store) removeLocked(h *held) {
+	s.lru.Remove(h.elem)
+	delete(s.entries, h.counter)
+	s.used -= int64(len(h.entry.Data))
+}
+
+// sweepLocked drops every expired entry. Expiry is by creation time, so a read never
+// extends it.
+func (s *Store) sweepLocked() {
+	now := s.clock.Now()
+	for _, h := range s.entries {
+		if !now.Before(h.expires) {
+			s.removeLocked(h)
+		}
+	}
+}
+
+// armLocked makes sure a timer will fire at the earliest expiry. A timer that fires
+// with nothing to drop (its entry was evicted first) just re-arms.
+func (s *Store) armLocked() {
+	if s.timer != nil || len(s.entries) == 0 {
+		return
+	}
+	var first time.Time
+	for _, h := range s.entries {
+		if first.IsZero() || h.expires.Before(first) {
+			first = h.expires
+		}
+	}
+	s.timer = s.clock.AfterFunc(max(first.Sub(s.clock.Now()), 0), s.fire)
+}
+
+func (s *Store) fire() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.timer = nil
+	s.sweepLocked()
+	s.armLocked()
+}
