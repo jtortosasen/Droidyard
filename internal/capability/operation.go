@@ -42,6 +42,11 @@ const (
 	retainMin = 200
 )
 
+// queueBound is how long a call not flagged long-running waits queued for its
+// resource before it fails OPERATION_QUEUE_TIMEOUT (ADR-0020 §Core primitives: 20 s,
+// a working default).
+const queueBound = 20 * time.Second
+
 // Request is one call as the core sees it, whichever adapter carried it.
 type Request struct {
 	Capability string
@@ -71,6 +76,8 @@ type Outcome struct {
 	// descriptor's derived flag, unless the handler set its own through Call. Only a
 	// completed operation has a result to mark (ADR-0015 §1).
 	Untrusted bool
+	// BlockedBy names the operation a queued one waits behind; nil in any other state.
+	BlockedBy *BlockedBy
 }
 
 type operation struct {
@@ -85,6 +92,8 @@ type operation struct {
 	result          any
 	err             *Error
 	progress        *Progress
+	blockedBy       *BlockedBy
+	waiter          *waiter // set while queued
 	untrusted       bool
 	cancelRequested bool
 	// forced: cancelled by a workspace close, so the operation ends cancelled
@@ -138,11 +147,34 @@ type Operations struct {
 	ops      map[string]*operation
 	terminal []string // ids of terminal operations, oldest first
 	now      func() time.Time
+
+	// locks holds the per-resource locks (Descriptor.Resource), by key. An entry
+	// exists while its key is held or awaited. Guarded by mu.
+	locks map[string]*lock
+	// queueBound is the queued-call bound; a field so a test can shorten it.
+	queueBound time.Duration
+}
+
+// lock is one resource key's holder and the operations queued behind it, oldest first.
+type lock struct {
+	holder  *operation
+	waiters []*waiter
+}
+
+// waiter is one queued operation. granted is set, and ch closed, by the release that
+// hands it the lock. Guarded by Operations.mu.
+type waiter struct {
+	op      *operation
+	key     string
+	ch      chan struct{}
+	granted bool
+	since   time.Time
 }
 
 // NewOperations returns an empty store that dispatches from reg.
 func NewOperations(reg *Registry) *Operations {
-	return &Operations{reg: reg, ops: make(map[string]*operation), now: time.Now}
+	return &Operations{reg: reg, ops: make(map[string]*operation), now: time.Now,
+		locks: make(map[string]*lock), queueBound: queueBound}
 }
 
 // UseWorkspaces gives the store the registry that admits workspace-scoped calls.
@@ -213,12 +245,172 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 		call.Workspace = target
 	}
 
-	go o.run(hctx, op, d, call)
+	// The lock is taken, or the place in its queue, before Start returns and in
+	// start order, so the order is the callers' and the state is already `queued`
+	// when the caller first looks.
+	var key string
+	var w *waiter
+	if d.Resource != nil {
+		if key = d.Resource(params); key != "" {
+			w = o.enqueue(op, key)
+		}
+	}
+
+	go o.run(hctx, op, d, call, key, w)
 	return id, nil
 }
 
-func (o *Operations) run(ctx context.Context, op *operation, d Descriptor, call *Call) {
-	res, err := d.Handler(ctx, call)
+// enqueue takes the lock on key for op, or, if another operation holds it, queues op
+// behind that one and returns its waiter.
+func (o *Operations) enqueue(op *operation, key string) *waiter {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	l := o.locks[key]
+	if l == nil {
+		l = &lock{}
+		o.locks[key] = l
+	}
+	if l.holder == nil {
+		l.holder = op
+		return nil
+	}
+	w := &waiter{op: op, key: key, ch: make(chan struct{}), since: time.Now()}
+	l.waiters = append(l.waiters, w)
+	op.state, op.waiter = StateQueued, w
+	op.blockedBy = &BlockedBy{OperationID: l.holder.id, Capability: l.holder.capability}
+	return w
+}
+
+// releaseLocked hands the lock on key to the oldest waiter, if any, and tells the rest
+// who holds it now. Called with o.mu held.
+func (o *Operations) releaseLocked(key string) {
+	l := o.locks[key]
+	if len(l.waiters) == 0 {
+		delete(o.locks, key)
+		return
+	}
+	next := l.waiters[0]
+	l.waiters = l.waiters[1:]
+	l.holder = next.op
+	next.granted = true
+	next.op.state, next.op.waiter, next.op.blockedBy = StateRunning, nil, nil
+	for _, w := range l.waiters {
+		w.op.blockedBy = &BlockedBy{OperationID: next.op.id, Capability: next.op.capability}
+	}
+	close(next.ch)
+}
+
+// awaitLock blocks while op is queued and reports whether it now holds the lock. It
+// returns false when op ended queued: cancelled, or past the queue bound.
+func (o *Operations) awaitLock(ctx context.Context, op *operation, d Descriptor, w *waiter) bool {
+	var expire <-chan time.Time
+	if !d.LongRunning {
+		// Timed from the enqueue, not from now: a goroutine the scheduler was slow to
+		// start must not stretch the real queue time past the bound.
+		t := time.NewTimer(max(o.queueBound-time.Since(w.since), 0))
+		defer t.Stop()
+		expire = t.C
+	}
+	timedOut := false
+	select {
+	case <-w.ch:
+		return true
+	case <-ctx.Done():
+	case <-expire:
+		timedOut = true
+	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if w.granted {
+		// The lock came in the same instant: the operation runs.
+		return true
+	}
+	if op.state.Terminal() {
+		return false // Cancel got there first
+	}
+	if timedOut {
+		by := op.blockedBy
+		o.dequeueLocked(op)
+		op.state = StateFailed
+		op.err = Errorf(ErrOperationQueueTimeout, "%s waited %s for %s and never ran", op.capability, o.queueBound, by.Capability).
+			WithDetails(map[string]any{
+				"blockedBy": map[string]any{"operationId": by.OperationID, "capability": by.Capability},
+				"waitedMs":  time.Since(w.since).Milliseconds(),
+			}).
+			WithNextStep("call operation.wait on " + by.OperationID + ", then retry: the call never ran")
+		o.endLocked(op)
+		return false
+	}
+	// Not reached today: every cancel of a queued operation (Cancel, CancelWorkspace,
+	// Shutdown) ends it under o.mu, so it is terminal by here. Kept so a future path
+	// that cancels the context without ending the operation cannot strand it queued.
+	o.endQueuedLocked(op)
+	return false
+}
+
+// dequeueLocked removes op from its lock's queue. Called with o.mu held.
+func (o *Operations) dequeueLocked(op *operation) {
+	w := op.waiter
+	l := o.locks[w.key]
+	for i, x := range l.waiters {
+		if x == w {
+			l.waiters = append(l.waiters[:i:i], l.waiters[i+1:]...)
+			break
+		}
+	}
+	op.waiter, op.blockedBy = nil, nil
+}
+
+// endQueuedLocked ends a queued operation cancelled, at once, never having run.
+// Called with o.mu held, after cancelRequested (and forced, for a close) is set.
+func (o *Operations) endQueuedLocked(op *operation) {
+	o.dequeueLocked(op)
+	op.state = StateCancelled
+	if op.forced {
+		op.err = NewError(ErrOperationCancelled, "the operation was cancelled: its workspace was closed")
+	} else {
+		op.err = NewError(ErrOperationCancelled, "the operation was cancelled")
+	}
+	o.endLocked(op)
+}
+
+// endLocked records that op has reached its terminal state. Called with o.mu held.
+func (o *Operations) endLocked(op *operation) {
+	op.blockedBy = nil
+	op.finished = o.now()
+	op.cancel()
+	o.terminal = append(o.terminal, op.id)
+	close(op.done)
+	o.prune()
+}
+
+// run waits for the operation's lock, if it has one, then runs it. The lock is handed
+// on inside execute, in the same critical section as the terminal transition.
+func (o *Operations) run(ctx context.Context, op *operation, d Descriptor, call *Call, key string, w *waiter) {
+	if key != "" && w != nil && !o.awaitLock(ctx, op, d, w) {
+		return
+	}
+	o.execute(ctx, op, d, call, key)
+}
+
+func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, call *Call, key string) {
+	var res any
+	var err error
+	if ctx.Err() != nil {
+		// Cancelled at the instant the lock was granted: neither the hook nor the
+		// handler runs.
+		err = ctx.Err()
+	} else {
+		// The authorization re-check, immediately before the handler (ADR-0020
+		// §Core primitives): a denial fails the operation and the handler never runs.
+		if d.Authorize != nil {
+			call.Authorized, err = d.Authorize(ctx, call)
+		}
+		if err == nil {
+			res, err = d.Handler(ctx, call)
+		}
+	}
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -238,11 +430,12 @@ func (o *Operations) run(ctx context.Context, op *operation, d Descriptor, call 
 	default:
 		op.state, op.err = StateFailed, AsError(err)
 	}
-	op.finished = o.now()
-	op.cancel()
-	o.terminal = append(o.terminal, op.id)
-	close(op.done)
-	o.prune()
+	// The key goes to the next caller in the same critical section that makes this
+	// operation terminal, so a caller that sees it end never finds the key still held.
+	if key != "" {
+		o.releaseLocked(key)
+	}
+	o.endLocked(op)
 }
 
 // Wait returns the operation once it is terminal or the deadline passes, whichever
@@ -275,7 +468,8 @@ func (o *Operations) Wait(ctx context.Context, id string, deadline time.Time) (O
 }
 
 // Cancel asks a running operation to stop by cancelling its handler's context. It
-// does not wait. Cancelling a terminal operation is a no-op.
+// does not wait. A queued operation is cancelled at once and never runs. Cancelling a
+// terminal operation is a no-op.
 func (o *Operations) Cancel(id string) error {
 	op, err := o.lookup(id)
 	if err != nil {
@@ -288,10 +482,13 @@ func (o *Operations) Cancel(id string) error {
 	}
 	op.cancelRequested = true
 	op.cancel()
+	if op.state == StateQueued {
+		o.endQueuedLocked(op)
+	}
 	return nil
 }
 
-// CancelWorkspace cancels every running operation of the workspace id, as a close
+// CancelWorkspace cancels every operation of the workspace id, running or queued,, as a close
 // does (ADR-0027): each ends cancelled with OPERATION_CANCELLED when its handler
 // returns, whatever it returns, unlike Cancel, under which a handler that returns a
 // result still completes. It does not wait, and returns the ids it cancelled.
@@ -303,6 +500,9 @@ func (o *Operations) CancelWorkspace(id string) []string {
 		if op.workspace == id && !op.state.Terminal() {
 			op.forced, op.cancelRequested = true, true
 			op.cancel()
+			if op.state == StateQueued {
+				o.endQueuedLocked(op)
+			}
 			ids = append(ids, op.id)
 		}
 	}
@@ -322,7 +522,7 @@ func (o *Operations) Running() int {
 	return n
 }
 
-// Shutdown cancels every running operation, as Cancel does, and waits until they
+// Shutdown cancels every operation, running or queued, as Cancel does, and waits until they
 // have all ended or ctx ends (docs/architecture/process-lifecycle.md §Shutdown).
 func (o *Operations) Shutdown(ctx context.Context) error {
 	o.mu.Lock()
@@ -331,6 +531,9 @@ func (o *Operations) Shutdown(ctx context.Context) error {
 		if !op.state.Terminal() {
 			op.cancelRequested = true
 			op.cancel()
+			if op.state == StateQueued {
+				o.endQueuedLocked(op)
+			}
 			running = append(running, op)
 		}
 	}
@@ -509,6 +712,10 @@ func (o *Operations) snapshot(op *operation) Outcome {
 		Result:      op.result,
 		Error:       op.err,
 		Untrusted:   op.untrusted,
+	}
+	if op.blockedBy != nil {
+		b := *op.blockedBy
+		out.BlockedBy = &b
 	}
 	if op.progress != nil {
 		p := *op.progress

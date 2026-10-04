@@ -251,7 +251,7 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 		return env, true
 	}
 	if out.OperationID != "" {
-		env.Operation = &capability.OperationStatus{ID: out.OperationID, State: out.State, Progress: out.Progress}
+		env.Operation = &capability.OperationStatus{ID: out.OperationID, State: out.State, Progress: out.Progress, BlockedBy: out.BlockedBy}
 	}
 	switch out.State {
 	case capability.StateCompleted:

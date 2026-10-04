@@ -6,11 +6,12 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
-// State is where an operation stands (ADR-0020 §States). `queued` joins with the
-// first per-resource lock.
+// State is where an operation stands (ADR-0020 §States). A queued operation waits
+// behind another for a per-resource lock and names it in blockedBy.
 type State string
 
 const (
+	StateQueued    State = "queued"
 	StateRunning   State = "running"
 	StateCompleted State = "completed"
 	StateFailed    State = "failed"

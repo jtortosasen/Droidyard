@@ -146,3 +146,43 @@ func TestAsErrorKeepsTypedErrorsAndWrapsTheRest(t *testing.T) {
 		t.Errorf("the original text was lost: %q", wrapped.Cause)
 	}
 }
+
+// TestResourceLockWithoutQueueTimeoutIsRejected: a descriptor that takes a resource
+// lock and is not long-running can fail OPERATION_QUEUE_TIMEOUT, so Register refuses
+// it unless Errors lists the code (ADR-0020 §Queue bound); a long-running one has no
+// bound and is not required to.
+func TestResourceLockWithoutQueueTimeoutIsRejected(t *testing.T) {
+	d := valid()
+	d.Resource = func(any) string { return "k" }
+	if err := NewRegistry().Register(d); err == nil {
+		t.Error("a non-long-running descriptor with a Resource and no OPERATION_QUEUE_TIMEOUT was accepted")
+	}
+	d.Errors = []ErrorCode{ErrOperationQueueTimeout}
+	if err := NewRegistry().Register(d); err != nil {
+		t.Errorf("with OPERATION_QUEUE_TIMEOUT listed: %v", err)
+	}
+	long := valid()
+	long.Resource = func(any) string { return "k" }
+	long.LongRunning = true
+	if err := NewRegistry().Register(long); err != nil {
+		t.Errorf("a long-running descriptor needs no queue-timeout code: %v", err)
+	}
+}
+
+// TestUnrecordedCapabilityCannotTakeALockOrAHook: Invoke runs a non-recorded handler
+// without the scheduler, so a Resource or Authorize on it would be silently ignored;
+// Register refuses it instead.
+func TestUnrecordedCapabilityCannotTakeALockOrAHook(t *testing.T) {
+	d := valid()
+	d.unrecorded = true
+	d.Authorize = func(context.Context, *Call) (any, error) { return nil, nil }
+	if err := NewRegistry().Register(d); err == nil {
+		t.Error("a non-recorded descriptor with Authorize was accepted")
+	}
+	d.Authorize = nil
+	d.LongRunning = true
+	d.Resource = func(any) string { return "k" }
+	if err := NewRegistry().Register(d); err == nil {
+		t.Error("a non-recorded descriptor with Resource was accepted")
+	}
+}

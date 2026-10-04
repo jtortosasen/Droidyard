@@ -151,6 +151,9 @@ type Call struct {
 	// (artifact.read: an artifact carries its producer's mark, ADR-0015 §1). Nil
 	// leaves the descriptor's derived flag in force; non-nil sets the result's mark.
 	Untrusted *bool
+	// Authorized is what the descriptor's Authorize hook returned: what it read, for
+	// the handler to use instead of reading it again. Nil without a hook.
+	Authorized any
 }
 
 // Descriptor is one capability. It is registered explicitly by its domain package at
@@ -182,6 +185,21 @@ type Descriptor struct {
 	RawTarget bool
 
 	Audience Audience
+
+	// Resource names the per-resource lock a call holds while it runs, as a function
+	// of its decoded params (Call.Params' type); "" takes none. One key per call, so
+	// acquisition cannot deadlock. Calls on one key run one at a time, in the order
+	// they were started; a call behind another is queued and names it in blockedBy
+	// (ADR-0020 §Core primitives). The scheduler takes the lock, not the handler
+	// (core-runtime.md §Concurrency). Not published.
+	Resource func(params any) string
+
+	// Authorize is the authorization re-check, run by the scheduler immediately before
+	// the handler: holding the Resource key when there is one, at once when there is
+	// none. An error fails the operation with that error and the handler never runs;
+	// the value returned reaches the handler as Call.Authorized
+	// (ADR-0020 §Core primitives; ADR-0015 §2). Not published.
+	Authorize func(ctx context.Context, call *Call) (any, error)
 
 	// Params and Result are struct instances; the JSON Schema is generated from them.
 	Params any
