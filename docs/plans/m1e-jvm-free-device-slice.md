@@ -161,7 +161,7 @@ What the documents settle that a reader might take for a choice.
 - Needs: step 7.
 - Not here: `Range` and the growing header; `--no-inline-images` and `--image-max-edge` (Scope); MCP resources (`mcp-features.md` §2).
 - Rests on: OpenCode accepts an image block in a tool result (spike S2). Level 5, step 9.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-04. `GET /v1/artifacts/{id}` behind the fence (token, Host, Origin, OPTIONS), run as a recorded `artifact.read` (proven not MCP; `ui` and `cli` behave alike in the core): bytes, `image/png`, `X-Droidyard-Untrusted`, `no-store`, `nosniff`, `?maxEdge`, `?region`; 404/410/400, 500 for a result it cannot serve, each with a typed JSON body. MCP: an image block after the untrusted text (≤ 1024 px, PNG or JPEG above 512 KiB, cap 2048), the stored/delivered sizes on a third line, `_meta` kept, the mark ORed with the artifact's own, structured `delivered`/`mediaType` describing the block; `artifact_read` without base64. The screenshot decoded once (a decode counter proves it), its inline variant held and counted in the budget. Level 4: in-process daemon, real shim, fake adb over step 1's capture. ~22 mutations seen failing. Verified by Opus and DeepSeek (no blocker; fix round applied). Not run: OpenCode accepting the image (step 9). Schema: no change.
 
 ### 9. Level 5: the built binary, a real emulator, OpenCode
 
@@ -266,6 +266,7 @@ Document edits the orchestrating session made on 2026-10-04 (done): `http-websoc
 
 ## Changes
 
+- 2026-10-04 — step 8 rulings (Opus verifier): the screenshot's inline variant is made at capture from the one decode and held in the store, counted in the budget (~47% of the stored bytes on the fixtures; step 9's RSS row covers it); over MCP `artifact_read` without `maxEdge` is inlined at 1024 and its structured `delivered`/`mediaType` describe the block sent (`mcp-tool-surface.md`); the sizes go on a third line of the untrusted text block; the route answers 400 for an unknown query parameter and 500 for a failure of ours (`http-websocket.md`). Not fixed, recorded: a read whose client leaves before completion is never delivered, so its retained result keeps `data` until retention drops it (15 minutes).
 - 2026-10-04 — the idle-retry changes move from step 8 to step 10 (both edit `dump.go`); steps 8 and 10 run in parallel, step 10 in an isolated worktree.
 - 2026-10-04 — the owner decided ADR-0029: `device.uiTree` reads through a one-shot dex reader that keeps other accessibility services running (`uiautomator dump` killed the owner's Qustodio app). Step 10 implements it and runs before step 9's level-5 run, whose `uiTree` row then exercises the reader; the Unverified row on suspended services is closed by step 10 (c).
 - 2026-10-04 — after step 7, a prior-art speed check (`docs/research/device-speed-2026-10.md`): our path matches codex-android-mcp's and dsh-android's and adds ~0.1–0.2 s to the bare commands; the gap is mobile-mcp's and agent-device's on-device `UiAutomation`, out of 1e. Added to step 8 (Delegated): an 800 ms pause before the idle retry, an attempt limit above uiautomator's own idle wait, no `/sdcard` fallback after an idle failure; the screenshot decoded once (reused for the inline image).

@@ -64,6 +64,17 @@ type Ref struct {
 	Untrusted  bool       `json:"untrusted" jsonschema:"required"`
 }
 
+// Inline is an image's ready-made inline delivery (EncodeInline's output at the default
+// edge). A producer that decoded the image anyway hands it in, so the MCP adapter
+// reads it instead of decoding the image again. It is held, and counted against the
+// budget, with the artifact.
+type Inline struct {
+	Data      []byte
+	MediaType string
+	Width     int
+	Height    int
+}
+
 // Item is what a producer hands to Put. Producer is the canonical name of the
 // capability that made it; it stays in the store's entry and is not part of Ref.
 type Item struct {
@@ -73,6 +84,8 @@ type Item struct {
 	Height    int
 	Untrusted bool
 	Producer  string
+	// Inline, when set, is the image's inline variant (see Inline).
+	Inline *Inline
 }
 
 // Entry is a held artifact. Data is shared with the store: a reader must not modify it.
@@ -80,6 +93,16 @@ type Entry struct {
 	Ref      Ref
 	Data     []byte
 	Producer string
+	Inline   *Inline // nil when the producer made none
+}
+
+// size is what the entry counts against the budget.
+func (e Entry) size() int64 {
+	n := int64(len(e.Data))
+	if e.Inline != nil {
+		n += int64(len(e.Inline.Data))
+	}
+	return n
 }
 
 // Timer is the stoppable half of a scheduled function.
@@ -155,6 +178,9 @@ func New(o Options) (*Store, error) {
 // recently used entries until the new one fits the budget.
 func (s *Store) Put(it Item) (Ref, error) {
 	size := int64(len(it.Data))
+	if it.Inline != nil {
+		size += int64(len(it.Inline.Data))
+	}
 	if size > s.budget {
 		return Ref{}, ErrTooLarge
 	}
@@ -163,6 +189,12 @@ func (s *Store) Put(it Item) (Ref, error) {
 		return Ref{}, err
 	}
 	data := append([]byte(nil), it.Data...)
+	var inline *Inline
+	if it.Inline != nil {
+		c := *it.Inline
+		c.Data = append([]byte(nil), c.Data...)
+		inline = &c
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,6 +217,7 @@ func (s *Store) Put(it Item) (Ref, error) {
 		},
 		Data:     data,
 		Producer: it.Producer,
+		Inline:   inline,
 	}
 	h.elem = s.lru.PushFront(h)
 	s.entries[h.counter] = h
@@ -284,7 +317,7 @@ func parseID(id string) (epoch string, counter uint64, random string, ok bool) {
 func (s *Store) removeLocked(h *held) {
 	s.lru.Remove(h.elem)
 	delete(s.entries, h.counter)
-	s.used -= int64(len(h.entry.Data))
+	s.used -= h.entry.size()
 }
 
 // sweepLocked drops every expired entry. Expiry is by creation time, so a read never

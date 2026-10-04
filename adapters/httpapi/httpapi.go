@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,8 +60,8 @@ func Listen(addr string) (net.Listener, error) {
 	return ln, err
 }
 
-// Server is the UI's HTTP side: the baseline, then GET /, POST /v1/call and, when it
-// has a bus, GET /v1/ws. token is the per-launch token API requests must carry (the
+// Server is the UI's HTTP side: the baseline, then GET /, POST /v1/call, GET
+// /v1/artifacts/{id} and, when it has a bus, GET /v1/ws. token is the per-launch token API requests must carry (the
 // WebSocket carries it in its first frame instead).
 type Server struct {
 	handler http.Handler
@@ -72,6 +73,7 @@ func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, t
 	c := &caller{reg: reg, ops: ops}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/call", c)
+	mux.Handle(artifactsPath, &artifactRoute{c})
 	s := &Server{}
 	if bus != nil {
 		s.ws = newWSHandler(c, bus, token)
@@ -209,6 +211,24 @@ func (c *caller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(env)
 }
 
+// run is Start, then Wait for waitMs, or to the end without it; a capability that is
+// not recorded (operation.wait, operation.cancel) is Invoked.
+func (c *caller) run(ctx context.Context, creq capability.Request, waitMs *int64) (capability.Outcome, error) {
+	if d, ok := c.reg.Lookup(creq.Capability); ok && !d.Recorded() {
+		// operation.wait and operation.cancel are not operations.
+		return c.ops.Invoke(ctx, creq)
+	}
+	id, err := c.ops.Start(ctx, creq)
+	if err != nil {
+		return capability.Outcome{}, err
+	}
+	var deadline time.Time
+	if waitMs != nil {
+		deadline = time.Now().Add(time.Duration(*waitMs) * time.Millisecond)
+	}
+	return c.ops.Wait(ctx, id, deadline)
+}
+
 // answer runs one envelope: Start, then Wait for waitMs, or to the end without it. It
 // reports false when the client is gone and nothing should be written. session is the
 // session the request came in on: nil for a plain HTTP request, a WebSocket's own
@@ -228,21 +248,7 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 	env := capability.ResponseEnvelope{ID: req.ID}
 	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: capability.ClientUI, Session: session}
 
-	var out capability.Outcome
-	var err error
-	if d, ok := c.reg.Lookup(req.Capability); ok && !d.Recorded() {
-		// operation.wait and operation.cancel are not operations.
-		out, err = c.ops.Invoke(ctx, creq)
-	} else {
-		var id string
-		if id, err = c.ops.Start(ctx, creq); err == nil {
-			var deadline time.Time
-			if req.WaitMs != nil {
-				deadline = time.Now().Add(time.Duration(*req.WaitMs) * time.Millisecond)
-			}
-			out, err = c.ops.Wait(ctx, id, deadline)
-		}
-	}
+	out, err := c.run(ctx, creq, req.WaitMs)
 	if ctx.Err() != nil {
 		return env, false
 	}
@@ -266,4 +272,147 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 		env.Error = out.Error
 	}
 	return env, true
+}
+
+// artifactsPath is the artifact route's prefix: GET /v1/artifacts/{id}.
+const artifactsPath = "/v1/artifacts/"
+
+// artifactRoute is GET /v1/artifacts/{id} (http-websocket.md §GET /v1/artifacts/{id}):
+// artifact.read as client ui, with raw bytes for the answer. It sits behind the fence
+// like every /v1/ route, and runs the capability through the operation store, so the
+// request is recorded as an artifact.read operation; the route carries no operation id.
+// The status carries the meaning an envelope cannot: 404 ARTIFACT_NOT_FOUND, 410
+// ARTIFACT_EXPIRED, 400 for a malformed query or REQUEST_INVALID_PARAMS, each with the
+// typed error as a JSON body.
+type artifactRoute struct{ c *caller }
+
+// readParams is artifact.read's wire parameters, spelled here so that the adapter does
+// not import the domain package (core-runtime.md §Adapter boundary).
+type readParams struct {
+	Ref     string      `json:"ref"`
+	MaxEdge *int        `json:"maxEdge,omitempty"`
+	Region  *readRegion `json:"region,omitempty"`
+}
+
+type readRegion struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
+}
+
+func (a *artifactRoute) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, artifactsPath)
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, capability.NewError(capability.ErrArtifactNotFound, "no artifact has this reference"))
+		return
+	}
+	p := readParams{Ref: "droidyard://artifact/" + id}
+	q := r.URL.Query()
+	for k := range q {
+		if k != "maxEdge" && k != "region" {
+			writeError(w, capability.Errorf(capability.ErrInvalidParams, "unknown query parameter %q", k))
+			return
+		}
+	}
+	if v, ok := q["maxEdge"]; ok {
+		n, err := strconv.Atoi(strings.Join(v, ","))
+		if err != nil || len(v) != 1 {
+			writeError(w, capability.NewError(capability.ErrInvalidParams, "maxEdge must be a whole number of pixels"))
+			return
+		}
+		p.MaxEdge = &n
+	}
+	if v, ok := q["region"]; ok {
+		parts := strings.Split(strings.Join(v, ","), ",")
+		var f [4]float64
+		if len(v) != 1 || len(parts) != 4 {
+			writeError(w, capability.NewError(capability.ErrInvalidParams, "region must be x,y,w,h"))
+			return
+		}
+		for i, s := range parts {
+			var err error
+			if f[i], err = strconv.ParseFloat(s, 64); err != nil {
+				writeError(w, capability.NewError(capability.ErrInvalidParams, "region must be four numbers, x,y,w,h"))
+				return
+			}
+		}
+		p.Region = &readRegion{f[0], f[1], f[2], f[3]}
+	}
+	params, _ := json.Marshal(p)
+	out, err := a.c.run(r.Context(), capability.Request{Capability: "artifact.read", Params: params, Client: capability.ClientUI}, nil)
+	if r.Context().Err() != nil {
+		return
+	}
+	if err != nil {
+		writeError(w, capability.AsError(err))
+		return
+	}
+	if out.State != capability.StateCompleted {
+		writeError(w, out.Error)
+		return
+	}
+	raw, err := json.Marshal(out.Result)
+	var res struct {
+		MediaType string `json:"mediaType"`
+		Data      string `json:"data"`
+	}
+	var data []byte
+	if err == nil {
+		if err = json.Unmarshal(raw, &res); err == nil {
+			data, err = base64.StdEncoding.DecodeString(res.Data)
+		}
+	}
+	// A completed read always carries its bytes in `data`: the result is slimmed only
+	// after its first delivery (ADR-0020, 2026-10-04), so an empty one means this
+	// delivery was lost. That is the daemon's fault, not the request's: 500.
+	if err == nil && res.Data == "" {
+		writeStatus(w, http.StatusInternalServerError, capability.NewError(capability.ErrInvalidParams, "the artifact cannot be served").
+			WithCause("the read result holds no bytes: its first delivery was already made"))
+		return
+	}
+	// Rule 8: artifacts are served only as these types. A type the route cannot serve
+	// is the daemon's own state, not a bad request: 500. No internal-error code is
+	// published, so the body keeps the generic fallback code AsError uses.
+	if err != nil || (res.MediaType != "image/png" && res.MediaType != "image/jpeg") {
+		writeStatus(w, http.StatusInternalServerError, capability.NewError(capability.ErrInvalidParams, "the artifact cannot be served").WithCause("its media type or bytes are not servable"))
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", res.MediaType)
+	h.Set("Cache-Control", "no-store")
+	if out.Untrusted {
+		h.Set("X-Droidyard-Untrusted", "true") // R3: the route has no envelope for meta
+	}
+	h.Set("Content-Length", strconv.Itoa(len(data)))
+	if r.Method == http.MethodGet {
+		w.Write(data)
+	}
+}
+
+// writeError answers with the typed error as the JSON body: the status is the meaning
+// (404, 410, 400); any other code is a 500, since a read has no other expected failure.
+func writeError(w http.ResponseWriter, e *capability.Error) {
+	status := http.StatusInternalServerError
+	switch e.Code {
+	case capability.ErrArtifactNotFound:
+		status = http.StatusNotFound
+	case capability.ErrArtifactExpired:
+		status = http.StatusGone
+	case capability.ErrInvalidParams:
+		status = http.StatusBadRequest
+	}
+	writeStatus(w, status, e)
+}
+
+// writeStatus answers with the typed error as the JSON body under the given status.
+func writeStatus(w http.ResponseWriter, status int, e *capability.Error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(e)
 }

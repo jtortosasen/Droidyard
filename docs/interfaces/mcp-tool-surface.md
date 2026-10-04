@@ -202,7 +202,10 @@ typed contract.
 - **Every reference is readable.** `artifact_read {ref, …}`
   ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) pages text by byte offset. A
   negative offset reads from the end. For images it redelivers the artifact larger, or
-  cropped with a normalised `region`, within the hard cap.
+  cropped with a normalised `region`, within the hard cap, as an image block: at its
+  `maxEdge`, or 1024 px when it gives none (an MCP agent never receives the stored
+  bytes as base64), with the structured `delivered` and `mediaType` describing the
+  block it received (milestone 1e).
 - **Build consoles**: a build result renders a bounded console tail inline and carries
   `consoleRef`. `artifact_read {ref, offset: -16384}` reads further back, including
   while the build is still running.

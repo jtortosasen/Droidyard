@@ -442,8 +442,9 @@ func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, c
 
 // Wait returns the operation once it is terminal or the deadline passes, whichever
 // comes first. A zero deadline waits with none; a deadline in the past is a status
-// snapshot. Waiting has no side effects: when ctx ends, Wait returns ctx's error and
-// the operation runs on.
+// snapshot. Waiting changes no operation's state, though a snapshot slims a retained
+// result (ADR-0020, 2026-10-04). When ctx ends, Wait returns ctx's error and the
+// operation runs on.
 func (o *Operations) Wait(ctx context.Context, id string, deadline time.Time) (Outcome, error) {
 	op, err := o.lookup(id)
 	if err != nil {
