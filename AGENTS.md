@@ -66,8 +66,10 @@ skill says who does what.
 
 ## Build and test
 
-`.githooks/pre-commit` runs these and refuses a failing commit; enable it once per clone
-with `git config core.hooksPath .githooks`.
+`.githooks/pre-commit` refuses a failing commit: `go build ./...`, then `gofmt`, `go vet`
+and `go test` on the packages the commit touches and their importers (a document-only
+commit runs the document checks). Enable it once per clone with
+`git config core.hooksPath .githooks`. The full `go test ./...` runs at each step's close.
 
 ```sh
 go build ./...

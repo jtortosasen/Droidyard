@@ -77,7 +77,7 @@ Your shell is for observation. Do not change the working tree by any route, incl
 
 ## Timebox
 
-Read and reason before you run anything. Run the package tests once, and at most two or three mutations, each with `go test -overlay`, narrowed with `-run` and `-timeout 120s`; mark any other claimed mutation "not rerun" rather than running it. Never leave a test running in the background to wait on. Write the report as soon as you have it: a report that never arrives is worth nothing.
+Read and reason before you run anything. Run the package tests once, and at most two or three mutations, each with `go test -overlay`, narrowed with `-run` and `-timeout 120s`; mark any other claimed mutation "not rerun" rather than running it. Never leave a test running in the background to wait on. Aim to report within about 10 minutes; a run with no progress for 10 minutes is stopped and relaunched with a narrower brief. Write the report as soon as you have it: a report that never arrives is worth nothing.
 
 ## Report
 

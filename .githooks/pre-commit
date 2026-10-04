@@ -1,8 +1,11 @@
 #!/bin/sh
 # Refuses a commit the checks would fail. Enabled per clone with:
 #   git config core.hooksPath .githooks
-# A commit touching only documents runs the document checks; anything else runs the
-# four commands of AGENTS.md §Build and test. Bypass only knowingly: git commit --no-verify.
+# Selective: it tests the packages the staged files belong to and every package that
+# imports them (directly, or in its tests), not the whole tree; a document-only commit
+# runs the document checks. `go build ./...` always runs. The full `go test ./...` stays
+# the implementer's job at each step's close (milestone-workflow). go.mod, go.sum or this
+# hook changing runs everything. Bypass only knowingly: git commit --no-verify.
 set -u
 
 staged=$(git diff --cached --name-only --diff-filter=ACMRD)
@@ -13,17 +16,52 @@ fail() {
 	exit 1
 }
 
+run_tests() { # packages...
+	out=$(go test -count=1 "$@" 2>&1) || {
+		printf '%s\n' "$out" | grep -v '^droidyard' | grep -E -A8 '^(--- FAIL|panic)' >&2
+		fail "go test failed"
+	}
+}
+
 if ! printf '%s\n' "$staged" | grep -qvE '^(docs/|AGENTS\.md$|\.claude/|\.opencode/)'; then
-	go test -count=1 ./internal/doccheck >/dev/null || fail "go test ./internal/doccheck failed"
+	run_tests ./internal/doccheck
 	exit 0
 fi
 
-unformatted=$(gofmt -l . 2>/dev/null)
-[ -n "$unformatted" ] && fail "gofmt -l lists: $unformatted"
+go_files=$(printf '%s\n' "$staged" | grep -E '\.go$' || true)
+if [ -n "$go_files" ]; then
+	existing=$(for f in $go_files; do [ -f "$f" ] && echo "$f"; done)
+	if [ -n "$existing" ]; then
+		unformatted=$(gofmt -l $existing)
+		[ -n "$unformatted" ] && fail "gofmt -l lists: $unformatted"
+	fi
+fi
 go build ./... || fail "go build failed"
-go vet ./... || fail "go vet failed"
-out=$(go test -count=1 ./... 2>&1) || {
-	printf '%s\n' "$out" | grep -v '^droidyard' | grep -E -A8 '^(--- FAIL|panic)' >&2
-	fail "go test failed"
-}
+
+module=$(go list -m)
+if printf '%s\n' "$staged" | grep -qE '^(go\.mod|go\.sum|\.githooks/)'; then
+	pkgs="./..."
+else
+	# The package of each staged file: a .go file's directory; a file under testdata/
+	# (or any non-Go file) belongs to the nearest directory holding Go files.
+	changed=""
+	for f in $staged; do
+		d=$(dirname "$f")
+		case $f in schema/*) d=internal/schema ;; esac
+		while [ "$d" != "." ] && ! ls "$d"/*.go >/dev/null 2>&1; do d=$(dirname "$d"); done
+		[ "$d" = "." ] && continue
+		changed="$changed $module/$d"
+	done
+	changed=$(printf '%s\n' $changed | sort -u)
+	# Every package whose imports, transitive imports or test imports name a changed one.
+	pkgs=$(go list -f '{{.ImportPath}} {{join .Deps " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' ./... |
+		awk -v c="$(printf '%s ' $changed)" 'BEGIN{n=split(c,a," "); for(i=1;i<=n;i++) want[a[i]]=1}
+			{for(i=1;i<=NF;i++) if($i in want){print $1; break}}' | sort -u)
+	if printf '%s\n' "$staged" | grep -qE '^(docs/|AGENTS\.md$)'; then
+		pkgs="$pkgs $module/internal/doccheck"
+	fi
+fi
+[ -z "$pkgs" ] && exit 0
+go vet $pkgs || fail "go vet failed"
+run_tests $pkgs
 exit 0
