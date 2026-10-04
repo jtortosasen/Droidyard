@@ -69,6 +69,8 @@ flags=0x0`). Observed on the owner's app, which depends on its own
 | `uiautomator dump`, app just relaunched | 5 | 0 |
 | spike reader: a 5 KB dex run with `app_process`, `UiAutomation` with the flag (`flags=0x1`) | 6 (1 after idle) | 0 |
 | the same reader without the flag | 6 (1 after idle) | 0 |
+| `device.uiTree` through the shipped reader (milestone 1e step 10), app idle 215 s | 1 | 0 (`flags=0x1`; 38 nodes; 1.8 s through the CLI, ~1.3 s for push, run and removal) |
+| `uiautomator dump`, app idle 215 s, the same session | 1 | **1** (3 of 3 overall) |
 
 What is established: `uiautomator dump` can kill an app that depends on its own
 accessibility service (twice, with the full chain in logcat), and a flagged reader read

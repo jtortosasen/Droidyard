@@ -229,6 +229,11 @@ quirks, accepting the prompt. That belongs in a skill
   §adb resolution for the version-mismatch case).
 - Long-lived children (logcat follow, screen recording) are per-operation and die
   with their operation.
+- **The UI reader** ([ADR-0029](../adr/0029-ui-reader-dex.md)) is the one file Droidyard
+  writes on a device: `/data/local/tmp/droidyard-reader-<sha256>.dex`, pushed for each
+  `device.uiTree` read, run with `app_process` and removed after it, cancellation and
+  deadline included. A daemon killed mid-read leaves it until the next read overwrites
+  and removes it.
 - **Multi-device is a first-class assumption**: per-device locking, writes serialised
   per device, reads in parallel, and one frame pipeline per device. We do not inherit
   the single-stream-slot design of the prior art.

@@ -41,8 +41,9 @@ same reason, PR #101).
 - **Its output feeds the same snapshot** `device.uiTree` publishes today (flat `nodes[]`,
   compaction, the 40 KB cap, the untrusted mark): the published contract does not change.
 - **The dex is a build artefact, checked in and pinned**: its source, a reproducible
-  build script (the SDK's `javac` target, `android.jar` and `d8`), and the binary embedded
-  in the daemon with its SHA-256 checked before each push. The Go build needs no Android
+  build script (the SDK's `javac` target, `android.jar` and `d8`; reproducible with the
+  javac version recorded beside the digest), and the binary embedded in the daemon with
+  its SHA-256 pinned by a test and checked at run time before each push. The Go build needs no Android
   SDK.
 - **`uiautomator dump` stays only as a labelled fallback** when the reader cannot run
   (the push or `app_process` fails, or a platform below API 24, where the flag does not

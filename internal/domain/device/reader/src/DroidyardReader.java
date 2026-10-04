@@ -17,6 +17,9 @@ import java.lang.reflect.Method;
  * Failures go to stderr with a non-zero status. Source of reader.dex: see build.sh.
  */
 public class DroidyardReader {
+    // Exit status when getRootInActiveWindow stays null; the daemon maps it (dump.go, readerNoRoot).
+    private static final int NO_ROOT = 3;
+
     public static void main(String[] args) {
         int status = 1;
         try {
@@ -66,11 +69,18 @@ public class DroidyardReader {
                 root = ua.getRootInActiveWindow();
                 if (root == null) Thread.sleep(100);
             }
+            if (root == null) {
+                // No window to read (the screen off, or a window that never settles): a status
+                // of its own, so the daemon reports it and does not fall back to a dump that
+                // would meet the same and suspend the other services.
+                System.err.println("droidyard-reader: no active window root");
+                return NO_ROOT;
+            }
             Point size = new Point();
             int rotation = display(size);
             StringBuilder sb = new StringBuilder(16 << 10);
             sb.append("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"").append(rotation).append("\">");
-            if (root != null) node(root, 0, new Rect(0, 0, size.x, size.y), sb);
+            node(root, 0, new Rect(0, 0, size.x, size.y), sb);
             sb.append("</hierarchy>");
             xml = sb.toString();
         } finally {
@@ -148,11 +158,15 @@ public class DroidyardReader {
                     case '\r': sb.append("&#13;"); break;
                     case '\t': sb.append("&#9;"); break;
                     default:
-                        if (Character.isHighSurrogate(ch) && i + 1 < v.length() && Character.isLowSurrogate(v.charAt(i + 1))) {
+                        if ((ch >= 0x1 && ch <= 0x8) || (ch >= 0xB && ch <= 0xC) || (ch >= 0xE && ch <= 0x1F)
+                                || (ch >= 0x7F && ch <= 0x84) || (ch >= 0x86 && ch <= 0x9F) || (ch >= 0xFDD0 && ch <= 0xFDDF)) {
+                            // As AccessibilityNodeInfoDumper.stripInvalidXMLChars: these become ".".
+                            sb.append('.');
+                        } else if (Character.isHighSurrogate(ch) && i + 1 < v.length() && Character.isLowSurrogate(v.charAt(i + 1))) {
                             sb.append(ch).append(v.charAt(++i));
                         } else if (ch >= 0x20 && ch != 0xFFFE && ch != 0xFFFF && !Character.isSurrogate(ch)) {
                             sb.append(ch);
-                        } // else: not valid in XML 1.0, dropped as uiautomator drops it
+                        } // else (NUL, U+FFFE, U+FFFF, a lone surrogate): AOSP lets them through to its serializer; XML 1.0 forbids them, so they are dropped
                 }
             }
         }

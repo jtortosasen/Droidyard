@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -56,22 +57,26 @@ func TestUITreeReadsThroughTheReaderAndRemovesIt(t *testing.T) {
 // Decision (ADR-0029: fallback only when the reader cannot run, labelled): a reader
 // that fails (app_process exits non-zero), and a push that fails, each end in the
 // uiautomator dump, whose snapshot comes with exactly the suspension warning; the dex
-// is removed in both; with a failed push the reader is never run.
+// is removed in both; with a failed push the reader is never run. The warning ends with
+// the reader's decisive line (its own, or adb's), never with other device output.
 func TestUITreeFallsBackWhenTheReaderCannotRun(t *testing.T) {
 	cases := []struct {
-		name  string
-		files map[string]string
-		ran   bool
+		name   string
+		files  map[string]string
+		ran    bool
+		reason string
 	}{
-		{"app_process fails", map[string]string{uiSerial + ".push.exit": "0", uiSerial + ".reader.err": "droidyard-reader: no UiAutomation constructor\n", uiSerial + ".reader.exit": "1"}, true},
-		{"reader prints no hierarchy", map[string]string{uiSerial + ".push.exit": "0", uiSerial + ".reader.out": "oops\n"}, true},
-		{"push fails", map[string]string{uiSerial + ".push.err": "adb: failed to copy\n", uiSerial + ".push.exit": "1"}, false},
+		{"app_process fails", map[string]string{uiSerial + ".push.exit": "0", uiSerial + ".reader.err": "droidyard-reader: no UiAutomation constructor\n", uiSerial + ".reader.exit": "1"}, true, "droidyard-reader: no UiAutomation constructor"},
+		// exec-out merges app_process's stderr into stdout: the reader's own line is found there.
+		{"reader line on stdout", map[string]string{uiSerial + ".push.exit": "0", uiSerial + ".reader.out": "droidyard-reader: java.lang.NoSuchMethodException: connect\n", uiSerial + ".reader.exit": "1"}, true, "droidyard-reader: java.lang.NoSuchMethodException: connect"},
+		{"reader prints no hierarchy", map[string]string{uiSerial + ".push.exit": "0", uiSerial + ".reader.out": "oops\n"}, true, "it exited with status 0 and no hierarchy"},
+		{"push fails", map[string]string{uiSerial + ".push.err": "adb: failed to copy\n", uiSerial + ".push.exit": "1"}, false, "adb: failed to copy"},
 	}
 	for _, c := range cases {
 		f := newUIFixture(t, c.files)
 		s := mustComplete(t, f.tree(t, uiSerial))
-		if len(s.Nodes) == 0 || len(s.Warnings) != 1 || s.Warnings[0] != fallbackWarning {
-			t.Errorf("%s: nodes %d, warnings %q; want the dump's snapshot with the one warning", c.name, len(s.Nodes), s.Warnings)
+		if want := fallbackWarning + " Reader: " + c.reason; len(s.Nodes) == 0 || len(s.Warnings) != 1 || s.Warnings[0] != want {
+			t.Errorf("%s: nodes %d, warnings %q; want the dump's snapshot with the one warning %q", c.name, len(s.Nodes), s.Warnings, want)
 		}
 		calls := f.calls(t)
 		if got := slices.Contains(calls, rdRunCall); got != c.ran {
@@ -120,15 +125,18 @@ func TestUITreeReaderSharesTheDumpDeadline(t *testing.T) {
 	old1, old2, old3, old4 := dumpDeadline, dumpAttempt, cleanupReserve, readerRun
 	dumpDeadline, dumpAttempt, cleanupReserve, readerRun = 2*time.Second, 8*time.Second, 500*time.Millisecond, 8*time.Second
 	defer func() { dumpDeadline, dumpAttempt, cleanupReserve, readerRun = old1, old2, old3, old4 }()
-	f := newUIFixture(t, map[string]string{
+	f := newUIFixture(t, withReader(map[string]string{
 		uiSerial + ".reader.hang":  "",
 		uiSerial + ".dumptty.hang": "",
-	})
+	}, ""))
 	start := time.Now()
 	_, _, err := f.adb.read(context.Background(), &target{adb: f.adb.Resolve().Path, serial: uiSerial})
 	mustFail(t, capability.Outcome{State: capability.StateFailed, Error: capability.AsError(err)}, ErrUIDumpFailed)
-	if d := time.Since(start); d > dumpDeadline+time.Second {
+	if d := time.Since(start); d > dumpDeadline+300*time.Millisecond {
 		t.Errorf("took %v with a %v deadline for reader and dump together", d, dumpDeadline)
+	}
+	if !slices.Contains(f.calls(t), rdRunCall) {
+		t.Errorf("calls %q: the reader never ran, so the budget was not shared with it", f.calls(t))
 	}
 	if count(f.calls(t), rdRmCall) != 1 {
 		t.Errorf("calls %q: want the dex removal issued after the hung reader", f.calls(t))
@@ -136,12 +144,8 @@ func TestUITreeReaderSharesTheDumpDeadline(t *testing.T) {
 }
 
 // Decision (plan step 10, idle retry on the dump path): the retry of "could not get idle
-// state" waits idleRetryPause first; and the attempt limit is above uiautomator's own
-// idle wait (about 10 s) so that the message, not our timeout, ends a stuck attempt.
-func TestUITreeIdleRetryPausesAndAttemptLimitExceedsIdleWait(t *testing.T) {
-	if dumpAttempt <= 10*time.Second || idleRetryPause != 800*time.Millisecond {
-		t.Errorf("dumpAttempt %v, idleRetryPause %v; want above uiautomator's 10 s and 800 ms", dumpAttempt, idleRetryPause)
-	}
+// state" waits idleRetryPause first, and is not an /sdcard fallback.
+func TestUITreeIdleRetryPauses(t *testing.T) {
 	old := idleRetryPause
 	idleRetryPause = time.Second
 	defer func() { idleRetryPause = old }()
@@ -156,5 +160,62 @@ func TestUITreeIdleRetryPausesAndAttemptLimitExceedsIdleWait(t *testing.T) {
 	}
 	if count(f.calls(t), sdDumpCall) != 0 {
 		t.Error("an idle failure fell back to /sdcard")
+	}
+}
+
+// Decision (N2, reader path): the dex is removed even when the caller cancels while the
+// reader runs; the removal does not inherit the caller's cancellation, and the
+// cancellation is returned as it is, not turned into a fallback.
+func TestUITreeReaderRemovesTheDexWhenCancelled(t *testing.T) {
+	f := newUIFixture(t, withReader(map[string]string{uiSerial + ".reader.delay": "5000"}, pixelDoc(t)))
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(1500 * time.Millisecond); cancel() }()
+	_, _, err := f.adb.read(ctx, &target{adb: f.adb.Resolve().Path, serial: uiSerial})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the caller's cancellation", err)
+	}
+	calls := f.calls(t)
+	if count(calls, rdRmCall) != 1 || count(calls, ttyCall) != 0 {
+		t.Errorf("calls %q: want one dex removal and no dump", calls)
+	}
+}
+
+// Decision (ADR-0029: the SHA-256 is checked before each push): an embedded dex whose
+// digest is not the pinned one is never pushed; the read falls back with the reason.
+func TestUITreeDoesNotPushADexThatIsNotThePinnedOne(t *testing.T) {
+	old := readerDigest
+	readerDigest = func() string { return "0000" }
+	defer func() { readerDigest = old }()
+	f := newUIFixture(t, withReader(nil, pixelDoc(t)))
+	s := mustComplete(t, f.tree(t, uiSerial))
+	calls := f.calls(t)
+	for _, c := range calls {
+		if strings.Contains(c, " push ") || c == rdRunCall {
+			t.Errorf("a dex with the wrong digest reached the device: %q", c)
+		}
+	}
+	if len(s.Warnings) != 1 || !strings.HasPrefix(s.Warnings[0], fallbackWarning+" Reader: the embedded reader.dex has SHA-256 0000, not the pinned "+reader.SHA256) {
+		t.Errorf("warnings %q", s.Warnings)
+	}
+	if count(calls, ttyCall) != 1 {
+		t.Errorf("calls %q: want the dump fallback", calls)
+	}
+}
+
+// Decision (a null root is a failure, not an empty screen, and not a fallback): the
+// reader's own status 3 is DEVICE_UI_DUMP_FAILED; uiautomator dump is not run, because it
+// would meet the same missing window and suspend the other services; the dex is removed.
+func TestUITreeNullRootIsDumpFailedWithoutFallback(t *testing.T) {
+	f := newUIFixture(t, withReader(map[string]string{
+		uiSerial + ".reader.err":  "droidyard-reader: no active window root\n",
+		uiSerial + ".reader.exit": "3",
+	}, ""))
+	e := mustFail(t, f.tree(t, uiSerial), ErrUIDumpFailed)
+	if !strings.Contains(e.Cause, "no active window") {
+		t.Errorf("cause %q", e.Cause)
+	}
+	calls := f.calls(t)
+	if count(calls, ttyCall) != 0 || count(calls, sdDumpCall) != 0 || count(calls, rdRmCall) != 1 {
+		t.Errorf("calls %q: want no dump of any kind and one removal", calls)
 	}
 }
