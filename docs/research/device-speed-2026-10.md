@@ -54,3 +54,32 @@ that is no longer its default path.
 - **Later:** cache `boot_completed` per transport; speak the adb server's socket
   protocol instead of spawning the client (`adb-device.md` lists both as open);
   `filter`/`maxDepth` on `uiTree`; drop the systemui bars.
+
+## Addendum: `uiautomator dump` suppresses other accessibility services (2026-10-04)
+
+`uiautomator dump` (what `device.uiTree` runs) opens `UiAutomation` without
+`FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`; while it is connected, Android suspends
+every other accessibility service (logcat: `Registering UiTestAutomationService …
+flags=0x0`). Observed on the owner's app, which depends on its own
+`AccessibilityService` (Qustodio, emulator API 36):
+
+| Read | Runs | Qustodio killed |
+| --- | --- | --- |
+| `uiautomator dump`, app idle for over ~3 min | 2 | **2**: its malfunction check fires ~50 ms after the registration, throws, `FATAL EXCEPTION`, SIGKILL, restarted |
+| `uiautomator dump`, app just relaunched | 5 | 0 |
+| spike reader: a 5 KB dex run with `app_process`, `UiAutomation` with the flag (`flags=0x1`) | 6 (1 after idle) | 0 |
+| the same reader without the flag | 6 (1 after idle) | 0 |
+
+What is established: `uiautomator dump` can kill an app that depends on its own
+accessibility service (twice, with the full chain in logcat), and a flagged reader read
+the same screen (45 nodes) in ~150 ms, against ~2 s for the dump, without disturbing it.
+What is not: that the flag alone prevents the kill — the unflagged reader, which holds
+the connection ~150 ms instead of ~2 s, did not trigger it either. The flag is the
+documented way to keep other services running (Appium's
+`disableSuppressAccessibilityService`; mobium PR #101 ships such a dex for the same
+reason); the app's own condition (`DetectAccessibilityMalfunctionUseCase`) settles the
+rest.
+
+Consequence: a dex reader with the flag is now justified by correctness as well as
+speed, and it is the first item of the on-device-agent spike: a one-shot reader (like
+mobium's) before any persistent server.
