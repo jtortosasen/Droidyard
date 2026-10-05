@@ -627,7 +627,7 @@ func (s *Server) abandoned(ctx context.Context, id string, answer func(capabilit
 // args are the call's arguments, for the maxEdge an artifact_read asked for.
 func (s *Server) render(out capability.Outcome, args json.RawMessage) *mcpgo.CallToolResult {
 	if out.State != capability.StateCompleted {
-		return errorResult(out.Error)
+		return errorResultOf(out.Error, out.Untrusted)
 	}
 	raw, err := json.Marshal(out.Result)
 	if err != nil {
@@ -792,7 +792,7 @@ func resultOf(v any, untrusted bool) *mcpgo.CallToolResult {
 // error result carrying its error.
 func viewOf(out capability.Outcome) *mcpgo.CallToolResult {
 	if out.State == capability.StateFailed || out.State == capability.StateCancelled {
-		return errorResult(out.Error)
+		return errorResultOf(out.Error, out.Untrusted)
 	}
 	v := capability.OperationView{OperationID: out.OperationID, Capability: out.Capability, State: out.State, Progress: out.Progress, BlockedBy: out.BlockedBy}
 	var text string
@@ -823,11 +823,25 @@ func viewOf(out capability.Outcome) *mcpgo.CallToolResult {
 // errorResult is an isError result: no structured content, since an error is not the
 // declared result, and the error object as JSON text (ADR-0020 §Adapter projections).
 func errorResult(e *capability.Error) *mcpgo.CallToolResult {
+	return errorResultOf(e, false)
+}
+
+// errorResultOf is errorResult, with the mark a failed call whose handler set
+// Call.Untrusted carries. A marked error result gets _meta {"droidyard/untrusted":
+// true} for hosts; its text stays the error JSON alone, with no fixed first line and
+// no structured content, because an error is not the declared result and the success
+// path's line would claim it carries a result (mcp-tool-surface.md §Untrusted data;
+// plan m1f, D5).
+func errorResultOf(e *capability.Error, untrusted bool) *mcpgo.CallToolResult {
 	raw, _ := json.Marshal(e)
-	return &mcpgo.CallToolResult{
+	r := &mcpgo.CallToolResult{
 		Content: []mcpgo.Content{mcpgo.NewTextContent(string(raw))},
 		IsError: true,
 	}
+	if untrusted {
+		r.Meta = mcpgo.NewMetaFromMap(map[string]any{untrustedMetaKey: true})
+	}
+	return r
 }
 
 // progressTokenOf is the call's _meta.progressToken, or nil when it asked for none.

@@ -243,3 +243,205 @@ func TestUntrustedMarkOverMCP(t *testing.T) {
 	body(t, again)
 	c.exit()
 }
+
+// failWithDeviceText is an error whose details.candidates quote device text, as a
+// resolution error's do (ui-automation.md §Resolution). mark, when non-nil, is what the
+// handler sets Call.Untrusted to.
+func failWithDeviceText(mark *bool) capability.Handler {
+	return func(_ context.Context, call *capability.Call) (any, error) {
+		call.Untrusted = mark
+		return nil, capability.NewError(capability.ErrInvalidParams, "the target matches more than one node").
+			WithDetails(map[string]any{"candidates": []any{map[string]any{"text": forged}}})
+	}
+}
+
+// startUntrustedErrors starts the shipped wiring with two test-only capabilities that
+// fail with details.candidates text: fixture.untrustedfail marks the call;
+// fixture.plainfail returns the same error unmarked and its result type is tagged, so a
+// descriptor-derived flag applied to errors would mark it (plan m1f, step 3).
+func startUntrustedErrors(t *testing.T) *inProcess {
+	t.Helper()
+	marked := true
+	return startInProcessWith(t, func(reg *capability.Registry) {
+		reg.MustRegister(capability.Descriptor{
+			Name: "fixture.untrustedfail", Kind: capability.Query, Scope: capability.Global,
+			Description: "Fails, marked, with device text in details.", Params: struct{}{}, Result: struct{}{},
+			Handler: failWithDeviceText(&marked),
+		})
+		reg.MustRegister(capability.Descriptor{
+			Name: "fixture.plainfail", Kind: capability.Query, Scope: capability.Global,
+			Description: "Fails unmarked, from a tagged result.", Params: struct{}{}, Result: untrustedResult{},
+			Handler: failWithDeviceText(nil),
+		})
+	})
+}
+
+// TestUntrustedErrorMarkOnTheEnvelopes: a failed call whose handler marked it carries
+// meta.untrusted: true on the native (CLI), HTTP and WebSocket envelopes and
+// operation.wait of it too, and its message ends with UntrustedErrorNote. The unmarked
+// failure, from a tagged result, carries neither: the descriptor's derived flag never
+// marks an error (R5; plan m1f, step 3, D5). Each adapter is its own row.
+func TestUntrustedErrorMarkOnTheEnvelopes(t *testing.T) {
+	t.Parallel()
+	p := startUntrustedErrors(t)
+
+	checkMarked := func(t *testing.T, what string, env capability.ResponseEnvelope) {
+		t.Helper()
+		if env.Error == nil {
+			t.Fatalf("%s: no error: %+v", what, env)
+		}
+		if env.Meta == nil || !env.Meta.Untrusted {
+			t.Errorf("%s: meta %+v; want untrusted", what, env.Meta)
+		}
+		if !strings.HasSuffix(env.Error.Message, capability.UntrustedErrorNote) {
+			t.Errorf("%s: message %q does not end with D5's note", what, env.Error.Message)
+		}
+	}
+	checkPlain := func(t *testing.T, what string, env capability.ResponseEnvelope) {
+		t.Helper()
+		if env.Error == nil {
+			t.Fatalf("%s: no error: %+v", what, env)
+		}
+		if env.Meta != nil {
+			t.Errorf("%s: meta %+v; want none (the derived flag never marks an error)", what, env.Meta)
+		}
+		if strings.Contains(env.Error.Message, capability.UntrustedErrorNote) {
+			t.Errorf("%s: message %q carries the note", what, env.Error.Message)
+		}
+	}
+
+	t.Run("CLI", func(t *testing.T) {
+		env, code := p.call(t, "fixture.untrustedfail")
+		if code == 0 {
+			t.Errorf("the marked failure exited 0")
+		}
+		checkMarked(t, "CLI fixture.untrustedfail", env)
+		plain, code := p.call(t, "fixture.plainfail")
+		if code == 0 {
+			t.Errorf("the unmarked failure exited 0")
+		}
+		checkPlain(t, "CLI fixture.plainfail", plain)
+		health, _ := p.call(t, "system.health")
+		if health.Meta != nil {
+			t.Errorf("CLI system.health carries meta %+v", health.Meta)
+		}
+	})
+
+	t.Run("HTTP", func(t *testing.T) {
+		addr := p.d.HTTPAddr()
+		port := portOf(t, addr)
+		marked := envelopeOf(t, callRequest(port, p.token, `{"id":"m","capability":"fixture.untrustedfail"}`).send(t, addr))
+		checkMarked(t, "POST /v1/call fixture.untrustedfail", marked)
+		plain := envelopeOf(t, callRequest(port, p.token, `{"id":"p","capability":"fixture.plainfail"}`).send(t, addr))
+		checkPlain(t, "POST /v1/call fixture.plainfail", plain)
+		health := envelopeOf(t, callRequest(port, p.token, `{"id":"h","capability":"system.health"}`).send(t, addr))
+		if health.Meta != nil {
+			t.Errorf("POST /v1/call system.health carries meta %+v", health.Meta)
+		}
+	})
+
+	t.Run("WebSocket", func(t *testing.T) {
+		w := wsConnect(t, p)
+		w.send("m", "fixture.untrustedfail", "", "", nil)
+		checkMarked(t, "WebSocket fixture.untrustedfail", w.must("fixture.untrustedfail").ResponseEnvelope)
+		w.send("p", "fixture.plainfail", "", "", nil)
+		checkPlain(t, "WebSocket fixture.plainfail", w.must("fixture.plainfail").ResponseEnvelope)
+		w.send("h", "system.health", "", "", nil)
+		if f := w.must("system.health"); f.Meta != nil {
+			t.Errorf("WebSocket system.health carries meta %+v", f.Meta)
+		}
+	})
+
+	t.Run("operation.wait", func(t *testing.T) {
+		first, _ := p.call(t, "fixture.untrustedfail")
+		if first.Operation == nil || first.Operation.State != capability.StateFailed {
+			t.Fatalf("the marked failure: %+v; want a failed operation", first)
+		}
+		waited, _ := p.call(t, "operation.wait", "--params", `{"operationId":"`+first.Operation.ID+`"}`)
+		checkMarked(t, "operation.wait on the marked failure", waited)
+
+		next, _ := p.call(t, "fixture.plainfail")
+		plain, _ := p.call(t, "operation.wait", "--params", `{"operationId":"`+next.Operation.ID+`"}`)
+		checkPlain(t, "operation.wait on the unmarked failure", plain)
+
+		health, _ := p.call(t, "system.health")
+		hw, _ := p.call(t, "operation.wait", "--params", `{"operationId":"`+health.Operation.ID+`"}`)
+		if hw.Meta != nil {
+			t.Errorf("operation.wait on system.health carries meta %+v", hw.Meta)
+		}
+	})
+}
+
+// TestUntrustedErrorMarkOverMCP: an isError result for a failed call whose handler
+// marked it carries _meta {"droidyard/untrusted": true}, and its one text block is the
+// error JSON alone: no fixed first line, no structuredContent. operation_wait on it
+// does the same. The unmarked failure and system_health carry neither (mcp-tool-surface
+// §Untrusted data; plan m1f, step 3, D5).
+func TestUntrustedErrorMarkOverMCP(t *testing.T) {
+	t.Parallel()
+	p := startUntrustedErrors(t)
+	c := startShim(t, p.state, "client", "--wait", "300ms")
+	c.initialize("untrusted-errors")
+
+	errorOf := func(t *testing.T, what string, r toolResult) capability.Error {
+		t.Helper()
+		if !r.isError {
+			t.Fatalf("%s: not an error result: %v", what, r.raw)
+		}
+		if _, ok := r.raw["structuredContent"]; ok {
+			t.Errorf("%s: error result carries structuredContent %s", what, r.raw["structuredContent"])
+		}
+		if strings.Contains(r.text, untrustedLine) {
+			t.Errorf("%s: the error text carries the success fixed line: %q", what, r.text)
+		}
+		var e capability.Error
+		if err := json.Unmarshal([]byte(r.text), &e); err != nil {
+			t.Fatalf("%s: the text is not the error JSON: %q", what, r.text)
+		}
+		return e
+	}
+	wantMark := func(t *testing.T, what string, r toolResult) capability.Error {
+		t.Helper()
+		e := errorOf(t, what, r)
+		if m := metaOf(t, r); m["droidyard/untrusted"] != true {
+			t.Errorf("%s: _meta = %v; want droidyard/untrusted true", what, m)
+		}
+		if !strings.HasSuffix(e.Message, capability.UntrustedErrorNote) {
+			t.Errorf("%s: message %q does not end with D5's note", what, e.Message)
+		}
+		return e
+	}
+	wantNoMark := func(t *testing.T, what string, r toolResult) {
+		t.Helper()
+		e := errorOf(t, what, r)
+		if m := metaOf(t, r); m != nil {
+			t.Errorf("%s: _meta = %v; want none", what, m)
+		}
+		if strings.Contains(e.Message, capability.UntrustedErrorNote) {
+			t.Errorf("%s: message %q carries the note", what, e.Message)
+		}
+	}
+
+	c.callTool(1, "fixture_untrustedfail", `{}`)
+	got := wantMark(t, "fixture_untrustedfail", decodeTool(t, c.recv(), 1))
+	if got.Details["candidates"] == nil {
+		t.Errorf("the marked error does not carry details.candidates: %+v", got.Details)
+	}
+	c.callTool(2, "fixture_plainfail", `{}`)
+	wantNoMark(t, "fixture_plainfail", decodeTool(t, c.recv(), 2))
+	c.callTool(3, "system_health", `{}`)
+	if m := metaOf(t, decodeTool(t, c.recv(), 3)); m != nil {
+		t.Errorf("system_health: _meta = %v; want none", m)
+	}
+
+	// operation_wait keeps a failed operation's mark, on the tool that started it and
+	// on the wait.
+	env, _ := p.call(t, "fixture.untrustedfail")
+	c.callTool(4, "operation_wait", `{"operationId":"`+env.Operation.ID+`"}`)
+	wantMark(t, "operation_wait on the marked failure", decodeTool(t, c.recv(), 4))
+	plain, _ := p.call(t, "fixture.plainfail")
+	c.callTool(5, "operation_wait", `{"operationId":"`+plain.Operation.ID+`"}`)
+	wantNoMark(t, "operation_wait on the unmarked failure", decodeTool(t, c.recv(), 5))
+
+	c.exit()
+}

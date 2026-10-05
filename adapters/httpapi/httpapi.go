@@ -270,6 +270,9 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 		env.Meta = out.Meta()
 	case capability.StateFailed, capability.StateCancelled:
 		env.Error = out.Error
+		// A failed call whose handler marked it carries the mark here too (plan m1f,
+		// D5): the error's details may quote device text.
+		env.Meta = out.Meta()
 	}
 	return env, true
 }

@@ -102,6 +102,8 @@ capabilities through ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §
 - A result that carries device- or app-derived data has `meta.untrusted: true`. The UI
   finds out which fields to render inert from the schema's `x-droidyard-untrusted` marks
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1).
+  A failed call whose handler marked it carries `meta.untrusted: true` too; the UI
+  renders that error's `details` inert as a whole.
 - Other statuses come only from the baseline and from transport problems: `400`
   (malformed JSON), `401` (token), `403` (Host or Origin), `413` (body over 1 MiB) and
   `415` (content type).

@@ -147,9 +147,13 @@ type Call struct {
 	Session Session
 	// Progress reports progress for a long-running call. Never nil.
 	Progress func(done, total int, message string)
-	// Untrusted is the handler's own mark for this result, set before it returns
-	// (artifact.read: an artifact carries its producer's mark, ADR-0015 §1). Nil
-	// leaves the descriptor's derived flag in force; non-nil sets the result's mark.
+	// Untrusted is the handler's own mark for this call, set before it returns
+	// (artifact.read: an artifact carries its producer's mark, ADR-0015 §1). On a
+	// completed call, nil leaves the descriptor's derived flag in force and non-nil
+	// sets the result's mark. On a failed call the derived flag never applies: true
+	// marks the error, whose details quote device text, and the capability layer
+	// appends UntrustedErrorNote to its message (plan m1f, D5). A cancelled call is
+	// never marked.
 	Untrusted *bool
 	// Authorized is what the descriptor's Authorize hook returned: what it read, for
 	// the handler to use instead of reading it again. Nil without a hook.
