@@ -85,6 +85,47 @@ func withReader(files map[string]string, doc string) map[string]string {
 	return out
 }
 
+// withPersistentReader starts the fake's persistent reader (a TCP listener speaking D2)
+// and makes the dex push, the serve start and the forward succeed, so a read goes over
+// the forward. docs script the dumps in order; devicetest.ReaderGone closes a dump's
+// connection without a document (plan m1f step 5).
+func withPersistentReader(t *testing.T, files map[string]string, docs ...string) map[string]string {
+	t.Helper()
+	r := devicetest.StartReader(t, docs...)
+	t.Cleanup(r.Close)
+	out := map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	}
+	for k, v := range files {
+		out[k] = v
+	}
+	return out
+}
+
+// countServeStarts counts the persistent reader's start commands for uiSerial.
+func countServeStarts(calls []string) int {
+	n := 0
+	for _, c := range calls {
+		if strings.HasPrefix(c, "-s "+uiSerial+" shell CLASSPATH=") && strings.Contains(c, "DroidyardReader serve ") {
+			n++
+		}
+	}
+	return n
+}
+
+// countForward counts the persistent reader's forwards for uiSerial.
+func countForward(calls []string) int {
+	n := 0
+	for _, c := range calls {
+		if strings.HasPrefix(c, "-s "+uiSerial+" forward tcp:0 localabstract:droidyard-reader-") {
+			n++
+		}
+	}
+	return n
+}
+
 func uiList(lines ...string) string { return listHead + strings.Join(lines, "") }
 
 func (f *uiFixture) start(t *testing.T, device string) (string, error) {
@@ -154,7 +195,7 @@ func TestUITreeGoldenFromRecordedDumps(t *testing.T) {
 		for _, viaReader := range []bool{true, false} {
 			files := map[string]string{uiSerial + ".dumptty.out": doc}
 			if viaReader {
-				files = withReader(files, doc)
+				files = withPersistentReader(t, files, doc)
 			}
 			f := newUIFixture(t, files)
 			s := mustComplete(t, f.tree(t, uiSerial))
@@ -515,12 +556,12 @@ func TestUITreeDescriptorAndMark(t *testing.T) {
 func TestUITreeCarriesTheVersionMismatchWarning(t *testing.T) {
 	port, _ := fakeServer(t, []byte("OKAY0004002a"))
 	doc := fixture(t, "pixel9a-uidump-devtty.xml")
-	f := newUIFixturePort(t, withReader(nil, doc), port)
+	f := newUIFixturePort(t, withPersistentReader(t, nil, doc), port)
 	s := mustComplete(t, f.tree(t, uiSerial))
 	if len(s.Warnings) != 1 || !strings.Contains(s.Warnings[0], "version 42") || !strings.Contains(s.Warnings[0], "1.0.41") {
 		t.Errorf("warnings = %q, want the mismatch between client 1.0.41 and server 42", s.Warnings)
 	}
-	if s := mustComplete(t, newUIFixture(t, withReader(nil, doc)).tree(t, uiSerial)); len(s.Warnings) != 0 {
+	if s := mustComplete(t, newUIFixture(t, withPersistentReader(t, nil, doc)).tree(t, uiSerial)); len(s.Warnings) != 0 {
 		t.Errorf("warnings = %q with no server running", s.Warnings)
 	}
 }

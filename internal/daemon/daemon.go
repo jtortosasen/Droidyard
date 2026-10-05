@@ -23,6 +23,13 @@ import (
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
+// afterOpsTimeout bounds AfterOps independently of the shutdown context, which the
+// operations may already have drained. Cleanup must still run then (ADB.Close's forward
+// removal, plan m1f step 5), but a slow AfterOps cannot hold shutdown past this. It is
+// longer than ADB.Close's own readerCloseBound, so the cleanup the daemon waits for
+// finishes rather than racing the supervisor's stop. A variable so a test is quick.
+var afterOpsTimeout = 5 * time.Second
+
 // Session is one connection after a successful hello (ADR-0019 §Sessions; ADR-0010).
 // Reader is the buffered reader that read the hello: it may already hold the bytes
 // that followed it, so a handler reads from it, never from Conn directly.
@@ -57,6 +64,13 @@ type Options struct {
 	// Supervisor runs the daemon's child processes. Start loads it once the pid
 	// records are reconciled; Shutdown stops what it runs. Nil: none.
 	Supervisor *process.Supervisor
+	// AfterOps, when set, runs once the running operations have drained and before
+	// the supervisor stops: a resource that still needs adb or another child at
+	// shutdown (the UI reader's forward, plan m1f step 5) is closed there, while
+	// spawning still works. ctx is bounded by afterOpsTimeout, not by the shutdown
+	// context, so cleanup runs even when the operations drained it; the daemon waits
+	// for AfterOps only up to that bound.
+	AfterOps func(ctx context.Context)
 	// Log receives one line per refused connection and per reconciled pid record.
 	// Nil discards.
 	Log io.Writer
@@ -444,6 +458,23 @@ func (d *Daemon) Shutdown(ctx context.Context) error {
 	d.mu.Unlock()
 
 	opsErr := d.opts.Ops.Shutdown(ctx)
+	if d.opts.AfterOps != nil {
+		// AfterOps gets its own bound, not the shutdown context's: the operations may
+		// have drained that context, and the reader's forward must still be removed.
+		// A slow AfterOps is waited for only up to the bound, so it cannot hang
+		// shutdown (process-lifecycle.md §Shutdown; plan m1f step 5).
+		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), afterOpsTimeout)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			d.opts.AfterOps(actx)
+		}()
+		select {
+		case <-done:
+		case <-actx.Done():
+		}
+		cancel()
+	}
 	if d.opts.Supervisor != nil {
 		d.opts.Supervisor.Shutdown()
 	}

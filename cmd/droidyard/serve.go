@@ -53,7 +53,7 @@ func newToken() string {
 // the published schemas from here, so it never imports internal/schema
 // (docs/architecture/core-runtime.md §Adapter boundary), and reads operation progress
 // from bus and resolves an image reference against artifacts.
-func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, artifacts *artifact.Store, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
+func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, artifacts *artifact.Store, afterOps func(context.Context), log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return daemon.Options{}, nil, err
@@ -77,6 +77,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		Version:    system.Version,
 		UID:        os.Getuid(),
 		Ops:        ops,
+		AfterOps:   afterOps,
 		Handlers: map[capability.ClientKind]daemon.Handler{
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
@@ -133,10 +134,10 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
-	reg, ops, bus, artifacts := registry(st, sup, os.Stderr)
+	reg, ops, bus, artifacts, adb := registry(st, sup, os.Stderr)
 	defer artifacts.Close()
 	socket := env.SocketPath(state)
-	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, os.Stderr)
+	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb.Close, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
