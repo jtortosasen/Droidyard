@@ -130,7 +130,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: a schema for `details` (Not in this milestone).
 - Rests on: no adapter renders a marked error without its mark. Level 4 (real shim processes, as 1e step 4).
 - Review: untrusted marking: Opus verifier and DeepSeek.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: a15ae5d. `TestFailedOutcomeCarriesTheHandlersMarkOnly` (capability), `TestUntrustedErrorMarkOnTheEnvelopes` and `TestUntrustedErrorMarkOverMCP` (CLI, HTTP, WebSocket, MCP shim, `operation.wait`); seen failing with the mark dropped, the derived flag applied to errors, the sentence dropped, the note appended in place, and (added at review) the mark applied to a cancelled call. Schema unchanged. ADR-0015 `Amended:` line written by the main session (D5). Review: Opus verifier and DeepSeek, both proceed, no blocking finding; their non-blocking doc points and the cancelled-call test were taken. Implemented by DeepSeek.
 
 ### 4. Selectors, kept snapshots and `uiTree` `within`
 
