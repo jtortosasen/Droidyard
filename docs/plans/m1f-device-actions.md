@@ -74,6 +74,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - D13. Running bound 37 s, counted from when the operation starts running (the authorization hook records its start in `target`; the hook's `Check` and `devices -l` alone can take 9 s, `target.go`, `adb.go`), so a call queued 20 s still answers under 60 s with 3 s to spare (ADR-0020 §Adapter projections). `tapElement`: before phase (hook, `ready`, read, resolve) ends at hook start + 14 s, the read getting what remains; tap ≤ 2 s; settle; window ≤ 20 s. `inputText`: before phase with the focusing tap and settle ends at hook start + 14 s; clear, typing and submit ≤ 3 s; window ≤ 20 s. An overrun before the tap fails with the overrunning stage's code, nothing tapped; for `inputText`, an overrun before the first keystroke fails with nothing typed.
 - D18. After an `input tap` was issued, a failure of that command is an error only when it provably never ran (adb could not be started, or adb's device-not-found line before the shell ran); a timeout goes on to verification with a warning, since the tap may have landed and an error invites a second tap (`ui-automation.md` §Result).
 - D19. Once any `inputText` chunk has run, a later failure gives a completed result with the partial `characters` count and a warning, never an error (a retry would retype); an error only before the first keystroke.
+- D20. `within` matches its fields exactly; the contains fallback of §Resolution 2 applies to the target only (added at step 4; `ui-automation.md` §Selectors).
 - D14. The form app is built from source with the SDK's tools (no Gradle); its APK is never committed.
 - D15. CLI `--device`/`ANDROID_SERIAL` moves to the `device.logs` milestone: no 1f item needs it.
 - D16. Snapshot ids are `s-` plus 8 hex digits, unique among kept snapshots; the last 16 whose refs were returned are kept per device; an unknown or evicted one is `DEVICE_STALE_REF`.
@@ -143,7 +144,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: tapping and polling (step 6); row abstraction and counting (post-MVP).
 - Rests on: a ref never resolves to a node other than the one it named. Level 3.
 - Review: capability semantics: Opus verifier and DeepSeek.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 71ce8a1. `selector_test.go` (validation, resolution over the recorded Settings dump, fold, off-screen, ambiguity and index, disabled, ref identity after a move and with moved bounds, stale refs, near candidates as a literal list, per-device snapshots, the literal 16, within exact) and `uitree_device_test.go` (`within` subtrees, `noMatch`, no read on a malformed `within`); reversals seen failing: contains on `id`, innermost kept, disabled dropped, ref by position, bounds out of identity, one shared store, 17 kept, contains in `within`, no screenshot pointer. Schema: 0.5.0, `within` and `REQUEST_INVALID_PARAMS` on `device.uiTree`, read line by line. Review: Opus fix first (B1, B2: two descriptions misstated `within`), DeepSeek proceed; the fix round (DeepSeek, relaunched once after a 20-minute stall) corrected both and closed the test gaps; the main session checked the fix round's schema and doc diff and the full suite. Not taken: an identity tie between two nodes with equal class, id, text, desc and bounds picks the outermost (same tap point); the fold-before-off-screen order is the document's.
 
 ### 5. The persistent reader in the daemon
 
@@ -281,3 +282,5 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7): every blocking fi
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-05, step 4: D20 added (`within` matches exactly), Delegated; the documents left it open and the reviewers asked for it to be recorded.
