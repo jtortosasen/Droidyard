@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The 1f fixture app (D14). One launcher activity, minSdk 24, targetSdk 36; the
+     LAUNCHER category is what makes the activity launchable, and step 2's check sees
+     the build fail without it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.droidyard.formapp">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />
+
+    <application
+        android:label="Form App"
+        android:theme="@android:style/Theme.Material.Light">
+        <activity
+            android:name=".FormActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
