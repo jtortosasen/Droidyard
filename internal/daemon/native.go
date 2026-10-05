@@ -114,6 +114,9 @@ func handle(ctx context.Context, reg *capability.Registry, ops *capability.Opera
 		env.Meta = out.Meta()
 	case capability.StateFailed, capability.StateCancelled:
 		env.Error = out.Error
+		// A failed call whose handler marked it carries the mark here too (plan m1f,
+		// D5): the error's details may quote device text.
+		env.Meta = out.Meta()
 	}
 	return env, true
 }

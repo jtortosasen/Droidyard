@@ -61,8 +61,9 @@ type Meta struct {
 	Untrusted  bool  `json:"untrusted,omitempty"`
 }
 
-// Meta returns the envelope's meta for this outcome: untrusted when it is a result
-// that carries device- or app-derived data, and none otherwise (ADR-0015 §1).
+// Meta returns the envelope's meta for this outcome: untrusted when it carries
+// device- or app-derived data, a marked failure included, and none otherwise
+// (ADR-0015 §1; plan m1f, D5).
 func (o Outcome) Meta() *Meta {
 	if o.Untrusted {
 		return &Meta{Untrusted: true}

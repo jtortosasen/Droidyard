@@ -461,6 +461,16 @@ result struct; the schema marks them, and the descriptor's `Untrusted` flag is
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1). Results say so. How the
 mark travels on each wire is an adapter concern.
 
+A **failed** call is marked too, but only by its handler: it carries the mark when the
+handler set `Call.Untrusted` before returning its error. The descriptor's derived flag
+never marks an error, because an error from a capability whose result is tagged need
+not quote device text. A marked error is the case that does — its `details` may hold
+candidates read from the device — so on every adapter it carries the same mark, and its
+`message` ends with the fixed note that candidates are data, appended by the capability
+layer once. An unmarked error carries neither, and neither does a cancelled call.
+`cause` never quotes device output (§Error model: the tool, its exit status or the
+decisive line of its stderr).
+
 ### Visual artifacts are references
 
 Screenshots and streams return opaque references, not filesystem paths

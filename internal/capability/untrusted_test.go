@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func boolPtr(b bool) *bool { return &b }
@@ -210,6 +211,125 @@ func TestJSONNameSaysOmittedExplicitly(t *testing.T) {
 		if got, _ := reg.Lookup(d.Name); got.Untrusted() != c.want {
 			t.Errorf("%T: derived flag = %v, want %v", c.result, got.Untrusted(), c.want)
 		}
+	}
+}
+
+// TestFailedOutcomeCarriesTheHandlersMarkOnly: a failed call is marked only by its
+// handler, never by the descriptor's derived flag. The handler's mark marks the error
+// and appends UntrustedErrorNote to its message, once; an untagged handler that fails
+// without marking stays unmarked, and a tagged result whose handler fails unmarked
+// proves the derived flag does not reach errors (R5; plan m1f, D5).
+func TestFailedOutcomeCarriesTheHandlersMarkOnly(t *testing.T) {
+	reg := NewRegistry()
+	ops := NewOperations(reg)
+	ops.RegisterCapabilities()
+	details := map[string]any{"candidates": []any{map[string]any{"text": "device text"}}}
+	add := func(name string, result any, mark *bool) {
+		reg.MustRegister(Descriptor{
+			Name: name, Kind: Query, Scope: Global, Params: struct{}{}, Result: result, Description: "Fails, optionally marked.",
+			Handler: func(_ context.Context, c *Call) (any, error) {
+				c.Untrusted = mark
+				return nil, NewError(ErrInvalidParams, "the element is ambiguous").WithDetails(details)
+			},
+		})
+	}
+	add("fixture.markedfail", onlyTrusted{}, boolPtr(true))
+	add("fixture.taggedfail", nested{}, nil)
+	add("fixture.optoutfail", nested{}, boolPtr(false))
+	// A handler that returns the same *Error value on every call: the note is appended
+	// once per failed call, never onto the handler's own value.
+	shared := NewError(ErrInvalidParams, "the element is ambiguous").WithDetails(details)
+	reg.MustRegister(Descriptor{
+		Name: "fixture.sharedfail", Kind: Query, Scope: Global, Params: struct{}{}, Result: onlyTrusted{}, Description: "Fails with a shared error.",
+		Handler: func(_ context.Context, c *Call) (any, error) {
+			c.Untrusted = boolPtr(true)
+			return nil, shared
+		},
+	})
+
+	invoke := func(name string) Outcome {
+		t.Helper()
+		out, err := ops.Invoke(context.Background(), Request{Capability: name})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if out.State != StateFailed || out.Error == nil {
+			t.Fatalf("%s: %+v; want a failed outcome", name, out)
+		}
+		return out
+	}
+
+	marked := invoke("fixture.markedfail")
+	if !marked.Untrusted || marked.Meta() == nil || !marked.Meta().Untrusted {
+		t.Errorf("marked failure: mark %v, meta %+v; want untrusted", marked.Untrusted, marked.Meta())
+	}
+	if !strings.HasSuffix(marked.Error.Message, UntrustedErrorNote) {
+		t.Errorf("marked failure message %q does not end with %q", marked.Error.Message, UntrustedErrorNote)
+	}
+	if strings.Count(marked.Error.Message, UntrustedErrorNote) != 1 {
+		t.Errorf("marked failure message %q carries the note more than once", marked.Error.Message)
+	}
+
+	for _, name := range []string{"fixture.taggedfail", "fixture.optoutfail"} {
+		un := invoke(name)
+		if un.Untrusted || un.Meta() != nil {
+			t.Errorf("%s: mark %v, meta %+v; want unmarked (the derived flag never marks an error)", name, un.Untrusted, un.Meta())
+		}
+		if strings.Contains(un.Error.Message, UntrustedErrorNote) {
+			t.Errorf("%s: unmarked error message %q carries the note", name, un.Error.Message)
+		}
+	}
+
+	// The note goes on the outcome, not on the handler's error value: two calls
+	// returning the same *Error each carry it exactly once.
+	for i := 0; i < 2; i++ {
+		out := invoke("fixture.sharedfail")
+		if strings.Count(out.Error.Message, UntrustedErrorNote) != 1 {
+			t.Errorf("shared-failure call %d: message %q does not carry the note exactly once", i, out.Error.Message)
+		}
+	}
+	if strings.Contains(shared.Message, UntrustedErrorNote) {
+		t.Errorf("the handler's own error value was mutated: %q", shared.Message)
+	}
+
+	// operation.wait and a retained snapshot keep a failed operation's mark.
+	id, err := ops.Start(context.Background(), Request{Capability: "fixture.markedfail"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waited, err := ops.Invoke(context.Background(), Request{Capability: OperationWait, Params: []byte(`{"operationId":"` + id + `"}`)})
+	if err != nil || !waited.Untrusted || waited.Error == nil || !strings.HasSuffix(waited.Error.Message, UntrustedErrorNote) {
+		t.Errorf("operation.wait on a marked failure = %+v, %v; want its mark and note", waited, err)
+	}
+	snap, err := ops.Wait(context.Background(), id, time.Now().Add(-time.Second))
+	if err != nil || !snap.Untrusted {
+		t.Errorf("retained view of a marked failure = %+v, %v; want its mark", snap, err)
+	}
+
+	// A call its handler marked and that is then cancelled is unmarked: its error is
+	// droidyard's fixed text, and the handler's details are discarded.
+	running := make(chan struct{})
+	reg.MustRegister(Descriptor{
+		Name: "fixture.markedcancel", Kind: Query, Scope: Global, Params: struct{}{}, Result: onlyTrusted{}, Description: "Marks, then waits to be cancelled.",
+		Handler: func(ctx context.Context, c *Call) (any, error) {
+			c.Untrusted = boolPtr(true)
+			close(running)
+			<-ctx.Done()
+			return nil, NewError(ErrInvalidParams, "the element is ambiguous").WithDetails(details)
+		},
+	})
+	cid, err := ops.Start(context.Background(), Request{Capability: "fixture.markedcancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-running
+	if err := ops.Cancel(cid); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := ops.Wait(context.Background(), cid, time.Now().Add(5*time.Second))
+	if err != nil || cancelled.State != StateCancelled || cancelled.Untrusted || cancelled.Meta() != nil ||
+		cancelled.Error == nil || strings.Contains(cancelled.Error.Message, UntrustedErrorNote) {
+		t.Errorf("a marked call cancelled = %+v, %v; want cancelled, unmarked, no note", cancelled, err)
 	}
 }
 

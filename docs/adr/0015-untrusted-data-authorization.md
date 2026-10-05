@@ -6,6 +6,12 @@
   trust gate; policy changes limited to human channels; `shell.exec` off by default;
   the local transport baseline (review N4, N14, N15). Items 5–7 were **ratified on
   2026-09-29**.
+- Amended: 2026-10-05 (clarification of §1, plan m1f D5, Delegated). A failed call can
+  carry device text too (a resolution error's candidates). It is marked only when its
+  handler marks it, never by the result's derived flag: `meta.untrusted` on the native,
+  HTTP and WebSocket error envelopes, `_meta` over MCP with the error JSON alone as the
+  text (ADR-0020 §Adapter projections unchanged), and the capability layer appends a
+  fixed warning to the error's `message`. The decision of §1 is unchanged.
 
 ## Context
 

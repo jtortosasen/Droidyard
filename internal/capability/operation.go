@@ -72,9 +72,11 @@ type Outcome struct {
 	Result      any
 	Error       *Error
 	Progress    *Progress
-	// Untrusted marks a result that carries device- or app-derived data: the
-	// descriptor's derived flag, unless the handler set its own through Call. Only a
-	// completed operation has a result to mark (ADR-0015 §1).
+	// Untrusted marks an outcome that carries device- or app-derived data. A
+	// completed operation is marked with the descriptor's derived flag, unless the
+	// handler set its own through Call; a failed one only with the handler's own mark,
+	// never the derived flag, since an error from a capability whose result is tagged
+	// need not quote device text (R5; plan m1f, D5).
 	Untrusted bool
 	// BlockedBy names the operation a queued one waits behind; nil in any other state.
 	BlockedBy *BlockedBy
@@ -431,6 +433,18 @@ func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, c
 		op.err = NewError(ErrOperationCancelled, "the operation was cancelled")
 	default:
 		op.state, op.err = StateFailed, AsError(err)
+		// The descriptor's derived flag never marks an error: only the handler's own
+		// mark does, when it set Call.Untrusted to true before returning its error
+		// (R5; plan m1f, D5). The note goes on the message here, once, so every
+		// adapter renders it without repeating the rule.
+		if call.Untrusted != nil && *call.Untrusted {
+			op.untrusted = true
+			// A copy: the handler's *Error may be shared, and the note is appended
+			// once per failed call, not once per return of the same error value.
+			e := *op.err
+			e.Message += UntrustedErrorNote
+			op.err = &e
+		}
 	}
 	// The key goes to the next caller in the same critical section that makes this
 	// operation terminal, so a caller that sees it end never finds the key still held.
