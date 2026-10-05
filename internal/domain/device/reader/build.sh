@@ -23,5 +23,7 @@ trap 'rm -rf "$work"' EXIT
 javac --release 11 -cp "$sdk/platforms/$platform/android.jar" -d "$work/classes" "$here/src/DroidyardReader.java"
 mkdir "$work/out"
 cd "$work/classes"
-"$sdk/build-tools/$tools/d8" --release --min-api "$min_api" --lib "$sdk/platforms/$platform/android.jar" --output "$work/out" DroidyardReader.class
+# javac emits nested classes too (the reader's serve mode has some), so d8 gets all of
+# them; app_process loads the main class and finds the rest in the same dex.
+"$sdk/build-tools/$tools/d8" --release --min-api "$min_api" --lib "$sdk/platforms/$platform/android.jar" --output "$work/out" $(find . -name '*.class' | sort)
 cp "$work/out/classes.dex" "$out"
