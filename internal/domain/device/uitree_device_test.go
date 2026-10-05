@@ -468,9 +468,9 @@ func TestUITreeRequiresDeviceAndAdb(t *testing.T) {
 }
 
 // Decision: the published contract of device.uiTree: since 0.4.0, needs adb, its
-// errors are every code the handler or preamble returns plus the queue bound the
-// scheduler may return, and its result is untrusted (derived from the tags) while
-// device.list's is not.
+// errors are every code the handler or preamble returns (a malformed within is
+// REQUEST_INVALID_PARAMS) plus the queue bound the scheduler may return, and its
+// result is untrusted (derived from the tags) while device.list's is not.
 func TestUITreeDescriptorAndMark(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, NewADB(nil, nil), testStore(t))
@@ -488,7 +488,7 @@ func TestUITreeDescriptorAndMark(t *testing.T) {
 		codes = append(codes, string(c))
 	}
 	slices.Sort(codes)
-	want := []string{"DEVICE_ADB_FAILED", "DEVICE_ADB_NOT_FOUND", "DEVICE_DISCONNECTED", "DEVICE_NOT_ALLOWED", "DEVICE_NOT_FOUND", "DEVICE_NOT_READY", "DEVICE_UI_DUMP_FAILED", "OPERATION_QUEUE_TIMEOUT"}
+	want := []string{"DEVICE_ADB_FAILED", "DEVICE_ADB_NOT_FOUND", "DEVICE_DISCONNECTED", "DEVICE_NOT_ALLOWED", "DEVICE_NOT_FOUND", "DEVICE_NOT_READY", "DEVICE_UI_DUMP_FAILED", "OPERATION_QUEUE_TIMEOUT", "REQUEST_INVALID_PARAMS"}
 	if !slices.Equal(codes, want) {
 		t.Errorf("errors = %v, want %v", codes, want)
 	}
@@ -543,8 +543,8 @@ func TestUITreeHandlerCapsAtDefault(t *testing.T) {
 	if len(enc) > 40960 {
 		t.Errorf("encoded result is %d bytes, over 40960", len(enc))
 	}
-	if !s.Truncated || !strings.Contains(s.Hint, "40960") {
-		t.Errorf("truncated=%v hint=%q, want truncated and a hint naming 40960", s.Truncated, s.Hint)
+	if !s.Truncated || !strings.Contains(s.Hint, "40960") || !strings.Contains(s.Hint, "within") {
+		t.Errorf("truncated=%v hint=%q, want truncated and a hint naming 40960 and within", s.Truncated, s.Hint)
 	}
 	if len(s.Nodes) == 0 {
 		t.Error("no nodes kept")

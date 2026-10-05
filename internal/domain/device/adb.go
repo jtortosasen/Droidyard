@@ -29,6 +29,11 @@ type ADB struct {
 
 	mu    sync.Mutex
 	cache *versions
+
+	// snapMu guards snaps, the per-device snapshot stores that make a ref from an
+	// earlier read resolvable (plan m1f D16).
+	snapMu sync.Mutex
+	snaps  map[string]*snapshotStore
 }
 
 // NewADB returns an ADB over env, the environment every adb client is given whole
@@ -56,6 +61,22 @@ func NewADBWithExec(env []string, exec Exec) *ADB {
 // Resolve finds adb again: a few stats, run on every availability check and device
 // call, so an adb installed or removed while the daemon runs is seen.
 func (a *ADB) Resolve() Resolution { return Resolve(a.env) }
+
+// snapshots returns the snapshot store for a device, creating it on first use. Kept
+// snapshots are how a ref survives from the read that returned it to a later tree.
+func (a *ADB) snapshots(serial string) *snapshotStore {
+	a.snapMu.Lock()
+	defer a.snapMu.Unlock()
+	if a.snaps == nil {
+		a.snaps = map[string]*snapshotStore{}
+	}
+	st := a.snaps[serial]
+	if st == nil {
+		st = newSnapshotStore()
+		a.snaps[serial] = st
+	}
+	return st
+}
 
 // Status is adb as system.health reports it.
 type Status struct {

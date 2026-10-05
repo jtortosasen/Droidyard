@@ -38,7 +38,7 @@ primitives underneath.
 
 ```text
 Snapshot
-├── snapshot     "s-81c2"; kept per device for refs from device.tapElement on (1e mints one per read)
+├── snapshot     "s-81c2ab34"; each read mints one and the last 16 per device are kept for ref resolution
 ├── foreground   package of the top window
 ├── display      { width, height, rotation }
 ├── nodes[]
@@ -51,7 +51,7 @@ Snapshot
 │   │            selected, focused, password, disabled
 │   └── children the child nodes' refs ["n13", "n14"]
 ├── truncated
-└── emptyReason  noMatch (with `within`, later) | pruned | noAccessibilityInfo
+└── emptyReason  noMatch (within matched nothing) | pruned | noAccessibilityInfo
 ```
 
 - **Flat**: `nodes[]` is in document order and `children` holds refs, not nested
@@ -77,12 +77,14 @@ One grammar, used for the tap target, for `within`, and inside expectations:
 { "id": "login_button" }
 { "text": "Sign in", "class": "Button" }
 { "desc": "Like", "within": { "id": "item_3" } }
-{ "ref": "n12", "snapshot": "s-81c2" }
+{ "ref": "n12", "snapshot": "s-81c2ab34" }
 ```
 
 - Fields `id`, `text`, `desc`, `class` combine with AND. `within` is an ancestor
   selector (not nested further). `index` (0-based, document order) breaks an ambiguity
   deliberately.
+- **`within` matches its fields exactly**; the contains fallback of §Resolution 2
+  applies to the target only.
 - **`ref` resolves by identity, not by position.** The daemon looks the ref up in its
   snapshot, takes that node's identity (class, id, text, desc, bounds) and finds it in
   the fresh tree. Not found → `DEVICE_STALE_REF` with candidates. So `gone: {ref}`
