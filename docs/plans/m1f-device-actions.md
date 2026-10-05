@@ -105,7 +105,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: Go code beyond `reader.SHA256` (step 5); kill and forward-cleanup rules (step 7); the instrumented-test key (Scope).
 - Rests on: a flagged `UiAutomation`, registered while an app that watches its accessibility service is idle and held for minutes, does not disturb it. Level 5, API 36.1, Qustodio only.
 - Review: process lifetime: Opus verifier and DeepSeek.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 89af1e5; `docs/research/spike-persistent-reader-2026-10.md`. Level 5, main session, Pixel_9a: G1 pass (alive 60 s after its shell); G2 warm median 14.4 ms, p95 460 ms, against a one-shot median of 1408 ms, first read 1880 ms, RSS 38 MB; G3 5 of 5 (new screen 1.4–2.0 s after the tap began, 0 of 20 later reads stale, second run); G4 pass (registration `flags=0x1` after Qustodio idle over 4 min, held 10 min, pid 1719 unchanged, no FATAL or malfunction line; first digest only); G5 pass (gone 60.3–60.8 s after the last dump, also with stalled clients; a one-shot right after succeeds). No stop condition met. `TestEmbeddedDexMatchesThePinnedDigest` and `TestBuildScriptReproducesTheDex` pass on digest `91eab8d9…`. Review: Opus and DeepSeek both blocked on a stalled connection holding the loop and the idle exit; the fix round (DeepSeek) added a 5 s per-connection timeout, bind-before-connect and a monotonic idle clock, and the second run proved it; the main session reviewed the fix diff.
 
 ### 2. The form app, built from source
 
@@ -284,3 +284,4 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7): every blocking fi
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-05, step 4: D20 added (`within` matches exactly), Delegated; the documents left it open and the reviewers asked for it to be recorded.
+- 2026-10-05, step 1: the working start form is `CLASSPATH=<dex> nohup app_process /system/bin --nice-name=droidyard-reader-<d12> DroidyardReader serve …` (`--nice-name` before `/system/bin` is rejected as a VM argument). Each reader connection has a 5 s timeout, so a stalled client delays the next request up to 5 s and step 7's 1 s `ping` rule would restart such a reader. The research note records both; steps 5 and 7 use them.
