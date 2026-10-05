@@ -138,8 +138,10 @@ var (
 // registry builds the shipped registry, the operation store that dispatches from it
 // and the daemon's event bus, over the state store st and the supervisor sup, logging
 // to log. internal/schema's test builds the same set for the golden file. caps and
-// schema, which run no capability, pass nil for all three.
-func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store) {
+// schema, which run no capability, pass nil for all three. The device ADB is returned
+// so the daemon's shutdown can stop the UI readers and remove their forwards
+// (plan m1f step 5).
+func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (core-runtime.md §Events).
@@ -183,11 +185,11 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
-	return reg, ops, bus, artifacts
+	return reg, ops, bus, artifacts, adb
 }
 
 func printCaps() error {
-	reg, _, _, _ := registry(nil, nil, nil)
+	reg, _, _, _, _ := registry(nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -224,7 +226,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _, _ := registry(nil, nil, nil)
+	reg, _, _, _, _ := registry(nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

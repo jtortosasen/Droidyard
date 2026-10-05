@@ -16,35 +16,64 @@ import (
 )
 
 const (
-	rdPushCall = "-s emulator-5554 push LOCAL /data/local/tmp/droidyard-reader-" + reader.SHA256 + ".dex"
-	rdRunCall  = "-s emulator-5554 exec-out CLASSPATH=/data/local/tmp/droidyard-reader-" + reader.SHA256 + ".dex app_process /system/bin DroidyardReader"
-	rdRmCall   = "-s emulator-5554 shell rm -f /data/local/tmp/droidyard-reader-" + reader.SHA256 + ".dex"
+	// The one-shot fallback reader's own file: pushed and removed per read, never the
+	// persistent reader's dex (ADR-0030).
+	rdPushCall = "-s emulator-5554 push LOCAL /data/local/tmp/droidyard-reader-" + reader.SHA256 + "-oneshot.dex"
+	rdRunCall  = "-s emulator-5554 exec-out CLASSPATH=/data/local/tmp/droidyard-reader-" + reader.SHA256 + "-oneshot.dex app_process /system/bin DroidyardReader"
+	rdRmCall   = "-s emulator-5554 shell rm -f /data/local/tmp/droidyard-reader-" + reader.SHA256 + "-oneshot.dex"
+	// The persistent reader's dex: pushed once and left on the device.
+	prPushCall = "-s emulator-5554 push LOCAL /data/local/tmp/droidyard-reader-" + reader.SHA256 + ".dex"
+	prRmCall   = "-s emulator-5554 shell rm -f /data/local/tmp/droidyard-reader-" + reader.SHA256 + ".dex"
 )
 
 func pixelDoc(t *testing.T) string { return fixture(t, "pixel9a-uidump-devtty.xml") }
 
-// Decision (ADR-0029: the reader is the path, uiautomator the fallback): with a reader
-// that runs, the device sees the dex pushed to a file named for the pinned hash, the
-// reader run from it, and the file removed, in that order; no uiautomator command runs;
-// the result has no warning; and the bytes pushed are the embedded dex.
-func TestUITreeReadsThroughTheReaderAndRemovesIt(t *testing.T) {
-	f := newUIFixture(t, withReader(nil, pixelDoc(t)))
-	s := mustComplete(t, f.tree(t, uiSerial))
-	if s.Foreground != "com.android.settings" || len(s.Nodes) == 0 {
-		t.Errorf("snapshot %+v", s)
-	}
-	if len(s.Warnings) != 0 {
-		t.Errorf("warnings %q on the reader path", s.Warnings)
+// Decision (plan m1f step 5, check a; ADR-0030 §Decision): the first read pushes the
+// dex, starts the persistent reader's serve mode, creates the forward and pings until
+// it answers, then reads over the forward; the next three reads reuse the forward with
+// no push, no app_process and no forward. The dex is not removed: the reader keeps
+// running from it (ADR-0030: the dex may stay in /data/local/tmp), unlike the
+// one-shot fallback.
+func TestUITreeFirstReadStartsThePersistentReader(t *testing.T) {
+	r := devicetest.StartReader(t, pixelDoc(t))
+	t.Cleanup(r.Close)
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	for i := 0; i < 4; i++ {
+		s := mustComplete(t, f.tree(t, uiSerial))
+		if s.Foreground != "com.android.settings" || len(s.Nodes) == 0 {
+			t.Fatalf("read %d: snapshot %+v", i, s)
+		}
+		if len(s.Warnings) != 0 {
+			t.Fatalf("read %d: warnings %q", i, s.Warnings)
+		}
 	}
 	calls := f.calls(t)
-	i, j, k := slices.Index(calls, rdPushCall), slices.Index(calls, rdRunCall), slices.Index(calls, rdRmCall)
-	if i < 0 || !(i < j && j < k) {
-		t.Errorf("calls %q: want push, run, then removal", calls)
+	if n := count(calls, prPushCall); n != 1 {
+		t.Errorf("%d pushes, want the one that starts the reader (calls %q)", n, calls)
+	}
+	if n := countServeStarts(calls); n != 1 {
+		t.Errorf("%d serve starts, want 1 (calls %q)", n, calls)
+	}
+	if n := countForward(calls); n != 1 {
+		t.Errorf("%d forwards, want 1 (calls %q)", n, calls)
+	}
+	if n := count(calls, rdRunCall); n != 0 {
+		t.Errorf("the one-shot reader ran although the persistent reader works: %q", calls)
+	}
+	if n := count(calls, prRmCall); n != 0 {
+		t.Errorf("the persistent reader's dex was removed: %q", calls)
 	}
 	for _, c := range calls {
 		if strings.Contains(c, "uiautomator") {
 			t.Errorf("uiautomator ran although the reader did: %q", c)
 		}
+	}
+	if r.Pings() != 1 || r.Dumps() != 4 {
+		t.Errorf("the reader saw %d pings and %d dumps, want 1 and 4", r.Pings(), r.Dumps())
 	}
 	pushed, err := os.ReadFile(filepath.Join(f.dir, uiSerial+".pushed"))
 	if err != nil {
@@ -58,8 +87,9 @@ func TestUITreeReadsThroughTheReaderAndRemovesIt(t *testing.T) {
 // Decision (ADR-0029: fallback only when the reader cannot run, labelled): a reader
 // that fails (app_process exits non-zero), and a push that fails, each end in the
 // uiautomator dump, whose snapshot comes with exactly the suspension warning; the dex
-// is removed in both; with a failed push the reader is never run. The warning ends with
-// the reader's decisive line (its own, or adb's), never with other device output.
+// is removed in both; with a failed push the reader is never run. The warning carries
+// the one-shot reader's decisive line (its own, or adb's), never other device output,
+// and, because the persistent stage also failed here, the persistent reader's reason.
 func TestUITreeFallsBackWhenTheReaderCannotRun(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -76,8 +106,11 @@ func TestUITreeFallsBackWhenTheReaderCannotRun(t *testing.T) {
 	for _, c := range cases {
 		f := newUIFixture(t, c.files)
 		s := mustComplete(t, f.tree(t, uiSerial))
-		if want := fallbackWarning + " Reader: " + c.reason; len(s.Nodes) == 0 || len(s.Warnings) != 1 || s.Warnings[0] != want {
-			t.Errorf("%s: nodes %d, warnings %q; want the dump's snapshot with the one warning %q", c.name, len(s.Nodes), s.Warnings, want)
+		want := fallbackWarning + " Reader: " + c.reason
+		if len(s.Nodes) == 0 || len(s.Warnings) != 1 || !strings.HasPrefix(s.Warnings[0], want) {
+			t.Errorf("%s: nodes %d, warnings %q; want the dump's snapshot with the one warning starting %q", c.name, len(s.Nodes), s.Warnings, want)
+		} else if !strings.Contains(s.Warnings[0], "the persistent reader:") {
+			t.Errorf("%s: warning %q does not carry the persistent reader's reason too", c.name, s.Warnings[0])
 		}
 		calls := f.calls(t)
 		if got := slices.Contains(calls, rdRunCall); got != c.ran {

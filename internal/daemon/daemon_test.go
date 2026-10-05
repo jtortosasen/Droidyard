@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,6 +18,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/store"
 )
 
 type none struct{}
@@ -485,5 +488,143 @@ func TestLongStateRootsDoNotShareAFallbackSocket(t *testing.T) {
 	}
 	if a, b := started[0], started[1]; filepath.Dir(a.socket) == filepath.Dir(b.socket) {
 		t.Errorf("two state roots share the fallback directory %s", filepath.Dir(a.socket))
+	}
+}
+
+// Decision (plan m1f step 5; process-lifecycle.md §Shutdown): AfterOps, the hook the
+// reader's forward removal runs on, runs after the running operations have drained and
+// before the supervisor stops, so it can still spawn adb. Seen failing if it ran before
+// Ops.Shutdown (the handler has not finished) or after Supervisor.Shutdown (the spawn is
+// refused).
+func TestAfterOpsRunsAfterDrainAndBeforeSupervisorShutdown(t *testing.T) {
+	state := shortDir(t)
+	st, err := store.New(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := process.New(process.Options{Store: st, Log: testLog{t}})
+
+	reg := capability.NewRegistry()
+	ops := capability.NewOperations(reg)
+	startedCh := make(chan struct{}, 1)
+	handlerDone := make(chan struct{})
+	reg.MustRegister(capability.Descriptor{
+		Name: "fixture.drain", Kind: capability.Command, Scope: capability.Global,
+		Description: "Blocks until cancelled, then finishes a little later.", Params: struct{}{},
+		Result: struct{}{},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			select {
+			case startedCh <- struct{}{}:
+			default:
+			}
+			<-ctx.Done()
+			time.Sleep(50 * time.Millisecond) // the operation finishes only after the cancel
+			close(handlerDone)
+			return nil, ctx.Err()
+		},
+	})
+	ops.RegisterCapabilities()
+
+	afterDone := make(chan struct{})
+	var afterRan, drained bool
+	var spawnErr error
+	d, err := Start(Options{
+		State: state, Socket: filepath.Join(state, "run", "droidyard.sock"),
+		Version: system.Version, UID: os.Getuid(), Ops: ops, Supervisor: sup,
+		AfterOps: func(ctx context.Context) {
+			afterRan = true
+			select {
+			case <-handlerDone:
+				drained = true
+			default:
+			}
+			cmd := exec.Command("/bin/sh", "-c", "exit 0")
+			spawnErr = sup.Spawn(cmd)
+			if spawnErr == nil {
+				cmd.Wait()
+			}
+			close(afterDone)
+		},
+		Log: testLog{t},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ops.Start(context.Background(), capability.Request{Capability: "fixture.drain"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fixture.drain never started")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := d.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	select {
+	case <-afterDone:
+	case <-time.After(time.Second):
+		t.Fatal("AfterOps never finished")
+	}
+	if !afterRan {
+		t.Fatal("AfterOps never ran")
+	}
+	if !drained {
+		t.Error("AfterOps ran before the in-flight operation drained")
+	}
+	if spawnErr != nil {
+		t.Errorf("AfterOps could not spawn: %v; it must run before the supervisor stops", spawnErr)
+	}
+	if err := sup.Spawn(exec.Command("/bin/sh", "-c", "exit 0")); !errors.Is(err, process.ErrClosed) {
+		t.Errorf("spawn after Shutdown = %v; want the supervisor closed", err)
+	}
+}
+
+// Decision (plan m1f step 5): a slow AfterOps cannot hold shutdown past its own bound
+// (afterOpsTimeout), even though it ignores the context it is given.
+func TestSlowAfterOpsCannotHangShutdown(t *testing.T) {
+	old := afterOpsTimeout
+	afterOpsTimeout = 300 * time.Millisecond
+	defer func() { afterOpsTimeout = old }()
+
+	state := shortDir(t)
+	st, err := store.New(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := process.New(process.Options{Store: st})
+	reg := capability.NewRegistry()
+	ops := capability.NewOperations(reg)
+	entered := make(chan struct{})
+	d, err := Start(Options{
+		State: state, Socket: filepath.Join(state, "run", "droidyard.sock"),
+		Version: system.Version, UID: os.Getuid(), Ops: ops, Supervisor: sup,
+		AfterOps: func(ctx context.Context) {
+			close(entered)
+			time.Sleep(10 * time.Second) // ignores ctx on purpose
+		},
+		Log: testLog{t},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := d.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if d := time.Since(start); d > afterOpsTimeout+time.Second {
+		t.Errorf("Shutdown took %v with a slow AfterOps, want within %v", d, afterOpsTimeout)
+	}
+	select {
+	case <-entered:
+	default:
+		t.Error("AfterOps never ran")
 	}
 }

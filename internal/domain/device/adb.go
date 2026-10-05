@@ -34,6 +34,11 @@ type ADB struct {
 	// earlier read resolvable (plan m1f D16).
 	snapMu sync.Mutex
 	snaps  map[string]*snapshotStore
+
+	// rdMu guards readers, the per-device persistent UI reader clients ADB owns
+	// (ADR-0030). Close stops them and removes their forwards.
+	rdMu    sync.Mutex
+	readers map[string]*readerClient
 }
 
 // NewADB returns an ADB over env, the environment every adb client is given whole

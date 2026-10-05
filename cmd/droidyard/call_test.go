@@ -93,7 +93,7 @@ func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability
 	if adb != nil {
 		adbEnviron, adbExec = func() []string { return adb.env }, adb.exec
 	}
-	reg, ops, bus, artifacts := registry(st, sup, os.Stderr)
+	reg, ops, bus, artifacts, deviceADB := registry(st, sup, os.Stderr)
 	adbEnviron, adbExec = oldEnv, oldExec
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
@@ -141,7 +141,7 @@ func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability
 		}
 		return os.Getenv(k)
 	}}
-	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, artifacts, io.MultiWriter(os.Stderr, p.log))
+	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, artifacts, deviceADB.Close, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,13 +26,25 @@
 //	<serial>.catsdcard          `-s <serial> exec-out cat /sdcard/window_dump.xml`
 //	<serial>.rmsdcard           `-s <serial> shell rm -f /sdcard/window_dump.xml`
 //	<serial>.screencap          `-s <serial> exec-out screencap -p` (.out holds raw bytes: a PNG)
-//	<serial>.push               `-s <serial> push <local> /data/local/tmp/droidyard-reader-<hash>.dex`
+//	<serial>.push               `-s <serial> push <local> /data/local/tmp/droidyard-reader-*.dex` (persistent or one-shot)
 //	<serial>.reader             `-s <serial> exec-out CLASSPATH=<that file> app_process /system/bin DroidyardReader`
 //	<serial>.rmreader           `-s <serial> shell rm -f <that file>`
+//	<serial>.forward            `-s <serial> forward tcp:0 localabstract:droidyard-reader-<d12>` (.out holds the port)
+//	<serial>.forwardremove      `-s <serial> forward --remove tcp:<port>`
+//	<serial>.start              `-s <serial> shell "CLASSPATH=<dex> nohup app_process /system/bin --nice-name=… DroidyardReader serve …"`
+//	<serial>.pidof              `-s <serial> shell pidof droidyard-reader-…`
+//	<serial>.kill               `-s <serial> shell kill <pid>`
+//
+// A FakeReader (reader.go) is the TCP listener the fake forward points at, so a test of
+// the persistent reader writes its Port as <serial>.forward.out.
 //
 // A push is logged in calls.log with its local path replaced by "LOCAL" (it is a
 // temporary file), and the bytes pushed are copied to <serial>.pushed, so a test can
 // compare them with what it expected.
+//
+// The fake models the device's files: a push that exits 0 creates the remote path, `shell
+// rm -f <reader file>` removes it, and a serve start whose CLASSPATH= file is missing
+// exits 1. So a dex a fallback removed cannot be started from, and a test sees it.
 //
 // `adb version` answers as client 1.0.41; any other invocation exits 9.
 //
@@ -128,10 +140,8 @@ func wait(ctx context.Context, d time.Duration) bool {
 }
 
 func run(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) int {
+	raw := args
 	if len(args) == 5 && args[0] == "-s" && args[2] == "push" && isReaderFile(args[4]) {
-		if b, err := os.ReadFile(args[3]); err == nil {
-			os.WriteFile(filepath.Join(dir, args[1]+".pushed"), b, 0o600)
-		}
 		args = []string{args[0], args[1], args[2], "LOCAL", args[4]}
 	}
 	n := logCall(dir, args)
@@ -143,7 +153,7 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 	}
 	hang := func() int { wait(ctx, time.Minute); return 0 }
 	if prefix := servedPrefix(args); prefix != "" {
-		return serve(ctx, dir, prefix, n, stdout, stderr)
+		return serve(ctx, dir, prefix, n, raw, stdout, stderr)
 	}
 	switch {
 	case len(args) == 1 && args[0] == "version":
@@ -216,6 +226,16 @@ func servedPrefix(args []string) string {
 		return args[1] + ".reader"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "rm" && args[4] == "-f" && isReaderFile(args[5]):
 		return args[1] + ".rmreader"
+	case len(args) == 5 && args[2] == "forward" && args[3] == "tcp:0" && strings.HasPrefix(args[4], "localabstract:droidyard-reader-"):
+		return args[1] + ".forward"
+	case len(args) == 5 && args[2] == "forward" && args[3] == "--remove" && strings.HasPrefix(args[4], "tcp:"):
+		return args[1] + ".forwardremove"
+	case len(args) == 4 && args[2] == "shell" && isReaderServe(args[3]):
+		return args[1] + ".start"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof" && strings.HasPrefix(args[4], "droidyard-reader-"):
+		return args[1] + ".pidof"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "kill":
+		return args[1] + ".kill"
 	}
 	switch strings.Join(args[2:], " ") {
 	case "shell getprop sys.boot_completed":
@@ -242,10 +262,24 @@ func isReaderClasspath(a string) bool {
 	return strings.HasPrefix(a, "CLASSPATH=") && isReaderFile(strings.TrimPrefix(a, "CLASSPATH="))
 }
 
+// isReaderServe recognizes the persistent reader's start script (plan m1f step 1):
+// `CLASSPATH=<dex> nohup app_process /system/bin --nice-name=droidyard-reader-<d12>
+// DroidyardReader serve droidyard-reader-<d12> <idleSeconds>`.
+func isReaderServe(script string) bool {
+	return strings.Contains(script, "DroidyardReader serve ") &&
+		strings.Contains(script, "app_process /system/bin --nice-name="+readerName) &&
+		strings.Contains(script, "CLASSPATH=")
+}
+
+// readerName is shared with the daemon's reader client but the fake cannot import it.
+const readerName = "droidyard-reader-"
+
 // serve answers one invocation, the nth of its identical ones, from its prefix's
 // files, and brackets it in events.log so a test can see which invocations
-// overlapped. A cancelled ctx ends it where a kill would: no "end", no more output.
-func serve(ctx context.Context, dir, prefix string, n int, stdout, stderr io.Writer) int {
+// overlapped. raw is the invocation before any LOCAL replacement, so a push's local
+// file and a command's remote path are still visible. A cancelled ctx ends it where a
+// kill would: no "end", no more output.
+func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout, stderr io.Writer) int {
 	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
 	event := func(what string) {
 		logMu.Lock()
@@ -277,11 +311,71 @@ func serve(ctx context.Context, dir, prefix string, n int, stdout, stderr io.Wri
 		stderr.Write(b)
 	}
 	event("end")
+	code := 0
 	if b, err := os.ReadFile(filepath.Join(dir, name+".exit")); err == nil {
-		c, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-		return c
+		code, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 	}
-	return 0
+	return deviceEffect(dir, prefix, raw, code, stderr)
+}
+
+// deviceEffect models the device's files for the commands that change them, and returns
+// the exit code the command ends with. A push that exited 0 creates its remote path; an
+// rm removes it; a serve start whose CLASSPATH= file is missing fails with status 1, the
+// way app_process cannot start a class that is not there.
+func deviceEffect(dir, prefix string, raw []string, code int, stderr io.Writer) int {
+	switch {
+	case strings.HasSuffix(prefix, ".push"):
+		if code == 0 && len(raw) == 5 {
+			if b, err := os.ReadFile(raw[3]); err == nil {
+				os.WriteFile(filepath.Join(dir, raw[1]+".pushed"), b, 0o600)
+				writeDeviceFile(dir, raw[4], b)
+			}
+		}
+	case strings.HasSuffix(prefix, ".rmreader"):
+		if code == 0 && len(raw) == 6 {
+			removeDeviceFile(dir, raw[5])
+		}
+	case strings.HasSuffix(prefix, ".start"):
+		if len(raw) == 4 {
+			if cp := classpathOf(raw[3]); cp != "" && !deviceFileExists(dir, cp) {
+				fmt.Fprintf(stderr, "%s: No such file or directory\n", cp)
+				return 1
+			}
+		}
+	}
+	return code
+}
+
+// classpathOf reads the CLASSPATH= path out of a serve start script.
+func classpathOf(script string) string {
+	const p = "CLASSPATH="
+	i := strings.Index(script, p)
+	if i < 0 {
+		return ""
+	}
+	rest := script[i+len(p):]
+	if j := strings.IndexByte(rest, ' '); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
+// deviceFile is the scenario file standing for a remote path on the fake device.
+func deviceFile(dir, remote string) string {
+	return filepath.Join(dir, "dev"+strings.ReplaceAll(remote, "/", "_"))
+}
+
+func writeDeviceFile(dir, remote string, b []byte) {
+	os.WriteFile(deviceFile(dir, remote), b, 0o600)
+}
+
+func removeDeviceFile(dir, remote string) {
+	os.Remove(deviceFile(dir, remote))
+}
+
+func deviceFileExists(dir, remote string) bool {
+	_, err := os.Stat(deviceFile(dir, remote))
+	return err == nil
 }
 
 // Events returns events.log's lines: "begin <prefix>" and "end <prefix>", in order.
