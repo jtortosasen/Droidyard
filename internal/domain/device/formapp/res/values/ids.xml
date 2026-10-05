@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The resource ids the activity sets on its views by code; the reader reports them
+     as `<package>:id/<name>`, and the device selector strips the package prefix, so
+     these are the `id`s the level-5 checks select on. The two "Twin" buttons have no
+     id on purpose: their text is the ambiguous selector. -->
+<resources>
+    <item name="name" type="id" />
+    <item name="greeting" type="id" />
+    <item name="greet" type="id" />
+    <item name="likes" type="id" />
+    <item name="like" type="id" />
+    <item name="banner" type="id" />
+    <item name="dismiss" type="id" />
+    <item name="disabled" type="id" />
+</resources>

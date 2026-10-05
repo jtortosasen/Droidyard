@@ -1,0 +1,3 @@
+# The fixture app's build output (D14): build.sh writes formapp.apk here by default,
+# and the APK is never committed.
+*.apk
