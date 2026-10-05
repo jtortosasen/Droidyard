@@ -304,7 +304,8 @@ func TestHTTPFence(t *testing.T) {
 // actually bound, never the one asked for (rule 1, rules 2 and 3); with the port free,
 // it binds that one.
 func TestHTTPFallsBackToAnEphemeralPort(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it frees the port it held and asks for it again, and a parallel
+	// test binding an ephemeral port in between can be given that port.
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
