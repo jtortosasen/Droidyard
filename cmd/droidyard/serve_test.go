@@ -33,10 +33,36 @@ func TestMain(m *testing.M) {
 	adbEnviron = func() []string { return []string{"HOME=/nonexistent-droidyard-test", "PATH="} }
 	if os.Getenv(reexec) == "1" {
 		installTestSeams()
+		dieWithTheTest()
 		main()
 		os.Exit(0)
 	}
+	// Every process a test re-executes inherits this, detached daemons included.
+	os.Setenv(testParentEnv, strconv.Itoa(os.Getpid()))
 	os.Exit(m.Run())
+}
+
+// testParentEnv names the test binary's pid for the processes it re-executes.
+const testParentEnv = "DROIDYARD_TEST_PARENT"
+
+// dieWithTheTest ends a re-executed droidyard once the test binary that started it is
+// gone. A test whose binary is killed (a -timeout, a stopped run) never reaches the
+// cleanup that stops its daemon, and a detached daemon would otherwise outlive it
+// indefinitely. SIGTERM, so a daemon shuts down as it would on a stop.
+func dieWithTheTest() {
+	pid, err := strconv.Atoi(os.Getenv(testParentEnv))
+	if err != nil || pid <= 1 {
+		return
+	}
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			if syscall.Kill(pid, 0) == syscall.ESRCH {
+				syscall.Kill(os.Getpid(), syscall.SIGTERM)
+				return
+			}
+		}
+	}()
 }
 
 // shortDir is a state root under /tmp, short enough that the socket stays inside it
