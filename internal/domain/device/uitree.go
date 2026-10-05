@@ -3,7 +3,7 @@ package device
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -11,6 +11,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 // The pure half of device.uiTree: a `uiautomator dump` XML in, the Snapshot of
@@ -20,9 +21,11 @@ import (
 // DefaultUITreeBytes is the byte cap on the encoded snapshot (plan m1e, step 6).
 const DefaultUITreeBytes = 40 * 1024
 
-// The values of Snapshot.EmptyReason this package produces. noMatch belongs to `within`,
-// which does not exist in milestone 1e, so it is not produced.
+// The values of Snapshot.EmptyReason this package produces. noMatch is `within`
+// matching nothing (plan m1f step 4), pruned the byte cap, noAccessibilityInfo a
+// window with no accessible nodes.
 const (
+	EmptyNoMatch             = "noMatch"
 	EmptyPruned              = "pruned"
 	EmptyNoAccessibilityInfo = "noAccessibilityInfo"
 )
@@ -61,13 +64,22 @@ type UINode struct {
 	Children []string `json:"children,omitempty"`
 }
 
-// NewSnapshotID returns a fresh id like "s-81c2".
-func NewSnapshotID() string {
-	var b [2]byte
+// NewSnapshotID returns a fresh id like "s-81c2ab34". The plan's D16 fixes the shape:
+// `s-` plus 8 hex digits, unique among the snapshots the daemon keeps. A counter seeded
+// from crypto/rand makes 10,000 mints in one process distinct (a snapshot id is opaque
+// to callers; the per-device store below is what bounds how long it stays valid).
+var snapshotSeq atomic.Uint32
+
+func init() {
+	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic(err) // crypto/rand does not fail on supported platforms
 	}
-	return "s-" + hex.EncodeToString(b[:])
+	snapshotSeq.Store(binary.BigEndian.Uint32(b[:]))
+}
+
+func NewSnapshotID() string {
+	return "s-" + fmt.Sprintf("%08x", snapshotSeq.Add(1))
 }
 
 // rawNode is a parsed <node>, before compaction.
@@ -192,6 +204,13 @@ func parseBounds(s string) (b [4]int) {
 // re-parented. Refs are assigned in document order after compaction and survive
 // pruning unchanged; when the cap bites, the deepest levels go first.
 func BuildSnapshot(dump []byte, id string, maxBytes int) (Snapshot, error) {
+	return buildSnapshot(dump, id, maxBytes, nil)
+}
+
+// buildSnapshot is BuildSnapshot with `within`: only the subtrees of the nodes matching
+// the ancestor selector are returned, before the cap, and emptyReason is noMatch when
+// nothing matched (plan m1f D6; ui-automation.md §The tree).
+func buildSnapshot(dump []byte, id string, maxBytes int, within *AncestorSelector) (Snapshot, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultUITreeBytes
 	}
@@ -234,6 +253,13 @@ func BuildSnapshot(dump []byte, id string, maxBytes int) (Snapshot, error) {
 		s.EmptyReason = EmptyNoAccessibilityInfo
 		return s, nil
 	}
+	if within != nil {
+		s, depths = withinSubtrees(s, depths, *within)
+		if len(s.Nodes) == 0 {
+			s.EmptyReason = EmptyNoMatch
+			return s, nil
+		}
+	}
 
 	removed := 0
 	for encodedSize(s) > maxBytes && len(s.Nodes) > 0 {
@@ -267,12 +293,56 @@ func BuildSnapshot(dump []byte, id string, maxBytes int) (Snapshot, error) {
 		s.Nodes, depths = kept, keptDepths
 		removed++
 		s.Truncated = true
-		s.Hint = fmt.Sprintf("output cut at %d bytes: the %d deepest level(s) were removed", maxBytes, removed)
+		s.Hint = fmt.Sprintf("output cut at %d bytes: the %d deepest level(s) were removed; narrow the tree with within", maxBytes, removed)
 	}
 	if len(s.Nodes) == 0 {
 		s.EmptyReason = EmptyPruned
 	}
 	return s, nil
+}
+
+// withinSubtrees keeps the matching nodes and all of their descendants, in document
+// order, dropping the rest; children lists are rewritten to the kept refs. depths stays
+// parallel to the kept nodes, for the cap.
+func withinSubtrees(s Snapshot, depths []int, within AncestorSelector) (Snapshot, []int) {
+	at := make(map[string]int, len(s.Nodes))
+	for i, n := range s.Nodes {
+		at[n.Ref] = i
+	}
+	keep := make(map[string]bool)
+	var mark func(ref string)
+	mark = func(ref string) {
+		if keep[ref] {
+			return
+		}
+		keep[ref] = true
+		for _, c := range s.Nodes[at[ref]].Children {
+			mark(c)
+		}
+	}
+	for _, n := range s.Nodes {
+		if within.matches(n) {
+			mark(n.Ref)
+		}
+	}
+	out := s
+	out.Nodes = make([]UINode, 0, len(s.Nodes))
+	keptDepths := make([]int, 0, len(s.Nodes))
+	for i, n := range s.Nodes {
+		if !keep[n.Ref] {
+			continue
+		}
+		var cs []string
+		for _, c := range n.Children {
+			if keep[c] {
+				cs = append(cs, c)
+			}
+		}
+		n.Children = cs
+		out.Nodes = append(out.Nodes, n)
+		keptDepths = append(keptDepths, depths[i])
+	}
+	return out, keptDepths
 }
 
 func encodedSize(s Snapshot) int {
