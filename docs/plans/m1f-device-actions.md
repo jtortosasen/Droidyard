@@ -117,7 +117,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: an off-screen node: the reader drops nodes not visible to the user (`DroidyardReader.java`), so `DEVICE_ELEMENT_OFFSCREEN` is proven on synthetic trees only (step 4); Compose (DopamineControl, with `build.*`).
 - Rests on: —
 - Review: fixture: DeepSeek alone.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 1f615a7. `TestFormAppBuilds` passes with the SDK and was seen failing with the launcher category removed (DeepSeek implementer). Level 5, main session, 2026-10-05, under §Emulator rules: `adb install -r` Success, `am start`, one one-shot reader run listed `name`, `greet`, `greeting`, `like`, `likes`, `banner`, `dismiss`, `disabled` (`enabled="false"`) and two `text="Twin"` nodes; `adb uninstall` Success; adb server pid 48737 and Qustodio pid 1719 unchanged, no FATAL or malfunction line. The first run showed the buttons as `TWIN` (the theme's all-caps); the main session added `setAllCaps(false)` so selectors match the text as written, and reran it. Review: the main session's diff review and the level-5 run (a fixture, DeepSeek-implemented).
 
 ### 3. Errors that quote the device are marked untrusted
 
