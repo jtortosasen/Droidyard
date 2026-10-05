@@ -349,8 +349,10 @@ func TestWSAuthDeadline(t *testing.T) {
 	// other test, so it waits beside the other parallel ones, not before or after them.
 	t.Parallel()
 	p := startWS(t)
-	w := dialWS(t, p)
+	// Timed from before the dial: the server's deadline starts when it accepts, which is
+	// before dialWS returns, so a start taken after it read 4.99 s under load.
 	start := time.Now()
+	w := dialWS(t, p)
 	code, at := w.closedWith(8 * time.Second)
 	if elapsed := at.Sub(start); code != 4401 || elapsed < 5*time.Second || elapsed > 6*time.Second {
 		t.Errorf("a silent connection was closed with %d after %v; want 4401 between 5 s and 6 s", code, elapsed)
