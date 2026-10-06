@@ -365,9 +365,11 @@ func TestInputTextCancelledAfterTheFirstChunkIsPartial(t *testing.T) {
 	}
 }
 
-// Decision (plan m1f D19; step 9 item 1): a cancellation while the first chunk is still
-// running stays cancelled, because nothing was typed.
-func TestInputTextCancelledDuringTheFirstChunkIsCancelled(t *testing.T) {
+// Decision (plan m1f D19, D21; close review): a cancellation while the first chunk is
+// running ends completed: the issued command may have typed part of its text, so an
+// error would invite a retry that types it again. The result counts nothing as typed for
+// certain and warns. Seen failing with the cancellation returned as an error.
+func TestInputTextCancelledDuringTheFirstChunkIsCompleted(t *testing.T) {
 	quickAct(t)
 	f := newUIFixture(t, map[string]string{uiSerial + ".inputtext.hang": ""})
 	id, err := f.ops.Start(context.Background(), capability.Request{
@@ -382,8 +384,12 @@ func TestInputTextCancelledDuringTheFirstChunkIsCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.wait(t, id)
-	if out.State != capability.StateCancelled {
-		t.Errorf("state = %s with error %+v, want cancelled: nothing was typed", out.State, out.Error)
+	if out.State != capability.StateCompleted {
+		t.Fatalf("state = %s with error %+v, want completed: the chunk was issued", out.State, out.Error)
+	}
+	r := mustInput(t, out)
+	if r.Characters != 0 || len(r.Warnings) == 0 || !strings.Contains(r.Warnings[0], "may have typed part") {
+		t.Errorf("characters %d, warnings %q; want 0 for certain and a warning that the chunk may have typed part", r.Characters, r.Warnings)
 	}
 }
 

@@ -152,9 +152,9 @@ contains) covers the MVP's cases, such as a counter reading "Likes: 1".
 1. **Before**: dump, resolve the target, and evaluate every condition against this
    tree. A condition that already holds is flagged **vacuous**.
 2. **Tap**: `input tap x y` in display pixels.
-3. **Settle**: wait `settleMs` (default 300 ms).
+3. **Settle**: wait 300 ms, a constant (plan m1f D10).
 4. **Poll**: read again and again — each read starts at least 250 ms after the previous
-   one started; a read itself takes roughly 0.5–2 s — until every condition holds or
+   one started; a warm read takes tens of milliseconds, a fallback read 1–2 s — until every condition holds or
    `timeoutMs` elapses (default 5 s, maximum 20 s). The first read after the tap runs to
    the call's running limit, not to `timeoutMs`, so a slow fallback read is still observed;
    `timeoutMs` bounds the polls after it.
@@ -198,7 +198,7 @@ non-long-running call ([ADR-0020](../adr/0020-operation-contract.md)).
   retry, and a retry taps twice. Only a failure *before* the tap is an error
   (`DEVICE_UI_DUMP_FAILED`), and then nothing was tapped.
 - **A cancellation after the tap is a completed call too.** The tap landed, so the result
-  carries `tapped` and, with `expect`, the reason `cancelled`; an error would invite a
+  carries `tapped` and, with `expect` not yet matched, the reason `cancelled`; an error would invite a
   retry that taps twice.
 - `returnTree: true` adds the last snapshot, saving a `uiTree` call at the cost of
   tokens.
@@ -261,8 +261,8 @@ these rules and the same `expect` vocabulary.
   entirely.
 - **Tree-derived actions work in display pixels**, because the tree's bounds are
   already in that space.
-- **Text**: `input text` is ASCII-only. Text is escaped (`%s` for spaces, shell
-  metacharacters escaped); non-ASCII (CJK, emoji) goes through the ADBKeyboard IME if
+- **Text**: `input text` takes printable ASCII, sent single-quoted with spaces as `%s`
+  (§Typing); non-ASCII (CJK, emoji) goes through the ADBKeyboard IME if
   installed, otherwise the call is **refused with an install hint — never silently
   mistyped**.
 - **Rotation** pins `accelerometer_rotation=0` before setting `user_rotation`, so
@@ -279,10 +279,13 @@ these rules and the same `expect` vocabulary.
 | Target not found | `DEVICE_ELEMENT_NOT_FOUND` | Near candidates, and the tree's `emptyReason` |
 | Several targets | `DEVICE_ELEMENT_AMBIGUOUS` | Up to 10 candidates; `index` or a narrower selector resolves it |
 | Target off-screen | `DEVICE_ELEMENT_OFFSCREEN` | Its bounds and the display size |
+| Target covered by a node drawn above it, no visible strip left (D22) | `DEVICE_ELEMENT_OFFSCREEN` | The node and the covering node; nothing tapped. A partly covered target is tapped in its largest visible strip, with a warning |
 | Target disabled | `DEVICE_ELEMENT_DISABLED` | The node |
 | Stale ref | `DEVICE_STALE_REF` | Candidates with the same text/desc |
 | No accessibility info | `DEVICE_ELEMENT_NOT_FOUND`, `emptyReason: noAccessibilityInfo` | Points at `device.screenshot`; OCR is post-v1 |
 | Expectation unmet | — (completed) | `matched: false` with `unmet` |
+| `inputText`: the focusing tap overran the before phase, the input-method check failed, or the field could not be cleared | `DEVICE_NOT_READY` | Nothing typed; retry |
+| Cancelled once the tap or a typing command was issued | — (completed) | A warning that the effect may have landed; `expect.reason: cancelled` (D21) |
 
 ## To verify (spike S6)
 

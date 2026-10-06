@@ -717,8 +717,12 @@ func TestTapElementRunningBoundDuringTheTapWarns(t *testing.T) {
 			t.Fatal(err)
 		}
 		out := f.wait(t, id)
-		if out.State != capability.StateCancelled {
-			t.Errorf("state = %s with error %+v, want cancelled: a caller's cancellation during the tap is not a tap failure", out.State, out.Error)
+		if out.State != capability.StateCompleted {
+			t.Fatalf("state = %s with error %+v, want completed: the tap was issued and may have landed (D18, D21)", out.State, out.Error)
+		}
+		res := mustTap(t, out)
+		if len(res.Warnings) == 0 || !strings.Contains(strings.Join(res.Warnings, " "), "cancelled while the tap command was running") {
+			t.Errorf("warnings %q, want one saying the call was cancelled while the tap ran", res.Warnings)
 		}
 	})
 }
