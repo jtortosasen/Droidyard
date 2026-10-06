@@ -1,15 +1,18 @@
 // Package artifact is the core's artifact store: opaque, URI-shaped references to
-// bytes a capability produced (ADR-0012). This is the ephemeral class only, in memory:
-// a 15-minute lifetime from creation (the same as operation retention, ADR-0020), LRU
-// eviction under a byte budget, and a timer that releases expired bytes without a read.
-// Spill to the cache directory is deliberately not implemented (ADR-0012, Amended
-// 2026-10-04); the durable class waits for the Gradle build milestone.
+// bytes a capability produced (ADR-0012). The ephemeral class is in memory: a
+// 15-minute lifetime from creation (the same as operation retention, ADR-0020), LRU
+// eviction under a byte budget, and a timer that releases expired bytes without a
+// read. Spill to the cache directory is deliberately not implemented (ADR-0012,
+// Amended 2026-10-04). The durable class (durable.go) writes a file under
+// <state>/ws/<wsid>/artifacts/ that survives a restart and is owned by a record.
 //
-// A reference is "droidyard://artifact/<id>" and consumers never parse it. The id is
-// "<class>.<epoch>.<counter>.<random>": the durability class ("e"), the daemon epoch
-// the event bus mints, a per-epoch counter from 1, and 48 random bits. The counter is
-// what lets a miss be classified without tombstones: a counter at or below the highest
-// issued was once valid (ARTIFACT_EXPIRED), one above it never was (ARTIFACT_NOT_FOUND).
+// A reference is "droidyard://artifact/<id>" and consumers never parse it. An
+// ephemeral id is "e.<epoch>.<counter>.<random>": the class, the daemon epoch the
+// event bus mints, a per-epoch counter from 1, and 48 random bits. The counter is what
+// lets a miss be classified without tombstones: a counter at or below the highest
+// issued was once valid (ARTIFACT_EXPIRED), one above it never was
+// (ARTIFACT_NOT_FOUND). A durable id is "d.<workspace>.<owner>" and names the file
+// under that workspace's artifacts/ rather than an in-memory slot (durable.go).
 package artifact
 
 import (
@@ -36,6 +39,7 @@ const (
 	DefaultBudget int64 = 64 << 20
 
 	classEphemeral = "e"
+	classDurable   = "d"
 	randomHexLen   = 12
 )
 
@@ -43,11 +47,15 @@ const (
 // could only be stored by evicting everything, and even then it would not fit.
 var ErrTooLarge = errors.New("artifact larger than the store's byte budget")
 
-// Durability is the artifact's class. Only ephemeral exists in this milestone.
+// Durability is the artifact's class.
 type Durability string
 
 // DurabilityEphemeral lives in memory for the TTL.
 const DurabilityEphemeral Durability = "ephemeral"
+
+// DurabilityDurable is written under the workspace's artifacts/ and survives a restart;
+// it lives and dies with the record that owns it (ADR-0012 §Durability classes).
+const DurabilityDurable Durability = "durable"
 
 // Ref is ADR-0012's ArtifactRef record. Width and Height are set for images only. In
 // this milestone every artifact is device-derived, so a result that carries a Ref is
@@ -88,11 +96,17 @@ type Item struct {
 	Inline *Inline
 }
 
-// Entry is a held artifact. Data is shared with the store: a reader must not modify it.
+// Entry is a held artifact. For an ephemeral artifact Data holds the bytes, shared
+// with the store: a reader must not modify it. For a durable artifact Data is nil and
+// File and Size name the file on disk, so a read of a page does not pull a whole
+// console into memory.
 type Entry struct {
 	Ref      Ref
 	Data     []byte
+	File     string // durable only: the file holding the bytes
+	Size     int64  // durable only: the file's size in bytes
 	Producer string
+	Growing  bool    // durable only: still being written
 	Inline   *Inline // nil when the producer made none
 }
 
@@ -125,10 +139,13 @@ func (realClock) AfterFunc(d time.Duration, f func()) Timer {
 type Options struct {
 	// Epoch is the daemon epoch, the bus's (internal/event). Required: it may not
 	// contain '.', '/' or whitespace, because the id is split on '.'.
-	Epoch  string
-	TTL    time.Duration
-	Budget int64
-	Clock  Clock
+	Epoch string
+	// StateRoot is the state root durable artifacts live under (ADR-0021 §Layout).
+	// Without one the store serves ephemeral references only.
+	StateRoot string
+	TTL       time.Duration
+	Budget    int64
+	Clock     Clock
 }
 
 type held struct {
@@ -141,10 +158,11 @@ type held struct {
 
 // Store is safe for concurrent use.
 type Store struct {
-	epoch  string
-	ttl    time.Duration
-	budget int64
-	clock  Clock
+	epoch     string
+	stateRoot string
+	ttl       time.Duration
+	budget    int64
+	clock     Clock
 
 	mu      sync.Mutex
 	entries map[uint64]*held
@@ -152,6 +170,7 @@ type Store struct {
 	used    int64
 	highest uint64 // the highest counter issued
 	timer   Timer
+	durable map[string]*Durable // open durable artifacts, by reference
 }
 
 // New returns an empty store for one daemon epoch.
@@ -169,8 +188,8 @@ func New(o Options) (*Store, error) {
 		o.Clock = realClock{}
 	}
 	return &Store{
-		epoch: o.Epoch, ttl: o.TTL, budget: o.Budget, clock: o.Clock,
-		entries: map[uint64]*held{}, lru: list.New(),
+		epoch: o.Epoch, stateRoot: o.StateRoot, ttl: o.TTL, budget: o.Budget, clock: o.Clock,
+		entries: map[uint64]*held{}, lru: list.New(), durable: map[string]*Durable{},
 	}, nil
 }
 
@@ -226,12 +245,25 @@ func (s *Store) Put(it Item) (Ref, error) {
 	return h.entry.Ref, nil
 }
 
-// Get resolves a reference (or a bare id, as the HTTP route has it) and marks the
-// entry most recently used; reading does not extend its lifetime. A miss is a
-// capability error: ARTIFACT_EXPIRED when the id was, or could have been, valid in an
-// earlier epoch or earlier in this one; ARTIFACT_NOT_FOUND when it never could have been.
+// Get resolves a reference (or a bare id, as the HTTP route has it): an ephemeral one
+// from memory, a durable one from the workspace's artifacts/ directory, so a durable
+// reference resolves after a restart without the workspace being open (D13). A miss is
+// a capability error: ARTIFACT_EXPIRED when the id was, or could have been, valid
+// (evicted, past its lifetime, another epoch, or a durable artifact deleted with its
+// owner); ARTIFACT_NOT_FOUND when it never could have been, a malformed durable
+// reference included.
 func (s *Store) Get(ref string) (Entry, error) {
-	epoch, counter, random, ok := parseID(strings.TrimPrefix(ref, RefPrefix))
+	id := strings.TrimPrefix(ref, RefPrefix)
+	if rest, ok := strings.CutPrefix(id, classDurable+"."); ok {
+		return s.getDurable(rest)
+	}
+	return s.getEphemeral(id)
+}
+
+// getEphemeral resolves an ephemeral id and marks the entry most recently used;
+// reading does not extend its lifetime.
+func (s *Store) getEphemeral(id string) (Entry, error) {
+	epoch, counter, random, ok := parseID(id)
 	if !ok {
 		return Entry{}, capability.NewError(capability.ErrArtifactNotFound,
 			"the reference is not an artifact reference")
