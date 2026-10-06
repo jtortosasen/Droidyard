@@ -12,7 +12,7 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 | 1 | Plan | `planner` | `docs/plans/<id>-<slug>.md`, status `Draft` | the template is complete, or the status is `Blocked` |
 | 2 | Review the plan | `plan-reviewer`, launched by the planner | a verdict, recorded in the plan's Review table | verdict `approve`, or two rounds done with every blocking finding answered; status `Reviewed` |
 | 3 | Approve | the owner, or the main session under the owner's standing instruction to apply the recommended option | status `Approved` | the Scope table, step list, Not in this milestone and Unverified are settled; a delegated approval says so in the plan header |
-| 4 | Implement | DeepSeek through OpenCode (`implementer`), one step per run; the Claude `implementer` (Sonnet) is the fallback | code, left uncommitted; the main session ticks each step with its evidence and commits | every step and every Acceptance item ticked |
+| 4 | Implement | DeepSeek through pi (`.pi/roles/implementer.md`), one step per run; the Claude `implementer` (Sonnet) is the fallback | code, left uncommitted; the main session ticks each step with its evidence and commits | every step and every Acceptance item ticked |
 | 5 | Verify | per step, at the depth §Verification by risk sets; once more at close, over the whole milestone | a verdict | no blocking findings after the last fix round |
 | 6 | Close | the session that ran the workflow | plan status `Done`; its row in `docs/plans/README.md` updated to match; `docs/README.md` §Where the work stands updated; new or amended ADRs indexed in `docs/adr/README.md` | the next milestone is named in §Where the work stands, and `go test ./...` passes with the plans index in step |
 
@@ -33,13 +33,13 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 
 ## Verification by risk
 
-Every step gets its check, the four commands and the main session's review of the diff. On top of that (owner, 2026-10-06: fewer rounds, same bar):
+Every step gets its check, the four commands and the main session's review of the diff. On top of that (owner, 2026-10-06: fewer rounds, same bar; DeepSeek writes code only and never reviews):
 
 | The step | Review |
 | --- | --- |
 | changes what a capability means (a new capability, error code or field, or a changed one's semantics), the security fence, authorization or untrusted marking, concurrency, or process lifetime | the Opus `verifier` alone |
 | anything else: description text, an adapter change its tests fully cover, fixtures, a parser, internal plumbing, tests, documents | the main session's review of the diff |
-| the milestone's close | Opus `verifier` and the DeepSeek cross-check, over the Acceptance items |
+| the milestone's close | the Opus `verifier`, over the Acceptance items |
 
 - **Fix rounds.** Small fixes (a test, a bound, a doc line, a few lines of code) the main session makes itself and checks with the tests; only a blocking finding whose fix is not small goes back to the implementer and then to the reviewer that found it, on the diff only.
 - **Reversal evidence.** "Seen failing with the decision reversed" is required for the decisions a blocking finding would be about (correctness, bounds, safety), not for every test.
