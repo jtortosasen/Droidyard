@@ -350,9 +350,9 @@ subscription receives when it lost events.
 | `workspace.lifecycle` | the new state; `{state, degradedBy?}` | 1d |
 | `operation.progress` | `{done, total?, message?, phase?}` | 1d |
 | `events.gap` | the loss marker `{fromSeq, toSeq}`, `seq` equal to `toSeq` | 1d |
-| `build.progress`, `build.output` | Gradle progress and console lines | Phase 1 |
+| `build.progress`, `build.output` | Gradle progress and console lines | with their first consumer, the Phase 2 UI (milestone 1g put build progress on `operation.progress`) |
 | `device.logcat`, `device.screen`, `device.state` | device streams and state | with their producers: `device.logs` and later device milestones (not 1e) |
-| `process.lifecycle`, `process.output` | supervised sidecars | Phase 1, with the first shipped sidecar |
+| `process.lifecycle`, `process.output` | supervised sidecars | with their first consumer, the Phase 2 UI (the first sidecar shipped in 1g without them) |
 | `operation.state` | operation transitions for the UI | Phase 2 |
 
 A subscription to any other topic is rejected with `REQUEST_INVALID_PARAMS`, and
@@ -540,9 +540,9 @@ Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http
 - **Config file spec**: policy (device rules, trusted roots, `shell.exec`), JVM
   discovery, idle timeouts and paths are all configured, but no document yet defines
   the file. It is user configuration, not state, and every policy decision — trust
-  included — is recorded there; its location is to be added to
-  [ADR-0021](../adr/0021-persistence-format-and-location.md). The format is needed
-  before Phase 1.
+  included — is recorded there. Its location and its first key, trusted roots, are
+  [ADR-0031](../adr/0031-configuration-file-trust-first.md) (milestone 1g); the rest of
+  the format is still to be specified.
 
 Settled since the review: `shell.exec` is **off by default**
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7) and policy is **never**

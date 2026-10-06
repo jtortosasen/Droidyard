@@ -158,7 +158,13 @@ event.build.finished       { buildId, outcome, failures[], failureProblems[],
   ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
 - Consumers read it through **`artifact.read`** (`{ref, offset, limit}`), which reports
   `growing: true` while the build is running; the UI uses `GET /v1/artifacts/{id}` with
-  `Range` support. MCP renders a bounded tail.
+  `Range` support.
+- *Milestone 1g (plan D26, D27, Delegated):* a build result carries no console tail,
+  inline or in its MCP rendering; the agent reads the errors with `build.errors` and the
+  console with `artifact.read {ref: consoleRef, offset: -16384}`. `consoleRef` appears
+  only once the build has finished: reading a console while it grows lands with the
+  `build.output` topic and its first consumer, the Phase 2 UI. A project without a
+  wrapper is named by `gradle.source: connector` and a first console line (D19).
 
 ## The build model
 
@@ -406,7 +412,8 @@ Generic TAPI models give modules, tasks and directories, but not Android variant
 
 ### Variants
 
-`project.variants` returns `{ module, variants[], source, exact }`.
+`project.variants {module?}` returns `{ modules: [{ module, variants[], source, exact }], stale }`;
+variant names are lowercase-first (`assembleDebug` → `debug`).
 
 - **Probe available** → `source: probe`, `exact: true`, with build type and flavours.
 - **Otherwise** → `source: task-names`, `exact: false`: in each module, the variants
@@ -437,9 +444,13 @@ Without the probe, `sdk.requirements` answers from failure signatures only and s
 
 ```json
 { "tasks": [
-  { "path": ":app:assembleDebug", "name": "assembleDebug",
-    "group": "build", "description": "Assembles main output..." } ] }
+  { "module": ":app", "path": ":app:assemble", "name": "assemble",
+    "group": "build", "description": "Assembles main output..." } ],
+  "stale": false }
 ```
+
+AGP 8.13 gives the per-variant tasks (`assembleDebug`) no group, so they are hidden by
+default and listed with `includeHidden` (observed on DopamineControl, milestone 1g).
 
 - Filterable by module, group and name substring. Variant-aware filtering goes through
   `project.variants`, not through guessed prefixes.
@@ -553,17 +564,19 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 
 | Failure | Behavior |
 | --- | --- |
-| Gradle below the floor (8.0) | Fail fast naming floor, detected version and reason; the explicit escape hatch runs the conservative profile ([ADR-0018](../adr/0018-gradle-version-support-policy.md)) |
+| Gradle below the floor (8.0) | `BUILD_GRADLE_UNSUPPORTED`, naming floor, detected version and reason; the explicit escape hatch runs the conservative profile ([ADR-0018](../adr/0018-gradle-version-support-policy.md)) — not yet: the hatch waits for the configuration specification (milestone 1g, D9) |
 | Version newer than validated | Proceed with the newest capability set, marked `untested` |
-| No usable sidecar JVM | `degraded`; the error lists the candidates tried and why each was rejected |
-| Sidecar fails to start | Workspace `degraded`; `build.*` returns an actionable error; other capabilities unaffected |
-| Sidecar crashes mid-build | Operation fails with cause; registry keeps history; restart on next use |
+| No usable sidecar JVM | `BUILD_SIDECAR_UNAVAILABLE`, the `[gradle]` capabilities unavailable in `system.capabilities`; the error lists the candidates tried and why each was rejected |
+| Sidecar fails to start, or speaks another protocol version | `BUILD_SIDECAR_UNAVAILABLE`; other capabilities unaffected |
+| Sidecar crashes mid-call or mid-build, or breaks the protocol | `BUILD_SIDECAR_CRASHED`; every root with a connection is marked degraded until the next handshake; no record for a build it was running; registry keeps history; restart on next use |
+| Configuration of the project fails | `PROJECT_MODEL_FAILED`, Gradle's root failure as the cause |
+| `build.errors` or `build.lastResult` with no finished build, or an unknown `buildId` | `BUILD_NOT_FOUND` |
 | Probe fails, fully or per field | Generic model still returned; affected fields `unknown`; variants fall back to task names |
 | Problems API unavailable or partial | Console extractor covers it; the result reports the source per tool |
 | Failed build, nothing recognised | `unrecognised: true`, root failure messages and a bounded tail — never an empty success |
 | Output metadata missing | No output for that variant, with the reason; install gets `BUILD_OUTPUT_NOT_FOUND` |
 | Daemon OOM | Surface the daemon's own error and the memory flags it suggests; do not retry blindly |
-| Task not found | `build.tasks` is the discovery path; the error lists near-matches where possible |
+| Task not found | A failed build with Gradle's own message; `build.tasks` is the discovery path (no near-matches yet, milestone 1g D19) |
 | No wrapper in the project | Report it; TAPI would otherwise silently use its own Gradle version |
 
 ## Persistence
@@ -611,10 +624,17 @@ one project, one cell outside the matrix (Gradle 8.13, AGP 8.13.2, KGP 2.0.21), 
 `./gradlew --no-daemon --console=plain`. It recorded the Kotlin, KSP and AAPT2 forms
 marked Observed above and raised the merged-resource path problem. **Not yet run:**
 the TAPI path, the Problems API (failure-carried and events), the matrix, javac,
-kapt, manifest merger, a warm daemon. Run 2 needs a minimal TAPI client and starts
-with the KGP 2.3 vs 2.4 cells.
+kapt, manifest merger, a warm daemon.
 
-**S3 — Android facts from a non-Studio client.** Run the probe on the sample app and
+*Run 2 (2026-10-06)* — [findings](../research/spike-s1-error-formats.md): the TAPI path
+on the first sidecar, a warm daemon, DopamineControl's cell plus one KGP 2.4.20 cell.
+Kotlin locations in the forwarded console (Problems events from KGP 2.4), javac
+structured on Gradle 8.13, KSP, AAPT2 (failure node and console; AGP's blame file
+resolves the merged path) and the manifest merger recorded. Not run: kapt, the rest
+of the matrix.
+
+**S3 — Android facts from a non-Studio client.** *Moved to staging 3 with the probe it
+gates (milestone 1g, D25; ADR-0017 amended 2026-10-06).* Run the probe on the sample app and
 on a flavoured, multi-module fixture across AGP 8.0 / 8.x / 9.x: which fields resolve,
 cost of the model fetch, and the accuracy of the task-name fallback against the
 probe's variants. If AGP DSL access proves brittle, evaluate AGP's builder model
