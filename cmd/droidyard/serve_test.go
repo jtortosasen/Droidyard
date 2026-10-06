@@ -37,6 +37,9 @@ func TestMain(m *testing.M) {
 		main()
 		os.Exit(0)
 	}
+	// No test may read or write the developer's real configuration (step 3 review):
+	// the trust tests rely on DROIDYARD_STATE_DIR alone placing it.
+	os.Unsetenv("DROIDYARD_CONFIG_DIR")
 	// Every process a test re-executes inherits this, detached daemons included.
 	os.Setenv(testParentEnv, strconv.Itoa(os.Getpid()))
 	os.Exit(m.Run())
