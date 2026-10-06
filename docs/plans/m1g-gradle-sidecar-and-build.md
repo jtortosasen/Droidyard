@@ -121,7 +121,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: the probe and `BuildAction` (D25); `build.test`, test events, problem summaries (Not in this milestone); supervision (step 5).
 - Rests on: the sidecar exits when its stdin closes, whatever it is doing. Level 4 (a real JVM).
 - Review: process lifetime: Opus verifier. The main session writes D4's ADR-0017 `Amended:` line.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 6b2b17d, fix rounds 08c2289 and 83a63f2. Main session: `DROIDYARD_GRADLE_TESTS=1 go test -count=1 ./sidecar` on Zulu 17, 15/15 pass (TAPI 9.8.0, kotlinc 2.3.10, jars byte-identical on rebuild). Seen failing (main session, rebuilt jars): without the `System.setOut` redirect (`TestGradleStdoutCarriesOnlyTheProtocol`), without the EOF exit (`TestGradleExitsOnStdinEof`), and with the previous jar for the cancel-before-dispatch case (`TestGradleCancelBeforeItsRunIsDispatched`: "no such build"). Colour on: not mutated. Review: Opus verifier, fix (javaHome to the wrong TAPI method; notifications unbounded; `missingCapabilities` dead), fix round by DeepSeek, re-check fix (a cancel overtaking its run), fixed by the main session.
 
 ### 2. Spike: S1 run 2 over TAPI, on DopamineControl
 
@@ -147,7 +147,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: `policy.get`/`update`, every other configuration key (D1); trust from MCP (never: ADR-0015 §5).
 - Rests on: no `[gradle]` call reaches its handler on an untrusted root. Level 4 (real daemon and binary).
 - Review: authorization: Opus verifier. The main session writes D1's ADR and `Amended:` lines and D2's in the same commit.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: faa5e85, fix edc965b. `go test ./internal/policy ./internal/platform ./internal/workspace ./cmd/droidyard` ok; seen failing (implementer) with the prefix boundary removed, the cache never refreshed, the check moved to the handler and the configuration not following `DROIDYARD_STATE_DIR`; (main session) relative entries accepted → `TestRelativeEntriesFailClosed` fails 4 cases. Review: Opus verifier, fix (`"."` as a prefix trusted every root), fixed by the main session. ADR-0031 and the ADR-0019/0021/0024 lines in 6b2b17d.
 
 ### 4. Durable artifacts and text reads
 
@@ -160,7 +160,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: `Range` on `GET /v1/artifacts/{id}` for text (Phase 2 UI); the sweep's caller (step 7); a consumer of a growing console (D27).
 - Rests on: a durable ref never resolves to a file outside its workspace's `artifacts/`. Level 3.
 - Review: a changed capability: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: fc60d71, fix 62921d0. `go test ./internal/artifact ./internal/domain/artifacts ./internal/schema` ok; seen failing (implementer) without the negative-offset alignment and without the ref part check; (main session) a closed artifact's last line held back and limit below 4 both make `TestTextReaderFollowingNextOffsetReachesTheEnd` fail. Schema 0.6.0; `artifact.read`'s result no longer requires `stored`/`delivered` (the image path still always emits both). Review: Opus verifier, fix (two `nextOffset` loops), fixed by the main session.
 
 ### 5. The core's sidecar client and the project model
 
@@ -186,7 +186,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: kapt, the older Kotlin `(83, 12)` form, AGP SDK signatures (no recording; `sdk.requirements` milestone); problem summaries.
 - Rests on: a recorded Kotlin line yields file, line and column relative to the root. Level 3 (recorded output).
 - Review: a parser: the main session's diff review. The main session writes D12's ADR-0022 `Amended:` line.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 59ff980. 17 golden and decision tests over `testdata/s1run2/`; seen failing (implementer) with the console preferred over failure, no unrecognised fallback, the `file://` scheme kept, the AAPT2 follow-up ungated. The resolved developer location is the record's `resolved` (not `source`, which already names the merge source); ADR-0022 `Amended:`. Review: the main session's diff review.
 
 ### 7. Builds, errors and the build registry
 
