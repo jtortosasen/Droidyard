@@ -206,9 +206,10 @@ typed contract.
   `maxEdge`, or 1024 px when it gives none (an MCP agent never receives the stored
   bytes as base64), with the structured `delivered` and `mediaType` describing the
   block it received (milestone 1e).
-- **Build consoles**: a build result renders a bounded console tail inline and carries
-  `consoleRef`. `artifact_read {ref, offset: -16384}` reads further back, including
-  while the build is still running.
+- **Build consoles**: a build result carries `consoleRef` and no console tail (milestone
+  1g, D26); `build_errors` returns the structured errors and `artifact_read {ref,
+  offset: -16384}` reads the console. `consoleRef` appears once the build has finished
+  (D27); reading a growing console waits for the `build.output` topic.
 - **Expiry**: an ephemeral reference (a screenshot, a log capture) expires after 15
   minutes or a daemon restart, with `ARTIFACT_EXPIRED` and a `nextStep` to re-run the
   capability that produced it (named when the store still knows it). Build consoles stay readable as long as their build record.

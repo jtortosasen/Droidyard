@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -267,6 +267,30 @@ adb uninstall dev.droidyard.formapp                             # then the three
 
 - Expect `tools=14` on connection; `launch` with a `pid`; `inputText` and both taps with `_meta {"droidyard/untrusted": true}` and the fixed first line; `matched: true` on both taps.
 - Warm CLI reads were 0.1 s on an idle host and ~0.7 s on a loaded one (each call's hook starts two adb clients).
+
+**1g Build** (milestone 1g; `docs/plans/m1g-gradle-sidecar-and-build.md` §Scratch rules and §Emulator rules apply verbatim). A copy of the project, never the original; the daemon built with `-tags droidyard_nodump`; the copy trusted under the scratch state only.
+
+```sh
+SRC=~/Documents/DopamineControl; C=~/Library/Caches/droidyard-dev/m1g/dc; F=~/Library/Caches/droidyard-dev/m1g/dc-fresh
+for d in $C $F; do rsync -a --delete --exclude build --exclude .gradle --exclude .kotlin --exclude .idea $SRC/ $d/; done
+git -C $SRC rev-parse HEAD; git -C $SRC status --porcelain | shasum; git -C $SRC diff HEAD | shasum   # before and after: unchanged
+adb -s emulator-5554 shell pm path com.example.dopaminecontrol; adb -s emulator-5554 shell dumpsys package com.example.dopaminecontrol | grep -m1 versionCode
+printf 'package com.example.dopaminecontrol\n\ninternal val droidyardLevelFive: Int = levelFiveMissingSymbol\n' >$C/app/src/main/java/com/example/dopaminecontrol/LevelFive.kt  # E11: a new, unreferenced file
+export DROIDYARD_STATE_DIR=$E/state; "$DY" trust $C; (cd / && "$DY" serve >"$E/serve.log" 2>&1 &)
+# OpenCode as in Real client, run with $C as its cwd, its config (in $C, removed after) denying shell only:
+#   "permissions": [{"action":"*","resource":"*","effect":"allow"},{"action":"shell","resource":"*","effect":"deny"}]
+# prompt: project_modules; build_assemble {module ":app", variant "debug"} (operation_wait if running); build_errors and fix
+#         the named file; build_assemble again; device_install {device, build {module, variant}}; device_launch; device_uiTree
+jq -c 'select(.method=="tools/call")|{id,n:.params.name,a:.params.arguments}' "$E/wire.c2s.jsonl"
+diff -rq -x build -x .gradle -x .kotlin -x .idea $F $C          # only LevelFive.kt (and the scratch opencode.jsonc)
+ps -o rss= -p $(pgrep -f droidyard.sidecar.MainKt)               # sidecar RSS (spike S4)
+"$C_" build.lastResult --workspace $C; "$DY" stop; pgrep -f droidyard.sidecar.MainKt; pgrep -f GradleDaemon   # no sidecar; Gradle's daemon alive
+# a new serve: build.lastResult the same build; artifact.read {ref: consoleRef, offset: -4096} reads its console
+# cleanup (E9): trust $F, build.assemble and device.install it, so the app left installed is the owner's tree as is; stop
+```
+
+- Expect `tools=23`; the first `build_assemble` completed `failed`, `build_errors` names `LevelFive.kt` 3:40 `tool: kotlin`, `source: console`; the second `success` with `outputs[0]` `com.example.dopaminecontrol`; `device_install` `{applicationId, versionCode, apk}`; the launch pid; `foreground` `com.example.dopaminecontrol`.
+- On warm caches each build took about 2 s and the whole OpenCode run 31 s, so `operation_wait` was not needed: a minute-long build is not exercised by this row.
 
 ## Evidence
 

@@ -143,7 +143,8 @@ Cancel(id OpID) error
 - **Contention queues, it does not reject.** A second request on a busy root (the UI
   and an agent building at once) becomes a `queued` operation, FIFO, reporting
   `blockedBy`; the caller's bounded wait returns that state. A queue deeper than 4 per
-  root is rejected with `BUILD_QUEUE_FULL`. Cancelling a queued operation is immediate.
+  root is rejected with `BUILD_QUEUE_FULL` (not implemented in milestone 1g: one agent
+  per root until the UI is a second client). Cancelling a queued operation is immediate.
 - **Short calls have a queue bound.** A capability not flagged `LongRunning` that is
   still queued after 20 s fails with `OPERATION_QUEUE_TIMEOUT` without having run
   ([ADR-0020](../adr/0020-operation-contract.md) §States). The scheduler enforces it,
