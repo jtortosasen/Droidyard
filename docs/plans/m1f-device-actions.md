@@ -75,6 +75,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - D18. After an `input tap` was issued, a failure of that command is an error only when it provably never ran (adb could not be started, or adb's device-not-found line before the shell ran); a timeout goes on to verification with a warning, since the tap may have landed and an error invites a second tap (`ui-automation.md` §Result).
 - D19. Once any `inputText` chunk has run, a later failure gives a completed result with the partial `characters` count and a warning, never an error (a retry would retype); an error only before the first keystroke.
 - D20. `within` matches its fields exactly; the contains fallback of §Resolution 2 applies to the target only (added at step 4; `ui-automation.md` §Selectors).
+- D21. A cancellation that arrives after the tap ends the call `completed`, with the tap in `tapped` and `expect.reason: "cancelled"`; before the tap it ends `cancelled` (added at step 7; ADR-0020 `Amended:` line; `ui-automation.md` §Result).
 - D14. The form app is built from source with the SDK's tools (no Gradle); its APK is never committed.
 - D15. CLI `--device`/`ANDROID_SERIAL` moves to the `device.logs` milestone: no 1f item needs it.
 - D16. Snapshot ids are `s-` plus 8 hex digits, unique among kept snapshots; the last 16 whose refs were returned are kept per device; an unknown or evicted one is `DEVICE_STALE_REF`.

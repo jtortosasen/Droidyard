@@ -130,13 +130,20 @@ func TestReadWaitsInsideTheDeadlineForAReaderHeldElsewhere(t *testing.T) {
 // read succeeds with no warning. Seen failing with no restart (the read would fall to
 // the one-shot).
 func TestReaderGoneIsStartedAgainOnce(t *testing.T) {
-	r := devicetest.StartReader(t, devicetest.ReaderGone, pixelDoc(t))
+	r := devicetest.StartReader(t, pixelDoc(t))
 	t.Cleanup(r.Close)
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":   "0",
 		uiSerial + ".start.out":   "",
 		uiSerial + ".forward.out": r.Port,
 	})
+	// Prime: the reader was started and answered. A dump that later ends before a
+	// document and a ping that is not answered mean the reader is gone, not merely
+	// unreachable, so it is started again once (plan m1f step 7).
+	mustComplete(t, f.tree(t, uiSerial))
+	r.SetDocs(devicetest.ReaderGone, pixelDoc(t))
+	r.SetMutePings(1)
+
 	s := mustComplete(t, f.tree(t, uiSerial))
 	if s.Foreground != "com.android.settings" || len(s.Nodes) == 0 {
 		t.Fatalf("snapshot %+v", s)
@@ -157,8 +164,8 @@ func TestReaderGoneIsStartedAgainOnce(t *testing.T) {
 	if n := count(calls, rdRunCall); n != 0 {
 		t.Errorf("the one-shot ran although the restart worked: %q", calls)
 	}
-	if r.Dumps() != 2 {
-		t.Errorf("the reader saw %d dumps, want the vanished one and the tree", r.Dumps())
+	if r.Dumps() != 3 {
+		t.Errorf("the reader saw %d dumps, want the prime, the vanished one and the tree", r.Dumps())
 	}
 }
 
@@ -166,7 +173,7 @@ func TestReaderGoneIsStartedAgainOnce(t *testing.T) {
 // runs, and the result carries a warning that names, in its text, why the persistent
 // reader failed: the reader's own line, not only the warning's prefix.
 func TestReaderRestartFailureFallsBackToOneShotWithAWarning(t *testing.T) {
-	r := devicetest.StartReader(t, devicetest.ReaderGone)
+	r := devicetest.StartReader(t, pixelDoc(t))
 	t.Cleanup(r.Close)
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":    "0",
@@ -176,6 +183,9 @@ func TestReaderRestartFailureFallsBackToOneShotWithAWarning(t *testing.T) {
 		uiSerial + ".forward.out":  r.Port,
 		uiSerial + ".reader.out":   pixelDoc(t),
 	})
+	mustComplete(t, f.tree(t, uiSerial)) // prime the reader
+	r.SetDocs(devicetest.ReaderGone)
+	r.SetMutePings(1)
 	s := mustComplete(t, f.tree(t, uiSerial))
 	if len(s.Nodes) == 0 {
 		t.Fatal("no tree from the one-shot fallback")
@@ -195,7 +205,7 @@ func TestReaderRestartFailureFallsBackToOneShotWithAWarning(t *testing.T) {
 // uiautomator dump runs and its warning names both reasons: the one-shot's and the
 // persistent reader's.
 func TestReaderOneShotFailureFallsBackToTheDumpWithItsWarning(t *testing.T) {
-	r := devicetest.StartReader(t, devicetest.ReaderGone)
+	r := devicetest.StartReader(t, pixelDoc(t))
 	t.Cleanup(r.Close)
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":    "0",
@@ -205,6 +215,9 @@ func TestReaderOneShotFailureFallsBackToTheDumpWithItsWarning(t *testing.T) {
 		uiSerial + ".forward.out":  r.Port,
 		// No .reader files: the one-shot's app_process produces no hierarchy.
 	})
+	mustComplete(t, f.tree(t, uiSerial)) // prime the reader
+	r.SetDocs(devicetest.ReaderGone)
+	r.SetMutePings(1)
 	s := mustComplete(t, f.tree(t, uiSerial))
 	if len(s.Warnings) != 1 || !strings.HasPrefix(s.Warnings[0], fallbackWarning) {
 		t.Errorf("warnings %q, want the dump's warning", s.Warnings)
@@ -276,13 +289,18 @@ func TestCloseQuitsReadersAndRemovesOnlyItsForwards(t *testing.T) {
 	mustComplete(t, f.tree(t, uiSerial))
 	mustComplete(t, f.tree(t, "emulator-5556"))
 
+	// The forward ports are the fake's proxies, not the readers' ports: read them from
+	// the clients (a proxy port is picked by the fake's `forward tcp:0`).
+	portA := f.adb.reader(uiSerial).portValue()
+	portB := f.adb.reader("emulator-5556").portValue()
+
 	f.adb.Close(context.Background())
 	if rA.Quits() != 1 || rB.Quits() != 1 {
 		t.Errorf("quits = %d and %d, want 1 each", rA.Quits(), rB.Quits())
 	}
 	calls := f.calls(t)
-	wantA := "-s " + uiSerial + " forward --remove tcp:" + rA.Port
-	wantB := "-s emulator-5556 forward --remove tcp:" + rB.Port
+	wantA := "-s " + uiSerial + " forward --remove tcp:" + portA
+	wantB := "-s emulator-5556 forward --remove tcp:" + portB
 	if count(calls, wantA) != 1 || count(calls, wantB) != 1 {
 		t.Errorf("calls %q: want exactly one removal of each of our forwards (%q, %q)", calls, wantA, wantB)
 	}
@@ -327,7 +345,7 @@ func TestCloseBoundsAHangingForwardRemove(t *testing.T) {
 // fake models the device's files, so sharing one path shows: the restart's start fails
 // against the removed file.
 func TestOneShotFallbackDoesNotRemoveThePersistentReadersDex(t *testing.T) {
-	r := devicetest.StartReader(t, devicetest.ReaderGone, devicetest.ReaderGone, pixelDoc(t))
+	r := devicetest.StartReader(t, pixelDoc(t))
 	t.Cleanup(r.Close)
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":    "0",
@@ -337,20 +355,31 @@ func TestOneShotFallbackDoesNotRemoveThePersistentReadersDex(t *testing.T) {
 		uiSerial + ".forward.out":  r.Port,
 		uiSerial + ".reader.out":   pixelDoc(t),
 	})
+	mustComplete(t, f.tree(t, uiSerial)) // prime the reader
+
+	// Read 2: the reader is gone and its restart fails, so the one-shot runs. Its dex
+	// is its own file: the persistent reader's stays (ADR-0030).
+	r.SetDocs(devicetest.ReaderGone)
+	r.SetMutePings(1)
 	s1 := mustComplete(t, f.tree(t, uiSerial))
 	if len(s1.Warnings) != 1 || !strings.HasPrefix(s1.Warnings[0], oneShotWarning) {
-		t.Fatalf("read 1 warnings %q, want the one-shot's fallback", s1.Warnings)
+		t.Fatalf("read 2 warnings %q, want the one-shot's fallback", s1.Warnings)
 	}
+
+	// Read 3: the reader is gone again, the restart now succeeds, so the dex removed by
+	// the one-shot was not the one the persistent reader starts from.
+	r.SetDocs(devicetest.ReaderGone, pixelDoc(t))
+	r.SetMutePings(1)
 	s2 := mustComplete(t, f.tree(t, uiSerial))
 	if len(s2.Nodes) == 0 {
-		t.Fatal("read 2 produced no tree")
+		t.Fatal("read 3 produced no tree")
 	}
 	if len(s2.Warnings) != 0 {
-		t.Errorf("read 2 warnings %q: the restart should have run the persistent reader", s2.Warnings)
+		t.Errorf("read 3 warnings %q: the restart should have run the persistent reader", s2.Warnings)
 	}
 	calls := f.calls(t)
 	if n := countServeStarts(calls); n != 3 {
-		t.Errorf("%d serve starts, want the original, the failed restart and the successful restart (%q)", n, calls)
+		t.Errorf("%d serve starts, want the prime, the failed restart and the successful restart (%q)", n, calls)
 	}
 	if n := count(calls, prRmCall); n != 0 {
 		t.Errorf("the persistent reader's dex was removed: %q", calls)
@@ -429,10 +458,11 @@ func TestCloseRemovesForwardsDespiteADrainedContext(t *testing.T) {
 		uiSerial + ".forward.out": r.Port,
 	})
 	mustComplete(t, f.tree(t, uiSerial))
+	port := f.adb.reader(uiSerial).portValue()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	f.adb.Close(ctx)
-	want := "-s " + uiSerial + " forward --remove tcp:" + r.Port
+	want := "-s " + uiSerial + " forward --remove tcp:" + port
 	if n := count(f.calls(t), want); n != 1 {
 		t.Errorf("the forward removal ran %d times with a drained context, want 1", n)
 	}

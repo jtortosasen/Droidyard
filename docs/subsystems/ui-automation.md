@@ -188,6 +188,9 @@ non-long-running call ([ADR-0020](../adr/0020-operation-contract.md)).
   a warning saying the effect was not observed. Raising an error there would invite a
   retry, and a retry taps twice. Only a failure *before* the tap is an error
   (`DEVICE_UI_DUMP_FAILED`), and then nothing was tapped.
+- **A cancellation after the tap is a completed call too.** The tap landed, so the result
+  carries `tapped` and, with `expect`, the reason `cancelled`; an error would invite a
+  retry that taps twice.
 - `returnTree: true` adds the last snapshot, saving a `uiTree` call at the cost of
   tokens.
 

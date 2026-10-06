@@ -62,15 +62,22 @@ type FakeReader struct {
 	delay time.Duration
 	log   *ReaderLog
 
-	mu     sync.Mutex
-	docs   []string
-	next   int
-	quits  int
-	pings  int
-	dumps  int
-	starts []time.Time
-	once   sync.Once
-	wg     sync.WaitGroup
+	mu    sync.Mutex
+	docs  []string
+	next  int
+	quits int
+	pings int
+	dumps int
+	// mutePings is how many forthcoming ping requests are accepted but never answered,
+	// as a reader that is alive but wedged does (plan m1f step 7).
+	mutePings int
+	// dumpStalls is how many forthcoming dump requests are accepted and held past the
+	// caller's warm-read timeout, then dropped, as a reader whose dump is wedged does
+	// (plan m1f step 7).
+	dumpStalls int
+	starts     []time.Time
+	once       sync.Once
+	wg         sync.WaitGroup
 }
 
 // StartReader starts a fake reader answering with docs in order; an empty docs answers
@@ -95,6 +102,34 @@ func StartReader(t testing.TB, docs ...string) *FakeReader {
 func (r *FakeReader) SetDelay(d time.Duration) {
 	r.mu.Lock()
 	r.delay = d
+	r.mu.Unlock()
+}
+
+// SetDocs re-scripts the dump responses, as a screen change or a reader that stops
+// answering would: the next dump takes docs[0] again.
+func (r *FakeReader) SetDocs(docs ...string) {
+	if len(docs) == 0 {
+		return
+	}
+	r.mu.Lock()
+	r.docs, r.next = docs, 0
+	r.mu.Unlock()
+}
+
+// SetMutePings makes the next n pings accepted but never answered (each is held past the
+// caller's 1 s check), as a reader that is alive but wedged does (plan m1f step 7).
+func (r *FakeReader) SetMutePings(n int) {
+	r.mu.Lock()
+	r.mutePings = n
+	r.mu.Unlock()
+}
+
+// SetDumpStall makes the next n dumps accepted and held past the caller's warm-read
+// timeout, then dropped, as a wedged reader's dump is (plan m1f step 7). The reader
+// stays alive, so a ping can still be answered or muted.
+func (r *FakeReader) SetDumpStall(n int) {
+	r.mu.Lock()
+	r.dumpStalls = n
 	r.mu.Unlock()
 }
 
@@ -182,14 +217,32 @@ func (r *FakeReader) handle(conn net.Conn) {
 	switch strings.TrimSpace(line) {
 	case "ping":
 		r.mu.Lock()
+		if r.mutePings > 0 {
+			r.mutePings--
+			r.mu.Unlock()
+			// Accept the request and hold it until the caller gives up and closes:
+			// a reader that is alive but does not answer.
+			holdUntilClose(conn)
+			return
+		}
 		r.pings++
 		r.mu.Unlock()
 		io.WriteString(conn, "ok 1234")
 	case "dump":
 		r.mu.Lock()
+		stall := r.dumpStalls > 0
+		if stall {
+			r.dumpStalls--
+		}
 		r.dumps++
 		r.starts = append(r.starts, time.Now())
 		r.mu.Unlock()
+		if stall {
+			// Hold the dump until the caller's warm-read timeout closes the
+			// connection: a wedged reader (plan m1f step 7).
+			holdUntilClose(conn)
+			return
+		}
 		doc := r.nextDoc()
 		if doc == ReaderGone {
 			return
@@ -202,6 +255,14 @@ func (r *FakeReader) handle(conn net.Conn) {
 	default:
 		fmt.Fprint(conn, readerPrefix+" unknown request")
 	}
+}
+
+// holdUntilClose blocks until the client closes its side or its deadline ends the read,
+// as a request a wedged reader never answers does. The connection's own deadline (set in
+// handle) bounds it even if the client never closes.
+func holdUntilClose(conn net.Conn) {
+	buf := make([]byte, 1)
+	conn.Read(buf)
 }
 
 func (r *FakeReader) nextDoc() string {
