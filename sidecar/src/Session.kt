@@ -76,6 +76,22 @@ class Session(private val proto: Protocol) {
     // `connection.open` cannot race a `project.model` behind it). A build runs on its
     // own thread, so `build.cancel` is still served while a build runs.
     private val pool = Executors.newSingleThreadExecutor { r -> Thread(r, "rpc").apply { isDaemon = true } }
+
+    /**
+     * build.cancel, ping and shutdown: a second single thread, so they never queue
+     * behind a model fetch on [pool] and a blocking TAPI cancel callback never stops the
+     * reader from seeing EOF (step 1 re-check, N-a).
+     */
+    private val control = Executors.newSingleThreadExecutor { r -> Thread(r, "control").apply { isDaemon = true } }
+
+    /**
+     * Cancels that arrived before their build.run was dispatched (the run still queued
+     * on [pool]): the build is cancelled before it starts, so it ends `cancelled` with one
+     * `finished` (step 1 re-check, R1). Guarded by [startLock]; bounded, oldest dropped,
+     * since a late cancel of a finished build also lands here.
+     */
+    private val cancelledBeforeStart = LinkedHashSet<String>()
+    private val startLock = Any()
     private val stopping = AtomicBoolean(false)
     private val testStdout = System.getProperty("droidyard.sidecar.testStdout") != null
 
@@ -120,7 +136,7 @@ class Session(private val proto: Protocol) {
         // build. Every other method keeps the single dispatcher, so requests are answered
         // in the order they arrive.
         if (method == "build.cancel" || method == "ping" || method == "shutdown") {
-            dispatch(hasId, id, method, params)
+            control.execute { dispatch(hasId, id, method, params) }
         } else {
             pool.execute { dispatch(hasId, id, method, params) }
         }
@@ -323,7 +339,10 @@ class Session(private val proto: Protocol) {
         if (tasks.isNullOrEmpty()) throw RpcException.application("build.run needs at least one task")
         if (builds.containsKey(buildId)) throw RpcException.application("build is already running: $buildId")
         val build = Build(buildId, root, proto, tasks) { done -> buildFinished(done) }
-        builds[buildId] = build
+        synchronized(startLock) {
+            builds[buildId] = build
+            if (cancelledBeforeStart.remove(buildId)) build.cancel()
+        }
         // A failed Thread.start must not leave the build registered (plan m1g step 1 fix
         // round, N4): the caller gets an error and no notification is ever sent.
         val failure = build.start()
@@ -337,7 +356,17 @@ class Session(private val proto: Protocol) {
     private fun cancelBuild(request: Json) {
         val buildId = request.optString("buildId")
             ?: throw RpcException.application("build.cancel needs a buildId")
-        builds[buildId]?.cancel() ?: throw RpcException.application("no such build: $buildId")
+        synchronized(startLock) {
+            val build = builds[buildId]
+            if (build != null) {
+                build.cancel()
+                return
+            }
+            // Not started yet (its build.run still queued) or already finished: remember
+            // it, so a run that is still coming starts cancelled.
+            cancelledBeforeStart.add(buildId)
+            if (cancelledBeforeStart.size > 256) cancelledBeforeStart.remove(cancelledBeforeStart.first())
+        }
     }
 
     /** Called by a build when it is done, whatever its outcome. */

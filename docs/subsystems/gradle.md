@@ -96,7 +96,8 @@ connection.close { root }
 project.model    { root, probe: bool }    → ProjectModel (below)
 build.run        { buildId, root, tasks[], args[] } → { accepted }
 build.test       { buildId, root, task, filters? } → { accepted }
-build.cancel     { buildId }                // internal; the only route to it is operation.cancel
+build.cancel     { buildId }                // internal; the only route to it is operation.cancel;
+                                            // a cancel for a build not yet started is kept, so it starts cancelled
 ping
 shutdown
 ```
@@ -136,7 +137,7 @@ event.build.finished       { buildId, outcome, failures[], failureProblems[],
   recursing and carries a `truncatedCauses` count instead of more nodes — and
   `failureProblems` is capped at 500 with a dropped count. An **unknown** method that
   arrives as a notification (no id) gets no response. **Replies are bounded only by the
-  model's size** (`project.model` is a few hundred KiB on a large multi-module build).
+  model's size** (`project.model` measured 342 KiB for DopamineControl's 12 projects, about 28 KiB a project, in S1 run 2; the 16 MiB line cap allows several hundred modules).
   The **client accepts a line up to 16 MiB**; over it, it kills the sidecar and fails the
   call `BUILD_SIDECAR_CRASHED`, cause "protocol line over 16 MiB" — an untrusted build
   cannot grow one without bound.

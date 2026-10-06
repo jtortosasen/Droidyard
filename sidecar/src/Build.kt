@@ -90,13 +90,14 @@ class Build(
     }
 
     /** Starts the build thread; returns the failure when the thread could not start (N4). */
-    fun start(): Exception? {
+    fun start(): Throwable? {
         val thread = Thread({ synchronized(root.lock) { run() } }, "build-$buildId")
         thread.isDaemon = true
         return try {
             thread.start()
             null
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // A thread that cannot be created is usually an OutOfMemoryError, an Error.
             e
         }
     }
@@ -257,7 +258,7 @@ object FailureWriter {
         val nodesLeft = AtomicInteger(MAX_FAILURE_NODES)
         val out = ArrayList<Json>(failures.size)
         for ((i, f) in failures.withIndex()) {
-            if (out.isNotEmpty() && !budget.fits(MIN_NODE_COST)) break
+            if (out.isNotEmpty() && (nodesLeft.get() <= 0 || !budget.fits(MIN_NODE_COST))) break
             out.add(node(f, "f$i", budget, nodesLeft))
         }
         return out
@@ -418,7 +419,7 @@ class BuildListener(
             "event.build.taskFinished",
             obj(
                 "buildId" to str(buildId),
-                "path" to str(path),
+                "path" to str(capUtf8(path, MAX_FAILURE_TEXT)),
                 "outcome" to str(outcome),
                 "durationMs" to num(duration),
                 "reason" to reason?.let { str(capUtf8(it, MAX_FAILURE_TEXT)) },
@@ -451,7 +452,7 @@ class BuildListener(
                     "skipped" to num(counts["skipped"] ?: 0),
                     "failed" to num(counts["failed"] ?: 0),
                 ),
-                "activeTask" to str(activeTask),
+                "activeTask" to str(capUtf8(activeTask, MAX_FAILURE_TEXT)),
             ),
         )
     }

@@ -9,13 +9,13 @@
 # Go build needs no JVM: the jars are checked in and embedded.
 #
 # Needs a JDK (jar) and kotlinc. Overrides: KOTLINC, JAVA_HOME, BUILD_CACHE (where the
-# downloaded jars are kept), OUTDIR (where the jars are written; default: here).
+# downloaded jars are kept), OUTDIR (where the jars are written; default: jars/).
 # The versions below are pinned; a Tooling API bump means new URLs, new digests and a
 # rebuild (D4).
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
-outdir=${OUTDIR:-$here}
+outdir=${OUTDIR:-$here/jars}
 cache=${BUILD_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/droidyard-sidecar-build}
 
 TAPI_VERSION=9.8.0
