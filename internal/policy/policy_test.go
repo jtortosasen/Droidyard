@@ -100,6 +100,28 @@ func TestTrustRuleIsAnExactRootOrAPrefixAtABoundary(t *testing.T) {
 	}
 }
 
+// TestRelativeEntriesFailClosed: a relative entry would canonicalise against "/", so
+// "." would trust every root; the file is refused instead and names the entry
+// (verifier B1, step 3). The nextStep quotes a root holding a quote shell-safely.
+func TestRelativeEntriesFailClosed(t *testing.T) {
+	for _, body := range []string{
+		`{"schemaVersion":1,"trust":{"prefixes":["."]}}`,
+		`{"schemaVersion":1,"trust":{"prefixes":["./"]}}`,
+		`{"schemaVersion":1,"trust":{"prefixes":["~/src"]}}`,
+		`{"schemaVersion":1,"trust":{"roots":["repo"]}}`,
+	} {
+		dir := t.TempDir()
+		write(t, dir, body)
+		got, err := policy.New(envAt(dir)).Trusted("/Users/someone/evil-repo")
+		if got || err == nil || !strings.Contains(err.Cause, "not an absolute path") {
+			t.Errorf("%s: (%v, %v); want false and an error naming the relative entry", body, got, err)
+		}
+	}
+	if got, want := policy.UntrustedError("/w/it's").NextStep, "ask the user to run `droidyard trust '/w/it'\\''s'`"; got != want {
+		t.Errorf("nextStep = %q; want %q", got, want)
+	}
+}
+
 // TestMissingFileTrustsNothing: no configuration trusts nothing, and is not an error
 // (plan m1g D1).
 func TestMissingFileTrustsNothing(t *testing.T) {

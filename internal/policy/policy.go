@@ -125,7 +125,7 @@ type RootOf func(call *capability.Call) (string, bool)
 // (ADR-0015 §5; plan m1g D3). Its text is a decision, asserted by the tests.
 func UntrustedError(root string) *capability.Error {
 	return capability.Errorf(capability.ErrWorkspaceUntrusted, "the project root %q is not trusted, so its code will not run", root).
-		WithNextStep("ask the user to run `droidyard trust '" + root + "'`")
+		WithNextStep("ask the user to run `droidyard trust '" + strings.ReplaceAll(root, "'", `'\''`) + "'`")
 }
 
 // configurationError is the failure when the configuration file cannot be read or
@@ -327,9 +327,15 @@ func decode(data []byte) (*document, error) {
 				if err := json.Unmarshal(raw, &doc.trust.roots); err != nil {
 					return nil, fmt.Errorf("trust.roots: %w", err)
 				}
+				if err := absolute("trust.roots", doc.trust.roots); err != nil {
+					return nil, err
+				}
 			case "prefixes":
 				if err := json.Unmarshal(raw, &doc.trust.prefixes); err != nil {
 					return nil, fmt.Errorf("trust.prefixes: %w", err)
+				}
+				if err := absolute("trust.prefixes", doc.trust.prefixes); err != nil {
+					return nil, err
 				}
 			default:
 				doc.trust.extra[k] = raw
@@ -342,6 +348,18 @@ func decode(data []byte) (*document, error) {
 		}
 	}
 	return doc, nil
+}
+
+// absolute refuses a relative entry: canonicalising "." or "~/src" would anchor it at
+// "/", trusting every root or none without a word, so the whole file fails closed and
+// the cause names the entry (ADR-0031 §1).
+func absolute(key string, entries []string) error {
+	for _, e := range entries {
+		if e != "" && !filepath.IsAbs(e) {
+			return fmt.Errorf("%s: %q is not an absolute path", key, e)
+		}
+	}
+	return nil
 }
 
 // readDocument reads and parses path. A missing file is an empty configuration, so the
