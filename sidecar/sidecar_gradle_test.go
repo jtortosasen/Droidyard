@@ -909,3 +909,37 @@ func hasTask(project map[string]any, name string) bool {
 	}
 	return false
 }
+
+// Decision (step 1 re-check, R1): a build.cancel that overtakes its own build.run (the
+// run still queued behind a model fetch) is not lost: the build starts cancelled and
+// ends `cancelled` with one finished. Seen failing before the tombstone: the cancel
+// answered "no such build" and the build ran to success.
+func TestGradleCancelBeforeItsRunIsDispatched(t *testing.T) {
+	gradleTest(t)
+	p := startProc(t, false)
+	root := plainFixture(t)
+	openRoot(t, p, root)
+	if fin := runBuild(t, p, root, "b-warm", ":echoLine"); strOf(objOf(fin, "params"), "outcome") != "success" {
+		t.Fatalf("warm-up build did not succeed: %v", fin)
+	}
+	// A slow build holds the root's lock; a model fetch then holds the dispatcher.
+	id := p.send("build.run", map[string]any{"buildId": "b-hold", "root": root, "tasks": []string{":slow"}})
+	if boolOf(p.result(id, 30*time.Second), "accepted") != true {
+		t.Fatal("build.run :slow was not accepted")
+	}
+	time.Sleep(time.Second)
+	modelID := p.send("project.model", map[string]any{"root": root})
+	time.Sleep(300 * time.Millisecond)
+	// This run queues behind the model fetch; its cancel is served at once.
+	lateID := p.send("build.run", map[string]any{"buildId": "b-late", "root": root, "tasks": []string{":echoLine"}})
+	p.result(p.send("build.cancel", map[string]any{"buildId": "b-late"}), 5*time.Second)
+	p.result(p.send("build.cancel", map[string]any{"buildId": "b-hold"}), 5*time.Second)
+	p.result(modelID, 60*time.Second)
+	p.result(lateID, 60*time.Second)
+	fin := p.waitFor(60*time.Second, func(m map[string]any) bool {
+		return m["method"] == "event.build.finished" && strOf(objOf(m, "params"), "buildId") == "b-late"
+	})
+	if got := strOf(objOf(fin, "params"), "outcome"); got != "cancelled" {
+		t.Errorf("a build cancelled before its run was dispatched ended %q, want cancelled", got)
+	}
+}
