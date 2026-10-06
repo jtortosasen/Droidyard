@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,7 +136,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "artifact.read": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "artifact.read": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}
@@ -161,6 +162,22 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 				}
 			}
 		}
+		if c.Name == "device.tapElement" {
+			// R4: tapped, foreground, tree and expect.unmet quote device text; the
+			// daemon's expect bookkeeping and warnings do not.
+			for _, f := range []string{"tapped", "foreground", "tree", "expect", "warnings"} {
+				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
+				if want := f == "tapped" || f == "foreground" || f == "tree"; v != want {
+					t.Errorf("device.tapElement.%s: marked untrusted = %v, want %v", f, v, want)
+				}
+			}
+			for _, f := range []string{"unmet", "vacuous", "matched", "polls"} {
+				v, _ := prop(t, out, "expect", f)[capability.UntrustedKeyword].(bool)
+				if want := f == "unmet"; v != want {
+					t.Errorf("device.tapElement.expect.%s: marked untrusted = %v, want %v", f, v, want)
+				}
+			}
+		}
 		if c.Name != "device.uiTree" {
 			continue
 		}
@@ -175,6 +192,52 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	raw, _ := json.Marshal(untrustedFixture(t, false))
 	if !bytes.Contains(raw, []byte(capability.UntrustedKeyword)) {
 		t.Errorf("a result with tagged fields publishes no %s", capability.UntrustedKeyword)
+	}
+}
+
+// TestTapElementResultRequiresTappedAndNamesItsSnapshots: the published contract requires
+// tapped (a completed call always has one) and carries the snapshot id beside every ref
+// the result returns: tapped.snapshot for tapped.ref, a top-level snapshot for the unmet
+// candidates and tree. The snapshot ids are the daemon's, not device text, so neither is
+// marked untrusted. Seen failing with tapped optional and with either snapshot id
+// dropped (plan m1f step 6, fix round).
+func TestTapElementResultRequiresTappedAndNamesItsSnapshots(t *testing.T) {
+	doc, err := schema.Generate(registry(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	for _, c := range doc.Capabilities {
+		if c.Name != "device.tapElement" {
+			continue
+		}
+		if err := json.Unmarshal(c.Output, &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out == nil {
+		t.Fatal("device.tapElement is not in the schema")
+	}
+	var required []string
+	if rs, ok := out["required"].([]any); ok {
+		for _, r := range rs {
+			required = append(required, r.(string))
+		}
+	}
+	if !slices.Contains(required, "tapped") {
+		t.Errorf("required = %v, want tapped required in a completed result", required)
+	}
+	if _, ok := prop(t, out, "tapped")["properties"].(map[string]any)["snapshot"]; !ok {
+		t.Errorf("tapped has no snapshot property: %v", prop(t, out, "tapped"))
+	}
+	if v, _ := prop(t, out, "tapped", "snapshot")[capability.UntrustedKeyword].(bool); v {
+		t.Error("tapped.snapshot is the daemon's id, not device text: it must not be marked untrusted")
+	}
+	if _, ok := out["properties"].(map[string]any)["snapshot"]; !ok {
+		t.Errorf("the result has no top-level snapshot property: %v", out)
+	}
+	if v, _ := prop(t, out, "snapshot")[capability.UntrustedKeyword].(bool); v {
+		t.Error("the top-level snapshot is the daemon's id, not device text: it must not be marked untrusted")
 	}
 }
 
