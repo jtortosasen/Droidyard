@@ -182,13 +182,8 @@ Kotlin diagnostics, the rest of the S1 matrix (Gradle 9.x, AGP 9), Linux.
 
 ## Still to run (after run 2)
 
-- The **TAPI path**: the same errors through a minimal TAPI client with colour off,
-  capturing the forwarded console, the failure tree, failure-carried problems and
-  Problems events. This answers whether the console formats above hold without
-  `--console=plain`, and whether the AAPT2 detail arrives in the failure node, the
-  console, or both.
-- The **matrix** cells, KGP 2.3 vs 2.4 first: whether KGP 2.4 on Gradle 8.13+ puts
-  Kotlin locations into the Problems API, and whether they agree with the console.
-- **javac**, **kapt** and **manifest-merger** shapes; an AAPT2 **compile** error.
+- The rest of the **matrix**: Gradle 9.x and AGP 9 cells, and KGP 2.3.
+- **kapt** (DopamineControl uses KSP), a **KSP error** (only its warning form is
+  recorded), an AAPT2 **compile** error.
 - **Multi-line** Kotlin messages and notes, which the extractor must group.
-- A **warm daemon**, for both output stability and the warm-path timing.
+- **Linux**.

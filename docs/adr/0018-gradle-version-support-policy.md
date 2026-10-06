@@ -9,6 +9,9 @@
   9.1, which AGP 9.0 requires) in no tier. `validation` and all three profiles
   defined. Tier B's "degradation for test filters" removed: filters exist from 7.6,
   below the floor.
+- Amended: 2026-10-06 — rule 3's escape hatch (`gradle.allowBelowFloor`) is not
+  implemented yet: milestone 1g refuses below the floor with `BUILD_GRADLE_UNSUPPORTED`
+  until the configuration specification defines the key (1g D9, Delegated).
 - Relates to: [ADR-0017](0017-gradle-execution-strategy.md),
   [ADR-0022](0022-build-error-extraction.md),
   [ADR-0023](0023-android-project-facts-and-build-outputs.md)
