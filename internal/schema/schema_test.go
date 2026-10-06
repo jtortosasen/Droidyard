@@ -62,7 +62,7 @@ func registry() *capability.Registry {
 	if err != nil {
 		panic(err)
 	}
-	device.Register(reg, device.NewADB(nil, nil), store)
+	device.Register(reg, device.NewADB(nil, nil), store, nil)
 	artifacts.Register(reg, store)
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)

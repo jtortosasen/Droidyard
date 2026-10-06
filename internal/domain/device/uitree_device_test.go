@@ -70,7 +70,7 @@ func newUIFixturePort(t *testing.T, files map[string]string, port string) *uiFix
 	adb := newFake(t, dir, port)
 	reg := capability.NewRegistry()
 	store := testStore(t)
-	Register(reg, adb, store)
+	Register(reg, adb, store, nil)
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 	return &uiFixture{dir: dir, adb: adb, ops: ops, store: store}
@@ -497,7 +497,7 @@ func TestUITreeRequiresDeviceAndAdb(t *testing.T) {
 	sup := process.New(process.Options{})
 	t.Cleanup(sup.Shutdown)
 	reg := capability.NewRegistry()
-	Register(reg, NewADB([]string{"HOME=" + t.TempDir(), "PATH="}, sup.Spawn), testStore(t))
+	Register(reg, NewADB([]string{"HOME=" + t.TempDir(), "PATH="}, sup.Spawn), testStore(t), nil)
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 	id, err = ops.Start(context.Background(), capability.Request{Capability: "device.uiTree", Params: []byte(`{"device":"emulator-5554"}`)})
@@ -514,7 +514,7 @@ func TestUITreeRequiresDeviceAndAdb(t *testing.T) {
 // result is untrusted (derived from the tags) while device.list's is not.
 func TestUITreeDescriptorAndMark(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg, NewADB(nil, nil), testStore(t))
+	Register(reg, NewADB(nil, nil), testStore(t), nil)
 	var d capability.Descriptor
 	for _, x := range reg.All() {
 		if x.Name == "device.uiTree" {

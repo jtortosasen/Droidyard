@@ -112,9 +112,9 @@ row except `device.list` takes `device`.
 | Capability | Phase | Scope | Params and behaviour |
 | --- | --- | --- | --- |
 | `device.list` | MVP | G | Filtered by policy; details best-effort |
-| `device.install` | MVP, with `build.*` | W | `build: {buildId?, module, variant}` → `{applicationId, versionCode}` (§Install); moved out of milestone 1f to the `build.*` milestone, since its only input is a build reference (plan m1f D1) |
+| `device.install` | MVP, with `build.*` | W | `build: {buildId?, module, variant}` → `{applicationId, versionCode, apk}` (§Install); moved out of milestone 1f to the `build.*` milestone, since its only input is a build reference (plan m1f D1) |
 | `device.launch` | MVP | G | `applicationId` → `{pid, launchedAt}` (§Launch) |
-| `device.uninstall` | MVP, with `build.*` | G | `applicationId` (moves with `device.install`, plan m1f D1) |
+| `device.uninstall` | MVP, with `build.*` | G | `applicationId` → `{applicationId, uninstalled, reason?}` (moves with `device.install`, plan m1f D1; D18) |
 | `device.logs` | MVP | G | Snapshot or bounded follow, structured (§Logs) |
 | `device.screenshot` | MVP | G | Returns an **artifact reference**, never a path |
 | `device.uiTree`, `device.tapElement`, `device.inputText` | MVP | G | See [ui-automation](ui-automation.md) |
@@ -137,7 +137,12 @@ single source is AGP's `output-metadata.json`
   exit 0 and reported as `DEVICE_INSTALL_FAILED` with the `INSTALL_FAILED_*` reason.
 - Output resolution errors are the build subsystem's: `BUILD_OUTPUT_NOT_FOUND`,
   `BUILD_OUTPUT_STALE`, `BUILD_OUTPUT_UNSUPPORTED`.
-- The result carries `applicationId`, which `launch`, `uninstall` and `logs` take.
+- The result carries `applicationId` (which `launch`, `uninstall` and `logs` take), the
+  output's `versionCode` and the installed `apk`'s file name — never a path.
+- `device.uninstall {device, applicationId}` runs `pm path` first: an absent package is a
+  completed `{applicationId, uninstalled: false, reason: "notInstalled"}`; otherwise
+  `adb uninstall`, whose `Success` is `uninstalled: true` and whose `Failure […]` is
+  `DEVICE_UNINSTALL_FAILED` with the bracketed token as the cause (plan m1g D18).
 
 ### Launch
 
@@ -253,7 +258,8 @@ quirks, accepting the prompt. That belongs in a skill
 | No device connected | `DEVICE_NOT_FOUND` | Suggests starting an emulator or enabling USB debugging |
 | `unauthorized` | `DEVICE_NOT_READY` | Names the state and tells the user to accept the prompt on the device |
 | `offline` / `recovery` | `DEVICE_NOT_READY` | Names the state; not treated as an empty device list |
-| Install rejected | `DEVICE_INSTALL_FAILED` | The `INSTALL_FAILED_*` reason as the cause |
+| Install rejected | `DEVICE_INSTALL_FAILED` | The `INSTALL_FAILED_*` reason as the cause; detected even on exit 0 |
+| Uninstall rejected | `DEVICE_UNINSTALL_FAILED` | The `Failure […]` token as the cause; a package that is not installed is a completed call, not an error (plan m1g D18) |
 | Launch finds no launcher activity | `DEVICE_LAUNCH_FAILED` | The monkey output line as the cause |
 | Device disconnects mid-operation | `DEVICE_DISCONNECTED` | That operation fails with the transport error; other devices and workspaces are unaffected |
 | adb missing, or `ADB` names no file | `DEVICE_ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it. A bad `ADB` value fails closed, naming the value, and is not skipped: another adb could mismatch the running server and restart it (milestone 1e, Q6) |

@@ -924,7 +924,7 @@ func TestUITreeReadsBetweenATapElementsPolls(t *testing.T) {
 // is marked.
 func TestTapElementDescriptorAndMark(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg, NewADB(nil, nil), testStore(t))
+	Register(reg, NewADB(nil, nil), testStore(t), nil)
 	var d capability.Descriptor
 	for _, x := range reg.All() {
 		if x.Name == "device.tapElement" {

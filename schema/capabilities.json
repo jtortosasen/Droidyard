@@ -2565,6 +2565,153 @@
       }
     },
     {
+      "name": "device.install",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Installs a build's output on the device with `adb -s \u003cserial\u003e install -r \u003capk\u003e`, and returns the record's applicationId and versionCode and the APK's file name. The build reference is resolved from the build registry, never from a build script or manifest: buildId names one build, and absent means the newest finished build of the workspace with an output for module and variant. module and variant are checked against project.modules' and project.variants' shape before anything runs, and the resolution requires exactly one unfiltered APK whose file still matches the build's size and mtime. `install -r` replaces the app and keeps its data, so the call is not destructive; it is not idempotent. Fails with BUILD_OUTPUT_NOT_FOUND when no build produced the output, BUILD_OUTPUT_STALE when the file is gone or changed, BUILD_OUTPUT_UNSUPPORTED when the output is not one unfiltered APK, BUILD_NOT_FOUND for an unknown buildId, and DEVICE_INSTALL_FAILED when adb rejects the install (detected even on exit 0, with the INSTALL_FAILED_* reason as the cause), besides the device errors of a missing, unusable, physical or vanished device.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "BUILD_OUTPUT_NOT_FOUND",
+        "BUILD_OUTPUT_STALE",
+        "BUILD_OUTPUT_UNSUPPORTED",
+        "BUILD_NOT_FOUND",
+        "WORKSPACE_STATE_UNREADABLE",
+        "REQUEST_INVALID_PARAMS",
+        "DEVICE_INSTALL_FAILED"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "build": {
+            "properties": {
+              "buildId": {
+                "type": "string",
+                "description": "Which build's output to install. Absent resolves the newest finished build of the workspace with an output for module and variant."
+              },
+              "module": {
+                "type": "string",
+                "pattern": "^(:[A-Za-z0-9_.-]+)+$",
+                "description": "The Gradle project path of the module whose output to install, e.g. \":app\", matching project.modules."
+              },
+              "variant": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$",
+                "description": "The variant whose APK to install, e.g. \"debug\", matching project.variants."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "module",
+              "variant"
+            ],
+            "description": "The build reference to install: a module and variant, and optionally a buildId."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "build"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "applicationId": {
+                "type": "string"
+              },
+              "versionCode": {
+                "type": "integer",
+                "description": "The output's versionCode, absent when the build's metadata named none."
+              },
+              "apk": {
+                "type": "string",
+                "description": "The installed APK's file name."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "applicationId",
+              "apk"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "device.launch",
       "kind": "command",
       "scope": "global",
@@ -3807,6 +3954,74 @@
           "foreground",
           "display",
           "nodes"
+        ]
+      }
+    },
+    {
+      "name": "device.uninstall",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Uninstalls an application from the device, and reports whether it removed one. It runs `adb -s \u003cserial\u003e shell pm path \u003capplicationId\u003e` first: when the package is not there, the call completes with uninstalled false and reason \"notInstalled\", touching nothing. Otherwise it runs `adb -s \u003cserial\u003e uninstall \u003capplicationId\u003e`; \"Success\" is uninstalled true, and a \"Failure […]\" is DEVICE_UNINSTALL_FAILED with the bracketed token as the cause. Uninstalling removes the app's data, so the call is destructive, and it is not idempotent. applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched. Besides DEVICE_UNINSTALL_FAILED, it fails with the device errors of a missing, unusable, physical or vanished device.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "REQUEST_INVALID_PARAMS",
+        "DEVICE_UNINSTALL_FAILED",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "applicationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$",
+            "description": "The applicationId to uninstall: a package name, unmatched ids are rejected before the device is touched."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "applicationId"
+        ]
+      },
+      "output": {
+        "properties": {
+          "applicationId": {
+            "type": "string"
+          },
+          "uninstalled": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why uninstalled is false; \"notInstalled\" when the package was already absent."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "applicationId",
+          "uninstalled"
         ]
       }
     },

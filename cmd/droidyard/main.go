@@ -225,7 +225,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// the consoles they own. Without a state store it registers capabilities whose
 	// handlers report that nothing is configured.
 	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log})
-	device.Register(reg, adb, artifacts)
+	device.Register(reg, adb, artifacts, history)
 	artifactcap.Register(reg, artifacts)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
