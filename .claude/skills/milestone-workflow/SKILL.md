@@ -33,15 +33,19 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 
 ## Verification by risk
 
-Every step gets its check, the four commands and the main session's review of the diff. On top of that:
+Every step gets its check, the four commands and the main session's review of the diff. On top of that (owner, 2026-10-06: fewer rounds, same bar):
 
 | The step | Review |
 | --- | --- |
-| changes what a capability means (a new capability, error code or field, or a changed one's semantics), the security fence, authorization or untrusted marking, concurrency, or process lifetime | Opus `verifier` and the DeepSeek cross-check, in parallel |
-| anything else: description text, an adapter change its tests fully cover, fixtures, a parser, internal plumbing, tests, documents | the DeepSeek cross-check alone, and the main session reviews the diff, which is the cross-model check when DeepSeek implemented the step |
+| changes what a capability means (a new capability, error code or field, or a changed one's semantics), the security fence, authorization or untrusted marking, concurrency, or process lifetime | the Opus `verifier` alone |
+| anything else: description text, an adapter change its tests fully cover, fixtures, a parser, internal plumbing, tests, documents | the main session's review of the diff |
 | the milestone's close | Opus `verifier` and the DeepSeek cross-check, over the Acceptance items |
 
-When unsure, take the deeper row. A step whose review found a blocker gets its fix round reviewed by the reviewer that found it, on the diff only.
+- **Fix rounds.** Small fixes (a test, a bound, a doc line, a few lines of code) the main session makes itself and checks with the tests; only a blocking finding whose fix is not small goes back to the implementer and then to the reviewer that found it, on the diff only.
+- **Reversal evidence.** "Seen failing with the decision reversed" is required for the decisions a blocking finding would be about (correctness, bounds, safety), not for every test.
+- **Grouping.** Adjacent steps that share a package and are each small may be implemented, reviewed and run at level 5 together.
+
+When unsure, take the deeper row.
 
 ## When not to use it
 

@@ -39,8 +39,8 @@ skill says who does what.
 
 - **Main session** (Opus): runs the workflow, briefs the implementer one step at a time,
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
-  §Verification by risk): Opus and DeepSeek together only for contract, security and
-  concurrency changes and at close; DeepSeek alone otherwise.
+  §Verification by risk): the Opus verifier for contract, security and concurrency
+  changes; the main session's diff review otherwise; Opus and DeepSeek together at close.
 - **Implementer: DeepSeek through OpenCode** (owner's choice, 2026-10-04, to spare the
   subscription's quota): `opencode run --standalone -m opencode-go/deepseek-v4.1-flash
   --agent implementer --auto "<brief>"`, one plan step per run. It edits and tests but never
