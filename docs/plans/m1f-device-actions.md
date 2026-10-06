@@ -224,7 +224,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: Cursor; DopamineControl (needs `build.*`); a physical device; Linux.
 - Rests on: —
 - Review: the close: Opus verifier and DeepSeek over A1–A9.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2854987; `.claude/skills/verify-daemon/SKILL.md` gains the 1f Device actions block; 1e's (2b) row marked not to be run on a shared emulator. Level 5, main session, 2026-10-06, evidence `/private/tmp/dy.QWqFfz`, tagged build (`go version -m`): (1) OpenCode v2.0.18 (`opencode-go/deepseek-v4.1-flash`), shell and edit denied: `mcp connected ... tools=14`; the wire shows `device_launch` -> pid 20715, `device_inputText {id:name}` clear "Ana" -> typed, `device_tapElement {id:greet}` appears "Hello, Ana" -> matched at 349 ms, `device_tapElement {id:like}` appears "Likes: 1" -> matched at 371 ms; `_meta {"droidyard/untrusted": true}` and the fixed first line on the input and both tap results; tools used: the four droidyard tools and OpenCode's `execute` tool search, no shell. (2) CLI: ten warm `uiTree` 686-1019 ms, median 733 ms (the host was loaded; 0.1 s when idle, step 5); `Twin` -> `DEVICE_ELEMENT_AMBIGUOUS` with `meta.untrusted`; a `likes` ref from before a tap that changed its text -> `DEVICE_STALE_REF`. (3) One reader pid (20759) through the run; after `droidyard stop` no reader and no forward. (4) Form app uninstalled; adb server pid 48737, Qustodio pid 4868 and `default_input_method` unchanged from first to last; zero orphans.
 
 ## Not in this milestone
 
