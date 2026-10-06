@@ -848,3 +848,73 @@ func TestAssembleRejectsAnUnknownVariant(t *testing.T) {
 		t.Fatalf("code is %s, want REQUEST_INVALID_PARAMS for an unknown module", code)
 	}
 }
+
+// Decision (step 7 review B1): a cancel before the sidecar answered {accepted} still
+// reaches it, so the queued build starts cancelled instead of running unwatched. Seen
+// failing when run() returned without sending build.cancel.
+func TestCancelBeforeAcceptReachesTheSidecar(t *testing.T) {
+	evPath := filepath.Join(t.TempDir(), "events")
+	f := newFixture(t, gradletest.Config{Events: evPath, Build: &gradletest.Build{AcceptDelayMs: 1500, WaitForCancel: true}})
+	id := f.start(t, "build.run", `{"tasks":[":app:assembleDebug"]}`)
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		data, _ := os.ReadFile(evPath)
+		if strings.Contains(string(data), "served build.run") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("build.run never reached the fake")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := f.ops.Cancel(id); err != nil {
+		t.Fatal(err)
+	}
+	if out := f.wait(t, id); out.State != capability.StateCancelled {
+		t.Fatalf("operation ended %s, want cancelled", out.State)
+	}
+	data, _ := os.ReadFile(evPath)
+	if !strings.Contains(string(data), "served build.cancel") {
+		t.Fatalf("no build.cancel reached the sidecar; events:\n%s", data)
+	}
+}
+
+// Decision (step 7 review B2): two output-metadata.json naming the same variant under
+// the module's outputs are ambiguous, never resolved to the first in sort order.
+func TestTwoMetadataForOneVariantAreAmbiguous(t *testing.T) {
+	buildDir := t.TempDir()
+	writeAPK(t, buildDir, "debug", outputMetadataJSON(t, "", ""))
+	writeAPK(t, buildDir, filepath.Join("debug", "archive"), outputMetadataJSON(t, "", ""))
+	f := newFixture(t, modelWith(t, gradletest.Config{Build: successBuild(gradle.TaskSummary{})}, buildDir))
+	res := mustResult(t, f.wait(t, f.start(t, "build.assemble", `{"module":":app","variant":"debug"}`)))
+	if len(res.Outputs) != 1 || len(res.Outputs[0].APKs) != 0 || !strings.Contains(res.Outputs[0].Reason, "ambiguous") {
+		t.Fatalf("outputs are %+v, want one output with the ambiguity reason and no APK", res.Outputs)
+	}
+}
+
+// Decision (step 7 review B3): a buildId that is not an operation id names no build,
+// so a path in it never reaches the state store.
+func TestBuildErrorsRefusesABuildIDThatIsNotAnOperationID(t *testing.T) {
+	state := t.TempDir()
+	f := newFixtureAt(t, state, gradletest.Config{Build: successBuild(gradle.TaskSummary{})})
+	ownID := f.start(t, "build.run", `{"tasks":[":app:assembleDebug"]}`)
+	f.wait(t, ownID)
+	// Another workspace's record, reachable through ".." if the id reached a path.
+	data, err := os.ReadFile(filepath.Join(state, "state", "ws", testWS, "builds", ownID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(state, "state", "ws", "other-aaaaaaaaaaaa", "builds")
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "op-0123456789abcdef.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"../../other-aaaaaaaaaaaa/builds/op-0123456789abcdef", "op-0123", "OP-0123456789ABCDEF"} {
+		out := f.call(t, "build.errors", `{"buildId":"`+id+`"}`)
+		if out.Error == nil || out.Error.Code != capability.ErrBuildNotFound {
+			t.Errorf("%q: %+v, want BUILD_NOT_FOUND", id, out.Error)
+		}
+	}
+}

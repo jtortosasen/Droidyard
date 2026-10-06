@@ -317,7 +317,7 @@
                   "type": "string"
                 },
                 "type": "array",
-                "description": "Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."
+                "description": "Tooling API capabilities Gradle refused, e.g. problemEvents; the console extractor covers what they would have carried."
               },
               "validation": {
                 "type": "string",
@@ -644,6 +644,7 @@
         "properties": {
           "buildId": {
             "type": "string",
+            "pattern": "^op-[0-9a-f]{16}$",
             "description": "Which build's merged errors to return. Absent returns the newest finished build of the workspace (the one build.lastResult names)."
           },
           "includeWarnings": {
@@ -938,7 +939,7 @@
               "type": "string"
             },
             "type": "array",
-            "description": "Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."
+            "description": "Tooling API capabilities Gradle refused, e.g. problemEvents; the console extractor covers what they would have carried."
           },
           "validation": {
             "type": "string",
@@ -1404,7 +1405,7 @@
                   "type": "string"
                 },
                 "type": "array",
-                "description": "Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."
+                "description": "Tooling API capabilities Gradle refused, e.g. problemEvents; the console extractor covers what they would have carried."
               },
               "validation": {
                 "type": "string",

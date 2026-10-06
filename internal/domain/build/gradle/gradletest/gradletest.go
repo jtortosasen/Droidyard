@@ -118,6 +118,10 @@ type Build struct {
 	// WaitForCancel holds the build open after its steps until build.cancel arrives, so
 	// a test can cancel a build mid-flight; the fake then finishes it cancelled.
 	WaitForCancel bool `json:"waitForCancel,omitempty"`
+	// AcceptDelayMs answers build.run {accepted} only after that delay, while further
+	// requests are still read: the build.run queued behind a model fetch in the real
+	// sidecar, which a cancel can overtake (step 7 review B1).
+	AcceptDelayMs int `json:"acceptDelayMs,omitempty"`
 	// Silent sends no terminal notification at all: the lost-terminal-event path.
 	Silent bool `json:"silent,omitempty"`
 	// DieAfterSteps exits the process, without answering anything more, once that many
@@ -355,6 +359,14 @@ func (s *sidecar) build(id json.RawMessage, params json.RawMessage) {
 	s.cmu.Lock()
 	s.cancels[p.BuildID] = cancel
 	s.cmu.Unlock()
+	if d := s.cfg.Build.AcceptDelayMs; d > 0 {
+		go func() {
+			time.Sleep(time.Duration(d) * time.Millisecond)
+			s.writeResult(id, map[string]any{"accepted": true})
+			s.play(p.BuildID, cancel)
+		}()
+		return
+	}
 	s.writeResult(id, map[string]any{"accepted": true})
 	go s.play(p.BuildID, cancel)
 }
