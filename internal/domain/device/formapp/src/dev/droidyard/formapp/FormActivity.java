@@ -38,6 +38,9 @@ public class FormActivity extends Activity {
         final int pad = (int) (12 * getResources().getDisplayMetrics().density);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        // targetSdk 36 draws edge to edge: without this the form starts under the status
+        // bar and its top fields cannot be tapped (plan m1f D22). No action bar either.
+        root.setFitsSystemWindows(true);
         root.setPadding(pad, pad, pad, pad);
 
         final EditText name = new EditText(this);

@@ -62,6 +62,11 @@ type UINode struct {
 	Bounds   [4]int   `json:"bounds" jsonschema:"required"`
 	Flags    []string `json:"flags,omitempty"`
 	Children []string `json:"children,omitempty"`
+
+	// drawingOrder is the node's `drawing-order` from the dump, kept for occlusion
+	// (ui-automation.md §Resolution): the child drawn last covers its siblings. It is
+	// unexported on purpose, so it never reaches the published snapshot (plan m1f D22).
+	drawingOrder int
 }
 
 // NewSnapshotID returns a fresh id like "s-81c2ab34". The plan's D16 fixes the shape:
@@ -86,6 +91,7 @@ func NewSnapshotID() string {
 type rawNode struct {
 	class, pkg, id, text, desc string
 	bounds                     [4]int
+	drawing                    int
 	flags                      []string
 	children                   []*rawNode
 }
@@ -162,6 +168,8 @@ func nodeFromAttrs(attrs []xml.Attr) *rawNode {
 			n.desc = a.Value
 		case "bounds":
 			n.bounds = parseBounds(a.Value)
+		case "drawing-order":
+			n.drawing, _ = strconv.Atoi(a.Value)
 		case "enabled":
 			enabled = a.Value != "false"
 		case "clickable", "scrollable", "checkable", "checked", "selected", "focused", "password":
@@ -236,7 +244,7 @@ func buildSnapshot(dump []byte, id string, maxBytes int, within *AncestorSelecto
 		idx := len(s.Nodes)
 		s.Nodes = append(s.Nodes, UINode{
 			Ref: "n" + strconv.Itoa(idx), Class: n.class, ID: n.id, Text: n.text,
-			Desc: n.desc, Bounds: n.bounds, Flags: n.flags,
+			Desc: n.desc, Bounds: n.bounds, Flags: n.flags, drawingOrder: n.drawing,
 		})
 		depths = append(depths, depth)
 		if parent >= 0 {

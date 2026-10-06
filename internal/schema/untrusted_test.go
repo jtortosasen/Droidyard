@@ -136,7 +136,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "artifact.read": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "device.inputText": true, "artifact.read": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}
@@ -175,6 +175,22 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 				v, _ := prop(t, out, "expect", f)[capability.UntrustedKeyword].(bool)
 				if want := f == "unmet"; v != want {
 					t.Errorf("device.tapElement.expect.%s: marked untrusted = %v, want %v", f, v, want)
+				}
+			}
+		}
+		if c.Name == "device.inputText" {
+			// R4: tapped and expect.unmet quote device text; the bookkeeping and
+			// warnings do not.
+			for _, f := range []string{"typed", "characters", "method", "tapped", "expect", "warnings"} {
+				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
+				if want := f == "tapped"; v != want {
+					t.Errorf("device.inputText.%s: marked untrusted = %v, want %v", f, v, want)
+				}
+			}
+			for _, f := range []string{"unmet", "vacuous", "matched", "polls"} {
+				v, _ := prop(t, out, "expect", f)[capability.UntrustedKeyword].(bool)
+				if want := f == "unmet"; v != want {
+					t.Errorf("device.inputText.expect.%s: marked untrusted = %v, want %v", f, v, want)
 				}
 			}
 		}

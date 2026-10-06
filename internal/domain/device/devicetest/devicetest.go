@@ -38,6 +38,15 @@
 //	<serial>.kill               `-s <serial> shell kill <pid>`
 //	<serial>.ps                 `-s <serial> shell ps -A -o PID,NAME` (.out holds the listing)
 //	<serial>.inputtap           `-s <serial> shell input tap <x> <y>`
+//	<serial>.date               `-s <serial> shell date +%s.%N`
+//	<serial>.monkey             `-s <serial> shell monkey -p <id> -c android.intent.category.LAUNCHER 1`
+//	<serial>.apppidof           `-s <serial> shell pidof <applicationId>`
+//	<serial>.sdk                `-s <serial> shell getprop ro.build.version.sdk`
+//	<serial>.inputtext          `-s <serial> shell input text <arg>`
+//	<serial>.inputkeyevent      `-s <serial> shell input keyevent <codes…>`
+//	<serial>.inputkeycombination `-s <serial> shell input keycombination <codes…>`
+//	<serial>.inputmethod        `-s <serial> shell settings get secure default_input_method`
+//	<serial>.broadcast          `-s <serial> shell am broadcast -a ADB_INPUT_B64 --es msg <base64>`
 //
 // The fake models the host's forwards in `forwards.list`, one `<serial> tcp:<port>
 // <remote>` line per forward. A `forward tcp:0 localabstract:<remote>` binds a real host
@@ -285,12 +294,30 @@ func servedPrefix(args []string) string {
 		return args[1] + ".start"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof" && strings.HasPrefix(args[4], "droidyard-reader-"):
 		return args[1] + ".pidof"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof":
+		return args[1] + ".apppidof"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "kill":
 		return args[1] + ".kill"
 	case len(args) == 7 && args[2] == "shell" && args[3] == "ps" && args[4] == "-A" && args[5] == "-o" && args[6] == "PID,NAME":
 		return args[1] + ".ps"
 	case len(args) == 7 && args[2] == "shell" && args[3] == "input" && args[4] == "tap":
 		return args[1] + ".inputtap"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "date" && args[4] == "+%s.%N":
+		return args[1] + ".date"
+	case len(args) == 9 && args[2] == "shell" && args[3] == "monkey" && args[4] == "-p" && args[6] == "-c" && args[7] == "android.intent.category.LAUNCHER" && args[8] == "1":
+		return args[1] + ".monkey"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.build.version.sdk":
+		return args[1] + ".sdk"
+	case len(args) == 6 && args[2] == "shell" && args[3] == "input" && args[4] == "text":
+		return args[1] + ".inputtext"
+	case len(args) >= 6 && args[2] == "shell" && args[3] == "input" && args[4] == "keycombination":
+		return args[1] + ".inputkeycombination"
+	case len(args) >= 5 && args[2] == "shell" && args[3] == "input" && args[4] == "keyevent":
+		return args[1] + ".inputkeyevent"
+	case len(args) == 7 && args[2] == "shell" && args[3] == "settings" && args[4] == "get" && args[5] == "secure" && args[6] == "default_input_method":
+		return args[1] + ".inputmethod"
+	case len(args) == 10 && args[2] == "shell" && args[3] == "am" && args[4] == "broadcast" && args[5] == "-a" && args[6] == "ADB_INPUT_B64" && args[7] == "--es" && args[8] == "msg":
+		return args[1] + ".broadcast"
 	}
 	switch strings.Join(args[2:], " ") {
 	case "shell getprop sys.boot_completed":

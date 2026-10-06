@@ -57,8 +57,13 @@ func quickAct(t *testing.T) {
 	before, tap, settle, poll, bound, reserve := actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve
 	actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve =
 		2*time.Second, 200*time.Millisecond, 5*time.Millisecond, 5*time.Millisecond, 5*time.Second, 50*time.Millisecond
+	// device.inputText shares the act-then-verify bounds and adds its own (plan m1f
+	// step 9): the clear/typing/submit budget and the ADBKeyboard check.
+	typeBound, methodBound, cmdBound := inputTypeBound, inputMethodTimeout, inputCommandTimeout
+	inputTypeBound, inputMethodTimeout, inputCommandTimeout = 500*time.Millisecond, 200*time.Millisecond, 500*time.Millisecond
 	t.Cleanup(func() {
 		actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve = before, tap, settle, poll, bound, reserve
+		inputTypeBound, inputMethodTimeout, inputCommandTimeout = typeBound, methodBound, cmdBound
 	})
 }
 
