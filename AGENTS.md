@@ -42,15 +42,15 @@ skill says who does what.
   §Verification by risk): the Opus verifier for contract, security and concurrency
   changes and at a milestone's close; the main session's diff review otherwise.
 - **Implementer: DeepSeek through pi** (owner's choice, 2026-10-04, to spare the
-  subscription's quota; pi instead of OpenCode since 2026-10-06): `pi -p -a --no-session
-  --model opencode-go/deepseek-v4.1-flash --append-system-prompt .pi/roles/implementer.md
-  "<brief>"`, run in the worktree, one plan step per run. pi is one process (it ends with
-  the command). Its limits are the project policy of the `@gotgenes/pi-permission-system`
-  extension (`.pi/settings.json`, `.pi/extensions/pi-permission-system/config.json`;
-  `-a` trusts the project for the run): no staging, committing or discarding, no `adb`
-  or emulator, no writes outside the tree and temp; pi runs headless, so an `ask` is a
-  deny. The main session reviews the diff and commits. The Claude `implementer`
-  (Sonnet) is the fallback for a step DeepSeek fails twice.
+  subscription's quota; pi instead of OpenCode since 2026-10-06), run with
+  `.claude/skills/milestone-workflow/pi-implement.sh <dir> <brief> <out>`: one plan step
+  per run, in the main tree (a worktree only for parallel steps), its progress and final
+  report in `<out>`. pi has no permissions of its own; its limits are the project policy
+  of the `@gotgenes/pi-permission-system` extension (`.pi/settings.json`,
+  `.pi/extensions/pi-permission-system/config.json`): no staging, committing or
+  discarding, no `adb` or emulator, no writes outside the tree and temp; headless, so an
+  `ask` is a deny. The main session reviews the diff and commits. The Claude
+  `implementer` (Sonnet) is the fallback for a step DeepSeek fails twice.
 - **`planner`, `plan-reviewer`, `verifier`** (Opus).
 - **DeepSeek only writes code.** It implements; it does not review, verify or plan
   (owner, 2026-10-06). Every check is Opus's.
