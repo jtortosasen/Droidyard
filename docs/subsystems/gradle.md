@@ -111,7 +111,8 @@ event.build.taskFinished   { buildId, path, outcome, durationMs, reason? }
 event.build.problem        { buildId, problem }                // live; see Error model
 event.build.problemSummary { buildId, problemId, suppressed }  // Gradle throttled events
 event.test.finished        { buildId, suite, test, outcome, durationMs }
-event.build.finished       { buildId, outcome, failures[], failureProblems[] }
+event.build.finished       { buildId, outcome, failures[], failureProblems[],
+                             missingCapabilities[] }
 ```
 
 - `build.run` returns once the build is accepted; the terminal notification carries
@@ -121,6 +122,15 @@ event.build.finished       { buildId, outcome, failures[], failureProblems[] }
   `protocolVersion` and the core refuses a mismatch with a clear error.
 - **No orphans.** The sidecar exits on stdin EOF, so a SIGKILLed core cannot leave it
   running (plus `Pdeathsig` on Linux).
+- **Framing and caps** (m1g D6). One message per line, `\n`-terminated. **stdout carries
+  the protocol only**: at start the sidecar points `System.out` at stderr and writes the
+  protocol to the captured original stdout, so a stray `println` — ours, the Tooling
+  API's or a plugin's — cannot corrupt the stream; its stderr goes to the supervisor's
+  log sink. Each failure's message and description is cut at 8 KiB, a failure tree at 200
+  nodes, and a single console line at 64 KiB, followed by a marker naming how many bytes
+  were dropped, so no build output can produce an over-long message. A line over 1 MiB is
+  a protocol error: the client kills the sidecar and fails the call
+  `BUILD_SIDECAR_CRASHED`, cause "protocol line over 1 MiB".
 
 ## Output: control vs. volume
 

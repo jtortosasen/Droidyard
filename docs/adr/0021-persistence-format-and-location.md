@@ -12,6 +12,9 @@
 - Amended: 2026-10-03 (third pass) — runtime files (`daemon.lock`, `run/`) carry no
   `schemaVersion`: their contents mean something only while the daemon holds the lock,
   and `run/http-token` is deleted on exit (milestone 1d, owner-delegated decision D8).
+- Amended: 2026-10-06 — the configuration directory decided (ADR-0031): under an
+  explicit `DROIDYARD_STATE_DIR` it is `<state>/config/`; on macOS without overrides
+  `~/Library/Application Support/droidyard-config/`. Milestone 1g plan D1, Delegated.
 
 ## Context
 
