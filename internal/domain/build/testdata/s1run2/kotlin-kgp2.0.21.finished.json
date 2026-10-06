@@ -1,0 +1,24 @@
+{
+ "outcome": "failed",
+ "failureProblems": [],
+ "problemEvents": [],
+ "failures": [
+  {
+   "id": "0a4661a8b9f84fa7",
+   "message": "Execution failed for task ':app:compileDebugKotlin'.",
+   "causes": [
+    {
+     "id": "33c4ddcc38ce7505",
+     "message": "A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction",
+     "causes": [
+      {
+       "id": "6aea83fc54ae46b1",
+       "message": "Compilation error. See log for more details",
+       "causes": []
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

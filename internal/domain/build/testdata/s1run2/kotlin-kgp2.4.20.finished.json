@@ -1,0 +1,47 @@
+{
+ "outcome": "failed",
+ "failureProblems": [],
+ "problemEvents": [
+  {
+   "severity": "warning",
+   "problemId": "UNNECESSARY_NOT_NULL_ASSERTION",
+   "problemDisplayName": "Kotlin compiler: UNNECESSARY_NOT_NULL_ASSERTION",
+   "contextualLabel": "Kotlin compiler warning",
+   "details": "Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.",
+   "file": "/w/dc/feature/applist/src/main/kotlin/com/example/dopaminecontrol/feature/applist/ui/AppListScreen.kt",
+   "line": 400,
+   "column": 75,
+   "solutions": []
+  },
+  {
+   "severity": "error",
+   "problemId": "UNRESOLVED_REFERENCE",
+   "problemDisplayName": "Kotlin compiler: UNRESOLVED_REFERENCE",
+   "contextualLabel": "Kotlin compiler error",
+   "details": "Unresolved reference 'thisSymbolDoesNotExist'.",
+   "file": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt",
+   "line": 3,
+   "column": 24,
+   "solutions": []
+  }
+ ],
+ "failures": [
+  {
+   "id": "0a4661a8b9f84fa7",
+   "message": "Execution failed for task ':app:compileDebugKotlin'.",
+   "causes": [
+    {
+     "id": "f042ca59ac011d80",
+     "message": "A failure occurred while executing org.jetbrains.kotlin.compilerRunner.btapi.BuildToolsApiCompilationWork",
+     "causes": [
+      {
+       "id": "14de87f934edaff0",
+       "message": "Compilation error. See log for more details",
+       "causes": []
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

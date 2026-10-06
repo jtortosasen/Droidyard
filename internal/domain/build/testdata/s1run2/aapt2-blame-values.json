@@ -1,0 +1,26 @@
+{
+ "logs": [
+  {
+   "outputFile": "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml",
+   "map": [
+    {
+     "source": "/w/dc/app/src/main/res/values/strings.xml",
+     "from": {
+      "startLines": "3,2,1",
+      "startColumns": "4,4,4",
+      "startOffsets": "153,69,16",
+      "endColumns": "146,83,52",
+      "endOffsets": "295,148,64"
+     },
+     "to": {
+      "startLines": "117,118,120",
+      "startColumns": "4,4,4",
+      "startOffsets": "6964,7111,7278",
+      "endColumns": "146,83,52",
+      "endOffsets": "7106,7190,7326"
+     }
+    }
+   ]
+  }
+ ]
+}

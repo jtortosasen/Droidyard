@@ -1,0 +1,18 @@
+{
+ "outcome": "failed",
+ "failureProblems": [],
+ "problemEvents": [],
+ "failures": [
+  {
+   "id": "5e49e8d84f55db07",
+   "message": "Execution failed for task ':app:processDebugMainManifest'.",
+   "causes": [
+    {
+     "id": "cc75cba692be89be",
+     "message": "Manifest merger failed with multiple errors, see logs",
+     "causes": []
+    }
+   ]
+  }
+ ]
+}

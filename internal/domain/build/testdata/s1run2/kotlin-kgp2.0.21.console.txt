@@ -1,0 +1,6 @@
+stdout	> Task :app:compileDebugKotlin FAILED
+stderr	e: file:///w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt:3:24 Unresolved reference 'thisSymbolDoesNotExist'.
+stderr	e: file:///w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt:6:12 Return type mismatch: expected 'kotlin.String', actual 'kotlin.Int'.
+stderr	* What went wrong:
+stderr	Execution failed for task ':app:compileDebugKotlin'.
+stderr	   > Compilation error. See log for more details
