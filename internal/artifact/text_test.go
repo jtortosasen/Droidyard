@@ -138,3 +138,48 @@ func TestTextReadsADurableEntryInPlace(t *testing.T) {
 		t.Fatalf("page = %+v", p)
 	}
 }
+
+// Decision (step 4 review B1, B2): a reader that follows nextOffset always reaches
+// size. Once the producer has closed the artifact its unterminated last line is
+// returned (a cap or a cancel can stop mid-line), while a growing artifact still holds
+// it back; and the smallest limit still advances over an over-long multibyte line.
+func TestTextReaderFollowingNextOffsetReachesTheEnd(t *testing.T) {
+	growing := Entry{Data: []byte("aaa\nbbbb"), Size: 8, Growing: true}
+	if p, _ := ReadText(growing, 4, 0); p.Text != "" || p.NextOffset != 4 {
+		t.Fatalf("growing: the partial line must be held back: %+v", p)
+	}
+	for _, c := range []struct {
+		data  string
+		limit int
+	}{
+		{"aaa\nbbbbbbbbbb", 0},
+		{"aaa\nbbbbbbbbbb", 5},
+		{strings.Repeat("é", 100), MinTextLimit},
+		{strings.Repeat("中", 100) + "\nend", MinTextLimit},
+		{strings.Repeat("😀", 50), 1}, // below the minimum: raised to it
+	} {
+		e := text(c.data)
+		var got strings.Builder
+		off := int64(0)
+		for i := 0; off < e.Size; i++ {
+			if i > len(c.data) {
+				t.Fatalf("%q limit %d: stuck at %d", c.data, c.limit, off)
+			}
+			p, err := ReadText(e, off, c.limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.NextOffset <= off {
+				t.Fatalf("%q limit %d: nextOffset %d did not advance from %d", c.data, c.limit, p.NextOffset, off)
+			}
+			if !utf8.ValidString(p.Text) {
+				t.Fatalf("%q limit %d: split a rune: %q", c.data, c.limit, p.Text)
+			}
+			got.WriteString(p.Text)
+			off = p.NextOffset
+		}
+		if got.String() != c.data {
+			t.Errorf("%q limit %d: read back %q", c.data, c.limit, got.String())
+		}
+	}
+}

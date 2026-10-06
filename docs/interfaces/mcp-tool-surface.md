@@ -201,8 +201,7 @@ typed contract.
     delivered at 461×1024 costs about 630 image tokens with Anthropic's `w·h/750`
     rule. That is why the instructions prefer the tree.
 - **Every reference is readable.** `artifact_read {ref, …}`
-  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) pages text by byte offset (with
-  the first text artifact; 1e reads images only). A negative offset reads from the end. For images it redelivers the artifact larger, or
+  ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) pages text by byte offset (since 0.6.0). A negative offset reads from the end. For images it redelivers the artifact larger, or
   cropped with a normalised `region`, within the hard cap, as an image block: at its
   `maxEdge`, or 1024 px when it gives none (an MCP agent never receives the stored
   bytes as base64), with the structured `delivered` and `mediaType` describing the

@@ -32,7 +32,7 @@ type DurableOptions struct {
 	// MediaType is the artifact's content type, kept in its reference record.
 	MediaType string
 	// Untrusted is the producer's mark (ADR-0015 §1). A console is project content
-	// and unmarked; device-derived artifacts are marked.
+	// and unmarked. The mark is not persisted yet, so CreateDurable refuses true.
 	Untrusted bool
 	// Cap is the per-artifact byte cap ADR-0012 lets the producer set (D24: 32 MiB
 	// for a console). 0 means no cap. Bytes past it are dropped and counted, never an
@@ -70,6 +70,12 @@ func (s *Store) CreateDurable(workspace, owner string, o DurableOptions) (*Durab
 	}
 	if s.stateRoot == "" {
 		return nil, errors.New("artifact: durable artifacts need a state root")
+	}
+	// The mark lives only on the open handle; a closed or reloaded artifact reads
+	// unmarked. Until it is persisted, a marked durable artifact is refused rather than
+	// silently unmarked later (ADR-0015 §1).
+	if o.Untrusted {
+		return nil, errors.New("artifact: a durable artifact cannot be marked untrusted yet: the mark is not persisted")
 	}
 	dir := s.durableDir(workspace)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -149,6 +155,22 @@ func (d *Durable) Write(p []byte) (int, error) {
 	return int(total), nil
 }
 
+// WriteMarker appends one line past the cap, for the producer's note that the cap was
+// reached (D24). It is bounded to 1 KiB so the cap still bounds the file.
+func (d *Durable) WriteMarker(line string) error {
+	if len(line) > 1<<10 {
+		line = line[:1<<10]
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return fs.ErrClosed
+	}
+	n, err := d.file.Write([]byte(line + "\n"))
+	d.size += int64(n)
+	return err
+}
+
 // Size is the bytes written so far; Dropped the bytes the cap refused.
 func (d *Durable) Size() int64 {
 	d.mu.Lock()
@@ -167,12 +189,15 @@ func (d *Durable) Dropped() int64 {
 // and it is read back from disk like an artifact of an earlier run.
 func (d *Durable) Close() error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.closed {
+		d.mu.Unlock()
 		return nil
 	}
 	d.closed = true
 	err := d.file.Close()
+	// Released before the store's lock: CreateDurable takes the store's, then an old
+	// handle's.
+	d.mu.Unlock()
 	d.s.mu.Lock()
 	if d.s.durable[d.ref.Ref] == d {
 		delete(d.s.durable, d.ref.Ref)
@@ -273,12 +298,17 @@ func (s *Store) getDurable(rest string) (Entry, error) {
 	if filepath.Dir(path) != filepath.Clean(s.durableDir(workspace)) {
 		return Entry{}, notAnArtifact()
 	}
-	fi, err := os.Stat(path)
+	fi, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return Entry{}, durableExpired()
 		}
 		return Entry{}, capability.AsError(err)
+	}
+	// Only a regular file the store wrote: a symlink, FIFO or directory planted under
+	// artifacts/ is not followed (defence in depth; the state root is 0700).
+	if !fi.Mode().IsRegular() {
+		return Entry{}, notAnArtifact()
 	}
 	return Entry{
 		Ref: Ref{
