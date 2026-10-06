@@ -5,6 +5,7 @@
 //   echoLine  prints one ordinary line, which must arrive as event.build.output
 //   bigLine   prints a single 2 MiB line, which must arrive cut at 64 KiB with a marker
 //   slow      runs past five minutes unless it is cancelled
+//   deepFailure fails with a cause chain far wider than the 200-node tree cap (D6)
 //
 // Tasks are grouped so `build.tasks` has something to filter.
 tasks.register('echoLine') {
@@ -39,5 +40,33 @@ tasks.register('slow') {
         while (System.currentTimeMillis() < deadline) {
             Thread.sleep(100L)
         }
+    }
+}
+
+tasks.register('deepFailure') {
+    group = 'droidyard'
+    description = 'Throws a 400-deep cause chain, so the failure tree overflows the 200-node cap.'
+    doLast {
+        // Gradle maps a Throwable's cause chain to the failure tree's `causes`, so this
+        // gives the sidecar a tree far wider than MAX_FAILURE_NODES to truncate.
+        Throwable t = new RuntimeException('leaf cause')
+        for (int i = 0; i < 400; i++) {
+            t = new RuntimeException('level ' + i, t)
+        }
+        throw t
+    }
+}
+
+tasks.register('wideLine') {
+    group = 'droidyard'
+    description = 'Prints a long line of three-byte characters, so the 64 KiB cut lands mid-character.'
+    doLast {
+        // 65536 is not a multiple of 3, so an unguarded cut would split a character
+        // (each is three UTF-8 bytes); 120000 bytes cross the 64 KiB buffer.
+        StringBuilder sb = new StringBuilder()
+        while (sb.length() < 40000) {
+            sb.append('日')
+        }
+        println sb.toString()
     }
 }

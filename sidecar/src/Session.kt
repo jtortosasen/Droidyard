@@ -1,8 +1,8 @@
 package droidyard.sidecar
 
-import org.gradle.tooling.BuildException
 import org.gradle.tooling.GradleConnector
 import org.gradle.tooling.GradleConnectionException
+import org.gradle.tooling.LongRunningOperation
 import org.gradle.tooling.ProjectConnection
 import org.gradle.tooling.model.GradleProject
 import org.gradle.tooling.model.GradleTask
@@ -28,14 +28,38 @@ const val SIDECAR_VERSION = "1.0.0"
  * One root's Gradle connection and its lock. Every TAPI call for a root is serialised on
  * [lock] (plan m1g R5, `gradle.md` §Concurrency): a model fetch during a build would make
  * Gradle start a second daemon, because a busy daemon is not reused.
+ *
+ * [javaHome] is the JVM each operation runs on (D6, step 1 fix round), never the Gradle
+ * installation; [env] is the set of environment overrides, or null when there are none.
  */
 class Root(
     val path: String,
     val connection: ProjectConnection,
+    val javaHome: String?,
     val env: Map<String, String>?,
     val lock: Any,
     @Volatile var capabilities: Json = obj(),
 )
+
+/**
+ * Applies [javaHome] and the environment [overrides] to an operation (plan m1g D6, step 1
+ * fix round): `setJavaHome` selects the JVM of every TAPI call, never the Gradle
+ * installation, and the overrides are merged over the sidecar's inherited environment so
+ * that `{}` or an absent `env` means "inherit", never an empty environment.
+ */
+fun applyRootOptions(op: LongRunningOperation, javaHome: String?, overrides: Map<String, String>?) {
+    if (!javaHome.isNullOrEmpty()) op.setJavaHome(File(javaHome))
+    val env = mergedEnvironment(overrides)
+    if (env != null) op.setEnvironmentVariables(env)
+}
+
+/** The overrides merged over [System.getenv]; null when there are none to apply. */
+fun mergedEnvironment(overrides: Map<String, String>?): Map<String, String>? {
+    if (overrides.isNullOrEmpty()) return null
+    val merged = LinkedHashMap<String, String>(System.getenv())
+    merged.putAll(overrides)
+    return merged
+}
 
 /**
  * The sidecar's session: reads JSON-RPC lines, dispatches them, and owns the roots, the
@@ -90,7 +114,16 @@ class Session(private val proto: Protocol) {
         val hasId = request.field("id") != null
         val id = request.field("id") ?: Json.Null
         val params = request.field("params") ?: Json.Obj(LinkedHashMap())
-        pool.execute { dispatch(hasId, id, method, params) }
+        // build.cancel, ping and shutdown are answered on the reader thread (plan m1g
+        // step 1 fix round, N3): they must not queue behind a connection.open or a
+        // project.model blocked on a root's lock, or a cancel could not reach a running
+        // build. Every other method keeps the single dispatcher, so requests are answered
+        // in the order they arrive.
+        if (method == "build.cancel" || method == "ping" || method == "shutdown") {
+            dispatch(hasId, id, method, params)
+        } else {
+            pool.execute { dispatch(hasId, id, method, params) }
+        }
     }
 
     private fun dispatch(hasId: Boolean, id: Json, method: String, params: Json) {
@@ -105,7 +138,11 @@ class Session(private val proto: Protocol) {
                 "build.run" -> reply(hasId, id, startBuild(params))
                 "build.cancel" -> { cancelBuild(params); reply(hasId, id, obj()) }
                 "shutdown" -> { reply(hasId, id, obj()); shutdown() }
-                else -> proto.error(id, Protocol.METHOD_NOT_FOUND, "Method not found: ${capUtf8(method, 8 shl 10)}")
+                // An unknown method that arrived as a notification (no id) gets no
+                // response (plan m1g step 1 fix round, N9; JSON-RPC 2.0).
+                else -> if (hasId) {
+                    proto.error(id, Protocol.METHOD_NOT_FOUND, "Method not found: ${capUtf8(method, 8 shl 10)}")
+                }
             }
         } catch (e: RpcException) {
             if (hasId) proto.error(id, e.rpcCode, e.rpcMessage, e.data)
@@ -152,7 +189,9 @@ class Session(private val proto: Protocol) {
             val wrapper = File(dir, "gradle/wrapper/gradle-wrapper.properties").isFile
             val source = if (wrapper) "wrapper" else "connector"
             if (wrapper) connector.useBuildDistribution()
-            if (!javaHome.isNullOrEmpty()) connector.useInstallation(File(javaHome))
+            // javaHome is NOT the Gradle installation (D6, step 1 fix round): it is the JVM
+            // of each TAPI call, applied here and on every later operation. useInstallation
+            // is deliberately absent.
             val connection = try {
                 connector.connect()
             } catch (e: GradleConnectionException) {
@@ -161,8 +200,10 @@ class Session(private val proto: Protocol) {
             val cts = GradleConnector.newCancellationTokenSource()
             cancels.add(cts)
             try {
-                val environment = connection.model(BuildEnvironment::class.java)
-                    .withCancellationToken(cts.token()).get()
+                val builder = connection.model(BuildEnvironment::class.java)
+                    .withCancellationToken(cts.token())
+                applyRootOptions(builder, javaHome, env)
+                val environment = builder.get()
                 val version = environment.gradle.gradleVersion
                 val daemonJavaHome = try {
                     environment.java?.javaHome?.absolutePath
@@ -170,7 +211,7 @@ class Session(private val proto: Protocol) {
                     null
                 }
                 val capabilities = capabilitiesFor(version)
-                roots[key] = Root(key, connection, env, lock, capabilities)
+                roots[key] = Root(key, connection, javaHome, env, lock, capabilities)
                 return obj(
                     "gradleVersion" to str(version),
                     "source" to str(source),
@@ -217,7 +258,7 @@ class Session(private val proto: Protocol) {
             synchronized(root.lock) {
                 val builder = root.connection.model(GradleProject::class.java)
                     .withCancellationToken(cts.token())
-                if (root.env != null) builder.setEnvironmentVariables(root.env)
+                applyRootOptions(builder, root.javaHome, root.env)
                 val project = builder.get()
                 val rootDir = File(root.path)
                 val projects = ArrayList<Json>()
@@ -283,7 +324,13 @@ class Session(private val proto: Protocol) {
         if (builds.containsKey(buildId)) throw RpcException.application("build is already running: $buildId")
         val build = Build(buildId, root, proto, tasks) { done -> buildFinished(done) }
         builds[buildId] = build
-        build.start()
+        // A failed Thread.start must not leave the build registered (plan m1g step 1 fix
+        // round, N4): the caller gets an error and no notification is ever sent.
+        val failure = build.start()
+        if (failure != null) {
+            builds.remove(buildId)
+            throw RpcException.application("could not start the build", failure.message)
+        }
         return obj("accepted" to bool(true))
     }
 
@@ -302,12 +349,14 @@ class Session(private val proto: Protocol) {
 
     private fun shutdown() {
         if (!stopping.compareAndSet(false, true)) return
+        armHalt()
+        // The close can block (a Gradle daemon that does not answer); it runs on its own
+        // thread behind the halt guard, so shutdown never waits on it (N1/N2).
         Thread {
             cancelAll()
             for (root in roots.values) {
                 try { root.connection.close() } catch (e: Exception) {}
             }
-            Thread.sleep(50)
             exitProcess(0)
         }.start()
     }
@@ -315,11 +364,24 @@ class Session(private val proto: Protocol) {
     /** stdin EOF (D6, `process-lifecycle.md` layer 1): cancel everything and exit. */
     private fun onEof() {
         if (!stopping.compareAndSet(false, true)) return
+        armHalt()
         cancelAll()
         // Brief grace so a notification already being written is not cut mid-line, then
         // exit well inside the five seconds the protocol promises.
         Thread.sleep(100)
         exitProcess(0)
+    }
+
+    /**
+     * Starts a daemon thread that halts the JVM after four seconds (plan m1g step 1 fix
+     * round, N1/N2): the graceful exit must never be held hostage by a blocked TAPI call,
+     * a Gradle daemon that will not answer, or a shutdown hook.
+     */
+    private fun armHalt() {
+        Thread {
+            try { Thread.sleep(4000) } catch (e: InterruptedException) {}
+            Runtime.getRuntime().halt(0)
+        }.apply { isDaemon = true; name = "halt" }.start()
     }
 
     private fun cancelAll() {

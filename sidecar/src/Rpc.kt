@@ -82,3 +82,31 @@ fun capUtf8(s: String, bytes: Int): String {
     while (end > 0 && (encoded[end].toInt() and 0xC0) == 0x80) end-- // back to a UTF-8 boundary
     return String(encoded, 0, end, UTF_8)
 }
+
+/** The UTF-8 byte length of [s] once encoded as a JSON string literal (D6's accounting). */
+fun encodedLength(s: String): Int = Encoder.encode(Json.Str(s)).toByteArray(UTF_8).size
+
+/** The UTF-8 byte length of [value] once encoded as JSON (D6's accounting). */
+fun encodedLength(value: Json): Int = Encoder.encode(value).toByteArray(UTF_8).size
+
+/**
+ * A shared budget of encoded bytes (plan m1g D6, step 1 fix round). The terminal
+ * `event.build.finished` notification draws `failures` and `failureProblems` from one
+ * allowance, so the line stays well under the 1 MiB notification cap by construction,
+ * whatever Gradle reports.
+ */
+class EncodeBudget(limit: Int) {
+    var remaining: Int = limit
+        private set
+
+    /** Whether [bytes] more still fit. */
+    fun fits(bytes: Int): Boolean = remaining >= bytes
+
+    /** Charges [bytes] against the budget, clamping at zero. */
+    fun spend(bytes: Int) {
+        remaining = maxOf(0, remaining - bytes)
+    }
+
+    /** Charges [s]'s encoded length against the budget. */
+    fun spend(s: String) = spend(encodedLength(s))
+}

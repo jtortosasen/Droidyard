@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func gradleTest(t *testing.T) {
@@ -42,6 +43,7 @@ type proc struct {
 	mu       sync.Mutex
 	msgs     []map[string]any
 	badLines []string
+	lineInfo []lineInfo
 	errText  strings.Builder
 
 	nextID     int
@@ -49,6 +51,13 @@ type proc struct {
 	waitErr    error
 	stdoutDone chan struct{}
 	stderrDone chan struct{}
+}
+
+// lineInfo records one stdout line's byte length and whether it is a reply (mail with an
+// id) rather than a notification, so stop can enforce the notification cap (D6).
+type lineInfo struct {
+	bytes   int
+	isReply bool
 }
 
 // startProc launches the embedded jars on the embedded classpath, in a process group of
@@ -123,6 +132,7 @@ func (p *proc) readStdout(r io.ReadCloser) {
 				p.badLines = append(p.badLines, trimmed)
 			} else {
 				p.msgs = append(p.msgs, m)
+				p.lineInfo = append(p.lineInfo, lineInfo{bytes: len(trimmed), isReply: m["id"] != nil})
 			}
 			p.mu.Unlock()
 		}
@@ -170,9 +180,18 @@ func (p *proc) stop() {
 	}
 	p.mu.Lock()
 	bad := append([]string(nil), p.badLines...)
+	infos := append([]lineInfo(nil), p.lineInfo...)
 	p.mu.Unlock()
 	if len(bad) > 0 {
 		p.t.Errorf("the sidecar wrote %d non-JSON line(s) to stdout: %q", len(bad), bad)
+	}
+	// D6 as changed in the step 1 fix round: the sidecar bounds every notification to
+	// 1 MiB by construction. Replies (project.model) may be larger and are capped at
+	// 16 MiB by the client instead.
+	for _, li := range infos {
+		if !li.isReply && li.bytes > 1<<20 {
+			p.t.Errorf("a notification line was %d bytes, over the 1 MiB notification cap", li.bytes)
+		}
 	}
 }
 
@@ -444,6 +463,19 @@ func TestGradleConsoleOutputBatchesAndCutsLongLines(t *testing.T) {
 			t.Errorf("an event.build.output batch carried %d lines, over the 200-line cap", got)
 		}
 	}
+	// Decision (N5): `taskSummary.executed` counts a plain task success; without the
+	// summaryKey mapping the count never moves.
+	executed := 0
+	for _, n := range p.notifications("event.build.progress") {
+		if c := objOf(objOf(n, "params"), "counts"); c != nil {
+			if v := intOf(c, "executed"); v > executed {
+				executed = v
+			}
+		}
+	}
+	if executed == 0 {
+		t.Error("counts.executed stayed 0 after a successful build (N5: summaryKey(\"success\"))")
+	}
 }
 
 // Decision (gradle.md §Protocol; D6): a failed build streams its compiler error as
@@ -522,6 +554,120 @@ func TestGradleBuildCancelledWithinFiveSeconds(t *testing.T) {
 	}
 }
 
+// Decision (D6 as changed in the step 1 fix round): the 64 KiB cut of a console line
+// lands on a UTF-8 boundary, so a multi-byte character is never split into a U+FFFD.
+func TestGradleConsoleCutKeepsUtf8Boundary(t *testing.T) {
+	gradleTest(t)
+	p := startProc(t, false)
+	root := plainFixture(t)
+	openRoot(t, p, root)
+	fin := runBuild(t, p, root, "b-wide", ":wideLine")
+	if got := strOf(objOf(fin, "params"), "outcome"); got != "success" {
+		t.Fatalf("wideLine outcome %q, want success", got)
+	}
+	var cut string
+	for _, l := range p.outputLines("b-wide") {
+		if strings.HasPrefix(l, "日") {
+			cut = l
+		}
+	}
+	if cut == "" {
+		t.Fatalf("no wide-character console line among %v", p.outputLines("b-wide"))
+	}
+	if !utf8.ValidString(cut) {
+		t.Error("the cut console line is not valid UTF-8")
+	}
+	if strings.ContainsRune(cut, utf8.RuneError) {
+		t.Error("the 64 KiB cut split a UTF-8 sequence (a U+FFFD appeared)")
+	}
+	if len(cut)%3 != 0 {
+		t.Errorf("the cut console line is %d bytes, not a whole number of three-byte characters", len(cut))
+	}
+}
+
+// Decision (gradle.md §Daemon JVM; D6 as fixed in the step 1 fix round): connection.open's
+// javaHome selects each operation's JVM (`setJavaHome`), never the Gradle installation, so
+// the daemon runs on the named JVM and a build still succeeds.
+func TestGradleJavaHomeSelectsTheDaemonJvm(t *testing.T) {
+	gradleTest(t)
+	jdk := findJDK()
+	p := startProc(t, false)
+	root := plainFixture(t)
+	open := p.result(p.send("connection.open", map[string]any{"root": root, "javaHome": jdk}), 240*time.Second)
+	if got := strOf(open, "daemonJavaHome"); !samePath(got, jdk) {
+		t.Errorf("connection.open daemonJavaHome %q, want the requested javaHome %q", got, jdk)
+	}
+	if got := strOf(open, "gradleVersion"); got != "8.13" {
+		t.Errorf("connection.open gradleVersion %q, want 8.13 (javaHome must not select the installation)", got)
+	}
+	fin := runBuild(t, p, root, "b-javahome", ":lib:compileJava")
+	if got := strOf(objOf(fin, "params"), "outcome"); got != "success" {
+		t.Errorf("build with javaHome %q had outcome %q, want success", jdk, got)
+	}
+}
+
+// Decision (D6 as changed, N3): build.cancel is answered on the reader thread, so a cancel
+// reaches a running build even while a project.model sits in the dispatcher behind it.
+func TestGradleCancelAnsweredDuringAModelFetch(t *testing.T) {
+	gradleTest(t)
+	p := startProc(t, false)
+	root := plainFixture(t)
+	openRoot(t, p, root)
+	if fin := runBuild(t, p, root, "b-warm", ":echoLine"); strOf(objOf(fin, "params"), "outcome") != "success" {
+		t.Fatalf("warm-up build did not succeed: %v", fin)
+	}
+	// A slow build holds the root's lock.
+	id := p.send("build.run", map[string]any{"buildId": "b-busy", "root": root, "tasks": []string{":slow"}})
+	if boolOf(p.result(id, 30*time.Second), "accepted") != true {
+		t.Fatal("build.run :slow was not accepted")
+	}
+	time.Sleep(2 * time.Second)
+	// project.model queues on the dispatcher and blocks on the root's lock...
+	modelID := p.send("project.model", map[string]any{"root": root})
+	time.Sleep(500 * time.Millisecond)
+	// ...but build.cancel must still be answered, promptly.
+	start := time.Now()
+	cancelID := p.send("build.cancel", map[string]any{"buildId": "b-busy"})
+	p.result(cancelID, 3*time.Second)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("build.cancel took %s while a project.model was in flight", took)
+	}
+	// The model fetch then answers once the lock is free.
+	p.result(modelID, 60*time.Second)
+	fin := p.waitFor(10*time.Second, func(m map[string]any) bool {
+		return m["method"] == "event.build.finished" && strOf(objOf(m, "params"), "buildId") == "b-busy"
+	})
+	if got := strOf(objOf(fin, "params"), "outcome"); got != "cancelled" {
+		t.Errorf("cancelled build outcome %q, want cancelled", got)
+	}
+}
+
+// Decision (D6 as changed in the step 1 fix round): a failure tree wider than the 200-node
+// cap is truncated, a parent carries truncatedCauses, and the finished notification stays
+// a bounded line (the harness asserts every notification is under 1 MiB).
+func TestGradleFailureTreeIsBounded(t *testing.T) {
+	gradleTest(t)
+	p := startProc(t, false)
+	root := plainFixture(t)
+	openRoot(t, p, root)
+	fin := runBuild(t, p, root, "b-deep", ":deepFailure")
+	params := objOf(fin, "params")
+	if got := strOf(params, "outcome"); got != "failed" {
+		t.Fatalf("deepFailure outcome %q, want failed", got)
+	}
+	nodes, truncated := countTree(arrOf(params, "failures"))
+	t.Logf("deepFailure tree: %d nodes, %d truncated parents", nodes, truncated)
+	if nodes == 0 {
+		t.Fatal("deepFailure produced no failure tree")
+	}
+	if nodes > maxFailureNodes {
+		t.Errorf("failure tree has %d nodes, over the %d-node cap", nodes, maxFailureNodes)
+	}
+	if truncated == 0 {
+		t.Errorf("failure tree has %d nodes but no truncatedCauses: the chain did not reach a limit", nodes)
+	}
+}
+
 // Decision (process-lifecycle.md layer 1; D6): stdin EOF ends the sidecar within five
 // seconds whatever it is doing — a running build, and a model fetch in flight.
 func TestGradleExitsOnStdinEof(t *testing.T) {
@@ -581,25 +727,76 @@ func TestGradleStdoutCarriesOnlyTheProtocol(t *testing.T) {
 }
 
 // Decision (D7): the hand-written codec round-trips the awkward strings — quotes,
-// backslashes, control characters, non-ASCII and a lone surrogate (decoded as U+FFFD) —
-// through the Go client, and an unknown method answers -32601 with the method echoed.
-// The request line is built by hand: encoding/json cannot produce a lone surrogate.
+// backslashes, control characters, non-ASCII, a valid surrogate pair, a lone high
+// surrogate (U+FFFD), a high surrogate followed by a non-low escape (the rewind path),
+// and a lone low surrogate — through the Go client, and an unknown method answers -32601
+// with the method echoed. The request lines are built by hand: encoding/json cannot
+// produce a lone surrogate.
 func TestGradleCodecRoundTripAndUnknownMethod(t *testing.T) {
 	gradleTest(t)
 	p := startProc(t, false)
-	p.writeLine(`{"jsonrpc":"2.0","id":7,"method":"A\"B\\C\tD\u0001E\u001fFé日本語😀\ud800G"}`)
-	want := "A\"B\\C\tD\x01E\x1fFé日本語😀�G"
+	cases := []struct {
+		name string
+		id   int
+		line string
+		want string
+	}{
+		{
+			"escapes, non-ASCII and a lone high surrogate",
+			7,
+			`{"jsonrpc":"2.0","id":7,"method":"A\"B\\C\tD\u0001E\u001fFé日本語😀\ud800G"}`,
+			"A\"B\\C\tD\x01E\x1fFé日本語😀�G",
+		},
+		{
+			"an escaped surrogate pair",
+			8,
+			`{"jsonrpc":"2.0","id":8,"method":"pa\ud83d\ude00ir"}`,
+			"pa😀ir",
+		},
+		{
+			"a high surrogate then a non-low escape (rewind)",
+			9,
+			`{"jsonrpc":"2.0","id":9,"method":"hi\ud800\u0041lo"}`,
+			"hi�Alo",
+		},
+		{
+			"a lone low surrogate",
+			10,
+			`{"jsonrpc":"2.0","id":10,"method":"lone\udc00end"}`,
+			"lone�end",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p.writeLine(c.line)
+			resp := p.waitResponse(c.id, 30*time.Second)
+			errObj := objOf(resp, "error")
+			if errObj == nil {
+				t.Fatalf("unknown method did not error: %v", resp)
+			}
+			if code := intOf(errObj, "code"); code != -32601 {
+				t.Errorf("unknown method code %d, want -32601", code)
+			}
+			if msg := strOf(errObj, "message"); msg != "Method not found: "+c.want {
+				t.Errorf("message round-tripped to\n %q\nwant\n %q", msg, "Method not found: "+c.want)
+			}
+		})
+	}
+}
 
-	resp := p.waitResponse(7, 30*time.Second)
-	errObj := objOf(resp, "error")
-	if errObj == nil {
-		t.Fatalf("unknown method did not error: %v", resp)
-	}
-	if code := intOf(errObj, "code"); code != -32601 {
-		t.Errorf("unknown method code %d, want -32601", code)
-	}
-	if msg := strOf(errObj, "message"); msg != "Method not found: "+want {
-		t.Errorf("message round-tripped to\n %q\nwant\n %q", msg, "Method not found: "+want)
+// Decision (D6, N9): an unknown method sent as a notification (no id) gets no response,
+// as JSON-RPC 2.0 requires; a later request still proves the sidecar is alive and did not
+// answer the notification.
+func TestGradleUnknownNotificationGetsNoResponse(t *testing.T) {
+	gradleTest(t)
+	p := startProc(t, false)
+	p.writeLine(`{"jsonrpc":"2.0","method":"no.such.notification"}`)
+	ping := p.send("ping", nil)
+	p.result(ping, 30*time.Second)
+	for _, n := range p.msgsSnapshot() {
+		if e, isErr := n["error"]; isErr && n["id"] == nil {
+			t.Errorf("the sidecar answered the notification with an error: %v", e)
+		}
 	}
 }
 
@@ -607,6 +804,50 @@ func (p *proc) badStdout() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]string(nil), p.badLines...)
+}
+
+func (p *proc) msgsSnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]map[string]any(nil), p.msgs...)
+}
+
+// samePath reports whether two paths name the same directory, following symlinks.
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ra, erra := filepath.EvalSymlinks(a)
+	rb, errb := filepath.EvalSymlinks(b)
+	if erra == nil && errb == nil {
+		return ra == rb
+	}
+	return a == b
+}
+
+// maxFailureNodes mirrors the sidecar's D6 tree cap.
+const maxFailureNodes = 200
+
+// countTree returns the number of failure-tree nodes and how many carry truncatedCauses.
+func countTree(failures []any) (nodes, truncated int) {
+	var walk func(f any)
+	walk = func(f any) {
+		m, ok := f.(map[string]any)
+		if !ok {
+			return
+		}
+		nodes++
+		if intOf(m, "truncatedCauses") > 0 {
+			truncated++
+		}
+		for _, c := range arrOf(m, "causes") {
+			walk(c)
+		}
+	}
+	for _, f := range failures {
+		walk(f)
+	}
+	return nodes, truncated
 }
 
 // --- decoded-message accessors ---------------------------------------------------------

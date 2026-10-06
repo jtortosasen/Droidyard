@@ -28,7 +28,7 @@ const (
 	// slf4j-api, Kotlin stdlib).
 	DepsSHA256 = "1b54ae742a1e00e1cb446f8f3252801251f1ef954249b012280bbd5bdcbe394f"
 	// SHA256 is the hex digest of jars/gradle-sidecar.jar, the sidecar's own classes.
-	SHA256 = "85bc1f6ce5f2bfe5976b8698c214d28e17ebc05ba8a8742fbffc5fe40a89248b"
+	SHA256 = "1e6433c9eb7e6922a08943defb2e09a83524503b9b9ce861917b7e68651978bf"
 
 	// Class is the sidecar's main class, as `java` names it.
 	Class = "droidyard.sidecar.MainKt"
