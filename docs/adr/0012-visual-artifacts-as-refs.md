@@ -14,6 +14,10 @@
   when the store still holds a record of it; for an evicted reference or one from an
   earlier epoch it says to re-run the capability that produced it, without naming it
   (no tombstones are kept; delegated decision, milestone 1e, step 7).
+- Amended: 2026-10-06 — durable files without an owner record are deleted when their
+  workspace is opened, not at daemon startup: the registry that owns them is loaded at
+  open, and an unopened workspace's orphans harm nothing until then (milestone 1g D13,
+  Delegated).
 
 ## Context
 

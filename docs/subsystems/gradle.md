@@ -94,7 +94,7 @@ connection.open  { root, javaHome?, env } → { gradleVersion, source, daemonJav
                                               capabilities, profile, validation }
 connection.close { root }
 project.model    { root, probe: bool }    → ProjectModel (below)
-build.run        { buildId, root, tasks[], args[] } → { accepted }
+build.run        { buildId, root, tasks[] } → { accepted }   // args[]: not in 1g (D11, §Open questions)
 build.test       { buildId, root, task, filters? } → { accepted }
 build.cancel     { buildId }                // internal; the only route to it is operation.cancel;
                                             // a cancel for a build not yet started is kept, so it starts cancelled
@@ -477,7 +477,9 @@ with `WORKSPACE_UNTRUSTED` before anything is spawned
 - **Health**: the handshake covers startup; `ping` covers liveness.
 - **Crash**: a sidecar crash mid-build fails that operation with a clear error and
   leaves the workspace `degraded`; the registry keeps the history. The next call
-  restarts it.
+  restarts it. *Milestone 1g:* the mark is kept per root inside the Gradle client and
+  cleared by the next handshake; it does not yet change the workspace's published
+  state or emit `workspace.lifecycle` (plan §Changes, D20).
 - **Never kill the Gradle daemon.** It belongs to Gradle and is reused across builds
   by design; an explicit stop is available but never implicit.
 - **No orphans**: stdin EOF ends the sidecar; the core also stops it on shutdown.
@@ -568,7 +570,7 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 | Version newer than validated | Proceed with the newest capability set, marked `untested` |
 | No usable sidecar JVM | `BUILD_SIDECAR_UNAVAILABLE`, the `[gradle]` capabilities unavailable in `system.capabilities`; the error lists the candidates tried and why each was rejected |
 | Sidecar fails to start, or speaks another protocol version | `BUILD_SIDECAR_UNAVAILABLE`; other capabilities unaffected |
-| Sidecar crashes mid-call or mid-build, or breaks the protocol | `BUILD_SIDECAR_CRASHED`; every root with a connection is marked degraded until the next handshake; no record for a build it was running; registry keeps history; restart on next use |
+| Sidecar crashes mid-call or mid-build, or breaks the protocol | `BUILD_SIDECAR_CRASHED`; every root with a connection is marked degraded inside the Gradle client until the next handshake (not yet the workspace's published state, 1g); no record for a build it was running; registry keeps history; restart on next use |
 | Configuration of the project fails | `PROJECT_MODEL_FAILED`, Gradle's root failure as the cause |
 | `build.errors` or `build.lastResult` with no finished build, or an unknown `buildId` | `BUILD_NOT_FOUND` |
 | Probe fails, fully or per field | Generic model still returned; affected fields `unknown`; variants fall back to task names |

@@ -38,7 +38,7 @@ attach, and its adapter fills the field.
 | `created` | Registered, root validated, nothing started yet. |
 | `opening` | Loading durable configuration and any cached project facts. Runs **no** project code and spawns nothing in the MVP (below). |
 | `ready` | Usable. The project model has not necessarily been fetched: that happens lazily. |
-| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build, or a state file is from a newer version ([ADR-0021](../adr/0021-persistence-format-and-location.md) §Format, `WORKSPACE_STATE_NEWER`). Capabilities report availability accordingly. |
+| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build (milestone 1g keeps that mark inside the Gradle client; the workspace state does not show it yet), or a state file is from a newer version ([ADR-0021](../adr/0021-persistence-format-and-location.md) §Format, `WORKSPACE_STATE_NEWER`). Capabilities report availability accordingly. |
 | `closing` | Cancelling the workspace's operations, shutting down workspace-owned sidecars. |
 | `closed` | All resources released. |
 
