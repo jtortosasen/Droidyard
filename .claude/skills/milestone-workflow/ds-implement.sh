@@ -7,7 +7,8 @@
 # so it spends the OpenCode Go subscription, not Claude's. Limits: the implementer's own
 # agent file plus the `implement` profile of .claude/hooks/guard-bash.sh (no staging,
 # committing or discarding in any spelling, no adb/emulator, no rm -rf); no subagents.
-# The key is read from pi's credential store (`pi auth`), never written anywhere.
+# The key: $OPENCODE_GO_API_KEY if set, else ~/.config/droidyard-dev/opencode-go.key
+# (mode 600, outside the repository); it is never written into the repository.
 #
 # Leaves in <out-dir>: events.jsonl (stream-json), progress.log (one line per tool call,
 # readable while it runs) and report.md (the final message). Exit 0 when the run ended,
@@ -16,8 +17,9 @@ set -u
 dir=$1 brief=$2 out=$3
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
 mkdir -p "$out"
-key=$(pi auth print-api-key --provider opencode-go 2>/dev/null)
-[ -n "$key" ] || { echo "no OpenCode Go key in pi's credential store (pi auth)" >&2; exit 1; }
+keyfile=${XDG_CONFIG_HOME:-$HOME/.config}/droidyard-dev/opencode-go.key
+key=${OPENCODE_GO_API_KEY:-$(cat "$keyfile" 2>/dev/null)}
+[ -n "$key" ] || { echo "no OpenCode Go key: set OPENCODE_GO_API_KEY or write it to $keyfile (chmod 600)" >&2; exit 1; }
 m=deepseek-v4.1-flash
 settings=$(printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"sh %s/.claude/hooks/guard-bash.sh implement"}]}]}}' "$repo")
 
