@@ -45,7 +45,8 @@ skill says who does what.
   the Claude subscription's quota): `.claude/skills/milestone-workflow/ds-implement.sh
   <dir> <brief> <out>` runs `claude -p --agent implementer` with every request sent to
   OpenCode Go's Anthropic-format endpoint as `deepseek-v4.1-flash` (the OpenCode Go
-  subscription pays; the key is read from pi's credential store, never written). One
+  subscription pays; the key is `$OPENCODE_GO_API_KEY` or
+  `~/.config/droidyard-dev/opencode-go.key`, mode 600, never in the repository). One
   plan step per run, in the main tree (a worktree only for parallel steps); progress and
   the final report in `<out>`. Limits: the `implement` profile of
   `.claude/hooks/guard-bash.sh` (no staging, committing or discarding in any spelling,
