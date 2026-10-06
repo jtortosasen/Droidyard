@@ -33,7 +33,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	store, err := artifact.New(artifact.Options{Epoch: "d-test"})
+	store, err := artifact.New(artifact.Options{Epoch: "d-test", StateRoot: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +43,26 @@ func newFixture(t *testing.T) *fixture {
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 	return &fixture{store: store, reg: reg, ops: ops}
+}
+
+// console creates a durable build console (D13) in workspace, writes content, and
+// returns its reference. The producer keeps the handle open unless closed, so a read
+// sees it growing.
+func (f *fixture) console(t *testing.T, content string, close bool) artifact.Ref {
+	t.Helper()
+	d, err := f.store.CreateDurable("ws-1", "op-1", artifact.DurableOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if close {
+		if err := d.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return d.Ref()
 }
 
 func (f *fixture) put(t *testing.T, data []byte, untrusted bool) artifact.Ref {
@@ -101,7 +121,7 @@ func TestReadWithoutParametersReturnsTheStoredBytes(t *testing.T) {
 		if !bytes.Equal(got, raw) {
 			t.Errorf("%s: the delivered bytes differ from the stored ones", img)
 		}
-		if r.Stored != (Size{ref.Width, ref.Height}) || r.Delivered != r.Stored || r.MediaType != "image/png" || r.Ref != ref.Ref {
+		if stored(t, r) != (Size{ref.Width, ref.Height}) || delivered(t, r) != stored(t, r) || r.MediaType != "image/png" || r.Ref != ref.Ref {
 			t.Errorf("%s: %+v", img, r)
 		}
 	}
@@ -119,22 +139,23 @@ func TestReadMaxEdge(t *testing.T) {
 		if long <= 1024 {
 			t.Fatalf("%s: fixture is %dx%d, too small to test a downscale", img, ref.Width, ref.Height)
 		}
-		if max(r.Delivered.Width, r.Delivered.Height) != 1024 {
+		dv := delivered(t, r)
+		if max(dv.Width, dv.Height) != 1024 {
 			t.Errorf("%s: delivered %+v, want a longest edge of 1024", img, r.Delivered)
 		}
 		wantShort := float64(min(ref.Width, ref.Height)) * 1024 / float64(long)
-		if d := float64(min(r.Delivered.Width, r.Delivered.Height)) - wantShort; d > 1 || d < -1 {
-			t.Errorf("%s: short edge %d, aspect wants %.1f", img, min(r.Delivered.Width, r.Delivered.Height), wantShort)
+		if d := float64(min(dv.Width, dv.Height)) - wantShort; d > 1 || d < -1 {
+			t.Errorf("%s: short edge %d, aspect wants %.1f", img, min(dv.Width, dv.Height), wantShort)
 		}
 		cfg, err := png.DecodeConfig(bytes.NewReader(got))
-		if err != nil || cfg.Width != r.Delivered.Width || cfg.Height != r.Delivered.Height {
+		if err != nil || cfg.Width != dv.Width || cfg.Height != dv.Height {
 			t.Errorf("%s: the bytes decode to %+v (%v), the result says %+v", img, cfg, err, r.Delivered)
 		}
-		if r.Stored != (Size{ref.Width, ref.Height}) {
+		if stored(t, r) != (Size{ref.Width, ref.Height}) {
 			t.Errorf("%s: stored %+v", img, r.Stored)
 		}
 		r, got = ok(t, f.read(t, params(ref.Ref, `,"maxEdge":99999`)))
-		if r.Delivered != r.Stored || !bytes.Equal(got, raw) {
+		if delivered(t, r) != stored(t, r) || !bytes.Equal(got, raw) {
 			t.Errorf("%s: a maxEdge above the stored size changed the image: %+v", img, r)
 		}
 	}
@@ -146,11 +167,12 @@ func TestReadRegion(t *testing.T) {
 	f := newFixture(t)
 	ref := f.put(t, shot(t, "pixel9a"), true)
 	r, _ := ok(t, f.read(t, params(ref.Ref, `,"region":{"x":0,"y":0,"w":0.5,"h":0.5}`)))
-	if d := r.Delivered.Width - ref.Width/2; d > 1 || d < -1 {
-		t.Errorf("width %d, want about %d", r.Delivered.Width, ref.Width/2)
+	dv := delivered(t, r)
+	if d := dv.Width - ref.Width/2; d > 1 || d < -1 {
+		t.Errorf("width %d, want about %d", dv.Width, ref.Width/2)
 	}
-	if d := r.Delivered.Height - ref.Height/2; d > 1 || d < -1 {
-		t.Errorf("height %d, want about %d", r.Delivered.Height, ref.Height/2)
+	if d := dv.Height - ref.Height/2; d > 1 || d < -1 {
+		t.Errorf("height %d, want about %d", dv.Height, ref.Height/2)
 	}
 	for _, region := range []string{`{"x":-0.1,"y":0,"w":0.5,"h":0.5}`, `{"x":0,"y":0,"w":1.5,"h":0.5}`, `{"x":0.6,"y":0,"w":0.5,"h":0.5}`, `{"x":0,"y":0,"w":0,"h":0.5}`} {
 		out := f.read(t, params(ref.Ref, `,"region":`+region))
@@ -226,7 +248,7 @@ func TestRetainedReadKeepsNoBytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		w, _ := again.Result.(ReadResult)
-		if w.Data != "" || w.Ref != ref.Ref || w.MediaType != "image/png" || w.Stored.Width != ref.Width || !again.Untrusted {
+		if w.Data != "" || w.Ref != ref.Ref || w.MediaType != "image/png" || stored(t, w).Width != ref.Width || !again.Untrusted {
 			t.Errorf("wait %d: %+v (untrusted %v); want the metadata and no data", i, w, again.Untrusted)
 		}
 		if b, _ := json.Marshal(again.Result); len(b) > 1024 {
@@ -246,6 +268,143 @@ func TestReadRejectsMaxEdgeBelowOne(t *testing.T) {
 			t.Errorf("maxEdge %s: %v, %+v; want %s", v, err, out, capability.ErrInvalidParams)
 		}
 	}
+}
+
+// Decision (ADR-0012 §Reading artifacts; D13): a durable console is read as text,
+// paged from its file: offset, nextOffset, size, growing, text and truncated come
+// back and the byte page is absent. It is unmarked, because a console is project
+// content, not device-derived (ADR-0015 §1): reversing that mark is what this asserts.
+func TestReadTextFromADurableConsole(t *testing.T) {
+	f := newFixture(t)
+	const content = "> Task :app:compileDebugKotlin\nBUILD SUCCESSFUL in 42s\n"
+	ref := f.console(t, content, false)
+	out := f.read(t, params(ref.Ref, ""))
+	if out.State != capability.StateCompleted {
+		t.Fatalf("%s: %+v", out.State, out.Error)
+	}
+	if out.Untrusted {
+		t.Error("a build console is project content and must be unmarked")
+	}
+	r := out.Result.(ReadResult)
+	if r.Ref != ref.Ref || r.MediaType != "text/plain" || r.Data != "" {
+		t.Fatalf("result = %+v", r)
+	}
+	if r.Stored != nil || r.Delivered != nil {
+		t.Errorf("a text read must carry no image sizes: %+v", r)
+	}
+	if r.Text == nil || *r.Text != content || r.Offset == nil || *r.Offset != 0 || r.NextOffset == nil || *r.NextOffset != int64(len(content)) {
+		t.Fatalf("text page = %+v", r)
+	}
+	if r.Size == nil || *r.Size != int64(len(content)) || r.Growing == nil || !*r.Growing || r.Truncated == nil || *r.Truncated {
+		t.Fatalf("metadata = %+v", r)
+	}
+}
+
+// Decision (ADR-0012 §Reading artifacts): an offset at or past the end returns empty
+// text, and empty is a fact: offset, nextOffset and size are still reported, and a
+// console the producer has closed is no longer growing.
+func TestReadTextOffsetAtOrPastTheEndIsEmpty(t *testing.T) {
+	f := newFixture(t)
+	ref := f.console(t, "a\nb\n", true)
+	r, _ := ok(t, f.read(t, params(ref.Ref, `,"offset":100`)))
+	if r.Text == nil || *r.Text != "" {
+		t.Fatalf("text = %+v, want empty", r)
+	}
+	if r.Offset == nil || *r.Offset != 4 || r.NextOffset == nil || *r.NextOffset != 4 || r.Size == nil || *r.Size != 4 {
+		t.Fatalf("metadata = %+v, want offset 4, nextOffset 4, size 4", r)
+	}
+	if r.Growing == nil || *r.Growing {
+		t.Errorf("a closed console is not growing: %+v", r)
+	}
+}
+
+// Decision (ADR-0012 §Reading artifacts): a negative offset counts back from the end
+// and a read that lands mid-line starts at the next line; a limit shorter than the
+// remaining lines ends at the last complete line within it.
+func TestReadTextNegativeOffsetAndLimit(t *testing.T) {
+	f := newFixture(t)
+	ref := f.console(t, "aaa\nbbb\nccc\n", true)
+	r, _ := ok(t, f.read(t, params(ref.Ref, `,"offset":-6`)))
+	if r.Offset == nil || *r.Offset != 8 || r.Text == nil || *r.Text != "ccc\n" {
+		t.Fatalf("negative offset: %+v, want offset 8 text ccc", r)
+	}
+	r, _ = ok(t, f.read(t, params(ref.Ref, `,"limit":6`)))
+	if r.Text == nil || *r.Text != "aaa\n" || r.NextOffset == nil || *r.NextOffset != 4 {
+		t.Fatalf("limit 6: %+v, want aaa and nextOffset 4", r)
+	}
+}
+
+// Decision (ADR-0012 §Reading artifacts): a producer's half-written final line is not
+// presented as a complete one; the read stops at the last newline and continues there.
+func TestReadTextHoldsBackThePartialFinalLine(t *testing.T) {
+	f := newFixture(t)
+	ref := f.console(t, "aaa\nbbb\ncc", false)
+	r, _ := ok(t, f.read(t, params(ref.Ref, "")))
+	if r.Text == nil || *r.Text != "aaa\nbbb\n" || r.NextOffset == nil || *r.NextOffset != 8 || r.Size == nil || *r.Size != 10 {
+		t.Fatalf("text = %+v, want aaa+bbb and nextOffset 8 of 10", r)
+	}
+}
+
+// Decision (N4): the published minimum of limit is enforced at the capability, so an
+// explicit 0 or a negative is REQUEST_INVALID_PARAMS, not a silent default.
+func TestReadTextRejectsLimitBelowOne(t *testing.T) {
+	f := newFixture(t)
+	ref := f.console(t, "x\n", true)
+	for _, v := range []string{"0", "-5"} {
+		out := f.read(t, params(ref.Ref, `,"limit":`+v))
+		if out.State != capability.StateFailed || out.Error.Code != capability.ErrInvalidParams {
+			t.Errorf("limit %s: %s, %+v; want %s", v, out.State, out.Error, capability.ErrInvalidParams)
+		}
+	}
+}
+
+// Decision (ADR-0020 §Retention): a retained text read keeps no bytes either. The first
+// answer carries the text; a later operation.wait on the same operation returns the
+// page metadata without it, and the retained value is small, so 200 retained results
+// cannot hold consoles past the store's own lifetime.
+func TestRetainedTextReadKeepsNoText(t *testing.T) {
+	f := newFixture(t)
+	ref := f.console(t, "one\ntwo\n", true)
+	ctx := context.Background()
+	id, err := f.ops.Start(ctx, capability.Request{Capability: "artifact.read", Params: []byte(params(ref.Ref, ""))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.ops.Wait(ctx, id, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := first.Result.(ReadResult); r.Text == nil || *r.Text != "one\ntwo\n" {
+		t.Fatalf("the first answer must carry the text: %+v", r)
+	}
+	again, err := f.ops.Invoke(ctx, capability.Request{Capability: "operation.wait", Params: []byte(`{"operationId":"` + id + `"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := again.Result.(ReadResult)
+	if w.Text != nil || w.Ref != ref.Ref || w.MediaType != "text/plain" || w.NextOffset == nil || *w.NextOffset != 8 {
+		t.Errorf("wait: %+v; want the page metadata and no text", w)
+	}
+	if b, _ := json.Marshal(again.Result); len(b) > 512 {
+		t.Errorf("the retained result is %d bytes", len(b))
+	}
+}
+
+// stored and delivered are the image sizes an image read must carry.
+func stored(t *testing.T, r ReadResult) Size {
+	t.Helper()
+	if r.Stored == nil {
+		t.Fatalf("the result has no stored size: %+v", r)
+	}
+	return *r.Stored
+}
+
+func delivered(t *testing.T, r ReadResult) Size {
+	t.Helper()
+	if r.Delivered == nil {
+		t.Fatalf("the result has no delivered size: %+v", r)
+	}
+	return *r.Delivered
 }
 
 func mustDecode(t *testing.T, s string) []byte {
