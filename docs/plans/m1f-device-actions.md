@@ -260,6 +260,7 @@ None.
 | OpenCode's project configuration can deny its shell tool, and under which key | 10 | the OpenCode documentation or a dry run, before step 10 |
 | Timings (settle 300 ms, polls 250 ms, read 3 s, start 8 s) are working defaults | 5, 6, 9 | step 1 sets the reader's; spike S6 the rest |
 | Compose screens (merged semantics, `testTagsAsResourceId`) resolve as Views do | 4, 6, 9 | DopamineControl, Phase 1 acceptance |
+| With the persistent reader down, later polls of `tapElement` have time for the one-shot | 6, 7 | Not handled: `gone` may end `matched: false` on a degraded device |
 | Cursor; Linux | all | not run |
 
 ## Review
