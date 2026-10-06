@@ -47,6 +47,9 @@
 //	<serial>.inputkeycombination `-s <serial> shell input keycombination <codes…>`
 //	<serial>.inputmethod        `-s <serial> shell settings get secure default_input_method`
 //	<serial>.broadcast          `-s <serial> shell am broadcast -a ADB_INPUT_B64 --es msg <base64>`
+//	<serial>.install            `-s <serial> install -r <apk>`
+//	<serial>.uninstall          `-s <serial> uninstall <applicationId>`
+//	<serial>.pmpath             `-s <serial> shell pm path <applicationId>`
 //
 // The fake models the host's forwards in `forwards.list`, one `<serial> tcp:<port>
 // <remote>` line per forward. A `forward tcp:0 localabstract:<remote>` binds a real host
@@ -308,6 +311,12 @@ func servedPrefix(args []string) string {
 		return args[1] + ".monkey"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.build.version.sdk":
 		return args[1] + ".sdk"
+	case len(args) == 5 && args[2] == "install" && args[3] == "-r":
+		return args[1] + ".install"
+	case len(args) == 4 && args[2] == "uninstall":
+		return args[1] + ".uninstall"
+	case len(args) == 6 && args[2] == "shell" && args[3] == "pm" && args[4] == "path":
+		return args[1] + ".pmpath"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "input" && args[4] == "text":
 		return args[1] + ".inputtext"
 	case len(args) >= 6 && args[2] == "shell" && args[3] == "input" && args[4] == "keycombination":
