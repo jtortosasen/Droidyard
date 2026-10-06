@@ -126,11 +126,20 @@ event.build.finished       { buildId, outcome, failures[], failureProblems[],
   the protocol only**: at start the sidecar points `System.out` at stderr and writes the
   protocol to the captured original stdout, so a stray `println` — ours, the Tooling
   API's or a plugin's — cannot corrupt the stream; its stderr goes to the supervisor's
-  log sink. Each failure's message and description is cut at 8 KiB, a failure tree at 200
-  nodes, and a single console line at 64 KiB, followed by a marker naming how many bytes
-  were dropped, so no build output can produce an over-long message. A line over 1 MiB is
-  a protocol error: the client kills the sidecar and fails the call
-  `BUILD_SIDECAR_CRASHED`, cause "protocol line over 1 MiB".
+  log sink. **Every notification is bounded to 1 MiB by construction**, so no build
+  output can produce an over-long message: each failure's message and description is cut
+  at 8 KiB, a failure tree at 200 nodes, and a single console line at 64 KiB, followed by
+  a marker naming how many bytes were dropped (the cut lands on a UTF-8 boundary, so a
+  multi-byte character is never split); console batches are counted in the encoded line's
+  bytes. The terminal `event.build.finished` draws its `failures` and `failureProblems`
+  from one shared 512 KiB budget — when it or the 200-node cap is reached a parent stops
+  recursing and carries a `truncatedCauses` count instead of more nodes — and
+  `failureProblems` is capped at 500 with a dropped count. An **unknown** method that
+  arrives as a notification (no id) gets no response. **Replies are bounded only by the
+  model's size** (`project.model` is a few hundred KiB on a large multi-module build).
+  The **client accepts a line up to 16 MiB**; over it, it kills the sidecar and fails the
+  call `BUILD_SIDECAR_CRASHED`, cause "protocol line over 16 MiB" — an untrusted build
+  cannot grow one without bound.
 
 ## Output: control vs. volume
 

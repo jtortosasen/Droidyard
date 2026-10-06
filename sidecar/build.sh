@@ -5,7 +5,7 @@
 #   gradle-sidecar.jar       our classes
 #
 # Entries are sorted and timestamps fixed at 1980-01-01, so the same inputs give the
-# same bytes; the SHA-256 of each is pinned in sidecar/pins.go and checked by tests. The
+# same bytes; the SHA-256 of each is pinned in sidecar/sidecar.go and checked by tests. The
 # Go build needs no JVM: the jars are checked in and embedded.
 #
 # Needs a JDK (jar) and kotlinc. Overrides: KOTLINC, JAVA_HOME, BUILD_CACHE (where the
