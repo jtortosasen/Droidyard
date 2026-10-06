@@ -41,16 +41,17 @@ skill says who does what.
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
   §Verification by risk): the Opus verifier for contract, security and concurrency
   changes and at a milestone's close; the main session's diff review otherwise.
-- **Implementer: DeepSeek through pi** (owner's choice, 2026-10-04, to spare the
-  subscription's quota; pi instead of OpenCode since 2026-10-06), run with
-  `.claude/skills/milestone-workflow/pi-implement.sh <dir> <brief> <out>`: one plan step
-  per run, in the main tree (a worktree only for parallel steps), its progress and final
-  report in `<out>`. pi has no permissions of its own; its limits are the project policy
-  of the `@gotgenes/pi-permission-system` extension (`.pi/settings.json`,
-  `.pi/extensions/pi-permission-system/config.json`): no staging, committing or
-  discarding, no `adb` or emulator, no writes outside the tree and temp; headless, so an
-  `ask` is a deny. The main session reviews the diff and commits. The Claude
-  `implementer` (Sonnet) is the fallback for a step DeepSeek fails twice.
+- **Implementer: DeepSeek, run as Claude Code** (owner's choice, 2026-10-04, to spare
+  the Claude subscription's quota): `.claude/skills/milestone-workflow/ds-implement.sh
+  <dir> <brief> <out>` runs `claude -p --agent implementer` with every request sent to
+  OpenCode Go's Anthropic-format endpoint as `deepseek-v4.1-flash` (the OpenCode Go
+  subscription pays; the key is read from pi's credential store, never written). One
+  plan step per run, in the main tree (a worktree only for parallel steps); progress and
+  the final report in `<out>`. Limits: the `implement` profile of
+  `.claude/hooks/guard-bash.sh` (no staging, committing or discarding in any spelling,
+  no `adb` or emulator, no `rm -rf`) and no subagents. The main session reviews the diff
+  and commits. The Claude `implementer` on Sonnet is the fallback for a step DeepSeek
+  fails twice.
 - **`planner`, `plan-reviewer`, `verifier`** (Opus).
 - **DeepSeek only writes code.** It implements; it does not review, verify or plan
   (owner, 2026-10-06). Every check is Opus's.
