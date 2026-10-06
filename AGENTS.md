@@ -41,19 +41,22 @@ skill says who does what.
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
   §Verification by risk): the Opus verifier for contract, security and concurrency
   changes; the main session's diff review otherwise; Opus and DeepSeek together at close.
-- **Implementer: DeepSeek through OpenCode** (owner's choice, 2026-10-04, to spare the
-  subscription's quota): `opencode run --standalone -m opencode-go/deepseek-v4.1-flash
-  --agent implementer --auto "<brief>"`, one plan step per run. It edits and tests but never
-  commits; the main session reviews the diff and commits. The Claude `implementer`
+- **Implementer: DeepSeek through pi** (owner's choice, 2026-10-04, to spare the
+  subscription's quota; pi instead of OpenCode since 2026-10-06): `pi -p -a --no-session
+  --model opencode-go/deepseek-v4.1-flash --append-system-prompt .pi/roles/implementer.md
+  "<brief>"`, run in the worktree, one plan step per run. pi is one process (it ends with
+  the command). Its limits are the project policy of the `@gotgenes/pi-permission-system`
+  extension (`.pi/settings.json`, `.pi/extensions/pi-permission-system/config.json`;
+  `-a` trusts the project for the run): no staging, committing or discarding, no `adb`
+  or emulator, no writes outside the tree and temp; pi runs headless, so an `ask` is a
+  deny. The main session reviews the diff and commits. The Claude `implementer`
   (Sonnet) is the fallback for a step DeepSeek fails twice.
 - **`planner`, `plan-reviewer`, `verifier`** (Opus).
-- **Cross-model check** (DeepSeek through OpenCode, read-only):
-  `opencode run --standalone -m opencode-go/deepseek-v4.1-flash --agent verifier --auto "<brief>"`
-  (`-m` is required: OpenCode ignores the agent file's model). `.opencode/agents/` holds
-  the `implementer`, `verifier` and `plan-reviewer` wrappers, which read the
-  `.claude/agents/` body and set OpenCode's own edit and shell permissions. Run it beside the Opus verifier when
-  a step closes, or for a second opinion on a design question. The main session triages
-  its findings; they never gate on their own.
+- **Cross-model check** (DeepSeek through pi, at a milestone's close): in a throwaway
+  `git worktree add --detach` of the commit under review, `pi -p -a --no-session --model
+  opencode-go/deepseek-v4.1-flash --exclude-tools edit,write --append-system-prompt
+  .pi/roles/verifier.md "<brief>"`. The main session triages its findings; they never
+  gate on their own.
 
 ## Conventions
 
