@@ -5,6 +5,13 @@
 - Amended: 2026-09-29 — the S1 evidence scoped to what run 1 observed (command line,
   one cell, three producers); golden-test coverage stated as to be recorded; the
   AAPT2 open item given its caveat and a single wording.
+- Amended: 2026-10-06 — the AAPT2 open item settled (milestone 1g plan D12 and its
+  step-2 change, Delegated): a merged path is always reported verbatim with
+  `merged: true`; `excerpt` quotes its line from AGP's merged file; and `resolved
+  {file, line, column}` names the developer's file when AGP's blame file
+  (`merged_res_blame_folder`, observed on AGP 8.13 in spike S1 run 2) maps the line.
+  Either lookup failing omits its field. S1 run 2 also recorded javac structured on
+  Gradle 8.13 and Kotlin structured from KGP 2.4 through Problems events.
 - Relates to: [ADR-0017](0017-gradle-execution-strategy.md),
   [ADR-0018](0018-gradle-version-support-policy.md)
 
