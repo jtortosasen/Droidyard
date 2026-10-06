@@ -1,0 +1,12 @@
+:
+:app
+:core
+:core:blocking
+:core:capture
+:core:database
+:core:designsystem
+:core:detection
+:core:model
+:core:usagestats
+:feature
+:feature:applist

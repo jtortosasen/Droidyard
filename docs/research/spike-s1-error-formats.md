@@ -5,7 +5,7 @@ First real experiment of the project. It exists because the review
 flagged that `build.errors` rested on an unverified assumption: that the Problems
 API delivers compiler errors with file, line and column.
 
-> **Status: partial.** This is the first of the runs S1 needs
+> **Status: partial; run 2 below.** Run 1 is the first of the runs S1 needs
 > ([`gradle.md`](../subsystems/gradle.md) §Spikes). It recorded real console formats
 > for three producers, on the **command line**, for **one** version combination. It
 > did **not** exercise the Tooling API, the Problems API, the S1 matrix or daemon
@@ -146,7 +146,41 @@ budget must separate "first ever build" from "subsequent build".
 4. **The failure text is not a source of Kotlin locations** on this cell; it still
    gives the failed task and the outcome, and it is where AAPT2's detail lives.
 
-## Still to run (S1 run 2 and later)
+## Run 2 (2026-10-06): the Tooling API path, on the sidecar
+
+Milestone 1g step 2. The client is the sidecar of step 1 (TAPI 9.8.0, protocol 1),
+spawned on Zulu 17 in its own process group by a small driver, against a copy of
+DopamineControl's working tree (S1 cell: Gradle 8.13, AGP 8.13.2, KGP 2.0.21,
+KSP 2.0.21-1.0.27) on a **warm** Gradle daemon, colour off. One extra cell: the same
+copy on **KGP 2.4.20**, KSP 2.3.12, Hilt 2.57.2 (Hilt 2.51.1 fails KSP 2.3's class
+loading; 2.60 needs AGP 9). Trimmed recordings, paths rewritten to `/w/dc`:
+`internal/domain/build/testdata/s1run2/`.
+
+| Fact | Observed |
+| --- | --- |
+| F1 Kotlin location over TAPI | **Yes, in the forwarded console only**: `e: file:///…/SpikeBroken.kt:3:24 Unresolved reference …` on the `stderr` stream, the run 1 grammar unchanged. No Problems event, no failure-carried problem; the failure tree is `Execution failed for task ':app:compileDebugKotlin'.` with no location (its `description` is a Java stack trace) |
+| F2 KSP | `w: [ksp] /abs/AppDatabase.kt:9: message` on `stdout`, plain path, no column (run 1's form). An error form not recorded |
+| F3 AAPT2 link | Detail in **both** the failure tree (third node: `Android resource linking failed\n<blame-id>:/values/values.xml:210: error: …\nerror: failed linking references.`) and the console (`stderr`, indented 5 spaces). No problems. After the failure the merged file exists at `<buildDir>/intermediates/incremental/debug/mergeDebugResources/merged.dir/values/values.xml` and its line 210 is the offending `<string>`. **AGP's blame file** `<buildDir>/intermediates/merged_res_blame_folder/debug/mergeDebugResources/out/multi-v2/values.json` maps it: `outputFile` ends in the same `<blame-id>:/values/values.xml`, and a `map` entry gives `source` (the developer's `res/values/spike_broken.xml`) with `from.startLines` 2 → `to.startLines` 209 (0-based) |
+| F4 javac | **Structured**: two Problems events and the same two failure-carried problems (`problemId` `compiler-err-cant-resolve-location`, `file` absolute, `line` 4, `column` 13, `details` = the javac text with caret). The console carries the javac form twice: the task's output, then the failure rendering indented 2 spaces |
+| F5 manifest merger | Console only (`stderr`): `/abs/AndroidManifest.xml:15:5-58:19 Error:` + a tab-indented message line; also file-only `/abs/AndroidManifest.xml Error:` + `\tValidation failed, exiting` (noise). Failure tree: `Manifest merger failed with multiple errors, see logs` |
+| F6 Problems for Kotlin on KGP 2.0.21 | None, as expected |
+| F7 model | `GradleProject` lists 12 projects, the root and the container projects `:core`, `:feature` included; `:app` has `assembleDebug`/`packageDebug`/`assembleRelease`/`packageRelease`; library modules have no `package<Variant>` other than `…AndroidTest`, `…Resources`, `…Renderscript`. Fetch: 9.1 s on a cold sidecar connection, 0.7 s again |
+| F8 process groups | Sidecar pgid 59498; the Gradle daemon is its child but in its **own** group (pgid 59502). The daemon outlived the sidecar's stdin EOF (sidecar exit 0 in 0.1–0.6 s) |
+| F9 warm build, cancel | `:app:assembleDebug` 13.3 s after a fresh copy (build cache), 0.6–0.9 s up to date; `:app:clean,:app:assembleDebug` cancelled after 1.5 s ended `cancelled` 0.27 s after `build.cancel`, daemon pid unchanged, next build `success` in 2.7 s |
+| F10 outputs | `:app:packageDebug` `success` then `upToDate`; `output-metadata.json` version 3, one `SINGLE` element, `filters []` |
+| F11 KGP 2.4.20 | Kotlin errors **and warnings** arrive as **Problems events** with `file`, `line`, `column` (matching the console's `3:24`), `problemId` `UNRESOLVED_REFERENCE`; **not** failure-carried. The console still carries `e:` and the untagged `w: file:///…:L:C` form. KGP also reports a `deprecated-gradle-version-warning` problem on Gradle 8.13 |
+
+Implications: the console extractor stays primary for Kotlin below 2.4, KSP, AAPT2 and
+the manifest merger; javac is structured on Gradle 8.13; Kotlin is structured from
+2.4 through **events**, so the event path matters as much as the failure path. AAPT2's
+merged path can be resolved to the developer's file through the blame file (on AGP 8.13,
+option 1 of ADR-0022's open item on AAPT2 paths is feasible). Failure-node descriptions are
+stack traces; only messages are worth showing.
+
+Not run: kapt (the project uses KSP), a KSP error, an AAPT2 compile error, multi-line
+Kotlin diagnostics, the rest of the S1 matrix (Gradle 9.x, AGP 9), Linux.
+
+## Still to run (after run 2)
 
 - The **TAPI path**: the same errors through a minimal TAPI client with colour off,
   capturing the forwarded console, the failure tree, failure-carried problems and

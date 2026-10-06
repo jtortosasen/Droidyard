@@ -1,0 +1,7 @@
+stdout	> Task :app:processDebugMainManifest FAILED
+stderr	/w/dc/app/src/main/AndroidManifest.xml:15:5-58:19 Error:
+stderr		tools:replace specified at line:15 for attribute android:fooBar, but no new value specified
+stderr	/w/dc/app/src/main/AndroidManifest.xml Error:
+stderr		Validation failed, exiting
+stderr	Execution failed for task ':app:processDebugMainManifest'.
+stderr	> Manifest merger failed with multiple errors, see logs

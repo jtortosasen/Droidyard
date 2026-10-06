@@ -134,7 +134,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: the S1 matrix beyond F11, kapt (DopamineControl uses KSP), S3 (D25), S5 daemon reuse.
 - Rests on: the forwarded console carries the compiler's lines as on the command line. Level 5 (the real project).
 - Review: the main session's record; findings that change a later step go under Changes before it starts. The main session writes D25's `Amended:` line and note.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: main session, 2026-10-06, sidecar 6b2b17d driven by a Python NDJSON driver (own session and process group) against the S1 copy; recorded in `docs/research/spike-s1-error-formats.md` §Run 2 (2026-10-06): the Tooling API path, on the sidecar, and `internal/domain/build/testdata/s1run2/`. F1 met (Kotlin `e:` in the forwarded console, `stderr`): no stop. F2–F11 each observed (F5 and F11 inside their timeboxes); F8: the Gradle daemon is in its own process group, so no ADR-0021 amendment. The original's HEAD `2eda199` and status hash `9f3bc91e…` unchanged before and after. Changes below.
 
 ### 3. Trusted roots and `droidyard trust`
 
@@ -283,3 +283,9 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7): every blocking fi
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design. Step 2's findings that alter a later step are recorded here before that step starts.
+
+- 2026-10-06, step 2 → step 6 and D12 (Delegated): AGP's blame file resolves a merged path on AGP 8.13 (F3), so D12 gains option 1: when `<buildDir>/intermediates/merged_res_blame_folder/<variant>/merge<Variant>Resources/out/multi-v2/<dir>.json` has an entry whose `outputFile` ends in the reported `<blame-id>:/<dir>/<file>` and whose `to` range covers the reported line (0-based), the record also carries `source {file (root-relative), line, column}` (1-based, from `from`); the merged path stays verbatim with `merged: true`, `excerpt` from `<buildDir>/intermediates/incremental/<variant>/merge<Variant>Resources/merged.dir/<dir>/<file>`; either lookup failing omits its field. ADR-0022's `Amended:` line says so.
+- 2026-10-06, step 2 → step 6: recorded forms, beyond run 1: the manifest merger's `/abs/AndroidManifest.xml:L:C-L:C Error:` with a tab-indented message line (file-only `… Error:` + `\tValidation failed, exiting` is noise, not a record); the untagged Kotlin `w: file:///…:L:C` warning (KGP 2.4.20); javac's form appears twice (task output, then the failure rendering indented two spaces), so leading indentation is stripped and the merge key deduplicates; AAPT2's detail is read from the failure node's message as well as the console (indented five spaces). Problems records carry absolute `file` and are normalised like console paths.
+- 2026-10-06, step 2 → step 5: `GradleProject` lists every Gradle project, the root `:` and the container projects `:core` and `:feature` included (12 on DopamineControl); `project.modules` returns them all, and step 5 (b)'s expected list gains those three.
+- 2026-10-06, step 2 → step 7: a failure node's `description` is a Java stack trace; results and `build.errors` show messages only, and the persisted record keeps descriptions capped by D6. Kotlin on KGP ≥ 2.4 is structured through Problems **events**, not failure-carried problems (F11), so step 7 merges both sources.
+

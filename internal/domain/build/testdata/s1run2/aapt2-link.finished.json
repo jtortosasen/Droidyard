@@ -1,0 +1,24 @@
+{
+ "outcome": "failed",
+ "failureProblems": [],
+ "problemEvents": [],
+ "failures": [
+  {
+   "id": "049fe551723f0d9e",
+   "message": "Execution failed for task ':app:processDebugResources'.",
+   "causes": [
+    {
+     "id": "28a515364782855c",
+     "message": "A failure occurred while executing com.android.build.gradle.internal.res.LinkApplicationAndroidResourcesTask$TaskAction",
+     "causes": [
+      {
+       "id": "1718e0e360b6ae7a",
+       "message": "Android resource linking failed\ncom.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.dopaminecontrol:string/this_string_does_not_exist) not found.\nerror: failed linking references.\n",
+       "causes": []
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
