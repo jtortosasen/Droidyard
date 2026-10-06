@@ -230,11 +230,17 @@ quirks, accepting the prompt. That belongs in a skill
   §adb resolution for the version-mismatch case).
 - Long-lived children (logcat follow, screen recording) are per-operation and die
   with their operation.
-- **The UI reader** ([ADR-0029](../adr/0029-ui-reader-dex.md)) is the one file Droidyard
-  writes on a device: `/data/local/tmp/droidyard-reader-<sha256>.dex`, pushed for each
-  `device.uiTree` read, run with `app_process` and removed after it, cancellation and
-  deadline included. A daemon killed mid-read leaves it until the next read overwrites
-  and removes it.
+- **The UI reader** ([ADR-0030](../adr/0030-persistent-ui-reader.md)) is what Droidyard
+  leaves on a device: `/data/local/tmp/droidyard-reader-<sha256>.dex`, pushed once and
+  kept; a process named `droidyard-reader-<first 12 hex>` serving reads on a local
+  socket; and one `adb forward tcp:<port> localabstract:droidyard-reader-<12 hex>` on
+  the host. The process ends itself after 30 idle minutes; the daemon's stop quits it
+  and removes the forward. The daemon recovers: a lost forward is recreated, a reader
+  that does not answer is killed by its `pidof` pid and started again, an earlier
+  daemon's answering reader is adopted, and a reader of another digest (found with
+  `ps -A -o PID,NAME`) is killed, since it holds the device's one `UiAutomation`. The
+  one-shot fallback uses its own `…-oneshot.dex`, pushed and removed per read. Nothing
+  else is listed, removed or killed.
 - **Multi-device is a first-class assumption**: per-device locking, writes serialised
   per device, reads in parallel, and one frame pipeline per device. We do not inherit
   the single-stream-slot design of the prior art.

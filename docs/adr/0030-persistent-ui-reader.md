@@ -7,6 +7,15 @@
 - Decided by the owner, 2026-10-04 ("mejor persistente"; no socket authentication; tests
   run through Droidyard). Figures are working defaults until milestone 1f's spike
   measures them.
+- Amended: 2026-10-06 — measured and built in milestone 1f
+  (`docs/research/spike-persistent-reader-2026-10.md`): warm reads 14 ms median (p95
+  460 ms) against 1.4 s one-shot; the reader survives its shell and releases
+  `UiAutomation` on its idle exit; Qustodio undisturbed by a flagged registration held
+  10 minutes. Decided in the plan (D17, Delegated): reads after an action
+  (`tapElement`, `inputText`) use the persistent reader and the one-shot only, never
+  `uiautomator dump`. Recovery also finds readers of another digest by process name, not
+  only by forward; the instrumented-test integration still lands with the first
+  capability that runs tests.
 
 ## Context
 
