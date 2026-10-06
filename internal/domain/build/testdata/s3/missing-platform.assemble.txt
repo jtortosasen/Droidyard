@@ -1,0 +1,4 @@
+* What went wrong:
+Could not determine the dependencies of task ':app:compileFreeProdDebugJavaWithJavac'.
+> Failed to find target with hash string 'android-33' in: /home/u/Library/Android/sdk
+
