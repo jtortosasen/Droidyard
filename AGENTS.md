@@ -40,7 +40,7 @@ skill says who does what.
 - **Main session** (Opus): runs the workflow, briefs the implementer one step at a time,
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
   §Verification by risk): the Opus verifier for contract, security and concurrency
-  changes; the main session's diff review otherwise; Opus and DeepSeek together at close.
+  changes and at a milestone's close; the main session's diff review otherwise.
 - **Implementer: DeepSeek through pi** (owner's choice, 2026-10-04, to spare the
   subscription's quota; pi instead of OpenCode since 2026-10-06): `pi -p -a --no-session
   --model opencode-go/deepseek-v4.1-flash --append-system-prompt .pi/roles/implementer.md
@@ -52,11 +52,8 @@ skill says who does what.
   deny. The main session reviews the diff and commits. The Claude `implementer`
   (Sonnet) is the fallback for a step DeepSeek fails twice.
 - **`planner`, `plan-reviewer`, `verifier`** (Opus).
-- **Cross-model check** (DeepSeek through pi, at a milestone's close): in a throwaway
-  `git worktree add --detach` of the commit under review, `pi -p -a --no-session --model
-  opencode-go/deepseek-v4.1-flash --exclude-tools edit,write --append-system-prompt
-  .pi/roles/verifier.md "<brief>"`. The main session triages its findings; they never
-  gate on their own.
+- **DeepSeek only writes code.** It implements; it does not review, verify or plan
+  (owner, 2026-10-06). Every check is Opus's.
 
 ## Conventions
 
