@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -28,9 +30,25 @@ const reexec = "DROIDYARD_TEST_REEXEC"
 func TestMain(m *testing.M) {
 	processtest.Main()
 	devicetest.Main() // a fake adb, when a test names a scenario directory
+	gradletest.Main() // a fake Gradle sidecar, when a test names a gradletest configuration
 	// No test of this package may find or run the machine's adb, or reach the shared
 	// adb server (plan m1e, step 2): an environment with no ADB, no SDK, an empty PATH.
 	adbEnviron = func() []string { return []string{"HOME=/nonexistent-droidyard-test", "PATH="} }
+	// The same for the Gradle sidecar (plan m1g step 5): discovery runs over an
+	// environment with no JAVA_HOME and an empty PATH and never probes this machine's
+	// JDK registry, so every [gradle] capability is reported unavailable and no test
+	// depends on the host's JDKs. A test that wants a fake sidecar replaces
+	// gradleLaunch itself.
+	gradleEnviron = func() []string { return []string{"HOME=/nonexistent-droidyard-test", "PATH="} }
+	gradleFinder = func(env []string) *gradle.Finder {
+		return &gradle.Finder{
+			GOOS:        "linux",
+			Env:         env,
+			ReadRelease: func(string) ([]byte, error) { return nil, os.ErrNotExist },
+			JavaVersion: func(string) (string, bool) { return "", false },
+			StudioHomes: func() []string { return nil },
+		}
+	}
 	if os.Getenv(reexec) == "1" {
 		installTestSeams()
 		dieWithTheTest()

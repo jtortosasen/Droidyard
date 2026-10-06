@@ -67,6 +67,23 @@ type Descriptor struct {
 	// LogLines bounds the log sink, the last lines of output kept; zero means
 	// DefaultLogLines (process-lifecycle.md §Output handling).
 	LogLines int
+
+	// Protocol marks stdout as a protocol channel rather than log output: each line is
+	// handed to Lines (never to the sink, which then keeps stderr only) up to
+	// MaxProtocolLine. A line longer than that is a protocol violation: pid's group is
+	// killed and the in-flight call sees it through Lease.Err (gradle.md §Protocol;
+	// m1g D6). stderr still goes to the log sink.
+	Protocol bool
+	// Lines receives each complete protocol line, in order, on the drain goroutine: it
+	// must not block, and a line is never delivered before it has been read whole (an
+	// unterminated last line at EOF is dropped).
+	Lines func(line string)
+	// MaxProtocolLine bounds one protocol line, in bytes; zero means
+	// DefaultMaxProtocolLine. A line over it is a protocol violation.
+	MaxProtocolLine int
+	// OnSpawn runs once after the process is spawned and before the first line is read:
+	// the send side of a handshake. A returned error kills the group before readiness.
+	OnSpawn func(pid int, send func(line string) error) error
 }
 
 // DefaultLogLines is the log sink's bound when a descriptor sets none.
@@ -74,6 +91,11 @@ const DefaultLogLines = 1000
 
 // maxLine bounds one line of output in the sink; the rest of a longer line is dropped.
 const maxLine = 64 << 10
+
+// DefaultMaxProtocolLine bounds one protocol line when a descriptor sets none: a
+// project model on a large build can be hundreds of KiB, so the bound is generous, and
+// a line past it is a protocol error, not a truncation (m1g D6, as revised in step 1).
+const DefaultMaxProtocolLine = 16 << 20
 
 // State is where a supervised process stands (process-lifecycle.md §Lifecycle states).
 type State string
@@ -94,6 +116,11 @@ var ErrClosed = errors.New("the supervisor has shut down")
 // ErrUnrecordable is Use while processes.json cannot be written: a process it could
 // not record could outlive the daemon unseen, so none is spawned (plan m1c, R10).
 var ErrUnrecordable = errors.New("processes.json cannot be written, so no process is started")
+
+// ErrProtocol wraps the reason a Protocol process broke its line protocol (a line
+// over the bound): Lease.Err and the readiness error carry it, so the client tells a
+// crash from a plain exit (gradle.md §Protocol; plan m1g D6).
+var ErrProtocol = errors.New("protocol violation")
 
 // Options configure a Supervisor.
 type Options struct {
@@ -133,12 +160,17 @@ type proc struct {
 	pid   int
 	stdin *os.File
 	sink  *sink
+	// wmu serialises writes to stdin, so leases sharing one process never interleave a
+	// protocol line.
+	wmu sync.Mutex
 
 	// Guarded by Supervisor.mu.
-	state  State
-	leases int
-	idle   *time.Timer
-	idleN  int // which arming of the idle timer is current
+	state    State
+	leases   int
+	idle     *time.Timer
+	idleN    int   // which arming of the idle timer is current
+	protoErr error // a protocol violation that killed it, if any
+	exitErr  error // how cmd.Wait saw it exit, if it has
 
 	spawned  chan struct{} // closed once the spawn succeeded or failed
 	ready    chan struct{} // closed once ready, or once it can never be
@@ -234,6 +266,37 @@ func (l *Lease) Pid() int { return l.p.pid }
 // Stdin is the leased process's stdin, the pipe the supervisor holds. Its output is
 // read from the log sink (Output).
 func (l *Lease) Stdin() io.Writer { return l.p.stdin }
+
+// Send writes one line to the process, adding the newline, with the writes of every
+// lease serialised. It fails once the process's stdin is closed (a stopped process).
+func (l *Lease) Send(line string) error { return l.p.send(line) }
+
+// Done is closed once the process is reaped, however it ended.
+func (l *Lease) Done() <-chan struct{} { return l.p.exited }
+
+// Err is why the process ended: a protocol violation that killed it, else its exit
+// error, else nil while it runs.
+func (l *Lease) Err() error {
+	l.s.mu.Lock()
+	defer l.s.mu.Unlock()
+	return l.p.err()
+}
+
+// err is how the process ended, guarded by Supervisor.mu.
+func (p *proc) err() error {
+	if p.protoErr != nil {
+		return p.protoErr
+	}
+	return p.exitErr
+}
+
+// send writes one line to the process's stdin, serialised across leases.
+func (p *proc) send(line string) error {
+	p.wmu.Lock()
+	defer p.wmu.Unlock()
+	_, err := io.WriteString(p.stdin, line+"\n")
+	return err
+}
 
 // Release ends the use. The last release starts the idle timer. Releasing twice, or
 // after the process stopped, does nothing.
@@ -341,9 +404,26 @@ func (s *Supervisor) start(p *proc) error {
 		stdinW.Close()
 		return fail(err)
 	}
+	// stderr is a pipe of its own in protocol mode, so the protocol channel (stdout) and
+	// the log sink stay separate (m1g D6: stdout carries the protocol only).
+	var errR, errW *os.File
+	if p.d.Protocol {
+		errR, errW, err = os.Pipe()
+		if err != nil {
+			stdinR.Close()
+			stdinW.Close()
+			outR.Close()
+			outW.Close()
+			return fail(err)
+		}
+	}
 	cmd := exec.Command(p.d.Command, p.d.Args...)
 	cmd.Dir, cmd.Env = p.d.Dir, p.d.Env
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdinR, outW, outW
+	cmd.Stdin, cmd.Stdout = stdinR, outW
+	cmd.Stderr = outW
+	if errW != nil {
+		cmd.Stderr = errW
+	}
 	cmd.SysProcAttr = sysProcAttr()
 	done := make(chan error, 1)
 	select {
@@ -354,9 +434,15 @@ func (s *Supervisor) start(p *proc) error {
 	}
 	stdinR.Close()
 	outW.Close()
+	if errW != nil {
+		errW.Close()
+	}
 	if err != nil {
 		stdinW.Close()
 		outR.Close()
+		if errR != nil {
+			errR.Close()
+		}
 		return fail(err)
 	}
 	n := p.d.LogLines
@@ -375,20 +461,37 @@ func (s *Supervisor) start(p *proc) error {
 		cmd.Wait()
 		stdinW.Close()
 		outR.Close()
+		if errR != nil {
+			errR.Close()
+		}
 		p.pid = 0
 		return fail(fmt.Errorf("%w: %v", ErrUnrecordable, err))
 	}
 	close(p.spawned)
 	go s.drain(p, outR)
+	if errR != nil {
+		go s.drainStderr(p, errR)
+	}
 	go s.wait(p, cmd)
+	if p.d.OnSpawn != nil {
+		if err := p.d.OnSpawn(p.pid, p.send); err != nil {
+			s.logf("%s (pid %d): handshake: %v", p.d.ID, p.pid, err)
+			unix.Kill(-p.pid, unix.SIGKILL)
+		}
+	}
 	return nil
 }
 
 // drain reads the process's output line by line into its sink and runs the
 // readiness probe on each line until one passes. It never blocks the process: the
-// sink keeps the last lines only.
+// sink keeps the last lines only. A protocol process reads stdout through
+// drainProtocol instead, and its stderr through drainStderr.
 func (s *Supervisor) drain(p *proc, r *os.File) {
 	defer r.Close()
+	if p.d.Protocol {
+		s.drainProtocol(p, r)
+		return
+	}
 	br := bufio.NewReaderSize(r, 64<<10)
 	probing := true
 	for {
@@ -406,6 +509,64 @@ func (s *Supervisor) drain(p *proc, r *os.File) {
 	}
 }
 
+// drainProtocol reads complete protocol lines and hands them to Lines, running the
+// readiness probe on each. A line over the bound is a protocol violation: the group is
+// killed and Lease.Err reports it (m1g D6). An unterminated last line at EOF is dropped
+// (m1g step 1 fix round).
+func (s *Supervisor) drainProtocol(p *proc, r *os.File) {
+	br := bufio.NewReaderSize(r, 64<<10)
+	max := p.d.MaxProtocolLine
+	if max <= 0 {
+		max = DefaultMaxProtocolLine
+	}
+	probing := true
+	for {
+		line, over, err := readProtocolLine(br, max)
+		if over {
+			s.protocolViolation(p, fmt.Errorf("%w: protocol line over %d MiB", ErrProtocol, max>>20))
+			return
+		}
+		if err == nil {
+			if p.d.Lines != nil {
+				p.d.Lines(line)
+			}
+			if probing && p.d.Ready != nil && p.d.Ready(line) {
+				probing = false
+				s.markReady(p)
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// drainStderr reads stderr into the log sink, so a protocol process's diagnostics are
+// still visible while its stdout stays the protocol channel.
+func (s *Supervisor) drainStderr(p *proc, r *os.File) {
+	defer r.Close()
+	br := bufio.NewReaderSize(r, 64<<10)
+	for {
+		line, err := readLine(br)
+		if line != "" || err == nil {
+			p.sink.add(line)
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// protocolViolation records why and kills the process's group: the reaper then fails
+// the in-flight call through Lease.Err.
+func (s *Supervisor) protocolViolation(p *proc, err error) {
+	s.mu.Lock()
+	p.protoErr = err
+	s.mu.Unlock()
+	s.logf("%s (pid %d): %v; killing its group", p.d.ID, p.pid, err)
+	unix.Kill(-p.pid, unix.SIGKILL)
+}
+
 // readLine reads one line, without its newline, keeping at most maxLine bytes of it.
 func readLine(br *bufio.Reader) (string, error) {
 	var b []byte
@@ -416,6 +577,26 @@ func readLine(br *bufio.Reader) (string, error) {
 		}
 		if err != nil || !isPrefix {
 			return string(b), err
+		}
+	}
+}
+
+// readProtocolLine reads one line whole, without its newline. over is true when the
+// line was longer than max: the whole line is still consumed, but nothing of it past
+// the bound is kept.
+func readProtocolLine(br *bufio.Reader, max int) (line string, over bool, err error) {
+	var b []byte
+	for {
+		chunk, isPrefix, err := br.ReadLine()
+		if !over {
+			if len(b)+len(chunk) > max {
+				over = true
+			} else {
+				b = append(b, chunk...)
+			}
+		}
+		if err != nil || !isPrefix {
+			return string(b), over, err
 		}
 	}
 }
@@ -438,6 +619,7 @@ func (s *Supervisor) wait(p *proc, cmd *exec.Cmd) {
 	s.mu.Lock()
 	stopping := p.state == Stopping
 	starting := p.state == Starting
+	p.exitErr = err
 	if !stopping {
 		p.state = Failed
 		s.disarmIdle(p)
@@ -455,7 +637,13 @@ func (s *Supervisor) wait(p *proc, cmd *exec.Cmd) {
 	}
 	s.removeRecord(p.pid)
 	if starting {
-		p.readyErr = fmt.Errorf("%s exited before it was ready: %v; last output: %s", p.d.ID, err, strings.Join(p.sink.tail(5), " | "))
+		// A protocol violation carries its own cause: it is what the in-flight call
+		// reports (BUILD_SIDECAR_CRASHED, "protocol line over 16 MiB").
+		if p.protoErr != nil {
+			p.readyErr = p.protoErr
+		} else {
+			p.readyErr = fmt.Errorf("%s exited before it was ready: %v; last output: %s", p.d.ID, err, strings.Join(p.sink.tail(5), " | "))
+		}
 		close(p.ready)
 	}
 	close(p.finished)
@@ -553,6 +741,18 @@ func (s *Supervisor) idleExpired(p *proc, n int) {
 // Stop stops every process of scope, leases or not, and returns once they are gone.
 func (s *Supervisor) Stop(scope Scope) {
 	s.stopAll(func(p *proc) bool { return p.d.Scope == scope })
+}
+
+// StopProcess stops the one process id runs in scope, if it is running, and returns
+// once it is gone: a client refuses a sidecar that failed its handshake instead of
+// leaving it running until the idle timeout.
+func (s *Supervisor) StopProcess(id string, scope Scope) {
+	s.mu.Lock()
+	p := s.procs[key(id, scope)]
+	s.mu.Unlock()
+	if p != nil {
+		s.stop(p)
+	}
 }
 
 // Shutdown stops every process and refuses further Use. It runs on the descriptors'

@@ -99,6 +99,12 @@ type Options struct {
 	// StopSidecars stops the workspace's sidecars, after the drain and before the
 	// workspace is closed. Nil until the supervisor exists (step 7).
 	StopSidecars func(id string)
+	// CloseRoot releases the resources that belong to the workspace's project root,
+	// after the drain: the Gradle sidecar closes its connection to that root so
+	// Gradle's daemon connection is released rather than left to the sidecar's idle
+	// timeout (gradle.md §Protocol; plan m1g step 5). It is called with the
+	// workspace's canonical root and must not block for long.
+	CloseRoot func(root string)
 	// Log receives a line per operation a close left running. Nil discards.
 	Log io.Writer
 	// Publisher receives every transition on workspace.lifecycle. Nil publishes
@@ -493,6 +499,7 @@ func (r *Registry) Close(target string) error {
 		r.mu.Unlock()
 		return nil
 	}
+	root := w.info.Root
 	w.info.State = Closing
 	w.state.Store(Closing)
 	r.mu.Unlock()
@@ -508,6 +515,9 @@ func (r *Registry) Close(target string) error {
 					id, op, out.Capability, r.opts.Drain)
 			}
 		}
+	}
+	if r.opts.CloseRoot != nil && root != "" {
+		r.opts.CloseRoot(root)
 	}
 	if r.opts.StopSidecars != nil {
 		r.opts.StopSidecars(id)

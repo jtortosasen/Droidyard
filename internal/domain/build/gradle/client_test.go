@@ -1,0 +1,506 @@
+package gradle_test
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/store"
+)
+
+type testLog struct{ t *testing.T }
+
+func (l testLog) Write(p []byte) (int, error) {
+	l.t.Log(strings.TrimSpace(string(p)))
+	return len(p), nil
+}
+
+// model is the reply every client test serves: two modules with the tasks the step 2
+// run recorded.
+func model(t *testing.T) gradle.Model {
+	t.Helper()
+	root := filepath.Join("..", "testdata", "s1run2")
+	projects := readLines(t, filepath.Join(root, "projects.txt"))
+	m := gradle.Model{Root: "/p"}
+	for _, path := range projects {
+		m.Projects = append(m.Projects, gradle.Module{Path: path, Name: name(path), Dir: dir(path), Tasks: tasksOf(t, root, path)})
+	}
+	return m
+}
+
+func readLines(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// tasksOf reads a module's recorded task names, which the step 2 run saved as
+// tasks-<module with : replaced by ->.txt; a module with no recording has no tasks.
+func tasksOf(t *testing.T, root, path string) []gradle.Task {
+	t.Helper()
+	file := "tasks-" + strings.ReplaceAll(strings.TrimPrefix(path, ":"), ":", "-") + ".txt"
+	data, err := os.ReadFile(filepath.Join(root, file))
+	if err != nil {
+		return nil
+	}
+	var out []gradle.Task
+	for _, line := range strings.Split(string(data), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		out = append(out, gradle.Task{Name: name, Path: path + ":" + name, Group: "build", Public: true})
+	}
+	return out
+}
+
+func name(path string) string {
+	if path == ":" {
+		return "root"
+	}
+	if i := strings.LastIndex(path, ":"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
+}
+
+func dir(path string) string {
+	if path == ":" {
+		return "."
+	}
+	return strings.ReplaceAll(strings.TrimPrefix(path, ":"), ":", "/")
+}
+
+// newClient starts a client over a fake sidecar scripted by cfg. It returns the client,
+// the supervisor (to watch the process) and the events file.
+func newClient(t *testing.T, cfg gradletest.Config, idle time.Duration) (*gradle.Client, *process.Supervisor, string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg.Events = filepath.Join(dir, "events")
+	cfgPath := gradletest.WriteConfig(t, cfg)
+	st, err := store.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup := process.New(process.Options{Store: st, Log: testLog{t}})
+	if err := sup.Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sup.Shutdown)
+	jvm := gradle.JVM{Found: true, Home: "/fake/jdk17", Version: "17.0.11", Source: gradle.SourceJavaHome}
+	c := gradle.New(gradle.Options{
+		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: dir,
+		Launch: gradletest.Launch(cfgPath), IdleTimeout: idle,
+	})
+	return c, sup, cfg.Events
+}
+
+func rootDir(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
+// events reads the fake's event log.
+func events(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func started(t *testing.T, path string) int {
+	n := 0
+	for _, e := range events(t, path) {
+		if strings.HasPrefix(e, "started ") {
+			n++
+		}
+	}
+	return n
+}
+
+// gone reports whether a process state means it is no longer running: Stopped for an
+// orderly stop, Failed for one the supervisor killed on a protocol violation.
+func gone(s process.State) bool { return s == process.Stopped || s == process.Failed }
+
+// waitFor polls until cond holds, failing the test after 5 s.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func codeOf(t *testing.T, err error) capability.ErrorCode {
+	t.Helper()
+	e, ok := err.(*capability.Error)
+	if !ok {
+		t.Fatalf("error %v is not a capability error", err)
+	}
+	return e.Code
+}
+
+// TestModelSpawnsOnceAndSharesOneProcessAcrossRoots pins ADR-0019: one sidecar per
+// daemon serves every root, so the second root makes no second process.
+func TestModelSpawnsOnceAndSharesOneProcessAcrossRoots(t *testing.T) {
+	c, sup, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
+	ctx := context.Background()
+	a, b := rootDir(t), rootDir(t)
+
+	if _, stale, err := c.Model(ctx, a); err != nil || stale {
+		t.Fatalf("first root: stale=%v err=%v", stale, err)
+	}
+	pid := sup.Pid(gradle.ID, process.Global)
+	if pid == 0 {
+		t.Fatal("the first model call did not start the sidecar")
+	}
+	if _, stale, err := c.Model(ctx, b); err != nil || stale {
+		t.Fatalf("second root: stale=%v err=%v", stale, err)
+	}
+	if got := sup.Pid(gradle.ID, process.Global); got != pid {
+		t.Errorf("the second root runs the sidecar in a second process (%d, was %d)", got, pid)
+	}
+	if n := started(t, ev); n != 1 {
+		t.Errorf("the sidecar started %d times; want once for both roots", n)
+	}
+}
+
+// TestProtocolVersionMismatchIsUnavailable pins the hello check: a sidecar speaking
+// another protocol is refused BUILD_SIDECAR_UNAVAILABLE and stopped, never used. Seen
+// failing with the version check removed.
+func TestProtocolVersionMismatchIsUnavailable(t *testing.T) {
+	c, sup, _ := newClient(t, gradletest.Config{ProtocolVersion: 2, Model: gradletest.MustModel(model(t))}, time.Minute)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	if got := codeOf(t, err); got != capability.ErrBuildSidecarUnavailable {
+		t.Fatalf("code = %s, want BUILD_SIDECAR_UNAVAILABLE: %v", got, err)
+	}
+	if !strings.Contains(err.Error(), "protocol version 2") {
+		t.Errorf("the error does not name the sidecar's version: %v", err)
+	}
+	waitFor(t, "the sidecar to be stopped", func() bool { return sup.State(gradle.ID, process.Global) == process.Stopped })
+}
+
+// TestNonJSONStdoutLineIsACrash pins D6: stdout carries the protocol only, so a line
+// that is not JSON-RPC means the channel is lost — BUILD_SIDECAR_CRASHED and the
+// process killed, not a silent ignore.
+func TestNonJSONStdoutLineIsACrash(t *testing.T) {
+	c, sup, _ := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t)), StrayOn: "project.model"}, time.Minute)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	if got := codeOf(t, err); got != capability.ErrBuildSidecarCrashed {
+		t.Fatalf("code = %s, want BUILD_SIDECAR_CRASHED: %v", got, err)
+	}
+	waitFor(t, "the sidecar to be killed", func() bool { return sup.State(gradle.ID, process.Global) == process.Stopped })
+}
+
+// TestKilledMidCallDegradesBothRootsAndTheNextCallClears pins D20: the call fails
+// BUILD_SIDECAR_CRASHED, every root with a connection is marked degraded, the crash drops
+// the cached models, and the next call restarts the sidecar and clears it.
+func TestKilledMidCallDegradesBothRootsAndTheNextCallClears(t *testing.T) {
+	cfg := gradletest.Config{Model: gradletest.MustModel(model(t)), HoldOn: "project.model", HoldAfter: 2}
+	c, sup, ev := newClient(t, cfg, time.Minute)
+	ctx := context.Background()
+	a, b := rootDir(t), rootDir(t)
+	if _, _, err := c.Model(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Model(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+
+	// An unchanged root answers from the cache (D8), so the third call needs a build
+	// file edit to reach the sidecar.
+	if err := os.WriteFile(filepath.Join(a, "build.gradle.kts"), []byte("// edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failed := make(chan error, 1)
+	go func() {
+		_, _, err := c.Model(ctx, a)
+		failed <- err
+	}()
+	waitFor(t, "the third call to reach the fake", func() bool { return count(events(t, ev), "served project.model") >= 3 })
+	pid := sup.Pid(gradle.ID, process.Global)
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	err := <-failed
+	if got := codeOf(t, err); got != capability.ErrBuildSidecarCrashed {
+		t.Fatalf("code = %s, want BUILD_SIDECAR_CRASHED: %v", got, err)
+	}
+	for _, root := range []string{a, b} {
+		if d := c.Degraded(root); d == nil || d.Code != capability.ErrBuildSidecarCrashed {
+			t.Errorf("root %s is not degraded after the crash: %v", root, d)
+		}
+	}
+
+	if _, _, err := c.Model(ctx, b); err != nil {
+		t.Fatalf("the call after the crash did not restart the sidecar: %v", err)
+	}
+	if d := c.Degraded(b); d != nil {
+		t.Errorf("the successful call did not clear the degradation: %v", d)
+	}
+	if n := started(t, ev); n != 2 {
+		t.Errorf("the sidecar started %d times; want a restart after the crash", n)
+	}
+}
+
+func count(lines []string, want string) int {
+	n := 0
+	for _, line := range lines {
+		if line == want {
+			n++
+		}
+	}
+	return n
+}
+
+// TestALineOverTheBoundIsACrash pins the revised D6: the client accepts a line up to
+// 16 MiB and treats one over it as a protocol violation, failing the call
+// BUILD_SIDECAR_CRASHED and killing the sidecar. (The plan's step 5 text still says
+// 2 MiB; §Changes, from the step 1 fix round, raised it to 16 MiB, so this uses 17.)
+func TestALineOverTheBoundIsACrash(t *testing.T) {
+	cfg := gradletest.Config{Model: gradletest.MustModel(model(t)), BigLineOn: "project.model", BigLineBytes: 17 << 20}
+	c, sup, _ := newClient(t, cfg, time.Minute)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	if got := codeOf(t, err); got != capability.ErrBuildSidecarCrashed {
+		t.Fatalf("code = %s, want BUILD_SIDECAR_CRASHED: %v", got, err)
+	}
+	if !strings.Contains(err.Error(), "16 MiB") {
+		t.Errorf("the cause does not name the bound: %v", err)
+	}
+	waitFor(t, "the sidecar to be killed", func() bool { return gone(sup.State(gradle.ID, process.Global)) })
+}
+
+// TestIdleStop pins gradle.md §Lifecycle: the sidecar is stopped once it has gone
+// unused for the idle timeout and no lease is held — and not while a lease is, which is
+// what a running build holds (client.Hold).
+func TestIdleStop(t *testing.T) {
+	c, sup, _ := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, 300*time.Millisecond)
+	ctx := context.Background()
+	if _, _, err := c.Model(ctx, rootDir(t)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the idle sidecar to be stopped", func() bool { return sup.State(gradle.ID, process.Global) == process.Stopped })
+
+	lease, err := c.Hold(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * 300 * time.Millisecond)
+	if s := sup.State(gradle.ID, process.Global); s == process.Stopped {
+		t.Fatalf("the sidecar was stopped while a build held a lease (%s)", s)
+	}
+	lease.Release()
+	waitFor(t, "the sidecar to stop once the lease is released", func() bool { return sup.State(gradle.ID, process.Global) == process.Stopped })
+}
+
+// TestShutdownClosesStdin pins that the daemon's stop ends the sidecar through stdin
+// EOF, the protocol's kill switch, rather than leaving it running.
+func TestShutdownClosesStdin(t *testing.T) {
+	c, sup, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
+	if _, _, err := c.Model(context.Background(), rootDir(t)); err != nil {
+		t.Fatal(err)
+	}
+	sup.Shutdown()
+	waitFor(t, "the fake to see stdin EOF", func() bool { return count(events(t, ev), "eof") == 1 })
+}
+
+// TestGradleBelowTheFloorIsRefused pins ADR-0018 rule 3 and D9: a project whose Gradle
+// is below the floor fails BUILD_GRADLE_UNSUPPORTED naming floor and version, before
+// any model work.
+func TestGradleBelowTheFloorIsRefused(t *testing.T) {
+	c, _, _ := newClient(t, gradletest.Config{GradleVersion: "7.6", Model: gradletest.MustModel(model(t))}, time.Minute)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	if got := codeOf(t, err); got != capability.ErrBuildGradleUnsupported {
+		t.Fatalf("code = %s, want BUILD_GRADLE_UNSUPPORTED: %v", got, err)
+	}
+	for _, want := range []string{"7.6", gradle.GradleFloor} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not name %q: %v", want, err)
+		}
+	}
+}
+
+// TestCachedModelWhileABuildHoldsTheRoot pins R5 and D8: with the per-root lock held by
+// a build, a model call answers from the cache at once rather than waiting for Gradle,
+// with stale true once a build file has changed.
+func TestCachedModelWhileABuildHoldsTheRoot(t *testing.T) {
+	c, sup, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
+	ctx := context.Background()
+	root := rootDir(t)
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte("rootProject.name = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Model(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	calls := count(events(t, ev), "connection.open")
+
+	release, err := c.LockRoot(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stale, err := c.Model(ctx, root); err != nil || stale {
+		t.Fatalf("while the build holds the root and nothing changed: stale=%v err=%v", stale, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "build.gradle.kts"), []byte("plugins {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan bool, 1)
+	go func() {
+		_, stale, err := c.Model(ctx, root)
+		if err != nil {
+			t.Errorf("cached model: %v", err)
+		}
+		done <- stale
+	}()
+	select {
+	case stale := <-done:
+		if !stale {
+			t.Error("a build file changed while the root was busy, but the answer is not marked stale")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the model call blocked on the root a build holds; it must answer from the cache")
+	}
+	release()
+	if got := count(events(t, ev), "connection.open"); got != calls {
+		t.Errorf("the cached answer opened the connection %d times, was %d: it must not touch Gradle", got, calls)
+	}
+	if sup.Pid(gradle.ID, process.Global) == 0 {
+		t.Error("the cached answer stopped the sidecar")
+	}
+}
+
+// TestVariantsFromRecordedTaskNames pins ADR-0023 §Decision 4 over step 2's real task
+// lists: :app has debug and release, the library has none, and the AndroidTest and
+// UnitTest variants are excluded. Seen failing with AndroidTest kept.
+func TestVariantsFromRecordedTaskNames(t *testing.T) {
+	m := model(t)
+	app, ok := m.Module(":app")
+	if !ok {
+		t.Fatal("the recorded model has no :app")
+	}
+	got := gradle.VariantNames(app)
+	if strings.Join(got, ",") != "debug,release" {
+		t.Errorf(":app variants = %v, want debug and release", got)
+	}
+	for _, bad := range []string{"DebugAndroidTest", "DebugUnitTest"} {
+		for _, v := range got {
+			if strings.EqualFold(v, bad) {
+				t.Errorf(":app variants include %s", v)
+			}
+		}
+	}
+	lib, ok := m.Module(":core:database")
+	if !ok {
+		t.Fatal("the recorded model has no :core:database")
+	}
+	if v := gradle.VariantNames(lib); len(v) != 0 {
+		t.Errorf(":core:database variants = %v, want none (it packages no APK)", v)
+	}
+}
+
+// TestFingerprintCoversIncludedBuildLogicAndIgnoresNoise pins D8: a build-logic edit
+// changes the fingerprint, and build output and source that cannot change the model do
+// not.
+func TestFingerprintCoversIncludedBuildLogicAndIgnoresNoise(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("settings.gradle.kts", "include(\":app\")\n")
+	write("app/build.gradle.kts", "plugins {}\n")
+	write("gradle/libs.versions.toml", "[versions]\n")
+	write("build-logic/settings.gradle.kts", "rootProject.name = \"build-logic\"\n")
+	write("build-logic/convention.gradle.kts", "// v1\n")
+	write("app/build/generated.txt", "output\n")
+	write("app/src/main/App.kt", "class App\n")
+
+	base := gradle.Fingerprint(root)
+	if base == "" {
+		t.Fatal("the fingerprint is empty")
+	}
+
+	// Noise: neither build output nor source is part of the model's inputs.
+	write("app/build/generated.txt", "other output, longer\n")
+	write("app/src/main/App.kt", "class App2\n")
+	if got := gradle.Fingerprint(root); got != base {
+		t.Errorf("a build-output or source edit changed the fingerprint: %s -> %s", base, got)
+	}
+
+	// An included build's own script is part of it.
+	write("build-logic/convention.gradle.kts", "// v2, a longer body\n")
+	if got := gradle.Fingerprint(root); got == base {
+		t.Errorf("a build-logic edit did not change the fingerprint (%s)", got)
+	}
+	next := gradle.Fingerprint(root)
+	write("gradle/libs.versions.toml", "[versions]\napp = \"1\"\n")
+	if gradle.Fingerprint(root) == next {
+		t.Error("a version-catalog edit did not change the fingerprint")
+	}
+}
+
+// TestUnchangedRootAnswersFromTheCache pins D8 and A3: one configuration pass per
+// (root, fingerprint), then the cache, whether or not a build holds the root; a build
+// file edit fetches again. Seen failing when a free root always fetched.
+func TestUnchangedRootAnswersFromTheCache(t *testing.T) {
+	c, _, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
+	ctx := context.Background()
+	a := rootDir(t)
+	for range 3 {
+		if _, stale, err := c.Model(ctx, a); err != nil || stale {
+			t.Fatalf("model: stale=%v err=%v", stale, err)
+		}
+	}
+	if n := count(events(t, ev), "served project.model"); n != 1 {
+		t.Fatalf("three calls on an unchanged root reached the sidecar %d times, want 1", n)
+	}
+	if err := os.WriteFile(filepath.Join(a, "settings.gradle.kts"), []byte("// edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Model(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(events(t, ev), "served project.model"); n != 2 {
+		t.Fatalf("after a settings edit the sidecar served %d fetches, want 2", n)
+	}
+}

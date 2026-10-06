@@ -13,7 +13,10 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/artifacts"
+	"github.com/jtortosasen/droidyard/internal/domain/build"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/schema"
@@ -34,10 +37,22 @@ func (nothingInstalled) Missing(r capability.Requirement) (string, bool) {
 	return string(r) + " was not found on this machine", true
 }
 
+// noSidecar is the Gradle client the golden registry is built with: the schema needs
+// the descriptors, and no handler of the golden registry is ever run.
+type noSidecar struct{}
+
+func (noSidecar) Model(context.Context, string) (gradle.Model, bool, error) {
+	return gradle.Model{}, false, nil
+}
+
+// trustNothing is the trust hook the golden registry is built with: only the
+// descriptor matters here.
+func trustNothing(context.Context, *capability.Call) (any, error) { return nil, nil }
+
 func registry() *capability.Registry {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
-	system.Register(reg, nothingInstalled{}, nil, ops, nil)
+	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil)
 	store, err := artifact.New(artifact.Options{Epoch: "schema"})
 	if err != nil {
 		panic(err)
@@ -45,6 +60,8 @@ func registry() *capability.Registry {
 	device.Register(reg, device.NewADB(nil, nil), store)
 	artifacts.Register(reg, store)
 	ops.RegisterCapabilities()
+	project.Register(reg, noSidecar{}, trustNothing)
+	build.Register(reg, noSidecar{}, trustNothing)
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg)
 	return reg

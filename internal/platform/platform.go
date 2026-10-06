@@ -102,6 +102,31 @@ func (e Env) ConfigDir() (string, error) {
 	return filepath.Join(home, ".config", Name), nil
 }
 
+// CacheDir is the derived-cache directory, deletable at any time: on macOS
+// ~/Library/Caches/droidyard; else $XDG_CACHE_HOME/droidyard, defaulting to
+// ~/.cache/droidyard. Under an explicit DROIDYARD_STATE_DIR it is <state>/cache, so
+// one variable isolates a run (ADR-0021 §Location; plan m1g D5).
+func (e Env) CacheDir() (string, error) {
+	if e.Getenv("DROIDYARD_STATE_DIR") != "" {
+		state, err := e.StateDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(state, "cache"), nil
+	}
+	home := e.Getenv("HOME")
+	if home == "" {
+		return "", errors.New("HOME is not set, so the cache directory cannot be located; set DROIDYARD_STATE_DIR")
+	}
+	if e.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Caches", Name), nil
+	}
+	if dir := e.xdg("XDG_CACHE_HOME"); dir != "" {
+		return filepath.Join(dir, Name), nil
+	}
+	return filepath.Join(home, ".cache", Name), nil
+}
+
 // SocketPath is the daemon's socket for the state root state: <state>/run/ when
 // DROIDYARD_STATE_DIR is set or on macOS; else $XDG_RUNTIME_DIR/droidyard/, falling
 // back to <state>/run/. A path too long for sun_path moves to

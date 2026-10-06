@@ -24,7 +24,7 @@ func (allPresent) Missing(capability.Requirement) (string, bool) { return "", fa
 func health(t *testing.T, adb system.ADB) system.Health {
 	t.Helper()
 	reg := capability.NewRegistry()
-	system.Register(reg, allPresent{}, adb, noOps{}, nil)
+	system.Register(reg, allPresent{}, adb, noOps{}, nil, nil)
 	d, _ := reg.Lookup("system.health")
 	out, err := d.Handler(context.Background(), &capability.Call{})
 	if err != nil {

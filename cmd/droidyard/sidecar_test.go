@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
@@ -28,6 +30,11 @@ const (
 	// launcherEnv names the file a re-executed `ui` writes the URL it would have opened
 	// to: no test opens a browser.
 	launcherEnv = "DROIDYARD_TEST_LAUNCHER"
+	// gradleFakeEnv names a gradletest configuration file: a re-executed daemon then
+	// runs that fake sidecar instead of a real JVM, and gradleJVMEnv names the fake JDK
+	// 17 it "runs on" (plan m1g step 5).
+	gradleFakeEnv = "DROIDYARD_TEST_GRADLE_FAKE"
+	gradleJVMEnv  = "DROIDYARD_TEST_GRADLE_JVM"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -51,6 +58,19 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(shutdownEnv)); err == nil {
 		shutdownTimeout = d
+	}
+	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar
+	// command runs the test binary again in the fake's mode, so reexec must not reach
+	// it, or it would run the daemon instead of the fake.
+	if cfg := os.Getenv(gradleFakeEnv); cfg != "" {
+		jvm := os.Getenv(gradleJVMEnv)
+		gradleLaunch = func(j gradle.JVM, jars gradle.Jars) (string, []string, []string, error) {
+			command, args, env, err := gradletest.Launch(cfg)(j, jars)
+			return command, args, withoutVars(env, reexec), err
+		}
+		gradleFinder = func([]string) *gradle.Finder {
+			return &gradle.Finder{GOOS: "linux", Env: []string{"JAVA_HOME=" + jvm}, StudioHomes: func() []string { return nil }}
+		}
 	}
 }
 
