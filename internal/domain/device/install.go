@@ -42,7 +42,10 @@ var (
 // installFailureRE is the "Failure [INSTALL_FAILED_…]" adb prints, which is a failure
 // even on exit 0. The bracketed token is the whole cause, never the rest of the line
 // (adb-device.md §Install; plan m1g R3).
-var installFailureRE = regexp.MustCompile(`Failure \[([A-Z_]+)\]`)
+// Modern adb prints the token followed by a colon and a message
+// (`Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Package … ignoring!]`), older ones the
+// bare token; only the token is kept either way (R3; step 8 review B2).
+var installFailureRE = regexp.MustCompile(`Failure \[([A-Z][A-Z0-9_]*)[\]:]`)
 
 // The install reference's bounds (plan m1g step 8: the install command gets 180 s).
 // uninstall and pm path are bounded too; a variable so a test injects a scale.
@@ -69,7 +72,7 @@ type BuildResolver interface {
 // BuildRef is device.install's build reference (gradle.md §Build outputs "Install
 // reference").
 type BuildRef struct {
-	BuildID string `json:"buildId,omitempty" jsonschema_description:"Which build's output to install. Absent resolves the newest finished build of the workspace with an output for module and variant."`
+	BuildID string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"Which build's output to install. Absent resolves the newest finished build of the workspace with an output for module and variant."`
 	Module  string `json:"module" jsonschema:"required,pattern=^(:[A-Za-z0-9_.-]+)+$" jsonschema_description:"The Gradle project path of the module whose output to install, e.g. \":app\", matching project.modules."`
 	Variant string `json:"variant" jsonschema:"required,pattern=^[a-z][A-Za-z0-9]*$" jsonschema_description:"The variant whose APK to install, e.g. \"debug\", matching project.variants."`
 }
@@ -254,7 +257,7 @@ func (a *ADB) install(ctx context.Context, t *target, p InstallParams, out build
 		if errors.Is(err, ErrTimeout) {
 			return InstallResult{}, installFailed("adb install did not answer in " + installTimeout.String())
 		}
-		return InstallResult{}, err
+		return InstallResult{}, withoutPath(err, out.Path, out.APK)
 	}
 	if token := failureToken(res); token != "" {
 		return InstallResult{}, installFailed(token)
@@ -312,6 +315,12 @@ func (a *ADB) packageInstalled(ctx context.Context, t *target, id string) (bool,
 			return true, nil
 		}
 	}
+	// An absent package is exit 1 with no output (observed on API 36.1, step 8 level
+	// 5). Anything printed instead is the package manager failing, which is not
+	// "absent": the uninstall is refused rather than reported done (step 8 review N5).
+	if text := strings.TrimSpace(string(res.Stdout) + string(res.Stderr)); text != "" {
+		return false, uninstallFailed("pm path did not answer with a package")
+	}
 	return false, nil
 }
 
@@ -352,4 +361,18 @@ func uninstallFailed(cause string) *capability.Error {
 	return capability.NewError(ErrUninstallFailed, "the application could not be uninstalled").
 		WithCause(cause).
 		WithNextStep("Check the applicationId and the device state, then retry device.uninstall.")
+}
+
+// withoutPath replaces the APK's absolute path with its file name in an error's text:
+// an adb failure quotes its command line or output, and no result or error carries a
+// path (gradle.md §Build outputs, principle 14; step 8 review N1).
+func withoutPath(err error, path, name string) error {
+	var e *capability.Error
+	if !errors.As(err, &e) || path == "" {
+		return err
+	}
+	c := *e
+	c.Message = strings.ReplaceAll(c.Message, path, name)
+	c.Cause = strings.ReplaceAll(c.Cause, path, name)
+	return &c
 }

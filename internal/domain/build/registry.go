@@ -272,6 +272,11 @@ func (r *Registry) localFile(name string) (string, bool) {
 // WORKSPACE_STATE_UNREADABLE, because the history exists and this binary cannot read
 // it.
 func (r *Registry) load(wsid, buildID string) (record, error) {
+	// Every caller's buildId is checked here, so none can reach a path with it (step 7
+	// review B3, step 8 review B1).
+	if !buildIDPattern.MatchString(buildID) {
+		return record{}, buildNotFound(wsid, buildID)
+	}
 	var rec record
 	out, err := r.store.Read(recordFile(wsid, buildID), store.Version, &rec)
 	switch {

@@ -593,7 +593,7 @@ func TestTheFiftyFirstBuildDropsTheOldest(t *testing.T) {
 	base := time.Now()
 	for i := 1; i <= retainBuilds+1; i++ {
 		rec := record{
-			BuildID:    fmt.Sprintf("build-%03d", i),
+			BuildID:    fmt.Sprintf("op-%016x", i),
 			Outcome:    "success",
 			FinishedAt: base.Add(time.Duration(i) * time.Second),
 		}
@@ -616,15 +616,15 @@ func TestTheFiftyFirstBuildDropsTheOldest(t *testing.T) {
 	if len(entries) != retainBuilds {
 		t.Errorf("the index holds %d builds, want %d", len(entries), retainBuilds)
 	}
-	if entries[0].BuildID != fmt.Sprintf("build-%03d", retainBuilds+1) {
+	if entries[0].BuildID != fmt.Sprintf("op-%016x", retainBuilds+1) {
 		t.Errorf("newest is %s, want the last build", entries[0].BuildID)
 	}
 	for _, e := range entries {
-		if e.BuildID == "build-001" {
+		if e.BuildID == "op-0000000000000001" {
 			t.Error("the 51st build kept the oldest record: retention dropped nothing")
 		}
 	}
-	if _, err := os.Stat(filepath.Join(f.st.Root(), "ws", testWS, "builds", "build-001.json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(f.st.Root(), "ws", testWS, "builds", "op-0000000000000001.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the dropped record's file is still there (err %v)", err)
 	}
 	files, err := f.arts.ListDurable(testWS)
@@ -632,11 +632,11 @@ func TestTheFiftyFirstBuildDropsTheOldest(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, file := range files {
-		if file.Owner == "build-001" {
+		if file.Owner == "op-0000000000000001" {
 			t.Error("the dropped build's console is still there")
 		}
 	}
-	if last := f.mustRecord(t, fmt.Sprintf("build-%03d", retainBuilds+1)); last.Outcome != "success" {
+	if last := f.mustRecord(t, fmt.Sprintf("op-%016x", retainBuilds+1)); last.Outcome != "success" {
 		t.Errorf("the newest record is %+v, want it readable", last)
 	}
 }
