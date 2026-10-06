@@ -96,9 +96,10 @@ type Client struct {
 	once sync.Once
 	jvm  JVM
 
-	mu    sync.Mutex
-	sess  *session
-	roots map[string]*root
+	mu     sync.Mutex
+	sess   *session
+	roots  map[string]*root
+	builds map[string]BuildSink
 }
 
 // session is one run of the sidecar: the requests outstanding on it and the hello
@@ -129,9 +130,13 @@ type root struct {
 	// Mutex, so waiting for it is context-aware.
 	tapi chan struct{}
 
-	cmu         sync.Mutex
-	conn        Connection
-	opened      bool
+	cmu    sync.Mutex
+	conn   Connection
+	opened bool
+	// openPid is the sidecar process the connection was opened on: a restarted sidecar
+	// (a crash or the idle stop) has no connection for the root, so the next call opens
+	// it again (step 5 review B1).
+	openPid     int
 	model       *Model
 	fingerprint string
 	degraded    *capability.Error
@@ -277,7 +282,11 @@ func (c *Client) Close(ctx context.Context, canonical string) {
 		return
 	}
 	defer r.unlock()
-	if !r.isOpen() {
+	// A sidecar that is not running has no connection to close: never start one for
+	// this (step 5 review B1).
+	if c.opts.Supervisor == nil || c.opts.Supervisor.State(ID, process.Global) != process.Ready ||
+		!r.isOpen(c.opts.Supervisor.Pid(ID, process.Global)) {
+		r.clearConn()
 		return
 	}
 	lease, _, err := c.use(ctx)
@@ -318,22 +327,29 @@ func (r *root) lock(ctx context.Context) error {
 	}
 }
 
-func (r *root) isOpen() bool {
+func (r *root) connection() Connection {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	return r.opened
+	return r.conn
 }
 
-func (r *root) setConn(conn Connection) {
+// isOpen reports whether the root has a connection on the sidecar process pid.
+func (r *root) isOpen(pid int) bool {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.conn, r.opened = conn, true
+	return r.opened && r.openPid == pid
+}
+
+func (r *root) setConn(conn Connection, pid int) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	r.conn, r.opened, r.openPid = conn, true, pid
 }
 
 func (r *root) clearConn() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.conn, r.opened, r.model, r.fingerprint = Connection{}, false, nil, ""
+	r.conn, r.opened, r.openPid, r.model, r.fingerprint = Connection{}, false, 0, nil, ""
 }
 
 func (r *root) setModel(m Model, fp string) {
@@ -360,13 +376,13 @@ func (c *Client) fetch(ctx context.Context, r *root) (Model, error) {
 		return Model{}, err
 	}
 	defer lease.Release()
-	if !r.isOpen() {
+	if !r.isOpen(lease.Pid()) {
 		conn, err := c.open(ctx, lease, r.canonical)
 		if err != nil {
 			c.fail(r, err)
 			return Model{}, err
 		}
-		r.setConn(conn)
+		r.setConn(conn, lease.Pid())
 	}
 	raw, err := c.call(ctx, lease, "project.model", map[string]any{"root": r.canonical})
 	if err != nil {
@@ -402,6 +418,13 @@ func (c *Client) open(ctx context.Context, lease *process.Lease, canonical strin
 			WithNextStep("upgrade the project's Gradle to " + GradleFloor + " or newer (its wrapper or the daemon's distribution), then retry")
 	}
 	return conn, nil
+}
+
+// AtLeast reports whether a Gradle version string is at least major.minor, for a
+// caller outside this package that decides a toolchain profile from the version
+// (plan m1g D17). A version it cannot read is not at least anything.
+func AtLeast(v string, wantMajor, wantMinor int) bool {
+	return gradleAtLeast(v, wantMajor, wantMinor)
 }
 
 // gradleAtLeast reports whether a Gradle version string is at least major.minor.
@@ -537,7 +560,9 @@ func (c *Client) line(raw string) {
 		return
 	}
 	if m.ID == nil {
-		return // a notification: step 5 serves none
+		// A notification: a build event, routed to the sink of the build it names.
+		c.notify(s, m)
+		return
 	}
 	id := *m.ID
 	c.mu.Lock()

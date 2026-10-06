@@ -210,11 +210,21 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	gradleClient := gradle.New(gradleOpts)
 	system.Register(reg, requirements{adb: adb, gradle: gradleClient}, adb, ops, problems, gradleClient)
 	// The daemon's one artifact store, for the bus's epoch: a reference from an earlier
-	// daemon run is ARTIFACT_EXPIRED (ADR-0012). The caller closes it on shutdown.
-	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch})
+	// daemon run is ARTIFACT_EXPIRED (ADR-0012). Its state root is the daemon's, so a
+	// durable build console survives a restart; without one (caps, schema) it serves
+	// ephemeral references only. The caller closes it on shutdown.
+	var stateRoot string
+	if st != nil {
+		stateRoot = st.Root()
+	}
+	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch
 	}
+	// The daemon's one build history (plan m1g step 7): the records, their index and
+	// the consoles they own. Without a state store it registers capabilities whose
+	// handlers report that nothing is configured.
+	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log})
 	device.Register(reg, adb, artifacts)
 	artifactcap.Register(reg, artifacts)
 	ops.RegisterCapabilities()
@@ -233,7 +243,8 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		gradleClient.Close(ctx, root)
 	}
 	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: policy.New(env), Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus})
+		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus,
+		OnOpen: func(id, _ string) { history.Sweep(id) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
 	authorize := policy.New(env).Authorize(func(call *capability.Call) (string, bool) {
@@ -244,7 +255,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		return info.Root, true
 	})
 	project.Register(reg, gradleClient, authorize)
-	build.Register(reg, gradleClient, authorize)
+	build.Register(reg, build.Options{Client: gradleClient, History: history, Authorize: authorize})
 	workspace.Register(reg, ws)
 	event.Register(reg)
 	if testCapabilities != nil {

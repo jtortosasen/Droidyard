@@ -536,7 +536,7 @@ func TestUITreeDescriptorAndMark(t *testing.T) {
 	if d.Since != "0.4.0" || len(d.Availability) != 1 || d.Availability[0] != capability.RequiresADB || d.Resource == nil || d.Authorize == nil || d.LongRunning {
 		t.Errorf("descriptor = %+v", d)
 	}
-	if k := d.Resource(UITreeParams{Device: "emulator-5554"}); k == "" || k == d.Resource(UITreeParams{Device: "emulator-5556"}) {
+	if k := d.Resource(&capability.Call{Params: UITreeParams{Device: "emulator-5554"}}); k == "" || k == d.Resource(&capability.Call{Params: UITreeParams{Device: "emulator-5556"}}) {
 		t.Errorf("dump key %q is not one per device", k)
 	}
 

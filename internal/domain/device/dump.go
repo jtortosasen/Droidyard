@@ -90,8 +90,8 @@ func registerUITree(reg *capability.Registry, adb *ADB) {
 		Params: UITreeParams{},
 		Result: Snapshot{},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
-		Resource: func(p any) string {
-			if s := p.(UITreeParams).Device; s != "" {
+		Resource: func(call *capability.Call) string {
+			if s := call.Params.(UITreeParams).Device; s != "" {
 				return dumpKey(s)
 			}
 			return ""

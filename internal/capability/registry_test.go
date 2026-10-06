@@ -153,7 +153,7 @@ func TestAsErrorKeepsTypedErrorsAndWrapsTheRest(t *testing.T) {
 // bound and is not required to.
 func TestResourceLockWithoutQueueTimeoutIsRejected(t *testing.T) {
 	d := valid()
-	d.Resource = func(any) string { return "k" }
+	d.Resource = func(*Call) string { return "k" }
 	if err := NewRegistry().Register(d); err == nil {
 		t.Error("a non-long-running descriptor with a Resource and no OPERATION_QUEUE_TIMEOUT was accepted")
 	}
@@ -162,7 +162,7 @@ func TestResourceLockWithoutQueueTimeoutIsRejected(t *testing.T) {
 		t.Errorf("with OPERATION_QUEUE_TIMEOUT listed: %v", err)
 	}
 	long := valid()
-	long.Resource = func(any) string { return "k" }
+	long.Resource = func(*Call) string { return "k" }
 	long.LongRunning = true
 	if err := NewRegistry().Register(long); err != nil {
 		t.Errorf("a long-running descriptor needs no queue-timeout code: %v", err)
@@ -181,7 +181,7 @@ func TestUnrecordedCapabilityCannotTakeALockOrAHook(t *testing.T) {
 	}
 	d.Authorize = nil
 	d.LongRunning = true
-	d.Resource = func(any) string { return "k" }
+	d.Resource = func(*Call) string { return "k" }
 	if err := NewRegistry().Register(d); err == nil {
 		t.Error("a non-recorded descriptor with Resource was accepted")
 	}

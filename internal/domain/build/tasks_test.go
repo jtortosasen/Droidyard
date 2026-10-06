@@ -39,7 +39,7 @@ func fixture() gradle.Model {
 func handler(t *testing.T, client Client) capability.Handler {
 	t.Helper()
 	reg := capability.NewRegistry()
-	Register(reg, client, nil)
+	registerTasks(reg, client, nil)
 	d, ok := reg.Lookup("build.tasks")
 	if !ok {
 		t.Fatal("build.tasks is not registered")

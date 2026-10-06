@@ -1,6 +1,7 @@
 package gradle
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 
@@ -15,7 +16,7 @@ type Jars struct {
 
 // cacheJars writes the embedded sidecar jars under dir, named by their digest, and
 // returns their paths (plan m1g D5). A file that is already there with the right name
-// and digest is left alone, so a second daemon over the same cache writes nothing; a
+// and the same bytes is left alone, so a second daemon over the same cache writes nothing; a
 // different digest is a different name, so an upgrade never races the old jar. Each
 // file is written to a temporary name and renamed, so a reader never sees a partial
 // jar.
@@ -37,7 +38,9 @@ func cacheJars(dir string) (Jars, error) {
 
 func writeJar(dir, name string, data []byte) (string, error) {
 	path := filepath.Join(dir, name)
-	if fi, err := os.Stat(path); err == nil && fi.Size() == int64(len(data)) {
+	// The bytes, not the size: a cached jar altered in place is rewritten, never run
+	// (D5; step 5 review B2). Reading 5 MB costs milliseconds, on the fetch path only.
+	if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, data) {
 		return path, nil
 	}
 	tmp, err := os.CreateTemp(dir, name+".*")

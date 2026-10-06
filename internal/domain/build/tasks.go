@@ -47,8 +47,9 @@ type TasksResult struct {
 	Stale bool `json:"stale"`
 }
 
-// Register adds build.tasks to the registry.
-func Register(reg *capability.Registry, client Client, authorize Authorize) {
+// registerTasks adds build.tasks to the registry. Register calls it, so build.tasks is
+// registered with the same client and authorizer as the build capabilities.
+func registerTasks(reg *capability.Registry, client Client, authorize Authorize) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "build.tasks",
 		Kind:         capability.Query,

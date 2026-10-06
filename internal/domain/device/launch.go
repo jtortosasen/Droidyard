@@ -81,8 +81,8 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Result: LaunchResult{},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
 			ErrLaunchFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
-		Resource: func(params any) string {
-			if s := params.(LaunchParams).Device; s != "" {
+		Resource: func(call *capability.Call) string {
+			if s := call.Params.(LaunchParams).Device; s != "" {
 				return writeKey(s)
 			}
 			return ""

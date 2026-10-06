@@ -116,8 +116,8 @@ func registerInputText(reg *capability.Registry, adb *ADB) {
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
 			ErrUIDumpFailed, ErrElementNotFound, ErrElementAmbiguous, ErrElementOffscreen, ErrElementDisabled, ErrStaleRef,
 			ErrTextNotDeliverable, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
-		Resource: func(params any) string {
-			if s := params.(InputTextParams).Device; s != "" {
+		Resource: func(call *capability.Call) string {
+			if s := call.Params.(InputTextParams).Device; s != "" {
 				return writeKey(s)
 			}
 			return ""

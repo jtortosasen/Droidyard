@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -45,6 +46,10 @@ func (noSidecar) Model(context.Context, string) (gradle.Model, bool, error) {
 	return gradle.Model{}, false, nil
 }
 
+func (noSidecar) BeginBuild(context.Context, string) (*gradle.BuildRun, error) {
+	return nil, errors.New("the golden registry has no sidecar")
+}
+
 // trustNothing is the trust hook the golden registry is built with: only the
 // descriptor matters here.
 func trustNothing(context.Context, *capability.Call) (any, error) { return nil, nil }
@@ -61,7 +66,7 @@ func registry() *capability.Registry {
 	artifacts.Register(reg, store)
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
-	build.Register(reg, noSidecar{}, trustNothing)
+	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing})
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg)
 	return reg

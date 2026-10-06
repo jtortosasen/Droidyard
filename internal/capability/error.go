@@ -46,6 +46,9 @@ const (
 	// ErrProjectModelFailed: the configuration pass failed; Gradle's root failure is the
 	// cause.
 	ErrProjectModelFailed ErrorCode = "PROJECT_MODEL_FAILED"
+	// ErrBuildNotFound: an unknown buildId, or a workspace whose registry holds no
+	// finished build (gradle.md §Persistence; plan m1g D9).
+	ErrBuildNotFound ErrorCode = "BUILD_NOT_FOUND"
 
 	ErrCapabilityNotFound  ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"
 	ErrInvalidParams       ErrorCode = "REQUEST_INVALID_PARAMS"
