@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Device block run 2026-10-04 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -231,7 +231,7 @@ ps -o rss= -p "$PID"
 
 # 410 after a restart: `droidyard stop`, a new `serve`, then the same $ID answers 410 ARTIFACT_EXPIRED
 
-# (2b), LAST of the device rows, with no emulator booted (`adb -s emulator-5554 emu kill`, then wait until `ps aux | grep qemu-system` is empty and `adb devices` lists nothing:
+# (2b), LAST of the device rows, with no emulator booted. Not to be run on a shared emulator (plan m1f E4: it shuts the emulator down); run only on one booted for this purpose (`adb -s emulator-5554 emu kill`, then wait until `ps aux | grep qemu-system` is empty and `adb devices` lists nothing:
 # a dying emulator is still listed for ~20 s and an adb server on 5199 would attach to it). A server the daemon forks on an isolated port:
 adb devices -l >"$E/devices.2b.before"
 export ANDROID_ADB_SERVER_PORT=5199          # in the second daemon's environment only
@@ -241,6 +241,32 @@ S=$(lsof -nP -iTCP:5199 -sTCP:LISTEN -t)     # the forked server: pid, lstart, p
 DROIDYARD_STATE_DIR="$R/s2b" DROIDYARD_CONFIG_DIR="$R/c2b" "$DY" stop   # $S stays alive, same pid and start time
 ANDROID_ADB_SERVER_PORT=5199 adb kill-server; unset ANDROID_ADB_SERVER_PORT
 adb devices -l | cmp - "$E/devices.2b.before"   # identical; then boot Pixel_9a again if it was running before
+
+**Device actions block (1f, run 2026-10-06; `docs/plans/m1f-device-actions.md` step 10).** The device block's preconditions, plus the plan's §Emulator rules: a daemon run against a shared emulator is the tagged build (`go build -tags droidyard_nodump`, checked with `go version -m "$DY" | grep -- -tags=droidyard_nodump`), so it can never run `uiautomator dump`; the only APK installed is the form app, built from source and uninstalled at the end; the reader's name is `droidyard-reader-<first 12 hex of reader.dex's SHA-256>`. Wait for the emulator to be idle first (`adb shell cat /proc/loadavg` under 3): an app install and a cold start load it for minutes, and `input` commands then time out.
+
+```sh
+N=droidyard-reader-$(shasum -a 256 internal/domain/device/reader/reader.dex | cut -c1-12)
+lsof -t -nP -iTCP:5037 -sTCP:LISTEN; adb shell pidof <the accessibility app>; adb shell settings get secure default_input_method   # before
+OUT=$R/formapp.apk sh internal/domain/device/formapp/build.sh && adb install -r "$R/formapp.apk"
+# OpenCode as in Real client, its scratch config also denying its own shell and edit tools:
+#   "permissions": [{"action":"*","resource":"*","effect":"allow"},
+#                   {"action":"shell","resource":"*","effect":"deny"},{"action":"edit","resource":"*","effect":"deny"}]
+# prompt: device_launch dev.droidyard.formapp; device_inputText {id:name} clear "Ana";
+#         device_tapElement {id:greet} appears "Hello, Ana"; device_tapElement {id:like} appears "Likes: 1"
+jq -c 'select(.method=="tools/call")|{name:.params.name,args:.params.arguments}' "$E/wire.c2s.jsonl"
+jq -c 'select(.result.content?)|{id,meta:.result._meta,expect:.result.structuredContent.expect}' "$E/wire.s2c.jsonl"
+jq -r 'select(.type=="tool_use")|.part.tool' "$E/opencode.out" | sort | uniq -c     # no shell; `execute` is OpenCode's tool search
+# CLI: ten warm reads, an ambiguous target, a ref from before a screen change
+for i in $(seq 10); do $C device.uiTree --params "$EM" >"$E/warm$i.out"; done
+$C device.tapElement --params '{"device":"emulator-5554","target":{"text":"Twin"}}'            # DEVICE_ELEMENT_AMBIGUOUS, meta.untrusted
+# keep a ref of `likes`, tap like (its text changes), then tap the old ref: DEVICE_STALE_REF
+adb shell pidof $N                                              # one pid through the run
+"$DY" stop; adb shell pidof $N; adb forward --list               # neither
+adb uninstall dev.droidyard.formapp                             # then the three "before" values again, unchanged
+```
+
+- Expect `tools=14` on connection; `launch` with a `pid`; `inputText` and both taps with `_meta {"droidyard/untrusted": true}` and the fixed first line; `matched: true` on both taps.
+- Warm CLI reads were 0.1 s on an idle host and ~0.7 s on a loaded one (each call's hook starts two adb clients).
 
 ## Evidence
 

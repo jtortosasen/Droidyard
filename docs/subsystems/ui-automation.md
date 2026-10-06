@@ -27,14 +27,18 @@ primitives underneath.
 
 ## The tree: `device.uiTree`
 
-- Droidyard's own reader ([ADR-0029](../adr/0029-ui-reader-dex.md)): a small dex run with
-  `app_process`, pushed to `/data/local/tmp/` and removed after the read, connecting
-  `UiAutomation` with `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`, so the device's other
-  accessibility services keep running. `uiautomator dump /dev/tty` (with its `/sdcard`
-  fallback and one idle retry) only when the reader cannot run, with a warning that it
-  suspended them.
-- Dumps are **serialised per device**: Android allows one `UiAutomation` at a time per
-  device (the reader, ADR-0029) and `uiautomator` does not tolerate concurrent dumps, so `uiTree` and the polls of a `tapElement` share one per-device dump lock.
+- Droidyard's own reader, kept running ([ADR-0030](../adr/0030-persistent-ui-reader.md),
+  [ADR-0029](../adr/0029-ui-reader-dex.md)): a small dex started with `app_process` on the
+  first read, connecting `UiAutomation` with `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`
+  so the device's other accessibility services keep running, and reached over
+  `adb forward` (a warm read took 14 ms on a Pixel_9a; the first ~1.9 s). It ends itself
+  after 30 idle minutes. When it cannot run, the one-shot reader of ADR-0029 reads once,
+  and only then `uiautomator dump /dev/tty` (with its `/sdcard` fallback and one idle
+  retry), each with a warning; reads after a `tapElement` or `inputText` action never use
+  the dump.
+- Reads are **serialised per device**: Android allows one `UiAutomation` at a time per
+  device, so `uiTree` and the polls of an action share one per-device read lock, waited
+  inside the read's deadline.
 
 ```text
 Snapshot
