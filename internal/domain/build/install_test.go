@@ -74,25 +74,25 @@ func TestResolveBuildPicksTheNewestMatchingOutput(t *testing.T) {
 	oldPath, oldSize, oldMod := apkOnDisk(t, "app-old.apk", []byte("old"))
 	newPath, newSize, newMod := apkOnDisk(t, "app-new.apk", []byte("new"))
 	older := time.Now().Add(-time.Hour)
-	storeBuild(t, h, "build-old", ":app", "debug", "com.example.app", intPtr(1), "app-old.apk", oldPath, oldSize, oldMod, nil, older)
-	storeBuild(t, h, "build-new", ":app", "debug", "com.example.app", intPtr(7), "app-new.apk", newPath, newSize, newMod, nil, time.Now())
+	storeBuild(t, h, "op-00000000000000e1", ":app", "debug", "com.example.app", intPtr(1), "app-old.apk", oldPath, oldSize, oldMod, nil, older)
+	storeBuild(t, h, "op-00000000000000e2", ":app", "debug", "com.example.app", intPtr(7), "app-new.apk", newPath, newSize, newMod, nil, time.Now())
 
 	got, err := h.ResolveBuild(testWS, "", ":app", "debug")
 	if err != nil {
 		t.Fatalf("ResolveBuild: %v", err)
 	}
-	if got.BuildID != "build-new" || got.APK != "app-new.apk" || got.Path != newPath {
+	if got.BuildID != "op-00000000000000e2" || got.APK != "app-new.apk" || got.Path != newPath {
 		t.Errorf("ResolveBuild = %+v, want the newest build's APK", got)
 	}
 	if got.ApplicationID != "com.example.app" || got.VersionCode == nil || *got.VersionCode != 7 {
 		t.Errorf("applicationId/versionCode = %q/%v, want com.example.app/7", got.ApplicationID, got.VersionCode)
 	}
 
-	old, err := h.ResolveBuild(testWS, "build-old", ":app", "debug")
+	old, err := h.ResolveBuild(testWS, "op-00000000000000e1", ":app", "debug")
 	if err != nil {
 		t.Fatalf("ResolveBuild(build-old): %v", err)
 	}
-	if old.BuildID != "build-old" || old.APK != "app-old.apk" {
+	if old.BuildID != "op-00000000000000e1" || old.APK != "app-old.apk" {
 		t.Errorf("ResolveBuild(build-old) = %+v, want the named build", old)
 	}
 }
@@ -102,14 +102,14 @@ func TestResolveBuildPicksTheNewestMatchingOutput(t *testing.T) {
 func TestResolveBuildSkipsBuildsWithoutTheVariant(t *testing.T) {
 	h := installHistory(t)
 	path, size, mod := apkOnDisk(t, "app-debug.apk", []byte("x"))
-	storeBuild(t, h, "build-release", ":app", "release", "com.example.app", intPtr(1), "app-release.apk", path, size, mod, nil, time.Now().Add(-time.Hour))
-	storeBuild(t, h, "build-debug", ":app", "debug", "com.example.app", intPtr(2), "app-debug.apk", path, size, mod, nil, time.Now().Add(-2*time.Hour))
+	storeBuild(t, h, "op-00000000000000f1", ":app", "release", "com.example.app", intPtr(1), "app-release.apk", path, size, mod, nil, time.Now().Add(-time.Hour))
+	storeBuild(t, h, "op-00000000000000d1", ":app", "debug", "com.example.app", intPtr(2), "app-debug.apk", path, size, mod, nil, time.Now().Add(-2*time.Hour))
 
 	got, err := h.ResolveBuild(testWS, "", ":app", "debug")
 	if err != nil {
 		t.Fatalf("ResolveBuild: %v", err)
 	}
-	if got.BuildID != "build-debug" {
+	if got.BuildID != "op-00000000000000d1" {
 		t.Errorf("ResolveBuild = build %s, want build-debug", got.BuildID)
 	}
 }
@@ -122,7 +122,7 @@ func TestResolveBuildNotFound(t *testing.T) {
 		t.Errorf("no build = %v, want BUILD_OUTPUT_NOT_FOUND", err)
 	}
 	path, size, mod := apkOnDisk(t, "app.apk", []byte("x"))
-	storeBuild(t, h, "build-1", ":app", "release", "com.example.app", nil, "app.apk", path, size, mod, nil, time.Now())
+	storeBuild(t, h, "op-0000000000000001", ":app", "release", "com.example.app", nil, "app.apk", path, size, mod, nil, time.Now())
 	if _, err := h.ResolveBuild(testWS, "", ":app", "debug"); !hasCode(err, ErrBuildOutputNotFound) {
 		t.Errorf("wrong variant = %v, want BUILD_OUTPUT_NOT_FOUND", err)
 	}
@@ -136,7 +136,7 @@ func TestResolveBuildNotFound(t *testing.T) {
 func TestResolveBuildStale(t *testing.T) {
 	h := installHistory(t)
 	path, size, mod := apkOnDisk(t, "app.apk", []byte("original"))
-	storeBuild(t, h, "build-1", ":app", "debug", "com.example.app", nil, "app.apk", path, size, mod, nil, time.Now())
+	storeBuild(t, h, "op-0000000000000001", ":app", "debug", "com.example.app", nil, "app.apk", path, size, mod, nil, time.Now())
 
 	// Rewritten, so its size and mtime differ from the record's.
 	if err := os.WriteFile(path, []byte("a longer replacement"), 0o644); err != nil {
@@ -160,7 +160,7 @@ func TestResolveBuildStale(t *testing.T) {
 func TestResolveBuildUnsupported(t *testing.T) {
 	h := installHistory(t)
 	path, size, mod := apkOnDisk(t, "app-arm64.apk", []byte("x"))
-	storeBuild(t, h, "build-1", ":app", "debug", "com.example.app", nil, "app-arm64.apk", path, size, mod, []string{"arm64-v8a"}, time.Now())
+	storeBuild(t, h, "op-0000000000000001", ":app", "debug", "com.example.app", nil, "app-arm64.apk", path, size, mod, []string{"arm64-v8a"}, time.Now())
 	if _, err := h.ResolveBuild(testWS, "", ":app", "debug"); !hasCode(err, ErrBuildOutputUnsupported) {
 		t.Errorf("filtered output = %v, want BUILD_OUTPUT_UNSUPPORTED", err)
 	}
@@ -170,7 +170,7 @@ func TestResolveBuildUnsupported(t *testing.T) {
 // without an applicationId is not one, so it resolves nothing.
 func TestResolveBuildWithoutApplicationID(t *testing.T) {
 	h := installHistory(t)
-	rec := record{BuildID: "build-1", Outcome: "success", FinishedAt: time.Now(),
+	rec := record{BuildID: "op-0000000000000001", Outcome: "success", FinishedAt: time.Now(),
 		Outputs:     []Output{{Module: ":app", Variant: "debug", Reason: "the output metadata names no applicationId"}},
 		OutputPaths: []OutputPath{{Module: ":app", Variant: "debug", APK: "app.apk", Path: "/nowhere"}}}
 	if err := h.persist(testWS, rec); err != nil {
@@ -196,3 +196,32 @@ func hasCode(err error, code capability.ErrorCode) bool {
 }
 
 func intPtr(n int) *int { return &n }
+
+// Decision (step 8 review B1): a buildId is an operation id; one holding a path names
+// no build, so an install cannot reach another workspace's record. Seen failing before
+// load checked the id: it resolved the other workspace's APK.
+func TestResolveBuildRefusesAPathInTheBuildID(t *testing.T) {
+	h := installHistory(t)
+	path, size, mod := apkOnDisk(t, "app.apk", []byte("x"))
+	storeBuild(t, h, "op-00000000000000aa", ":app", "debug", "com.other.app", nil, "app.apk", path, size, mod, nil, time.Now())
+	if _, err := h.ResolveBuild("zz-ffffffffffff", "../../"+testWS+"/builds/op-00000000000000aa", ":app", "debug"); !hasCode(err, capability.ErrBuildNotFound) {
+		t.Fatalf("a path in buildId = %v, want BUILD_NOT_FOUND", err)
+	}
+}
+
+// Decision (step 8 review N2): the stale check compares the mtime as well as the size,
+// so an APK rewritten with the same size is stale too.
+func TestResolveBuildStaleOnASameSizeRewrite(t *testing.T) {
+	h := installHistory(t)
+	path, size, mod := apkOnDisk(t, "app.apk", []byte("original"))
+	storeBuild(t, h, "op-0000000000000001", ":app", "debug", "com.example.app", nil, "app.apk", path, size, mod, nil, time.Now())
+	if err := os.WriteFile(path, []byte("replaced"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mod.Add(time.Minute), mod.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.ResolveBuild(testWS, "", ":app", "debug"); !hasCode(err, ErrBuildOutputStale) {
+		t.Errorf("same-size rewrite = %v, want BUILD_OUTPUT_STALE", err)
+	}
+}

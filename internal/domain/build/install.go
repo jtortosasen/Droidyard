@@ -124,7 +124,9 @@ func resolveBuildOutput(rec record, module, variant string) (ResolvedOutput, err
 	if apk == nil {
 		return ResolvedOutput{}, buildOutputUnsupported(rec.BuildID, module, variant, "no unfiltered APK")
 	}
-	fi, err := os.Stat(apk.Path)
+	// Lstat, as the record was made (outputs.go): a symlink swapped in after the build is
+	// not followed (step 8 review N3).
+	fi, err := os.Lstat(apk.Path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return ResolvedOutput{}, buildOutputStale(rec.BuildID, module, variant, "the APK it recorded is gone")
 	}

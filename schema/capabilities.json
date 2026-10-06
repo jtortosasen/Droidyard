@@ -2607,6 +2607,7 @@
             "properties": {
               "buildId": {
                 "type": "string",
+                "pattern": "^op-[0-9a-f]{16}$",
                 "description": "Which build's output to install. Absent resolves the newest finished build of the workspace with an output for module and variant."
               },
               "module": {

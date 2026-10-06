@@ -160,6 +160,24 @@ func TestInstallFailureTokenOnExitZero(t *testing.T) {
 	}
 }
 
+// Decision (step 8 review B2): modern adb follows the token with a colon and a message;
+// the failure is still detected on exit 0 and exit 1, and the cause is the token alone.
+// Seen failing with the bracket-only pattern: exit 0 reported a successful install.
+func TestInstallFailureTokenWithAMessage(t *testing.T) {
+	for _, exit := range []string{"0", "1"} {
+		res := &stubResolver{out: build.ResolvedOutput{ApplicationID: "com.example.app", APK: "app.apk", Path: "/a/app.apk"}}
+		f := newInstallFixture(t, res, map[string]string{
+			uiSerial + ".install.err":  "adb: failed to install /a/app.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Package com.example.app signatures do not match previously installed version; ignoring!]\n",
+			uiSerial + ".install.exit": exit,
+		})
+		out := f.call(t, "device.install", `{"device":"emulator-5554","build":{"module":":app","variant":"debug"}}`)
+		e := mustFail(t, out, ErrInstallFailed)
+		if e.Cause != "INSTALL_FAILED_UPDATE_INCOMPATIBLE" {
+			t.Errorf("exit %s: cause = %q, want the token alone", exit, e.Cause)
+		}
+	}
+}
+
 // Decision (plan m1g step 8, check): a physical serial is DEVICE_NOT_ALLOWED from the
 // hook, and the build is never resolved or installed.
 func TestInstallPhysicalDeviceRefusedBeforeResolving(t *testing.T) {
@@ -312,3 +330,14 @@ func containsAll(codes []capability.ErrorCode, want ...capability.ErrorCode) boo
 }
 
 func intPtr(n int) *int { return &n }
+
+// Decision (step 8 review N5): `pm path` printing an error is the package manager
+// failing, not an absent package, so uninstall fails instead of reporting notInstalled.
+func TestUninstallPmPathErrorIsNotAbsent(t *testing.T) {
+	f := newInstallFixture(t, &stubResolver{}, map[string]string{
+		uiSerial + ".pmpath.err":  "cmd: Can't find service: package\n",
+		uiSerial + ".pmpath.exit": "20",
+	})
+	out := f.call(t, "device.uninstall", `{"device":"emulator-5554","applicationId":"com.example.app"}`)
+	mustFail(t, out, ErrUninstallFailed)
+}

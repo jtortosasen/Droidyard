@@ -133,10 +133,16 @@ single source is AGP's `output-metadata.json`
 [gradle](gradle.md) §Build outputs). No build script or manifest is read. This is why
 `device.install` is the one workspace-scoped device capability.
 
-- `adb -s <serial> install -r <apk>`; `Failure [INSTALL_FAILED_…]` is detected even on
-  exit 0 and reported as `DEVICE_INSTALL_FAILED` with the `INSTALL_FAILED_*` reason.
+- `adb -s <serial> install -r <apk>`; `Failure [INSTALL_FAILED_…]` (bare, or followed
+  by a colon and a message, as modern adb prints it) is detected even on exit 0 and
+  reported as `DEVICE_INSTALL_FAILED` with the `INSTALL_FAILED_*` token alone.
 - Output resolution errors are the build subsystem's: `BUILD_OUTPUT_NOT_FOUND`,
-  `BUILD_OUTPUT_STALE`, `BUILD_OUTPUT_UNSUPPORTED`.
+  `BUILD_OUTPUT_STALE`, `BUILD_OUTPUT_UNSUPPORTED`; and `BUILD_NOT_FOUND` for a
+  `buildId` that names no build of the workspace, `WORKSPACE_STATE_UNREADABLE` when its
+  records cannot be read.
+- The install holds the device's key, not the project's: a build of the same variant
+  started during an install can rewrite the APK while adb streams it (milestone 1g,
+  accepted for the MVP: one agent per root; see the plan's Changes).
 - The result carries `applicationId` (which `launch`, `uninstall` and `logs` take), the
   output's `versionCode` and the installed `apk`'s file name — never a path.
 - `device.uninstall {device, applicationId}` runs `pm path` first: an absent package is a
