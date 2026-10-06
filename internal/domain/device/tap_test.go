@@ -946,7 +946,7 @@ func TestTapElementDescriptorAndMark(t *testing.T) {
 	if d.Since != "0.5.0" || d.Kind != capability.Command || len(d.Availability) != 1 || d.Availability[0] != capability.RequiresADB || d.Resource == nil || d.Authorize == nil || d.LongRunning {
 		t.Errorf("descriptor = %+v", d)
 	}
-	if k := d.Resource(TapParams{Device: "emulator-5554"}); k != "device.write:emulator-5554" {
+	if k := d.Resource(&capability.Call{Params: TapParams{Device: "emulator-5554"}}); k != "device.write:emulator-5554" {
 		t.Errorf("write key = %q", k)
 	}
 	a := d.ResolveAnnotations()

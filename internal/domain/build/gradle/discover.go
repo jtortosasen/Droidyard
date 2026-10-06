@@ -105,7 +105,9 @@ func Discover(f Finder) JVM {
 	}
 
 	env := envMap(f.Env)
-	if home := env["JAVA_HOME"]; home != "" {
+	if home := env["JAVA_HOME"]; home != "" && !filepath.IsAbs(home) {
+		reject(home, SourceJavaHome, "not an absolute path")
+	} else if home != "" {
 		if win(home, SourceJavaHome) {
 			return res
 		}
@@ -115,7 +117,12 @@ func Discover(f Finder) JVM {
 		if err != nil {
 			real = java
 		}
-		if win(filepath.Dir(filepath.Dir(real)), SourcePath) {
+		// macOS's /usr/bin/java is a launcher stub, not a JDK: its home would read /usr.
+		// It counts only through what it resolves to, which is java_home's answer below
+		// (gradle.md §Sidecar JVM discovery, step 3; step 5 review N5).
+		if f.GOOS == "darwin" && real == "/usr/bin/java" {
+			reject(real, SourcePath, "the macOS java launcher stub, resolved through java_home instead")
+		} else if win(filepath.Dir(filepath.Dir(real)), SourcePath) {
 			return res
 		}
 	} else {
@@ -263,7 +270,9 @@ func lookPathJava(path string) string {
 		return ""
 	}
 	for _, d := range filepath.SplitList(path) {
-		if d == "" {
+		// A relative entry would resolve against the daemon's working directory, which
+		// may be a project's: never run a project's own java (step 5 review N5).
+		if d == "" || !filepath.IsAbs(d) {
 			continue
 		}
 		p := filepath.Join(d, "java")

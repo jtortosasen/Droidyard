@@ -60,7 +60,7 @@ func newLockFixture(t *testing.T) *lockFixture {
 		return Descriptor{
 			Name: name, Kind: Command, Scope: Global, LongRunning: long, Description: "Holds its key until its gate opens.",
 			Params: lockParams{}, Result: result{},
-			Resource:  func(p any) string { return p.(lockParams).Key },
+			Resource:  func(c *Call) string { return c.Params.(lockParams).Key },
 			Authorize: authorize,
 			Errors:    errs,
 			Handler: func(ctx context.Context, call *Call) (any, error) {

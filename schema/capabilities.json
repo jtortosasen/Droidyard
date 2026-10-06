@@ -145,6 +145,1570 @@
       }
     },
     {
+      "name": "build.assemble",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Assembles one module's variant by running Gradle's \u003cmodule\u003e:assemble\u003cVariant\u003e task, and returns that build's compact record. module and variant are validated against project.modules and project.variants before anything runs; an unknown module or variant is REQUEST_INVALID_PARAMS listing the candidates. Idempotent: assembling a variant that is already built replaces only that variant's own outputs. Everything build.run says of the record, the console, cancel and persistence applies here too.",
+      "availability": [
+        "gradle"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_SIDECAR_UNAVAILABLE",
+        "BUILD_SIDECAR_CRASHED",
+        "BUILD_GRADLE_UNSUPPORTED",
+        "PROJECT_MODEL_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "WORKSPACE_STATE_UNREADABLE"
+      ],
+      "input": {
+        "properties": {
+          "module": {
+            "type": "string",
+            "pattern": "^(:[A-Za-z0-9_.-]+)+$",
+            "description": "The Gradle project path of the module to assemble, e.g. \":app\". Must be one of project.modules' paths; an unknown one is REQUEST_INVALID_PARAMS listing them."
+          },
+          "variant": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]*$",
+            "description": "The variant to assemble, e.g. \"debug\". Must be one of that module's project.variants; an unknown one is REQUEST_INVALID_PARAMS listing them."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "module",
+          "variant"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "buildId": {
+                "type": "string",
+                "description": "The build's id; it is its operation's id (ADR-0020)."
+              },
+              "request": {
+                "properties": {
+                  "tasks": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "module": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "tasks"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failed",
+                  "cancelled"
+                ],
+                "description": "success, failed (a completed operation whose build failed) or cancelled; a failed build is a completed operation, never an operation error (ADR-0020)."
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "finishedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "durationMs": {
+                "type": "integer"
+              },
+              "gradle": {
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "wrapper",
+                      "connector"
+                    ]
+                  },
+                  "daemonJavaHome": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "version",
+                  "source"
+                ]
+              },
+              "profile": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "degraded"
+                ]
+              },
+              "missingCapabilities": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."
+              },
+              "validation": {
+                "type": "string",
+                "enum": [
+                  "untested"
+                ]
+              },
+              "agp": {
+                "type": "string",
+                "description": "The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."
+              },
+              "kgp": {
+                "type": "string"
+              },
+              "taskSummary": {
+                "properties": {
+                  "executed": {
+                    "type": "integer"
+                  },
+                  "upToDate": {
+                    "type": "integer"
+                  },
+                  "fromCache": {
+                    "type": "integer"
+                  },
+                  "noSource": {
+                    "type": "integer"
+                  },
+                  "skipped": {
+                    "type": "integer"
+                  },
+                  "failed": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "failedTasks": {
+                "items": {
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "path"
+                  ]
+                },
+                "type": "array"
+              },
+              "errorCount": {
+                "type": "integer"
+              },
+              "warningCount": {
+                "type": "integer"
+              },
+              "errors": {
+                "items": {
+                  "properties": {
+                    "severity": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "problemId": {
+                      "type": "string"
+                    },
+                    "solutions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "documentationLink": {
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    },
+                    "external": {
+                      "type": "boolean"
+                    },
+                    "merged": {
+                      "type": "boolean"
+                    },
+                    "resolved": {
+                      "properties": {
+                        "file": {
+                          "type": "string"
+                        },
+                        "line": {
+                          "type": "integer"
+                        },
+                        "column": {
+                          "type": "integer"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "excerpt": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array",
+                "description": "The first five merged errors; build.errors returns the whole list."
+              },
+              "warnings": {
+                "items": {
+                  "properties": {
+                    "severity": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "problemId": {
+                      "type": "string"
+                    },
+                    "solutions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "documentationLink": {
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    },
+                    "external": {
+                      "type": "boolean"
+                    },
+                    "merged": {
+                      "type": "boolean"
+                    },
+                    "resolved": {
+                      "properties": {
+                        "file": {
+                          "type": "string"
+                        },
+                        "line": {
+                          "type": "integer"
+                        },
+                        "column": {
+                          "type": "integer"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "excerpt": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "module": {
+                      "type": "string"
+                    },
+                    "variant": {
+                      "type": "string"
+                    },
+                    "applicationId": {
+                      "type": "string"
+                    },
+                    "versionCode": {
+                      "type": "integer"
+                    },
+                    "versionName": {
+                      "type": "string"
+                    },
+                    "apks": {
+                      "items": {
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "filters": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "sizeBytes": {
+                            "type": "integer"
+                          },
+                          "supported": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "filters",
+                          "sizeBytes",
+                          "supported"
+                        ]
+                      },
+                      "type": "array"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "module",
+                    "variant"
+                  ]
+                },
+                "type": "array"
+              },
+              "extraction": {
+                "properties": {
+                  "sources": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "unrecognised": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "consoleRef": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "buildId",
+              "request",
+              "outcome",
+              "startedAt",
+              "finishedAt",
+              "gradle",
+              "profile",
+              "validation",
+              "agp",
+              "kgp",
+              "taskSummary",
+              "extraction",
+              "consoleRef"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "build.errors",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Returns one finished build's merged errors: severity, tool, merge source, file, line, column, message, and for a problem Gradle structured its id, solutions and documentation link. buildId absent means the newest finished build of the workspace — the one build.lastResult names. Errors keep the first 200 and warnings the first 50, in emission order; truncated counts what the caps dropped. includeWarnings adds the warnings, off by default. When the build failed and no source recognised an error, unrecognised is true and the result carries the root failure messages and the last 4 KiB of the console, labelled as the tail — the only raw console text a result carries. A workspace with no finished build, or an unknown buildId, is BUILD_NOT_FOUND.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_NOT_FOUND",
+        "WORKSPACE_STATE_UNREADABLE"
+      ],
+      "input": {
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "Which build's merged errors to return. Absent returns the newest finished build of the workspace (the one build.lastResult names)."
+          },
+          "includeWarnings": {
+            "type": "boolean",
+            "description": "Also return the merged warnings. Off by default: up to 50 warning records an agent asking for its errors rarely needs."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "buildId": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "errors": {
+            "items": {
+              "properties": {
+                "severity": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "problemId": {
+                  "type": "string"
+                },
+                "solutions": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentationLink": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "column": {
+                  "type": "integer"
+                },
+                "external": {
+                  "type": "boolean"
+                },
+                "merged": {
+                  "type": "boolean"
+                },
+                "resolved": {
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "properties": {
+                "severity": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "problemId": {
+                  "type": "string"
+                },
+                "solutions": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentationLink": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "column": {
+                  "type": "integer"
+                },
+                "external": {
+                  "type": "boolean"
+                },
+                "merged": {
+                  "type": "boolean"
+                },
+                "resolved": {
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "integer",
+            "description": "How many records the caps (200 errors, 50 warnings) dropped."
+          },
+          "unrecognised": {
+            "type": "boolean"
+          },
+          "rootFailures": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tail": {
+            "type": "string",
+            "description": "The last 4 KiB of the console, labelled, and present only when unrecognised is true."
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "buildId",
+          "outcome",
+          "errors"
+        ]
+      }
+    },
+    {
+      "name": "build.lastResult",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Returns the newest finished build of the workspace, in the shape build.run and build.assemble return, without running anything. It is read from the state root, so it survives a daemon restart, and consoleRef stays readable with artifact.read as long as the record is retained (the last 50 builds or 7 days). A workspace that has finished no build is BUILD_NOT_FOUND.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_NOT_FOUND",
+        "WORKSPACE_STATE_UNREADABLE"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "The build's id; it is its operation's id (ADR-0020)."
+          },
+          "request": {
+            "properties": {
+              "tasks": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "module": {
+                "type": "string"
+              },
+              "variant": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "tasks"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed",
+              "cancelled"
+            ],
+            "description": "success, failed (a completed operation whose build failed) or cancelled; a failed build is a completed operation, never an operation error (ADR-0020)."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "gradle": {
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "wrapper",
+                  "connector"
+                ]
+              },
+              "daemonJavaHome": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "version",
+              "source"
+            ]
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "full",
+              "degraded"
+            ]
+          },
+          "missingCapabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."
+          },
+          "validation": {
+            "type": "string",
+            "enum": [
+              "untested"
+            ]
+          },
+          "agp": {
+            "type": "string",
+            "description": "The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."
+          },
+          "kgp": {
+            "type": "string"
+          },
+          "taskSummary": {
+            "properties": {
+              "executed": {
+                "type": "integer"
+              },
+              "upToDate": {
+                "type": "integer"
+              },
+              "fromCache": {
+                "type": "integer"
+              },
+              "noSource": {
+                "type": "integer"
+              },
+              "skipped": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "failedTasks": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path"
+              ]
+            },
+            "type": "array"
+          },
+          "errorCount": {
+            "type": "integer"
+          },
+          "warningCount": {
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "properties": {
+                "severity": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "problemId": {
+                  "type": "string"
+                },
+                "solutions": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentationLink": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "column": {
+                  "type": "integer"
+                },
+                "external": {
+                  "type": "boolean"
+                },
+                "merged": {
+                  "type": "boolean"
+                },
+                "resolved": {
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array",
+            "description": "The first five merged errors; build.errors returns the whole list."
+          },
+          "warnings": {
+            "items": {
+              "properties": {
+                "severity": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "problemId": {
+                  "type": "string"
+                },
+                "solutions": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentationLink": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                },
+                "column": {
+                  "type": "integer"
+                },
+                "external": {
+                  "type": "boolean"
+                },
+                "merged": {
+                  "type": "boolean"
+                },
+                "resolved": {
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "outputs": {
+            "items": {
+              "properties": {
+                "module": {
+                  "type": "string"
+                },
+                "variant": {
+                  "type": "string"
+                },
+                "applicationId": {
+                  "type": "string"
+                },
+                "versionCode": {
+                  "type": "integer"
+                },
+                "versionName": {
+                  "type": "string"
+                },
+                "apks": {
+                  "items": {
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "filters": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "sizeBytes": {
+                        "type": "integer"
+                      },
+                      "supported": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "filters",
+                      "sizeBytes",
+                      "supported"
+                    ]
+                  },
+                  "type": "array"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "module",
+                "variant"
+              ]
+            },
+            "type": "array"
+          },
+          "extraction": {
+            "properties": {
+              "sources": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "unrecognised": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "consoleRef": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "buildId",
+          "request",
+          "outcome",
+          "startedAt",
+          "finishedAt",
+          "gradle",
+          "profile",
+          "validation",
+          "agp",
+          "kgp",
+          "taskSummary",
+          "extraction",
+          "consoleRef"
+        ]
+      }
+    },
+    {
+      "name": "build.run",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Runs Gradle tasks and returns the finished build's compact record. tasks are 1 to 20 Gradle task names or paths, each checked against the pattern Gradle accepts before anything is started; whether a task exists is Gradle's own answer, and an unknown one is a failed build, not a rejected call (build.tasks lists what exists). The build's id is its operation id, so a cancel is operation.cancel on the id this call returned and the record says cancelled. A failed build is a completed operation whose outcome is failed: read its errors with build.errors and its whole console with artifact.read {ref: consoleRef}. The result is also persisted, and build.lastResult returns it after a restart. The console is not readable until the build has finished. Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED, REQUEST_INVALID_PARAMS for a tasks list that is empty, too long or not task-shaped, and WORKSPACE_STATE_UNREADABLE when the record could not be written.",
+      "availability": [
+        "gradle"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_SIDECAR_UNAVAILABLE",
+        "BUILD_SIDECAR_CRASHED",
+        "BUILD_GRADLE_UNSUPPORTED",
+        "PROJECT_MODEL_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "WORKSPACE_STATE_UNREADABLE"
+      ],
+      "input": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The Gradle tasks to run, 1 to 20, each a task path such as \":app:assembleDebug\" or a name such as \"assembleDebug\". Validated against the pattern Gradle accepts before anything is started; build.tasks lists what exists."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tasks"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "buildId": {
+                "type": "string",
+                "description": "The build's id; it is its operation's id (ADR-0020)."
+              },
+              "request": {
+                "properties": {
+                  "tasks": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "module": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "tasks"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failed",
+                  "cancelled"
+                ],
+                "description": "success, failed (a completed operation whose build failed) or cancelled; a failed build is a completed operation, never an operation error (ADR-0020)."
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "finishedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "durationMs": {
+                "type": "integer"
+              },
+              "gradle": {
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "wrapper",
+                      "connector"
+                    ]
+                  },
+                  "daemonJavaHome": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "version",
+                  "source"
+                ]
+              },
+              "profile": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "degraded"
+                ]
+              },
+              "missingCapabilities": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."
+              },
+              "validation": {
+                "type": "string",
+                "enum": [
+                  "untested"
+                ]
+              },
+              "agp": {
+                "type": "string",
+                "description": "The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."
+              },
+              "kgp": {
+                "type": "string"
+              },
+              "taskSummary": {
+                "properties": {
+                  "executed": {
+                    "type": "integer"
+                  },
+                  "upToDate": {
+                    "type": "integer"
+                  },
+                  "fromCache": {
+                    "type": "integer"
+                  },
+                  "noSource": {
+                    "type": "integer"
+                  },
+                  "skipped": {
+                    "type": "integer"
+                  },
+                  "failed": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "failedTasks": {
+                "items": {
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "path"
+                  ]
+                },
+                "type": "array"
+              },
+              "errorCount": {
+                "type": "integer"
+              },
+              "warningCount": {
+                "type": "integer"
+              },
+              "errors": {
+                "items": {
+                  "properties": {
+                    "severity": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "problemId": {
+                      "type": "string"
+                    },
+                    "solutions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "documentationLink": {
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    },
+                    "external": {
+                      "type": "boolean"
+                    },
+                    "merged": {
+                      "type": "boolean"
+                    },
+                    "resolved": {
+                      "properties": {
+                        "file": {
+                          "type": "string"
+                        },
+                        "line": {
+                          "type": "integer"
+                        },
+                        "column": {
+                          "type": "integer"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "excerpt": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array",
+                "description": "The first five merged errors; build.errors returns the whole list."
+              },
+              "warnings": {
+                "items": {
+                  "properties": {
+                    "severity": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "problemId": {
+                      "type": "string"
+                    },
+                    "solutions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "documentationLink": {
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "column": {
+                      "type": "integer"
+                    },
+                    "external": {
+                      "type": "boolean"
+                    },
+                    "merged": {
+                      "type": "boolean"
+                    },
+                    "resolved": {
+                      "properties": {
+                        "file": {
+                          "type": "string"
+                        },
+                        "line": {
+                          "type": "integer"
+                        },
+                        "column": {
+                          "type": "integer"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "excerpt": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "module": {
+                      "type": "string"
+                    },
+                    "variant": {
+                      "type": "string"
+                    },
+                    "applicationId": {
+                      "type": "string"
+                    },
+                    "versionCode": {
+                      "type": "integer"
+                    },
+                    "versionName": {
+                      "type": "string"
+                    },
+                    "apks": {
+                      "items": {
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "filters": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "sizeBytes": {
+                            "type": "integer"
+                          },
+                          "supported": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "filters",
+                          "sizeBytes",
+                          "supported"
+                        ]
+                      },
+                      "type": "array"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "module",
+                    "variant"
+                  ]
+                },
+                "type": "array"
+              },
+              "extraction": {
+                "properties": {
+                  "sources": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "unrecognised": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "consoleRef": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "buildId",
+              "request",
+              "outcome",
+              "startedAt",
+              "finishedAt",
+              "gradle",
+              "profile",
+              "validation",
+              "agp",
+              "kgp",
+              "taskSummary",
+              "extraction",
+              "consoleRef"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "build.tasks",
       "kind": "query",
       "scope": "workspace",

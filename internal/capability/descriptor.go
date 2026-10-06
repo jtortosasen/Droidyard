@@ -191,16 +191,18 @@ type Descriptor struct {
 	Audience Audience
 
 	// Resource names the per-resource lock a call holds while it runs, as a function
-	// of its decoded params (Call.Params' type); "" takes none. One key per call, so
-	// acquisition cannot deadlock. Calls on one key run one at a time, in the order
-	// they were started; a call behind another is queued and names it in blockedBy
-	// (ADR-0020 §Core primitives). The scheduler takes the lock, not the handler
-	// (core-runtime.md §Concurrency). A domain may also serialise short device I/O
-	// inside one bounded read with a lock of its own (the UI reader's per-device lock,
-	// plan m1f R2): the scheduler's key is per call, while such a lock is per read and
-	// is waited inside the read's own deadline, not a second Resource key. Not
-	// published.
-	Resource func(params any) string
+	// of the call: its decoded params (Call.Params) and, for a workspace-scoped
+	// capability, the canonical workspace id (Call.Workspace) — the key a build takes
+	// is per workspace, "gradle.root:<wsid>" (plan m1g R5). "" takes none. One key per
+	// call, so acquisition cannot deadlock. Calls on one key run one at a time, in the
+	// order they were started; a call behind another is queued and names it in
+	// blockedBy (ADR-0020 §Core primitives). The scheduler takes the lock, not the
+	// handler (core-runtime.md §Concurrency). A domain may also serialise short device
+	// I/O inside one bounded read with a lock of its own (the UI reader's per-device
+	// lock, plan m1f R2): the scheduler's key is per call, while such a lock is per
+	// read and is waited inside the read's own deadline, not a second Resource key.
+	// Not published.
+	Resource func(call *Call) string
 
 	// Authorize is the authorization re-check, run by the scheduler immediately before
 	// the handler: holding the Resource key when there is one, at once when there is

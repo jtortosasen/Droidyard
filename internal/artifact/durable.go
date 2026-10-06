@@ -271,9 +271,10 @@ func (s *Store) DeleteDurable(workspace, owner string) error {
 // getDurable resolves a durable id "<workspace>.<owner>". The workspace is everything
 // before the last dot, so a workspace id that itself holds dots still resolves. Both
 // parts must be single path elements: anything that could step out of the workspace's
-// artifacts/ directory ("..", a slash, a percent-encoded separator, an absolute path)
-// is not a reference this store ever issued, so it is ARTIFACT_NOT_FOUND and nothing
-// is opened.
+// artifacts/ directory ("..", a slash, an absolute path) is not a reference this store
+// ever issued, so it is ARTIFACT_NOT_FOUND and nothing is opened. A reference whose
+// workspace this state root has never held is NOT_FOUND for the same reason; only a
+// workspace the state root does hold, with its file gone, is ARTIFACT_EXPIRED.
 func (s *Store) getDurable(rest string) (Entry, error) {
 	cut := strings.LastIndex(rest, ".")
 	if cut < 0 {
@@ -293,6 +294,12 @@ func (s *Store) getDurable(rest string) (Entry, error) {
 		e.Ref.Bytes = int(d.size)
 		d.mu.Unlock()
 		return e, nil
+	}
+	// A workspace the state root has never held (no ws/<wsid>/ directory) means the
+	// reference was not one this store issued: NOT_FOUND, never the EXPIRED a deleted
+	// artifact of a known workspace reads (plan m1g D13).
+	if _, err := os.Stat(filepath.Join(s.stateRoot, "ws", workspace)); errors.Is(err, fs.ErrNotExist) {
+		return Entry{}, notAnArtifact()
 	}
 	path := filepath.Join(s.durableDir(workspace), owner+durableExt)
 	if filepath.Dir(path) != filepath.Clean(s.durableDir(workspace)) {
@@ -352,22 +359,18 @@ func notAnArtifact() *capability.Error {
 }
 
 // validPart reports whether s can name one directory or file without leaving the
-// directory it is joined into: non-empty, not "." or "..", no separator, and no
-// percent sign, which is how a percent-encoded separator would arrive if a reference
-// were ever URL-decoded. Droidyard never puts a percent in a generated id, so one is
-// refused rather than interpreted. It is the guard that keeps a durable reference from
-// resolving to a file outside <state>/ws/<wsid>/artifacts/.
+// directory it is joined into: it must be exactly one path element of this platform,
+// so filepath.Base leaves it unchanged and filepath.IsLocal accepts it (non-empty, not
+// "." or "..", not absolute, no separator). It is the guard that keeps a durable
+// reference from resolving to a file outside <state>/ws/<wsid>/artifacts/.
+//
+// It is a single-element check, not a character denylist, so a workspace id is usable
+// exactly when the workspace package can produce it: a workspace id is
+// <basename>-<12 hex> (platform.WorkspaceID), and a directory basename may hold a
+// percent sign, a backslash on a platform where that is an ordinary character, or a
+// dot. A percent is never decoded here — this file joins the part into a path as it
+// stands — so allowing one opens nothing; a separator, which would, is still refused,
+// on the platform that treats it as one.
 func validPart(s string) bool {
-	if s == "" || s == "." || s == ".." {
-		return false
-	}
-	if strings.ContainsAny(s, `/\`) || strings.Contains(s, "%") {
-		return false
-	}
-	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
-			return false
-		}
-	}
-	return true
+	return s != "" && filepath.IsLocal(s) && filepath.Base(s) == s
 }

@@ -366,7 +366,7 @@ func TestCachedModelWhileABuildHoldsTheRoot(t *testing.T) {
 	if _, _, err := c.Model(ctx, root); err != nil {
 		t.Fatal(err)
 	}
-	calls := count(events(t, ev), "connection.open")
+	calls := count(events(t, ev), "served connection.open")
 
 	release, err := c.LockRoot(ctx, root)
 	if err != nil {
@@ -395,7 +395,7 @@ func TestCachedModelWhileABuildHoldsTheRoot(t *testing.T) {
 		t.Fatal("the model call blocked on the root a build holds; it must answer from the cache")
 	}
 	release()
-	if got := count(events(t, ev), "connection.open"); got != calls {
+	if got := count(events(t, ev), "served connection.open"); got != calls {
 		t.Errorf("the cached answer opened the connection %d times, was %d: it must not touch Gradle", got, calls)
 	}
 	if sup.Pid(gradle.ID, process.Global) == 0 {

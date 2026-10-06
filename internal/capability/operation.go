@@ -254,7 +254,7 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 	var key string
 	var w *waiter
 	if d.Resource != nil {
-		if key = d.Resource(params); key != "" {
+		if key = d.Resource(call); key != "" {
 			w = o.enqueue(op, key)
 		}
 	}

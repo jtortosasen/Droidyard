@@ -18,7 +18,7 @@ func TestQueuedOperationOnEveryAdapter(t *testing.T) {
 		reg.MustRegister(capability.Descriptor{
 			Name: "fixture.keyed", Kind: capability.Command, Scope: capability.Global,
 			Description: "Holds the key k until released.", Params: struct{}{}, Result: struct{}{},
-			Resource: func(any) string { return "k" },
+			Resource: func(*capability.Call) string { return "k" },
 			Errors:   []capability.ErrorCode{capability.ErrOperationQueueTimeout},
 			Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 				started <- call.OperationID

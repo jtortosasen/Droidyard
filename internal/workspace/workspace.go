@@ -105,6 +105,11 @@ type Options struct {
 	// timeout (gradle.md §Protocol; plan m1g step 5). It is called with the
 	// workspace's canonical root and must not block for long.
 	CloseRoot func(root string)
+	// OnOpen runs once when a workspace is opened — not when an already-open one is
+	// asked for again — with its id and canonical root. It is the build registry's
+	// sweep of console files no record owns (plan m1g D13). It runs under the
+	// workspace's transition lock, so it must not block for long.
+	OnOpen func(id, root string)
 	// Log receives a line per operation a close left running. Nil discards.
 	Log io.Writer
 	// Publisher receives every transition on workspace.lifecycle. Nil publishes
@@ -385,6 +390,12 @@ func (r *Registry) load(id, root string) (Info, error) {
 	}
 	if err := r.recordOpen(id, root, name); err != nil {
 		return Info{}, err
+	}
+	if r.opts.OnOpen != nil {
+		// The workspace is now this daemon's: a hook that belongs to the open (the
+		// build registry sweeps console files no record owns) runs here, once, and not
+		// for an already-open workspace asked for again.
+		r.opts.OnOpen(id, root)
 	}
 	info.Trusted = r.trusted(root)
 	return info, nil

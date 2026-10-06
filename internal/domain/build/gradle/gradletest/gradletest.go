@@ -1,7 +1,7 @@
 // Package gradletest is the fake Gradle sidecar: a helper process that speaks the
 // sidecar's JSON-RPC protocol from a scripted configuration, so tests exercise the
-// client's handshake, its crash and protocol handling and the project model without a
-// JVM or Gradle (plan m1g step 5, check (a)).
+// client's handshake, its crash and protocol handling, the project model and a whole
+// scripted build without a JVM or Gradle (plan m1g step 5 and step 7, check (a)).
 //
 // A test's TestMain calls Main; Launch returns a gradle.Launch that runs the test
 // binary again in this mode, so the sidecar is a real separate process, killed and
@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,9 +43,18 @@ type Config struct {
 	GradleVersion  string `json:"gradleVersion"`
 	Source         string `json:"source"`
 	DaemonJavaHome string `json:"daemonJavaHome"`
+	// Capabilities is connection.open's capabilities map (default {problemEvents: true}).
+	// A gated call the connected Gradle refuses shows up here as false, which is how the
+	// core learns the build is degraded (plan m1g D17).
+	Capabilities map[string]bool `json:"capabilities,omitempty"`
 
 	// Model is the project.model reply, verbatim.
 	Model json.RawMessage `json:"model"`
+
+	// Build is the script for build.run: the notifications a build sends, its outcome
+	// and its failures. A nil Build answers build.run with an error, so a test can see
+	// the client's failure path.
+	Build *Build `json:"build,omitempty"`
 
 	// StrayOn names a method the fake answers with a line that is not JSON before its
 	// real reply: the protocol break the client must treat as a crash.
@@ -64,6 +74,55 @@ type Config struct {
 	// Events, when set, is a file the fake appends its lifecycle to: "started <pid>",
 	// "served <method>", "eof". A test reads it to see that stdin was closed.
 	Events string `json:"events"`
+}
+
+// Step is one notification a scripted build sends, in the order its Steps list them.
+type Step struct {
+	// Kind is output, taskFinished, progress or problem.
+	Kind string `json:"kind"`
+
+	// output
+	Stream string   `json:"stream,omitempty"`
+	Lines  []string `json:"lines,omitempty"`
+
+	// taskFinished
+	Path       string `json:"path,omitempty"`
+	Outcome    string `json:"outcome,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+
+	// progress
+	Counts     *gradle.TaskSummary `json:"counts,omitempty"`
+	ActiveTask string              `json:"activeTask,omitempty"`
+
+	// problem
+	Problem *gradle.Problem `json:"problem,omitempty"`
+}
+
+// Build is the script for build.run: build.run is answered {accepted} at once and the
+// script's notifications follow, one per Step, then the terminal event (plan m1g
+// step 7, check (a)).
+type Build struct {
+	Steps []Step `json:"steps,omitempty"`
+	// Outcome is the terminal event's outcome (default success).
+	Outcome string `json:"outcome,omitempty"`
+	// Failures, FailureProblems and FailureProblemsDropped are the terminal event's
+	// failure tree (gradle.md §Error model).
+	Failures               []gradle.Failure `json:"failures,omitempty"`
+	FailureProblems        []gradle.Problem `json:"failureProblems,omitempty"`
+	FailureProblemsDropped int              `json:"failureProblemsDropped,omitempty"`
+	// MissingCapabilities is the terminal event's list: a TAPI call the connected Gradle
+	// refused, which makes the build degraded (plan m1g D17). It is the
+	// UnsupportedMethodException the sidecar caught, reported to the core.
+	MissingCapabilities []string `json:"missingCapabilities,omitempty"`
+	// WaitForCancel holds the build open after its steps until build.cancel arrives, so
+	// a test can cancel a build mid-flight; the fake then finishes it cancelled.
+	WaitForCancel bool `json:"waitForCancel,omitempty"`
+	// Silent sends no terminal notification at all: the lost-terminal-event path.
+	Silent bool `json:"silent,omitempty"`
+	// DieAfterSteps exits the process, without answering anything more, once that many
+	// of the script's notifications have been sent: the sidecar that dies mid-build.
+	DieAfterSteps int `json:"dieAfterSteps,omitempty"`
 }
 
 // Main runs the fake when ModeEnv is set, and returns otherwise. A test's TestMain
@@ -128,6 +187,9 @@ func (c *Config) apply() {
 	if c.Source == "" {
 		c.Source = "wrapper"
 	}
+	if c.Capabilities == nil {
+		c.Capabilities = map[string]bool{"problemEvents": true}
+	}
 	if c.BigLineBytes == 0 {
 		c.BigLineBytes = 17 << 20
 	}
@@ -145,6 +207,19 @@ func event(cfg Config, format string, args ...any) {
 	fmt.Fprintf(f, format+"\n", args...)
 }
 
+// sidecar serves the protocol from one process: stdin's requests on the reading
+// goroutine, and a build's notifications on a goroutine of their own, so a build.cancel
+// can be read while a build is still running. Every write to stdout is serialised.
+type sidecar struct {
+	open map[string]bool // roots opened on this process, guarded by mu
+	cfg  Config
+	w    *bufio.Writer
+	mu   sync.Mutex
+
+	cmu     sync.Mutex
+	cancels map[string]chan struct{}
+}
+
 func run(cfg Config) {
 	// The supervisor closes stdin and signals its group in one step; a real process
 	// would take the signal first. Ignoring SIGTERM makes stdin EOF the observable end,
@@ -152,7 +227,7 @@ func run(cfg Config) {
 	// D6). SIGKILL still ends it, so the crash paths are unaffected.
 	signal.Ignore(syscall.SIGTERM)
 	event(cfg, "started %d", os.Getpid())
-	w := bufio.NewWriter(os.Stdout)
+	s := &sidecar{cfg: cfg, w: bufio.NewWriter(os.Stdout), cancels: map[string]chan struct{}{}}
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 0, 1<<16), 8<<20)
 	held := 0
@@ -161,106 +236,241 @@ func run(cfg Config) {
 		if line == "" {
 			continue
 		}
-		serve(w, cfg, line, &held)
+		s.serve(line, &held)
 	}
 	event(cfg, "eof")
 }
 
-func serve(w *bufio.Writer, cfg Config, line string, held *int) {
+func (s *sidecar) serve(line string, held *int) {
 	var req struct {
 		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal([]byte(line), &req); err != nil {
-		writeError(w, nil, -32700, "parse error")
+		s.writeError(nil, -32700, "parse error")
 		return
 	}
-	event(cfg, "served %s", req.Method)
+	event(s.cfg, "served %s", req.Method)
 	switch req.Method {
-	case cfg.DieOn:
+	case s.cfg.DieOn:
 		os.Exit(1)
-	case cfg.HoldOn:
+	case s.cfg.HoldOn:
 		*held++
-		if *held > cfg.HoldAfter {
+		if *held > s.cfg.HoldAfter {
 			// Never answer: the caller waits until someone kills the process.
 			for {
 				time.Sleep(time.Hour)
 			}
 		}
 	}
-	if req.Method == cfg.StrayOn {
+	if req.Method == s.cfg.StrayOn {
 		// The stray line is the whole answer: the core must treat it as a protocol
 		// break, and no reply follows to race the failure.
-		w.WriteString("this line is not JSON\n")
-		w.Flush()
+		s.mu.Lock()
+		s.w.WriteString("this line is not JSON\n")
+		s.w.Flush()
+		s.mu.Unlock()
+		return
+	}
+
+	// Like the real sidecar, a root must be opened on this process before it is used
+	// (sidecar/src/Session.kt): a client that forgets a restart is refused.
+	var rp struct {
+		Root string `json:"root"`
+	}
+	_ = json.Unmarshal(req.Params, &rp)
+	if (req.Method == "project.model" || req.Method == "build.run") && !s.isOpen(rp.Root) {
+		s.writeError(req.ID, -32000, "no connection.open for root: "+rp.Root)
 		return
 	}
 
 	switch req.Method {
 	case "hello":
-		writeResult(w, req.ID, map[string]any{
-			"protocolVersion": cfg.ProtocolVersion,
-			"sidecarVersion":  cfg.SidecarVersion,
-			"tapiVersion":     cfg.TAPIVersion,
-			"java":            map[string]any{"home": cfg.JavaHome, "version": cfg.JavaVersion},
+		s.writeResult(req.ID, map[string]any{
+			"protocolVersion": s.cfg.ProtocolVersion,
+			"sidecarVersion":  s.cfg.SidecarVersion,
+			"tapiVersion":     s.cfg.TAPIVersion,
+			"java":            map[string]any{"home": s.cfg.JavaHome, "version": s.cfg.JavaVersion},
 		})
 	case "ping":
-		writeResult(w, req.ID, map[string]any{})
+		s.writeResult(req.ID, map[string]any{})
 	case "connection.open":
-		writeResult(w, req.ID, map[string]any{
-			"gradleVersion":  cfg.GradleVersion,
-			"source":         cfg.Source,
-			"daemonJavaHome": cfg.DaemonJavaHome,
-			"capabilities":   map[string]bool{"problemEvents": true},
+		s.setOpen(rp.Root, true)
+		s.writeResult(req.ID, map[string]any{
+			"gradleVersion":  s.cfg.GradleVersion,
+			"source":         s.cfg.Source,
+			"daemonJavaHome": s.cfg.DaemonJavaHome,
+			"capabilities":   s.cfg.Capabilities,
 		})
-	case "connection.close", "build.cancel":
-		writeResult(w, req.ID, map[string]any{})
+	case "connection.close":
+		s.setOpen(rp.Root, false)
+		s.writeResult(req.ID, map[string]any{})
 	case "project.model":
-		if req.Method == cfg.BigLineOn {
-			writeBigLine(w, req.ID, cfg.BigLineBytes)
+		if req.Method == s.cfg.BigLineOn {
+			s.writeBigLine(req.ID, s.cfg.BigLineBytes)
 			return
 		}
-		if len(cfg.Model) == 0 {
-			writeError(w, req.ID, -32000, "project.model failed")
+		if len(s.cfg.Model) == 0 {
+			s.writeError(req.ID, -32000, "project.model failed")
 			return
 		}
-		writeRawResult(w, req.ID, cfg.Model)
+		s.writeRawResult(req.ID, s.cfg.Model)
+	case "build.run":
+		s.build(req.ID, req.Params)
+	case "build.cancel":
+		var p struct {
+			BuildID string `json:"buildId"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		s.writeResult(req.ID, map[string]any{})
+		s.cancel(p.BuildID)
 	case "shutdown":
-		writeResult(w, req.ID, map[string]any{})
-		w.Flush()
+		s.writeResult(req.ID, map[string]any{})
+		s.mu.Lock()
+		s.w.Flush()
+		s.mu.Unlock()
 		os.Exit(0)
 	default:
-		writeError(w, req.ID, -32601, "Method not found: "+req.Method)
+		s.writeError(req.ID, -32601, "Method not found: "+req.Method)
 	}
 }
 
-func writeResult(w *bufio.Writer, id json.RawMessage, result any) {
-	raw, err := json.Marshal(result)
-	if err != nil {
-		writeError(w, id, -32603, err.Error())
+// build answers build.run {accepted} and plays its script on a goroutine of its own, so
+// the reading goroutine stays free for build.cancel.
+func (s *sidecar) build(id json.RawMessage, params json.RawMessage) {
+	var p struct {
+		BuildID string   `json:"buildId"`
+		Tasks   []string `json:"tasks"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		s.writeError(id, -32602, "build.run: the params could not be read")
 		return
 	}
-	writeRawResult(w, id, raw)
+	if s.cfg.Build == nil {
+		s.writeError(id, -32000, "build.run: this fake has no build script")
+		return
+	}
+	cancel := make(chan struct{})
+	s.cmu.Lock()
+	s.cancels[p.BuildID] = cancel
+	s.cmu.Unlock()
+	s.writeResult(id, map[string]any{"accepted": true})
+	go s.play(p.BuildID, cancel)
 }
 
-func writeRawResult(w *bufio.Writer, id json.RawMessage, raw json.RawMessage) {
-	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": idOrNull(id), "result": raw})
-	w.Write(msg)
-	w.WriteByte('\n')
-	w.Flush()
+// cancel releases a build waiting for its cancellation.
+func (s *sidecar) cancel(buildID string) {
+	s.cmu.Lock()
+	ch := s.cancels[buildID]
+	delete(s.cancels, buildID)
+	s.cmu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
 }
 
-func writeError(w *bufio.Writer, id json.RawMessage, code int, text string) {
-	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": idOrNull(id),
+// play sends a build's notifications and its terminal event, in the order the script
+// lists them.
+func (s *sidecar) play(buildID string, cancel chan struct{}) {
+	b := s.cfg.Build
+	for i, step := range b.Steps {
+		s.notify(buildID, step)
+		if b.DieAfterSteps > 0 && i+1 >= b.DieAfterSteps {
+			os.Exit(1)
+		}
+	}
+	if b.WaitForCancel {
+		<-cancel
+		s.finished(buildID, "cancelled", b)
+		return
+	}
+	if b.Silent {
+		return
+	}
+	outcome := b.Outcome
+	if outcome == "" {
+		outcome = "success"
+	}
+	s.finished(buildID, outcome, b)
+}
+
+// notify writes one notification: no id, so the client routes it to the sink of the
+// build it names (gradle.md §Protocol).
+func (s *sidecar) notify(buildID string, step Step) {
+	var method string
+	var params any
+	switch step.Kind {
+	case "output":
+		method, params = "event.build.output", map[string]any{
+			"buildId": buildID, "stream": step.Stream, "lines": step.Lines,
+		}
+	case "taskFinished":
+		method, params = "event.build.taskFinished", map[string]any{
+			"buildId": buildID, "path": step.Path, "outcome": step.Outcome,
+			"durationMs": step.DurationMs, "reason": step.Reason,
+		}
+	case "progress":
+		method, params = "event.build.progress", map[string]any{
+			"buildId": buildID, "counts": step.Counts, "activeTask": step.ActiveTask,
+		}
+	case "problem":
+		method, params = "event.build.problem", map[string]any{
+			"buildId": buildID, "problem": step.Problem,
+		}
+	default:
+		return
+	}
+	s.write(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+func (s *sidecar) finished(buildID, outcome string, b *Build) {
+	s.write(map[string]any{
+		"jsonrpc": "2.0", "method": "event.build.finished",
+		"params": map[string]any{
+			"buildId":                buildID,
+			"outcome":                outcome,
+			"failures":               b.Failures,
+			"failureProblems":        b.FailureProblems,
+			"failureProblemsDropped": b.FailureProblemsDropped,
+			"missingCapabilities":    b.MissingCapabilities,
+		},
+	})
+}
+
+func (s *sidecar) write(msg any) {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	s.w.Write(raw)
+	s.w.WriteByte('\n')
+	s.w.Flush()
+	s.mu.Unlock()
+}
+
+func (s *sidecar) writeResult(id json.RawMessage, result any) {
+	raw, err := json.Marshal(result)
+	if err != nil {
+		s.writeError(id, -32603, err.Error())
+		return
+	}
+	s.writeRawResult(id, raw)
+}
+
+func (s *sidecar) writeRawResult(id json.RawMessage, raw json.RawMessage) {
+	s.write(map[string]any{"jsonrpc": "2.0", "id": idOrNull(id), "result": raw})
+}
+
+func (s *sidecar) writeError(id json.RawMessage, code int, text string) {
+	s.write(map[string]any{"jsonrpc": "2.0", "id": idOrNull(id),
 		"error": map[string]any{"code": code, "message": text}})
-	w.Write(msg)
-	w.WriteByte('\n')
-	w.Flush()
 }
 
-func writeBigLine(w *bufio.Writer, id json.RawMessage, n int) {
+func (s *sidecar) writeBigLine(id json.RawMessage, n int) {
 	raw, _ := json.Marshal(strings.Repeat("x", n))
-	writeRawResult(w, id, raw)
+	s.writeRawResult(id, raw)
 }
 
 func idOrNull(id json.RawMessage) any {
@@ -277,4 +487,19 @@ func MustModel(m gradle.Model) json.RawMessage {
 		panic(err)
 	}
 	return raw
+}
+
+func (s *sidecar) isOpen(root string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.open[root]
+}
+
+func (s *sidecar) setOpen(root string, open bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.open == nil {
+		s.open = map[string]bool{}
+	}
+	s.open[root] = open
 }

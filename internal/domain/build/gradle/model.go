@@ -84,6 +84,26 @@ func VariantNames(m Module) []string {
 	return out
 }
 
+// ExportVariant is the inverse of unexportVariant: the task-name stem AGP builds for a
+// variant name (`debug` → `Debug`), so build.assemble can name the task it runs
+// `<module>:assemble<ExportVariant(variant)>` (plan m1g step 7).
+func ExportVariant(v string) string {
+	r, size := utf8.DecodeRuneInString(v)
+	return string(unicode.ToUpper(r)) + v[size:]
+}
+
+// PackageVariant reports the variant a `package<Variant>` task builds, as the variant
+// name (`packageFreeDebug` → `freeDebug`), and whether the task is one. It is the task
+// side of VariantNames: build outputs are reported only for a variant whose package
+// task ran in this build (gradle.md §Build outputs).
+func PackageVariant(taskName string) (string, bool) {
+	x, ok := strings.CutPrefix(taskName, "package")
+	if !ok || x == "" {
+		return "", false
+	}
+	return unexportVariant(x), true
+}
+
 // unexportVariant lowercases the first rune of a task-name stem, undoing AGP's
 // capitalisation: `Debug` → `debug`, `FreeDebug` → `freeDebug`.
 func unexportVariant(x string) string {

@@ -132,10 +132,12 @@ func TestDeletingTheOwnerExpiresTheRef(t *testing.T) {
 
 // Decision: a durable reference never resolves to a file outside
 // <state>/ws/<wsid>/artifacts/. The workspace and owner parts must be single path
-// elements; "..", a slash, a percent-encoded separator or an absolute path is a
-// reference this store never issued, so it is ARTIFACT_NOT_FOUND and nothing outside
-// the workspace's artifacts/ is opened. Removing the part check makes this read the
-// planted file.
+// elements; "..", a slash or an absolute path is a reference this store never issued,
+// and so is one naming a workspace this state root has never held (d.a%2fb: the part is
+// a legal single element, but no ws/a%2fb/ directory exists), so both are
+// ARTIFACT_NOT_FOUND and nothing outside the workspace's artifacts/ is opened — the
+// percent sign is a filename character here, never decoded into a separator. Removing
+// the part check makes this read the planted file.
 func TestDurableRefsOutsideTheWorkspaceAreNotFound(t *testing.T) {
 	root := t.TempDir()
 	s := newDurableStore(t, root)
@@ -276,6 +278,28 @@ func TestDurableWorkspaceWithDotsResolves(t *testing.T) {
 	d.Close()
 	e, err := s.Get(RefPrefix + "d.my.app-1a2b3c4d5e6f.op-1")
 	if err != nil || e.Ref.Ref != d.Ref().Ref {
+		t.Fatalf("round trip: %+v, %v", e, err)
+	}
+}
+
+// Decision (m1g step 7): a workspace id is <basename>-<12 hex> (platform.WorkspaceID),
+// and a directory basename may hold characters a character-denylist would refuse — a
+// percent sign, say. Such a workspace's console is created and resolved like any other,
+// because a part is judged by being one path element, not by its characters.
+func TestDurableWorkspaceWithAPercentSignResolves(t *testing.T) {
+	root := t.TempDir()
+	s := newDurableStore(t, root)
+	const ws = "50%off-1a2b3c4d5e6f"
+	d, err := s.CreateDurable(ws, "op-1", DurableOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatalf("a console cannot be created for %q: %v", ws, err)
+	}
+	if _, err := d.Write([]byte("hello\n")); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	e, err := s.Get(RefPrefix + "d." + ws + ".op-1")
+	if err != nil || e.Size != 6 {
 		t.Fatalf("round trip: %+v, %v", e, err)
 	}
 }

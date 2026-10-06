@@ -15,6 +15,11 @@
 - Amended: 2026-10-06 — the configuration directory decided (ADR-0031): under an
   explicit `DROIDYARD_STATE_DIR` it is `<state>/config/`; on macOS without overrides
   `~/Library/Application Support/droidyard-config/`. Milestone 1g plan D1, Delegated.
+- Amended: 2026-10-06 (second pass) — the derived cache's first tenant: the Gradle
+  sidecar's jars, under `<cache>/gradle/` named by digest, written atomically and
+  rewritten when their bytes differ from the binary's; under an explicit
+  `DROIDYARD_STATE_DIR` the cache is `<state>/cache/` (one variable isolates a run).
+  Milestone 1g plan D5, Delegated.
 
 ## Context
 

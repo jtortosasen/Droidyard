@@ -6,8 +6,10 @@ import (
 )
 
 // The JSON-RPC 2.0 codec of gradle.md §Protocol: one message per line, requests with
-// an integer id, replies correlated by id. An id-less message is a notification and is
-// ignored here (step 5 serves no notification; builds in step 7 do).
+// an integer id, replies correlated by id. An id-less message is a notification: it
+// carries a method, and the client routes it by buildId to the sink watching that build
+// (build.go). A notification whose method is not one of the five build events is
+// ignored — JSON-RPC gives an id-less unknown method no response.
 
 // request is one JSON-RPC request the client sends.
 type request struct {
@@ -17,10 +19,12 @@ type request struct {
 	Params  any    `json:"params,omitempty"`
 }
 
-// message is whatever the sidecar writes: a reply carries an id; a notification does
-// not. Exactly one of result and error is set.
+// message is whatever the sidecar writes: a reply carries an id and one of result or
+// error; a notification carries a method and its params, and no id.
 type message struct {
 	ID     *int            `json:"id"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
 	Result json.RawMessage `json:"result"`
 	Error  *rpcError       `json:"error"`
 }

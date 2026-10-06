@@ -583,21 +583,34 @@ func readLine(br *bufio.Reader) (string, error) {
 
 // readProtocolLine reads one line whole, without its newline. over is true when the
 // line was longer than max: the whole line is still consumed, but nothing of it past
-// the bound is kept.
+// the bound is kept. A last line with no newline before the end of the stream is never
+// returned: a process killed mid-write leaves half a message, which is a death, not a
+// protocol violation (m1g step 1 fix round; step 5 review B3).
 func readProtocolLine(br *bufio.Reader, max int) (line string, over bool, err error) {
 	var b []byte
 	for {
-		chunk, isPrefix, err := br.ReadLine()
+		chunk, err := br.ReadSlice('\n')
 		if !over {
-			if len(b)+len(chunk) > max {
+			if len(b)+len(chunk) > max+1 {
 				over = true
 			} else {
 				b = append(b, chunk...)
 			}
 		}
-		if err != nil || !isPrefix {
-			return string(b), over, err
+		if err == bufio.ErrBufferFull {
+			continue
 		}
+		if err != nil {
+			return "", false, err
+		}
+		if over {
+			return "", true, nil
+		}
+		b = b[:len(b)-1]
+		if n := len(b); n > 0 && b[n-1] == '\r' {
+			b = b[:n-1]
+		}
+		return string(b), false, nil
 	}
 }
 
