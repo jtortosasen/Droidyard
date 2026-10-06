@@ -4,28 +4,35 @@ package device
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	// sdkpkg aliases internal/domain/sdk: this package's tests declare a helper named
+	// sdk, and a file-block import name may not collide with a package-block declaration
+	// (plan m1h D13 keeps m1e's TestResolveOrder unchanged, so the import moves out of
+	// the way, not the test helper).
+	sdkpkg "github.com/jtortosasen/droidyard/internal/domain/sdk"
 )
 
 // Where adb came from, in the order Resolve tries them. The adb.path and sdk.root
 // configuration keys have no specification and are skipped (plan m1e, R5).
 const (
-	SourceADBEnv        = "ADB"
-	SourceAndroidHome   = "sdk:ANDROID_HOME"
-	SourceSDKRoot       = "sdk:ANDROID_SDK_ROOT"
-	SourceSDKFromPath   = "sdk:derived-from-PATH"
-	SourceSDKDefault    = "sdk:per-OS-default"
-	SourcePath          = "PATH"
-	warnHomeRootDiffers = "ANDROID_HOME and ANDROID_SDK_ROOT are both set and differ; ANDROID_HOME wins, as AGP does. Unset ANDROID_SDK_ROOT (deprecated)."
+	SourceADBEnv = "ADB"
+	SourcePath   = "PATH"
 )
 
-// Rejected is a candidate Resolve looked at and did not use.
-type Rejected struct {
-	Candidate string `json:"candidate" jsonschema:"required"`
-	Source    string `json:"source" jsonschema:"required"`
-	Reason    string `json:"reason" jsonschema:"required"`
-}
+// The host SDK's sources, re-exported from internal/domain/sdk: host SDK discovery moved
+// there (plan m1h, D13), and these are its candidate names, so adb resolution and its
+// tests keep naming them.
+const (
+	SourceAndroidHome = sdkpkg.SourceAndroidHome
+	SourceSDKRoot     = sdkpkg.SourceSDKRoot
+	SourceSDKFromPath = sdkpkg.SourceSDKFromPath
+	SourceSDKDefault  = sdkpkg.SourceSDKDefault
+)
+
+// Rejected is a candidate Resolve looked at and did not use. It is sdkpkg.Rejected, the
+// host SDK discovery's own type, so the two cannot drift.
+type Rejected = sdkpkg.Rejected
 
 // Resolution is where adb is, or why it is nowhere. Rejected lists every candidate
 // tried before the winner, or all of them when none won; Warnings are notes that do
@@ -48,8 +55,9 @@ type Resolution struct {
 // the running server's and restart the shared server.
 func Resolve(env []string) Resolution {
 	e := envMap(env)
+	host := sdkpkg.Host(env)
 	var res Resolution
-	res.Warnings = []string{}
+	res.Warnings = append([]string{}, host.Warnings...)
 	res.Rejected = []Rejected{}
 	reject := func(cand, src, reason string) {
 		res.Rejected = append(res.Rejected, Rejected{Candidate: cand, Source: src, Reason: reason})
@@ -57,11 +65,6 @@ func Resolve(env []string) Resolution {
 	win := func(path, src string) Resolution {
 		res.Found, res.Path, res.Source = true, path, src
 		return res
-	}
-
-	home, root := e["ANDROID_HOME"], e["ANDROID_SDK_ROOT"]
-	if home != "" && root != "" && filepath.Clean(home) != filepath.Clean(root) {
-		res.Warnings = append(res.Warnings, warnHomeRootDiffers)
 	}
 
 	if v := e["ADB"]; v != "" {
@@ -72,38 +75,19 @@ func Resolve(env []string) Resolution {
 		return win(v, SourceADBEnv)
 	}
 
-	// The host SDK: the first candidate that looks like an SDK wins.
-	pathAdb, pathReason := lookPath(e["PATH"])
-	type root_ struct{ dir, src string }
-	var cands []root_
-	if home != "" {
-		cands = append(cands, root_{home, SourceAndroidHome})
-	}
-	if root != "" {
-		cands = append(cands, root_{root, SourceSDKRoot})
-	}
-	if pathAdb != "" {
-		if real, err := filepath.EvalSymlinks(pathAdb); err == nil {
-			cands = append(cands, root_{filepath.Dir(filepath.Dir(real)), SourceSDKFromPath})
-		}
-	}
-	if h := e["HOME"]; h != "" {
-		cands = append(cands, root_{defaultSDK(h), SourceSDKDefault})
-	}
-	for _, c := range cands {
-		if !looksLikeSDK(c.dir) {
-			reject(c.dir, c.src, "not an Android SDK (none of platform-tools, platforms, emulator, cmdline-tools)")
-			continue
-		}
-		adb := filepath.Join(c.dir, "platform-tools", "adb")
+	// The host SDK, as sdk.Host found it (sdk.md §Host SDK); its platform-tools/adb is
+	// the second candidate. Its rejected candidates come before the adb on PATH.
+	res.Rejected = append(res.Rejected, host.Rejected...)
+	if host.Found {
+		adb := filepath.Join(host.Root, "platform-tools", "adb")
 		if reason := notExecutable(adb); reason != "" {
-			reject(adb, c.src, reason)
+			reject(adb, host.Source, reason)
 		} else {
-			return win(adb, c.src)
+			return win(adb, host.Source)
 		}
-		break // the first SDK that looks like one is the host SDK; its adb is absent
 	}
 
+	pathAdb, pathReason := lookPath(e["PATH"])
 	if pathAdb == "" {
 		reject("adb on PATH", SourcePath, pathReason)
 		return res
@@ -112,21 +96,7 @@ func Resolve(env []string) Resolution {
 }
 
 // defaultSDK is the per-OS default host SDK (sdk.md §Host SDK, step 5).
-func defaultSDK(home string) string {
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Android", "sdk")
-	}
-	return filepath.Join(home, "Android", "Sdk")
-}
-
-func looksLikeSDK(dir string) bool {
-	for _, d := range []string{"platform-tools", "platforms", "emulator", "cmdline-tools"} {
-		if fi, err := os.Stat(filepath.Join(dir, d)); err == nil && fi.IsDir() {
-			return true
-		}
-	}
-	return false
-}
+func defaultSDK(home string) string { return sdkpkg.DefaultSDK(home) }
 
 // notExecutable says why path is not a runnable file, "" if it is.
 func notExecutable(path string) string {
