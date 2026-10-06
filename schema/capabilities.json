@@ -145,6 +145,151 @@
       }
     },
     {
+      "name": "build.tasks",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Lists the tasks that exist in the project, filtered in the core from the cached project model (it never runs Gradle's `tasks` task). Filter by module (its Gradle project path), by group (exactly as Gradle reports it) and by a case-insensitive substring of the task name; hidden tasks (Gradle's public = false) are left out unless includeHidden is true. The result carries each task's module, full path, name, group and description, in the model's order. These are the tasks that exist, not the tasks a build ran. A module argument that names no project is REQUEST_INVALID_PARAMS. Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). The answer shares project.modules' model, its cache and its staleness: stale is true when a build holds the root and the build files changed since the model was fetched. Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED as project.modules does.",
+      "availability": [
+        "gradle"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_SIDECAR_UNAVAILABLE",
+        "BUILD_SIDECAR_CRASHED",
+        "BUILD_GRADLE_UNSUPPORTED",
+        "PROJECT_MODEL_FAILED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "Only tasks of this Gradle project path, e.g. \":app\". Absent lists every module's."
+          },
+          "group": {
+            "type": "string",
+            "description": "Only tasks in this Gradle group, e.g. \"build\", exactly as Gradle reports it."
+          },
+          "contains": {
+            "type": "string",
+            "description": "Only tasks whose name contains this text, case-insensitively."
+          },
+          "includeHidden": {
+            "type": "boolean",
+            "description": "Include hidden tasks (Gradle's public = false). Hidden tasks are noise by default."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "tasks": {
+                "items": {
+                  "properties": {
+                    "module": {
+                      "type": "string",
+                      "description": "The Gradle project path the task belongs to."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "The task's full Gradle path, e.g. \":app:assembleDebug\"."
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "module",
+                    "path",
+                    "name"
+                  ]
+                },
+                "type": "array"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "tasks"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "device.inputText",
       "kind": "command",
       "scope": "global",
@@ -2321,6 +2466,266 @@
       }
     },
     {
+      "name": "project.modules",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Lists the Gradle projects of the workspace's root: every project including the root \":\" and the container projects, with the Gradle project path, the name and the directory relative to the root. The answer comes from one Gradle configuration pass, cached per (root, build-files fingerprint) and consulted without a pass when a build holds the root. When a build holds the root and the fingerprint changed since the model was fetched, the result is the cached one and stale is true. Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. Fails with BUILD_SIDECAR_UNAVAILABLE when no JVM 17 or newer was found or the sidecar could not start, BUILD_SIDECAR_CRASHED when it died or broke its protocol, BUILD_GRADLE_UNSUPPORTED when the project's Gradle is below the 8.0 floor, and PROJECT_MODEL_FAILED when the configuration pass failed.",
+      "availability": [
+        "gradle"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_SIDECAR_UNAVAILABLE",
+        "BUILD_SIDECAR_CRASHED",
+        "BUILD_GRADLE_UNSUPPORTED",
+        "PROJECT_MODEL_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "modules": {
+                "items": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "The Gradle project path, e.g. \":app\"; the root project is \":\"."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "The project's name as Gradle reports it."
+                    },
+                    "dir": {
+                      "type": "string",
+                      "description": "The project directory, relative to the root; \".\" for the root project."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "name",
+                    "dir"
+                  ]
+                },
+                "type": "array"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "modules"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "project.variants",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.6.0",
+      "description": "Reports the build variants of each module (or of one, with module), as { module, variants[], source, exact } per module. Without the Android probe this milestone derives them from task names: the X with both assemble\u003cX\u003e and package\u003cX\u003e among the module's tasks, minus names ending AndroidTest, UnitTest or TestFixtures, so source is task-names and exact is false (ADR-0023 §Decision 4). A module that produces no APK variants (a library, or the root project) reports an empty list. A module argument that names no project is REQUEST_INVALID_PARAMS. The answer comes from one Gradle configuration pass, cached per (root, build-files fingerprint) and consulted without a pass when a build holds the root. When a build holds the root and the fingerprint changed since the model was fetched, the result is the cached one and stale is true. Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. Fails with BUILD_SIDECAR_UNAVAILABLE when no JVM 17 or newer was found or the sidecar could not start, BUILD_SIDECAR_CRASHED when it died or broke its protocol, BUILD_GRADLE_UNSUPPORTED when the project's Gradle is below the 8.0 floor, and PROJECT_MODEL_FAILED when the configuration pass failed.",
+      "availability": [
+        "gradle"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_SIDECAR_UNAVAILABLE",
+        "BUILD_SIDECAR_CRASHED",
+        "BUILD_GRADLE_UNSUPPORTED",
+        "PROJECT_MODEL_FAILED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "The Gradle project path to report variants for, e.g. \":app\". Absent reports every module."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "modules": {
+                "items": {
+                  "properties": {
+                    "module": {
+                      "type": "string"
+                    },
+                    "variants": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array",
+                      "description": "Variant names; empty for a module that produces no APK variants."
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "probe",
+                        "task-names"
+                      ],
+                      "description": "How the variants were derived: probe is exact (a later milestone); task-names is the labelled fallback of ADR-0023 §Decision 4."
+                    },
+                    "exact": {
+                      "type": "boolean",
+                      "description": "True only for source probe."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "module",
+                    "variants",
+                    "source"
+                  ]
+                },
+                "type": "array"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "modules"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "system.capabilities",
       "kind": "query",
       "scope": "global",
@@ -2392,7 +2797,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.1.0",
-      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), and where adb was found, its version and any warning (adb).",
+      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), and the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm).",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -2493,6 +2898,51 @@
             "required": [
               "found",
               "warnings",
+              "rejected"
+            ]
+          },
+          "jvm": {
+            "properties": {
+              "found": {
+                "type": "boolean"
+              },
+              "home": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "rejected": {
+                "items": {
+                  "properties": {
+                    "candidate": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "candidate",
+                    "source",
+                    "reason"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "found",
               "rejected"
             ]
           }

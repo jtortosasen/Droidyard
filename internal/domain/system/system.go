@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
@@ -31,6 +32,10 @@ type Health struct {
 	// (adb-device.md §adb resolution and degradation). Absent when the daemon has
 	// no adb subsystem.
 	ADB *device.Status `json:"adb,omitempty"`
+	// JVM is the JVM the Gradle sidecar runs on: where it was found and its version, or
+	// every candidate rejected (gradle.md §Sidecar JVM discovery; plan m1g D22).
+	// Absent when the daemon has no Gradle subsystem.
+	JVM *gradle.JVM `json:"jvm,omitempty"`
 }
 
 // StateProblem is one state file the daemon could not use. File and MovedTo are
@@ -74,6 +79,12 @@ type ADB interface {
 	Check(ctx context.Context) device.Status
 }
 
+// Gradle reports the JVM the Gradle sidecar runs on, for system.health (plan m1g
+// D22). *gradle.Client implements it.
+type Gradle interface {
+	JVM() gradle.JVM
+}
+
 // Operations reports how many operations are in flight.
 type Operations interface {
 	Running() int
@@ -83,14 +94,15 @@ type Operations interface {
 // Problems. Nil reports none.
 type StateProblems func() []store.Problem
 
-// Register adds the system capabilities to the registry.
-func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems) {
+// Register adds the system capabilities to the registry. gr, when non-nil, adds the
+// sidecar's JVM to system.health.
+func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems, gr Gradle) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "system.health",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), and where adb was found, its version and any warning (adb).",
+		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), and the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm).",
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -112,6 +124,10 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 			if adb != nil {
 				st := adb.Check(ctx)
 				h.ADB = &st
+			}
+			if gr != nil {
+				j := gr.JVM()
+				h.JVM = &j
 			}
 			return h, nil
 		},

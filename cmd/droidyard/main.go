@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,7 +18,10 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
+	"github.com/jtortosasen/droidyard/internal/domain/build"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -102,19 +106,31 @@ func main() {
 }
 
 // requirements reports what is missing: adb through the device package, which
-// resolves it afresh on every question, and every other external tool as missing
-// until its own check exists, with the reason, rather than the capability vanishing.
-type requirements struct{ adb *device.ADB }
+// resolves it afresh on every question, gradle through the sidecar client, which
+// answers from the JVM discovery result it cached at startup (plan m1g D22), and every
+// other external tool as missing until its own check exists, with the reason, rather
+// than the capability vanishing.
+type requirements struct {
+	adb    *device.ADB
+	gradle *gradle.Client
+}
 
 func (r requirements) Missing(req capability.Requirement) (string, bool) {
-	if req != capability.RequiresADB {
+	switch req {
+	case capability.RequiresADB:
+		res := r.adb.Resolve()
+		if res.Found {
+			return "", false
+		}
+		return res.NotFound(), true
+	case capability.RequiresGradle:
+		if r.gradle == nil {
+			return "no Gradle sidecar client is configured", true
+		}
+		return r.gradle.Missing(req)
+	default:
 		return string(req) + " was not found on this machine", true
 	}
-	res := r.adb.Resolve()
-	if res.Found {
-		return "", false
-	}
-	return res.NotFound(), true
 }
 
 // Seams for this package's tests only, set by TestMain in a re-executed test binary
@@ -132,6 +148,18 @@ var (
 	// (device.NewADBWithExec): the fake adb of a test whose daemon runs in the test's
 	// own process. The shipped binary never sets it.
 	adbExec device.Exec
+	// gradleEnviron is the environment the sidecar's JVM is discovered in and the
+	// sidecar inherits: the daemon's own. Tests replace it with a fake JAVA_HOME so
+	// discovery does not depend on this machine (plan m1g step 5).
+	gradleEnviron = os.Environ
+	// gradleFinder, when set, replaces discovery's host probes (the macOS
+	// /usr/libexec/java_home and the Android Studio globs) for the environment it is
+	// given, so a test's discovery is deterministic. Nil probes the host.
+	gradleFinder func(env []string) *gradle.Finder
+	// gradleLaunch, when set, starts the sidecar with this command instead of the
+	// embedded jars on the discovered JVM: the fake sidecar of a test. Nil runs the
+	// real one.
+	gradleLaunch gradle.Launch
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -167,7 +195,20 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	} else {
 		adb = device.NewADB(adbEnviron(), spawn)
 	}
-	system.Register(reg, requirements{adb}, adb, ops, problems)
+	// The one Gradle sidecar client (ADR-0019): it discovers the JVM in the daemon's
+	// environment, extracts the jars to the cache directory and supervises the shared
+	// sidecar lazily (plan m1g step 5). It holds no process until a call needs one.
+	gradleOpts := gradle.Options{Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch}
+	if sup != nil {
+		if cache, err := env.CacheDir(); err == nil {
+			gradleOpts.CacheDir = cache
+		}
+	}
+	if gradleFinder != nil {
+		gradleOpts.Finder = gradleFinder(gradleEnviron())
+	}
+	gradleClient := gradle.New(gradleOpts)
+	system.Register(reg, requirements{adb: adb, gradle: gradleClient}, adb, ops, problems, gradleClient)
 	// The daemon's one artifact store, for the bus's epoch: a reference from an earlier
 	// daemon run is ARTIFACT_EXPIRED (ADR-0012). The caller closes it on shutdown.
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch})
@@ -183,7 +224,28 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		// marks the workspace closed (ADR-0027 §Decision).
 		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
 	}
-	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Policy: policy.New(env), Log: log, Drain: testDrain, StopSidecars: stopSidecars, Publisher: bus}))
+	// A closing workspace releases its root's Gradle connection, so Gradle's daemon
+	// connection is not left to the sidecar's idle timeout (gradle.md §Protocol). Any
+	// failure here is not the close's business: the sidecar is stopped with the daemon.
+	closeRoot := func(root string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		gradleClient.Close(ctx, root)
+	}
+	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: policy.New(env), Log: log, Drain: testDrain,
+		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus})
+	// The trust hook: a call's root comes from its workspace, and an untrusted root
+	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
+	authorize := policy.New(env).Authorize(func(call *capability.Call) (string, bool) {
+		info, err := ws.Describe(call.Workspace)
+		if err != nil {
+			return "", false
+		}
+		return info.Root, true
+	})
+	project.Register(reg, gradleClient, authorize)
+	build.Register(reg, gradleClient, authorize)
+	workspace.Register(reg, ws)
 	event.Register(reg)
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)

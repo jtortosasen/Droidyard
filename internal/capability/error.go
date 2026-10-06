@@ -32,6 +32,21 @@ const (
 
 	ErrPolicyShellDisabled ErrorCode = "POLICY_SHELL_DISABLED"
 
+	// The Gradle sidecar codes (gradle.md §Failure modes; plan m1g D9). They arrive with
+	// the sidecar client (step 5).
+	// ErrBuildSidecarUnavailable: no JVM ≥ 17, or the sidecar failed to start or to
+	// complete the `hello` handshake (including a protocolVersion mismatch).
+	ErrBuildSidecarUnavailable ErrorCode = "BUILD_SIDECAR_UNAVAILABLE"
+	// ErrBuildSidecarCrashed: the sidecar died serving the call, or broke the protocol
+	// (a line over the bound).
+	ErrBuildSidecarCrashed ErrorCode = "BUILD_SIDECAR_CRASHED"
+	// ErrBuildGradleUnsupported: the project's Gradle is below the 8.0 floor; the message
+	// names the floor and the version.
+	ErrBuildGradleUnsupported ErrorCode = "BUILD_GRADLE_UNSUPPORTED"
+	// ErrProjectModelFailed: the configuration pass failed; Gradle's root failure is the
+	// cause.
+	ErrProjectModelFailed ErrorCode = "PROJECT_MODEL_FAILED"
+
 	ErrCapabilityNotFound  ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"
 	ErrInvalidParams       ErrorCode = "REQUEST_INVALID_PARAMS"
 	ErrMissingWorkspace    ErrorCode = "REQUEST_MISSING_WORKSPACE"
