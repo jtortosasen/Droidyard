@@ -181,6 +181,89 @@ func TestSunPathLimitIsThisSystems(t *testing.T) {
 	}
 }
 
+// TestConfigDirIsSeparateFromState pins where the user configuration lives, and that
+// it is never inside the state root on macOS: deleting state must not grant or revoke
+// trust (ADR-0021 §Location; plan m1g D1). One variable, DROIDYARD_STATE_DIR,
+// isolates both the state and the configuration of a scratch run.
+func TestConfigDirIsSeparateFromState(t *testing.T) {
+	cases := []struct {
+		name  string
+		goos  string
+		vars  map[string]string
+		state string
+		conf  string
+	}{
+		{
+			name:  "DROIDYARD_CONFIG_DIR wins",
+			goos:  "linux",
+			vars:  map[string]string{"HOME": "/home/me", "DROIDYARD_CONFIG_DIR": "/etc/dy", "DROIDYARD_STATE_DIR": "/scratch/s", "XDG_CONFIG_HOME": "/home/me/xc"},
+			state: "/scratch/s",
+			conf:  "/etc/dy",
+		},
+		{
+			name:  "an explicit state dir isolates the configuration too",
+			goos:  "darwin",
+			vars:  map[string]string{"HOME": "/Users/me", "DROIDYARD_STATE_DIR": "/scratch/s/"},
+			state: "/scratch/s",
+			conf:  "/scratch/s/config",
+		},
+		{
+			name:  "macos default: a sibling of the state root, never inside it",
+			goos:  "darwin",
+			vars:  map[string]string{"HOME": "/Users/me", "XDG_CONFIG_HOME": "/Users/me/xc"},
+			state: "/Users/me/Library/Application Support/droidyard",
+			conf:  "/Users/me/Library/Application Support/droidyard-config",
+		},
+		{
+			name:  "linux: XDG_CONFIG_HOME",
+			goos:  "linux",
+			vars:  map[string]string{"HOME": "/home/me", "XDG_CONFIG_HOME": "/home/me/xc"},
+			state: "/home/me/.local/state/droidyard",
+			conf:  "/home/me/xc/droidyard",
+		},
+		{
+			name:  "linux: default and a relative XDG value ignored",
+			goos:  "linux",
+			vars:  map[string]string{"HOME": "/home/me", "XDG_CONFIG_HOME": "rel/conf"},
+			state: "/home/me/.local/state/droidyard",
+			conf:  "/home/me/.config/droidyard",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := env(c.goos, c.vars)
+			got, err := e.ConfigDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.conf {
+				t.Errorf("config dir %q; want %q", got, c.conf)
+			}
+			state, err := e.StateDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state != c.state {
+				t.Errorf("state root %q; want %q", state, c.state)
+			}
+			// Without an override, macOS keeps configuration out of the state root;
+			// under an explicit DROIDYARD_STATE_DIR it is <state>/config on purpose,
+			// so one variable isolates a scratch run (plan m1g D1).
+			if c.goos == "darwin" && c.vars["DROIDYARD_STATE_DIR"] == "" && strings.HasPrefix(got, state+"/") {
+				t.Errorf("config %q is inside the state root %q; deleting state would grant or revoke trust", got, state)
+			}
+		})
+	}
+
+	// What cannot be shared is refused, as the state root is.
+	if _, err := env("linux", map[string]string{"HOME": "/home/me", "DROIDYARD_CONFIG_DIR": "rel"}).ConfigDir(); err == nil {
+		t.Error("a relative DROIDYARD_CONFIG_DIR was accepted")
+	}
+	if _, err := env("darwin", map[string]string{}).ConfigDir(); err == nil {
+		t.Error("no HOME and no override produced a configuration directory")
+	}
+}
+
 // TestStateDirRefusesWhatCannotBeShared: a relative DROIDYARD_STATE_DIR would resolve
 // against each process's cwd, and without HOME there is no default to fall back on.
 func TestStateDirRefusesWhatCannotBeShared(t *testing.T) {

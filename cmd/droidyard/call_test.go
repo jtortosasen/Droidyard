@@ -63,7 +63,24 @@ func startInProcessWith(t *testing.T, extra func(reg *capability.Registry)) *inP
 // startInProcessAt is startInProcessWith with the UI's listener asked for at httpAddr.
 func startInProcessAt(t *testing.T, httpAddr string, extra func(reg *capability.Registry)) *inProcess {
 	t.Helper()
-	return startInProcessADB(t, httpAddr, extra, nil)
+	return startInProcessADB(t, httpAddr, withoutEnv(extra), nil)
+}
+
+// startInProcessEnv is startInProcessAt for a test that needs the daemon's
+// environment too, e.g. to build the same policy the daemon reads its configuration
+// from (plan m1g step 3).
+func startInProcessEnv(t *testing.T, extra func(reg *capability.Registry, env platform.Env)) *inProcess {
+	t.Helper()
+	return startInProcessADB(t, "127.0.0.1:0", extra, nil)
+}
+
+// withoutEnv adapts an extra that ignores the environment to the form
+// startInProcessADB takes.
+func withoutEnv(extra func(reg *capability.Registry)) func(reg *capability.Registry, env platform.Env) {
+	if extra == nil {
+		return nil
+	}
+	return func(reg *capability.Registry, _ platform.Env) { extra(reg) }
 }
 
 // adbSeam is the adb one in-process daemon is given: the environment it resolves adb
@@ -79,8 +96,9 @@ type adbSeam struct {
 var adbSeamMu sync.Mutex
 
 // startInProcessADB is startInProcessAt with the adb the daemon is given; nil leaves the
-// seal TestMain put on the package (no adb to find).
-func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability.Registry), adb *adbSeam) *inProcess {
+// seal TestMain put on the package (no adb to find). extra sees the daemon's
+// environment, so a test can build what the daemon itself derives from it.
+func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam) *inProcess {
 	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
 	st, err := store.New(p.state)
@@ -88,18 +106,27 @@ func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability
 		t.Fatal(err)
 	}
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
+	// The daemon's environment: an explicit state root, so its configuration lives in
+	// the test's state directory and never in this machine's (~/Library/Application
+	// Support/droidyard-config) (plan m1g step 3).
+	env := platform.Env{GOOS: platform.Current().GOOS, UID: os.Getuid(), Getenv: func(k string) string {
+		if k == "DROIDYARD_STATE_DIR" {
+			return p.state
+		}
+		return os.Getenv(k)
+	}}
 	adbSeamMu.Lock()
 	oldEnv, oldExec := adbEnviron, adbExec
 	if adb != nil {
 		adbEnviron, adbExec = func() []string { return adb.env }, adb.exec
 	}
-	reg, ops, bus, artifacts, deviceADB := registry(st, sup, os.Stderr)
+	reg, ops, bus, artifacts, deviceADB := registry(env, st, sup, os.Stderr)
 	adbEnviron, adbExec = oldEnv, oldExec
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.ops, p.bus, p.store = ops, bus, artifacts
 	if extra != nil {
-		extra(reg)
+		extra(reg, env)
 	}
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.block", Kind: capability.Command, Scope: capability.Global,
@@ -135,12 +162,6 @@ func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability
 			return struct{}{}, nil
 		},
 	})
-	env := platform.Env{GOOS: platform.Current().GOOS, UID: os.Getuid(), Getenv: func(k string) string {
-		if k == "DROIDYARD_STATE_DIR" {
-			return p.state
-		}
-		return os.Getenv(k)
-	}}
 	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, artifacts, deviceADB.Close, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)

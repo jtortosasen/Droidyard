@@ -63,6 +63,45 @@ func (e Env) StateDir() (string, error) {
 	return filepath.Join(home, ".local", "state", Name), nil
 }
 
+// ConfigDir is the user configuration directory: the user's policy, trusted roots
+// included, kept apart from the state so that deleting state cannot grant or revoke
+// trust (ADR-0021 §Location; plan m1g D1).
+//
+// DROIDYARD_CONFIG_DIR if set; else, under an explicit DROIDYARD_STATE_DIR,
+// <state>/config (one variable isolates a run); else on macOS
+// ~/Library/Application Support/droidyard-config, a sibling of the state root and
+// never inside it; else Linux $XDG_CONFIG_HOME/droidyard, defaulting to
+// ~/.config/droidyard.
+func (e Env) ConfigDir() (string, error) {
+	if dir := e.Getenv("DROIDYARD_CONFIG_DIR"); dir != "" {
+		// A relative path would resolve against each process's cwd, and `droidyard
+		// trust` and a detached daemon do not share one (ADR-0019 §4): they would
+		// disagree on the file.
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("DROIDYARD_CONFIG_DIR must be an absolute path, not %q", dir)
+		}
+		return filepath.Clean(dir), nil
+	}
+	if e.Getenv("DROIDYARD_STATE_DIR") != "" {
+		state, err := e.StateDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(state, "config"), nil
+	}
+	home := e.Getenv("HOME")
+	if home == "" {
+		return "", errors.New("HOME is not set, so the configuration directory cannot be located; set DROIDYARD_CONFIG_DIR")
+	}
+	if e.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", Name+"-config"), nil
+	}
+	if dir := e.xdg("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, Name), nil
+	}
+	return filepath.Join(home, ".config", Name), nil
+}
+
 // SocketPath is the daemon's socket for the state root state: <state>/run/ when
 // DROIDYARD_STATE_DIR is set or on macOS; else $XDG_RUNTIME_DIR/droidyard/, falling
 // back to <state>/run/. A path too long for sun_path moves to
