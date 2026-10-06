@@ -23,10 +23,11 @@
   `data`) keeps its metadata and drops the bytes once delivered, so retention never holds
   what the artifact store's budget and TTL already bound, except a read whose client left before delivery, kept until retention drops it (delegated decision, milestone
   1e, step 7 verification).
-- Amended: 2026-10-06 (plan m1f D21, Delegated) — a command whose side effect has
-  already happened on the device when Cancel arrives (`device.tapElement` after its tap)
-  ends `completed`, reporting the effect with `expect.reason: "cancelled"`: an error would
-  invite a retry that repeats the effect. Cancel before the effect still ends `cancelled`.
+- Amended: 2026-10-06 (plan m1f D21, Delegated) — a command whose device-changing
+  command has been issued when Cancel arrives (`device.tapElement`'s tap,
+  `device.inputText`'s typing) ends `completed`, reporting what may have happened with a
+  warning and, when not yet matched, `expect.reason: "cancelled"`: an error would invite a retry that repeats
+  the effect. Cancel before that command is issued still ends `cancelled`.
 
 ## Context
 

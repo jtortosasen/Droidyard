@@ -112,9 +112,9 @@ row except `device.list` takes `device`.
 | Capability | Phase | Scope | Params and behaviour |
 | --- | --- | --- | --- |
 | `device.list` | MVP | G | Filtered by policy; details best-effort |
-| `device.install` | MVP | W | `build: {buildId?, module, variant}` → `{applicationId, versionCode}` (§Install) |
+| `device.install` | MVP, with `build.*` | W | `build: {buildId?, module, variant}` → `{applicationId, versionCode}` (§Install); moved out of milestone 1f to the `build.*` milestone, since its only input is a build reference (plan m1f D1) |
 | `device.launch` | MVP | G | `applicationId` → `{pid, launchedAt}` (§Launch) |
-| `device.uninstall` | MVP | G | `applicationId` |
+| `device.uninstall` | MVP, with `build.*` | G | `applicationId` (moves with `device.install`, plan m1f D1) |
 | `device.logs` | MVP | G | Snapshot or bounded follow, structured (§Logs) |
 | `device.screenshot` | MVP | G | Returns an **artifact reference**, never a path |
 | `device.uiTree`, `device.tapElement`, `device.inputText` | MVP | G | See [ui-automation](ui-automation.md) |
@@ -144,9 +144,10 @@ single source is AGP's `output-metadata.json`
 - `monkey -p <applicationId> -c android.intent.category.LAUNCHER 1` — no manifest
   activity needed; "No activities found" becomes `DEVICE_LAUNCH_FAILED`.
 - The device clock is read just before, and returned as `launchedAt`.
-- Then `pidof <applicationId>` is polled (every 100 ms, up to 3 s). `pid` is returned
-  and recorded in the app's pid history (§Logs). `pid: null` with a reason means the
-  process was not observed — typically a crash on start; `device.logs` still finds it.
+- Then `pidof <applicationId>` is polled (every 100 ms, up to 3 s). `pid` is returned;
+  recording it in the app's pid history (§Logs) lands with `device.logs`. `pid: null`
+  with a reason means the process was not observed — typically a crash on start, or any
+  failure once `monkey` ran, which is never an error (the app may have launched).
 
 ## Logs
 

@@ -163,11 +163,12 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 			}
 		}
 		if c.Name == "device.tapElement" {
-			// R4: tapped, foreground, tree and expect.unmet quote device text; the
-			// daemon's expect bookkeeping and warnings do not.
+			// R4: tapped, foreground, tree and expect.unmet quote device text, and so can
+			// warnings (a moved tap point names the covering node, D22); the daemon's
+			// expect bookkeeping does not.
 			for _, f := range []string{"tapped", "foreground", "tree", "expect", "warnings"} {
 				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
-				if want := f == "tapped" || f == "foreground" || f == "tree"; v != want {
+				if want := f == "tapped" || f == "foreground" || f == "tree" || f == "warnings"; v != want {
 					t.Errorf("device.tapElement.%s: marked untrusted = %v, want %v", f, v, want)
 				}
 			}
@@ -179,11 +180,11 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 			}
 		}
 		if c.Name == "device.inputText" {
-			// R4: tapped and expect.unmet quote device text; the bookkeeping and
-			// warnings do not.
+			// R4: tapped and expect.unmet quote device text, and so can warnings (D22);
+			// the bookkeeping does not.
 			for _, f := range []string{"typed", "characters", "method", "tapped", "expect", "warnings"} {
 				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
-				if want := f == "tapped"; v != want {
+				if want := f == "tapped" || f == "warnings"; v != want {
 					t.Errorf("device.inputText.%s: marked untrusted = %v, want %v", f, v, want)
 				}
 			}
