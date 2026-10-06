@@ -101,10 +101,18 @@ func droidyardIn(t *testing.T, state, dir string, args ...string) *process {
 // droidyardEnv is droidyardIn with more environment, such as the test seams.
 func droidyardEnv(t *testing.T, state, dir string, env []string, args ...string) *process {
 	t.Helper()
+	return droidyardProc(t, append(append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state), env...), dir, args...)
+}
+
+// droidyardProc is droidyard started with exactly env, for a test that must control
+// variables (HOME, say) the inherited environment already sets, since a duplicate in
+// an environment is resolved to its first occurrence.
+func droidyardProc(t *testing.T, env []string, dir string, args ...string) *process {
+	t.Helper()
 	cmd := &exec.Cmd{
 		Path: os.Args[0],
 		Args: append([]string{"droidyard"}, args...),
-		Env:  append(append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state), env...),
+		Env:  env,
 		Dir:  dir,
 	}
 	stdout := new(bytes.Buffer)

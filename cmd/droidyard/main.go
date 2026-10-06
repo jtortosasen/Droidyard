@@ -1,9 +1,8 @@
 // Command droidyard is the Droidyard binary.
 //
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
-// daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it. The subcommands still
-// missing are recognised so the CLI surface is honest about what exists, and they say
-// plainly that they are not implemented yet.
+// daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it, and
+// `trust` writes the user configuration directly, with no daemon involved.
 package main
 
 import (
@@ -21,6 +20,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/store"
@@ -55,9 +56,9 @@ Commands:
   ui         Open the web UI in the default browser, at the tokenised URL:
              droidyard ui [--no-autostart]
              ui starts a daemon when none answers, unless --no-autostart.
-
-Not implemented yet:
-  trust      Grant a project root trust.
+  trust      Grant a project root trust, so capabilities that run its code may:
+             droidyard trust <root>
+             It writes the user configuration; no daemon is involved or started.
 `
 
 func main() {
@@ -93,9 +94,7 @@ func main() {
 	case "ui":
 		os.Exit(ui(os.Args[2:]))
 	case "trust":
-		fmt.Fprintf(os.Stderr, "droidyard %s: not implemented in this milestone.\n", cmd)
-		fmt.Fprintf(os.Stderr, "See docs/roadmap/mvp.md.\n")
-		os.Exit(1)
+		os.Exit(trust(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
@@ -141,7 +140,11 @@ var (
 // schema, which run no capability, pass nil for all three. The device ADB is returned
 // so the daemon's shutdown can stop the UI readers and remove their forwards
 // (plan m1f step 5).
-func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB) {
+//
+// env is the daemon's environment: it decides where the state root and, with it, the
+// user configuration live, so an in-process test daemon reads its own configuration
+// and not this machine's (plan m1g step 3).
+func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (core-runtime.md §Events).
@@ -180,7 +183,7 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 		// marks the workspace closed (ADR-0027 §Decision).
 		stopSidecars = func(id string) { sup.Stop(proc.WorkspaceScope(id)) }
 	}
-	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Log: log, Drain: testDrain, StopSidecars: stopSidecars, Publisher: bus}))
+	workspace.Register(reg, workspace.New(workspace.Options{Store: st, Ops: ops, Policy: policy.New(env), Log: log, Drain: testDrain, StopSidecars: stopSidecars, Publisher: bus}))
 	event.Register(reg)
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
@@ -189,7 +192,7 @@ func registry(st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability
 }
 
 func printCaps() error {
-	reg, _, _, _, _ := registry(nil, nil, nil)
+	reg, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -226,7 +229,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _, _, _ := registry(nil, nil, nil)
+	reg, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

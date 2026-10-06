@@ -89,6 +89,9 @@ type Options struct {
 	// Ops is the operation store whose workspace-scoped calls the registry admits,
 	// and whose operations a close cancels.
 	Ops *capability.Operations
+	// Policy decides which project roots are trusted (internal/policy; ADR-0015 §5).
+	// Nil trusts nothing.
+	Policy Policy
 	// Env canonicalises roots; zero means platform.Current().
 	Env platform.Env
 	// Drain bounds a close's wait for its operations; zero means DefaultDrain.
@@ -101,6 +104,13 @@ type Options struct {
 	// Publisher receives every transition on workspace.lifecycle. Nil publishes
 	// nothing.
 	Publisher capability.Publisher
+}
+
+// Policy decides which project roots are trusted: trusted if equal to a configured
+// root or under a configured prefix (ADR-0015 §5; internal/policy). It is read at
+// every report, not once, so a `droidyard trust` takes effect without a restart.
+type Policy interface {
+	Trusted(root string) (bool, *capability.Error)
 }
 
 // LifecycleTopic is where workspace transitions are published (workspace-state.md
@@ -296,6 +306,10 @@ func (r *Registry) Open(target string) (Info, error) {
 	if w.info.State.open() {
 		info := w.info
 		r.mu.Unlock()
+		// Trust is read afresh: `droidyard trust` after the open must show here
+		// (ADR-0015 §6), and reading the configuration does I/O we keep out of the
+		// admission lock.
+		info.Trusted = r.trusted(info.Root)
 		return info, nil
 	}
 	r.mu.Unlock()
@@ -366,7 +380,19 @@ func (r *Registry) load(id, root string) (Info, error) {
 	if err := r.recordOpen(id, root, name); err != nil {
 		return Info{}, err
 	}
+	info.Trusted = r.trusted(root)
 	return info, nil
+}
+
+// trusted reports whether root is trusted now. An unreadable configuration trusts
+// nothing: the error it carries is the [gradle] capabilities' to report, not
+// workspace's, whose open and describe gain no error code for it (plan m1g D3).
+func (r *Registry) trusted(root string) bool {
+	if r.opts.Policy == nil {
+		return false
+	}
+	ok, _ := r.opts.Policy.Trusted(root)
+	return ok
 }
 
 // loadIndex reads workspaces.json once. One of a newer version is neither read nor
@@ -423,18 +449,23 @@ func (r *Registry) recordOpen(id, root, name string) error {
 	return r.opts.Store.Write(indexFile, r.idx)
 }
 
-// Describe is the state of an open workspace.
+// Describe is the state of an open workspace. Its trusted flag is read from the
+// configuration each time, so a `droidyard trust` after the open shows without a
+// restart (ADR-0015 §6; plan m1g D3).
 func (r *Registry) Describe(id string) (Info, error) {
 	w := r.lookup(id)
 	if w == nil {
 		return Info{}, notOpen(id)
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if !w.info.State.open() {
+		r.mu.Unlock()
 		return Info{}, notOpen(id)
 	}
-	return w.info, nil
+	info := w.info
+	r.mu.Unlock()
+	info.Trusted = r.trusted(info.Root)
+	return info, nil
 }
 
 func notOpen(id string) *capability.Error {
