@@ -19,3 +19,4 @@ the output.
 | [m1e-jvm-free-device-slice.md](m1e-jvm-free-device-slice.md) | 1e — the JVM-free device slice | Done |
 | [m1f-device-actions.md](m1f-device-actions.md) | 1f — device actions on the persistent UI reader | Done |
 | [m1g-gradle-sidecar-and-build.md](m1g-gradle-sidecar-and-build.md) | 1g — the Gradle sidecar and `build.*` | Done |
+| [m1h-android-probe-and-sdk.md](m1h-android-probe-and-sdk.md) | 1h — the Android probe, exact variants and `sdk.*` | Approved |
