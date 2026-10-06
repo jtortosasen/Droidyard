@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
+	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/schema"
@@ -64,6 +65,9 @@ func registry() *capability.Registry {
 	}
 	device.Register(reg, device.NewADB(nil, nil), store, nil)
 	artifacts.Register(reg, store)
+	// The golden registry only needs sdk.status' descriptor: no handler is run, so an
+	// empty environment (which resolves no SDK) is enough.
+	sdk.Register(reg, nil)
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing})

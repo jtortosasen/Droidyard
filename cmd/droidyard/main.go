@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
+	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -227,6 +228,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log})
 	device.Register(reg, adb, artifacts, history)
 	artifactcap.Register(reg, artifacts)
+	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
+	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
+	// missing SDK is answered with found: false (plan m1h, D11, D13).
+	sdk.Register(reg, adbEnviron())
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {

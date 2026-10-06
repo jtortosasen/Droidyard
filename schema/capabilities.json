@@ -4507,6 +4507,211 @@
       }
     },
     {
+      "name": "sdk.status",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.7.0",
+      "description": "Reports the host SDK: its root and where it was found (source), every candidate rejected before it with why, and what is installed, read from the SDK's own package.xml files: platforms, build-tools, platform-tools, cmdline-tools and system images, each as its package id and version. No JVM and no sdkmanager are involved, and it is read fresh on every call. With no SDK it reports found: false, every candidate rejected, and the variable that would fix it (ANDROID_HOME). Warnings report an ANDROID_HOME/ANDROID_SDK_ROOT inconsistency and any package.xml that was malformed or too large and skipped; at most 2000 package.xml files are read.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "Whether a host SDK was found."
+          },
+          "root": {
+            "type": "string",
+            "description": "The host SDK directory."
+          },
+          "source": {
+            "type": "string",
+            "description": "Where root came from: ANDROID_HOME, ANDROID_SDK_ROOT, derived from adb on PATH, or the per-OS default."
+          },
+          "rejected": {
+            "items": {
+              "properties": {
+                "candidate": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "candidate",
+                "source",
+                "reason"
+              ]
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "installed": {
+            "properties": {
+              "platforms": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The package id: the package.xml path attribute, e.g. \"platforms;android-35\"."
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The package's revision, e.g. \"35.0.0\"."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ]
+                },
+                "type": "array",
+                "description": "Installed platforms, from platforms/*/package.xml."
+              },
+              "buildTools": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The package id: the package.xml path attribute, e.g. \"platforms;android-35\"."
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The package's revision, e.g. \"35.0.0\"."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ]
+                },
+                "type": "array",
+                "description": "Installed build-tools, from build-tools/*/package.xml."
+              },
+              "platformTools": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The package id: the package.xml path attribute, e.g. \"platforms;android-35\"."
+                  },
+                  "version": {
+                    "type": "string",
+                    "description": "The package's revision, e.g. \"35.0.0\"."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "description": "platform-tools, from platform-tools/package.xml, when installed."
+              },
+              "cmdlineTools": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The package id: the package.xml path attribute, e.g. \"platforms;android-35\"."
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The package's revision, e.g. \"35.0.0\"."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ]
+                },
+                "type": "array",
+                "description": "Installed cmdline-tools, from cmdline-tools/*/package.xml."
+              },
+              "emulator": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The package id: the package.xml path attribute, e.g. \"platforms;android-35\"."
+                  },
+                  "version": {
+                    "type": "string",
+                    "description": "The package's revision, e.g. \"35.0.0\"."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "description": "The emulator, from emulator/package.xml, when installed."
+              },
+              "systemImages": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The package id: the package.xml path attribute, e.g. \"platforms;android-35\"."
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The package's revision, e.g. \"35.0.0\"."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ]
+                },
+                "type": "array",
+                "description": "Installed system images, from system-images/*/*/*/package.xml."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "platforms",
+              "buildTools",
+              "cmdlineTools",
+              "systemImages"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "found",
+          "rejected",
+          "warnings",
+          "installed"
+        ]
+      }
+    },
+    {
       "name": "system.capabilities",
       "kind": "query",
       "scope": "global",
