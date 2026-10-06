@@ -46,6 +46,10 @@ const (
 	// ReasonNoObservation is `expect.reason` when every read after the action failed:
 	// `matched: false` is still a completed call (ui-automation.md §Result).
 	ReasonNoObservation = "noObservation"
+	// ReasonCancelled is `expect.reason` when the caller cancelled after the tap: the tap
+	// happened, so the call is completed and the result says the effect was not
+	// observed; an error would invite a retry that taps twice (ui-automation.md §Result).
+	ReasonCancelled = "cancelled"
 	// noObservationWarning says a read after the tap never observed the screen, so
 	// foreground.after is omitted and the result alone would look like a success
 	// (plan m1f step 6, fix round).
@@ -94,7 +98,7 @@ type ExpectResult struct {
 	AfterMs     int64       `json:"afterMs" jsonschema:"required"`
 	Polls       int         `json:"polls" jsonschema:"required" jsonschema_description:"Reads attempted after the action, failed ones included."`
 	FailedDumps int         `json:"failedDumps" jsonschema:"required"`
-	Reason      string      `json:"reason,omitempty" jsonschema_description:"noObservation when every read after the action failed."`
+	Reason      string      `json:"reason,omitempty" jsonschema_description:"noObservation when every read after the action failed; cancelled when the caller cancelled after the tap, so the tap is reported and must not be retried."`
 	Vacuous     []Condition `json:"vacuous,omitempty" jsonschema_description:"Conditions that already held before the action; they prove nothing."`
 	Unmet       []Unmet     `json:"unmet,omitempty" untrusted:"true"`
 }
@@ -272,6 +276,13 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 	sleepCtx(actx, actionSettle)
 
 	vr := a.verifyAfter(actx, t, actionStart, &before, pinned, vacuous, timeout, false)
+	// A cancellation that arrives after the tap has landed ends the call completed: the
+	// tap happened, so the result carries it and, when expect was given, says the effect
+	// was not observed rather than raising an error that invites a retry that taps twice
+	// (ui-automation.md §Result; plan m1f step 7, D21).
+	if errors.Is(ctx.Err(), context.Canceled) && vr.Expect != nil && !vr.Expect.Matched {
+		vr.Expect.Reason = ReasonCancelled
+	}
 	warnings = append(warnings, beforeWarnings...)
 	warnings = append(warnings, vr.Warnings...)
 

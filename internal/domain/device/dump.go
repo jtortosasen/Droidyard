@@ -190,8 +190,10 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte,
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
-	if kind == dumpVanished {
-		// A reader found gone is started again once (ADR-0030), on the same forward.
+	if kind == dumpVanished || kind == dumpUnreachable {
+		// A reader found gone, a wedged one, or one behind a lost forward is restarted
+		// once (ADR-0030; plan m1f step 7). restartReader reconciles the forward, kills
+		// an unreachable reader of our name by its pid, and starts once.
 		if ok, why := a.restartReader(ctx, t, c, end); ok {
 			doc, kind, line, reason = a.persistentRead(ctx, t, c, start, end)
 		} else {
@@ -371,8 +373,9 @@ const (
 	dumpIdle
 	dumpGone
 	dumpOther
-	dumpNoRoot   // the reader found no window root: DEVICE_UI_DUMP_FAILED, no fallback
-	dumpVanished // the persistent reader's connection ended before a document: restart once
+	dumpNoRoot      // the reader found no window root: DEVICE_UI_DUMP_FAILED, no fallback
+	dumpVanished    // the persistent reader's connection ended before a document: restart once
+	dumpUnreachable // the persistent reader's cached forward did not answer or timed out: restart once
 )
 
 // dump runs `uiautomator dump` on the device and returns the hierarchy document. It

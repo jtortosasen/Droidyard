@@ -718,6 +718,59 @@ func TestTapElementRunningBoundDuringTheTapWarns(t *testing.T) {
 	})
 }
 
+// Decision (plan m1f step 7, D21; ui-automation.md §Result): a cancellation that
+// arrives after the tap does not end the call with an error: the tap happened, so the
+// result is completed, carries tapped, and, when expect was given, says reason cancelled,
+// because an error would invite a retry that taps twice. Seen failing reversed, where the
+// cancellation surfaces as a cancellation (or noObservation) without the tap reported.
+func TestTapCancelledAfterTheTapIsCompletedWithCancelled(t *testing.T) {
+	quickAct(t)
+	old := actionRunningBound
+	actionRunningBound = 10 * time.Second
+	defer func() { actionRunningBound = old }()
+	doc := tappable(tapLike("Like"), tapLikes("Likes: 0"))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	id, err := f.ops.Start(context.Background(), capability.Request{
+		Capability: "device.tapElement",
+		Params:     []byte(`{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"Likes: 1"}}],"timeoutMs":20000}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wait until the tap has run and at least one poll has been made (the before read is
+	// the first dump), then cancel: the cancellation arrives after the tap.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(r.DumpStarts()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if err := f.ops.Cancel(id); err != nil {
+		t.Fatal(err)
+	}
+	out := f.wait(t, id)
+	if out.State != capability.StateCompleted {
+		t.Fatalf("state = %s with error %+v, want completed: the tap happened", out.State, out.Error)
+	}
+	res, ok := out.Result.(TapResult)
+	if !ok {
+		t.Fatalf("result is %T, want TapResult", out.Result)
+	}
+	if res.Tapped.Ref == "" {
+		t.Error("tapped is empty: the tap happened and must be reported")
+	}
+	if res.Expect == nil || res.Expect.Reason != ReasonCancelled {
+		t.Errorf("expect %+v, want reason %s", res.Expect, ReasonCancelled)
+	}
+	if n := countInputTaps(f.calls(t)); n != 1 {
+		t.Errorf("%d input taps, want one", n)
+	}
+}
+
 // Decision (plan m1f step 6, check a; D13; fix round): hanging reads after the tap,
 // and the one-shot reader's removal hanging after the first one, still return within the
 // running bound, as a completed noObservation, not an error. readChain clamps the read's

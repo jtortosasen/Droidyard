@@ -32,10 +32,25 @@
 //	<serial>.rmreader           `-s <serial> shell rm -f <that file>`
 //	<serial>.forward            `-s <serial> forward tcp:0 localabstract:droidyard-reader-<d12>` (.out holds the port)
 //	<serial>.forwardremove      `-s <serial> forward --remove tcp:<port>`
+//	<serial>.forwardlist        `-s <serial> forward --list` (see below)
 //	<serial>.start              `-s <serial> shell "CLASSPATH=<dex> nohup app_process /system/bin --nice-name=… DroidyardReader serve …"`
 //	<serial>.pidof              `-s <serial> shell pidof droidyard-reader-…`
 //	<serial>.kill               `-s <serial> shell kill <pid>`
+//	<serial>.ps                 `-s <serial> shell ps -A -o PID,NAME` (.out holds the listing)
 //	<serial>.inputtap           `-s <serial> shell input tap <x> <y>`
+//
+// The fake models the host's forwards in `forwards.list`, one `<serial> tcp:<port>
+// <remote>` line per forward. A `forward tcp:0 localabstract:<remote>` binds a real host
+// proxy on a free port, prints that port and records the line, so a client reaches the
+// reader at `<serial>.forward.out` (its port) through it; `forward --remove tcp:<port>`
+// drops the line and closes the proxy, and `forward --list` prints the table. So a
+// removed forward refuses a dial, as real adb does (plan m1f step 7). A test seeds a
+// forward another daemon or another digest made with AddForward, and drops one as an adb
+// server restart would with ForgetForward.
+//
+// The fake models the device's processes too: a `kill <pid>` records the pid in
+// `killed.pids`, and `pidof` and `ps` drop a recorded pid from their answer. So a test
+// sees the old pid gone after a kill, as plan m1f step 7's wait requires.
 //
 // A FakeReader (reader.go) is the TCP listener the fake forward points at, so a test of
 // the persistent reader writes its Port as <serial>.forward.out.
@@ -60,6 +75,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -127,6 +143,10 @@ func Calls(t *testing.T, dir string) []string {
 // concurrent in-process clients each get their own place among them. A re-executed
 // fake is one process per call and takes it uncontended.
 var logMu sync.Mutex
+
+// fwdMu orders the forward table's reads and writes, so concurrent in-process clients of
+// two devices do not lose an entry.
+var fwdMu sync.Mutex
 
 // Exec returns the fake as an in-process adb client for device.NewADBWithExec: the
 // same scenario files and the same answers as the re-executed binary, with no process
@@ -203,6 +223,21 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		}
 		cat(args[1] + ".avd")
 		return 0
+	case len(args) == 4 && args[0] == "-s" && args[2] == "forward" && args[3] == "--list":
+		if has(args[1] + ".forwardlist.hang") {
+			return hang()
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, args[1]+".forwardlist.exit")); err == nil {
+			n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+			cat(args[1] + ".forwardlist.err")
+			return n
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, args[1]+".forwardlist.out")); err == nil {
+			stdout.Write(b) // a test can script the listing, e.g. over the output cap
+			return 0
+		}
+		writeForwardList(dir, stdout)
+		return 0
 	}
 	fmt.Fprintln(stderr, "fake adb: unexpected arguments:", strings.Join(args, " "))
 	return 9
@@ -252,6 +287,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".pidof"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "kill":
 		return args[1] + ".kill"
+	case len(args) == 7 && args[2] == "shell" && args[3] == "ps" && args[4] == "-A" && args[5] == "-o" && args[6] == "PID,NAME":
+		return args[1] + ".ps"
 	case len(args) == 7 && args[2] == "shell" && args[3] == "input" && args[4] == "tap":
 		return args[1] + ".inputtap"
 	}
@@ -322,25 +359,64 @@ func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout,
 			return 0
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, name+".out")); err == nil {
-		stdout.Write(b)
-	}
-	if b, err := os.ReadFile(filepath.Join(dir, name+".err")); err == nil {
-		stderr.Write(b)
-	}
-	event("end")
 	code := 0
 	if b, err := os.ReadFile(filepath.Join(dir, name+".exit")); err == nil {
 		code, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 	}
-	return deviceEffect(dir, prefix, raw, code, stderr)
+	// A successful forward binds a host proxy and prints its port, so a later dial
+	// reaches the reader through it and a removed forward refuses the dial (plan m1f
+	// step 7). A forward that failed falls through to the generic answer below.
+	if strings.HasSuffix(prefix, ".forward") && code == 0 && len(raw) == 5 {
+		if port, err := startForwardProxy(strings.TrimSpace(dirString(dir, name+".out"))); err == nil {
+			fmt.Fprintln(stdout, port)
+			addForward(dir, raw[1], port, raw[4])
+			event("end")
+			return 0
+		} else {
+			fmt.Fprintln(stderr, "fake adb: "+err.Error())
+			event("end")
+			return 1
+		}
+	}
+	out := dirBytes(dir, name+".out")
+	if strings.HasSuffix(prefix, ".pidof") {
+		// A killed pid is gone from pidof, so the client's wait sees it (plan m1f
+		// step 7). ps is not filtered: a listing a test scripts is what it says.
+		out = dropKilledPids(dir, out)
+	}
+	stdout.Write(out)
+	if b, err := os.ReadFile(filepath.Join(dir, name+".err")); err == nil {
+		stderr.Write(b)
+	}
+	event("end")
+	return deviceEffect(dir, prefix, name, raw, code, stderr)
 }
 
-// deviceEffect models the device's files for the commands that change them, and returns
-// the exit code the command ends with. A push that exited 0 creates its remote path; an
-// rm removes it; a serve start whose CLASSPATH= file is missing fails with status 1, the
-// way app_process cannot start a class that is not there.
-func deviceEffect(dir, prefix string, raw []string, code int, stderr io.Writer) int {
+// dirString reads a scenario file as trimmed text, "" when it is absent.
+func dirString(dir, name string) string {
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// dirBytes reads a scenario file, nil when it is absent.
+func dirBytes(dir, name string) []byte {
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// deviceEffect models the device's files, processes and the host's forwards for the
+// commands that change them, and returns the exit code the command ends with. A push
+// that exited 0 creates its remote path; an rm removes it; a serve start whose
+// CLASSPATH= file is missing fails with status 1, the way app_process cannot start a
+// class that is not there; a forward (handled in serve) adds its printed port to the
+// listing and a remove drops that port; a kill records the pid as gone.
+func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Writer) int {
 	switch {
 	case strings.HasSuffix(prefix, ".push"):
 		if code == 0 && len(raw) == 5 {
@@ -359,6 +435,14 @@ func deviceEffect(dir, prefix string, raw []string, code int, stderr io.Writer) 
 				fmt.Fprintf(stderr, "%s: No such file or directory\n", cp)
 				return 1
 			}
+		}
+	case strings.HasSuffix(prefix, ".kill"):
+		if code == 0 && len(raw) == 5 {
+			recordKilled(dir, raw[4])
+		}
+	case strings.HasSuffix(prefix, ".forwardremove"):
+		if code == 0 && len(raw) == 5 {
+			removeForwardPort(dir, strings.TrimPrefix(raw[4], "tcp:"))
 		}
 	}
 	return code
@@ -404,4 +488,248 @@ func Events(t *testing.T, dir string) []string {
 		return nil
 	}
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// The host's forwards live in forwards.list, one `<serial> tcp:<port> <remote>` line
+// each, as `adb forward --list` prints them.
+
+// readForwards reads the forward table; callers take fwdMu.
+func readForwards(dir string) []string {
+	b, err := os.ReadFile(filepath.Join(dir, "forwards.list"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if s := strings.TrimSpace(l); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// writeForwards replaces the forward table; callers take fwdMu.
+func writeForwards(dir string, lines []string) {
+	if len(lines) == 0 {
+		os.Remove(filepath.Join(dir, "forwards.list"))
+		return
+	}
+	os.WriteFile(filepath.Join(dir, "forwards.list"), []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+}
+
+func writeForwardList(dir string, w io.Writer) {
+	fwdMu.Lock()
+	defer fwdMu.Unlock()
+	for _, line := range readForwards(dir) {
+		fmt.Fprintln(w, line)
+	}
+}
+
+func addForward(dir, serial, port, remote string) {
+	if serial == "" || port == "" || remote == "" {
+		return
+	}
+	fwdMu.Lock()
+	defer fwdMu.Unlock()
+	line := serial + " tcp:" + port + " " + remote
+	lines := readForwards(dir)
+	for _, l := range lines {
+		if l == line {
+			return
+		}
+	}
+	writeForwards(dir, append(lines, line))
+}
+
+func removeForwardPort(dir, port string) {
+	fwdMu.Lock()
+	var out []string
+	for _, l := range readForwards(dir) {
+		f := strings.Fields(l)
+		if len(f) >= 2 && f[1] == "tcp:"+port {
+			continue
+		}
+		out = append(out, l)
+	}
+	writeForwards(dir, out)
+	fwdMu.Unlock()
+	// The host port stops listening when its forward is removed: a dial then refuses,
+	// as real adb does (plan m1f step 7). A seeded forward has no proxy.
+	closeForwardProxy(port)
+}
+
+// AddForward seeds a forward in the fake's `forward --list`, as another daemon's or
+// another digest's would be. remote is "localabstract:<name>".
+func AddForward(t testing.TB, dir, serial, port, remote string) {
+	t.Helper()
+	addForward(dir, serial, port, remote)
+}
+
+// ForgetForward drops the forward to remote, as an adb server restart drops host
+// forwards; the reader behind it is untouched, but its host port stops listening, so a
+// dial refuses (plan m1f step 7).
+func ForgetForward(t testing.TB, dir, remote string) {
+	t.Helper()
+	fwdMu.Lock()
+	var dropped []string
+	var out []string
+	for _, l := range readForwards(dir) {
+		f := strings.Fields(l)
+		if len(f) >= 3 && f[2] == remote {
+			dropped = append(dropped, strings.TrimPrefix(f[1], "tcp:"))
+			continue
+		}
+		out = append(out, l)
+	}
+	writeForwards(dir, out)
+	fwdMu.Unlock()
+	for _, port := range dropped {
+		closeForwardProxy(port)
+	}
+}
+
+// Forwards returns the fake's forward table, one line per forward.
+func Forwards(t testing.TB, dir string) []string {
+	t.Helper()
+	fwdMu.Lock()
+	defer fwdMu.Unlock()
+	return readForwards(dir)
+}
+
+// ForwardPort returns the host port of the first forward to remote, "" when none.
+func ForwardPort(t testing.TB, dir, remote string) string {
+	t.Helper()
+	fwdMu.Lock()
+	defer fwdMu.Unlock()
+	for _, l := range readForwards(dir) {
+		f := strings.Fields(l)
+		if len(f) >= 3 && strings.TrimPrefix(f[2], "localabstract:") == remote {
+			return strings.TrimPrefix(f[1], "tcp:")
+		}
+	}
+	return ""
+}
+
+// The host forwards are real proxies: `forward tcp:0` binds one to the reader and prints
+// it, `forward --remove` and ForgetForward close it. A removed forward therefore refuses
+// a dial, driving recovery from the failed read (plan m1f step 7).
+
+type forwardProxy struct {
+	ln       net.Listener
+	upstream string // host:port of the reader the forward points at
+}
+
+var (
+	proxyMu sync.Mutex
+	proxies = map[string]*forwardProxy{} // proxy port -> proxy
+)
+
+// startForwardProxy binds a host listener on a free port and relays it to upstream (a
+// port or host:port). It is the port `adb forward tcp:0` prints.
+func startForwardProxy(upstream string) (string, error) {
+	if upstream == "" {
+		return "", fmt.Errorf("no upstream port for the forward")
+	}
+	if !strings.Contains(upstream, ":") {
+		upstream = "127.0.0.1:" + upstream
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	p := &forwardProxy{ln: ln, upstream: upstream}
+	proxyMu.Lock()
+	proxies[port] = p
+	proxyMu.Unlock()
+	go p.serve()
+	return port, nil
+}
+
+func closeForwardProxy(port string) {
+	proxyMu.Lock()
+	p := proxies[port]
+	delete(proxies, port)
+	proxyMu.Unlock()
+	if p != nil {
+		p.ln.Close()
+	}
+}
+
+func (p *forwardProxy) serve() {
+	for {
+		conn, err := p.ln.Accept()
+		if err != nil {
+			return
+		}
+		go p.relay(conn)
+	}
+}
+
+func (p *forwardProxy) relay(conn net.Conn) {
+	defer conn.Close()
+	up, err := net.DialTimeout("tcp", p.upstream, 2*time.Second)
+	if err != nil {
+		return
+	}
+	defer up.Close()
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(up, conn); done <- struct{}{} }()
+	go func() { io.Copy(conn, up); done <- struct{}{} }()
+	<-done
+	// One side ended: close both so the other unblocks and the client sees EOF.
+	conn.Close()
+	up.Close()
+	<-done
+}
+
+// killed.pids records the pids a `kill` command ended, so pidof and ps drop them.
+
+var procMu sync.Mutex
+
+func recordKilled(dir, pid string) {
+	if pid == "" {
+		return
+	}
+	procMu.Lock()
+	defer procMu.Unlock()
+	f, err := os.OpenFile(filepath.Join(dir, "killed.pids"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	fmt.Fprintln(f, pid)
+	f.Close()
+}
+
+func killedPids(dir string) map[string]bool {
+	procMu.Lock()
+	defer procMu.Unlock()
+	b, err := os.ReadFile(filepath.Join(dir, "killed.pids"))
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, p := range strings.Fields(string(b)) {
+		out[p] = true
+	}
+	return out
+}
+
+// dropKilledPids removes ended pids from a `pidof` answer, so a test sees the old pid
+// gone after a kill (plan m1f step 7).
+func dropKilledPids(dir string, out []byte) []byte {
+	killed := killedPids(dir)
+	if len(killed) == 0 {
+		return out
+	}
+	var kept []string
+	for _, p := range strings.Fields(string(out)) {
+		if !killed[p] {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return []byte(strings.Join(kept, "\n") + "\n")
 }

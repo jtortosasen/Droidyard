@@ -657,7 +657,7 @@
               },
               "reason": {
                 "type": "string",
-                "description": "noObservation when every read after the action failed."
+                "description": "noObservation when every read after the action failed; cancelled when the caller cancelled after the tap, so the tap is reported and must not be retried."
               },
               "vacuous": {
                 "items": {
