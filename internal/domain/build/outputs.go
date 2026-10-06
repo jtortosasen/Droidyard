@@ -115,7 +115,9 @@ func resolveOutput(m gradle.Module, variant string) (Output, []OutputPath) {
 			return Output{Module: m.Path, Variant: variant, ApplicationID: meta.ApplicationID, Reason: out.Reason}, nil
 		}
 		apk := filepath.Join(dir, name)
-		fi, err := os.Stat(apk)
+		// Lstat: an APK that is a symlink could point anywhere; only a regular file in
+		// the output directory is reported (step 7 review N7).
+		fi, err := os.Lstat(apk)
 		if err != nil || !fi.Mode().IsRegular() {
 			out.Reason = "the APK " + name + " the output metadata names is not there"
 			return out, nil
@@ -168,6 +170,8 @@ func findMetadata(buildDir, variant string) (outputMetadata, string, string) {
 		return outputMetadata{}, "", "no output-metadata.json under the module's build directory names variant " + strconv.Quote(variant)
 	}
 	sort.Strings(found)
+	var match outputMetadata
+	var matchPath string
 	var read int
 	for _, p := range found {
 		data, err := os.ReadFile(p)
@@ -182,9 +186,10 @@ func findMetadata(buildDir, variant string) (outputMetadata, string, string) {
 			continue
 		}
 		read++
-		if read == 1 {
-			return meta, p, ""
-		}
+		match, matchPath = meta, p
+	}
+	if read == 1 {
+		return match, matchPath, ""
 	}
 	if read > 1 {
 		return outputMetadata{}, "", "more than one output-metadata.json under the module's build directory names variant " + strconv.Quote(variant) + ": which one describes this build is ambiguous"
@@ -329,7 +334,7 @@ func (r *mergedResolver) MergedLine(blamePath string, line int) (string, bool) {
 			continue
 		}
 		if len(text) > excerptLen {
-			text = text[:excerptLen]
+			text = strings.ToValidUTF8(text[:excerptLen], "")
 		}
 		return text, true
 	}

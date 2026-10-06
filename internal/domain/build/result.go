@@ -25,7 +25,7 @@ type AssembleParams struct {
 
 // ErrorsParams is build.errors' parameters.
 type ErrorsParams struct {
-	BuildID         string `json:"buildId,omitempty" jsonschema_description:"Which build's merged errors to return. Absent returns the newest finished build of the workspace (the one build.lastResult names)."`
+	BuildID         string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"Which build's merged errors to return. Absent returns the newest finished build of the workspace (the one build.lastResult names)."`
 	IncludeWarnings bool   `json:"includeWarnings,omitempty" jsonschema_description:"Also return the merged warnings. Off by default: up to 50 warning records an agent asking for its errors rarely needs."`
 }
 
@@ -112,7 +112,7 @@ type Result struct {
 	// newer, degraded below that or when a gated call was unsupported (ADR-0018; plan
 	// m1g D17).
 	Profile             string   `json:"profile" jsonschema:"required,enum=full,enum=degraded"`
-	MissingCapabilities []string `json:"missingCapabilities,omitempty" jsonschema_description:"Threading API capabilities TAPI refused, e.g. problemEvents; the console extractor covers what they would have carried."`
+	MissingCapabilities []string `json:"missingCapabilities,omitempty" jsonschema_description:"Tooling API capabilities Gradle refused, e.g. problemEvents; the console extractor covers what they would have carried."`
 	// Validation is untested for every version: the compatibility matrix has no row
 	// yet (ADR-0018; plan m1g D17).
 	Validation  string       `json:"validation" jsonschema:"required,enum=untested"`

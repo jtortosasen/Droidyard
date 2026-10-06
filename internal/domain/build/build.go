@@ -53,6 +53,9 @@ type Options struct {
 
 // Register adds build.tasks, build.run, build.assemble, build.errors and
 // build.lastResult to the registry.
+// buildIDPattern is an operation id (capability.newID), the only shape a build id has.
+var buildIDPattern = regexp.MustCompile(`^op-[0-9a-f]{16}$`)
+
 func Register(reg *capability.Registry, o Options) {
 	registerTasks(reg, o.Client, o.Authorize)
 	registerBuilds(reg, o)
@@ -260,6 +263,15 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	sink := newBuildSink(console, call.Progress, buildID)
 	started := r.now()
 	if err := br.Run(ctx, buildID, req.Tasks, sink); err != nil {
+		if ctx.Err() != nil {
+			// Cancelled before the sidecar answered {accepted}: the build.run may still
+			// be queued there, so send the cancel anyway; the sidecar keeps a cancel for
+			// a build it has not started, and that build then starts cancelled (step 7
+			// review B1).
+			cctx, cancel := context.WithTimeout(context.Background(), cancelWait)
+			_ = br.Cancel(cctx, buildID)
+			cancel()
+		}
 		return Result{}, err
 	}
 
@@ -363,6 +375,12 @@ func errorsFor(r *Registry, call *capability.Call) (ErrorsResult, error) {
 	var rec record
 	var err error
 	if p.BuildID != "" {
+		// A build id is an operation id; anything else names no build of this
+		// workspace, and must never reach a path (step 7 review B3).
+		if !buildIDPattern.MatchString(p.BuildID) {
+			return ErrorsResult{}, capability.Errorf(capability.ErrBuildNotFound, "no build %q in this workspace", p.BuildID).
+				WithNextStep("call build.lastResult for the newest build's id")
+		}
 		rec, err = r.load(call.Workspace, p.BuildID)
 	} else {
 		rec, err = r.newest(call.Workspace)
