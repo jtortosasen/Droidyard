@@ -4,6 +4,9 @@
 - Date: 2026-09-29
 - Amended: 2026-09-29 — the name was revised from `AioDevAndroid` to `Droidyard`
   before any code existed. See §Revision.
+- Amended: 2026-10-06 — "beside the state directory on macOS" named:
+  `~/Library/Application Support/droidyard-config/` (ADR-0031). Milestone 1g plan D1,
+  Delegated.
 
 ## Context
 

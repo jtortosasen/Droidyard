@@ -1,0 +1,43 @@
+// The sidecar protocol-test fixture (plan m1g step 1). A Java project on the Gradle
+// 8.13 distribution in the wrapper properties, plus three tasks that exercise the
+// console and cancellation paths:
+//
+//   echoLine  prints one ordinary line, which must arrive as event.build.output
+//   bigLine   prints a single 2 MiB line, which must arrive cut at 64 KiB with a marker
+//   slow      runs past five minutes unless it is cancelled
+//
+// Tasks are grouped so `build.tasks` has something to filter.
+tasks.register('echoLine') {
+    group = 'droidyard'
+    description = 'Prints one line to standard output.'
+    doLast {
+        println 'hello from the task'
+    }
+}
+
+tasks.register('bigLine') {
+    group = 'droidyard'
+    description = 'Prints a single two-megabyte line to standard output.'
+    doLast {
+        // Groovy's 'a' + i is a String, so grow the line by appending the alphabet (a
+        // char cast would need a Java char, which a single-quoted literal is not).
+        int size = 2 * 1024 * 1024
+        String alphabet = 'abcdefghijklmnopqrstuvwxyz'
+        StringBuilder sb = new StringBuilder(size)
+        while (sb.length() < size) {
+            sb.append(alphabet)
+        }
+        println sb.substring(0, size)
+    }
+}
+
+tasks.register('slow') {
+    group = 'droidyard'
+    description = 'Sleeps for five minutes unless cancelled.'
+    doLast {
+        long deadline = System.currentTimeMillis() + 300000L
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(100L)
+        }
+    }
+}

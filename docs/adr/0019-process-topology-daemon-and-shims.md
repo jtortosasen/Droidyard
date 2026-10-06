@@ -25,6 +25,9 @@
   lock is rewritten after the HTTP listener binds and before the socket binds, so a
   client that reaches the socket finds the live addresses (D8). Owner-delegated
   decisions, milestone 1d.
+- Amended: 2026-10-06 — `droidyard trust <root>` writes the configuration file itself
+  under a lock, with no `policy.update` and no auto-start (§3, §4; ADR-0031), until the
+  policy capabilities exist. Milestone 1g plan D2, Delegated.
 
 ## Context
 

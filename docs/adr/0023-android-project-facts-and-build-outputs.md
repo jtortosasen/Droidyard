@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-09-29
+- Amended: 2026-10-06 — note on §Decision 1: until the probe lands (staging 3, with
+  spike S3), the generic model is fetched as TAPI's `GradleProject` and
+  `BuildEnvironment`, without the `BuildAction`; variants use §Decision 4's labelled
+  task-name fallback (milestone 1g plan D25, Delegated).
 - Relates to: [ADR-0017](0017-gradle-execution-strategy.md),
   [ADR-0018](0018-gradle-version-support-policy.md),
   [ADR-0022](0022-build-error-extraction.md)

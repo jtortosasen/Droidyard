@@ -8,6 +8,13 @@
 - Amended: 2026-09-29 — the error-location promise corrected to what the producers
   emit (spike S1 run 1); S1's status stated; `build.cancel` marked as an internal
   method.
+- Amended: 2026-10-06 — staging 0 adjusted and packaging decided (milestone 1g plan
+  D25, D4, Delegated). S1 run 2 uses the first sidecar as its minimal TAPI client; S3
+  moves to staging 3 with the probe it gates; until the probe lands, the generic model
+  is TAPI's `GradleProject` and `BuildEnvironment`, without a `BuildAction`. The
+  sidecar is Kotlin, JVM target 17, in `sidecar/`, built by `sidecar/build.sh` into two
+  jars checked in and embedded in the Go binary with pinned SHA-256 digests (the
+  ADR-0029 pattern), run from the cache directory; the Go build needs no JVM.
 
 ## Context
 

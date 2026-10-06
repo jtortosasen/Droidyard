@@ -55,6 +55,7 @@ buried in prose.
 | [0028](0028-websocket-library.md) | WebSocket library — coder/websocket | Accepted |
 | [0029](0029-ui-reader-dex.md) | UI reads through a one-shot dex reader that keeps accessibility services running | Accepted |
 | [0030](0030-persistent-ui-reader.md) | The UI reader stays running on the device | Accepted |
+| [0031](0031-configuration-file-trust-first.md) | The configuration file starts with trusted roots only | Accepted |
 
 ## Open decisions (not yet ADRs)
 
