@@ -13,6 +13,8 @@ const (
 	DefaultTextLimit = 16 << 10
 	// MaxTextLimit is the most a caller may ask for.
 	MaxTextLimit = 256 << 10
+	// MinTextLimit is the least: one rune's width, so a cut always advances.
+	MinTextLimit = utf8.UTFMax
 )
 
 // TextPage is one read of a text artifact: ADR-0012's
@@ -37,8 +39,8 @@ type TextPage struct {
 }
 
 // ReadText reads one page of a text artifact (ADR-0012 §Reading artifacts). A negative
-// offset counts back from the end, and a read that would start mid-line is moved
-// forward to the next line start. The text ends at the last complete line within
+// offset counts back from the end, and when it lands mid-line it is moved forward to
+// the next line start. The text ends at the last complete line within
 // limit: a line the limit cuts in half is held back, and a single line longer than the
 // limit is cut at a UTF-8 boundary with Truncated. An offset at or past the end is
 // empty text. limit is clamped to [1, MaxTextLimit]; a caller wanting the default
@@ -53,6 +55,11 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 	}
 	if limit > MaxTextLimit {
 		limit = MaxTextLimit
+	}
+	// Below one rune's width a cut at a UTF-8 boundary could return nothing and never
+	// advance (the published minimum is MinTextLimit).
+	if limit < MinTextLimit {
+		limit = MinTextLimit
 	}
 
 	start := offset
@@ -107,8 +114,15 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 		page.Truncated = true
 		return page, nil
 	}
-	// The final, unterminated line is held back: it is not a complete line yet. The
-	// next read starts at the same offset and sees it once its newline arrives.
+	// The final, unterminated line. While the producer writes it is held back, so a
+	// growing artifact never shows half a line: the next read starts at the same offset
+	// and sees it once its newline arrives. Once closed, the end of the artifact ends
+	// the line (a cap or a cancel can stop mid-line), and it is returned.
+	if !e.Growing {
+		page.Text = string(win)
+		page.NextOffset = start + int64(len(win))
+		return page, nil
+	}
 	page.NextOffset = start
 	return page, nil
 }

@@ -143,6 +143,14 @@ func TestDurableRefsOutsideTheWorkspaceAreNotFound(t *testing.T) {
 	if err := os.WriteFile(planted, []byte("SECRET\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Reachable if the part check were gone: "d.../x.op-1" would join to
+	// <root>/x/artifacts/op-1.log (step 4 review N1).
+	if err := os.MkdirAll(filepath.Join(root, "x", "artifacts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "x", "artifacts", "op-1.log"), []byte("SECRET\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, ref := range []string{
 		RefPrefix + "d...op-1",
 		RefPrefix + "d.a/../b.op-1",
@@ -152,6 +160,8 @@ func TestDurableRefsOutsideTheWorkspaceAreNotFound(t *testing.T) {
 		RefPrefix + "d.ws-1.op-1/../../evil",
 		RefPrefix + "d.ws-1.",
 		RefPrefix + "d.ws-1",
+		RefPrefix + "d.../x.op-1",
+		RefPrefix + "d../x.op-1",
 	} {
 		e, err := s.Get(ref)
 		if !isNotFound(err) {
@@ -161,6 +171,26 @@ func TestDurableRefsOutsideTheWorkspaceAreNotFound(t *testing.T) {
 		if e.Size != 0 || e.File != "" || len(e.Data) != 0 {
 			t.Errorf("%s: opened %+v", ref, e)
 		}
+	}
+}
+
+// Decision (step 4 review N2): a symlink planted under artifacts/ is not followed.
+func TestDurableSymlinkIsNotFollowed(t *testing.T) {
+	root := t.TempDir()
+	s := newDurableStore(t, root)
+	secret := filepath.Join(root, "secret")
+	if err := os.WriteFile(secret, []byte("SECRET\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "ws", "ws-1", "artifacts")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(dir, "op-7.log")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(RefPrefix + "d.ws-1.op-7"); !isNotFound(err) {
+		t.Fatalf("a symlinked console: %v, want ARTIFACT_NOT_FOUND", err)
 	}
 }
 
