@@ -107,9 +107,14 @@ One grammar, used for the tap target, for `within`, and inside expectations:
 7. The one match is **disabled** → `DEVICE_ELEMENT_DISABLED`. Disabled targets are not
    dropped in step 4: tapping one is a caller error worth naming.
 
-The tap lands at the centre of the node's visible bounds. When the node itself is not
-clickable, the result says so and names its nearest clickable ancestor, so a tap with
-no effect is explainable.
+The tap lands at the centre of the node's visible bounds, **unless a node drawn above it
+covers that centre**. The tree keeps every node's `drawing-order`, so the point moves to
+the centre of the largest strip of the node left uncovered, at least 8 px inside it; a
+node whose bounds are the whole display is ignored (a full-screen overlay is usually
+transparent). When the point moves, the result warns, naming the covering node by class
+and id. When nothing visible is left, the call fails `DEVICE_ELEMENT_OFFSCREEN` with the
+covering node and taps nothing. When the node itself is not clickable, the result says
+so and names its nearest clickable ancestor, so a tap with no effect is explainable.
 
 ## Acting: `device.tapElement`
 
@@ -203,7 +208,7 @@ read, and waits only for the dump lock.
 ## Typing: `device.inputText`
 
 ```text
-device.inputText {device, text, target?, clear?, submit?, expect?}
+device.inputText {device, text, target?, clear?, submit?, expect?, timeoutMs?}
 ```
 
 - `target?` — a selector, the same vocabulary as `tapElement`. Omitted, the text goes
@@ -211,27 +216,34 @@ device.inputText {device, text, target?, clear?, submit?, expect?}
 - `clear?` — empty the field first (select-all, delete), only meaningful with a target.
 - `submit?` — press ENTER after typing.
 - `expect?` — the same assertion vocabulary, sequencing and timing as `tapElement`.
+- `timeoutMs?` — the poll window for `expect` (default 5000, maximum 20000).
 
 **Delivery**, chosen by the text itself, never by guesswork:
 
 | Text | Path | On failure |
 | --- | --- | --- |
-| ASCII only | `input text`, with spaces as `%s` and shell metacharacters escaped | — |
-| Non-ASCII (CJK, emoji) | ADBKeyboard's `ADB_INPUT_B64` broadcast, when that IME is installed and selected | `DEVICE_TEXT_NOT_DELIVERABLE`, naming ADBKeyboard |
+| Printable ASCII (space..~) | `input text`, single-quoted for the device shell, with spaces as `%s` and a literal `%s` split across two invocations | — |
+| Non-ASCII (CJK, emoji, newline, tab) | ADBKeyboard's `ADB_INPUT_B64` broadcast, when that IME is installed and selected | `DEVICE_TEXT_NOT_DELIVERABLE`, naming ADBKeyboard |
 
 Non-ASCII is **never silently mistyped**: without the IME the call fails and says what
 to install. The `method` in the result records which path was taken.
 
-**Result**: `{typed: true, characters, method: "input_text" | "adbkeyboard", matched?}`.
-`matched` appears only when `expect` was given.
+**Result**: `{typed, characters, method: "input_text" | "adbkeyboard", tapped?, expect?, warnings?}`.
+`tapped` is the focused node when `target` was given. `expect` is the `tapElement`
+verification object and appears only when `expect` was given: its `matched` is the
+`matched` of this call, and an already-true condition is `vacuous`. `characters` is how
+many characters were typed: all of `text` on success, or the prefix that was delivered
+when a later chunk failed, which is a *completed* result with a warning, never an error:
+a retry would type the prefix again.
 
 **The rules shared with `tapElement` apply unchanged**: after typing, the call never
 returns an error because a check failed — `matched: false` is a *completed* call, since
 an error would invite a retry and a retry types twice; and a check that was already
 true before typing is flagged `vacuous`.
 
-**Errors**: `DEVICE_ELEMENT_NOT_FOUND`, `DEVICE_ELEMENT_AMBIGUOUS`,
-`DEVICE_ELEMENT_DISABLED`, `DEVICE_TEXT_NOT_DELIVERABLE`.
+**Errors**: `DEVICE_UI_DUMP_FAILED`, `DEVICE_ELEMENT_NOT_FOUND`, `DEVICE_ELEMENT_AMBIGUOUS`,
+`DEVICE_ELEMENT_OFFSCREEN`, `DEVICE_ELEMENT_DISABLED`, `DEVICE_STALE_REF`,
+`DEVICE_TEXT_NOT_DELIVERABLE`.
 
 ## Input primitives
 

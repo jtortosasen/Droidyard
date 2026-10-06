@@ -77,8 +77,9 @@ type Tapped struct {
 	ID        string `json:"id,omitempty"`
 	Text      string `json:"text,omitempty"`
 	Desc      string `json:"desc,omitempty"`
-	// Point is the display-pixel centre of the node's visible bounds, where the tap
-	// landed.
+	// Point is where the tap landed: the display-pixel centre of the node's visible
+	// bounds, or, when a node drawn above covers that centre, the centre of the largest
+	// visible strip (ui-automation.md §Resolution; plan m1f D22).
 	Point             [2]int     `json:"point" jsonschema:"required"`
 	Clickable         bool       `json:"clickable" jsonschema:"required" jsonschema_description:"Whether the node itself is clickable; when false the tap may have no effect."`
 	ClickableAncestor *Candidate `json:"clickableAncestor,omitempty" jsonschema_description:"The nearest clickable ancestor, when the node itself is not clickable."`
@@ -259,11 +260,19 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 		}
 	}
 
-	// Tap once, never retried (ui-automation.md §Result; D18).
-	point := tapPoint(m.Node, before.Display)
+	// Tap once, never retried (ui-automation.md §Result; D18). The point is chosen around
+	// occlusion: a centre covered by a node drawn above the target moves to the largest
+	// visible strip, or refuses off-screen (ui-automation.md §Resolution; plan m1f D22).
+	oc, err := chooseTapPoint(before, m.Node)
+	if err != nil {
+		return nil, err
+	}
 	actionStart := time.Now()
 	warnings := append([]string{}, t.warnings...)
-	w, tapErr := a.inputTap(actx, t, point)
+	if oc.Moved && oc.Covering != nil {
+		warnings = append(warnings, tapMovedWarning(*oc.Covering))
+	}
+	w, tapErr := a.inputTap(actx, t, oc.Point)
 	if tapErr != nil {
 		return nil, tapErr
 	}
@@ -287,7 +296,7 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 	warnings = append(warnings, vr.Warnings...)
 
 	res := &TapResult{
-		Tapped:     tappedOf(before, m),
+		Tapped:     tappedOf(before, m, oc.Point),
 		Expect:     vr.Expect,
 		Foreground: vr.Foreground,
 		Warnings:   dedupWarnings(warnings),
@@ -419,11 +428,11 @@ func tapPoint(n UINode, d UIDisplay) [2]int {
 	return [2]int{(l + r) / 2, (top + b) / 2}
 }
 
-// tappedOf renders the resolved node and its tap point.
-func tappedOf(s Snapshot, m Matched) Tapped {
+// tappedOf renders the resolved node and the point the tap landed at.
+func tappedOf(s Snapshot, m Matched, point [2]int) Tapped {
 	t := Tapped{
 		Ref: m.Node.Ref, Snapshot: s.ID, MatchedBy: m.MatchedBy, Class: m.Node.Class, ID: m.Node.ID,
-		Text: m.Node.Text, Desc: m.Node.Desc, Point: tapPoint(m.Node, s.Display),
+		Text: m.Node.Text, Desc: m.Node.Desc, Point: point,
 		Clickable: slices.Contains(m.Node.Flags, "clickable"),
 	}
 	if !t.Clickable {

@@ -38,7 +38,8 @@ type ListResult struct {
 }
 
 // Register adds the device capabilities to reg: device.list, device.uiTree and
-// device.screenshot (which stores its image in store), and device.tapElement.
+// device.screenshot (which stores its image in store), device.tapElement,
+// device.launch and device.inputText.
 func Register(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "device.list",
@@ -61,6 +62,8 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 	registerUITree(reg, adb)
 	registerScreenshot(reg, adb, store)
 	registerTapElement(reg, adb)
+	registerLaunch(reg, adb)
+	registerInputText(reg, adb)
 }
 
 // List runs `adb devices -l`, drops what the default policy hides (physical devices,
