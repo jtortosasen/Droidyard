@@ -12,9 +12,11 @@ import (
 	"time"
 )
 
+// versionTimeout bounds `adb version`; a variable so a test of a slow hook is quick.
+var versionTimeout = 3 * time.Second
+
 const (
-	versionTimeout     = 3 * time.Second // `adb version`
-	hostVersionTimeout = time.Second     // host:version on the server's port
+	hostVersionTimeout = time.Second // host:version on the server's port
 	versionOutputCap   = 4 << 10
 )
 

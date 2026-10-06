@@ -144,11 +144,14 @@ contains) covers the MVP's cases, such as a counter reading "Likes: 1".
    tree. A condition that already holds is flagged **vacuous**.
 2. **Tap**: `input tap x y` in display pixels.
 3. **Settle**: wait `settleMs` (default 300 ms).
-4. **Poll**: dump again and again — each dump starts at least 250 ms after the previous
-   one started; a dump itself takes roughly 0.5–2 s — until every condition holds or
-   `timeoutMs` elapses (default 5 s, maximum 20 s).
-5. **Return.** With no `expect`: one dump after the settle, for `foreground` and the
-   optional tree, then return.
+4. **Poll**: read again and again — each read starts at least 250 ms after the previous
+   one started; a read itself takes roughly 0.5–2 s — until every condition holds or
+   `timeoutMs` elapses (default 5 s, maximum 20 s). The first read after the tap runs to
+   the call's running limit, not to `timeoutMs`, so a slow fallback read is still observed;
+   `timeoutMs` bounds the polls after it.
+5. **Return.** With no `expect`: one read after the settle, for `foreground` and the
+   optional tree, then return; the result omits `expect` rather than reporting a `matched`
+   it never checked.
 
 The defaults are starting values: spike S6 measures dump latency and the idle-failure
 rate on API 34–36 and sets them. The 20 s cap keeps `tapElement` a bounded,
@@ -158,25 +161,32 @@ non-long-running call ([ADR-0020](../adr/0020-operation-contract.md)).
 
 ```json
 {
-  "tapped": { "ref": "n12", "matchedBy": "exact", "class": "Button",
-              "text": "Sign in", "point": [540, 1210], "clickable": true },
+  "tapped": { "ref": "n12", "snapshot": "s-1a2b3c4d", "matchedBy": "exact",
+              "class": "Button", "text": "Sign in", "point": [540, 1210],
+              "clickable": true },
   "expect": { "matched": true, "afterMs": 840, "polls": 2, "failedDumps": 0,
               "unmet": [], "vacuous": [] },
   "foreground": { "before": "com.example.sample", "after": "com.example.sample" },
+  "snapshot": "s-9f8e7d6c",
   "tree": null
 }
 ```
 
+- Every ref the result returns comes with the snapshot it belongs to: `tapped.snapshot`
+  for `tapped.ref`, and the top-level `snapshot` for the refs in `unmet` candidates and
+  `tree` (the last read). Pass a ref back only with its own snapshot; an unknown or
+  evicted one is `DEVICE_STALE_REF`.
 - `matched: false` is a **completed** call. `unmet` lists each failing condition with
   what the last tree showed (near candidates for `appears`, the still-present match for
   `gone`).
 - **Vacuous conditions are flagged, not refused.** The prior art's probe guard refused
   before tapping; flagging keeps the single round trip, and a vacuous match proves
   nothing, which `vacuous` says.
-- **After the tap, never an error.** A dump that fails while polling counts as a poll
+- **After the tap, never an error.** A read that fails while polling counts as a poll
   without an observation (`failedDumps`). If every poll failed, the result is
-  `matched: false` with the reason `noObservation`. Raising an error there would invite
-  a retry, and a retry taps twice. Only a failure *before* the tap is an error
+  `matched: false` with the reason `noObservation`, and `foreground.after` is omitted with
+  a warning saying the effect was not observed. Raising an error there would invite a
+  retry, and a retry taps twice. Only a failure *before* the tap is an error
   (`DEVICE_UI_DUMP_FAILED`), and then nothing was tapped.
 - `returnTree: true` adds the last snapshot, saving a `uiTree` call at the cost of
   tokens.

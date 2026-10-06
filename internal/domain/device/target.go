@@ -36,6 +36,11 @@ type target struct {
 	// warnings are adb's (the client/server version mismatch), carried on the result
 	// as device.list carries them (adb-device.md §Failure modes).
 	warnings []string
+	// started is when the authorization hook began, used as the clock of an
+	// act-then-verify call's running bound (plan m1f, D13). The hook's `Check` and
+	// `devices -l` alone can take seconds, so a bound counted from the handler's own
+	// entry would be longer than the one the plan promises; recorded here instead.
+	started time.Time
 }
 
 // authorize is the authorization hook of a device capability (plan m1e, Q2). It runs
@@ -44,6 +49,8 @@ type target struct {
 // hands the listing on. A serial that is not listed is not decided here: the handler
 // answers DEVICE_NOT_FOUND from the same listing.
 func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, error) {
+	// D13: the act-then-verify clock is this hook's start, not the handler's entry.
+	started := time.Now()
 	res := a.Resolve()
 	if !res.Found {
 		return nil, adbNotFound(res, again)
@@ -55,7 +62,7 @@ func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, err
 	if err != nil {
 		return nil, err
 	}
-	t := &target{adb: res.Path, serial: serial, all: all, warnings: warnings}
+	t := &target{adb: res.Path, serial: serial, all: all, warnings: warnings, started: started}
 	for i := range all {
 		if all[i].Device == serial {
 			t.dev = &all[i]

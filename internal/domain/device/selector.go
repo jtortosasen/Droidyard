@@ -293,10 +293,24 @@ func (st *snapshotStore) kept() int {
 // with how they matched. For a ref it is the identity match in the fresh tree. Off-screen
 // matches are kept here; resolve drops them, conditions decide.
 func (st *snapshotStore) matchSet(s Snapshot, sel Selector) ([]UINode, string, error) {
+	return st.matchSetPinned(s, sel, nil)
+}
+
+// matchSetPinned is matchSet with a pinned identity: a ref selector is matched by named,
+// the node the ref named at pin time, never by looking the snapshot up again. A selector
+// without a ref ignores named.
+func (st *snapshotStore) matchSetPinned(s Snapshot, sel Selector, named *UINode) ([]UINode, string, error) {
 	if err := sel.validate(); err != nil {
 		return nil, "", err
 	}
 	if sel.Ref != "" {
+		if named != nil {
+			n, ok := identityOf(s, *named)
+			if !ok {
+				return nil, "", nil
+			}
+			return []UINode{n}, "exact", nil
+		}
 		n, ok := st.identity(s, sel)
 		if !ok {
 			return nil, "", nil
@@ -328,22 +342,99 @@ func (st *snapshotStore) identity(s Snapshot, sel Selector) (UINode, bool) {
 	if !ok {
 		return UINode{}, false
 	}
-	var named *UINode
 	for i := range old.Nodes {
 		if old.Nodes[i].Ref == sel.Ref {
-			named = &old.Nodes[i]
-			break
+			return identityOf(s, old.Nodes[i])
 		}
 	}
-	if named == nil {
-		return UINode{}, false
-	}
+	return UINode{}, false
+}
+
+// identityOf finds in s the node with named's identity (class, id, text, desc, bounds),
+// never by position (ui-automation.md §Selectors).
+func identityOf(s Snapshot, named UINode) (UINode, bool) {
 	for _, n := range s.Nodes {
 		if n.Class == named.Class && n.ID == named.ID && n.Text == named.Text && n.Desc == named.Desc && n.Bounds == named.Bounds {
 			return n, true
 		}
 	}
 	return UINode{}, false
+}
+
+// pinnedCondition is a Condition whose ref, if any, was resolved to the named node's
+// identity once before an action (plan m1f step 6, fix round). Later trees are compared
+// against that identity, so polling cannot evict the snapshot the ref came from and the
+// condition still means the same node. Pinning an unknown or evicted snapshot, or a ref
+// it does not name, fails with DEVICE_STALE_REF before anything is tapped.
+type pinnedCondition struct {
+	cond Condition
+	// named is the node the condition's ref named at pin time; nil when the condition's
+	// selector has no ref.
+	named *UINode
+}
+
+// pinConditions resolves every condition's ref to its node once. A condition without a
+// ref pins nothing.
+func (st *snapshotStore) pinConditions(conds []Condition) ([]pinnedCondition, error) {
+	out := make([]pinnedCondition, 0, len(conds))
+	for _, c := range conds {
+		p, err := st.pinCondition(c)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// pinCondition resolves one condition's ref, validating the condition first.
+func (st *snapshotStore) pinCondition(c Condition) (pinnedCondition, error) {
+	p := pinnedCondition{cond: c}
+	if err := c.validate(); err != nil {
+		return p, err
+	}
+	switch {
+	case c.Appears != nil:
+		n, err := st.pinRef(*c.Appears)
+		if err != nil {
+			return p, err
+		}
+		p.named = n
+	case c.Gone != nil:
+		n, err := st.pinRef(*c.Gone)
+		if err != nil {
+			return p, err
+		}
+		p.named = n
+	}
+	return p, nil
+}
+
+// pinRef resolves a selector's ref against the snapshot it names, once, before an action.
+// An unknown (never kept, or evicted) snapshot or a ref it does not name is
+// DEVICE_STALE_REF; a selector without a ref returns nil.
+func (st *snapshotStore) pinRef(sel Selector) (*UINode, error) {
+	if sel.Ref == "" {
+		return nil, nil
+	}
+	if old, ok := st.get(sel.Snapshot); ok {
+		for i := range old.Nodes {
+			if old.Nodes[i].Ref == sel.Ref {
+				n := old.Nodes[i]
+				return &n, nil
+			}
+		}
+	}
+	return nil, capability.NewError(ErrStaleRef, fmt.Sprintf("ref %q is not in snapshot %q", sel.Ref, sel.Snapshot)).
+		WithDetails(map[string]any{"ref": sel.Ref, "snapshot": sel.Snapshot}).
+		WithNextStep("Take a fresh device.uiTree and use a ref from it, or select by id, text, desc or class instead of a ref.")
+}
+
+// holds evaluates a pinned condition against one tree: `appears` needs at least one
+// on-screen match, `gone` none, `foreground` the top window's package. A ref is matched
+// by the identity pinned before the action, never by looking the snapshot up again.
+func (p pinnedCondition) holds(st *snapshotStore, s Snapshot) (bool, error) {
+	return st.holdsPinned(s, p.cond, p.named)
 }
 
 // foldMatches is resolution step 3: when a match and one of its ancestors both match,
@@ -419,12 +510,18 @@ func (st *snapshotStore) resolve(s Snapshot, sel Selector) (Matched, error) {
 // on-screen match, `gone` none, `foreground` the top window's package. The two-read
 // rule for `gone` belongs to the tap engine (plan m1f step 6).
 func (st *snapshotStore) holds(s Snapshot, c Condition) (bool, error) {
+	return st.holdsPinned(s, c, nil)
+}
+
+// holdsPinned is holds with a pinned ref identity, so an expectation over a ref does not
+// look its snapshot up again (plan m1f step 6, fix round).
+func (st *snapshotStore) holdsPinned(s Snapshot, c Condition, named *UINode) (bool, error) {
 	if err := c.validate(); err != nil {
 		return false, err
 	}
 	switch {
 	case c.Appears != nil:
-		matches, _, err := st.matchSet(s, *c.Appears)
+		matches, _, err := st.matchSetPinned(s, *c.Appears, named)
 		if err != nil {
 			return false, err
 		}
@@ -435,7 +532,7 @@ func (st *snapshotStore) holds(s Snapshot, c Condition) (bool, error) {
 		}
 		return false, nil
 	case c.Gone != nil:
-		matches, _, err := st.matchSet(s, *c.Gone)
+		matches, _, err := st.matchSetPinned(s, *c.Gone, named)
 		if err != nil {
 			return false, err
 		}

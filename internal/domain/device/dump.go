@@ -135,14 +135,43 @@ func (a *ADB) uiTree(ctx context.Context, t *target, within *AncestorSelector) (
 // gone is DEVICE_DISCONNECTED either way; the caller's own cancellation is returned as
 // it is.
 func (a *ADB) read(ctx context.Context, t *target) ([]byte, []string, error) {
+	return a.readChain(ctx, t, true)
+}
+
+// readNoDump is read without the `uiautomator dump` stage: the persistent reader and
+// the one-shot reader only (plan m1f, D17). After a tap the dump would suspend the
+// device's accessibility services on every poll, so a poll that both readers fail is a
+// failed read, not a dump.
+func (a *ADB) readNoDump(ctx context.Context, t *target) ([]byte, []string, error) {
+	return a.readChain(ctx, t, false)
+}
+
+// readChain is read with the dump stage allowed or not.
+func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte, []string, error) {
 	start := time.Now()
 	end := start.Add(dumpDeadline)
+	// The read's own end is clamped to the caller's deadline when that is earlier
+	// (plan m1f step 6, fix round): the actions pass phase contexts under the 22 s
+	// dumpDeadline, and the one-shot reader's cleanup must end by that phase deadline,
+	// not by a fresh 22 s. A caller that already ended is handled below as it was.
+	if d, ok := ctx.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+
+	// fallback is the dump stage, or, when the dump is not allowed (D17), the fixed
+	// failure the caller counts as a read without an observation.
+	fallback := func(reason string) ([]byte, []string, error) {
+		if !allowDump {
+			return nil, nil, dumpFailed("the UI reader could not run and uiautomator dump is not used after an action, which would suspend the device's other accessibility services: " + reason)
+		}
+		return a.readWithDump(ctx, t, start, reason)
+	}
 
 	// ADR-0029: a dex that is not the pinned one is never put on a device, so neither
 	// reader can run; the dump still can.
 	if got := readerDigest(); got != reader.SHA256 {
 		reason := fmt.Sprintf("the embedded reader.dex has SHA-256 %s, not the pinned %s", got, reader.SHA256)
-		return a.readWithDump(ctx, t, start, reason)
+		return fallback(reason)
 	}
 
 	c := a.reader(t.serial)
@@ -184,7 +213,7 @@ func (a *ADB) read(ctx context.Context, t *target) ([]byte, []string, error) {
 	}
 
 	// The one-shot reader of ADR-0029, with the persistent reader's reason (D3).
-	doc, kind, line, reason2 := a.runReader(ctx, t, start)
+	doc, kind, line, reason2 := a.runReader(ctx, t, end)
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
@@ -198,8 +227,9 @@ func (a *ADB) read(ctx context.Context, t *target) ([]byte, []string, error) {
 	}
 
 	// uiautomator dump of ADR-0029, with its warning, which names both readers' reasons
-	// when the one-shot failed too (D3).
-	return a.readWithDump(ctx, t, start, readerFallbackReason(reason, reason2))
+	// when the one-shot failed too (D3); after an action the dump stage is refused
+	// instead (D17, fallback).
+	return fallback(readerFallbackReason(reason, reason2))
 }
 
 // readWithDump runs the dump stage and labels its result with the reader's reason.
@@ -217,19 +247,20 @@ func (a *ADB) readWithDump(ctx context.Context, t *target, start time.Time, reas
 // from (ADR-0030). The file is pushed on every read and removed after it, so the device
 // keeps nothing between reads: a copy left by a killed daemon is overwritten, never
 // trusted, and no check of its content is needed. The removal is issued whenever the
-// push was, on a context that outlives the work deadline by cleanupReserve and survives
-// the caller's cancellation.
+// push was, and it ends by end: the work deadline is end minus cleanupReserve, and the
+// removal's own deadline is end, which readChain has already clamped to the caller's
+// phase deadline when that was earlier (plan m1f step 6, fix round). The removal
+// survives the caller's cancellation.
 //
 // The last result is the reason shown in the fallback warning: the reader's own line or
 // adb's, never device text (see readerReason).
-func (a *ADB) runReader(parent context.Context, t *target, start time.Time) ([]byte, dumpKind, string, string) {
+func (a *ADB) runReader(parent context.Context, t *target, end time.Time) ([]byte, dumpKind, string, string) {
 	// The digest is checked before every push (ADR-0029): a dex that is not the pinned
 	// one is never put on a device.
 	if got := readerDigest(); got != reader.SHA256 {
 		msg := fmt.Sprintf("the embedded reader.dex has SHA-256 %s, not the pinned %s", got, reader.SHA256)
 		return nil, dumpOther, msg, msg
 	}
-	end := start.Add(dumpDeadline)
 	ctx, cancel := context.WithDeadline(parent, end.Add(-cleanupReserve))
 	defer cancel()
 	dir, err := os.MkdirTemp("", "droidyard-reader-")
@@ -241,13 +272,19 @@ func (a *ADB) runReader(parent context.Context, t *target, start time.Time) ([]b
 	if err := os.WriteFile(local, reader.Dex(), 0o600); err != nil {
 		return nil, dumpOther, "temporary file: " + err.Error(), "temporary file unavailable"
 	}
+	// A work context that is already expired issues neither the push nor the removal: the
+	// removal is registered only once the push was issued, so a read whose budget is gone
+	// never removes a file it never put on the device (plan m1f step 6, fix round).
+	if err := ctx.Err(); err != nil {
+		return nil, dumpOther, "the read's work deadline had already elapsed", "the read's work deadline had already elapsed"
+	}
+	const push = "push reader.dex"
+	out, err := a.Run(ctx, t.adb, readerPush, 1<<10, "-s", t.serial, "push", local, readerRemoteOneShot)
 	defer func() {
 		rctx, cancel := context.WithDeadline(context.WithoutCancel(parent), end)
 		defer cancel()
 		a.Run(rctx, t.adb, cleanupReserve, 1<<10, "-s", t.serial, "shell", "rm", "-f", readerRemoteOneShot)
 	}()
-	const push = "push reader.dex"
-	out, err := a.Run(ctx, t.adb, readerPush, 1<<10, "-s", t.serial, "push", local, readerRemoteOneShot)
 	if _, kind, line := classifyDump(t.serial, push, out, err, false); kind != dumpOK {
 		return nil, kind, line, readerReason(out, err)
 	}

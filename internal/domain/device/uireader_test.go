@@ -239,6 +239,24 @@ func TestUITreeDoesNotPushADexThatIsNotThePinnedOne(t *testing.T) {
 	}
 }
 
+// Decision (plan m1f step 6, fix round): the one-shot reader's removal is registered only
+// after its push was issued, so a work context that is already expired issues neither the
+// push nor the rm. The removal's own deadline is end, still ahead, so a removal that had
+// been registered before the push would run. Seen failing reversed, where the expired
+// read issues an rm for a dex it never pushed.
+func TestRunReaderExpiredWorkContextPushesAndRemovesNothing(t *testing.T) {
+	f := newUIFixture(t, map[string]string{uiSerial + ".push.exit": "0"})
+	end := time.Now().Add(cleanupReserve / 2) // the work deadline, end minus cleanupReserve, is already past
+	f.adb.runReader(context.Background(), &target{adb: f.adb.Resolve().Path, serial: uiSerial}, end)
+	calls := f.calls(t)
+	if n := count(calls, rdPushCall); n != 0 {
+		t.Errorf("%d pushes under an expired work context, want none: %q", n, calls)
+	}
+	if n := count(calls, rdRmCall); n != 0 {
+		t.Errorf("%d removals under an expired work context, want none: %q", n, calls)
+	}
+}
+
 // Decision (a null root is a failure, not an empty screen, and not a fallback): the
 // reader's own status 3 is DEVICE_UI_DUMP_FAILED; uiautomator dump is not run, because it
 // would meet the same missing window and suspend the other services; the dex is removed.

@@ -62,14 +62,15 @@ type FakeReader struct {
 	delay time.Duration
 	log   *ReaderLog
 
-	mu    sync.Mutex
-	docs  []string
-	next  int
-	quits int
-	pings int
-	dumps int
-	once  sync.Once
-	wg    sync.WaitGroup
+	mu     sync.Mutex
+	docs   []string
+	next   int
+	quits  int
+	pings  int
+	dumps  int
+	starts []time.Time
+	once   sync.Once
+	wg     sync.WaitGroup
 }
 
 // StartReader starts a fake reader answering with docs in order; an empty docs answers
@@ -115,6 +116,14 @@ func (r *FakeReader) logValue() *ReaderLog {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.log
+}
+
+// DumpStarts is when the reader received each dump request, in order, so a test can
+// check the poll interval of an act-then-verify call (plan m1f step 6).
+func (r *FakeReader) DumpStarts() []time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]time.Time(nil), r.starts...)
 }
 
 // Quits, Pings and Dumps are the requests the reader answered.
@@ -179,6 +188,7 @@ func (r *FakeReader) handle(conn net.Conn) {
 	case "dump":
 		r.mu.Lock()
 		r.dumps++
+		r.starts = append(r.starts, time.Now())
 		r.mu.Unlock()
 		doc := r.nextDoc()
 		if doc == ReaderGone {

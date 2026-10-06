@@ -9,6 +9,7 @@
 //	devices.out, devices.err    what `devices -l` prints to stdout and stderr
 //	devices.exit                its exit status (default 0)
 //	devices.hang                if present, `devices -l` never answers
+//	devices.delay               milliseconds `devices -l` sleeps before its answer
 //	<serial>.getprop            `-s <serial> shell getprop`; <serial>.getprop.hang hangs
 //	<serial>.avd                `-s <serial> emu avd name`;  <serial>.avd.hang hangs
 //	version.hang                if present, `adb version` never answers
@@ -34,6 +35,7 @@
 //	<serial>.start              `-s <serial> shell "CLASSPATH=<dex> nohup app_process /system/bin --nice-name=… DroidyardReader serve …"`
 //	<serial>.pidof              `-s <serial> shell pidof droidyard-reader-…`
 //	<serial>.kill               `-s <serial> shell kill <pid>`
+//	<serial>.inputtap           `-s <serial> shell input tap <x> <y>`
 //
 // A FakeReader (reader.go) is the TCP listener the fake forward points at, so a test of
 // the persistent reader writes its Port as <serial>.forward.out.
@@ -66,6 +68,17 @@ import (
 	"testing"
 	"time"
 )
+
+// waitDelay sleeps the prefix's .delay milliseconds, honouring ctx; true when the whole
+// wait passed.
+func waitDelay(ctx context.Context, dir, prefix string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, prefix+".delay"))
+	if err != nil {
+		return true
+	}
+	ms, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return wait(ctx, time.Duration(ms)*time.Millisecond)
+}
 
 // DirEnv names the scenario directory; its presence makes the binary a fake adb.
 const DirEnv = "DROIDYARD_FAKE_ADB_DIR"
@@ -166,6 +179,9 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		if has("devices.hang") {
 			return hang()
 		}
+		if !waitDelay(ctx, dir, "devices") {
+			return 0
+		}
 		cat("devices.out")
 		if b, err := os.ReadFile(filepath.Join(dir, "devices.err")); err == nil {
 			stderr.Write(b)
@@ -236,6 +252,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".pidof"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "kill":
 		return args[1] + ".kill"
+	case len(args) == 7 && args[2] == "shell" && args[3] == "input" && args[4] == "tap":
+		return args[1] + ".inputtap"
 	}
 	switch strings.Join(args[2:], " ") {
 	case "shell getprop sys.boot_completed":
