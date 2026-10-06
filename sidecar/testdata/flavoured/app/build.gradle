@@ -1,0 +1,34 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'dev.droidyard.flavoured'
+    compileSdk 36
+    buildToolsVersion '35.0.0'
+
+    defaultConfig {
+        applicationId 'dev.droidyard.flavoured'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+
+    flavorDimensions = ['tier', 'stage']
+    productFlavors {
+        free { dimension 'tier'; applicationIdSuffix '.free' }
+        paid { dimension 'tier'; applicationIdSuffix '.paid' }
+        staging { dimension 'stage'; applicationIdSuffix '.staging' }
+        prod { dimension 'stage' }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation project(':lib')
+}

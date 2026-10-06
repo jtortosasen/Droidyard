@@ -1,0 +1,23 @@
+// Milestone 1h fixture (plan D3): two flavour dimensions by two build types, eight
+// variants, and a Kotlin library. Pinned to DopamineControl's cell; tests rewrite the
+// versions per cell in a temporary copy, never here.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    plugins {
+        id 'com.android.application' version '8.13.2'
+        id 'com.android.library' version '8.13.2'
+        id 'org.jetbrains.kotlin.android' version '2.0.21'
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'flavoured'
+include ':app', ':lib'

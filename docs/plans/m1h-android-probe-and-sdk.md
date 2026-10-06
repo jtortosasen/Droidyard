@@ -101,7 +101,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: the probe jar (step 2); the TAPI fetch's cost (step 2); Isolated Projects and composite builds (`gradle.md` §Open questions).
 - Rests on: `onVariants` can be registered from an init-script-applied plugin on AGP 8.13 and 9.x. Level 4 (real Gradle and AGP).
 - Review: the main session's record; findings that change a later step go under Changes before it starts.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: main session, 2026-10-07, `docs/research/spike-s3-android-facts.md`; fixture `sidecar/testdata/flavoured/`; `internal/domain/build/testdata/s3/missing-platform.assemble.txt`. G3 met on C1 (AGP 8.13.2), C2 (AGP 9.4.1 on Gradle 9.6.0) and C4 (AGP 8.0.2): no stop. Every field resolved on every cell. The original's HEAD `2eda199` and status hash `9f3bc91e…` unchanged. Changes below.
 
 ### 2. The probe, the `BuildAction` and protocol 2
 
@@ -212,3 +212,9 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7): every blocking fi
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design. Steps 1 and 2's findings that alter a later step are recorded here before that step starts.
+- 2026-10-07, step 1 → step 2 (C2 chosen): AGP **9.4.1** on Gradle **9.6.0**, the Kotlin plugin lines removed (built-in Kotlin, KGP 2.2.10). `sdkDownload=false` is accepted on every cell (G5).
+- 2026-10-07, step 1 → step 4 (**D12's branch: the probe's compile target**): a configuration pass succeeds with a missing platform (G6), so `sdk.requirements` names it from the probe; no extractor form is needed in this milestone. The build-time text (`Failed to find target with hash string 'android-33' in: <sdk>`, under `Could not determine the dependencies of task …`) is recorded in `testdata/s3/` for a later `category: sdk.missing` form.
+- 2026-10-07, step 1 → step 4: a compile target `android-N` is satisfied by an installed `platforms;android-N` or `platforms;android-N.0` (`compileSdk 37` → `android-37`, installed as `android-37.0`); AGP's default build-tools differ by version (8.0.2 → `30.0.3`, 8.13.2 → `35.0.0`, 9.4.1 → `36.0.0`), so the effective one is the probe's, never a constant; the probe's SDK directory may not exist (`<project>/missingSdkDirectory` when `sdk.dir` is wrong and `ANDROID_HOME` unset) and is reported as such; a symlinked `sdk.dir` comes back unresolved, so it is canonicalised before comparing with the host SDK.
+- 2026-10-07, step 1 → steps 2–5 (S7, Delegated): AGP rewrites `<sdk>/.knownPackages` (a 16-byte index hash) when it looks a missing platform up; the stamp check excludes that file, and any other path under the SDK still stops a run.
+- 2026-10-07, step 1 → step 3: the task-name fallback matched the probe's application variants on C1–C4 and gives none for libraries, which the probe gives (`debug`, `release`), as D9 expects.
+
