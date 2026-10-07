@@ -1,5 +1,5 @@
 {
-  "version": "0.9.0",
+  "version": "0.10.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -5545,6 +5545,122 @@
       }
     },
     {
+      "name": "policy.get",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.10.0",
+      "description": "Returns the droidyard policy: the configuration file's path and whether it parsed (state missing, ok or invalid, with the parse error when invalid), and the trust, devices and shell sections as written in the file, with their defaults when the file is missing or invalid. Policy is the user's to change — trusted roots, the physical-device allowlist and whether shell.exec is enabled — so it is answerable only to a human client: the core refuses this capability from an agent session. It never fails on a bad file, so the UI can show the problem.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The configuration file's path."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "ok",
+              "invalid"
+            ],
+            "description": "missing when there is no file, ok when it parsed, invalid when it could not be used."
+          },
+          "error": {
+            "type": "string",
+            "description": "The parse error, when state is invalid."
+          },
+          "trust": {
+            "properties": {
+              "roots": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The exact roots trusted."
+              },
+              "prefixes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The prefixes whose subtrees are trusted, at a path-component boundary."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "roots",
+              "prefixes"
+            ]
+          },
+          "devices": {
+            "properties": {
+              "allowPhysical": {
+                "type": "boolean",
+                "description": "Whether physical devices may be used at all."
+              },
+              "allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The exact physical serials admitted."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "allowPhysical",
+              "allowlist"
+            ]
+          },
+          "shell": {
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether shell.exec is enabled everywhere."
+              },
+              "roots": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The project roots shell.exec is enabled for."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "enabled",
+              "roots"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "state",
+          "trust",
+          "devices",
+          "shell"
+        ]
+      }
+    },
+    {
       "name": "project.modules",
       "kind": "query",
       "scope": "workspace",
@@ -6328,7 +6444,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.1.0",
-      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), and the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm).",
+      "description": "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm), and the configuration file's state (config): its path, whether it parsed, and the state its tool keys were read in at startup.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -6475,6 +6591,43 @@
             "required": [
               "found",
               "rejected"
+            ]
+          },
+          "config": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "The configuration file's path."
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "ok",
+                  "invalid"
+                ],
+                "description": "missing when there is no file, ok when it parsed, invalid when it could not be used."
+              },
+              "error": {
+                "type": "string",
+                "description": "The parse error, when state is invalid."
+              },
+              "toolKeys": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "ok",
+                  "invalid"
+                ],
+                "description": "The state the tool keys were read in at daemon start."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "path",
+              "state",
+              "toolKeys"
             ]
           }
         },

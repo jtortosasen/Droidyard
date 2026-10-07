@@ -259,6 +259,16 @@ func TestMCPTranscript(t *testing.T) {
 	stateless := 0
 	for name, g := range golden {
 		tool, ok := listed[mcpadapter.ToolName(name)]
+		if g["audience"] == "human" {
+			// Audience-human capabilities are not tools: the adapter omits them and
+			// the core refuses them from an MCP session (ADR-0015 §6). A human
+			// capability appearing here — or counted below — is the failure this
+			// catches, so it is asserted absent rather than skipped.
+			if ok {
+				t.Errorf("tools/list has %s, an audience-human capability", mcpadapter.ToolName(name))
+			}
+			continue
+		}
 		if g["statefulness"] != "stateless" {
 			// A tool call has no channel to push into after it returns: a stateful or
 			// streaming capability, events.* among them, is published but not a tool
@@ -375,6 +385,22 @@ func TestMCPTranscript(t *testing.T) {
 	json.Unmarshal(raw4, &call4)
 	if call4.Error.Code != -32602 || !strings.Contains(call4.Error.Message, "tool 'fixture_human' not found") {
 		t.Errorf("calling the human-audience tool returned %s; want JSON-RPC INVALID_PARAMS, tool not found", raw4)
+	}
+
+	// policy.get, the real human-audience capability, is refused the same way: the
+	// adapter never registered it, so an agent cannot reach it (ADR-0015 §6; the core
+	// refuses it too, proven in policy_test.go).
+	c.callTool(5, "policy_get", `{}`)
+	var call5 struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	raw5 := c.recv()
+	json.Unmarshal(raw5, &call5)
+	if call5.Error.Code != -32602 || !strings.Contains(call5.Error.Message, "tool 'policy_get' not found") {
+		t.Errorf("calling policy_get returned %s; want JSON-RPC INVALID_PARAMS, tool not found", raw5)
 	}
 
 	// Shim lifetime: stdin ends, the session ends, the shim exits 0.

@@ -254,7 +254,13 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// same locked spawner adb clients use, and boots detached under `emulator/<avd>.log`
 	// in the daemon's state root. It owns no device logic (emulator package doc).
 	emulatorClient := emulator.New(adbEnviron(), adb, spawn, stateRoot)
-	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient)
+	// The daemon's one policy: it decides trust, shell.exec and physical devices, and it
+	// reports the configuration file's state (ADR-0032; plan m1k D1). Every live check
+	// reads one size-and-mtime snapshot, so a hand edit or a `droidyard trust` takes
+	// effect without a restart; the tool keys are read once, at construction.
+	pol := policy.New(env)
+	policy.Register(reg, pol)
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient, pol)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch
@@ -284,12 +290,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The daemon's live file.watch pollers: a workspace close ends that workspace's
 	// watches, each publishing its stopped event (plan m1j, D9).
 	watchers := file.NewWatchers()
-	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: policy.New(env), Log: log, Drain: testDrain,
+	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
 		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus,
 		OnOpen: func(id, _ string) { history.Sweep(id) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
-	authorize := policy.New(env).Authorize(func(call *capability.Call) (string, bool) {
+	authorize := pol.Authorize(func(call *capability.Call) (string, bool) {
 		info, err := ws.Describe(call.Workspace)
 		if err != nil {
 			return "", false

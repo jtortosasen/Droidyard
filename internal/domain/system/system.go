@@ -8,13 +8,14 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
 // Version is the API version reported by system.capabilities. It is the one semantic
 // version of the capability API, not a per-capability one
 // (docs/architecture/capability-api.md §Discovery and versioning).
-const Version = "0.9.0"
+const Version = "0.10.0"
 
 var started = time.Now()
 
@@ -36,6 +37,10 @@ type Health struct {
 	// every candidate rejected (gradle.md §Sidecar JVM discovery; plan m1g D22).
 	// Absent when the daemon has no Gradle subsystem.
 	JVM *gradle.JVM `json:"jvm,omitempty"`
+	// Config is the configuration file's state: its path, whether it parsed, and the
+	// state the tool keys were read in at daemon start (ADR-0032 §4, §6; plan m1k D1).
+	// Absent when the daemon has no policy.
+	Config *policy.ConfigStatus `json:"config,omitempty"`
 }
 
 // StateProblem is one state file the daemon could not use. File and MovedTo are
@@ -94,15 +99,21 @@ type Operations interface {
 // Problems. Nil reports none.
 type StateProblems func() []store.Problem
 
+// Config reports the configuration file's state for system.health (plan m1k D1).
+// *policy.Policy implements it.
+type Config interface {
+	ConfigStatus() policy.ConfigStatus
+}
+
 // Register adds the system capabilities to the registry. gr, when non-nil, adds the
-// sidecar's JVM to system.health.
-func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems, gr Gradle) {
+// sidecar's JVM to system.health; cfg, when non-nil, the configuration file's state.
+func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems, gr Gradle, cfg Config) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "system.health",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), and the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm).",
+		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm), and the configuration file's state (config): its path, whether it parsed, and the state its tool keys were read in at startup.",
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -128,6 +139,10 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 			if gr != nil {
 				j := gr.JVM()
 				h.JVM = &j
+			}
+			if cfg != nil {
+				cs := cfg.ConfigStatus()
+				h.Config = &cs
 			}
 			return h, nil
 		},
