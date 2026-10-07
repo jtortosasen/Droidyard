@@ -388,10 +388,13 @@ func UntrustedError(root string) *capability.Error {
 }
 
 // shellDisabled is the fixed failure of shell.exec on a root the policy does not admit
-// (ADR-0015 §7; ADR-0032 §2). Its nextStep names the configuration file so a human can
-// enable the root; its cause names the file when the file is the problem (plan m1k D4).
+// (ADR-0015 §7; ADR-0032 §2). Its message tells the human what enabling it would mean —
+// once on, the agent runs any command as the user, with the user's full reach over
+// droidyard's own configuration and trust included (Q1, delegated) — its nextStep names
+// the configuration file so a human can enable the root, and its cause names the file
+// when the file is the problem (plan m1k D4, D6; ADR-0032 Q1).
 func (p *Policy) shellDisabled(root, cause string) *capability.Error {
-	e := capability.Errorf(capability.ErrPolicyShellDisabled, "shell.exec is not enabled for the project root %q", root).
+	e := capability.Errorf(capability.ErrPolicyShellDisabled, "shell.exec is not enabled for the project root %q; enabling it lets an agent run any command as you, with your full rights over this machine, droidyard's own configuration and trust included", root).
 		WithNextStep("ask the user to enable shell.exec for this project (`shell.roots` in " + p.path + "), or use a modelled capability")
 	if cause != "" {
 		e = e.WithCause(cause)

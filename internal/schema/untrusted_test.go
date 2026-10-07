@@ -128,8 +128,9 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 // that is device.uiTree (exactly nodes, foreground and display: the snapshot id,
 // truncated, hint and emptyReason are the daemon's), device.screenshot (its reference
 // field, R9), device.logs (each line's tag and message and each crash's exception and
-// message) and artifact.read (its data); system.health and device.list report the
-// host's own state and the list of serials, not device text (R6).
+// message), artifact.read (its data) and shell.exec (its stdout and stderr, which a
+// command fills with whatever it likes, device text included); system.health and
+// device.list report the host's own state and the list of serials, not device text (R6).
 func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	doc, err := schema.Generate(registry(), "test")
 	if err != nil {
@@ -137,7 +138,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}

@@ -16,6 +16,14 @@
   §6's defence, "our agent-facing surface offers no path to it", holds only while
   `shell.exec` is off for the root: once a human enables it, the agent has the user's
   reach, policy included, and the defence is the human's informed choice.
+- Amended: 2026-10-07 (Delegated, m1k step 2 review; corrects the line above). The
+  defence did not hold even with `shell.exec` off: on a **trusted** root `build.*` runs
+  the project's build scripts, which an agent can edit with `file.write` (1j), so
+  trusting a root already lets an agent run code as the user there, droidyard's
+  configuration included. `shell.exec` makes that direct; it does not create it. For
+  both, the defence is the human's informed choice, trusting a root and enabling the
+  shell; an untrusted root runs no project code. No fence on `file.write` is attempted
+  (the configuration lives outside every root, and a build script needs no file tool).
 
 ## Context
 
