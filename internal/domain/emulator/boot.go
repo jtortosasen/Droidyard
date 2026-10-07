@@ -2,7 +2,9 @@ package emulator
 
 import (
 	"context"
+	"errors"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -25,20 +27,34 @@ const launchGoneGrace = 2 * time.Second
 // boot is the shared boot sequence of emulator.start and emulator.wipe (emulator.md
 // §Boot sequence; plan m1i, D15). It snapshots the emulator serials, spawns the launcher
 // detached, resolves the new serial by difference and its AVD name, waits for
-// `sys.boot_completed`, and returns the serial. adopt is emulator.start's first step and
-// emulator.wipe skips it (emulator.md §Wipe 2); a wipe's `-wipe-data` flag is the
-// caller's. The one deadline covers the snapshot to readiness.
-func (e *Emulator) boot(ctx context.Context, path, avd string, flags []string, deadline time.Time) (string, error) {
+// `sys.boot_completed`, and returns the serial. adopting is emulator.start's first step
+// and emulator.wipe skips it (emulator.md §Wipe 2); a wipe's `-wipe-data` flag is the
+// caller's. The one deadline covers the snapshot to readiness, and the serial must be
+// resolved by the earlier of it and the serial deadline (ADR-0033 ¶3).
+//
+// Until the serial is resolved the launch is this daemon's to end (ADR-0033 ¶1): every
+// return from here before then ends it, unless its group is already empty. From the
+// resolution on it is a device and is never signalled (ADR-0033 ¶2), so a failure in
+// awaitReady leaves it running. capability is the calling capability's name, used only to
+// phrase the serial-deadline failure (plan m1m, Q1 ¶3).
+func (e *Emulator) boot(ctx context.Context, capability, path, avd string, flags []string, deadline time.Time) (string, error) {
 	before, err := e.emulatorSerials(ctx)
 	if err != nil {
 		return "", err
 	}
+	spawned := time.Now()
 	l, err := e.spawn(path, avd, flags)
 	if err != nil {
 		return "", err
 	}
-	serial, err := e.awaitSerial(ctx, avd, before, deadline, l)
+	serial, err := e.awaitSerial(ctx, avd, before, serialDeadline(spawned, deadline), l)
 	if err != nil {
+		// The serial was never resolved: end the launch (ADR-0033 ¶1) before reporting, so
+		// the caller learns whether it was stopped. end is a no-op if the group is empty.
+		stopped := l.end()
+		if errors.Is(err, errNoSerial) {
+			return "", noSerialAppeared(capability, avd, l.pid, stopped, time.Since(spawned), logTail(l.logPath))
+		}
 		return "", err
 	}
 	l.setSerial(serial)
@@ -46,6 +62,16 @@ func (e *Emulator) boot(ctx context.Context, path, avd string, flags []string, d
 		return "", err
 	}
 	return serial, nil
+}
+
+// serialDeadline is the earlier of the serial deadline (spawn + serialTimeout) and the
+// boot's own deadline: awaitSerial and its probes are bounded by it (ADR-0033 ¶3).
+func serialDeadline(spawned, boot time.Time) time.Time {
+	d := spawned.Add(serialTimeout)
+	if d.After(boot) {
+		return boot
+	}
+	return d
 }
 
 // emulatorSerials is the set of emulator serials `adb devices -l` lists, in any state: a
@@ -87,38 +113,60 @@ func (e *Emulator) runningSerialOf(ctx context.Context, avd string) (string, err
 	return "", nil
 }
 
+// errNoSerial marks a boot that reached the serial deadline without resolving a serial
+// (ADR-0033 ¶3). boot turns it into noSerialAppeared once it knows whether the launch was
+// stopped, which only `end` can say.
+var errNoSerial = errors.New("no emulator serial appeared")
+
 // awaitSerial polls the device listing until a serial that was not there before the
 // spawn reports the requested AVD through `emu avd name` (emulator.md §Boot sequence 4),
 // the launcher exits, or the deadline passes. Reading the launch table on every poll is
 // what turns a launcher that died during a boot into EMULATOR_LAUNCH_FAILED at once
-// (plan m1i, D12, D15) instead of a boot timeout 180 s later.
+// (plan m1i, D12, D15) instead of a boot timeout 180 s later. The deadline is the serial
+// deadline, and both probes are bounded by it (ADR-0033 ¶3). A resolved serial wins over a
+// context that ends in the same instant, so a cancel racing the resolution never ends a
+// launch that has become a device (ADR-0033 ¶2).
 func (e *Emulator) awaitSerial(ctx context.Context, avd string, before map[string]bool, deadline time.Time, l *launch) (string, error) {
 	for {
 		if l != nil && l.exited() {
 			return "", launchExited(l, "exited during boot")
 		}
 		if !time.Now().Before(deadline) {
-			return "", noSerialAppeared(avd)
+			return "", errNoSerial
 		}
-		devices, err := e.adb.Devices(ctx)
+		if serial := e.serialAppeared(ctx, avd, before, deadline); serial != "" {
+			return serial, nil
+		}
 		if cerr := ctx.Err(); cerr != nil {
 			return "", cerr
-		}
-		if err == nil {
-			for i := range devices {
-				d := devices[i]
-				if !device.IsEmulatorSerial(d.Device) || before[d.Device] {
-					continue
-				}
-				if e.adb.AvdName(ctx, d.Device) == avd {
-					return d.Device, nil
-				}
-			}
 		}
 		if err := sleepUntil(ctx, deadline); err != nil {
 			return "", err
 		}
 	}
+}
+
+// serialAppeared reads the device listing once, bounded by deadline, and returns the new
+// emulator serial whose `emu avd name` is avd, "" when none has yet. Both probes are
+// bounded as awaitReady's are, so a hanging adb cannot stretch the serial wait past its
+// bound. An unreadable listing is not an answer: it reports "" and the caller polls on.
+func (e *Emulator) serialAppeared(ctx context.Context, avd string, before map[string]bool, deadline time.Time) string {
+	pctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	devices, err := e.adb.Devices(pctx)
+	if err != nil {
+		return ""
+	}
+	for i := range devices {
+		d := devices[i]
+		if !device.IsEmulatorSerial(d.Device) || before[d.Device] {
+			continue
+		}
+		if e.adb.AvdName(pctx, d.Device) == avd {
+			return d.Device
+		}
+	}
+	return ""
 }
 
 // awaitReady polls `sys.boot_completed` every bootPollInterval until it is 1
@@ -223,12 +271,26 @@ func avdNotFound(avd string, names []string) *capability.Error {
 		WithNextStep("Call emulator.list for the AVD names the launcher knows.")
 }
 
-// noSerialAppeared is EMULATOR_BOOT_TIMEOUT for a boot whose serial never showed
-// (emulator.md §Failure modes: "No serial appears within the timeout").
-func noSerialAppeared(avd string) *capability.Error {
-	return capability.NewError(ErrBootTimeout, "no emulator for "+avd+" appeared").
-		WithCause("no new emulator serial appeared in adb devices within " + bootTimeout.String()).
-		WithNextStep("Run `emulator -avd " + avd + "` by hand to see whether it starts; its output is under emulator/ in the state directory.")
+// noSerialAppeared is EMULATOR_BOOT_TIMEOUT for a boot whose serial never showed within
+// the serial deadline (emulator.md §Failure modes: "No serial appears within the timeout";
+// ADR-0033 ¶3). Its cause names the launcher's pid, whether it was stopped, the time
+// waited and the launcher log's tail; its nextStep names the remedy, which differs between
+// a start and a wipe (plan m1m, Q1 ¶3).
+func noSerialAppeared(capabilityName, avd string, pid int, stopped bool, elapsed time.Duration, tail string) *capability.Error {
+	fate := "was stopped"
+	if !stopped {
+		fate = "could not be stopped; end its process by hand"
+	}
+	cause := "no new emulator serial answered as " + avd + " within " + serialTimeout.String() +
+		" (waited " + elapsed.Round(time.Millisecond).String() + "); the launcher pid " + strconv.Itoa(pid) + " " + fate
+	if tail != "" {
+		cause += "; its log ends: " + tail
+	}
+	err := capability.NewError(ErrBootTimeout, "no emulator for "+avd+" appeared").WithCause(cause)
+	if capabilityName == "emulator.wipe" {
+		return err.WithNextStep("The wipe may be partial: call emulator.wipe again, with headless: true if a windowed emulator may be waiting on a dialog nobody sees.")
+	}
+	return err.WithNextStep("Retry with headless: true — a windowed emulator can wait on a dialog nobody sees — and with coldBoot: true if its last instance did not shut down cleanly.")
 }
 
 // bootTimedOut is EMULATOR_BOOT_TIMEOUT for a device that appeared but never finished

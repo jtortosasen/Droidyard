@@ -16,7 +16,10 @@ Consequences:
 
 - The emulator is a **device process**, not a sidecar of ours
   ([process-lifecycle](../architecture/process-lifecycle.md)). We start and observe
-  it; we do not own its process tree.
+  it; we do not own its process tree **once its serial is resolved**. Before that, a
+  launch this daemon started is ours: a boot that ends without a serial (45 s serial
+  deadline, the boot timeout, a cancel, the daemon's shutdown) has its process group
+  sent `SIGTERM`, then `SIGKILL` after 5 s, so a hung launch never keeps the AVD ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)).
 - **Closing a workspace does not stop emulators**, and neither does stopping the
   daemon. They are expensive to boot and the user may well want them alive; stopping
   is explicit. This is a deliberate choice with a memory cost, and it mirrors the adb
@@ -125,7 +128,7 @@ zombies or tie the emulator to the daemon:
   status that detects "the launcher died before a device appeared". If the daemon exits
   first, the launcher is re-parented to init/launchd, which reaps it. No double fork is
   needed.
-- **Unsupervised on purpose**: no pid record (a record would get the emulator killed by
+- **Unsupervised on purpose** (after its serial resolves; before, see ADR-0033): no pid record (a record would get the emulator killed by
   the next daemon's crash recovery, and ADR-0021 excludes emulators), no Linux
   `Pdeathsig` — the one exception to [process-lifecycle](../architecture/process-lifecycle.md)'s
   "every child" rule — and no idle timeout. The working directory is the state root,
@@ -138,7 +141,7 @@ zombies or tie the emulator to the daemon:
 `emulator-<port>` serials only. Then wait, bounded (default 20 s), until the serial
 leaves `adb devices` and, when we launched it, the launcher's `Wait` returns. A timeout
 is an error naming the serial and the pid when known. We do not escalate to signals:
-the process is not ours.
+a running emulator is not ours (a launch is only before its serial resolves, [ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)).
 
 ## Wipe
 
@@ -204,7 +207,7 @@ AVD` line).
 | AVD name unknown | `EMULATOR_AVD_NOT_FOUND` | Lists the available AVD names |
 | Launcher exits before the device finished booting | `EMULATOR_LAUNCH_FAILED` | Exit status (from `Wait`) and the log tail |
 | AVD held by another instance | `EMULATOR_AVD_LOCKED` | Names the lock; `emulator.list` shows whether it is ours to adopt |
-| No serial appears within the timeout | `EMULATOR_BOOT_TIMEOUT` | Names the AVD and the elapsed time |
+| No serial resolves within the 45 s serial deadline | `EMULATOR_BOOT_TIMEOUT` | The launch is ended (its group `SIGTERM`, then `SIGKILL`), so the AVD is free; the cause names the pid, whether it was stopped, the time waited and the log's tail; the nextStep names `headless: true` and `coldBoot: true` (a wipe: call it again) ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)) |
 | Device appears but never finishes booting | `EMULATOR_BOOT_TIMEOUT` | Reports the serial and how long we waited; the emulator is stuck, not us |
 | `emulator.stop` on a physical device | `DEVICE_NOT_ALLOWED` | The policy hook refuses it first; an emulator reached over `ip:port` is `EMULATOR_NOT_AN_EMULATOR` |
 | Stop does not complete | `EMULATOR_STOP_TIMEOUT` | Serial and pid when known; no signal escalation |
@@ -217,8 +220,9 @@ configuration key exists.
 Booting is slow (tens of seconds to minutes for a cold boot). The default timeout is
 generous (180 s; a constant until a configuration key exists), and `start`/`wipe` are long-running
 ([ADR-0020](../adr/0020-operation-contract.md)): an MCP call returns an operation id
-after its wait budget. A **cancelled boot leaves the emulator running** (we do not own
-it) and simply stops waiting. That asymmetry is intentional and must be documented in
+after its wait budget. A boot cancelled **after** its serial resolved **leaves the
+emulator running** (we do not own it) and simply stops waiting; one cancelled before
+then has its launch ended ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)). That asymmetry is intentional and must be documented in
 the capability's description, so an agent does not assume cancellation killed the
 device.
 
@@ -262,5 +266,6 @@ Claims above that a machine with the SDK can confirm before they are relied on:
 - The default boot-flag set and how it is surfaced to the caller.
 - Whether to report emulator resource usage (the emulator's own memory settings) as
   part of `emulator.list`.
-- How to detect an emulator that is wedged (running but never booting) versus one
-  that is simply slow.
+- How to detect an emulator that is wedged after its serial resolved (listed but never
+  booting) versus one that is simply slow; before resolution the 45 s serial deadline
+  decides (ADR-0033; every boot observed listed within 2.6 s).

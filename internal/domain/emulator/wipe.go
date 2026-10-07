@@ -35,7 +35,7 @@ func registerWipe(reg *capability.Registry, e *Emulator) {
 		Since:        "0.8.0",
 		Availability: []capability.Requirement{capability.RequiresEmulator, capability.RequiresADB},
 		Description: "Factory-resets one AVD's user data and leaves it running. If the AVD is running (offline counts) it is stopped first with emu kill and its serial's release waited for, holding the boot key but not the device's write key and running no policy hook (unlike emulator.stop); then the launcher boots it detached with -wipe-data, output to <state>/emulator/<avd>.log, and the call returns {device, avd} once the new serial reports sys.boot_completed 1, bounded at 180 s. Adoption is skipped: this is a fresh boot of a wiped AVD. " +
-			"The emulator is not ours to own: it outlives this daemon, and no pid record is kept. Boots are serialised with emulator.start. Cancelling after the stop and before the boot leaves the AVD stopped and unwiped; cancelling after the boot has started stops waiting, leaves the emulator running and the wipe already applied. " +
+			"Until the wiped boot's serial is resolved the launch is droidyard's, as emulator.start's is: if the boot fails before then — the serial has not appeared within 45 s, the call is cancelled, or the daemon shuts down — the launch is ended (SIGTERM to its process group, then SIGKILL after 5 s) and the wipe may be partial, so call emulator.wipe again. From the resolution the emulator is not ours to own: it outlives this daemon, and no pid record is kept. Boots are serialised with emulator.start. Cancelling after the stop and before the boot leaves the AVD stopped and unwiped; cancelling after the serial is resolved stops waiting and leaves the emulator running with the wipe already applied. " +
 			"Fails with DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED (including a kill adb refused), DEVICE_DISCONNECTED, EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, EMULATOR_STOP_TIMEOUT when the running instance does not stop, and REQUEST_INVALID_PARAMS for a name that is not a bare AVD name; behind another boot it waits, queued.",
 		Params: WipeParams{},
 		Result: WipeResult{},
@@ -92,7 +92,7 @@ func (e *Emulator) wipe(ctx context.Context, call *capability.Call) (WipeResult,
 	}
 
 	deadline := time.Now().Add(bootTimeout)
-	booted, err := e.boot(ctx, res.Path, p.Avd, wipeFlags(p), deadline)
+	booted, err := e.boot(ctx, "emulator.wipe", res.Path, p.Avd, wipeFlags(p), deadline)
 	if err != nil {
 		return WipeResult{}, err
 	}

@@ -41,8 +41,8 @@ func registerStart(reg *capability.Registry, e *Emulator) {
 		Idempotent:   true,
 		Since:        "0.8.0",
 		Availability: []capability.Requirement{capability.RequiresEmulator, capability.RequiresADB},
-		Description: "Boots one AVD and returns {device, avd, adopted} once its device reports sys.boot_completed 1. If the AVD is already running it is adopted: adopted is true, nothing is spawned, and the call still waits for readiness. Otherwise the launcher is started detached — a session and process group of its own, output to <state>/emulator/<avd>.log — and the serial it creates is found by difference and its `emu avd name`, then polled every second until boot completes, bounded at 180 s. The emulator is not ours to own: it outlives this daemon, and no pid record is kept. " +
-			"Boots are serialised: a second emulator.start or emulator.wipe runs behind the first as a queued operation, and once the first finishes it adopts the AVD. Cancelling a boot stops waiting and leaves the emulator running. A timeout is EMULATOR_BOOT_TIMEOUT. " +
+		Description: "Boots one AVD and returns {device, avd, adopted} once its device reports sys.boot_completed 1. If the AVD is already running it is adopted: adopted is true, nothing is spawned, and the call still waits for readiness. Otherwise the launcher is started detached — a session and process group of its own, output to <state>/emulator/<avd>.log — and the serial it creates is found by difference and its `emu avd name`, then polled every second until boot completes, bounded at 180 s. Until that serial is resolved the launch is droidyard's, and the boot is ended if it fails before then — the serial has not appeared within 45 s, the call is cancelled, or the daemon shuts down — with SIGTERM to the launch's process group, then SIGKILL after 5 s. From the resolution the emulator is not ours to own: it outlives this daemon, and no pid record is kept. " +
+			"Boots are serialised: a second emulator.start or emulator.wipe runs behind the first as a queued operation, and once the first finishes it adopts the AVD. Cancelling a boot after its serial is resolved stops waiting and leaves the emulator running. A serial that does not appear within 45 s is EMULATOR_BOOT_TIMEOUT, whose cause names the launcher's pid, whether it was stopped and its log's tail; a device that appears but never finishes booting is EMULATOR_BOOT_TIMEOUT too. " +
 			"The AVD is looked up in emulator -list-avds first, so an AVD the launcher does not know is EMULATOR_AVD_NOT_FOUND; a launcher that refuses a second instance is EMULATOR_AVD_LOCKED, and one that exits before the device finished booting (the log tail carries why) EMULATOR_LAUNCH_FAILED. " +
 			"Fails with DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED, DEVICE_DISCONNECTED (an adopted device that left), EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, and REQUEST_INVALID_PARAMS for a name that is not a bare AVD name; behind another boot it waits, queued.",
 		Params: StartParams{},
@@ -101,7 +101,7 @@ func (e *Emulator) start(ctx context.Context, call *capability.Call) (StartResul
 
 	// 2–6. Snapshot, spawn, resolve and wait.
 	started := time.Now()
-	serial, err := e.boot(ctx, res.Path, p.Avd, startFlags(p), deadline)
+	serial, err := e.boot(ctx, "emulator.start", res.Path, p.Avd, startFlags(p), deadline)
 	if err != nil {
 		return StartResult{}, err
 	}

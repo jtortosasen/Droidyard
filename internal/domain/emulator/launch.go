@@ -2,6 +2,7 @@ package emulator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -73,6 +74,48 @@ func (l *launch) getSerial() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.serial
+}
+
+// end ends a launch whose serial this daemon has not resolved (ADR-0033 ¶1; plan m1m,
+// Q1 ¶1): SIGTERM to the process group step 1 found (pgid = the launch's pid under
+// Setsid, the pid the qemu itself), SIGKILL if the group is not empty after endGrace, and
+// it waits until the group is empty — not only until the launcher's reaper returned,
+// which says nothing about a process the launcher left behind. It reports whether the
+// group emptied. It takes no context: it must run even when the call's context is already
+// cancelled (a cancel or the daemon's shutdown), and its own two graces bound it, so it
+// cannot outlast the daemon's shutdown bound. A launch whose group is already empty is a
+// no-op. It is never called once a serial is resolved: a resolved emulator is a device and
+// is not ours to signal (ADR-0033 ¶2).
+func (l *launch) end() bool {
+	if l == nil || groupGone(l.pid) {
+		return true
+	}
+	_ = syscall.Kill(-l.pid, syscall.SIGTERM)
+	if waitGroupGone(l.pid, endGrace) {
+		return true
+	}
+	_ = syscall.Kill(-l.pid, syscall.SIGKILL)
+	return waitGroupGone(l.pid, endKillGrace)
+}
+
+// groupGone is whether the process group pgid holds no process we could signal:
+// `kill(-pgid, 0)` answering ESRCH. Any other answer — success, or a permission error that
+// means a process is there — is "not empty".
+func groupGone(pgid int) bool {
+	return errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH)
+}
+
+// waitGroupGone polls groupGone until it answers true or d passes, and returns the last
+// answer.
+func waitGroupGone(pgid int, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		gone := groupGone(pgid)
+		if gone || !time.Now().Before(deadline) {
+			return gone
+		}
+		time.Sleep(endPollInterval)
+	}
 }
 
 // logPath is where an AVD's launcher output goes: `<state>/emulator/<avd>.log`

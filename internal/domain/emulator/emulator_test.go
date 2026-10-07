@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -100,7 +101,9 @@ func newFixture(t *testing.T, adbFiles map[string]string, envExtra ...string) *f
 }
 
 // killLaunchers ends every launcher the fixture started, so a test that cancels a boot
-// (which leaves the emulator running on purpose) still cleans up.
+// (which leaves the emulator running on purpose) still cleans up. A fake launcher that
+// forked a child in its group (`.launch.child`) left it behind if the test never ended the
+// launch: kill it here too, or it sleeps for an hour.
 func (f *fixture) killLaunchers() {
 	f.em.mu.Lock()
 	launches := make([]*launch, 0, len(f.em.launches))
@@ -112,7 +115,80 @@ func (f *fixture) killLaunchers() {
 		if p, err := os.FindProcess(l.pid); err == nil {
 			p.Kill()
 		}
+		if pid := f.readChildPid(l.avd); pid > 0 {
+			if p, err := os.FindProcess(pid); err == nil {
+				p.Kill()
+			}
+		}
 	}
+}
+
+// readChildPid is the pid a fake launcher with `.launch.child` recorded, 0 when none.
+func (f *fixture) readChildPid(avd string) int {
+	b, err := os.ReadFile(filepath.Join(f.ldir, avd+".child.pid"))
+	if err != nil {
+		return 0
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return pid
+}
+
+// awaitLaunch waits until the fixture has a launch for avd and returns it, so a test can
+// see a boot that has not resolved its serial yet.
+func (f *fixture) awaitLaunch(t *testing.T, avd string) *launch {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if l := f.em.launchFor(avd); l != nil {
+			return l
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("no launch for %s", avd)
+	return nil
+}
+
+// awaitChildPid waits until the fake launcher recorded its forked child's pid.
+func (f *fixture) awaitChildPid(t *testing.T, avd string) int {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if pid := f.readChildPid(avd); pid > 0 {
+			return pid
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("no child pid recorded for %s", avd)
+	return 0
+}
+
+// awaitFile waits until the fake launcher wrote name in its scenario directory, so a test
+// acts only once a SIGTERM handler is in effect (a launcher the fake would ignore).
+func (f *fixture) awaitFile(t *testing.T, name string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(f.ldir, name)); err == nil {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("the launcher never wrote %s", name)
+}
+
+// awaitDead waits until a pid is gone (signal 0 reaches nothing), so an assertion that a
+// process ended does not race the OS reaping it. A pid that is still there at the bound
+// fails the test.
+func awaitDead(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !alive(pid) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Errorf("pid %d is still alive", pid)
 }
 
 // startFixture boots the fake's AVD from stopped: the launcher lists it, boots at once
@@ -165,12 +241,30 @@ func mustWipe(t *testing.T, out capability.Outcome) WipeResult {
 	return r
 }
 
-// scaleBoot shrinks the boot bound and poll so a test runs in milliseconds.
+// scaleBoot shrinks the boot bound and poll so a test runs in milliseconds. It also scales
+// the serial deadline (to the boot bound, which is the earlier of the two) and the two
+// graces `end` waits, so a test that ends a launch does not wait 45 s or 10 s
+// (plan m1m, Q1 ¶1, ¶3).
 func scaleBoot(t *testing.T, timeout, poll time.Duration) {
 	t.Helper()
-	bt, bp := bootTimeout, bootPollInterval
+	bt, bp, st, eg, ekg := bootTimeout, bootPollInterval, serialTimeout, endGrace, endKillGrace
 	bootTimeout, bootPollInterval = timeout, poll
-	t.Cleanup(func() { bootTimeout, bootPollInterval = bt, bp })
+	serialTimeout = timeout
+	endGrace, endKillGrace = 200*time.Millisecond, 200*time.Millisecond
+	t.Cleanup(func() {
+		bootTimeout, bootPollInterval, serialTimeout = bt, bp, st
+		endGrace, endKillGrace = eg, ekg
+	})
+}
+
+// scaleSerial shrinks the serial deadline alone, so a test can make it fire well before the
+// boot bound and assert which one the boot ended on (plan m1m, Q1 ¶3). It must follow
+// scaleBoot, whose cleanup restores the boot-scoped value first.
+func scaleSerial(t *testing.T, d time.Duration) {
+	t.Helper()
+	s := serialTimeout
+	serialTimeout = d
+	t.Cleanup(func() { serialTimeout = s })
 }
 
 // alive reports whether a pid is still there (signal 0 reached it).

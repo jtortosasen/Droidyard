@@ -58,40 +58,44 @@ func recordedPIDs(t *testing.T, state string) []int {
 	return pids
 }
 
-// TestDaemonStopLeavesTheEmulatorOutsideIt: whether the boot is still in flight or
-// finished, `droidyard stop` ends the daemon and leaves the fake launcher running, in a
-// session of its own, with no pid record (plan m1i step 5 check; emulator.md §Detached
-// launch; plan m1i D15 — process-lifecycle.md's one exception). A launcher started
-// through Supervisor.Spawn and recorded like adb would fail all three: it would die with
-// the daemon's group.
-func TestDaemonStopLeavesTheEmulatorOutsideIt(t *testing.T) {
+// TestDaemonStopAndTheEmulatorLaunch: `droidyard stop` ends a boot whose serial is not yet
+// resolved and leaves one it has resolved running, in a session of its own, with no pid
+// record (ADR-0033 ¶1–2; emulator.md §Detached launch; plan m1i D15 — process-lifecycle.md's
+// one exception). The boundary is resolution, not readiness: the daemon owns the launch
+// until a new serial answers `emu avd name`, so a stop before then ends it, and once it is
+// resolved the emulator is a device the daemon must not signal — it outlives the daemon
+// whether or not it has finished booting. A launcher started through Supervisor.Spawn and
+// recorded like adb would fail the surviving cases: it would die with the daemon's group.
+func TestDaemonStopAndTheEmulatorLaunch(t *testing.T) {
 	t.Parallel()
 	const avd = "droidyard_m1i"
 	for _, tc := range []struct {
-		name    string
-		midBoot bool
+		name     string
+		resolved bool // the boot's serial is resolved before the stop
+		ready    bool // sys.boot_completed reaches 1 before the stop
 	}{
-		{"mid-boot", true},
-		{"after a boot", false},
+		{"before the serial is resolved", false, false},
+		{"after the serial is resolved, still booting", true, false},
+		{"after a boot", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			polls := 0
-			if tc.midBoot {
+			if !tc.ready {
 				polls = 1 << 20 // sys.boot_completed stays 0 for this test's lifetime
 			}
 			d := startEmulatorDaemon(t, avd, polls)
+			if !tc.resolved {
+				// `emu avd name` never answers, so the boot's serial is never resolved and
+				// the stop lands inside the window droidyard owns (ADR-0033 ¶1).
+				devicetest.Write(t, d.adb, emulatorSerial+".avd.hang", []byte("1"))
+			}
 
-			params := `{"avd":"` + avd + `"}`
-			if tc.midBoot {
-				// --detach returns while the boot runs inside the daemon, so the stop
-				// below lands mid-boot.
-				call := droidyard(t, d.state, "call", "--no-autostart", "--detach", "emulator.start", "--params", params)
-				if code := call.wait(t); code != 0 {
-					t.Fatalf("the detached start exited %d: %s", code, call.stderr.String())
-				}
-			} else if env, code := callIn(t, d.state, "", "emulator.start", "--params", params); code != 0 {
-				t.Fatalf("emulator.start exited %d: %+v", code, env.Error)
+			// --detach returns while the boot runs inside the daemon, so the stop below
+			// lands while it is still in flight.
+			call := droidyard(t, d.state, "call", "--no-autostart", "--detach", "emulator.start", "--params", `{"avd":"`+avd+`"}`)
+			if code := call.wait(t); code != 0 {
+				t.Fatalf("the detached start exited %d: %s", code, call.stderr.String())
 			}
 
 			// The launcher is a process of its own; wait for the boot it registered.
@@ -100,6 +104,15 @@ func TestDaemonStopLeavesTheEmulatorOutsideIt(t *testing.T) {
 				pid = devicetest.EmulatorPID(d.adb, emulatorSerial)
 				return pid > 0
 			})
+			if tc.resolved {
+				// The daemon resolves the serial only after a readiness poll, and the fake
+				// counts those in <serial>.polls: the file appearing proves resolution, so
+				// the stop lands after it (ADR-0033 ¶2).
+				eventually(t, "the boot resolves its serial", func() bool {
+					_, err := os.Stat(filepath.Join(d.adb, emulatorSerial+".polls"))
+					return err == nil
+				})
+			}
 			daemonSid, err := syscall.Getsid(d.srv.cmd.Process.Pid)
 			if err != nil {
 				t.Fatalf("the daemon's session: %v", err)
@@ -111,14 +124,22 @@ func TestDaemonStopLeavesTheEmulatorOutsideIt(t *testing.T) {
 			}
 			d.srv.wait(t)
 
-			if left := before.survivors(); len(left) != 1 {
-				t.Errorf("after stop the launcher (pid %d) is gone; an emulator outlives the daemon (emulator.md §Detached launch)", pid)
+			// The daemon's shutdown ends a launch it still owns; a resolved one is a device
+			// and outlives it (ADR-0033 ¶1–2).
+			if left := before.survivors(); !tc.resolved {
+				if len(left) != 0 {
+					t.Errorf("after stop the launcher (pid %d) is alive; a boot whose serial was not resolved is ended by the daemon's shutdown (ADR-0033 ¶1)", pid)
+				}
+			} else if len(left) != 1 {
+				t.Errorf("after stop the launcher (pid %d) is gone; a resolved emulator outlives the daemon (emulator.md §Detached launch)", pid)
 			}
 			if recs := recordedPIDs(t, d.state); slices.Contains(recs, pid) {
 				t.Errorf("processes.json records the launcher's pid: %v; the emulator is the one child that is not the daemon's", recs)
 			}
-			if sid, err := syscall.Getsid(pid); err != nil || sid == daemonSid {
-				t.Errorf("the launcher's session is %d (err %v); want one of its own, not the daemon's %d", sid, err, daemonSid)
+			if tc.resolved {
+				if sid, err := syscall.Getsid(pid); err != nil || sid == daemonSid {
+					t.Errorf("the launcher's session is %d (err %v); want one of its own, not the daemon's %d", sid, err, daemonSid)
+				}
 			}
 		})
 	}
