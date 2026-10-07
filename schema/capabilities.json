@@ -4807,7 +4807,11 @@
               },
               "complete": {
                 "type": "boolean",
-                "description": "True only when the probe read every Android module's compile target and build-tools."
+                "description": "True only when the probe read every Android module's compile target and build-tools from a current model."
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "True when a build holds the project and its build files changed since the model was read: the answer comes from the cached model and complete is false; ask again once the build ends."
               },
               "projectSdk": {
                 "properties": {
@@ -4904,6 +4908,8 @@
             "type": "object",
             "required": [
               "source",
+              "complete",
+              "stale",
               "projectSdk",
               "hostSdk",
               "required",

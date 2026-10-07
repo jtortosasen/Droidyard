@@ -56,7 +56,9 @@ Further, on C1:
   dependencies of task ':app:compileFreeProdDebugJavaWithJavac'.` and the cause
   `Failed to find target with hash string 'android-33' in: <sdk>` (recorded in
   `internal/domain/build/testdata/s3/missing-platform.assemble.txt`). So `sdk.requirements`
-  can name a missing platform before any build, from the probe's compile target.
+  can name a missing platform before any build, from the probe's compile target. The
+  same on C2 (AGP 9.4.1, Gradle 9.6.0): configuration passes with and without the init
+  script, the probe reads `android-33`, and the build fails with the same text.
 - **G8, flavoured outputs.** After `:app:assemblePaidStagingDebug`,
   `outputs/apk/paidStaging/debug/output-metadata.json` (depth 2) names
   `variantName: paidStagingDebug`, `applicationId: dev.droidyard.flavoured.paid.staging`
@@ -89,4 +91,4 @@ three embedded jars, the init script beside the probe jar), on the DopamineContr
 ## Not run
 
 Isolated Projects, composite builds,
-Linux, AGP 9's newest previews.
+Linux, AGP 9's newest previews, `ANDROID_HOME` and `ANDROID_SDK_ROOT` disagreeing.

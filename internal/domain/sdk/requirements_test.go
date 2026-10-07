@@ -14,18 +14,21 @@ import (
 // fakeClient is the project Client sdk.requirements' handler sees: a fixed model.
 type fakeClient struct {
 	model gradle.Model
+	stale bool
 	err   error
 }
 
 func (f fakeClient) Model(context.Context, string) (gradle.Model, bool, error) {
-	return f.model, false, f.err
+	return f.model, f.stale, f.err
 }
 
 // runRequirements calls sdk.requirements' registered handler with Authorize already run
 // (the root in Call.Authorized, as the scheduler leaves it) over the given model.
 func runRequirements(t *testing.T, o Options, model gradle.Model, root string) RequirementsResult {
 	t.Helper()
-	o.Client = fakeClient{model: model}
+	if o.Client == nil {
+		o.Client = fakeClient{model: model}
+	}
 	reg := capability.NewRegistry()
 	Register(reg, o)
 	d, ok := reg.Lookup("sdk.requirements")
@@ -347,5 +350,17 @@ func TestRequirementsProbeDirectoryThatDoesNotExistIsNotFound(t *testing.T) {
 	}
 	if anyNote(r.Notes, "--sdk_root") {
 		t.Errorf("an sdkmanager command names a directory that does not exist: %v", r.Notes)
+	}
+}
+
+// Decision (close review): a stale model (a build holds the root and the build files
+// changed) is published as stale and never complete, so an edit made during a build is
+// not answered from the old model as if checked. Seen failing when stale was dropped.
+func TestRequirementsFromAStaleModelAreNotComplete(t *testing.T) {
+	sdk := t.TempDir()
+	m := androidModel("android-36", "35.0.0", sdk)
+	r := runRequirements(t, Options{Client: fakeClient{model: m, stale: true}}, m, t.TempDir())
+	if !r.Stale || r.Complete {
+		t.Fatalf("stale model: stale %v complete %v, want stale and incomplete", r.Stale, r.Complete)
 	}
 }
