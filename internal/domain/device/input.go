@@ -35,11 +35,15 @@ const (
 
 var (
 	// inputTypeBound is D13's typing slot: clear, typing and submit end by the before
-	// phase's end + inputTypeBound.
-	inputTypeBound = 3 * time.Second
+	// phase's end + inputTypeBound. 10 s (it was 3): on a fresh, memory-pressed scratch
+	// emulator one `input text` took over 5 s and the typing failed before a character
+	// landed (plan m1m step 6, run dy5); 14 + 10 s still leaves the verification its
+	// share of the 37 s running bound.
+	inputTypeBound = 10 * time.Second
 	// inputCommandTimeout bounds one `input`/`am broadcast` command. Each starts a JVM
-	// (~0.65 s idle on Pixel_9a); under load one took over 3 s (level 5, step 9).
-	inputCommandTimeout = 5 * time.Second
+	// (~0.65 s idle on Pixel_9a); under load one took over 3 s (level 5, step 9) and
+	// over 5 s on a fresh scratch emulator (plan m1m step 6), so 15 s.
+	inputCommandTimeout = 15 * time.Second
 	// inputMethodTimeout bounds the `settings get secure default_input_method` check.
 	inputMethodTimeout = 3 * time.Second
 )
