@@ -3,6 +3,7 @@ package device
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/reader"
 )
@@ -32,6 +34,24 @@ import (
 var (
 	// readerStartBound bounds the start command and the pings after it.
 	readerStartBound = 8 * time.Second
+	// readerActBoundBase is the device-side bound of a `tap` or a `settext`, and the base of
+	// a `keys` bound (ADR-0035 §1; plan m1n step 4). It is DroidyardReader's
+	// ACT_BOUND_BASE_MS: the two must agree, and readerActDeviceBound computes the same
+	// formula on the host.
+	readerActBoundBase = 2500 * time.Millisecond
+	// readerActBoundPerChar is the extra device-side bound a `keys` gets for each character
+	// of its text: keys injected one by one, synchronously, cost about 65–75 ms each at level 5 (plan m1n
+	// step 4, fix round), with margin. It is DroidyardReader's ACT_BOUND_PER_KEY_MS.
+	readerActBoundPerChar = 100 * time.Millisecond
+	// readerActBoundCap caps the device-side bound of one acting request, so a huge `keys`
+	// does not hold the acting thread indefinitely. It is DroidyardReader's
+	// ACT_BOUND_CAP_MS.
+	readerActBoundCap = 60 * time.Second
+	// readerActMargin is how far the host's bound sits above the device's (ADR-0035 §1;
+	// plan m1n step 4), so the reader's own `timeout` answer reaches the client instead of
+	// the client giving up first and reporting an unanswered request — one that may have
+	// applied — for a request the device had already bounded.
+	readerActMargin = 1500 * time.Millisecond
 	// warmReadTimeout bounds one dump over the forward.
 	warmReadTimeout = 4 * time.Second
 	// readerForwardTimeout bounds `adb forward tcp:0 ...`.
@@ -67,6 +87,10 @@ const (
 	readerIdleSeconds = 1800
 	// readerNamePrefix names the reader's abstract socket and its process.
 	readerNamePrefix = "droidyard-reader-"
+	// actOutputCap bounds one acting request's answer. It is far above what a `done` line
+	// carries (a field's text base64), so a truncated answer means the reader sent
+	// something that was not an answer.
+	actOutputCap = 1 << 16
 	// oneShotWarning starts the warnings[] entry of a read that fell back to the
 	// one-shot reader because the persistent reader could not run (plan m1f, D3). The
 	// persistent reader's reason follows it.
@@ -337,6 +361,262 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	resp, truncated, readErr := readLimited(conn, dumpOutputCap)
 	a.logWarmRead(t.serial, time.Since(warmStart))
 	return classifyReader(resp, truncated, readErr)
+}
+
+// readerActKind is what an acting request (ADR-0035 §1) did. The distinction is the
+// contract's: whether anything was executed decides whether the caller may act again
+// (ADR-0035 §3).
+type readerActKind int
+
+const (
+	// readerActDone: the reader executed the request. readBack carries the field's text
+	// when the request read one back (`done <base64>`), and is empty otherwise.
+	readerActDone readerActKind = iota
+	// readerActRefused: the reader refused the request before executing anything, and named
+	// the reason in refusal (ADR-0035 §1; plan m1n step 4, fix round N3). Whether another
+	// delivery method is allowed depends on that reason: only refusalSetText — a set-text
+	// the node would not take — is one the caller may answer with `keys` (ADR-0035 §3).
+	readerActRefused
+	// readerActBusy: the device's single acting thread was out, and the busy answer came
+	// before anything was executed (ADR-0035 §1). The call fails DEVICE_NOT_READY.
+	readerActBusy
+	// readerActUnanswered: the request was taken and no definitive answer came (a timeout,
+	// an EOF, the reader's own bound passing after execution began, or an answer this
+	// client cannot trust). It may have applied: the call completes with a warning and
+	// nothing else is tried (ADR-0035 §3).
+	readerActUnanswered
+)
+
+// readerRefusal is why the reader refused an acting request before executing anything
+// (ADR-0035 §1, §3; plan m1n step 4, fix round N3). Only refusalSetText is a refusal the
+// caller may answer with another delivery method (`keys`); the rest — a malformed or
+// unterminated request, a line over the cap, no focused field, unmappable keys — are not,
+// and a refusal the reader did not name a reason for is refusalOther, treated the same way.
+type readerRefusal int
+
+const (
+	refusalOther readerRefusal = iota
+	refusalSetText
+	refusalMalformed
+	refusalUnterminated
+	refusalTooLong
+	refusalNoFocus
+	refusalUnmappable
+)
+
+// readerRefusalToken maps the token the reader writes after `refused` to its kind
+// (DroidyardReader's refusal lines: `refused settext`, `refused malformed`,
+// `refused unterminated`, `refused too-long`, `refused no-focus`, `refused unmappable`; plan
+// m1n step 4, fix round N3). An unrecognised token is refusalOther, which never enables
+// another method.
+func readerRefusalToken(token string) readerRefusal {
+	switch token {
+	case "settext":
+		return refusalSetText
+	case "malformed":
+		return refusalMalformed
+	case "unterminated":
+		return refusalUnterminated
+	case "too-long":
+		return refusalTooLong
+	case "no-focus":
+		return refusalNoFocus
+	case "unmappable":
+		return refusalUnmappable
+	}
+	return refusalOther
+}
+
+// readerAct is one acting request's outcome. readBack is the focused field's text as the
+// reader read it back, for the kinds that carry one. refusal says why a refusal happened
+// (readerActRefused). reason explains an unanswered answer this client understood but did
+// not trust (plan m1n step 4, fix round N8). line is the reader's own answer line, which is
+// device output: a caller that quotes it marks it untrusted.
+type readerAct struct {
+	kind     readerActKind
+	readBack string
+	refusal  readerRefusal
+	reason   string
+	line     string
+}
+
+// readerActDeviceBound is the device-side bound the reader applies to an acting request
+// (DroidyardReader.actBoundMs, the one shared formula; ADR-0035 §1; plan m1n step 4): the
+// base for a `tap` or a `settext`, the base plus a per-character allowance for `keys`,
+// capped. chars is the request's text length in characters.
+func readerActDeviceBound(chars int) time.Duration {
+	b := readerActBoundBase + time.Duration(chars)*readerActBoundPerChar
+	if b > readerActBoundCap {
+		b = readerActBoundCap
+	}
+	return b
+}
+
+// readerActHostBound bounds one acting request over the forward: the device bound plus
+// readerActMargin, so a `timeout` the reader answers at its own bound reaches the client
+// with margin instead of being cut off as an unanswered request (ADR-0035 §1; plan m1n step
+// 4). chars is the request's text length in characters (0 for a `tap` or a `settext`).
+func readerActHostBound(chars int) time.Duration {
+	return readerActDeviceBound(chars) + readerActMargin
+}
+
+// readerFenceError is the error an acting request answered `denied` returns (ADR-0035 §2):
+// the peer's uid is not adbd's (0 or 2000), so the reader's fence refused the request
+// before it executed anything. Nothing ran, so another delivery method is allowed
+// (ADR-0035 §3).
+func readerFenceError(uid string) error {
+	if uid == "" {
+		return errors.New("the reader denied the acting request: the connecting peer's uid is not adbd's (0 or 2000), so its uid fence refused it and nothing ran")
+	}
+	return fmt.Errorf("the reader denied the acting request: the connecting peer's uid is %s, not adbd's (0 or 2000), so its uid fence refused it and nothing ran", uid)
+}
+
+// actOnReader sends one acting request (ADR-0035 §1) to a device's persistent reader over
+// its forward and classifies the answer. The caller holds the device's read lock (c), as
+// it does for a read: the lock and the reader's own single acting thread are the two
+// layers that keep one device's acts from overlapping. bound is the host's bound on the
+// request (readerActHostBound), which sits above the reader's own device-side bound.
+//
+// A non-nil error means nothing was executed, so the caller may use another delivery
+// method (ADR-0035 §3): the reader could not be reached, or the fence answered `denied`.
+// With a nil error the kind says what happened: readerActDone executed it, readerActRefused
+// executed nothing (refusal says whether another method answers it), readerActBusy means
+// another act was out (fail DEVICE_NOT_READY without acting), and readerActUnanswered means
+// it may have applied (complete the call with a warning and try nothing else).
+func (a *ADB) actOnReader(ctx context.Context, t *target, c *readerClient, request string, bound time.Duration) (readerAct, error) {
+	end := time.Now().Add(dumpDeadline)
+	if d, ok := ctx.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+	if ok, why := a.ensureReader(ctx, t, c, end); !ok {
+		return readerAct{}, fmt.Errorf("the persistent UI reader could not run: %s", why)
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return readerAct{}, cerr
+	}
+	port := c.portValue()
+	if port == "" {
+		return readerAct{}, errors.New("the persistent UI reader's forward is gone")
+	}
+	deadline := time.Now().Add(bound)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), bound)
+	if err != nil {
+		// Nothing was sent, so this is not the may-have-applied case: the caller may use
+		// another delivery method. The reader is not restarted here — an acting request
+		// sits inside an action's phase, and the fallback needs no reader; the next read
+		// reconciles the forward (plan m1f step 7).
+		return readerAct{}, fmt.Errorf("the reader's forward did not answer: %w", err)
+	}
+	defer conn.Close()
+	// As for a read: a call blocked on its connection deadline must still stop when the
+	// caller's context ends.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	conn.SetDeadline(deadline)
+	if _, err := io.WriteString(conn, request+"\n"); err != nil {
+		// The request may have reached the reader in part, so whether it ran is unknown:
+		// the honest answer is that it may have applied, never that nothing ran.
+		return readerAct{kind: readerActUnanswered}, nil
+	}
+	resp, _, _ := readLimited(conn, actOutputCap)
+	return classifyAct(resp)
+}
+
+// classifyAct reads the reader's answer to an acting request (ADR-0035 §1): `denied
+// <uid>`, `refused <reason>`, `busy`, `done [<base64 text>]` or `timeout <ms>
+// [<exception>]`. Anything else — a reader line it does not know, a partial line, or no
+// line at all, because the connection timed out or ended — is unanswered: the request was
+// taken, so it may have applied. A `done` whose read-back is not base64 is unanswered too:
+// the request ran, so it may have applied, and the reason says why the answer was not
+// trusted (plan m1n step 4, fix round N8). Nothing but a `denied`, which returns an error,
+// ever reports that nothing ran.
+func classifyAct(resp []byte) (readerAct, error) {
+	line := strings.TrimSpace(string(resp))
+	rest, found := strings.CutPrefix(line, readerPrefix)
+	if found {
+		fields := strings.Fields(rest)
+		if len(fields) > 0 {
+			switch fields[0] {
+			case "denied":
+				uid := ""
+				if len(fields) > 1 {
+					uid = fields[1]
+				}
+				return readerAct{}, readerFenceError(uid)
+			case "refused":
+				refusal := refusalOther
+				if len(fields) > 1 {
+					refusal = readerRefusalToken(fields[1])
+				}
+				return readerAct{kind: readerActRefused, refusal: refusal, line: line}, nil
+			case "busy":
+				return readerAct{kind: readerActBusy, line: line}, nil
+			case "done":
+				if len(fields) == 1 {
+					// `done` with no read-back: the request ran and the field read empty.
+					return readerAct{kind: readerActDone, line: line}, nil
+				}
+				text, err := base64.StdEncoding.DecodeString(fields[1])
+				if err != nil {
+					return readerAct{kind: readerActUnanswered, line: line,
+						reason: "the reader's done line carried a read-back that is not base64"}, nil
+				}
+				return readerAct{kind: readerActDone, readBack: string(text), line: line}, nil
+			case "timeout":
+				// `timeout <ms>` or `timeout <ms> <exception>`: the request was taken and the
+				// bound passed, or a pre-execution error ended it; either way it may have
+				// applied, so it is unanswered, never a refusal (ADR-0035 §1, §3; plan m1n
+				// step 4, fix round N6).
+				return readerAct{kind: readerActUnanswered, line: line}, nil
+			case "unknown":
+				// A reader line this client does not know: the request was taken, so it may
+				// have applied (plan m1n step 4, fix round B2).
+				return readerAct{kind: readerActUnanswered, line: line}, nil
+			}
+		}
+	}
+	return readerAct{kind: readerActUnanswered}, nil
+}
+
+// actTap taps at a display pixel through the reader (ADR-0035 §1): `tap <x> <y>`. Its host
+// bound is the base: a tap carries no text.
+func (a *ADB) actTap(ctx context.Context, t *target, c *readerClient, x, y int) (readerAct, error) {
+	return a.actOnReader(ctx, t, c, fmt.Sprintf("tap %d %d", x, y), readerActHostBound(0))
+}
+
+// actKeys types text as key events through the reader (ADR-0035 §1): `keys <base64>`. The
+// text is base64 so a space or a newline in it cannot split the request line. Its host bound
+// grows with the text's length, as the reader's device-side bound does (plan m1n step 4).
+func (a *ADB) actKeys(ctx context.Context, t *target, c *readerClient, text string) (readerAct, error) {
+	return a.actOnReader(ctx, t, c, "keys "+base64Text(text), readerActHostBound(utf8.RuneCountInString(text)))
+}
+
+// actSetText sets the focused field's text through the reader (ADR-0035 §1): `settext
+// <replace|insert> <base64>`. replace is `clear` or an explicit set; insert is the default
+// (the text goes in at the selection). Its host bound is the base: a set-text is one
+// ACTION_SET_TEXT, not a key per character.
+func (a *ADB) actSetText(ctx context.Context, t *target, c *readerClient, replace bool, text string) (readerAct, error) {
+	mode := "insert"
+	if replace {
+		mode = "replace"
+	}
+	return a.actOnReader(ctx, t, c, "settext "+mode+" "+base64Text(text), readerActHostBound(0))
+}
+
+// actSubmit presses enter through the reader (ADR-0035 §1; plan m1n step 4): `keys` of a
+// newline, which the virtual keyboard maps to KEYCODE_ENTER.
+func (a *ADB) actSubmit(ctx context.Context, t *target, c *readerClient) (readerAct, error) {
+	return a.actKeys(ctx, t, c, "\n")
+}
+
+// base64Text encodes a request's text argument (ADR-0035 §1): the reader's line is split
+// on spaces, so the text travels base64 and a space, a newline or a non-ASCII character in
+// it cannot break the request into the wrong number of arguments.
+func base64Text(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
 // ensureReader makes a device's reader reachable: reconcile the forward on the client's

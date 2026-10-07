@@ -51,7 +51,8 @@ func (l *ReaderLog) Max() int {
 
 // FakeReader is an in-process stand-in for the persistent UI reader (ADR-0030, D2): a
 // TCP listener the fake adb's forward points at. Each connection carries one request
-// (`ping`, `dump`, `quit`); each dump takes the next scripted document, ReaderGone closes
+// (`ping`, `dump` and its `idle` form, `quit`, and the acting verbs `tap`, `keys` and
+// `settext` of ADR-0035 §1); each dump takes the next scripted document, ReaderGone closes
 // the connection without writing, and the last document repeats. Each connection is
 // handled in its own goroutine, so a client that sends two at once is seen to.
 type FakeReader struct {
@@ -76,6 +77,13 @@ type FakeReader struct {
 	// (plan m1f step 7).
 	dumpStalls int
 	starts     []time.Time
+	// acts is every acting request (tap, keys, settext) the reader received, in order,
+	// with its newline only: a test asserts the client's encoding (ADR-0035 §1).
+	acts []string
+	// actAnswers scripts the answer to forthcoming acting requests, in order, the last
+	// one repeating; see SetActAnswers.
+	actAnswers []string
+	actNext    int
 	once       sync.Once
 	wg         sync.WaitGroup
 }
@@ -161,6 +169,26 @@ func (r *FakeReader) DumpStarts() []time.Time {
 	return append([]time.Time(nil), r.starts...)
 }
 
+// SetActAnswers scripts the answer to forthcoming acting requests (tap, keys, settext),
+// in order; the last one repeats, and an empty script answers `droidyard-reader: done` to
+// every acting request. The answers are the reader's own lines (ADR-0035 §1):
+// "droidyard-reader: denied <uid>", "... refused <reason>", "... busy", "... done
+// <base64>" or "... timeout <ms>". ReaderGone holds the request unanswered, as a reader
+// whose acting thread never answers does (ADR-0035 §3's may-have-applied case).
+func (r *FakeReader) SetActAnswers(answers ...string) {
+	r.mu.Lock()
+	r.actAnswers, r.actNext = answers, 0
+	r.mu.Unlock()
+}
+
+// Acts is every acting request the reader received, in order, with its newline alone
+// removed, so a test asserts the client's exact encoding (ADR-0035 §1).
+func (r *FakeReader) Acts() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.acts...)
+}
+
 // Quits, Pings and Dumps are the requests the reader answered.
 func (r *FakeReader) Quits() int {
 	r.mu.Lock()
@@ -214,8 +242,9 @@ func (r *FakeReader) handle(conn net.Conn) {
 	if d := r.delayValue(); d > 0 {
 		time.Sleep(d)
 	}
-	switch strings.TrimSpace(line) {
-	case "ping":
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case trimmed == "ping":
 		r.mu.Lock()
 		if r.mutePings > 0 {
 			r.mutePings--
@@ -228,7 +257,8 @@ func (r *FakeReader) handle(conn net.Conn) {
 		r.pings++
 		r.mu.Unlock()
 		io.WriteString(conn, "ok 1234")
-	case "dump":
+	case trimmed == "dump" || strings.HasPrefix(trimmed, "dump "):
+		// `dump` or `dump idle <quietMs> <maxMs>`, the settle of D2.
 		r.mu.Lock()
 		stall := r.dumpStalls > 0
 		if stall {
@@ -248,13 +278,52 @@ func (r *FakeReader) handle(conn net.Conn) {
 			return
 		}
 		io.WriteString(conn, doc)
-	case "quit":
+	case trimmed == "quit":
 		r.mu.Lock()
 		r.quits++
 		r.mu.Unlock()
+	case isActingRequest(trimmed):
+		r.handleAct(conn, line)
 	default:
 		fmt.Fprint(conn, readerPrefix+" unknown request")
 	}
+}
+
+// isActingRequest reports whether a request is one of the acting verbs of ADR-0035 §1.
+func isActingRequest(request string) bool {
+	for _, verb := range []string{"tap", "keys", "settext"} {
+		if request == verb || strings.HasPrefix(request, verb+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// handleAct records one acting request and answers it from the script (SetActAnswers).
+// The whole line is recorded, so the newline apart a test sees exactly the client's bytes.
+func (r *FakeReader) handleAct(conn net.Conn, line string) {
+	r.mu.Lock()
+	r.acts = append(r.acts, strings.TrimRight(line, "\n"))
+	answer := readerPrefix + " done"
+	if len(r.actAnswers) > 0 {
+		i := r.actNext
+		if i < len(r.actAnswers) {
+			r.actNext++
+			if i == len(r.actAnswers)-1 {
+				r.actNext = i // the last answer repeats
+			}
+		} else {
+			i = len(r.actAnswers) - 1
+		}
+		answer = r.actAnswers[i]
+	}
+	r.mu.Unlock()
+	if answer == ReaderGone {
+		// Taken but never answered, as a reader whose acting thread is wedged.
+		holdUntilClose(conn)
+		return
+	}
+	io.WriteString(conn, answer)
 }
 
 // holdUntilClose blocks until the client closes its side or its deadline ends the read,

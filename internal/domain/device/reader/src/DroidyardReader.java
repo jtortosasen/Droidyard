@@ -1,13 +1,20 @@
 import android.app.UiAutomation;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Base64;
+import android.view.InputDevice;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -59,6 +66,28 @@ import java.util.concurrent.atomic.AtomicReference;
  * replaced while the read was blocked: the daemon does not trust it for the failed read's
  * details and reads the window manager's focus instead (empty when the reader has read
  * nothing yet, and then omitted).
+ *
+ * <p>It also acts (ADR-0035): {@code tap <x> <y>} injects a touch, {@code keys <base64>}
+ * types text as the virtual keyboard's key events, and {@code settext <replace|insert>
+ * <base64>} sets the focused input node's text with ACTION_SET_TEXT, reading the field back
+ * in the same request. {@code dump} takes an optional {@code idle <quietMs> <maxMs>} (D2)
+ * for its own idle wait. An acting request runs on one acting thread, never on a dump
+ * worker, and one arriving while another is out is answered {@code busy} at once. It is
+ * bounded on the device below the host's bound and its answer says whether anything was
+ * executed: {@code refused <reason>} before it, {@code done} (with the field's text read
+ * back when one was read) after it, or {@code timeout <ms> [<exception>]} when the bound
+ * passed with the request taken, the exception's class appended when a pre-execution error
+ * ended it. The {@code <reason>} of a refusal is one of {@code settext} (the node would not
+ * take the set-text; another method is allowed), {@code malformed}, {@code unterminated},
+ * {@code too-long}, {@code no-focus} or {@code unmappable}, so the client can tell a
+ * refusal another method answers from one it does not. A {@code tap} and a {@code settext}
+ * are bounded at {@link #ACT_BOUND_BASE_MS}; a {@code keys} grows with its text's length so
+ * a long one is not cut off before the keys are typed. An acting request is answered
+ * {@code denied} unless its peer's uid is 0 or 2000 — adbd, through which the daemon's
+ * forward arrives (ADR-0035 §2); reads are not checked. A request line is capped at
+ * {@link #REQUEST_CAP} bytes; a longer one is drained a bounded way and answered
+ * {@code refused too-long} before it is parsed or executed, never cut and acted on, and a
+ * line cut by EOF is answered {@code refused unterminated} rather than parsed.
  */
 public class DroidyardReader {
     // Exit status when getRootInActiveWindow stays null; the daemon maps it (dump.go, readerNoRoot).
@@ -73,6 +102,40 @@ public class DroidyardReader {
     // (AccessibilityInteractionClient.getInstanceForThread), so a second read starts a
     // second worker without disturbing the first; a third is answered `busy` at once.
     private static final int DUMP_WORKERS = 2;
+    // The idle wait of a dump that asks for none (D2): today's waitForIdle(100, 500). A
+    // poll after an action asks for a shorter one through `dump idle <quietMs> <maxMs>`.
+    private static final long IDLE_QUIET_MS = 100L;
+    private static final long IDLE_MAX_MS = 500L;
+    // The most bytes of one request line that are kept (ADR-0035 §1; plan m1n step 4): a
+    // 500-character inputText is up to about 2.7 KB of base64. A longer line is drained up
+    // to REQUEST_DRAIN_CAP bytes — enough that the client's write completes and it can read
+    // the answer — and refused before it is parsed, never cut and acted on. A line longer
+    // still is not drained further: it is refused and the connection closed (plan m1n step
+    // 4, fix round N4).
+    private static final int REQUEST_CAP = 4096;
+    private static final int REQUEST_DRAIN_CAP = 1 << 16;
+    // The device-side bound on one acting request (ADR-0035 §1): a synchronous injection
+    // blocks while the app's main thread does (the spike saw 11.2 s), so past it the client
+    // is answered `timeout`, which says the request may have been executed, and the acting
+    // thread is left to finish. A `tap` and a `settext` are bounded at ACT_BOUND_BASE_MS; a
+    // `keys` is bounded by that base plus ACT_BOUND_PER_KEY_MS for each character of its
+    // text (keys injected one by one, synchronously, cost about 65–75 ms each; plan m1n step 4), capped
+    // at ACT_BOUND_CAP_MS. Below the host's bound (persistent.go readerActHostBound, the
+    // same formula), so the answer reaches the client before it gives up on the connection.
+    private static final long ACT_BOUND_BASE_MS = 2500L;
+    private static final long ACT_BOUND_PER_KEY_MS = 100L;
+    private static final long ACT_BOUND_CAP_MS = 60000L;
+    // The uids an acting request's peer may have (ADR-0035 §2): root, and the shell user
+    // adbd forwards arrive as. Any other peer is answered `denied`.
+    private static final int[] ACTOR_UIDS = { 0, 2000 };
+    // How long a settext or a keys request waits for the field to render its new value
+    // before answering with the read-back it has (ADR-0035 §1): a Compose field renders a frame
+    // later, so an immediate read can be empty (plan m1n step 2 (e)); a Views field
+    // answers in tens of milliseconds.
+    private static final long READBACK_BOUND_MS = 300L;
+    private static final long READBACK_STEP_MS = 20L;
+    // The acting verbs of ADR-0035 §1: the requests the uid fence applies to.
+    private static final String[] ACTING_VERBS = { "tap", "keys", "settext" };
 
     public static void main(String[] args) {
         int status = 1;
@@ -108,7 +171,7 @@ public class DroidyardReader {
         Automation a = connect();
         String xml;
         try {
-            xml = document(a.ua, Long.MAX_VALUE, null).xml;
+            xml = document(a.ua, Long.MAX_VALUE, null, IDLE_QUIET_MS, IDLE_MAX_MS).xml;
         } finally {
             a.close();
         }
@@ -153,10 +216,16 @@ public class DroidyardReader {
         // Both use daemon threads, so the process can exit without waiting for a worker
         // still blocked on an app.
         final ExecutorService workers = Executors.newFixedThreadPool(DUMP_WORKERS, daemonThreads("droidyard-reader-dump"));
+        // The one acting thread (ADR-0035 §1): injection and ACTION_SET_TEXT run here,
+        // never on a dump worker, so a blocked injection cannot spend a dump's capacity.
+        final ExecutorService acting = Executors.newSingleThreadExecutor(daemonThreads("droidyard-reader-act"));
         final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(daemonThreads("droidyard-reader-timer"));
         // How many dumps are out on a worker now: a dump that finds both out is answered
         // `busy` at once.
         final AtomicInteger out = new AtomicInteger(0);
+        // Whether an acting request is out: one that finds it out is answered `busy` at
+        // once, before it executes anything (ADR-0035 §1).
+        final AtomicInteger actingOut = new AtomicInteger(0);
         // The package of the last app the reader read, named in a busy answer. It is not
         // necessarily the app that did not answer: the foreground may have changed while
         // the read was blocked, so the daemon reads the window manager's focus instead. A
@@ -199,20 +268,58 @@ public class DroidyardReader {
                         closeQuietly(conn);
                         break;
                     }
-                    String request = readRequest(conn.getInputStream());
-                    if (request.equals("ping")) {
+                    Request request = readRequest(conn.getInputStream());
+                    if (request.tooLong) {
+                        // Over REQUEST_CAP: the line was drained a bounded way, so the
+                        // client's write completed, and it is refused before it is parsed
+                        // or executed — never cut and acted on (ADR-0035 §1; plan m1n
+                        // step 4). Nothing runs, so the uid fence is moot here: a refusal
+                        // is safe for any peer, and the fence exists to stop execution.
+                        write(conn, PREFIX + " refused too-long");
+                        closeQuietly(conn);
+                    } else if (!request.terminated) {
+                        // EOF before a newline: a cut request is never parsed, for any verb
+                        // (plan m1n step 4, fix round B1). Nothing ran.
+                        write(conn, PREFIX + " refused unterminated");
+                        closeQuietly(conn);
+                    } else if (request.line.equals("ping")) {
                         // Answered on the accept thread, so a blocked dump never blocks
                         // it (ADR-0034 §1): a reader that answers ping is never restarted.
                         write(conn, "ok " + android.os.Process.myPid());
                         closeQuietly(conn);
-                    } else if (request.equals("quit")) {
+                    } else if (request.line.equals("quit")) {
                         done.set(true);
                         closeQuietly(conn);
-                    } else if (request.equals("dump")) {
-                        lastDump.set(SystemClock.elapsedRealtime());
-                        // The connection is owned by the worker (or the bound's timer)
-                        // now: whichever writes first closes it.
-                        submitDump(conn, a.ua, workers, timer, out, lastPackage);
+                    } else if (request.line.equals("dump") || request.line.startsWith("dump ")) {
+                        long[] wait = dumpIdle(request.line);
+                        if (wait == null) {
+                            write(conn, PREFIX + " bad dump arguments");
+                            closeQuietly(conn);
+                        } else {
+                            lastDump.set(SystemClock.elapsedRealtime());
+                            // The connection is owned by the worker (or the bound's timer)
+                            // now: whichever writes first closes it.
+                            submitDump(conn, a.ua, workers, timer, out, lastPackage, wait[0], wait[1]);
+                        }
+                    } else if (actingRequest(request.line)) {
+                        // The fence first, before anything is parsed or executed (ADR-0035
+                        // §2): an acting request from any peer but adbd is answered
+                        // `denied`. Reads keep ADR-0030's rule and are never checked.
+                        int uid = peerUid(conn);
+                        if (!actorUid(uid)) {
+                            write(conn, PREFIX + " denied " + uid);
+                            closeQuietly(conn);
+                        } else {
+                            Acting act = Acting.parse(request.line);
+                            if (act == null) {
+                                // Malformed: refused on the accept thread, so the acting
+                                // thread is never taken for a request that will not run.
+                                write(conn, PREFIX + " refused malformed");
+                                closeQuietly(conn);
+                            } else {
+                                submitActing(conn, a.ua, acting, timer, actingOut, act);
+                            }
+                        }
                     } else {
                         write(conn, PREFIX + " unknown request");
                         closeQuietly(conn);
@@ -236,6 +343,7 @@ public class DroidyardReader {
             // Best effort: a worker blocked in an app does not answer an interrupt, and
             // the daemon threads do not hold the process open in any case.
             workers.shutdownNow();
+            acting.shutdownNow();
             timer.shutdownNow();
             try {
                 a.close();
@@ -277,7 +385,8 @@ public class DroidyardReader {
     // rather than queued behind a dump that may never finish (ADR-0034 §1).
     private static void submitDump(final LocalSocket conn, final UiAutomation ua,
             ExecutorService workers, ScheduledExecutorService timer,
-            final AtomicInteger out, final AtomicReference<String> lastPackage) {
+            final AtomicInteger out, final AtomicReference<String> lastPackage,
+            final long idleQuiet, final long idleMax) {
         final Answer answer = new Answer(conn);
         final long start = SystemClock.elapsedRealtime();
         if (out.get() >= DUMP_WORKERS) {
@@ -297,7 +406,7 @@ public class DroidyardReader {
             @Override
             public void run() {
                 try {
-                    Doc d = document(ua, start + DUMP_BOUND_MS, lastPackage);
+                    Doc d = document(ua, start + DUMP_BOUND_MS, lastPackage, idleQuiet, idleMax);
                     if (d.bound) {
                         // The bound passed while the document was being built (a worker
                         // can outlive its answer by the platform's own 5 s query wait).
@@ -315,6 +424,347 @@ public class DroidyardReader {
                 }
             }
         });
+    }
+
+    // Hands one acting request to the single acting thread, or answers `busy` at once when
+    // another is out (ADR-0035 §1; plan m1n step 4). The request is already fenced and
+    // parsed, so this answer, and only this one, is a refusal that comes before anything is
+    // executed: the busy answer never executes.
+    private static void submitActing(final LocalSocket conn, final UiAutomation ua,
+            ExecutorService acting, ScheduledExecutorService timer,
+            final AtomicInteger actingOut, final Acting act) {
+        final Answer answer = new Answer(conn);
+        if (actingOut.get() >= 1) {
+            answer.write(PREFIX + " busy");
+            return;
+        }
+        actingOut.incrementAndGet();
+        final long start = SystemClock.elapsedRealtime();
+        // The device-side bound: past it the client is answered `timeout` — it says the
+        // request may have been executed, not that it was not — and the acting thread is
+        // left to finish in the background (its answer is discarded). It is not a refusal,
+        // so it never leads the caller to a second delivery method (ADR-0035 §1, §3).
+        timer.schedule(new Runnable() {
+            @Override
+            public void run() {
+                answer.write(timeoutLine(SystemClock.elapsedRealtime() - start, null));
+            }
+        }, actBoundMs(act), TimeUnit.MILLISECONDS);
+        acting.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // null means the bound answered before the request ran, so nothing was
+                    // executed and there is nothing to write (N1).
+                    String out = act.run(ua, answer);
+                    if (out != null) answer.write(out);
+                } catch (Throwable t) {
+                    // The request was taken before the error, so it may have been
+                    // executed: the answer is a timeout, never a refusal. The exception's
+                    // class is appended so its cause is not lost (plan m1n step 4, fix
+                    // round N6).
+                    answer.write(timeoutLine(SystemClock.elapsedRealtime() - start, t));
+                } finally {
+                    actingOut.decrementAndGet();
+                }
+            }
+        });
+    }
+
+    // The device-side bound of one acting request (ADR-0035 §1; plan m1n step 4, fix
+    // round): a `keys` is bounded by its text's length (each character costs about 40 ms on
+    // the emulator), everything else by the base. The same formula is computed on the host
+    // (persistent.go readerActDeviceBound), which adds its margin above it.
+    private static long actBoundMs(Acting act) {
+        if (!act.verb.equals("keys")) return ACT_BOUND_BASE_MS;
+        long chars = act.text.codePointCount(0, act.text.length());
+        return Math.min(ACT_BOUND_BASE_MS + ACT_BOUND_PER_KEY_MS * chars, ACT_BOUND_CAP_MS);
+    }
+
+    // The timeout answer of ADR-0035 §1: the request was taken and the bound passed, so it
+    // may have applied. The elapsed time is the host's signal of how long it waited, and a
+    // pre-execution error's class is appended when there was one (plan m1n step 4, fix
+    // round N6).
+    private static String timeoutLine(long ms, Throwable t) {
+        if (ms < 0) ms = 0;
+        String line = PREFIX + " timeout " + ms;
+        if (t != null) line += " " + t.getClass().getSimpleName();
+        return line;
+    }
+
+    // Whether a request is one of the acting verbs (ADR-0035 §1): the uid fence applies to
+    // these and to nothing else, so reads keep ADR-0030's unauthenticated rule.
+    private static boolean actingRequest(String request) {
+        for (String verb : ACTING_VERBS) {
+            if (request.equals(verb) || request.startsWith(verb + " ")) return true;
+        }
+        return false;
+    }
+
+    // A connection's peer uid (ADR-0035 §2). -1 when it cannot be read, which admits
+    // nothing: the fence fails closed.
+    private static int peerUid(LocalSocket conn) {
+        try {
+            Credentials c = conn.getPeerCredentials();
+            return c == null ? -1 : c.getUid();
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    // Whether a peer's uid may act (ADR-0035 §2): root, or the shell user adbd's forward
+    // arrives as.
+    private static boolean actorUid(int uid) {
+        for (int allowed : ACTOR_UIDS) {
+            if (uid == allowed) return true;
+        }
+        return false;
+    }
+
+    // One acting request, parsed and validated on the accept thread so a malformed one is
+    // answered `refused` without taking the acting thread (ADR-0035 §1). run() performs it
+    // on the acting thread and returns the reader's answer line.
+    private static final class Acting {
+        private final String verb;
+        private int x, y;
+        private String text;
+        private boolean replace;
+
+        private Acting(String verb) {
+            this.verb = verb;
+        }
+
+        // parse returns null for a malformed request (a bad verb, argument count, number or
+        // base64): the caller answers `refused malformed`, having executed nothing. The
+        // base64 of an empty text is empty: `settext replace ` clears the field, so it is
+        // well formed, but `keys ` and `settext insert ` of nothing are refused (plan m1n
+        // step 4, fix round).
+        static Acting parse(String request) {
+            String[] parts = request.split(" ", 3);
+            if (parts.length == 0) return null;
+            if (parts[0].equals("tap")) {
+                if (parts.length != 3) return null;
+                Acting act = new Acting("tap");
+                try {
+                    act.x = Integer.parseInt(parts[1]);
+                    act.y = Integer.parseInt(parts[2]);
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+                return act;
+            }
+            if (parts[0].equals("keys")) {
+                if (parts.length != 2) return null;
+                String text = decode(parts[1]);
+                if (text == null || text.isEmpty()) return null;
+                Acting act = new Acting("keys");
+                act.text = text;
+                return act;
+            }
+            if (parts[0].equals("settext")) {
+                if (parts.length != 3) return null;
+                if (!parts[1].equals("replace") && !parts[1].equals("insert")) return null;
+                String text = decode(parts[2]);
+                if (text == null) return null;
+                boolean replace = parts[1].equals("replace");
+                if (text.isEmpty() && !replace) return null;
+                Acting act = new Acting("settext");
+                act.replace = replace;
+                act.text = text;
+                return act;
+            }
+            return null;
+        }
+
+        String run(UiAutomation ua, Answer answer) throws Exception {
+            if (verb.equals("tap")) return tap(ua, x, y, answer);
+            if (verb.equals("keys")) return keys(ua, text, answer);
+            return setText(ua, replace, text, answer);
+        }
+    }
+
+    // Injects a tap at (x, y) (ADR-0035 §1): ACTION_DOWN asynchronous and ACTION_UP
+    // synchronous, so the answer waits for the up to be delivered (the spike's timing). The
+    // pair is executed whether or not the platform reports it, and the answer is `done`
+    // either way: a refusal would let the caller tap a second time (ADR-0035 §3).
+    private static String tap(UiAutomation ua, int x, int y, Answer answer) {
+        if (answer.answered()) {
+            // The bound answered before anything ran: running the tap now would inject into
+            // whatever has focus (plan m1n step 4, fix round N1).
+            return null;
+        }
+        long t = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0);
+        MotionEvent up = MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, x, y, 0);
+        try {
+            down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            ua.injectInputEvent(down, false);
+            ua.injectInputEvent(up, true);
+        } finally {
+            down.recycle();
+            up.recycle();
+        }
+        return PREFIX + " done";
+    }
+
+    // Types text as the virtual keyboard's key events (ADR-0035 §1), each injected
+    // synchronously and stamped when it is injected: the app's pace sets the typing's, and no
+    // event waits in the queue long enough to be dropped as stale (level 5, plan m1n step 4: a
+    // 500-character string injected asynchronously with getEvents' timestamps lost all but 172
+    // characters). FLAG_KEEP_TOUCH_MODE keeps the injected keys from taking the device out of
+    // touch mode. Text the keyboard cannot map is refused before anything is injected.
+    private static String keys(UiAutomation ua, String text, Answer answer) throws InterruptedException {
+        KeyCharacterMap map = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+        KeyEvent[] events = map.getEvents(text.toCharArray());
+        if (events == null || events.length == 0) {
+            return PREFIX + " refused unmappable";
+        }
+        // The field's text before the keys: the read-back then waits for it to change,
+        // rather than returning the value read a frame before the field renders the new one.
+        CharSequence before = focusedText(ua, null);
+        if (answer.answered()) {
+            return null; // N1: no key is injected once the bound has answered.
+        }
+        long downTime = SystemClock.uptimeMillis();
+        for (int i = 0; i < events.length; i++) {
+            KeyEvent e = events[i];
+            long now = SystemClock.uptimeMillis();
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                downTime = now;
+            }
+            KeyEvent tagged = new KeyEvent(downTime, now, e.getAction(),
+                    e.getKeyCode(), e.getRepeatCount(), e.getMetaState(), e.getDeviceId(),
+                    e.getFlags() | KeyEvent.FLAG_KEEP_TOUCH_MODE, e.getSource());
+            ua.injectInputEvent(tagged, true);
+        }
+        return done(readBack(ua, null, before == null ? "" : before.toString(), true));
+    }
+
+    // Sets the focused input node's text (ADR-0035 §1): ACTION_SET_TEXT with the text
+    // itself for a replace, and with the text inserted at the selection for an insert. The
+    // field is then refreshed and read back, polling briefly for one that renders a frame
+    // later. No focused input node, a password node asked to insert, or one that does not
+    // accept the action, is refused before anything is typed; the caller may then use
+    // another method (ADR-0035 §3; plan m1n step 4, fix round).
+    private static String setText(UiAutomation ua, boolean replace, String text, Answer answer) throws InterruptedException {
+        AccessibilityNodeInfo node = ua.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (node == null) {
+            return PREFIX + " refused no-focus";
+        }
+        if (!replace && node.isPassword()) {
+            // A password field reads back masked, so an insert that read its own result
+            // back would compare against the mask: keys is the method for one, and this
+            // refusal (a set-text the node would not take) lets the caller choose it
+            // (ADR-0035 §3).
+            return PREFIX + " refused settext";
+        }
+        String value = replace ? text : insert(node, text);
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        if (answer.answered()) {
+            return null; // N1: nothing is set once the bound has answered.
+        }
+        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+            return PREFIX + " refused settext";
+        }
+        return done(readBack(ua, node, value, false));
+    }
+
+    // The answer of a request that was executed and read back (ADR-0035 §1). An empty
+    // read-back is no read-back: the line is `done` with nothing after it.
+    private static String done(CharSequence readBack) {
+        if (readBack == null || readBack.length() == 0) return PREFIX + " done";
+        return PREFIX + " done " + base64(readBack.toString());
+    }
+
+    // The focused node's text with text inserted at its selection (ADR-0035 §1; plan m1n
+    // step 4): a hint rendered as the node's text is treated as empty, and a selection
+    // outside the text is clamped to its ends. API 26's isShowingHintText says directly
+    // whether the text is the hint; below it the hint is compared (fix round N5).
+    private static String insert(AccessibilityNodeInfo node, String text) {
+        CharSequence cur = node.getText();
+        String pre = cur == null ? "" : cur.toString();
+        if (Build.VERSION.SDK_INT >= 26) {
+            if (node.isShowingHintText()) pre = "";
+        } else {
+            CharSequence hint = node.getHintText();
+            if (hint != null && pre.contentEquals(hint)) pre = "";
+        }
+        int sel = node.getTextSelectionStart();
+        if (sel < 0) sel = 0;
+        if (sel > pre.length()) sel = pre.length();
+        return pre.substring(0, sel) + text + pre.substring(sel);
+    }
+
+    // The text a field reads after an act, polled briefly (ADR-0035 §1): a Compose field
+    // renders its new value a frame later, so an immediate read can be empty (plan m1n step
+    // 2 (e)). With changed false it returns as soon as the field reads expected (a settext,
+    // which knows what it asked for); with changed true as soon as it reads anything else
+    // (keys, which does not). Either way it otherwise returns the last non-empty text it saw
+    // before the bound, and null when it saw none.
+    private static CharSequence readBack(UiAutomation ua, AccessibilityNodeInfo node, String expected, boolean changed) throws InterruptedException {
+        long deadline = SystemClock.elapsedRealtime() + READBACK_BOUND_MS;
+        CharSequence last = null;
+        while (true) {
+            CharSequence t = focusedText(ua, node);
+            if (t != null && t.length() > 0) {
+                String s = t.toString();
+                if (changed ? !s.equals(expected) : s.equals(expected)) return t;
+                last = t;
+            }
+            if (SystemClock.elapsedRealtime() >= deadline) return last;
+            Thread.sleep(READBACK_STEP_MS);
+        }
+    }
+
+    // The text of the field an act holds, refreshed, or of the node that holds input focus
+    // now when the held one reads nothing (a node that reappeared).
+    private static CharSequence focusedText(UiAutomation ua, AccessibilityNodeInfo node) {
+        if (node != null) {
+            node.refresh();
+            CharSequence t = node.getText();
+            if (t != null && t.length() > 0) return t;
+        }
+        AccessibilityNodeInfo focus = ua.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        return focus == null ? null : focus.getText();
+    }
+
+    // The text of a base64 argument, or null when it is not strictly base64: a request that
+    // cannot be decoded is refused before anything is executed (ADR-0035 §1). The Android
+    // decoder tolerates non-canonical input, so the decoded bytes are re-encoded with the
+    // same canonical flags and compared: a mismatch is refused (fix round B1).
+    private static String decode(String s) {
+        byte[] raw;
+        try {
+            raw = Base64.decode(s, Base64.DEFAULT);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (!Base64.encodeToString(raw, Base64.NO_WRAP).equals(s)) return null;
+        return new String(raw, StandardCharsets.UTF_8);
+    }
+
+    private static String base64(String s) {
+        return Base64.encodeToString(s.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+    }
+
+    // The idle bounds of a dump (D2): `dump` keeps the reader's own default wait, and
+    // `dump idle <quietMs> <maxMs>` shortens it (a poll after an action asks for 100/200).
+    // null when the request is malformed, and then it is not a dump. A bound must be
+    // positive: waitForIdle treats a 0 as unbounded, which no caller asks for.
+    private static long[] dumpIdle(String request) {
+        if (request.equals("dump")) return new long[] { IDLE_QUIET_MS, IDLE_MAX_MS };
+        String[] parts = request.split(" ");
+        if (parts.length != 4 || !parts[0].equals("dump") || !parts[1].equals("idle")) return null;
+        try {
+            long quiet = Long.parseLong(parts[2]);
+            long max = Long.parseLong(parts[3]);
+            if (quiet <= 0 || max <= 0) return null;
+            return new long[] { quiet, max };
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     // The busy answer of ADR-0034 §1: how long the read waited, and the package of the app
@@ -346,6 +796,12 @@ public class DroidyardReader {
                 closeQuietly(conn);
             }
         }
+
+        // answered reports whether the connection has been answered, so an acting request
+        // whose bound passed before it ran can decline to run it (N1).
+        boolean answered() {
+            return answered.get();
+        }
     }
 
     private static ThreadFactory daemonThreads(final String name) {
@@ -370,16 +826,50 @@ public class DroidyardReader {
         }
     }
 
-    // One request per connection: read up to the first newline (or EOF, for a client that
-    // half-closes), capped so a malformed client cannot make us buffer without bound.
-    private static String readRequest(InputStream in) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream(16);
-        int b;
-        while ((b = in.read()) != -1 && b != '\n') {
-            if (buf.size() >= 256) break;
-            buf.write(b);
+    // One request line, as readRequest saw it (plan m1n step 4, fix round B1): line is the
+    // request text without its newline, terminated says a newline was reached, and tooLong
+    // says more than REQUEST_CAP bytes arrived first. An unterminated line is never parsed:
+    // a request cut by EOF is refused for every verb, and tooLong is refused likewise.
+    private static final class Request {
+        final String line;
+        final boolean terminated;
+        final boolean tooLong;
+
+        Request(String line, boolean terminated, boolean tooLong) {
+            this.line = line;
+            this.terminated = terminated;
+            this.tooLong = tooLong;
         }
-        return new String(buf.toByteArray(), StandardCharsets.UTF_8).trim();
+    }
+
+    // One request per connection: read to the first newline. At most REQUEST_CAP bytes are
+    // kept; a longer line is drained up to REQUEST_DRAIN_CAP bytes (so the client's write
+    // completes and it can read the answer) and tooLong is set, so the caller refuses it —
+    // a cut line is never acted on (ADR-0035 §1; plan m1n step 4, fix round B2, N4). A line
+    // ended by EOF before a newline is reported unterminated rather than parsed, and only a
+    // trailing carriage return is stripped: a trailing empty argument (`settext replace `)
+    // is part of the request, so no trim is applied.
+    private static Request readRequest(InputStream in) throws IOException {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream(64);
+        boolean tooLong = false;
+        boolean terminated = false;
+        int drained = 0;
+        int b;
+        while ((b = in.read()) != -1) {
+            if (b == '\n') {
+                terminated = true;
+                break;
+            }
+            if (buf.size() < REQUEST_CAP) {
+                buf.write(b);
+            } else {
+                tooLong = true;
+                if (++drained >= REQUEST_DRAIN_CAP) break;
+            }
+        }
+        String line = new String(buf.toByteArray(), StandardCharsets.UTF_8);
+        if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+        return new Request(line, terminated, tooLong);
     }
 
     private static void write(LocalSocket conn, String s) throws IOException {
@@ -459,10 +949,13 @@ public class DroidyardReader {
     // is checked between node queries, so a traversal is abandoned at it; a single blocked
     // query cannot be interrupted and is bounded by the platform's 5 s interaction timeout
     // instead. waitForIdle's timeout is not fatal: the tree is read anyway. A root read
-    // updates lastPackage (null when the caller does not want it).
-    private static Doc document(UiAutomation ua, long deadlineMs, AtomicReference<String> lastPackage) throws Exception {
+    // updates lastPackage (null when the caller does not want it). idleQuiet and idleMax are
+    // waitForIdle's bounds (D2): the reader's own idle wait is the settle, and a poll after
+    // an action asks for a shorter one.
+    private static Doc document(UiAutomation ua, long deadlineMs, AtomicReference<String> lastPackage,
+            long idleQuiet, long idleMax) throws Exception {
         try {
-            ua.waitForIdle(100, 500);
+            ua.waitForIdle(idleQuiet, idleMax);
         } catch (Exception e) {
             // Not idle in time (a TimeoutException): read the tree anyway.
         }
