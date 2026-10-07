@@ -42,11 +42,12 @@
 //	<serial>.monkey             `-s <serial> shell monkey --pct-syskeys 0 -p <id> -c android.intent.category.LAUNCHER 1`
 //	<serial>.apppidof           `-s <serial> shell pidof <applicationId>`
 //	<serial>.sdk                `-s <serial> shell getprop ro.build.version.sdk`
-//	<serial>.inputtext          `-s <serial> shell input text <arg>`
-//	<serial>.inputkeyevent      `-s <serial> shell input keyevent <codes…>`
-//	<serial>.inputkeycombination `-s <serial> shell input keycombination <codes…>`
+//	<serial>.inputtext          `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input text <arg>`
+//	<serial>.inputkeyevent      `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input keyevent <codes…>`
+//	<serial>.inputkeycombination `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input keycombination <codes…>`
+//	<serial>.inputprobe         `-s <serial> shell <the running-probe for the issued nonce>` (the device-side input-command probe; .out holds its answer token: running, gone or unknown)
 //	<serial>.inputmethod        `-s <serial> shell settings get secure default_input_method`
-//	<serial>.broadcast          `-s <serial> shell am broadcast -a ADB_INPUT_B64 --es msg <base64>`
+//	<serial>.broadcast          `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec am broadcast -a ADB_INPUT_B64 --es msg <base64>`
 //	<serial>.install            `-s <serial> install -r <apk>`
 //	<serial>.uninstall          `-s <serial> uninstall <applicationId>`
 //	<serial>.pmpath             `-s <serial> shell pm path <applicationId>`
@@ -150,6 +151,18 @@ func waitDelay(ctx context.Context, dir, prefix string) bool {
 
 // DirEnv names the scenario directory; its presence makes the binary a fake adb.
 const DirEnv = "DROIDYARD_FAKE_ADB_DIR"
+
+// The wrappers the daemon's device input commands and its running-probe carry
+// (internal/domain/device/input.go). Every input command runs as `rm -f <pidfile>; echo
+// "$$ <nonce>" > <pidfile>; exec <command>` and the probe is built for that command's
+// nonce, so both are matched by shape — the nonce varies per issued command. The fake
+// recognizes those shapes, so a change to the daemon's strings makes the fake answer
+// "unexpected arguments" and fails the test instead of silently serving the old shape
+// (plan m1m close, round 3).
+var (
+	inputWrappedRE = regexp.MustCompile(`^rm -f /data/local/tmp/droidyard-input\.pid; echo "\$\$ ([0-9a-f]{12})" > /data/local/tmp/droidyard-input\.pid; exec (.*)$`)
+	inputProbeRE   = regexp.MustCompile(`^set -- \$\(cat /data/local/tmp/droidyard-input\.pid 2>/dev/null\); if \[ "\$2" != ([0-9a-f]{12}) \]; then echo droidyard-input-unknown; elif \[ -d /proc/\$1 \]; then echo droidyard-input-running; else echo droidyard-input-gone; fi$`)
+)
 
 // Main runs the fake and exits if the environment names a scenario, and returns at
 // once otherwise: call it first in TestMain.
@@ -261,6 +274,20 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 			return 0
 		}
 	}
+	// The probe's meaning, not only its shape (m1m close review): the fake remembers the
+	// nonce of the last wrapped input command per serial, as the device's pidfile would,
+	// and a probe carrying any other nonce answers unknown whatever the scenario says, so
+	// a probe built for the wrong command can never read "gone" in a test.
+	if len(args) == 4 && args[0] == "-s" && args[2] == "shell" {
+		if m := inputWrappedRE.FindStringSubmatch(args[3]); m != nil {
+			os.WriteFile(filepath.Join(dir, args[1]+".lastnonce"), []byte(m[1]), 0o600)
+		} else if m := inputProbeRE.FindStringSubmatch(args[3]); m != nil {
+			if last, _ := os.ReadFile(filepath.Join(dir, args[1]+".lastnonce")); string(last) != m[1] {
+				fmt.Fprintln(stdout, "droidyard-input-unknown")
+				return 0
+			}
+		}
+	}
 	if prefix := servedPrefix(args); prefix != "" {
 		return serve(ctx, dir, prefix, n, raw, stdout, stderr)
 	}
@@ -340,10 +367,11 @@ func logCall(dir string, args []string) int {
 		fmt.Fprintln(f, line)
 		f.Close()
 	}
+	key := inputCallKey(line)
 	n := 0
 	if b, err := os.ReadFile(filepath.Join(dir, "calls.log")); err == nil {
 		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-			if l == line {
+			if inputCallKey(l) == key {
 				n++
 			}
 		}
@@ -351,11 +379,38 @@ func logCall(dir string, args []string) int {
 	return n
 }
 
+// inputCallKey is the key the fake counts identical invocations by: a wrapped device input
+// command's nonce, and a running-probe's nonce, are dropped, so the Nth invocation of the
+// same device command counts as n for the scenario files' #N suffix even though every
+// command carries a fresh nonce (plan m1m close, round 3). Any other line is its own key,
+// so every other command counts exactly as before.
+func inputCallKey(line string) string {
+	const sep = " shell "
+	i := strings.Index(line, sep)
+	if i < 0 {
+		return line
+	}
+	head, script := line[:i+len(sep)], line[i+len(sep):]
+	if inputProbeRE.MatchString(script) {
+		return head + "input-probe"
+	}
+	if m := inputWrappedRE.FindStringSubmatch(script); m != nil {
+		return head + "input-wrapped " + m[2]
+	}
+	return line
+}
+
 // servedPrefix names the scenario files that answer args, "" if they are not one of
 // the commands served from them.
 func servedPrefix(args []string) string {
 	if len(args) < 4 || args[0] != "-s" {
 		return ""
+	}
+	// The device input commands and the running-probe arrive as one wrapped shell string.
+	if len(args) == 4 && args[2] == "shell" {
+		if p := inputPrefix(args[1], args[3]); p != "" {
+			return p
+		}
 	}
 	switch {
 	case len(args) == 4 && args[2] == "emu" && args[3] == "kill":
@@ -394,16 +449,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".uninstall"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "pm" && args[4] == "path":
 		return args[1] + ".pmpath"
-	case len(args) == 6 && args[2] == "shell" && args[3] == "input" && args[4] == "text":
-		return args[1] + ".inputtext"
-	case len(args) >= 6 && args[2] == "shell" && args[3] == "input" && args[4] == "keycombination":
-		return args[1] + ".inputkeycombination"
-	case len(args) >= 5 && args[2] == "shell" && args[3] == "input" && args[4] == "keyevent":
-		return args[1] + ".inputkeyevent"
 	case len(args) == 7 && args[2] == "shell" && args[3] == "settings" && args[4] == "get" && args[5] == "secure" && args[6] == "default_input_method":
 		return args[1] + ".inputmethod"
-	case len(args) == 10 && args[2] == "shell" && args[3] == "am" && args[4] == "broadcast" && args[5] == "-a" && args[6] == "ADB_INPUT_B64" && args[7] == "--es" && args[8] == "msg":
-		return args[1] + ".broadcast"
 	}
 	switch strings.Join(args[2:], " ") {
 	case "shell getprop sys.boot_completed":
@@ -428,6 +475,33 @@ func isReaderFile(p string) bool {
 
 func isReaderClasspath(a string) bool {
 	return strings.HasPrefix(a, "CLASSPATH=") && isReaderFile(strings.TrimPrefix(a, "CLASSPATH="))
+}
+
+// inputPrefix classifies a wrapped device input command or the running-probe: the scenario
+// file prefix to serve it from, or "" when it is neither. The daemon wraps every input
+// command as `rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec <command>` and probes
+// with one command built for that command's nonce (internal/domain/device/input.go); the
+// fake recognizes those shapes, so a change to the daemon's strings makes the fake answer
+// "unexpected arguments" and fails the test.
+func inputPrefix(serial, script string) string {
+	if inputProbeRE.MatchString(script) {
+		return serial + ".inputprobe"
+	}
+	m := inputWrappedRE.FindStringSubmatch(script)
+	if m == nil {
+		return ""
+	}
+	switch inner := m[2]; {
+	case strings.HasPrefix(inner, "input text "):
+		return serial + ".inputtext"
+	case strings.HasPrefix(inner, "input keycombination "):
+		return serial + ".inputkeycombination"
+	case strings.HasPrefix(inner, "input keyevent "):
+		return serial + ".inputkeyevent"
+	case strings.HasPrefix(inner, "am broadcast "):
+		return serial + ".broadcast"
+	}
+	return ""
 }
 
 // isReaderServe recognizes the persistent reader's start script (plan m1f step 1):

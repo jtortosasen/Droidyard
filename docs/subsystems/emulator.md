@@ -266,8 +266,8 @@ Claims above that a machine with the SDK can confirm before they are relied on:
 pid is the qemu (the launcher execs; its own process group), a headless boot adds the SDK's
 `crashpad_handler` in a group of its own that exits with it, the AVD's
 `hardware-qemu.ini.lock` is taken 0.5–0.7 s after spawn and adb lists the serial at
-0.8–2.6 s in every mode, and boots are ready in 11.7–19.4 s (windowed, headless, cold or
-wiped alike). A `SIGTERM` before the listing ends the qemu in about 4 s and frees the AVD.
+0.8–2.6 s in every mode, and boots are ready in 11.7–19.4 s (windowed, headless or cold; a wipe's ready time was not
+measured). A `SIGTERM` before the listing ends the qemu in about 4 s and frees the AVD.
 The pilot's hung windowed launches were not reproduced.
 
 ## Open questions

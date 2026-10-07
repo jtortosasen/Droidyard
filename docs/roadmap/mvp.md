@@ -279,7 +279,7 @@ scheduled last and may slip.
 - [x] A recorded comparison of agent steps, tokens and failures: our MCP vs raw
       shell, on the golden path (m1m step 6, 2026-10-07, five runs per arm, OpenCode
       with `deepseek-v4.1-flash`: **supported** by the threshold below; medians 23 vs 38
-      calls, 0 vs 1 failed, 148 vs 172 s, 5/5 vs 4/5 complete; evidence
+      calls, 0 vs 1 failed calls, 148 vs 172 s, 5/5 vs 5/5 complete; droidyard's inputText left partial typing in three of its five runs (a fix followed, see the plan); evidence
       `~/Library/Caches/droidyard-dev/m1m/runs/`, [m1m plan](../plans/m1m-emulator-robustness.md)).
 - [ ] `docs/README.md` updated; every deviation from the design recorded as an ADR.
 
@@ -317,9 +317,12 @@ LLM variance swamps a single run, so the measurement is specified before it is t
   shell; if its median failed calls are higher; or if its median calls exceed 75 % of the
   shell's; otherwise *supported* if at least 20 of the 25 (droidyard, shell) run pairs have
   fewer droidyard calls, else *inconclusive*. Calls are every tool part the agent issued.
-  Result: supported (5/5 vs 4/5 complete; failed 0 vs 1; calls 23 vs 38, 61 %; 21 of 25
-  pairs). Tokens: droidyard sends more input (42 k vs 35 k uncached; its 34 tool schemas)
-  and generates less (output 3.1 k vs 4.1 k, reasoning 2.1 k vs 3.8 k).
+  Result: supported (5/5 vs 5/5 complete, grading each golden step by its intent in both
+  arms; failed calls 0 vs 1; calls 23 vs 38, 61 %; 21 of 25 pairs). The verdict holds under
+  any consistent grading, and if droidyard's four partial-typing results, which are
+  completed calls, were counted as failures (median 1 vs 1). Tokens: droidyard sends more
+  input (42 k vs 35 k uncached, 562 k vs 509 k cached; the 34 tool schemas are the likely
+  cause, not measured) and generates less (output 3.1 k vs 4.1 k, reasoning 2.1 k vs 3.8 k).
 
 ### Other measures
 
