@@ -113,6 +113,7 @@ public class ProbeProjectPlugin implements Plugin<Project> {
 
     private static void collectVariant(ProbeState state, List<VariantModel> out, Object variant) {
         try {
+            fail("variants");
             String name = Reflect.string(variant, "getName");
             String buildType = Reflect.string(variant, "getBuildType");
             List<FlavorModel> flavors = new ArrayList<FlavorModel>();
@@ -124,6 +125,7 @@ public class ProbeProjectPlugin implements Plugin<Project> {
             }
             out.add(new VariantBean(name, buildType, flavors));
         } catch (Throwable t) {
+            state.markVariantsFailed();
             state.note("variants", t);
         }
     }

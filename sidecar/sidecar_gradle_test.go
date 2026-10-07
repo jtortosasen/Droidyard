@@ -1265,14 +1265,42 @@ func TestGradleProbeBrokenInitScriptRetriesOnce(t *testing.T) {
 	}
 	// D5: the retry's note is the first failure's message, not a placeholder of ours.
 	notes := notesOf(probe)
-	if len(notes) != 1 || notes[0] == "" || notes[0] == "the probe failed" {
-		t.Errorf("the failed probe's note is not the first failure's message: %v", notes)
+	if len(notes) != 1 || !strings.Contains(notes[0], "bad.init.gradle") {
+		t.Errorf("the failed probe's note does not carry Gradle's message naming the script: %v", notes)
 	}
 	if got := len(arrOf(model, "projects")); got != 3 {
 		t.Errorf("the retried fetch lists %d projects, want the root, :app and :lib", got)
 	}
 	if n := strings.Count(p.stderrText(), "retrying without it"); n != 1 {
 		t.Errorf("the stderr has %d retry lines, want exactly 1:\n%s", n, p.stderrText())
+	}
+}
+
+// Decision (plan m1h D6; step 2 review B2): a variant that cannot be read makes the list
+// inexact, so the field is omitted (the core falls back to task names) instead of sending
+// a short list as exact. Seen failing when the failed variant was only dropped.
+func TestGradleProbeVariantFailureOmitsTheList(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	p := startProcOpts(t, procOpts{probeArgs: "-Ddroidyard.probe.fail=variants"})
+	openRoot(t, p, root)
+	model := probedModel(t, p, root, true)
+	probe := objOf(model, "probe")
+	if got := strOf(probe, "status"); got != "partial" {
+		t.Errorf("probe.status = %q, want partial", got)
+	}
+	if !anyNoteContains(notesOf(probe), ":app", "variants") {
+		t.Errorf("no note names :app and variants: %v", notesOf(probe))
+	}
+	appA := objOf(projectAt(arrOf(model, "projects"), ":app"), "android")
+	if appA == nil {
+		t.Fatal(":app lost its whole android block with the variants failing")
+	}
+	if _, has := appA["variants"]; has {
+		t.Errorf(":app still carries variants after a failed read: %v", appA["variants"])
+	}
+	if got := strOf(appA, "buildTools"); got != "35.0.0" {
+		t.Errorf(":app buildTools = %q, want the other fields kept", got)
 	}
 }
 
@@ -1293,6 +1321,10 @@ func TestGradleProbeApplyFailureRetriesOnce(t *testing.T) {
 	}
 	if n := strings.Count(p.stderrText(), "retrying without it"); n != 1 {
 		t.Errorf("the stderr has %d retry lines, want exactly 1:\n%s", n, p.stderrText())
+	}
+	// B1 of the step 2 review: the note is the probe's own failure, not TAPI's wrapper.
+	if notes := notesOf(objOf(model, "probe")); len(notes) != 1 || !strings.Contains(notes[0], "droidyard.probe.fail=apply") {
+		t.Errorf("the failed probe's note is not the probe's own failure: %v", notes)
 	}
 }
 

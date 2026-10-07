@@ -392,7 +392,7 @@ class Session(private val proto: Protocol) {
         cts: CancellationTokenSource,
         failure: GradleConnectionException,
     ): Json {
-        val first = firstFailureMessage(failure) ?: "the probe failed"
+        val first = blamedMessage(failure, probeInitPath()) ?: "the probe failed"
         System.err.println(
             "droidyard-sidecar: project.model: the probe failed, retrying without it: "
                     + capUtf8(first.replace('\n', ' '), 512),
@@ -597,7 +597,30 @@ class Session(private val proto: Protocol) {
         return seen.toList().take(MAX_CAUSE_MESSAGES)
     }
 
-    private fun firstFailureMessage(e: Throwable): String? = failureMessages(e).firstOrNull()
+    /**
+     * Why the probe failed, in Gradle's words (step 2 review B1): the message of the
+     * throwable whose frames are the probe's, else of the failure naming the init script,
+     * else the innermost message of the chain. The outermost one is the Tooling API's
+     * wrapper ("The supplied build action failed with an exception.") and says nothing.
+     */
+    private fun blamedMessage(e: Throwable, init: String): String? {
+        val chain = throwableChain(e).toList()
+        // The innermost throwable with the probe's frames is the most specific.
+        for (t in chain.asReversed()) {
+            if (t.stackTrace.any { it.className.startsWith(PROBE_FRAME_PREFIX) } && !t.message.isNullOrBlank()) {
+                return capUtf8(t.message!!, MAX_FAILURE_TEXT)
+            }
+        }
+        if (e is GradleConnectionException) {
+            for (f in flattenFailures(e.failures)) {
+                if (namesPath(f.message, init)) return capUtf8(f.message!!, MAX_FAILURE_TEXT)
+                if (namesPath(f.description, init)) return capUtf8(f.description!!, MAX_FAILURE_TEXT)
+            }
+        }
+        for (t in chain) if (namesPath(t.message, init)) return capUtf8(t.message!!, MAX_FAILURE_TEXT)
+        return chain.lastOrNull { !it.message.isNullOrBlank() }?.message?.let { capUtf8(it, MAX_FAILURE_TEXT) }
+            ?: failureMessages(e).lastOrNull()
+    }
 
     private fun addMessage(into: MutableSet<String>, message: String?) {
         if (message.isNullOrBlank()) return

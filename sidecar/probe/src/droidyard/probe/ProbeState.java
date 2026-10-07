@@ -80,9 +80,19 @@ final class ProbeState {
         sdkDir = value;
     }
 
-    /** The variant list to fill, or null when onVariants was never registered. */
+    /**
+     * Set when one variant could not be read: a list missing an entry is not exact, so the
+     * field is omitted and the core falls back to task names (D6; step 2 review B2).
+     */
+    private volatile boolean variantsFailed;
+
+    void markVariantsFailed() {
+        variantsFailed = true;
+    }
+
+    /** The variant list, or null when onVariants was never registered or a variant failed. */
     List<VariantModel> getVariants() {
-        return variants;
+        return variantsFailed ? null : variants;
     }
 
     /**

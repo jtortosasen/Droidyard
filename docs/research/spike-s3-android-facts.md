@@ -6,11 +6,10 @@ what the probe needs: AGP and KGP versions, exact variants with build type and
 flavours, the compile target, the effective build-tools and the SDK directory
 ([`gradle.md`](../subsystems/gradle.md) §The probe; ADR-0023).
 
-> **Status: part 1 done, 2026-10-07, macOS, Zulu 17.** Observed with a scratch Groovy
+> **Status: parts 1 and 2 done, 2026-10-07, macOS, Zulu 17.** Observed with a scratch Groovy
 > init script on the Gradle command line, not over the Tooling API and not with the
 > Java probe: Groovy's dynamic dispatch can hide what Java reflection meets, so step 2's
-> probe checks the variant registration again. Part 2 (the probe's fetch cost, the
-> probe on DopamineControl over TAPI) is step 2's.
+> probe checks the variant registration again (it did: §Part 2).
 
 ## Cells
 
@@ -66,8 +65,28 @@ Further, on C1:
   `~/Library/Android/sdk/.knownPackages` (a 16-byte hash of the package index) when the
   missing platform was looked up; nothing else under the SDK changed.
 
+## Part 2: the probe over the Tooling API (step 2)
+
+The Java probe and the sidecar at protocol 2, driven directly (one sidecar process, the
+three embedded jars, the init script beside the probe jar), on the DopamineControl copy,
+`project.model` alternating unprobed and probed, three rounds:
+
+| Round | Unprobed | Probed |
+| --- | --- | --- |
+| 1 (cold daemon connection) | 2.37 s | 0.78 s |
+| 2 | 0.51 s | 0.44 s |
+| 3 | 0.44 s | 0.39 s |
+
+- **Cost.** Once the configuration is warm, the probe adds nothing measurable to a fetch
+  (both about 0.4–0.5 s); the reply grows from 320 244 to 322 129 bytes.
+- **Facts.** `plugins {agp: 8.13.2, kgp: 2.0.21}`, `probe.status: ok`, no notes; each of
+  the eight Android modules `android-36`, build-tools `35.0.0`, the SDK directory, two
+  variants (`debug`, `release`).
+- **Cells over TAPI** (the opt-in suite, `DROIDYARD_GRADLE_TESTS=1 go test ./sidecar`): C1,
+  C2 and C4 as in part 1, the eight variants on each, so G3 holds for the Java probe's
+  reflection too.
+
 ## Not run
 
-The probe over the Tooling API (step 2), the model fetch's cost (step 2), the Java
-probe's reflection (step 2 checks G3 again), Isolated Projects, composite builds,
+Isolated Projects, composite builds,
 Linux, AGP 9's newest previews.
