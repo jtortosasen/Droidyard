@@ -3,7 +3,7 @@
 How the core supervises the external processes it depends on. Every long-lived
 process the core spawns is owned by it and has an explicit lifecycle; **no orphan
 processes**. Processes that belong to other tools (the `adb` server, the Gradle
-daemon, emulators) are observed, not owned.
+daemon, emulators once their serial is resolved) are observed, not owned.
 
 > Status: draft. Complements `workspace-state.md` (sibling document).
 

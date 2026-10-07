@@ -276,8 +276,11 @@ scheduled last and may slip.
       Gradle daemon or emulators: those are not ours and are meant to survive.)
 - [ ] Idle footprint reported **per process** (see Metrics), with the core under
       50 MB RSS and the Gradle sidecar stopped when idle.
-- [ ] A recorded comparison of agent steps, tokens and failures: our MCP vs raw
-      shell, on the golden path.
+- [x] A recorded comparison of agent steps, tokens and failures: our MCP vs raw
+      shell, on the golden path (m1m step 6, 2026-10-07, five runs per arm, OpenCode
+      with `deepseek-v4.1-flash`: **supported** by the threshold below; medians 23 vs 38
+      calls, 0 vs 1 failed, 148 vs 172 s, 5/5 vs 4/5 complete; evidence
+      `~/Library/Caches/droidyard-dev/m1m/runs/`, [m1m plan](../plans/m1m-emulator-robustness.md)).
 - [ ] `docs/README.md` updated; every deviation from the design recorded as an ADR.
 
 ## Metrics
@@ -307,6 +310,16 @@ LLM variance swamps a single run, so the measurement is specified before it is t
   question "is this difference worth building on", and **never from the pilot's observed
   difference**, which would be grading on a curve. The pilot does not count as a
   measurement.
+- **As run (m1m, 2026-10-07)**: N = 5 per arm, fixed by the owner's brief rather than sized
+  by the pilot (one pilot pair cannot measure variance), ABBA order, a recreated scratch
+  AVD and fresh copy per run. The threshold, fixed before the runs and applied in order:
+  droidyard is *not supported* if it completes fewer than 4 of 5 runs or fewer than the
+  shell; if its median failed calls are higher; or if its median calls exceed 75 % of the
+  shell's; otherwise *supported* if at least 20 of the 25 (droidyard, shell) run pairs have
+  fewer droidyard calls, else *inconclusive*. Calls are every tool part the agent issued.
+  Result: supported (5/5 vs 4/5 complete; failed 0 vs 1; calls 23 vs 38, 61 %; 21 of 25
+  pairs). Tokens: droidyard sends more input (42 k vs 35 k uncached; its 34 tool schemas)
+  and generates less (output 3.1 k vs 4.1 k, reasoning 2.1 k vs 3.8 k).
 
 ### Other measures
 

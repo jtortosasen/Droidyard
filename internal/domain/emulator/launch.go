@@ -29,7 +29,8 @@ const (
 
 // launch is one launcher we started (plan m1i, D15): its pid and log, and the goroutine
 // that reaps it. It lives in the in-memory table only — no pid record — because the
-// emulator must outlive the daemon (emulator.md §Detached launch).
+// emulator must outlive the daemon once its serial is resolved (emulator.md §Detached
+// launch); before that the launch is ours and ended if its boot fails (ADR-0033).
 type launch struct {
 	avd     string
 	pid     int
