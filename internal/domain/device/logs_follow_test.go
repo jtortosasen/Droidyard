@@ -146,6 +146,10 @@ func followLine(ts string, uid int, tag, msg string) string {
 // with its record, when the call returns. Seen failing reversed (the third line kept, or
 // the record left behind): the window would not be bounded, or the next daemon would reap
 // a pid it no longer owns.
+//
+// The bound is 2 s + 1 s slack, widened only under -race by followRaceOverhead: the race
+// detector adds ~1 s to each of the fixture's four fake-adb spawns (plan m1n step 1), and
+// the window itself is unchanged.
 func TestFollowWindowKeepsOnlyItsLinesAndRecordsTheClient(t *testing.T) {
 	f := newFollowFixture(t, map[string]string{
 		uiSerial + ".date.out": "1791337000.500000\n",
@@ -170,8 +174,8 @@ func TestFollowWindowKeepsOnlyItsLinesAndRecordsTheClient(t *testing.T) {
 	if got := messages(r.Lines); strings.Join(got, ",") != "first,second" {
 		t.Errorf("lines = %v, want [first second]: the third is due after the %s window", got, "2s")
 	}
-	if took < 2*time.Second || took > 3*time.Second {
-		t.Errorf("the follow took %s, want its 2 s window and no more than 1 s over", took)
+	if took < 2*time.Second || took > 3*time.Second+followRaceOverhead {
+		t.Errorf("the follow took %s, want its 2 s window and no more than 1 s over (+%s under -race)", took, followRaceOverhead)
 	}
 	if !gone(pid) {
 		t.Errorf("client pid %d survived the window", pid)

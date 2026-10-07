@@ -32,7 +32,7 @@ for attempt in 1 2; do
 		claude -p --agent implementer --model $m --permission-mode bypassPermissions \
 		--settings "$settings" --disallowedTools Agent \
 		--append-system-prompt "$(cat "$repo/.claude/skills/milestone-workflow/implementer-run.md")" \
-		--output-format stream-json --verbose "$(cat "$brief")") >"$out/events.jsonl" 2>"$out/stderr.log" &
+		--output-format stream-json --verbose "$(printf 'Your brief follows.\n\n'; cat "$brief")") >"$out/events.jsonl" 2>"$out/stderr.log" &
 	pid=$!
 	started=0
 	for _ in $(seq 1 90); do
