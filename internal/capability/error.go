@@ -40,6 +40,11 @@ const (
 	ErrFileIOFailed    ErrorCode = "FILE_IO_FAILED"
 
 	ErrPolicyShellDisabled ErrorCode = "POLICY_SHELL_DISABLED"
+	// ErrPolicyConfigUnusable: policy.update could not read, parse or write the
+	// configuration file — it does not parse, is of a newer version, or the write
+	// failed (the OS error is the cause). The file is left untouched (ADR-0032 §4,
+	// §5; plan m1k D3).
+	ErrPolicyConfigUnusable ErrorCode = "POLICY_CONFIG_UNUSABLE"
 	// ErrShellExecFailed: shell.exec's command could not be started, its project root is
 	// gone, or its pid record could not be written (the command had started and may have
 	// had effects; its group is killed). A non-zero exit or a timeout is not this: they
