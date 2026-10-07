@@ -96,7 +96,7 @@ Baseline on 2026-10-07 at `bbea7d4` (macOS): `go vet ./...` and `gofmt -l .` pri
 - Needs: step 2.
 - Not here: the holder's pid; `emulator.stop {avd}` (Scope).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: implementer (DeepSeek): `EMULATOR_AVD_LOCKED`'s nextStep says no emulator in adb answers as the AVD, droidyard does not stop processes it did not launch, and what the caller can do; the device-appeared-but-never-booted timeout's nextStep names `emulator.stop {device: "<serial>"}` with the serial filled in. `TestStartReportsALockedAVD` and `TestStartTimesOutWhenTheSerialNeverBoots` assert the phrases and failed with the old texts restored. Main session's diff review (`emulator.start` adopts a listed instance before launching, so a lock means a holder with no addressable console). Schema unchanged (no description changed); `emulator.md` §Failure modes updated with the two texts.
 
 ### 4. The fix on a real emulator
 
