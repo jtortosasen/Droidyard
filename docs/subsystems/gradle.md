@@ -409,13 +409,32 @@ Generic TAPI models give modules, tasks and directories, but not Android variant
   - variants from `androidComponents.onVariants`, the public Variant API.
 - `project.model { probe: false }`, or any probe failure, still returns the generic
   model.
+- *Built in milestone 1h* ([plan](../plans/m1h-android-probe-and-sdk.md) D4–D7,
+  ADR-0023 amended 2026-10-07): the probe reads AGP and KGP versions and, per Android
+  project, the compile target, the effective build-tools, the SDK directory and the
+  variants; `namespace`, `minSdk`, the module type and `kotlinBuiltIn` wait for a
+  consumer. One `BuildAction` fetches the generic model and each project's probe model,
+  each project isolated (`probe.status: partial`, with notes); a fetch the probe breaks
+  (its frames or its init script named in the failure) is retried once without it
+  (`probe.status: failed`, the probe's own message as the note), never a cancel or the
+  project's own failure. The jar and init script are a third embedded pair, built by
+  `sidecar/build.sh` with `javac --release 8` against Gradle 8.0.2's API, run from the
+  cache; the sidecar speaks protocol 2. The SDK directory is published only by
+  `sdk.requirements`. Spike S3 (`../research/spike-s3-android-facts.md`) observed every
+  field on AGP 8.0.2, 8.13.2 and 9.4.1, and a probed fetch costs nothing measurable once
+  warm.
 
 ### Variants
 
 `project.variants {module?}` returns `{ modules: [{ module, variants[], source, exact }], stale }`;
 variant names are lowercase-first (`assembleDebug` → `debug`).
 
-- **Probe available** → `source: probe`, `exact: true`, with build type and flavours.
+- **Probe available** → `source: probe`, `exact: true`, with build type and flavours in
+  `details[] {name, buildType, flavors [{dimension, name}]}` (dimension order), in the
+  order AGP reports them. A library's variants come from the probe too: they are valid
+  `build.assemble` targets and report no `outputs`. The source is decided per module: a
+  module the probe did not read (status `partial` with no Android facts for it, or a
+  failed variant read) falls back to task names (milestone 1h D8, D9).
 - **Otherwise** → `source: task-names`, `exact: false`: in each module, the variants
   are the `X` for which both `assemble<X>` and `package<X>` exist, minus names ending
   in `AndroidTest`, `UnitTest` or `TestFixtures`. `package<X>` exists only per variant
@@ -542,8 +561,10 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
    `testSpecFilters` (7.6), `versionInfo` (9.4), `taskProvenance`. Subscription-time
    decisions are gated on these; call-time optional methods stay wrapped in
    `UnsupportedMethodException` catches regardless.
-3. **Plugin facts**, per project model: `agp`, `kgp`, `kotlinBuiltIn`, from the probe.
-   `unknown` if the probe did not run. Never parsed from build scripts or catalogs.
+3. **Plugin facts**, per project model: `agp`, `kgp` (and, later, `kotlinBuiltIn`), from
+   the probe. `unknown` if the probe did not read them. Never parsed from build scripts or
+   catalogs. Build results carry both, and `expectedSources`, item 4's table per tool
+   (milestone 1h D10).
 4. **Expected error source per tool**, derived from 2 and 3:
 
    | Tool | Structured when | Otherwise |
@@ -635,8 +656,10 @@ structured on Gradle 8.13, KSP, AAPT2 (failure node and console; AGP's blame fil
 resolves the merged path) and the manifest merger recorded. Not run: kapt, the rest
 of the matrix.
 
-**S3 — Android facts from a non-Studio client.** *Moved to staging 3 with the probe it
-gates (milestone 1g, D25; ADR-0017 amended 2026-10-06).* Run the probe on the sample app and
+**S3 — Android facts from a non-Studio client.** *Run 2026-10-07 by milestone 1h
+([findings](../research/spike-s3-android-facts.md)): every field resolved on AGP 8.0.2,
+8.13.2 and 9.4.1, the task-name fallback matched the probe's application variants, a
+missing platform does not fail configuration.* Run the probe on the sample app and
 on a flavoured, multi-module fixture across AGP 8.0 / 8.x / 9.x: which fields resolve,
 cost of the model fetch, and the accuracy of the task-name fallback against the
 probe's variants. If AGP DSL access proves brittle, evaluate AGP's builder model

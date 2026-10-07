@@ -70,7 +70,8 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 | Research | [`research/gradle-mcp.md`](research/gradle-mcp.md) | ✅ Draft |
 | Research | [`research/gradle-version-compatibility.md`](research/gradle-version-compatibility.md) | ✅ Draft |
 | Research | [`research/pstack.md`](research/pstack.md) | ✅ Draft |
-| Research | [`research/spike-s1-error-formats.md`](research/spike-s1-error-formats.md) | ⚠️ Partial — command-line path only |
+| Research | [`research/spike-s1-error-formats.md`](research/spike-s1-error-formats.md) | Runs 1 and 2 (TAPI); the matrix beyond two cells not run |
+| Research | [`research/spike-s3-android-facts.md`](research/spike-s3-android-facts.md) | Done — AGP 8.0.2, 8.13.2, 9.4.1 |
 | Research | [`research/prior-art.md`](research/prior-art.md) | ✅ Draft |
 | Research | [`research/device-speed-2026-10.md`](research/device-speed-2026-10.md) | ✅ Done — device latency against prior art, measured |
 | Research | `research/android-toolchain.md` | ⏳ Planned |
@@ -80,10 +81,10 @@ See [`vision/vision.md`](vision/vision.md) for the full statement.
 
 ## Where the work stands
 
-**The design is closed and verified. Milestones 1b to 1g are done and verified: an
-external agent over MCP can build a real Android project, read its compile errors as
-structured records, fix them, and install, launch and inspect the app on an emulator,
-through Droidyard alone.**
+**The design is closed and verified. Milestones 1b to 1h are done and verified: an
+external agent over MCP can pick an exact Android variant, check the SDK it needs, build
+it, read its compile errors as structured records, fix them, and install, launch and
+inspect the app on an emulator, through Droidyard alone.**
 
 | | State |
 | --- | --- |
@@ -91,15 +92,11 @@ through Droidyard alone.**
 | **Owner decisions** | 19 closed in [`reviews/2026-09-29-ratifications.md`](reviews/2026-09-29-ratifications.md), plus the two 1b decisions: the MCP implementation ([ADR-0025](adr/0025-mcp-adapter-implementation.md)) and the macOS peer check with the per-root fallback ([ADR-0019](adr/0019-process-topology-daemon-and-shims.md) §6). |
 | **Code** | **Milestones 1b and 1c — the daemon, the MCP adapter, the process supervisor and the workspace model — done and verified** ([1b plan](plans/m1b-daemon-and-mcp-adapter.md) A1–A12; [1c plan](plans/m1c-process-supervisor-and-workspace.md) status `Done`, A1–A9 at their stated levels). The 1b surface: state root, socket, `flock`, peer check, handshake, sessions, the native envelope and `operation.wait`/`cancel`; `serve`/`mcp`/`call`/`status`/`stop`; the MCP adapter on `mark3labs/mcp-go`. The 1c layer: durable JSON state and crash reaping, the workspace model (`workspace.open`/`describe`/`close` per ADR-0026/0027), the MCP session binding to a project root, and the process supervisor (lazy start, idle shutdown, no orphans). **Reachable by an agent over MCP, bound to a project** (OpenCode v2.0.18 verified; Cursor not run). **Milestone 1d done and verified** ([1d plan](plans/m1d-http-websocket-and-events.md) status `Done`, A1–A9 at their stated levels): per-connection MCP sessions, one event bus (`workspace.lifecycle`, `operation.progress`, resume with `since` and gap markers), MCP progress notifications, the loopback HTTP listener on 7317 behind the security fence, the per-launch token, `droidyard status`/`ui`, `SESSION_REQUIRED`, `events.subscribe`/`unsubscribe` at API 0.3.0, and the WebSocket session. **Milestone 1e done and verified** ([1e plan](plans/m1e-jvm-free-device-slice.md) status `Done`; A3 and A7 at their stated levels): adb resolution and degradation, `device.list`, `device.uiTree` through Droidyard's own reader that keeps other accessibility services running ([ADR-0029](adr/0029-ui-reader-dex.md)), `device.screenshot`, the ephemeral artifact store, `artifact.read`, `GET /v1/artifacts/{id}`, MCP image blocks, untrusted marking end to end, per-resource queues and the authorization re-check; level 5 on a Pixel_9a with OpenCode. |
 | **Process** | 4 agents (`planner`, `plan-reviewer`, `implementer`, `verifier`) and 5 skills under [`.claude/`](../.claude/) (under `.opencode/` until 2026-10-03), on top of [`../AGENTS.md`](../AGENTS.md). Used end to end on 1b (three plan rounds, two verification rounds) and again on 1c (two plan rounds, three verification rounds, whose findings the implementer fixed before close). On 1d, run from Claude Code: Sonnet implements one step at a time, an Opus verifier and a DeepSeek cross-check review each step in parallel (`AGENTS.md` §Agents and models). |
-| **Next** | **Milestone 1g done** ([1g plan](plans/m1g-gradle-sidecar-and-build.md) status `Done`; A4 in part: a cancel before the sidecar accepts leaves no record): the Gradle Tooling API sidecar (Kotlin, embedded jars), trusted roots ([ADR-0031](adr/0031-configuration-file-trust-first.md), `droidyard trust`), `project.modules`/`variants`, `build.tasks`/`assemble`/`run`/`errors`/`lastResult` with the console extractor (S1 run 2 recorded), durable build consoles and text `artifact.read`, `device.install`/`uninstall`; API 0.6.0; the golden path (modules, a failing build, its errors, a fix, install, launch, screen) run by OpenCode on DopamineControl and a real emulator. Next: the remaining Phase 1 capabilities (`device.logs`, `emulator.*`, `sdk.*`, `file.*`) and the probe with spike S3; each needs a plan. |
-| **Then** | The Android probe (exact variants, AGP/KGP in the profile, `sdk.requirements`' build side), gated by spike S3, moved after execution and errors by 1g's D25; the configuration file's remaining keys; `process.*` and `build.output` topics with the Phase 2 UI. Layers nobody calls yet wait. |
+| **Next** | **Milestone 1h done** ([1h plan](plans/m1h-android-probe-and-sdk.md)): the Android probe (Java 8, injected into the model fetch only; spike S3 recorded on AGP 8.0.2, 8.13.2 and 9.4.1), exact `project.variants` with build type and flavours, AGP/KGP and `expectedSources` in build results, `sdk.status` and `sdk.requirements`; API 0.7.0; an agent picked a flavoured variant from its flavours, checked the SDK, built, installed and launched it from OpenCode. Milestone 1g before it: the Gradle sidecar, `build.*`, `device.install`. Next: `device.logs` and `emulator.*` (golden-path steps 4 and 6), then `file.*`; each needs a plan. |
+| **Then** | `file.*`; the configuration file's remaining keys with `policy.*` and `shell.exec`; the `process.*` and `build.output` topics with the Phase 2 UI. Layers nobody calls yet wait. |
 
 Before the next milestones:
 
-- **Before the probe**: spike S3 in [`subsystems/gradle.md`](subsystems/gradle.md)
-  §Spikes, and S1 run 2's record in
-  [`research/spike-s1-error-formats.md`](research/spike-s1-error-formats.md) (KGP 2.4
-  reports Kotlin through Problems events; javac is structured on Gradle 8.13).
 - **Before `device.logs`**: [`subsystems/adb-device.md`](subsystems/adb-device.md); the
   build record already carries the `applicationId` it filters by.
 

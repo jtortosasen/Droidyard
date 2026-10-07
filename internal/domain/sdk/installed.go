@@ -3,6 +3,7 @@ package sdk
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,12 +116,25 @@ func readPackage(path string) (Package, string) {
 	if err != nil {
 		return Package{}, fmt.Sprintf("%s: %v", path, err)
 	}
+	// A FIFO or a device never reports its size: only a regular file is read, and never
+	// past the bound (D14; step 4 review N2).
+	if !fi.Mode().IsRegular() {
+		return Package{}, fmt.Sprintf("%s: not a regular file, skipped", path)
+	}
 	if fi.Size() > maxPackageBytes {
 		return Package{}, fmt.Sprintf("%s: larger than %d bytes, skipped", path, maxPackageBytes)
 	}
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return Package{}, fmt.Sprintf("%s: %v", path, err)
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxPackageBytes+1))
+	f.Close()
+	if err != nil {
+		return Package{}, fmt.Sprintf("%s: %v", path, err)
+	}
+	if len(raw) > maxPackageBytes {
+		return Package{}, fmt.Sprintf("%s: larger than %d bytes, skipped", path, maxPackageBytes)
 	}
 	var repo struct {
 		Local []struct {

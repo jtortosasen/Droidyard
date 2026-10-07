@@ -153,6 +153,17 @@ rather than from raw numbers, which is what makes creation approachable.
 
 ## To verify
 
+*Answered by spike S3 (2026-10-07, [findings](../research/spike-s3-android-facts.md)):
+`sdk.dir` wins over `ANDROID_HOME`; a symlinked `sdk.dir` comes back unresolved; a
+`sdk.dir` naming nothing falls back to `ANDROID_HOME` or to a non-existent placeholder;
+`compileSdk 37` reads `android-37` against the installed `platforms;android-37.0`.
+`ANDROID_HOME` against `ANDROID_SDK_ROOT` disagreeing was not run. Milestone 1h
+(plan D11, D12, Delegated) ships `sdk.status` (always answers, `found: false` with the
+candidates when there is none; no `system.health` SDK block) and `sdk.requirements` (the
+probe's facts against the project SDK, whose root it publishes as the `sdkmanager
+--sdk_root` target; a missing platform is named from the probe's compile target, since
+configuration does not fail on it). `RequiresSDK` stays unused until `emulator.*`.*
+
 Cheap to confirm on a machine with the SDK and JDK 17, before the fallback is relied on:
 
 - AGP's actual order and conflict handling: a project with `sdk.dir` and a different

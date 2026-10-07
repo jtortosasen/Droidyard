@@ -137,11 +137,18 @@ func Requirements(o Options, root string, model gradle.Model) RequirementsResult
 
 	projectRoot, projectSource, found := resolveProjectSDK(o, root, model)
 	var installed Installed
+	if found && !exists(projectRoot) {
+		// AGP's placeholder (<project>/missingSdkDirectory) or a dead sdk.dir: there is
+		// no SDK to install into, so this is "SDK location not found", never an
+		// sdkmanager target (spike S3 G4; step 4 review B1). The root stays for diagnosis.
+		out.Notes = append(out.Notes, "the project SDK directory does not exist: "+projectRoot)
+		found = false
+	}
 	if found {
-		installed, _ = ReadInstalled(projectRoot)
-		if !exists(projectRoot) {
-			out.Notes = append(out.Notes, "the project SDK directory does not exist: "+projectRoot)
-		}
+		var warnings []string
+		installed, warnings = ReadInstalled(projectRoot)
+		// A skipped package.xml makes a package look missing: say so (D14; review N1).
+		out.Notes = append(out.Notes, warnings...)
 	}
 	out.ProjectSDK = ProjectSDK{
 		Found:      found,
@@ -191,10 +198,13 @@ func Requirements(o Options, root string, model gradle.Model) RequirementsResult
 		out.Notes = append(out.Notes, "the Android probe read no facts for this project (probe status: "+probeStatus(model.Probe)+"); the required SDK packages could not be determined")
 	}
 
+	seen := map[string]bool{}
 	for _, r := range out.Required {
-		if r.Installed {
+		// One package several modules need is listed once (review N5).
+		if r.Installed || seen[r.Package] {
 			continue
 		}
+		seen[r.Package] = true
 		out.Missing = append(out.Missing, r.Package)
 		if found {
 			out.Notes = append(out.Notes, fmt.Sprintf("install %s with: sdkmanager --sdk_root=%s %q", r.Package, projectRoot, r.Package))

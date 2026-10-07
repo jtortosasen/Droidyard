@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -291,6 +291,22 @@ ps -o rss= -p $(pgrep -f droidyard.sidecar.MainKt)               # sidecar RSS (
 
 - Expect `tools=23`; the first `build_assemble` completed `failed`, `build_errors` names `LevelFive.kt` 3:40 `tool: kotlin`, `source: console`; the second `success` with `outputs[0]` `com.example.dopaminecontrol`; `device_install` `{applicationId, versionCode, apk}`; the launch pid; `foreground` `com.example.dopaminecontrol`.
 - On warm caches each build took about 2 s and the whole OpenCode run 31 s, so `operation_wait` was not needed: a minute-long build is not exercised by this row.
+
+**1h Probe** (milestone 1h; its §Scratch rules and §Emulator rules apply verbatim: only `dev.droidyard.flavoured.*` installed and removed, DopamineControl untouched, `<sdk>/.knownPackages` the only SDK file allowed to change).
+
+```sh
+F=~/Library/Caches/droidyard-dev/m1h/flavoured; rm -rf $F; cp -R sidecar/testdata/flavoured $F
+echo "sdk.dir=$HOME/Library/Android/sdk" >$F/local.properties; touch "$E/sdk-stamp"
+export DROIDYARD_STATE_DIR=$E/state; "$DY" trust $F; (cd / && "$DY" serve >"$E/serve.log" 2>&1 &)
+# OpenCode as in Real client, cwd $F, its config (in $F, removed after) denying shell and edit; prompt: find the :app variant
+# whose flavours are tier paid and stage staging, debug build type; check the SDK; build, install, launch; read the package name
+jq -c 'select(.method=="tools/call")|{id,n:.params.name,a:.params.arguments}' "$E/wire.c2s.jsonl"
+"$C_" project.variants --workspace <DC copy>; "$C_" sdk.requirements --workspace <DC copy>     # probe, exact; missing []
+"$C_" device.uninstall --params '{"device":"emulator-5554","applicationId":"dev.droidyard.flavoured.paid.staging"}'
+find ~/Library/Android/sdk -maxdepth 3 -newer "$E/sdk-stamp" | grep -v knownPackages            # nothing
+```
+
+- Expect `tools=25`; `project_variants` `:app` `source: probe` with eight `details`; `sdk_requirements` `complete: true`, `missing: []`; `build_assemble {":app", "paidStagingDebug"}` chosen by the agent from the flavours, `success`, `agp`/`kgp` set; `device_install` `dev.droidyard.flavoured.paid.staging`; the screen shows that package.
 
 ## Evidence
 
