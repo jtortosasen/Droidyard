@@ -200,8 +200,12 @@ func TestStartReportsALauncherThatExitedEarly(t *testing.T) {
 	}
 }
 
-// Decision (plan m1i step 5, check; D15 and step 1's G10): the launcher's second-instance
-// refusal is EMULATOR_AVD_LOCKED, not a generic launch failure.
+// Decision (plan m1i step 5, check; D15 and step 1's G10; plan m1m step 3, Q1 ¶4): the
+// launcher's second-instance refusal is EMULATOR_AVD_LOCKED, and its nextStep gives the
+// caller a way out that does not pretend the holder is a device Droidyard can address —
+// no emulator.list remedy (the holder has no console to list), and no promise to stop a
+// process Droidyard did not launch. The mutations this fails: the old emulator.list
+// remedy, and a nextStep that offers to stop the holder.
 func TestStartReportsALockedAVD(t *testing.T) {
 	scaleBoot(t, 5*time.Second, 10*time.Millisecond)
 	f := newFixture(t, map[string]string{"devices.out": listHead})
@@ -209,13 +213,21 @@ func TestStartReportsALockedAVD(t *testing.T) {
 	f.emuWrite(t, loadedAVD+".launch.exit", "1\n")
 	f.emuWrite(t, loadedAVD+".launch.err", "ERROR   | "+lockedMarker+" (AVD name: "+loadedAVD+")\n")
 
-	mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrAVDLocked)
+	e := mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrAVDLocked)
+	if strings.Contains(e.NextStep, "emulator.list") {
+		t.Errorf("nextStep = %q; want no emulator.list remedy, the holder has no console to list", e.NextStep)
+	}
+	if !strings.Contains(e.NextStep, "does not stop processes it did not launch") {
+		t.Errorf("nextStep = %q; want it to say Droidyard does not stop what it did not launch", e.NextStep)
+	}
 }
 
-// Decision (plan m1i step 5, check; D14; plan m1m step 2, Q1 ¶2): a device that appears but
-// never finishes booting ends the call EMULATOR_BOOT_TIMEOUT naming it, at the bound, and
-// because its serial is resolved the launcher is left running — it is a device now, not
-// ours to signal. The mutations this fail: an unbounded await; `end` run after resolution.
+// Decision (plan m1i step 5, check; D14; plan m1m steps 2 and 3, Q1 ¶2): a device that
+// appears but never finishes booting ends the call EMULATOR_BOOT_TIMEOUT naming it, at the
+// bound, and because its serial is resolved the launcher is left running — it is a device
+// now, not ours to signal — and the nextStep names the remedy that serial answers to,
+// emulator.stop. The mutations this fail: an unbounded await; `end` run after resolution;
+// a nextStep that says only "a wedged emulator may need stopping" without naming the call.
 func TestStartTimesOutWhenTheSerialNeverBoots(t *testing.T) {
 	scaleBoot(t, 300*time.Millisecond, 20*time.Millisecond)
 	f := newFixture(t, map[string]string{"devices.out": listHead})
@@ -225,6 +237,9 @@ func TestStartTimesOutWhenTheSerialNeverBoots(t *testing.T) {
 	e := mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrBootTimeout)
 	if !strings.Contains(e.Message, "emulator-5556") {
 		t.Errorf("message = %q; want it to name the serial", e.Message)
+	}
+	if !strings.Contains(e.NextStep, "emulator.stop") || !strings.Contains(e.NextStep, serial) {
+		t.Errorf("nextStep = %q; want it to name emulator.stop with %s", e.NextStep, serial)
 	}
 	if pid := f.launcherPid(t, serial); !alive(pid) {
 		t.Errorf("pid %d is gone; a resolved emulator is a device, not ours to signal", pid)

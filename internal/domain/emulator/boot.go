@@ -294,11 +294,13 @@ func noSerialAppeared(capabilityName, avd string, pid int, stopped bool, elapsed
 }
 
 // bootTimedOut is EMULATOR_BOOT_TIMEOUT for a device that appeared but never finished
-// booting (emulator.md §Failure modes: "Device appears but never finishes booting").
+// booting (emulator.md §Failure modes: "Device appears but never finishes booting"). Its
+// serial is resolved, so the emulator is a device, not ours to signal (ADR-0033 ¶2); its
+// nextStep names the remedy the serial answers to, emulator.stop (plan m1m, step 3).
 func bootTimedOut(serial string) *capability.Error {
 	return capability.NewError(ErrBootTimeout, "the emulator "+serial+" did not finish booting").
 		WithCause("sys.boot_completed was not 1 after " + bootTimeout.String()).
-		WithNextStep("The emulator is not ours to signal: check `adb devices` and sys.boot_completed, then start it again. A wedged emulator may need stopping first.")
+		WithNextStep("The device is not ours to signal: call emulator.stop {device: \"" + serial + "\"} to end the wedged emulator, then start it again.")
 }
 
 // disconnectedDuringBoot is DEVICE_DISCONNECTED for an adopted serial that left while the
