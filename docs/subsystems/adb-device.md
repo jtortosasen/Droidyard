@@ -186,8 +186,9 @@ only. Every device-derived field is untrusted.
 - Filters: `applicationId`, tag, priority, buffer, and a literal substring. Lines are
   filtered **while capturing**, then capped, so other apps' noise cannot exhaust the
   cap.
-- The full capture is an artifact reference; the follow child is killed as a
-  **process group**.
+- The full capture is an artifact reference; the follow child is killed by its **pid**
+  during the run (a forked adb server may share its group), and by its process group
+  only at reconciliation after a daemon crash (milestone 1i D9).
 
 ### Filtering by app survives the app's death
 

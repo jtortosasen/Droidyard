@@ -351,7 +351,8 @@ subscription receives when it lost events.
 | `operation.progress` | `{done, total?, message?, phase?}` | 1d |
 | `events.gap` | the loss marker `{fromSeq, toSeq}`, `seq` equal to `toSeq` | 1d |
 | `build.progress`, `build.output` | Gradle progress and console lines | with their first consumer, the Phase 2 UI (milestone 1g put build progress on `operation.progress`) |
-| `device.logcat`, `device.screen`, `device.state` | device streams and state | with their first consumer, the Phase 2 UI (milestone 1i shipped `device.logs` without the topic, D18) |
+| `device.logcat` | the log stream | with its first consumer, the Phase 2 Logcat panel (milestone 1i shipped `device.logs` without the topic, D18) |
+| `device.screen`, `device.state` | device streams and state | with their producers, later device milestones |
 | `process.lifecycle`, `process.output` | supervised sidecars | with their first consumer, the Phase 2 UI (the first sidecar shipped in 1g without them) |
 | `operation.state` | operation transitions for the UI | Phase 2 |
 

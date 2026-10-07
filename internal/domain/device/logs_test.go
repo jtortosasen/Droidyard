@@ -583,3 +583,25 @@ func TestLogsReadCutMidLineIsTruncatedNotFailed(t *testing.T) {
 		t.Errorf("truncated %v with %d lines, want a truncated read with the lines before the cut", r.Truncated, len(r.Lines))
 	}
 }
+
+// Decision (close review B1): after a wipe the serial is reused and pm no longer lists the
+// app; pids recorded before it may now be another app's, so nothing is attributed and a
+// warning says the app is not installed. Seen failing (an overlay reproduction): another
+// app's line at the old pid came back as this app's, with no warning.
+func TestLogsAppNotInstalledAttributesNothing(t *testing.T) {
+	stranger := "         1791336911.500000 10200  6406  6406 I SomeOtherApp: secret of another app"
+	f := launchedLogsFixture(t, map[string]string{uiSerial + ".pm.out": "", uiSerial + ".log": logsPlain(stranger)})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","applicationId":"`+appID+`"}`))
+	if len(r.Lines) != 0 {
+		t.Fatalf("lines = %+v, want none attributed to an app pm does not list", r.Lines)
+	}
+	warned := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "not installed") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("warnings = %v, want one saying the app is not installed", r.Warnings)
+	}
+}
