@@ -79,7 +79,7 @@ func TestRequirementsAskTheEmulatorPackageAboutTheLauncher(t *testing.T) {
 	}
 
 	empty := t.TempDir()
-	none := requirements{emulator: emulator.New([]string{"HOME=" + empty, "PATH=" + empty}, nil, nil)}
+	none := requirements{emulator: emulator.New([]string{"HOME=" + empty, "PATH=" + empty}, nil, nil, "")}
 	reason, missing := none.Missing(capability.RequiresEmulator)
 	if !missing || !strings.Contains(reason, "ANDROID_HOME") || !strings.Contains(reason, "Tried:") {
 		t.Errorf("with no launcher: missing %v, reason %q, want missing and naming what to set", missing, reason)
@@ -89,7 +89,7 @@ func TestRequirementsAskTheEmulatorPackageAboutTheLauncher(t *testing.T) {
 	if err := writeExecutable(filepath.Join(bin, "emulator")); err != nil {
 		t.Fatal(err)
 	}
-	have := requirements{emulator: emulator.New([]string{"HOME=" + empty, "PATH=" + bin}, nil, nil)}
+	have := requirements{emulator: emulator.New([]string{"HOME=" + empty, "PATH=" + bin}, nil, nil, "")}
 	if reason, missing := have.Missing(capability.RequiresEmulator); missing {
 		t.Errorf("with emulator on PATH: missing, %q", reason)
 	}

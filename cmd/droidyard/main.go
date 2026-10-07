@@ -236,11 +236,6 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		gradleOpts.Finder = gradleFinder(gradleEnviron())
 	}
 	gradleClient := gradle.New(gradleOpts)
-	// The emulator subsystem (plan m1i step 4): it resolves the launcher in the daemon's
-	// environment, shares adb for the device side, and runs the launcher through the same
-	// locked spawner adb clients use. It owns no device logic (emulator package doc).
-	emulatorClient := emulator.New(adbEnviron(), adb, spawn)
-	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient)
 	// The daemon's one artifact store, for the bus's epoch: a reference from an earlier
 	// daemon run is ARTIFACT_EXPIRED (ADR-0012). Its state root is the daemon's, so a
 	// durable build console survives a restart; without one (caps, schema) it serves
@@ -249,6 +244,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if st != nil {
 		stateRoot = st.Root()
 	}
+	// The emulator subsystem (plan m1i steps 4–5): it resolves the launcher in the
+	// daemon's environment, shares adb for the device side, runs `-list-avds` through the
+	// same locked spawner adb clients use, and boots detached under `emulator/<avd>.log`
+	// in the daemon's state root. It owns no device logic (emulator package doc).
+	emulatorClient := emulator.New(adbEnviron(), adb, spawn, stateRoot)
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch

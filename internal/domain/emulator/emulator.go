@@ -1,23 +1,22 @@
 // Package emulator is the AVD lifecycle subsystem (docs/subsystems/emulator.md):
-// listing the AVDs the launcher knows and stopping the emulators running them. Booting
-// and wiping follow (plan m1i step 5).
+// listing the AVDs the launcher knows, booting one, stopping it and wiping it.
 //
 // It owns no device logic: the policy hook, the device listing and the emulator
 // console's AVD name all come from internal/domain/device, which adapts adb. This
-// package resolves the launcher and reads AVD files on the host, and nothing else. The
-// launcher is run only for `-list-avds`; it is never spawned as an emulator here.
+// package resolves the launcher, reads AVD files on the host, and starts the launcher
+// detached for a boot; nothing else. The design rule is "boot it, don't own it": an
+// emulator we start outlives the daemon (emulator.md §Design rule).
 package emulator
 
 import (
+	"sync"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 )
 
-// The codes of emulator.md §Failure modes. Every one is EMULATOR_-prefixed and stable;
-// listing and stopping return the first, sixth and seventh today, and booting and
-// wiping (step 5) the rest.
+// The codes of emulator.md §Failure modes. Every one is EMULATOR_-prefixed and stable.
 const (
 	ErrLauncherNotFound capability.ErrorCode = "EMULATOR_LAUNCHER_NOT_FOUND"
 	ErrAVDNotFound      capability.ErrorCode = "EMULATOR_AVD_NOT_FOUND"
@@ -39,23 +38,39 @@ var (
 	stopTimeout = 20 * time.Second
 	// stopPollInterval is how often the listing is read while a stop waits.
 	stopPollInterval = time.Second
+	// bootTimeout bounds a boot from its snapshot to `sys.boot_completed` being 1, and
+	// an adoption's wait for the same readiness (emulator.md §Timeouts; plan m1i, D15).
+	bootTimeout = 180 * time.Second
+	// bootPollInterval is how often the device listing and `sys.boot_completed` are read
+	// while a boot waits (emulator.md §Boot sequence 5).
+	bootPollInterval = time.Second
 )
 
 // Emulator is the subsystem's handle: the daemon's environment, the adb subsystem it
-// shares, and the starter the launcher is run through. start is the daemon's locked
-// spawner (device.Starter); without one, resolution and file reading still work and
-// only running the launcher fails.
+// shares, the starter the launcher is run through and the state root whose
+// `emulator/<avd>.log` a boot writes. start is the daemon's locked spawner
+// (device.Starter); without one, resolution and file reading still work and only
+// running the launcher fails. state is "" in a subsystem that never boots.
 type Emulator struct {
-	env   []string
-	adb   *device.ADB
-	start device.Starter
+	env     []string
+	adb     *device.ADB
+	starter device.Starter
+	state   string
+
+	// mu guards launches, the in-memory table of launchers we started (plan m1i, D15).
+	// It is deliberately not a pid record: a record would get the emulator killed by the
+	// next daemon's crash recovery (emulator.md §Detached launch; ADR-0021).
+	mu       sync.Mutex
+	launches map[string]*launch
 }
 
 // New returns an Emulator over env, the environment the launcher inherits unchanged (so
 // it and our AVD reader see the same directories, emulator.md §AVD discovery) and adb
-// clients are resolved in, with adb for the device side and start for the launcher.
-func New(env []string, adb *device.ADB, start device.Starter) *Emulator {
-	return &Emulator{env: append([]string(nil), env...), adb: adb, start: start}
+// clients are resolved in, with adb for the device side, starter for the launcher and
+// stateRoot as the state root a boot's log lives under ("" when nothing is booted).
+func New(env []string, adb *device.ADB, starter device.Starter, stateRoot string) *Emulator {
+	return &Emulator{env: append([]string(nil), env...), adb: adb, starter: starter, state: stateRoot,
+		launches: map[string]*launch{}}
 }
 
 // Resolve finds the launcher again, afresh, as ADB.Resolve does for adb: an emulator
@@ -65,5 +80,10 @@ func (e *Emulator) Resolve() Resolution { return Resolve(e.env) }
 // Register adds the subsystem's capabilities to reg.
 func Register(reg *capability.Registry, e *Emulator) {
 	registerList(reg, e)
+	registerStart(reg, e)
 	registerStop(reg, e)
+	registerWipe(reg, e)
 }
+
+// boolPtr is a pointer to b, for a Descriptor's Annotations.
+func boolPtr(b bool) *bool { return &b }

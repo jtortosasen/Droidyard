@@ -73,23 +73,54 @@ func (e *Emulator) stop(ctx context.Context, call *capability.Call) (StopResult,
 	if auth.Device.Online {
 		avd = e.adb.AvdName(ctx, auth.Serial)
 	}
+	if err := e.stopSerialWith(ctx, auth.ADB, auth.Serial); err != nil {
+		return StopResult{}, err
+	}
+	return StopResult{Device: auth.Serial, Avd: avd, Warnings: auth.Warnings}, nil
+}
 
-	// One bound covers the kill and the wait, so the whole stop cannot exceed stopTimeout.
+// stopSerial is emulator.wipe's own stop: it resolves adb itself, as the device preamble
+// would, since a wipe holds no device key and runs no hook (plan m1i, D12).
+func (e *Emulator) stopSerial(ctx context.Context, serial string) error {
+	path, err := e.adb.ADBPath("emulator.wipe")
+	if err != nil {
+		return err
+	}
+	return e.stopSerialWith(ctx, path, serial)
+}
+
+// stopSerialWith runs `adb -s <serial> emu kill` and waits, bounded, until the serial
+// leaves adb devices and — when this daemon launched the emulator — our launcher's Wait
+// returns (emulator.md §Stop; plan m1i, D12, D15). We never escalate to signals: the
+// emulator is not ours. One bound covers the kill and both waits, so the whole stop
+// cannot exceed stopTimeout.
+func (e *Emulator) stopSerialWith(ctx context.Context, adbPath, serial string) error {
 	deadline := time.Now().Add(stopTimeout)
 	// The exit status is ignored: a kill that reported failure may still have stopped it,
 	// and only the listing says. A successful one may too, so the wait always follows.
-	_, _ = e.adb.Run(ctx, auth.ADB, time.Until(deadline), emuOutputCap, "-s", auth.Serial, "emu", "kill")
+	_, _ = e.adb.Run(ctx, adbPath, time.Until(deadline), emuOutputCap, "-s", serial, "emu", "kill")
 	if cerr := ctx.Err(); cerr != nil {
-		return StopResult{}, cerr
+		return cerr
 	}
-	gone, err := e.waitGone(ctx, auth.Serial, deadline)
+	gone, err := e.waitGone(ctx, serial, deadline)
 	if err != nil {
-		return StopResult{}, err
+		return err
 	}
 	if !gone {
-		return StopResult{}, stopTimedOut(auth.Serial)
+		return stopTimedOut(serial)
 	}
-	return StopResult{Device: auth.Serial, Avd: avd, Warnings: auth.Warnings}, nil
+	// The launcher is the emulator (step 1 G9: the launcher execs into QEMU), so once the
+	// serial has left its Wait returns at once; waiting confirms it and reaps no zombie.
+	if l := e.launchForSerial(serial); l != nil {
+		exited, err := awaitExit(ctx, l, deadline)
+		if err != nil {
+			return err
+		}
+		if !exited {
+			return stopTimedOut(serial)
+		}
+	}
+	return nil
 }
 
 // waitGone reads the device listing every stopPollInterval until serial leaves it, and no

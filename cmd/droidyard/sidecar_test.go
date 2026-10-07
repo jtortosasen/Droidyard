@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
+	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
@@ -42,6 +43,11 @@ const (
 	// the adb server port its clients are given, one nothing listens on.
 	adbFakeEnv = "DROIDYARD_TEST_ADB_FAKE"
 	adbPortEnv = "DROIDYARD_TEST_ADB_PORT"
+	// emulatorDirEnv names a fake launcher's scenario directory and emulatorADBEnv the
+	// fake adb's: a re-executed daemon then resolves both and boots through the table
+	// they share (plan m1i step 5, D20).
+	emulatorDirEnv = "DROIDYARD_TEST_EMULATOR_DIR"
+	emulatorADBEnv = "DROIDYARD_TEST_EMULATOR_ADB_DIR"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -81,6 +87,29 @@ func installTestSeams() {
 			return []string{"ADB=" + exe, devicetest.DirEnv + "=" + dir,
 				"ANDROID_ADB_SERVER_PORT=" + os.Getenv(adbPortEnv), "HOME=" + dir, "PATH="}
 		}
+	}
+	// A test may give the daemon a fake emulator launcher and a fake adb (plan m1i step
+	// 5): the launcher is this binary re-executed through the emulatortest scenario, and
+	// the adb answers in process, so the daemon boots an AVD without this machine's SDK.
+	// Both share the fake adb's directory as the launcher's table (emulatortest.TableEnv),
+	// and neither the launcher's environment nor the daemon's names DROIDYARD_FAKE_ADB_DIR,
+	// so emulatortest.Main runs the launcher rather than devicetest.Main hijacking it.
+	if dir := os.Getenv(emulatorDirEnv); dir != "" {
+		exe, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		bin, home := filepath.Join(dir, "bin"), filepath.Join(dir, "home")
+		for _, p := range []string{bin, home} {
+			if err := os.MkdirAll(p, 0o700); err != nil {
+				panic(err)
+			}
+		}
+		adbDir := os.Getenv(emulatorADBEnv)
+		adbExec = devicetest.Exec(adbDir)
+		env := append(emulatortest.EnvFor(exe, dir, bin, home),
+			"ADB="+exe, emulatortest.TableEnv+"="+adbDir)
+		adbEnviron = func() []string { return env }
 	}
 	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar
 	// command runs the test binary again in the fake's mode, so reexec must not reach

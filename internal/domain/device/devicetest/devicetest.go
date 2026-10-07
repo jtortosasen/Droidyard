@@ -94,6 +94,14 @@
 // serial before it leaves (default 0: the next one); `<serial>.emukill.stays` makes it
 // never leave, for the stop-timeout case.
 //
+// The fake models a booting emulator through the table a fake launcher shares with it
+// (plan m1i, D20): RegisterEmulator records a booted serial, `devices -l` lists it beside
+// devices.out, `emu avd name` answers from it, and `sys.boot_completed` answers 0 for the
+// AVD's `<avd>.bootpolls` polls (default 0: the first answers 1) and then 1, so a test
+// drives a boot to readiness. A serial a recorded kill has taken away answers as real adb
+// does ("error: device '<serial>' not found"), so a boot waiting on it sees it disconnect.
+// A fake launcher (internal/domain/emulator/emulatortest) registers into this table.
+//
 // A FakeReader (reader.go) is the TCP listener the fake forward points at, so a test of
 // the persistent reader writes its Port as <serial>.forward.out.
 //
@@ -229,6 +237,24 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		}
 	}
 	hang := func() int { wait(ctx, time.Minute); return 0 }
+	// The readiness signal of a serial a fake launcher registered: 0 until the AVD's
+	// <avd>.bootpolls-th poll, then 1; a serial whose `emu kill` has taken it away answers
+	// the not-found error real adb prints, so a boot waiting on an adopted device sees it
+	// disconnect (plan m1i, D20; D12). A test's own <serial>.bootcompleted files win.
+	if len(args) == 5 && args[0] == "-s" && args[2] == "shell" && args[3] == "getprop" && args[4] == "sys.boot_completed" {
+		if _, ok := tableAVD(dir, args[1]); ok && !has(args[1]+".bootcompleted.out") {
+			if serialGone(dir, args[1]) {
+				fmt.Fprintf(stderr, "error: device '%s' not found\n", args[1])
+				return 1
+			}
+			if bootCompletedFromTable(dir, args[1]) {
+				fmt.Fprintln(stdout, "1")
+			} else {
+				fmt.Fprintln(stdout, "0")
+			}
+			return 0
+		}
+	}
 	if prefix := servedPrefix(args); prefix != "" {
 		return serve(ctx, dir, prefix, n, raw, stdout, stderr)
 	}
@@ -246,7 +272,10 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		if !waitDelay(ctx, dir, "devices") {
 			return 0
 		}
-		stdout.Write(dropKilledEmulators(dir, dirBytes(dir, "devices.out")))
+		// A registered emulator (one a fake launcher booted) is listed beside whatever
+		// devices.out holds, and both lose a serial the fake `emu kill` ended (plan m1i,
+		// D20).
+		stdout.Write(dropKilledEmulators(dir, appendRegisteredEmulators(dir, dirBytes(dir, "devices.out"))))
 		if b, err := os.ReadFile(filepath.Join(dir, "devices.err")); err == nil {
 			stderr.Write(b)
 		}
@@ -264,6 +293,10 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 	case len(args) == 5 && args[0] == "-s" && args[2] == "emu" && args[3] == "avd" && args[4] == "name":
 		if has(args[1] + ".avd.hang") {
 			return hang()
+		}
+		if avd, ok := tableAVD(dir, args[1]); ok {
+			fmt.Fprint(stdout, avd+"\r\nOK\r\n")
+			return 0
 		}
 		cat(args[1] + ".avd")
 		return 0
@@ -1188,7 +1221,8 @@ func writeKilledEmulators(dir string, rows [][2]string) {
 // dropKilledEmulators removes from a `devices -l` answer the serials whose leave count is
 // spent, decrements the rest, and keeps those that never leave. So an emulator leaves the
 // listing the number of answers after its `emu kill` its leave count names, and once it has
-// left it stays gone (plan m1i, D20).
+// left it stays gone (plan m1i, D20). A serial that has just left is recorded in
+// gone.emulators, so a readiness probe against it answers as real adb does.
 func dropKilledEmulators(dir string, out []byte) []byte {
 	emulMu.Lock()
 	defer emulMu.Unlock()
@@ -1216,6 +1250,9 @@ func dropKilledEmulators(dir string, out []byte) []byte {
 		}
 	}
 	writeKilledEmulators(dir, rows)
+	for serial := range gone {
+		recordGoneEmulator(dir, serial)
+	}
 	var kept []string
 	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
 		if line == "" {
@@ -1230,4 +1267,159 @@ func dropKilledEmulators(dir string, out []byte) []byte {
 		return nil
 	}
 	return []byte(strings.Join(kept, "\n") + "\n")
+}
+
+// The emulator table is what a fake launcher and the fake adb share (plan m1i, D20): a
+// launcher invocation registers the serial it booted ("<serial> <avd> <pid>"), `devices
+// -l` lists it beside devices.out, `emu avd name` answers from it, and `sys.boot_completed`
+// turns 1 after the AVD's <avd>.bootpolls-th poll. The fake launcher is a process of its
+// own, so the table is a file the two share, single-writer per file:
+//
+//	emulators.table   the launcher appends "<serial> <avd> <pid>" once it boots
+//	<serial>.polls    the fake adb's readiness poll count for that serial
+//	<avd>.bootpolls   how many polls answer 0 before the serial answers 1 (default 0)
+//	gone.emulators    serials whose `emu kill` took them away, written by the fake adb
+
+// RegisterEmulator records an emulator a fake launcher booted: its serial, the AVD it
+// runs and its pid. The fake launcher calls it; a test may seed one too.
+func RegisterEmulator(dir, serial, avd string, pid int) {
+	if serial == "" || avd == "" {
+		return
+	}
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	f, err := os.OpenFile(filepath.Join(dir, "emulators.table"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(f, "%s %s %d\n", serial, avd, pid)
+	f.Close()
+}
+
+// tableAVD is the AVD a registered serial runs, false when the table has no such serial.
+func tableAVD(dir, serial string) (string, bool) {
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	b, err := os.ReadFile(filepath.Join(dir, "emulators.table"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[0] == serial {
+			return f[1], true
+		}
+	}
+	return "", false
+}
+
+// EmulatorPID is the pid a registered serial's launcher reported, 0 when none.
+func EmulatorPID(dir, serial string) int {
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	b, err := os.ReadFile(filepath.Join(dir, "emulators.table"))
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[0] == serial {
+			n, _ := strconv.Atoi(f[2])
+			return n
+		}
+	}
+	return 0
+}
+
+// appendRegisteredEmulators adds a row for every serial the table holds that devices.out
+// does not already list, so `devices -l` shows a booted emulator as real adb would.
+func appendRegisteredEmulators(dir string, out []byte) []byte {
+	emulMu.Lock()
+	b, err := os.ReadFile(filepath.Join(dir, "emulators.table"))
+	emulMu.Unlock()
+	if err != nil {
+		return out
+	}
+	have := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
+			have[f[0]] = true
+		}
+	}
+	lines := strings.TrimSuffix(string(out), "\n")
+	if lines == "" {
+		lines = "List of devices attached"
+	}
+	added := false
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) < 2 || have[f[0]] {
+			continue
+		}
+		have[f[0]] = true
+		lines += "\n" + f[0] + " device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:90"
+		added = true
+	}
+	if !added {
+		return out
+	}
+	return []byte(lines + "\n")
+}
+
+// bootCompletedFromTable is whether a registered serial has finished booting: false for
+// its first <avd>.bootpolls polls, then true.
+func bootCompletedFromTable(dir, serial string) bool {
+	avd, ok := tableAVD(dir, serial)
+	if !ok {
+		return false
+	}
+	want := 0
+	if b, err := os.ReadFile(filepath.Join(dir, avd+".bootpolls")); err == nil {
+		want, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	name := filepath.Join(dir, serial+".polls")
+	n := 0
+	if b, err := os.ReadFile(name); err == nil {
+		n, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	n++
+	os.WriteFile(name, []byte(strconv.Itoa(n)), 0o600)
+	return n > want
+}
+
+// serialGone is whether a serial's `emu kill` took it out of the listing for good.
+func serialGone(dir, serial string) bool {
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	b, err := os.ReadFile(filepath.Join(dir, "gone.emulators"))
+	if err != nil {
+		return false
+	}
+	for _, s := range strings.Fields(string(b)) {
+		if s == serial {
+			return true
+		}
+	}
+	return false
+}
+
+// recordGoneEmulator records a serial that has left the listing for good; callers take
+// emulMu.
+func recordGoneEmulator(dir, serial string) {
+	b, err := os.ReadFile(filepath.Join(dir, "gone.emulators"))
+	if err == nil {
+		for _, s := range strings.Fields(string(b)) {
+			if s == serial {
+				return
+			}
+		}
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "gone.emulators"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	fmt.Fprintln(f, serial)
+	f.Close()
 }
