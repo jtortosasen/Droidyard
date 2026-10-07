@@ -959,7 +959,13 @@ func followLogcat(ctx context.Context, dir, serial string, buffers []string, sin
 	start := time.Now()
 	cur := ""
 	emitted := 0
+	// Bounded: a test that fails before its window ends or before reconciliation must not
+	// leave this process re-reading files forever on a shared machine (step 3 review 7).
+	giveUp := time.Now().Add(2 * time.Minute)
 	for {
+		if time.Now().After(giveUp) {
+			return 0
+		}
 		entries := logcatEntries(dir, serial, buffers, since)
 		elapsed := time.Since(start).Seconds()
 		for ; emitted < len(entries); emitted++ {

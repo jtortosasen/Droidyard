@@ -69,6 +69,9 @@ type Output struct {
 //
 // A non-zero exit is not an error: it is in Output.ExitCode. A client that exited 0
 // is a success even if a forked process still holds its output pipe.
+// ErrLineTooLong is a streamed line longer than the runner accepts.
+var ErrLineTooLong = errors.New("a line passed the runner's length limit")
+
 func (a *ADB) Run(ctx context.Context, path string, timeout time.Duration, limit int, args ...string) (Output, error) {
 	if a.exec != nil {
 		return a.runExec(ctx, path, timeout, limit, args)
@@ -193,6 +196,13 @@ func (a *ADB) runLines(ctx context.Context, path string, timeout time.Duration, 
 			cancel()
 			break
 		}
+	}
+	// A line over maxLine stops the scanner (bufio.ErrTooLong): treated like a callback
+	// error, so the client is cancelled and drained instead of the rest of a follow
+	// being lost silently until its window (step 3 review 3).
+	if lineErr == nil && errors.Is(sc.Err(), bufio.ErrTooLong) {
+		lineErr = ErrLineTooLong
+		cancel()
 	}
 	if lineErr != nil {
 		io.Copy(io.Discard, stdout) // unblock a client still writing to a full pipe

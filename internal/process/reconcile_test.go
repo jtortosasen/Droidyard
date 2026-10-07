@@ -98,9 +98,9 @@ func TestReconcileNeverSignalsGroupZeroOrOne(t *testing.T) {
 // not the pid" (plan m1i D9; m1e R8): a recorded follow client — a device-stream record —
 // is reaped by signalling its own process group, so a child it forked into a group of its
 // own, as `adb` forks the shared server, is never reached. Real processes: the client dies
-// on SIGTERM, the helper in its own group lives. Seen failing reversed (the pid, or the
-// daemon's own group, signalled): a starting daemon would kill the user's shared adb
-// server and every process in its own group.
+// on SIGTERM, the helper in its own group lives. It pins what must never be signalled
+// (a child in a group of its own, like adb's forked server); signalling the client's pid
+// instead of its group also passes it (step 3 review 4), since the client dies either way.
 func TestReconcileSparesAChildInItsOwnGroup(t *testing.T) {
 	t.Parallel()
 	st := newStore(t)

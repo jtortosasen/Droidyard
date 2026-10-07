@@ -145,3 +145,26 @@ func waitPID(t *testing.T, info string) int {
 	t.Fatalf("the fake adb never wrote its pid to %s", info)
 	return 0
 }
+
+// Decision (step 3 review 3): a line longer than the runner accepts ends the call with
+// ErrLineTooLong at once, the client cancelled and drained, instead of the rest of a
+// stream being lost silently until its timeout. Seen failing with the scanner's error
+// ignored (the call waited for its 10 s timeout).
+func TestRunLinesTooLongLineEndsTheCallAtOnce(t *testing.T) {
+	a := newRunner(t, fakeEnvFor(t, modeLongLine, "1"))
+	var got []string
+	start := time.Now()
+	_, err := a.RunLines(context.Background(), a.Resolve().Path, 10*time.Second, 1<<10, func(l []byte) error {
+		got = append(got, string(l))
+		return nil
+	}, "logcat")
+	if !errors.Is(err, ErrLineTooLong) {
+		t.Fatalf("err = %v, want ErrLineTooLong", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %s, want the call to end at the long line", d)
+	}
+	if len(got) == 0 || got[0] != "before" {
+		t.Errorf("lines = %v, want the line before the long one", got)
+	}
+}

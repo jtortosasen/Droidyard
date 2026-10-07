@@ -29,6 +29,7 @@ const (
 
 	modeLines    = "lines"     // prints three lines with a pause between them, exits 0 (RunLines)
 	modeLinesOut = "lines-out" // prints a line forever, writing its pid to fakeInfo (RunLines)
+	modeLongLine = "long-line" // one ordinary line, then a 2 MiB line, then lines forever
 	modeLinesErr = "lines-err" // prints two lines, writes past a small stderr cap, exits 3
 )
 
@@ -89,6 +90,13 @@ func runFake(mode string) {
 		}
 		for i := 0; ; i++ {
 			fmt.Printf("line %d\n", i)
+			time.Sleep(20 * time.Millisecond)
+		}
+	case modeLongLine:
+		fmt.Println("before")
+		fmt.Println(strings.Repeat("x", 2<<20))
+		for {
+			fmt.Println("after")
 			time.Sleep(20 * time.Millisecond)
 		}
 	case modeLinesErr:
