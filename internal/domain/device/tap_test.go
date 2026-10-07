@@ -63,10 +63,16 @@ func quickAct(t *testing.T) {
 	probeInterval := inputProbeInterval
 	inputTypeBound, inputMethodTimeout, inputCommandTimeout = 500*time.Millisecond, 200*time.Millisecond, 500*time.Millisecond
 	inputProbeInterval = 20 * time.Millisecond
+	// The reader's acting bounds scale with the shortened typing slot too: a keys delivery
+	// is refused when its host bound cannot fit the slot (plan m1n step 5, fix round N7),
+	// and the real 2.5 s base would exceed the 500 ms test slot for every text.
+	actBase, actPerChar, actMargin := readerActBoundBase, readerActBoundPerChar, readerActMargin
+	readerActBoundBase, readerActBoundPerChar, readerActMargin = 100*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
 	t.Cleanup(func() {
 		actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve = before, tap, settle, poll, bound, reserve
 		inputTypeBound, inputMethodTimeout, inputCommandTimeout = typeBound, methodBound, cmdBound
 		inputProbeInterval = probeInterval
+		readerActBoundBase, readerActBoundPerChar, readerActMargin = actBase, actPerChar, actMargin
 	})
 }
 
@@ -123,7 +129,7 @@ func TestTapElementAppearsFromTheThirdRead(t *testing.T) {
 	before := tappable(tapLike("Like"), tapLikes("Likes: 0"))
 	mid := before
 	match := tappable(tapLike("Like"), tapLikes("Likes: 1"))
-	f := newUIFixture(t, withPersistentReader(t, nil, before, mid, mid, match))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, before, mid, mid, match))
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"Likes: 1"}}]}`)
 	r := mustTap(t, out)
 	if r.Expect == nil || !r.Expect.Matched || r.Expect.Polls != 3 {
@@ -162,7 +168,7 @@ func TestTapElementGoneNeedsTwoConsecutiveReads(t *testing.T) {
 func TestTapElementVacuousConditionIsFlagged(t *testing.T) {
 	quickAct(t)
 	doc := tappable(tapLike("Like"), tapLikes("Likes: 0"))
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, doc))
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"Likes: 0"}}]}`)
 	r := mustTap(t, out)
 	if r.Expect == nil || !r.Expect.Matched || len(r.Expect.Vacuous) != 1 {
@@ -203,7 +209,7 @@ func TestTapElementNeverTrueIsUnmatchedWithCandidates(t *testing.T) {
 func TestTapElementAllReadsAfterTheTapFailedIsNoObservation(t *testing.T) {
 	quickAct(t)
 	doc := tappable(tapLike("Like"))
-	f := newUIFixture(t, withPersistentReader(t, nil, doc, devicetest.ReaderGone))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, doc, devicetest.ReaderGone))
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"Likes: 1"}}],"timeoutMs":60}`)
 	r := mustTap(t, out)
 	if r.Expect == nil || r.Expect.Matched || r.Expect.Reason != ReasonNoObservation {
@@ -240,7 +246,8 @@ func TestTapElementResolutionErrorsTapNothing(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			quickAct(t)
 			doc := resolutionTree()
-			f := newUIFixture(t, withPersistentReader(t, nil, doc))
+			files, r := withPersistentReaderR(t, nil, doc)
+			f := newUIFixture(t, files)
 			out := f.tapCall(t, `{"device":"emulator-5554","target":`+c.sel+`}`)
 			ce := mustFail(t, out, c.code)
 			if !out.Untrusted || out.Meta() == nil || !out.Meta().Untrusted {
@@ -251,6 +258,11 @@ func TestTapElementResolutionErrorsTapNothing(t *testing.T) {
 			}
 			if n := countInputTaps(f.calls(t)); n != 0 {
 				t.Errorf("%d input taps for a resolution error, want none", n)
+			}
+			// The reader answering `done` would record a tap if one were sent, so no recorded
+			// request means nothing was tapped by either path (plan m1n step 5, fix round N1).
+			if got := r.Acts(); len(got) != 0 {
+				t.Errorf("the reader received %q for a resolution error, want none", got)
 			}
 		})
 	}
@@ -331,7 +343,7 @@ func TestTapElementHangingPreambleFailsBeforeTheRead(t *testing.T) {
 func TestTapElementTapTimeoutWarnsAndVerifies(t *testing.T) {
 	quickAct(t)
 	doc := tappable(tapLike("Like"))
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{uiSerial + ".inputtap.hang": ""}, doc))
+	f := newUIFixture(t, withReadOnlyReader(t, map[string]string{uiSerial + ".inputtap.hang": ""}, doc))
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`)
 	r := mustTap(t, out)
 	if r.Expect != nil {
@@ -408,7 +420,7 @@ func TestTapElementGoneOverManyPollsUsesThePinnedRef(t *testing.T) {
 func TestTapElementGoneStaysFalseWhenItsSnapshotIsEvicted(t *testing.T) {
 	quickAct(t)
 	doc := tappable(tapLike("Like"), tapLikes("Likes: 0"))
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, doc))
 	snap := mustComplete(t, f.tree(t, uiSerial))
 	ref := refOf(t, snap, "like")
 
@@ -443,7 +455,8 @@ func TestTapElementGoneStaysFalseWhenItsSnapshotIsEvicted(t *testing.T) {
 func TestTapElementUnknownSnapshotInConditionIsStale(t *testing.T) {
 	quickAct(t)
 	doc := tappable(tapLike("Like"))
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	files, r := withPersistentReaderR(t, nil, doc)
+	f := newUIFixture(t, files)
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"gone":{"ref":"n0","snapshot":"s-nope"}}]}`)
 	ce := mustFail(t, out, ErrStaleRef)
 	if !out.Untrusted || out.Meta() == nil || !out.Meta().Untrusted {
@@ -454,6 +467,48 @@ func TestTapElementUnknownSnapshotInConditionIsStale(t *testing.T) {
 	}
 	if n := countInputTaps(f.calls(t)); n != 0 {
 		t.Errorf("%d input taps for a stale condition, want none", n)
+	}
+	// The reader answers `done`, so no recorded request is the stronger claim that the
+	// tap went over neither path (plan m1n step 5, fix round N1).
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q for a stale condition, want none", got)
+	}
+}
+
+// Decision (plan m1n step 5, fix round N5): the focus wait accepts a focused node whose bounds
+// contain the tapped point, not one of an exact class and bounds — a Compose field whose bounds
+// the tap's own focus moved would otherwise never be seen. Seen failing with the wait requiring
+// the focused node's bounds to equal the point's own 1×1 box instead of containing it.
+func TestWaitFocusAcceptsAFocusedNodeContainingThePoint(t *testing.T) {
+	quickAct(t)
+	// A focused field at [0,900]–[400,1200]; the tapped point (150,1050) lies inside it, so the
+	// containing rule accepts it though its bounds are not the exact target shape.
+	field := fmt.Sprintf(`<node class="android.widget.EditText" package=%q resource-id="%s:id/name" focused="true" bounds="[0,900][400,1200]"></node>`,
+		tapPackage, tapPackage)
+	files, _ := withPersistentReaderR(t, nil, tappable(field))
+	f := newUIFixture(t, files)
+	tgt := readerTarget(t, f.adb, uiSerial)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if !f.adb.waitFocus(ctx, tgt, [2]int{150, 1050}) {
+		t.Errorf("waitFocus did not accept a focused node whose bounds contain the tapped point")
+	}
+}
+
+// Decision (plan m1n step 5, fix round N5): a focused node that does not contain the tapped
+// point is not the field, so the wait does not accept it and polls to its bound. Unit-tested
+// directly so the decision is checked without a whole inputText call.
+func TestWaitFocusRejectsAFocusedNodeOffThePoint(t *testing.T) {
+	quickAct(t)
+	field := fmt.Sprintf(`<node class="android.widget.EditText" package=%q resource-id="%s:id/name" focused="true" bounds="[0,0][200,200]"></node>`,
+		tapPackage, tapPackage)
+	files, _ := withPersistentReaderR(t, nil, tappable(field))
+	f := newUIFixture(t, files)
+	tgt := readerTarget(t, f.adb, uiSerial)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if f.adb.waitFocus(ctx, tgt, [2]int{150, 1050}) {
+		t.Errorf("waitFocus accepted a focused node that does not contain the tapped point")
 	}
 }
 
@@ -616,8 +671,11 @@ func TestTapElementInputTapNeverRan(t *testing.T) {
 	newFixture := func(t *testing.T) (*devicetest.FakeReader, *uiFixture) {
 		t.Helper()
 		quickAct(t)
+		// The reader serves the before read and denies every act, so the tap is the `input
+		// tap` this test is about (Q1 ¶3).
 		r := devicetest.StartReader(t, tappable(tapLike("Like")))
 		t.Cleanup(r.Close)
+		r.SetActAnswers("droidyard-reader: denied 10123")
 		f := newUIFixture(t, map[string]string{
 			uiSerial + ".push.exit":   "0",
 			uiSerial + ".start.out":   "",
@@ -679,6 +737,7 @@ func TestTapElementRunningBoundDuringTheTapWarns(t *testing.T) {
 
 		r := devicetest.StartReader(t, tappable(tapLike("Like")))
 		t.Cleanup(r.Close)
+		r.SetActAnswers("droidyard-reader: denied 10123")
 		f := newUIFixture(t, map[string]string{
 			uiSerial + ".push.exit":     "0",
 			uiSerial + ".start.out":     "",
@@ -702,6 +761,7 @@ func TestTapElementRunningBoundDuringTheTapWarns(t *testing.T) {
 		defer func() { actionTapTimeout = oldTap }()
 		r := devicetest.StartReader(t, tappable(tapLike("Like")))
 		t.Cleanup(r.Close)
+		r.SetActAnswers("droidyard-reader: denied 10123")
 		f := newUIFixture(t, map[string]string{
 			uiSerial + ".push.exit":     "0",
 			uiSerial + ".start.out":     "",
@@ -743,6 +803,7 @@ func TestTapCancelledAfterTheTapIsCompletedWithCancelled(t *testing.T) {
 	doc := tappable(tapLike("Like"), tapLikes("Likes: 0"))
 	r := devicetest.StartReader(t, doc)
 	t.Cleanup(r.Close)
+	r.SetActAnswers("droidyard-reader: denied 10123")
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":   "0",
 		uiSerial + ".start.out":   "",

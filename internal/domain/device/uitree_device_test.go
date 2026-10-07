@@ -91,8 +91,40 @@ func withReader(files map[string]string, doc string) map[string]string {
 // connection without a document (plan m1f step 5).
 func withPersistentReader(t *testing.T, files map[string]string, docs ...string) map[string]string {
 	t.Helper()
+	out, _ := withPersistentReaderR(t, files, docs...)
+	return out
+}
+
+// withPersistentReaderR is withPersistentReader that also returns the fake reader, so a test
+// can assert which acting requests it received — in particular that it received none (plan
+// m1n step 5, fix round N1).
+func withPersistentReaderR(t *testing.T, files map[string]string, docs ...string) (map[string]string, *devicetest.FakeReader) {
+	t.Helper()
 	r := devicetest.StartReader(t, docs...)
 	t.Cleanup(r.Close)
+	out := map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	}
+	for k, v := range files {
+		out[k] = v
+	}
+	return out, r
+}
+
+// withReadOnlyReader is withPersistentReader for a reader that serves reads and refuses
+// every acting request, as one whose uid fence answered `denied` does (ADR-0035 §2). A test
+// whose subject is not the reader's delivery uses it so its acts — the focusing or verifying
+// tap, the typing — take the non-reader path they took before step 5 (`input tap`, `input
+// text`, the ADBKeyboard broadcast) and their assertions on those commands still mean
+// something. The denial is definitive and comes before execution, so the fallback it allows
+// is the one the old code always took (Q1 ¶3).
+func withReadOnlyReader(t *testing.T, files map[string]string, docs ...string) map[string]string {
+	t.Helper()
+	r := devicetest.StartReader(t, docs...)
+	t.Cleanup(r.Close)
+	r.SetActAnswers("droidyard-reader: denied 10123")
 	out := map[string]string{
 		uiSerial + ".push.exit":   "0",
 		uiSerial + ".start.out":   "",

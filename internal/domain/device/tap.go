@@ -164,7 +164,9 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 		Scope:        capability.Global,
 		Since:        "0.5.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description: "Taps one UI element and verifies the effect in the same call: it resolves target, taps once at the centre of the node's visible bounds with `input tap`, waits 300 ms, then polls the accessibility tree until every expect condition holds or timeoutMs elapses. " +
+		Description: "Taps one UI element and verifies the effect in the same call: it resolves target, taps once at the centre of the node's visible bounds through the persistent UI reader, waits 300 ms, then polls the accessibility tree until every expect condition holds or timeoutMs elapses. " +
+			"Without a reader that can run, and when the reader denies the request before executing anything, the tap is one `input tap x y` command instead. A tap the reader took but never answered is never repeated, through either path: the call goes on to verify it with a warning that it may have landed. " +
+			"When the before tree shows a focused editable field and the soft keyboard's touchable region covers the tap point, the keyboard is hidden with BACK and the target is re-resolved against a fresh read before the tap, so the tap lands on the field rather than on a key; the result then carries a warning saying the keyboard was hidden, and the call fails DEVICE_ELEMENT_OFFSCREEN naming the keyboard if the target is still covered. A tree that reports no focused editable field, or a keyboard region that cannot be read, behaves as the call did before this rule. " +
 			"target uses the device.uiTree selector vocabulary (id, text, desc, class, within, index, or ref with snapshot); a resolution failure taps nothing. expect is at most 5 conditions (appears, gone, foreground); all must hold, gone over two consecutive successful reads, and a condition already true before the tap is reported in vacuous rather than refused. " +
 			"An unmet expectation is a completed call, not an error: matched false lists the failing conditions in unmet with candidates from the last tree. After the tap a failed read counts in failedDumps and never becomes an error; when every read failed the result is matched false with reason noObservation; only a failure before the tap is an error, and then nothing was tapped. Reads after the tap use the persistent UI reader and the one-shot reader only, never uiautomator dump. " +
 			"The whole call holds the device's write lock and is bounded: at most 37 s running, and at most one tap. " +
@@ -238,16 +240,58 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 	}
 	store := a.snapshots(t.serial)
 
-	// Resolve the target and pin every condition's ref to its node's identity before the
-	// before read is kept: keeping it must not evict the snapshot a ref points to, so a
-	// ref from the oldest kept snapshot still resolves (plan m1f step 6, fix round).
+	// Resolve the target once, before anything is tapped, and choose the point around
+	// occlusion: a centre covered by a node drawn above the target moves to the largest
+	// visible strip, or refuses off-screen (ui-automation.md §Resolution; plan m1f D22).
 	m, err := store.resolve(before, p.Target)
 	if err != nil {
 		return nil, err
 	}
-	// Pinning once, before anything is tapped, also means polling cannot evict the
-	// snapshot the ref came from and an unknown or evicted snapshot fails
-	// DEVICE_STALE_REF here, with nothing tapped (plan m1f step 6, fix round).
+	oc, err := chooseTapPoint(before, m.Node)
+	if err != nil {
+		return nil, err
+	}
+	warnings := append([]string{}, t.warnings...)
+
+	// The soft keyboard can cover the target, so a tap would land on a key, not the field
+	// (plan m1n step 5, fix round L1). When the before tree shows a focused editable node and
+	// the IME's touchable region contains the point, hide the keyboard with BACK, re-read, and
+	// re-resolve the same selector against the fresh tree, so the tap lands on the field.
+	kbWarn, hid, err := a.uncoverSoftKeyboard(bctx, t, before, oc.Point)
+	if err != nil {
+		return nil, err
+	}
+	if hid {
+		if kbWarn != "" {
+			warnings = append(warnings, kbWarn)
+		}
+		after, aw, rerr := a.readSnapshot(bctx, t, true)
+		if rerr != nil {
+			return nil, phaseError(ctx, rerr, ErrUIDumpFailed, "the UI could not be re-read after the soft keyboard was hidden inside the 14 s before-phase budget; nothing was tapped")
+		}
+		m, err = store.resolve(after, p.Target)
+		if err != nil {
+			return nil, err
+		}
+		oc, err = chooseTapPoint(after, m.Node)
+		if err != nil {
+			return nil, err
+		}
+		if covered, cerr := a.softKeyboardStillCovered(bctx, t, oc.Point); cerr != nil {
+			return nil, cerr
+		} else if covered {
+			return nil, softKeyboardOffscreenError("tapped")
+		}
+		before = after
+		beforeWarnings = append(beforeWarnings, aw...)
+		warnings = append(warnings, softKeyboardWarning)
+	}
+
+	// Pin every condition's ref to its node's identity before the before read is kept:
+	// keeping it must not evict the snapshot a ref points to, so a ref from the oldest kept
+	// snapshot still resolves (plan m1f step 6, fix round). Pinning once, before anything is
+	// tapped, also means polling cannot evict the snapshot the ref came from and an unknown or
+	// evicted snapshot fails DEVICE_STALE_REF here, with nothing tapped.
 	pinned, err := store.pinConditions(p.Expect)
 	if err != nil {
 		return nil, err
@@ -266,19 +310,12 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 		}
 	}
 
-	// Tap once, never retried (ui-automation.md §Result; D18). The point is chosen around
-	// occlusion: a centre covered by a node drawn above the target moves to the largest
-	// visible strip, or refuses off-screen (ui-automation.md §Resolution; plan m1f D22).
-	oc, err := chooseTapPoint(before, m.Node)
-	if err != nil {
-		return nil, err
-	}
+	// Tap once, never retried (ui-automation.md §Result; D18).
 	actionStart := time.Now()
-	warnings := append([]string{}, t.warnings...)
 	if oc.Moved && oc.Covering != nil {
 		warnings = append(warnings, tapMovedWarning(*oc.Covering))
 	}
-	w, tapErr := a.inputTap(actx, t, oc.Point)
+	w, tapErr := a.tapAt(actx, t, oc.Point)
 	if tapErr != nil {
 		return nil, tapErr
 	}
@@ -383,6 +420,197 @@ func (a *ADB) inputTap(ctx context.Context, t *target, point [2]int) (string, er
 // landed, so verification goes on and the caller must not retry blindly (D18).
 func tapWarning(why string) string {
 	return "The tap command did not report success (" + why + "); verification went on because the tap may have landed, and retrying the call could tap twice."
+}
+
+// actor acts on one device through its persistent reader when the reader can run (ADR-0035
+// §3; plan m1n step 5). It is built by newActor, which pings the reader once: an answered
+// ping means acting requests go through the reader, and one that is not answered means the
+// non-reader path answers them. The ping's purpose is to keep an act from being sent to a
+// reader that is not there, where the failure would have to be reported as a request that
+// may have applied (plan m1n step 4, fix round N2).
+type actor struct {
+	a  *ADB
+	t  *target
+	c  *readerClient
+	ok bool
+}
+
+// newActor decides whether this device's acts go through the persistent reader. It pings
+// the reader once, bounded by the caller's running budget, and never fails: !ok is "the
+// reader cannot run", which is an answer to act on, not an error (ADR-0035 §3).
+func (a *ADB) newActor(parent context.Context, t *target) *actor {
+	end := time.Now().Add(dumpDeadline)
+	if d, ok := parent.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+	c := a.reader(t.serial)
+	return &actor{a: a, t: t, c: c, ok: a.readerReady(parent, t, c, end)}
+}
+
+// locked runs one acting request with the device's read lock held, which actOnReader
+// requires (ADR-0035 §1): the lock and the reader's own single acting thread are the two
+// layers that keep one device's acts from overlapping.
+func (ac *actor) locked(ctx context.Context, fn func(ctx context.Context, c *readerClient) (readerAct, error)) (readerAct, error) {
+	if err := ac.c.acquire(ctx); err != nil {
+		return readerAct{}, err
+	}
+	defer ac.c.release()
+	return fn(ctx, ac.c)
+}
+
+// tap clicks at a display point through the reader (ADR-0035 §1: `tap <x> <y>`).
+func (ac *actor) tap(ctx context.Context, point [2]int) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actTap(ctx, ac.t, c, point[0], point[1])
+	})
+}
+
+// keys types text as the reader's virtual keyboard's key events (ADR-0035 §1: `keys
+// <base64>`).
+func (ac *actor) keys(ctx context.Context, text string) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actKeys(ctx, ac.t, c, text)
+	})
+}
+
+// setText sets the focused field's text through the reader (ADR-0035 §1: `settext
+// <replace|insert> <base64>`).
+func (ac *actor) setText(ctx context.Context, replace bool, text string) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actSetText(ctx, ac.t, c, replace, text)
+	})
+}
+
+// actingBusyError is the failure of an acting request the reader answered `busy` (ADR-0035
+// §3): the device's single acting thread was still out on an earlier request, so this one
+// executed nothing. The call fails before acting, so a pending effect is never followed by
+// a second delivery across calls. what is "typed" or "tapped".
+func actingBusyError(what string) *capability.Error {
+	return capability.NewError(ErrNotReady, "the reader was still acting on an earlier request, so nothing was "+what).
+		WithCause("the reader's single acting thread was busy").
+		WithNextStep("Read the field or screen before acting again: an earlier effect may still be pending.")
+}
+
+// actRefusedError is the failure of an acting request the reader refused before executing
+// anything, when no other method answers the refusal (ADR-0035 §3): only a `denied` and a
+// refused ACTION_SET_TEXT lead to another method, so anything else here has nothing left to
+// try. It is a distinctive answer, not a may-have-applied one: the reader said it executed
+// nothing, so a retry is safe. what is "typed" or "tapped".
+//
+// `malformed` and `not properly terminated` are the reader failing to parse the daemon's own
+// request line, and `too long` is the request line over the reader's cap: none of the three
+// can succeed on a retry of the same request, so their next step does not invite one (plan m1n
+// step 5, fix round N3). A typing `too long` is mapped to DEVICE_TEXT_NOT_DELIVERABLE by the
+// caller, where the text is the caller's data; a tap's `too long` cannot happen (the request
+// is `tap x y`), so this stays DEVICE_NOT_READY for it.
+func actRefusedError(act readerAct, what string) *capability.Error {
+	switch act.refusal {
+	case refusalMalformed, refusalUnterminated:
+		return capability.NewError(ErrNotReady, "the reader could not parse the request, so nothing was "+what).
+			WithCause("the reader refused the request because " + refusalPhrase(act.refusal) + ".").
+			WithNextStep("This is the daemon's request, not the call's; retrying the same call cannot help. Nothing was " + what + ".")
+	case refusalTooLong:
+		return capability.NewError(ErrNotReady, "the request was over the reader's length cap, so nothing was "+what).
+			WithCause("the reader refused the request because " + refusalPhrase(act.refusal) + ".").
+			WithNextStep("Send a shorter request; retrying the same call cannot help. Nothing was " + what + ".")
+	}
+	return capability.NewError(ErrNotReady, "the reader refused the request before executing it, so nothing was "+what).
+		WithCause("the reader refused the " + what + " because " + refusalPhrase(act.refusal) + ".").
+		WithNextStep("Read the field or screen, then retry: nothing was " + what + ".")
+}
+
+// tapAt taps once at a display point (ADR-0035 §3; plan m1n step 5): through the persistent
+// reader when it can run, and `input tap` when it cannot.
+func (a *ADB) tapAt(ctx context.Context, t *target, point [2]int) (string, error) {
+	w, _, _, err := a.tapAtWith(ctx, t, a.newActor(ctx, t), point)
+	return w, err
+}
+
+// tapAtWith taps once through an actor the caller already built, so a call that acts more
+// than once pings the reader once (device.inputText taps to focus and then types). It
+// returns a warning when the tap did not definitively fail before it ran — it may have
+// landed, so an error would invite a second tap (D18) — and an error only when the tap
+// provably never ran. reader says whether the request went through the reader rather than
+// `input tap`; unanswered says a request the reader took never came back, so the caller must
+// treat an effect that may have applied as one that did (ADR-0020's 2026-10-06 line). A tap
+// the reader took but never answered is never repeated through `input tap`, which could tap
+// twice. A tap the reader refused before executing it, and an acting thread that was busy,
+// are errors: nothing was tapped.
+func (a *ADB) tapAtWith(ctx context.Context, t *target, ac *actor, point [2]int) (warn string, reader, unanswered bool, err error) {
+	if !ac.ok {
+		w, ierr := a.inputTap(ctx, t, point)
+		return w, false, false, ierr
+	}
+	act, aerr := ac.tap(ctx, point)
+	if aerr != nil {
+		return a.tapFallback(ctx, t, point, aerr)
+	}
+	switch act.kind {
+	case readerActDone:
+		return "", true, false, nil
+	case readerActBusy:
+		return "", true, false, actingBusyError("tapped")
+	case readerActRefused:
+		return "", true, false, actRefusedError(act, "tapped")
+	default:
+		// The reader took the tap and never answered: it may have landed, so the call goes on
+		// to verify it, and no second tap is issued (ADR-0035 §3; ADR-0020's 2026-10-06 line).
+		return tapWarning("the reader took the tap but never answered"), true, true, nil
+	}
+}
+
+// tapFallback decides what an acting request's error means for a tap: `input tap` answers a
+// reader that could not run or denied the request (nothing was executed, ADR-0035 §3), while
+// a caller's cancellation, or a budget that had already elapsed, cannot be answered by
+// another tap at all. A tap is never repeated on a request the reader took.
+func (a *ADB) tapFallback(ctx context.Context, t *target, point [2]int, err error) (string, bool, bool, error) {
+	if cerr := ctx.Err(); cerr != nil {
+		if errors.Is(cerr, context.Canceled) {
+			return "", false, false, cerr
+		}
+		return tapWarning("the call's running bound elapsed before the tap command was sent"), false, false, nil
+	}
+	if errors.Is(err, context.Canceled) {
+		return "", false, false, err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return tapWarning("the tap command's budget elapsed before it was sent"), false, false, nil
+	}
+	// The reader could not run (unreachable, no forward) or denied the request: nothing was
+	// executed, so the non-reader path is allowed (ADR-0035 §3).
+	w, ierr := a.inputTap(ctx, t, point)
+	return w, false, false, ierr
+}
+
+// waitFocus polls reads after the focusing tap until a focused node at the tapped point
+// appears, bounded by ctx (the before phase), and reports whether it saw one (plan m1n step
+// 5). It replaces the fixed settle: a set-text acts on the focused input node, and a Compose
+// field renders a frame later, so the field must be seen focused before the text is delivered
+// (plan m1n step 2 (e)). A focused node counts when its bounds contain the tapped point, so
+// the field is recognised wherever the tap landed on it: the earlier test of the exact class
+// and bounds of the before read failed a Compose field whose bounds the tap's own focus moved
+// (plan m1n step 5, fix round N5). A false answer is not an error: the caller delivers anyway
+// (and warns when the tap it could not confirm left the field unfocused).
+func (a *ADB) waitFocus(ctx context.Context, t *target, point [2]int) bool {
+	for {
+		s, _, err := a.readSnapshot(ctx, t, true)
+		if err == nil {
+			for _, n := range s.Nodes {
+				if slices.Contains(n.Flags, "focused") && pointInBounds(n.Bounds, point) {
+					return true
+				}
+			}
+		}
+		if !sleepCtx(ctx, actionPollInterval) {
+			return false
+		}
+	}
+}
+
+// pointInBounds reports whether p lies inside b, half-open on the right and bottom edges, so
+// the test matches the reader's convention for a point at an edge.
+func pointInBounds(b [4]int, p [2]int) bool {
+	return p[0] >= b[0] && p[0] < b[2] && p[1] >= b[1] && p[1] < b[3]
 }
 
 // phaseError turns a before-phase failure into the stage's code when the phase's own

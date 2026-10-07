@@ -192,9 +192,10 @@ func TestBusyAfterRestartIsStillTheBusyFailure(t *testing.T) {
 // `return false`: the failure comes back unmarked.
 func TestBusyBeforeReadMarksTapElementUntrusted(t *testing.T) {
 	quickAct(t)
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	files, r := withPersistentReaderR(t, map[string]string{
 		uiSerial + ".dumpsyswindow.out": busyFocus(tapPackage),
-	}, busyDoc))
+	}, busyDoc)
+	f := newUIFixture(t, files)
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`)
 	ce := mustFail(t, out, ErrUIDumpFailed)
 	if !out.Untrusted || out.Meta() == nil || !out.Meta().Untrusted {
@@ -206,6 +207,11 @@ func TestBusyBeforeReadMarksTapElementUntrusted(t *testing.T) {
 	if n := countInputTaps(f.calls(t)); n != 0 {
 		t.Errorf("%d input taps after a failed before read, want none", n)
 	}
+	// The busy before read fails before the reader path opens, so a recorded act would mean
+	// something was tapped over the forward; none means nothing was (plan m1n step 5, N1).
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q after a failed before read, want none", got)
+	}
 }
 
 // Decision (ADR-0034 §1; plan m1n step 3, fix round): as with tapElement, a busy before
@@ -214,9 +220,10 @@ func TestBusyBeforeReadMarksTapElementUntrusted(t *testing.T) {
 // replaced by `return false`: the failure comes back unmarked.
 func TestBusyBeforeReadMarksInputTextUntrusted(t *testing.T) {
 	quickAct(t)
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	files, r := withPersistentReaderR(t, map[string]string{
 		uiSerial + ".dumpsyswindow.out": busyFocus(tapPackage),
-	}, busyDoc))
+	}, busyDoc)
+	f := newUIFixture(t, files)
 	out := f.inputCall(t, `{"device":"emulator-5554","text":"x","target":{"id":"name"}}`)
 	ce := mustFail(t, out, ErrUIDumpFailed)
 	if !out.Untrusted || out.Meta() == nil || !out.Meta().Untrusted {
@@ -227,6 +234,11 @@ func TestBusyBeforeReadMarksInputTextUntrusted(t *testing.T) {
 	}
 	if got := inputTextArgs(f.calls(t)); len(got) != 0 {
 		t.Errorf("the device was told to type %q after a failed before read, want nothing", got)
+	}
+	// The busy before read fails before the reader path opens, so a recorded act would mean
+	// a focusing tap or typing went over the forward (plan m1n step 5, N1).
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q after a failed before read, want none", got)
 	}
 }
 
@@ -334,7 +346,7 @@ func TestBusyWithANonPackageFocusCarriesNoPackage(t *testing.T) {
 func TestBusyPollAfterTheTapIsNotAnError(t *testing.T) {
 	quickAct(t)
 	before := tappable(tapLike("Like"), tapLikes("Likes: 0"))
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	f := newUIFixture(t, withReadOnlyReader(t, map[string]string{
 		uiSerial + ".dumpsyswindow.out": busyFocus(tapPackage),
 	}, before, busyDoc))
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"Likes: 1"}}],"timeoutMs":60}`)

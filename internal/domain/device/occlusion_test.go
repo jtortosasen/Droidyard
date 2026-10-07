@@ -34,7 +34,7 @@ func occlusionDoc(barTop, barBottom, barOrder int) string {
 func TestTapElementMovesThePointOffACoveredCentre(t *testing.T) {
 	quickAct(t)
 	doc := occlusionDoc(0, 300, 2) // the bar covers the button's centre (540,263)
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, doc))
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"greet"}}`)
 	r := mustTap(t, out)
 	if r.Tapped.Point != [2]int{540, 313} {
@@ -59,11 +59,17 @@ func TestTapElementMovesThePointOffACoveredCentre(t *testing.T) {
 func TestTapElementFullyCoveredIsOffscreen(t *testing.T) {
 	quickAct(t)
 	doc := occlusionDoc(150, 400, 2) // the bar covers [31,200]–[1049,326] entirely
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	files, r := withPersistentReaderR(t, nil, doc)
+	f := newUIFixture(t, files)
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"greet"}}`)
 	mustFail(t, out, ErrElementOffscreen)
 	if n := countInputTaps(f.calls(t)); n != 0 {
 		t.Errorf("%d input taps for a fully covered node, want none", n)
+	}
+	// The reader answers `done`, so a recorded request would mean the tap went over the
+	// forward; none means neither path tapped (plan m1n step 5, fix round N1).
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q for a fully covered node, want none", got)
 	}
 	if !out.Untrusted || out.Meta() == nil || !out.Meta().Untrusted {
 		t.Errorf("a covered-target error is unmarked: %+v", out)
@@ -75,11 +81,17 @@ func TestTapElementFullyCoveredIsOffscreen(t *testing.T) {
 func TestTapElementThinVisibleStripIsOffscreen(t *testing.T) {
 	quickAct(t)
 	doc := occlusionDoc(0, 322, 2) // leaves only [31,322]–[1049,326], 4 px tall
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	files, r := withPersistentReaderR(t, nil, doc)
+	f := newUIFixture(t, files)
 	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"greet"}}`)
 	mustFail(t, out, ErrElementOffscreen)
 	if n := countInputTaps(f.calls(t)); n != 0 {
 		t.Errorf("%d input taps for a 4 px strip, want none", n)
+	}
+	// The reader answers `done`, so none recorded is the stronger claim that the tap went
+	// over neither path (plan m1n step 5, fix round N1).
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q for a 4 px strip, want none", got)
 	}
 }
 
@@ -108,7 +120,7 @@ func TestTapElementIgnoresAFullScreenOverlay(t *testing.T) {
 func TestInputTextFocusingTapUsesTheVisibleStrip(t *testing.T) {
 	quickAct(t)
 	doc := occlusionDoc(0, 300, 2)
-	f := newUIFixture(t, withPersistentReader(t, nil, doc))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, doc))
 	out := f.inputCall(t, `{"device":"emulator-5554","text":"x","target":{"id":"greet"}}`)
 	r := mustInput(t, out)
 	if r.Tapped == nil || r.Tapped.Point != [2]int{540, 313} {

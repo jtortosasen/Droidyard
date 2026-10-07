@@ -647,8 +647,39 @@ public class DroidyardReader {
     // later. No focused input node, a password node asked to insert, or one that does not
     // accept the action, is refused before anything is typed; the caller may then use
     // another method (ADR-0035 §3; plan m1n step 4, fix round).
+    // The focused input node, found by walking the active window from its root: the node
+    // findFocus(FOCUS_INPUT) returns on a Compose screen refused ACTION_SET_TEXT at level 5
+    // while the same field found from the root took it (plan m1n step 5; step 2 (e) set a
+    // Compose field from the root). A focused, editable node is preferred; findFocus is the
+    // fallback when the walk finds none.
+    private static AccessibilityNodeInfo focusedEditable(UiAutomation ua) {
+        AccessibilityNodeInfo root = ua.getRootInActiveWindow();
+        AccessibilityNodeInfo found = root == null ? null : focusedEditable(root, 0);
+        return found != null ? found : ua.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+    }
+
+    private static AccessibilityNodeInfo focusedEditable(AccessibilityNodeInfo n, int depth) {
+        if (n.isFocused() && n.isEditable()) {
+            return n;
+        }
+        if (depth > 100) {
+            return null;
+        }
+        int c = n.getChildCount();
+        for (int i = 0; i < c; i++) {
+            AccessibilityNodeInfo ch = n.getChild(i);
+            if (ch != null) {
+                AccessibilityNodeInfo r = focusedEditable(ch, depth + 1);
+                if (r != null) {
+                    return r;
+                }
+            }
+        }
+        return null;
+    }
+
     private static String setText(UiAutomation ua, boolean replace, String text, Answer answer) throws InterruptedException {
-        AccessibilityNodeInfo node = ua.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        AccessibilityNodeInfo node = focusedEditable(ua);
         if (node == null) {
             return PREFIX + " refused no-focus";
         }
@@ -726,7 +757,7 @@ public class DroidyardReader {
             CharSequence t = node.getText();
             if (t != null && t.length() > 0) return t;
         }
-        AccessibilityNodeInfo focus = ua.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        AccessibilityNodeInfo focus = focusedEditable(ua);
         return focus == null ? null : focus.getText();
     }
 
@@ -1023,6 +1054,11 @@ public class DroidyardReader {
         flag(sb, "enabled", n.isEnabled());
         flag(sb, "focusable", n.isFocusable());
         flag(sb, "focused", n.isFocused());
+        // editable marks a node ACTION_SET_TEXT can act on. uiautomator's dump has no such
+        // attribute; the daemon uses it to recognise a focused input field before a tap, so
+        // it can hide the soft keyboard when the field sits under it (plan m1n step 5, fix
+        // round L1; ui-automation.md §Typing).
+        flag(sb, "editable", n.isEditable());
         flag(sb, "scrollable", n.isScrollable());
         flag(sb, "long-clickable", n.isLongClickable());
         flag(sb, "password", n.isPassword());

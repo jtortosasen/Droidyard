@@ -427,6 +427,28 @@ func readerRefusalToken(token string) readerRefusal {
 	return refusalOther
 }
 
+// refusalPhrase names a refusal in a caller's error, so a refusal the reader reported is
+// not flattened into "the reader refused" (ADR-0035 §3; plan m1n step 5). The last phrase is
+// deliberately cautious: the reader did not say which, so the caller must not assume the
+// refusal was one another method answers.
+func refusalPhrase(r readerRefusal) string {
+	switch r {
+	case refusalSetText:
+		return "the focused field refused a text set"
+	case refusalMalformed:
+		return "the request was malformed"
+	case refusalUnterminated:
+		return "the request was not properly terminated"
+	case refusalTooLong:
+		return "the request was over the length cap"
+	case refusalNoFocus:
+		return "no field had focus"
+	case refusalUnmappable:
+		return "a character has no key event on the virtual keyboard"
+	}
+	return "it did not say which refusal this was"
+}
+
 // readerAct is one acting request's outcome. readBack is the focused field's text as the
 // reader read it back, for the kinds that carry one. refusal says why a refusal happened
 // (readerActRefused). reason explains an unanswered answer this client understood but did
@@ -469,6 +491,29 @@ func readerFenceError(uid string) error {
 		return errors.New("the reader denied the acting request: the connecting peer's uid is not adbd's (0 or 2000), so its uid fence refused it and nothing ran")
 	}
 	return fmt.Errorf("the reader denied the acting request: the connecting peer's uid is %s, not adbd's (0 or 2000), so its uid fence refused it and nothing ran", uid)
+}
+
+// readerReady reports whether a device's persistent reader can take an acting request right
+// now (ADR-0035 §3; plan m1n step 5): it takes the device's read lock, makes the reader
+// reachable (ensureReader pushes, starts and forwards it when it is not up), and pings the
+// forward. The explicit ping is the point (plan m1n step 4, fix round N2): a cached forward
+// can be stale — the reader may have died — and ensureReader returns true for a cached port
+// without pinging it, so a caller that acted on that alone could send an acting request to
+// a reader that is not there and report the failure as may-have-applied. A false answer
+// means nothing was sent to the reader, so a caller may use the non-reader path.
+func (a *ADB) readerReady(parent context.Context, t *target, c *readerClient, end time.Time) bool {
+	if err := c.acquire(parent); err != nil {
+		return false
+	}
+	defer c.release()
+	if ok, _ := a.ensureReader(parent, t, c, end); !ok {
+		return false
+	}
+	port := c.portValue()
+	if port == "" {
+		return false
+	}
+	return a.pingPort(parent, port, boundBy(time.Now().Add(readerPingCheck), end))
 }
 
 // actOnReader sends one acting request (ADR-0035 §1) to a device's persistent reader over
