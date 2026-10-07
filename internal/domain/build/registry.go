@@ -144,6 +144,7 @@ type record struct {
 	Validation          string           `json:"validation"`
 	AGP                 string           `json:"agp"`
 	KGP                 string           `json:"kgp"`
+	ExpectedSources     ExpectedSources  `json:"expectedSources"`
 	TaskSummary         TaskSummary      `json:"taskSummary"`
 	Tasks               []TaskOutcome    `json:"tasks,omitempty"`
 	Failures            []FailureNode    `json:"failures,omitempty"`

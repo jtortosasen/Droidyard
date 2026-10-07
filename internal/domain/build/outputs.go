@@ -55,10 +55,12 @@ func resolveOutputs(model gradle.Model, outcomes map[string]string) ([]Output, [
 	seen := map[string]bool{}
 	for _, m := range model.Projects {
 		// Only a variant's own package task: AGP also has packageDebugResources,
-		// packageDebugRenderscript and the like, which are not variants (the variants are
-		// gradle.md §Variants' task-name ones).
+		// packageDebugRenderscript and the like, which are not variants. The variant set
+		// is the same one build.assemble validates against (plan m1h D9): exact from the
+		// probe, else the task-name fallback.
 		variants := map[string]bool{}
-		for _, v := range gradle.VariantNames(m) {
+		names, _, _ := gradle.Variants(m, model.Probe)
+		for _, v := range names {
 			variants[v] = true
 		}
 		for _, t := range m.Tasks {

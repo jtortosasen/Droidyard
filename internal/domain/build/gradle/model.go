@@ -28,13 +28,59 @@ type Module struct {
 	// BuildDir is core-internal (gradle.md §Project model) and never leaves the core.
 	BuildDir string `json:"buildDir,omitempty"`
 	Tasks    []Task `json:"tasks"`
+	// Android is the probe's facts for this project, nil for a project that is not
+	// Android or a reply without the probe (plan m1h D6, D7).
+	Android *Android `json:"android,omitempty"`
+}
+
+// Android is one Android project's probe facts (plan m1h D6, D7). Each field is a
+// pointer so an isolated read failure is distinguishable from a read value: the probe
+// omits the field it could not read (D6). SDKDir is core-internal and never leaves the
+// core; step 4 publishes it as sdk.requirements' project root (m1h D12).
+type Android struct {
+	CompileTarget *string   `json:"compileTarget,omitempty"`
+	BuildTools    *string   `json:"buildTools,omitempty"`
+	SDKDir        *string   `json:"sdkDir,omitempty"`
+	Variants      []Variant `json:"variants,omitempty"`
+}
+
+// Variant is one AGP variant the probe read: its name, its build type and its
+// product flavours in dimension order (plan m1h D6).
+type Variant struct {
+	Name      string   `json:"name"`
+	BuildType string   `json:"buildType,omitempty"`
+	Flavors   []Flavor `json:"flavors,omitempty"`
+}
+
+// Flavor is one product flavour: the dimension it belongs to and its name.
+type Flavor struct {
+	Dimension string `json:"dimension,omitempty"`
+	Name      string `json:"name,omitempty"`
+}
+
+// Plugins is the build-wide plugin facts the probe read: the first project in path order
+// that reported one; "unknown" when none did (plan m1h D6, D10).
+type Plugins struct {
+	AGP string `json:"agp"`
+	KGP string `json:"kgp"`
+}
+
+// Probe is the probe's own status and the notes of the fields it could not read (plan
+// m1h D6, D7): status is ok, partial, failed or skipped, and notes are capped by the
+// sidecar. An empty status is a reply without the probe.
+type Probe struct {
+	Status string   `json:"status"`
+	Notes  []string `json:"notes"`
 }
 
 // Model is the cached project model: one configuration pass's worth of modules and
-// tasks (gradle.md §Project model; D25: the generic TAPI model, not the probe).
+// tasks, plus the probe's plugin facts and status when it ran (gradle.md §Project model;
+// D25: the generic TAPI model plus the probe's Android facts).
 type Model struct {
 	Root     string   `json:"root"`
 	Projects []Module `json:"projects"`
+	Plugins  Plugins  `json:"plugins"`
+	Probe    Probe    `json:"probe"`
 }
 
 // Module returns the module with the given path, e.g. ":app". The root project is ":".
@@ -50,6 +96,52 @@ func (m Model) Module(path string) (Module, bool) {
 // variantSuffixes are the task-name suffixes that mark a non-build variant, excluded
 // from the task-name heuristic (ADR-0023 §Decision 4; gradle.md §Variants).
 var variantSuffixes = []string{"AndroidTest", "UnitTest", "TestFixtures"}
+
+// Variants is the one variant source every consumer shares (plan m1h D8, D9):
+// project.variants, build.assemble's validation and the output search all call it, so a
+// flavoured module's validation and outputs follow the exact variants when the probe
+// read them.
+//
+// The probe read the model when its status is ok or partial, and it read a project's
+// variants when that project is not Android (an empty list) or the project's Android
+// facts carry a variants list. Everything else — no probe, a failed one, or a project
+// whose variants field the probe could not read — falls back to the task-name
+// heuristic, labelled task-names, exact false.
+//
+// names is never nil: a module with no variants reports an empty list. details is
+// non-nil only for source probe, and mirrors the probe's dimension order.
+func Variants(m Module, probe Probe) (names []string, details []Variant, source string) {
+	if probeRead(probe) {
+		if m.Android == nil {
+			// A non-Android project: the probe read it and it has no variants (D8).
+			return []string{}, nil, "probe"
+		}
+		if m.Android.Variants != nil {
+			names = make([]string, 0, len(m.Android.Variants))
+			for _, v := range m.Android.Variants {
+				names = append(names, v.Name)
+			}
+			return names, m.Android.Variants, "probe"
+		}
+	}
+	fallback := VariantNames(m)
+	if fallback == nil {
+		fallback = []string{}
+	}
+	return fallback, nil, "task-names"
+}
+
+// probeRead reports whether the probe produced the model's Android facts: ok, or
+// partial with some field isolated (plan m1h D6). failed, skipped and an absent probe
+// status do not.
+func probeRead(p Probe) bool { return p.Status == "ok" || p.Status == "partial" }
+
+// KGPAtLeast reports whether a Kotlin Gradle Plugin version is at least major.minor
+// (plan m1h D10). An unreadable, absent or "unknown" version is not at least anything,
+// so an unknown KGP is below the structured-error threshold, as D10 requires.
+func KGPAtLeast(version string, major, minor int) bool {
+	return gradleAtLeast(version, major, minor)
+}
 
 // VariantNames is the task-name fallback of gradle.md §Variants: the X with both
 // `assemble<X>` and `package<X>` among the module's tasks, minus names ending in

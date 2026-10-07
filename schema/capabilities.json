@@ -1,5 +1,5 @@
 {
-  "version": "0.6.0",
+  "version": "0.7.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -327,10 +327,68 @@
               },
               "agp": {
                 "type": "string",
-                "description": "The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."
+                "description": "The Android Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."
               },
               "kgp": {
-                "type": "string"
+                "type": "string",
+                "description": "The Kotlin Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."
+              },
+              "expectedSources": {
+                "properties": {
+                  "kotlin": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "javac": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "aapt2": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "manifestMerger": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "ksp": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "kapt": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "kotlin",
+                  "javac",
+                  "aapt2",
+                  "manifestMerger",
+                  "ksp",
+                  "kapt"
+                ],
+                "description": "The expected primary error source per tool: problems (structured) or console (the extractor), from the connection's capabilities and the plugin versions."
               },
               "taskSummary": {
                 "properties": {
@@ -840,7 +898,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.6.0",
-      "description": "Returns the newest finished build of the workspace, in the shape build.run and build.assemble return, without running anything. It is read from the state root, so it survives a daemon restart, and consoleRef stays readable with artifact.read as long as the record is retained (the last 50 builds or 7 days). A workspace that has finished no build is BUILD_NOT_FOUND.",
+      "description": "Returns the newest finished build of the workspace, in the shape build.run and build.assemble return (agp, kgp and expectedSources included), without running anything. It is read from the state root, so it survives a daemon restart, and consoleRef stays readable with artifact.read as long as the record is retained (the last 50 builds or 7 days). A workspace that has finished no build is BUILD_NOT_FOUND.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -949,10 +1007,68 @@
           },
           "agp": {
             "type": "string",
-            "description": "The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."
+            "description": "The Android Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."
           },
           "kgp": {
-            "type": "string"
+            "type": "string",
+            "description": "The Kotlin Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."
+          },
+          "expectedSources": {
+            "properties": {
+              "kotlin": {
+                "type": "string",
+                "enum": [
+                  "problems",
+                  "console"
+                ]
+              },
+              "javac": {
+                "type": "string",
+                "enum": [
+                  "problems",
+                  "console"
+                ]
+              },
+              "aapt2": {
+                "type": "string",
+                "enum": [
+                  "problems",
+                  "console"
+                ]
+              },
+              "manifestMerger": {
+                "type": "string",
+                "enum": [
+                  "problems",
+                  "console"
+                ]
+              },
+              "ksp": {
+                "type": "string",
+                "enum": [
+                  "problems",
+                  "console"
+                ]
+              },
+              "kapt": {
+                "type": "string",
+                "enum": [
+                  "problems",
+                  "console"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kotlin",
+              "javac",
+              "aapt2",
+              "manifestMerger",
+              "ksp",
+              "kapt"
+            ],
+            "description": "The expected primary error source per tool: problems (structured) or console (the extractor), from the connection's capabilities and the plugin versions."
           },
           "taskSummary": {
             "properties": {
@@ -1242,7 +1358,7 @@
       "longRunning": true,
       "audience": "all",
       "since": "0.6.0",
-      "description": "Runs Gradle tasks and returns the finished build's compact record. tasks are 1 to 20 Gradle task names or paths, each checked against the pattern Gradle accepts before anything is started; whether a task exists is Gradle's own answer, and an unknown one is a failed build, not a rejected call (build.tasks lists what exists). The build's id is its operation id, so a cancel is operation.cancel on the id this call returned and the record says cancelled. A failed build is a completed operation whose outcome is failed: read its errors with build.errors and its whole console with artifact.read {ref: consoleRef}. The result is also persisted, and build.lastResult returns it after a restart. The console is not readable until the build has finished. Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED, REQUEST_INVALID_PARAMS for a tasks list that is empty, too long or not task-shaped, and WORKSPACE_STATE_UNREADABLE when the record could not be written.",
+      "description": "Runs Gradle tasks and returns the finished build's compact record. tasks are 1 to 20 Gradle task names or paths, each checked against the pattern Gradle accepts before anything is started; whether a task exists is Gradle's own answer, and an unknown one is a failed build, not a rejected call (build.tasks lists what exists). The build's id is its operation id, so a cancel is operation.cancel on the id this call returned and the record says cancelled. A failed build is a completed operation whose outcome is failed: read its errors with build.errors and its whole console with artifact.read {ref: consoleRef}. The record reports the AGP and KGP versions the probe read (\"unknown\" when it did not run) and expectedSources, the primary error source expected per tool. The result is also persisted, and build.lastResult returns it after a restart. The console is not readable until the build has finished. Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED, REQUEST_INVALID_PARAMS for a tasks list that is empty, too long or not task-shaped, and WORKSPACE_STATE_UNREADABLE when the record could not be written.",
       "availability": [
         "gradle"
       ],
@@ -1415,10 +1531,68 @@
               },
               "agp": {
                 "type": "string",
-                "description": "The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."
+                "description": "The Android Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."
               },
               "kgp": {
-                "type": "string"
+                "type": "string",
+                "description": "The Kotlin Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."
+              },
+              "expectedSources": {
+                "properties": {
+                  "kotlin": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "javac": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "aapt2": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "manifestMerger": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "ksp": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  },
+                  "kapt": {
+                    "type": "string",
+                    "enum": [
+                      "problems",
+                      "console"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "kotlin",
+                  "javac",
+                  "aapt2",
+                  "manifestMerger",
+                  "ksp",
+                  "kapt"
+                ],
+                "description": "The expected primary error source per tool: problems (structured) or console (the extractor), from the connection's capabilities and the plugin versions."
               },
               "taskSummary": {
                 "properties": {
@@ -4376,7 +4550,7 @@
       "longRunning": true,
       "audience": "all",
       "since": "0.6.0",
-      "description": "Reports the build variants of each module (or of one, with module), as { module, variants[], source, exact } per module. Without the Android probe this milestone derives them from task names: the X with both assemble\u003cX\u003e and package\u003cX\u003e among the module's tasks, minus names ending AndroidTest, UnitTest or TestFixtures, so source is task-names and exact is false (ADR-0023 §Decision 4). A module that produces no APK variants (a library, or the root project) reports an empty list. A module argument that names no project is REQUEST_INVALID_PARAMS. The answer comes from one Gradle configuration pass, cached per (root, build-files fingerprint) and consulted without a pass when a build holds the root. When a build holds the root and the fingerprint changed since the model was fetched, the result is the cached one and stale is true. Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. Fails with BUILD_SIDECAR_UNAVAILABLE when no JVM 17 or newer was found or the sidecar could not start, BUILD_SIDECAR_CRASHED when it died or broke its protocol, BUILD_GRADLE_UNSUPPORTED when the project's Gradle is below the 8.0 floor, and PROJECT_MODEL_FAILED when the configuration pass failed.",
+      "description": "Reports the build variants of each module (or of one, with module), as { module, variants[], source, exact, details? } per module. The Android probe reads them exactly from AGP's public Variant API: source is probe, exact is true, and details carries each variant's build type and its product flavours in dimension order. Without the probe (or for a project the probe could not read) they come from task names: the X with both assemble\u003cX\u003e and package\u003cX\u003e among the module's tasks, minus names ending AndroidTest, UnitTest or TestFixtures, so source is task-names and exact is false (ADR-0023 §Decision 4). A module that has no variants — the root project, a non-Android project, or a library the task-name fallback cannot see — reports an empty list. A module argument that names no project is REQUEST_INVALID_PARAMS. The answer comes from one Gradle configuration pass, cached per (root, build-files fingerprint) and consulted without a pass when a build holds the root. When a build holds the root and the fingerprint changed since the model was fetched, the result is the cached one and stale is true. Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. Fails with BUILD_SIDECAR_UNAVAILABLE when no JVM 17 or newer was found or the sidecar could not start, BUILD_SIDECAR_CRASHED when it died or broke its protocol, BUILD_GRADLE_UNSUPPORTED when the project's Gradle is below the 8.0 floor, and PROJECT_MODEL_FAILED when the configuration pass failed.",
       "availability": [
         "gradle"
       ],
@@ -4461,7 +4635,7 @@
                         "type": "string"
                       },
                       "type": "array",
-                      "description": "Variant names; empty for a module that produces no APK variants."
+                      "description": "Variant names, lowercase-first; empty for a module that has none (a non-Android project, or a library the task-name fallback cannot see)."
                     },
                     "source": {
                       "type": "string",
@@ -4469,11 +4643,52 @@
                         "probe",
                         "task-names"
                       ],
-                      "description": "How the variants were derived: probe is exact (a later milestone); task-names is the labelled fallback of ADR-0023 §Decision 4."
+                      "description": "How the variants were derived: probe is exact, read from AGP's public Variant API; task-names is the labelled fallback of ADR-0023 §Decision 4."
                     },
                     "exact": {
                       "type": "boolean",
                       "description": "True only for source probe."
+                    },
+                    "details": {
+                      "items": {
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "buildType": {
+                            "type": "string"
+                          },
+                          "flavors": {
+                            "items": {
+                              "properties": {
+                                "dimension": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "dimension",
+                                "name"
+                              ]
+                            },
+                            "type": "array",
+                            "description": "The variant's product flavours in dimension order; empty for a variant with no flavours."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "buildType",
+                          "flavors"
+                        ]
+                      },
+                      "type": "array",
+                      "description": "With source probe: each variant's name, build type and product flavours in dimension order."
                     }
                   },
                   "additionalProperties": false,

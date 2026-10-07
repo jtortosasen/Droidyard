@@ -104,6 +104,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 			"tasks are 1 to 20 Gradle task names or paths, each checked against the pattern Gradle accepts before anything is started; whether a task exists is Gradle's own answer, and an unknown one is a failed build, not a rejected call (build.tasks lists what exists). " +
 			"The build's id is its operation id, so a cancel is operation.cancel on the id this call returned and the record says cancelled. " +
 			"A failed build is a completed operation whose outcome is failed: read its errors with build.errors and its whole console with artifact.read {ref: consoleRef}. " +
+			"The record reports the AGP and KGP versions the probe read (\"unknown\" when it did not run) and expectedSources, the primary error source expected per tool. " +
 			"The result is also persisted, and build.lastResult returns it after a restart. " +
 			"The console is not readable until the build has finished. " +
 			"Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). " +
@@ -150,7 +151,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 					WithDetails(map[string]any{"modules": modulePaths(model)}).
 					WithNextStep("call project.modules for the project paths, then retry")
 			}
-			variants := gradle.VariantNames(m)
+			variants, _, _ := gradle.Variants(m, model.Probe)
 			if !containsString(variants, p.Variant) {
 				return nil, capability.Errorf(capability.ErrInvalidParams, "module %s has no variant %q", p.Module, p.Variant).
 					WithDetails(map[string]any{"module": p.Module, "variants": variants}).
@@ -189,7 +190,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Params:    struct{}{},
 		Result:    Result{},
 		Errors:    readErrors,
-		Description: "Returns the newest finished build of the workspace, in the shape build.run and build.assemble return, without running anything. " +
+		Description: "Returns the newest finished build of the workspace, in the shape build.run and build.assemble return (agp, kgp and expectedSources included), without running anything. " +
 			"It is read from the state root, so it survives a daemon restart, and consoleRef stays readable with artifact.read as long as the record is retained (the last 50 builds or 7 days). " +
 			"A workspace that has finished no build is BUILD_NOT_FOUND.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -308,6 +309,8 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	}
 	finished := r.now()
 	profile, missing := profileOf(conn, fin.MissingCapabilities)
+	agp, kgp := pluginVersions(model.Plugins)
+	expected := expectedSources(conn, model.Plugins)
 	merged := extract.Extract(extract.Input{
 		Root:            root,
 		Outcome:         outcome,
@@ -332,8 +335,9 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		Profile:             profile,
 		MissingCapabilities: missing,
 		Validation:          "untested",
-		AGP:                 "unknown",
-		KGP:                 "unknown",
+		AGP:                 agp,
+		KGP:                 kgp,
+		ExpectedSources:     expected,
 		TaskSummary:         taskSummary(sink.counts()),
 		Tasks:               tasks,
 		Failures:            failureNodes(fin.Failures),
@@ -423,6 +427,7 @@ func (rec record) result() Result {
 		Validation:          rec.Validation,
 		AGP:                 rec.AGP,
 		KGP:                 rec.KGP,
+		ExpectedSources:     rec.ExpectedSources,
 		TaskSummary:         rec.TaskSummary,
 		ErrorCount:          len(rec.Errors),
 		WarningCount:        len(rec.Warnings),
@@ -718,6 +723,39 @@ func profileOf(conn gradle.Connection, fromSidecar []string) (string, []string) 
 		return "degraded", missing
 	}
 	return "full", missing
+}
+
+// pluginVersions is D10: the AGP and KGP versions the build ran with, from the model the
+// build fetched, "unknown" when the probe did not read them.
+func pluginVersions(p gradle.Plugins) (agp, kgp string) {
+	agp, kgp = p.AGP, p.KGP
+	if agp == "" {
+		agp = "unknown"
+	}
+	if kgp == "" {
+		kgp = "unknown"
+	}
+	return agp, kgp
+}
+
+// expectedSources is D10: the expected primary error source per tool, a pure function of
+// the connection's Gradle capabilities and the probe's plugin facts (gradle.md §Version
+// detection and toolchain profile, item 4). Kotlin is structured only when Gradle reports
+// problem locations and KGP is ≥ 2.4 (an unknown KGP is below); javac follows problem
+// locations on its own; the other four are not assumed, so they stay console.
+func expectedSources(conn gradle.Connection, plugins gradle.Plugins) ExpectedSources {
+	es := ExpectedSources{AAPT2: "console", ManifestMerger: "console", KSP: "console", Kapt: "console"}
+	if conn.Capabilities["problemLocations"] {
+		es.Javac = "problems"
+	} else {
+		es.Javac = "console"
+	}
+	if conn.Capabilities["problemLocations"] && gradle.KGPAtLeast(plugins.KGP, 2, 4) {
+		es.Kotlin = "problems"
+	} else {
+		es.Kotlin = "console"
+	}
+	return es
 }
 
 // checkTasks is R6 for build.run: 1 to 20 tasks, each shaped like a Gradle task name or
