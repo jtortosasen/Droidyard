@@ -38,28 +38,53 @@ type TextPage struct {
 	Truncated bool
 }
 
-// ReadText reads one page of a text artifact (ADR-0012 §Reading artifacts). A negative
-// offset counts back from the end, and when it lands mid-line it is moved forward to
-// the next line start. The text ends at the last complete line within
-// limit: a line the limit cuts in half is held back, and a single line longer than the
-// limit is cut at a UTF-8 boundary with Truncated. An offset at or past the end is
-// empty text. limit is clamped to [1, MaxTextLimit]; a caller wanting the default
-// passes zero.
+// ReadText reads one page of a text artifact entry (ADR-0012 §Reading artifacts). A
+// durable entry is paged in place, so a page of a large console never pulls the whole
+// of it into memory.
 func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
-	size := e.Size
 	if e.File == "" {
-		size = int64(len(e.Data))
+		return ReadTextReaderAt(bytes.NewReader(e.Data), int64(len(e.Data)), e.Growing, offset, limit)
 	}
-	if limit <= 0 {
-		limit = DefaultTextLimit
+	f, err := os.Open(e.File)
+	if err != nil {
+		return TextPage{}, err
 	}
-	if limit > MaxTextLimit {
-		limit = MaxTextLimit
+	defer f.Close()
+	return ReadTextReaderAt(f, e.Size, e.Growing, offset, limit)
+}
+
+// ReadTextReaderAt reads one page of a text source: r is read at byte offsets and size
+// is its length. It is the same paging as ReadText over an open reader, so file.read
+// (internal/domain/file) pages the descriptor a root opened without pulling the file
+// into memory. A negative offset counts back from the end, and when it lands mid-line
+// it is moved forward to the next line start. The text ends at the last complete line
+// within limit: a line the limit cuts in half is held back, and a single line longer
+// than the limit is cut at a UTF-8 boundary with Truncated. An offset at or past the
+// end is empty text. limit is clamped to [MinTextLimit, MaxTextLimit]; a caller wanting
+// the default passes zero.
+func ReadTextReaderAt(r io.ReaderAt, size int64, growing bool, offset int64, limit int) (TextPage, error) {
+	limit = clampTextLimit(limit)
+	if size < 0 {
+		size = 0
 	}
-	// Below one rune's width a cut at a UTF-8 boundary could return nothing and never
-	// advance (the published minimum is MinTextLimit).
-	if limit < MinTextLimit {
-		limit = MinTextLimit
+
+	// readAt returns the bytes in [from, from+n), however many exist.
+	readAt := func(from, n int64) ([]byte, error) {
+		if from < 0 || n <= 0 || from >= size {
+			return nil, nil
+		}
+		if from+n > size {
+			n = size - from
+		}
+		if n <= 0 {
+			return nil, nil
+		}
+		buf := make([]byte, n)
+		m, err := io.ReadFull(io.NewSectionReader(r, from, n), buf)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return nil, err
+		}
+		return buf[:m], nil
 	}
 
 	start := offset
@@ -72,16 +97,18 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 	if start > size {
 		start = size
 	}
-	page := TextPage{Size: size, Growing: e.Growing}
+	page := TextPage{Size: size, Growing: growing}
 
 	// A negative offset lands anywhere; move it forward to the next line start. The
 	// scan is bounded by the window: a line longer than the limit is cut below, not
 	// jumped over.
 	if offset < 0 && start > 0 && start < size {
-		if prev, ok, err := e.byteAt(start - 1); err != nil {
+		prev, err := readAt(start-1, 1)
+		if err != nil {
 			return TextPage{}, err
-		} else if ok && prev != '\n' {
-			win, err := e.readAt(start, int64(limit))
+		}
+		if len(prev) > 0 && prev[0] != '\n' {
+			win, err := readAt(start, int64(limit))
 			if err != nil {
 				return TextPage{}, err
 			}
@@ -96,7 +123,7 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 		return page, nil
 	}
 
-	win, err := e.readAt(start, int64(limit))
+	win, err := readAt(start, int64(limit))
 	if err != nil {
 		return TextPage{}, err
 	}
@@ -118,7 +145,7 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 	// growing artifact never shows half a line: the next read starts at the same offset
 	// and sees it once its newline arrives. Once closed, the end of the artifact ends
 	// the line (a cap or a cancel can stop mid-line), and it is returned.
-	if !e.Growing {
+	if !growing {
 		page.Text = string(win)
 		page.NextOffset = start + int64(len(win))
 		return page, nil
@@ -127,55 +154,20 @@ func ReadText(e Entry, offset int64, limit int) (TextPage, error) {
 	return page, nil
 }
 
-// readAt returns the bytes of the entry in [from, from+n), however many exist. It
-// reads a durable artifact's file in place, so a page of a large console never pulls
-// the whole of it into memory.
-func (e Entry) readAt(from, n int64) ([]byte, error) {
-	if e.File == "" {
-		if from < 0 {
-			from = 0
-		}
-		if from >= int64(len(e.Data)) || n <= 0 {
-			return nil, nil
-		}
-		return e.Data[from:min(from+n, int64(len(e.Data)))], nil
+// clampTextLimit applies ADR-0012's bounds: a caller wanting the default passes zero.
+// Below one rune's width a cut at a UTF-8 boundary could return nothing and never
+// advance, so the floor is MinTextLimit.
+func clampTextLimit(limit int) int {
+	if limit <= 0 {
+		return DefaultTextLimit
 	}
-	if n <= 0 {
-		return nil, nil
+	if limit > MaxTextLimit {
+		return MaxTextLimit
 	}
-	if from < 0 {
-		from = 0
+	if limit < MinTextLimit {
+		return MinTextLimit
 	}
-	f, err := os.Open(e.File)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	end := from + n
-	if e.Size > 0 && end > e.Size {
-		end = e.Size
-	}
-	if end <= from {
-		return nil, nil
-	}
-	buf := make([]byte, end-from)
-	m, err := io.ReadFull(io.NewSectionReader(f, from, end-from), buf)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return nil, err
-	}
-	return buf[:m], nil
-}
-
-// byteAt returns the byte at i, and whether it exists.
-func (e Entry) byteAt(i int64) (byte, bool, error) {
-	b, err := e.readAt(i, 1)
-	if err != nil {
-		return 0, false, err
-	}
-	if len(b) == 0 {
-		return 0, false, nil
-	}
-	return b[0], true, nil
+	return limit
 }
 
 // utf8Boundary is the longest prefix of b that ends on a UTF-8 boundary, so a cut
