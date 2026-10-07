@@ -101,6 +101,11 @@ func normalState(s string) string {
 
 var emulatorSerial = regexp.MustCompile(`^emulator-[0-9]+$`)
 
+// IsEmulatorSerial reports whether a serial addresses an emulator's console
+// (emulator-<port>), the only serial `adb emu` answers: emulator.stop refuses anything
+// else with EMULATOR_NOT_AN_EMULATOR, before any console command (emulator.md §Stop).
+func IsEmulatorSerial(serial string) bool { return emulatorSerial.MatchString(serial) }
+
 // emulatorProducts are the products step 1 recorded from real emulators: sdk_gphone…
 // for phones, sdk_gtablet… for the tablet.
 var emulatorProducts = []string{"sdk_gphone", "sdk_gtablet"}

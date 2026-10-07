@@ -4590,6 +4590,172 @@
       }
     },
     {
+      "name": "emulator.list",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.8.0",
+      "description": "Lists every AVD the emulator launcher knows, each with its configuration (target, abi, deviceProfile, displayName) when it can be read, and running {device} when it is booted. Names come from the launcher's -list-avds; a name whose .ini cannot be located keeps its place with configUnavailable set, never dropped. It reports AVDs, not devices: what is available to boot versus what is running, in one answer. No paths appear in the result. Fails with EMULATOR_LAUNCHER_NOT_FOUND when no launcher is found, EMULATOR_LAUNCH_FAILED when the launcher cannot list AVDs, DEVICE_ADB_NOT_FOUND when adb cannot be found and DEVICE_ADB_FAILED when the device listing fails.",
+      "availability": [
+        "emulator",
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "EMULATOR_LAUNCHER_NOT_FOUND",
+        "EMULATOR_LAUNCH_FAILED",
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "avds": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The AVD name, as the launcher lists it."
+                },
+                "running": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "description": "The running emulator's serial."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "device"
+                  ],
+                  "description": "Present when the AVD is booted; the emulator's serial."
+                },
+                "config": {
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "description": "The API level or codename the AVD targets, from its .ini entry."
+                    },
+                    "abi": {
+                      "type": "string",
+                      "description": "config.ini's abi.type, e.g. arm64-v8a."
+                    },
+                    "deviceProfile": {
+                      "type": "string",
+                      "description": "config.ini's hw.device.name, e.g. pixel_9a."
+                    },
+                    "displayName": {
+                      "type": "string",
+                      "description": "config.ini's avd.ini.displayname, the human name."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "The AVD's configuration, when its .ini was found."
+                },
+                "configUnavailable": {
+                  "type": "string",
+                  "description": "Why the configuration is unavailable; it names no paths."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name"
+              ]
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "avds"
+        ]
+      }
+    },
+    {
+      "name": "emulator.stop",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.8.0",
+      "description": "Stops one running emulator with `adb emu kill` and returns once its serial leaves adb devices, bounded at 20 s; a timeout is EMULATOR_STOP_TIMEOUT and we never escalate to signals, because the emulator is not ours. It holds the device's write lock, so it serialises with installs and other writes to that device and can end a stuck boot. Only emulator-\u003cport\u003e serials answer the console: anything else — a physical device, or an emulator reached over ip:port — is EMULATOR_NOT_AN_EMULATOR. The call runs the device preamble's policy check (a physical device is DEVICE_NOT_ALLOWED) but not its readiness check, so an emulator that is still booting or offline can be stopped. Stopping is not idempotent: a second call for an already-gone serial is DEVICE_NOT_FOUND. Fails with the preamble's errors (DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED, DEVICE_NOT_FOUND, DEVICE_NOT_ALLOWED, DEVICE_DISCONNECTED), EMULATOR_NOT_AN_EMULATOR, EMULATOR_STOP_TIMEOUT, and OPERATION_QUEUE_TIMEOUT behind another write to the same device.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "EMULATOR_NOT_AN_EMULATOR",
+        "EMULATOR_STOP_TIMEOUT",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the running emulator to stop, as device.list reports it (emulator-\u003cport\u003e)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "avd": {
+            "type": "string",
+            "description": "The AVD the stopped emulator ran, when its console reported it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      }
+    },
+    {
       "name": "events.subscribe",
       "kind": "command",
       "scope": "global",

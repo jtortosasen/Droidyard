@@ -136,11 +136,20 @@ func TestDegradedWithoutADB(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
+	emulatorListed := false
 	for _, c := range list.Capabilities {
 		if c.Name == "device.list" {
 			found = true
 			if c.Available || !strings.Contains(c.Unavailable, "ADB") || !strings.Contains(c.Unavailable, "Tried:") {
 				t.Errorf("device.list = %+v, want unavailable with a reason naming what to set", c)
+			}
+		}
+		if c.Name == "emulator.list" {
+			emulatorListed = true
+			// plan m1i step 4, check: no launcher is listed unavailable, naming what was
+			// tried (the emulator requirement is asked before adb's).
+			if c.Available || !strings.Contains(c.Unavailable, "ANDROID_HOME") || !strings.Contains(c.Unavailable, "Tried:") {
+				t.Errorf("emulator.list = %+v, want unavailable with a reason naming what to set", c)
 			}
 		}
 		if c.Name == "system.health" && !c.Available {
@@ -149,6 +158,14 @@ func TestDegradedWithoutADB(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("device.list is not listed: degraded must keep every capability registered")
+	}
+	if !emulatorListed {
+		t.Fatal("emulator.list is not listed: degraded must keep every capability registered")
+	}
+
+	elist, code := p.call(t, "emulator.list")
+	if code == 0 || elist.Error == nil || elist.Error.Code != "EMULATOR_LAUNCHER_NOT_FOUND" {
+		t.Errorf("call emulator.list exited %d with error %+v; want EMULATOR_LAUNCHER_NOT_FOUND", code, elist.Error)
 	}
 
 	env, code := p.call(t, "device.list")

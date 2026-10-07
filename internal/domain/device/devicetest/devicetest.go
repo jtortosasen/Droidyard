@@ -87,6 +87,13 @@
 // `killed.pids`, and `pidof` and `ps` drop a recorded pid from their answer. So a test
 // sees the old pid gone after a kill, as plan m1f step 7's wait requires.
 //
+// The fake models the emulator console's kill too (plan m1i, D20): `-s <serial> emu kill`
+// records the serial in `killed.emulators`, and every later `devices -l` drops a recorded
+// serial once its leave count is spent, so a test sees the serial leave as a real `emu
+// kill` does. `<serial>.emukill.leave` is how many `devices -l` answers still list the
+// serial before it leaves (default 0: the next one); `<serial>.emukill.stays` makes it
+// never leave, for the stop-timeout case.
+//
 // A FakeReader (reader.go) is the TCP listener the fake forward points at, so a test of
 // the persistent reader writes its Port as <serial>.forward.out.
 //
@@ -239,7 +246,7 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		if !waitDelay(ctx, dir, "devices") {
 			return 0
 		}
-		cat("devices.out")
+		stdout.Write(dropKilledEmulators(dir, dirBytes(dir, "devices.out")))
 		if b, err := os.ReadFile(filepath.Join(dir, "devices.err")); err == nil {
 			stderr.Write(b)
 		}
@@ -312,6 +319,8 @@ func servedPrefix(args []string) string {
 		return ""
 	}
 	switch {
+	case len(args) == 4 && args[2] == "emu" && args[3] == "kill":
+		return args[1] + ".emukill"
 	case len(args) == 5 && args[2] == "push" && args[3] == "LOCAL" && isReaderFile(args[4]):
 		return args[1] + ".push"
 	case len(args) == 7 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader":
@@ -504,6 +513,10 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 	case strings.HasSuffix(prefix, ".kill"):
 		if code == 0 && len(raw) == 5 {
 			recordKilled(dir, raw[4])
+		}
+	case strings.HasSuffix(prefix, ".emukill"):
+		if code == 0 && len(raw) == 4 {
+			recordKilledEmulator(dir, raw[1])
 		}
 	case strings.HasSuffix(prefix, ".forwardremove"):
 		if code == 0 && len(raw) == 5 {
@@ -1105,4 +1118,116 @@ func containsString(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// killed.emulators records the emulator serials `emu kill` ended, each with how many more
+// `devices -l` answers still list it ("never" for one that never leaves), so a test sees
+// the serial leave as a real emu kill does (plan m1i, D20).
+
+var emulMu sync.Mutex
+
+// neverLeaves marks a serial that never leaves the listing.
+const neverLeaves = "never"
+
+// goneForever marks a serial that has left the listing and does not come back: the row is
+// kept so a later answer does not serve the base devices.out line again.
+const goneForever = "gone"
+
+// recordKilledEmulator records a serial ended by `emu kill`, with its leave count.
+func recordKilledEmulator(dir, serial string) {
+	if serial == "" {
+		return
+	}
+	rem := "0"
+	if _, err := os.Stat(filepath.Join(dir, serial+".emukill.stays")); err == nil {
+		rem = neverLeaves
+	} else if b, err := os.ReadFile(filepath.Join(dir, serial+".emukill.leave")); err == nil {
+		if s := strings.TrimSpace(string(b)); s != "" {
+			rem = s
+		}
+	}
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	f, err := os.OpenFile(filepath.Join(dir, "killed.emulators"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	fmt.Fprintln(f, serial+" "+rem)
+	f.Close()
+}
+
+// readKilledEmulators reads the table; callers take emulMu.
+func readKilledEmulators(dir string) [][2]string {
+	b, err := os.ReadFile(filepath.Join(dir, "killed.emulators"))
+	if err != nil {
+		return nil
+	}
+	var out [][2]string
+	for _, l := range strings.Split(string(b), "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 2 {
+			out = append(out, [2]string{f[0], f[1]})
+		}
+	}
+	return out
+}
+
+// writeKilledEmulators replaces the table; callers take emulMu.
+func writeKilledEmulators(dir string, rows [][2]string) {
+	if len(rows) == 0 {
+		os.Remove(filepath.Join(dir, "killed.emulators"))
+		return
+	}
+	var lines []string
+	for _, r := range rows {
+		lines = append(lines, r[0]+" "+r[1])
+	}
+	os.WriteFile(filepath.Join(dir, "killed.emulators"), []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+}
+
+// dropKilledEmulators removes from a `devices -l` answer the serials whose leave count is
+// spent, decrements the rest, and keeps those that never leave. So an emulator leaves the
+// listing the number of answers after its `emu kill` its leave count names, and once it has
+// left it stays gone (plan m1i, D20).
+func dropKilledEmulators(dir string, out []byte) []byte {
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	table := readKilledEmulators(dir)
+	if len(table) == 0 {
+		return out
+	}
+	var rows [][2]string
+	gone := map[string]bool{}
+	for _, r := range table {
+		switch {
+		case r[1] == neverLeaves:
+			rows = append(rows, r)
+		case r[1] == goneForever:
+			rows = append(rows, r)
+			gone[r[0]] = true
+		default:
+			n, _ := strconv.Atoi(r[1])
+			if n <= 0 {
+				rows = append(rows, [2]string{r[0], goneForever})
+				gone[r[0]] = true
+			} else {
+				rows = append(rows, [2]string{r[0], strconv.Itoa(n - 1)})
+			}
+		}
+	}
+	writeKilledEmulators(dir, rows)
+	var kept []string
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		if f := strings.Fields(line); len(f) > 0 && gone[f[0]] {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return []byte(strings.Join(kept, "\n") + "\n")
 }
