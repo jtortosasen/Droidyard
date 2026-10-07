@@ -263,13 +263,17 @@ type BelowFloor struct {
 	// ConfigPath is the configuration file, named by the below-floor refusal so a human
 	// knows which file to edit.
 	ConfigPath string
+	// Invalid is why the file could not be read at start, when it could not: the key was
+	// then not read, and the refusal says so rather than ask for a key already set
+	// (ADR-0032 §4; m1k close review N3).
+	Invalid string
 }
 
 // BelowFloorKey is `gradle.allowBelowFloor` as read at daemon start. An invalid file
 // sets no key, so Allowed is false and Gradle below the floor is refused (ADR-0032 §4).
 func (s Startup) BelowFloorKey() BelowFloor {
 	if s.State == StateInvalid {
-		return BelowFloor{ConfigPath: s.Path}
+		return BelowFloor{ConfigPath: s.Path, Invalid: s.Error}
 	}
 	return BelowFloor{Allowed: s.AllowBelowFloor, ConfigPath: s.Path}
 }

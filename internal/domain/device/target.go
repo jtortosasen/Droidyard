@@ -56,8 +56,8 @@ type Policy interface {
 // authorize is the authorization hook of a device capability (plan m1e, Q2; m1k D7). It
 // runs the call's one `devices -l` and decides DEVICE_NOT_ALLOWED for a physical device
 // the policy does not admit (the emulators-only default when no policy is set), then
-// hands the listing on. A serial that is not listed is not decided here: the handler
-// answers DEVICE_NOT_FOUND from the same listing.
+// hands the listing on. A string that is not a listed serial is DEVICE_NOT_FOUND here,
+// before any handler runs, since adb's -s also accepts selectors (m1k step 5 B1).
 func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, error) {
 	// D13: the act-then-verify clock is this hook's start, not the handler's entry.
 	started := time.Now()

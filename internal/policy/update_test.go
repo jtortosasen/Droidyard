@@ -352,7 +352,7 @@ func TestUpdateRefusesAFileOverTheReadersBound(t *testing.T) {
 // Decision (D3): after an update the next check sees the new file, even when a later
 // same-size rewrite is set back to the cached mtime. The explicit cache drop in Update is
 // not what this row observes (Update's own Get re-reads first); see m1k §Changes, step 3.
-func TestUpdateDropsTheCacheItself(t *testing.T) {
+func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	dir := t.TempDir()
 	p := policy.New(envAt(dir))
 	if _, err := p.Update(patch(t, `{"shell": {"roots": ["/w/aa"]}}`)); err != nil {

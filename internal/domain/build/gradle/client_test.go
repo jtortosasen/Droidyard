@@ -378,6 +378,22 @@ func TestBelowFloorWithoutTheKeyNamesTheHatch(t *testing.T) {
 	}
 }
 
+// Decision (ADR-0032 §4; m1k close review N3): when the file was invalid at start, the
+// refusal reports the file and its error instead of asking for a key it may already set.
+func TestBelowFloorUnderAnInvalidFileReportsTheFile(t *testing.T) {
+	const cfgPath = "/etc/droidyard/config.json"
+	floor := policy.BelowFloor{ConfigPath: cfgPath, Invalid: "tools.adb: \"adb\" is not an absolute path"}
+	c, _, _ := newClientFloor(t, gradletest.Config{GradleVersion: "7.6.4", Model: gradletest.MustModel(model(t))}, time.Minute, floor)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	ce, ok := err.(*capability.Error)
+	if !ok || ce.Code != capability.ErrBuildGradleUnsupported {
+		t.Fatalf("err = %v, want BUILD_GRADLE_UNSUPPORTED", err)
+	}
+	if !strings.Contains(ce.Cause, cfgPath) || !strings.Contains(ce.Cause, "not an absolute path") || !strings.Contains(ce.NextStep, "fix "+cfgPath) {
+		t.Errorf("cause %q / nextStep %q do not report the invalid file", ce.Cause, ce.NextStep)
+	}
+}
+
 // Decision (plan m1k step 7, D9; ADR-0018 rule 3): with `gradle.allowBelowFloor` set at
 // daemon start, a Tier C Gradle opens its connection instead of being refused. Seen
 // failing with the hatch admitting only down to 7.0.
