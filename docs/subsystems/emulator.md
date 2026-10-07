@@ -172,10 +172,10 @@ boot. An emulator listed offline counts as running.
 
 - Boots are **serialised**. Emulators compete for console/adb ports and for machine
   resources; racing boots produce confusing failures.
-- `start`, `stop` and `wipe` on the same AVD are serialised by a per-AVD lock; a wipe
-  holds it across its stop and its boot. A second `emulator.start` for an AVD already
-  booting is `queued` behind the first (`blockedBy`,
-  [ADR-0020](../adr/0020-operation-contract.md)) and then adopts it.
+- `start` and `wipe` share one boot key (a wipe holds it across its stop and its
+  boot); a second `emulator.start` for an AVD already booting is `queued` behind the
+  first (`blockedBy`, [ADR-0020](../adr/0020-operation-contract.md)) and then adopts it.
+  `stop` takes the device's write key instead, so it is not queued behind a boot.
 - Several emulators may be *running* at once; each is an ordinary device with its own
   lock ([adb-device](adb-device.md)).
 - A **short call queued behind a long one** fails with `OPERATION_QUEUE_TIMEOUT` after
@@ -195,11 +195,11 @@ AVD` line).
 | --- | --- | --- |
 | No launcher found | `EMULATOR_LAUNCHER_NOT_FOUND` | Actionable error; other device capabilities unaffected |
 | AVD name unknown | `EMULATOR_AVD_NOT_FOUND` | Lists the available AVD names |
-| Launcher exits before a device appears | `EMULATOR_LAUNCH_FAILED` | Exit status (from `Wait`) and the log tail |
+| Launcher exits before the device finished booting | `EMULATOR_LAUNCH_FAILED` | Exit status (from `Wait`) and the log tail |
 | AVD held by another instance | `EMULATOR_AVD_LOCKED` | Names the lock; `emulator.list` shows whether it is ours to adopt |
 | No serial appears within the timeout | `EMULATOR_BOOT_TIMEOUT` | Names the AVD and the elapsed time |
 | Device appears but never finishes booting | `EMULATOR_BOOT_TIMEOUT` | Reports the serial and how long we waited; the emulator is stuck, not us |
-| `emulator.stop` on a physical device | `EMULATOR_NOT_AN_EMULATOR` | Refused, with the reason |
+| `emulator.stop` on a physical device | `DEVICE_NOT_ALLOWED` | The policy hook refuses it first; an emulator reached over `ip:port` is `EMULATOR_NOT_AN_EMULATOR` |
 | Stop does not complete | `EMULATOR_STOP_TIMEOUT` | Serial and pid when known; no signal escalation |
 
 ## Timeouts
@@ -208,7 +208,7 @@ AVD` line).
 configuration key exists.
 
 Booting is slow (tens of seconds to minutes for a cold boot). The default timeout is
-generous (180 s, configurable), and `start`/`wipe` are long-running
+generous (180 s; a constant until a configuration key exists), and `start`/`wipe` are long-running
 ([ADR-0020](../adr/0020-operation-contract.md)): an MCP call returns an operation id
 after its wait budget. A **cancelled boot leaves the emulator running** (we do not own
 it) and simply stops waiting. That asymmetry is intentional and must be documented in

@@ -205,7 +205,7 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description: "Reads the device's log once as a snapshot: `logcat -d -v threadtime,epoch,usec,uid` over main, system and crash (the last always read with an applicationId), from a device-clock timestamp, filtered while read and then capped. " +
 			"Returns structured lines {time, pid, tid, priority, tag, message, crash}, the crash blocks the app owns as crashes[] {pid, time, exception, message}, the window, how lines were selected (filter.by: uid, pids or none), the counts scanned, matched and returned, whether the result is truncated, why it is empty (emptyReason: noKnownProcess, noLines or filtered), and capture: the full matched set as an ephemeral untrusted artifact, readable with artifact.read. " +
-			"An app is matched by its uid from `pm list packages -U` (a Java crash block must also carry that uid, so another app cannot forge one), or, where the device's logcat prints no uid column, by the pids the daemon has seen for it. So an app's lines and its crash are found after its process died. " +
+			"An app is matched by its uid from `pm list packages -U` (a crash block, Java or native, must also carry that uid, so another app cannot forge one; an app pm does not list is not installed, and nothing is attributed to it), or, where the device's logcat prints no uid column, by the pids the daemon has seen for it. So an app's lines and its crash are found after its process died. " +
 			"since is a device-clock RFC 3339 timestamp (inclusive) or \"launch\" (the latest recorded device.launch of applicationId); tags, minPriority and contains are applied on the host and never reach a device shell. maxLines (1-1000, default 100) bounds the inline lines, newest kept; the read gets 20 s and pm 5 s. " +
 			"followMs (1000-60000) makes it a bounded follow instead: one logcat client with no -d, read as it arrives and filtered on the host, ended at the window by killing the client's pid (never its group). The client's pid is recorded for its life, so a daemon that dies mid-window leaves nothing the next daemon does not reap. Without since the window starts at the device clock read first; an explicit since adds its backlog first. The window's end is a normal end, not a failure; a cancellation or a graceful stop returns `cancelled` with no partial result. " +
 			"Fails with DEVICE_LOGS_FAILED when logcat or pm fails or prints an unexpected format on a ready device, or when a follow's pid record cannot be written (no client is left), with REQUEST_INVALID_PARAMS for a bad applicationId, since, priority, buffer, tag count, substring, maxLines or followMs, and with the device errors of a missing, unusable, physical or vanished device.",
@@ -276,6 +276,11 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 		}
 	}
 	byUID := appFiltered && columnPresent && found
+	// The uid column is there but pm does not list the app: it is not installed (after
+	// a wipe the serial is reused). Pids seen earlier may now be another app's, so
+	// nothing is attributed to it — no silent fall back to the pid history (close
+	// review B1; D5 keeps by: pids for a device without the column).
+	notInstalled := appFiltered && columnPresent && !found
 
 	// pidof feeds the history too (plan m1i D11), and is a pid candidate for by: pids.
 	pidofPID := 0
@@ -293,6 +298,9 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	res := LogsResult{Device: t.serial, Warnings: append([]string(nil), t.warnings...)}
 	if appFiltered && !columnPresent {
 		res.Warnings = append(res.Warnings, "the device's logcat does not print a uid column: the app's lines are matched by its known pids (device.launch, pidof and Start proc lines)")
+	}
+	if notInstalled {
+		res.Warnings = append(res.Warnings, "the app is not installed on this device (pm does not list it): no lines or crashes are attributed to it")
 	}
 
 	var raw []byte
@@ -353,8 +361,11 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	// The app's pids, from the read's Start proc lines, from its crash blocks, from the
 	// record and from pidof; a crash block's pid and a Start proc pid join the history.
 	crashLines, crashes := a.classifyCrashes(t.serial, p.ApplicationID, uid, byUID, parsed.lines)
+	if notInstalled {
+		crashLines, crashes = make([]bool, len(parsed.lines)), nil
+	}
 	pidSet := map[int]bool{}
-	if appFiltered && !byUID {
+	if appFiltered && !byUID && !notInstalled {
 		for _, pid := range view.pidsSince(since) {
 			pidSet[pid] = true
 		}
