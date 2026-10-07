@@ -25,8 +25,17 @@ compared with a per-platform split.
 ## adb resolution and degradation
 
 ```text
-ADB env var  →  configured adb.path (with the configuration file)  →  <host SDK>/platform-tools/adb  →  adb on PATH
+tools.adb (config, read at start)  →  ADB env var  →  <host SDK>/platform-tools/adb  →  adb on PATH
 ```
+
+The configured `tools.adb` comes first ([ADR-0032](../adr/0032-configuration-file-v1.md)
+§3, as its Q2 `Amended:` line records; this order replaced the earlier ADB-first one in
+milestone 1k): it is read once at daemon start, and a change needs a restart. A
+configured `tools.adb` or an `ADB` that names no executable **fails closed** (nothing
+after it is tried); when the key wins with `ADB` set, `system.health` lists `ADB` as
+"overridden by tools.adb". An invalid configuration file at start is a rejected entry
+naming the file, and resolution falls through to `ADB`, the SDK and `PATH`. A fence set
+through `ADB` (a guard script) is bypassed by a configured `tools.adb`.
 
 The host SDK is resolved as in [sdk](sdk.md) §Host SDK. It comes before `PATH` so that
 we use the same adb as Android Studio and the same SDK as the emulator launcher.
@@ -36,8 +45,8 @@ from the running server's kills and restarts that server — cutting off Android
 and every other tool attached to it. Before first use, the core compares its client
 version (`adb version`) with the running server's (`host:version` on port 5037). On a
 mismatch it **warns and proceeds**: device calls still run, the warning names both
-binaries and `ADB` (the config key, once the configuration file exists) as the way to
-select a matching adb, and `system.health` and the device call's `warnings` carry it.
+binaries and `tools.adb` (the configuration key) or `ADB` as the way to select a
+matching adb, and `system.health` and the device call's `warnings` carry it.
 *Ratified 2026-09-29: warn and continue, rather than refuse.* The risk is accepted and
 recorded: restarting the shared server can interrupt another tool mid-operation.
 If no server is running, the core starts one; starting is not killing.
@@ -234,10 +243,17 @@ is specific to them is:
 - **Wireless ADB** — pairing and connecting over the network is an adb-layer
   capability, and it is the one that makes physical devices usable from the remote UI
   scenario.
-- **Policy** — emulator-preferred by default; a physical device needs an enable flag
-  and an exact allowlist, and listings hide it otherwise
-  ([ADR-0015](../adr/0015-untrusted-data-authorization.md)). The explicit `device`
-  argument is no longer physical-specific: every device call carries one.
+- **Policy** — emulators by default; a physical device is listed and usable only when
+  `devices.allowPhysical` is true **and** its exact serial is in `devices.allowlist`,
+  re-read from the configuration at each call; otherwise it is hidden from listings and
+  `DEVICE_NOT_ALLOWED`, and an invalid file admits none
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §4,
+  [ADR-0032](../adr/0032-configuration-file-v1.md) §2). Every device call carries an
+  explicit `device`, and a string that is not a listed serial is `DEVICE_NOT_FOUND`
+  before anything runs (adb's `-s` also accepts `usb:`, `model:`, `product:` selectors
+  that would name a device under another name). Known limits: the allowlist's identity
+  is the serial the device reports, so devices sharing one are admitted together; off
+  USB a self-reported `sdk_gphone` product classifies a device as an emulator.
 
 What is *not* code is the procedure around them — enabling developer options, vendor
 quirks, accepting the prompt. That belongs in a skill

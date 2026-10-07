@@ -13,6 +13,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
@@ -93,6 +94,13 @@ func dir(path string) string {
 // the supervisor (to watch the process) and the events file.
 func newClient(t *testing.T, cfg gradletest.Config, idle time.Duration) (*gradle.Client, *process.Supervisor, string) {
 	t.Helper()
+	return newClientFloor(t, cfg, idle, policy.BelowFloor{})
+}
+
+// newClientFloor is newClient with `gradle.allowBelowFloor` as read at daemon start, so a
+// test can admit a Gradle below the floor (plan m1k step 7, D9).
+func newClientFloor(t *testing.T, cfg gradletest.Config, idle time.Duration, floor policy.BelowFloor) (*gradle.Client, *process.Supervisor, string) {
+	t.Helper()
 	dir := t.TempDir()
 	cfg.Events = filepath.Join(dir, "events")
 	cfgPath := gradletest.WriteConfig(t, cfg)
@@ -108,7 +116,7 @@ func newClient(t *testing.T, cfg gradletest.Config, idle time.Duration) (*gradle
 	jvm := gradle.JVM{Found: true, Home: "/fake/jdk17", Version: "17.0.11", Source: gradle.SourceJavaHome}
 	c := gradle.New(gradle.Options{
 		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: dir,
-		Launch: gradletest.Launch(cfgPath), IdleTimeout: idle,
+		Launch: gradletest.Launch(cfgPath), IdleTimeout: idle, AllowBelowFloor: floor,
 	})
 	return c, sup, cfg.Events
 }
@@ -350,6 +358,63 @@ func TestGradleBelowTheFloorIsRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not name %q: %v", want, err)
 		}
+	}
+}
+
+// Decision (plan m1k step 7, D9; ADR-0018 rule 3): without `gradle.allowBelowFloor` a
+// Tier C Gradle (7.3–7.x) is refused, and the refusal's nextStep names the hatch and the
+// configuration file, so a human knows what to set and where.
+func TestBelowFloorWithoutTheKeyNamesTheHatch(t *testing.T) {
+	const cfgPath = "/etc/droidyard/config.json"
+	floor := policy.BelowFloor{ConfigPath: cfgPath} // not allowed
+	c, _, _ := newClientFloor(t, gradletest.Config{GradleVersion: "7.6.4", Model: gradletest.MustModel(model(t))}, time.Minute, floor)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	if got := codeOf(t, err); got != capability.ErrBuildGradleUnsupported {
+		t.Fatalf("code = %s, want BUILD_GRADLE_UNSUPPORTED: %v", got, err)
+	}
+	ce := err.(*capability.Error)
+	if !strings.Contains(ce.NextStep, "gradle.allowBelowFloor") || !strings.Contains(ce.NextStep, cfgPath) {
+		t.Errorf("the nextStep %q does not name the hatch and the file %q", ce.NextStep, cfgPath)
+	}
+}
+
+// Decision (plan m1k step 7, D9; ADR-0018 rule 3): with `gradle.allowBelowFloor` set at
+// daemon start, a Tier C Gradle opens its connection instead of being refused. Seen
+// failing with the hatch admitting only down to 7.0.
+func TestBelowFloorWithTheKeyOpensTheConnection(t *testing.T) {
+	floor := policy.BelowFloor{Allowed: true, ConfigPath: "/etc/droidyard/config.json"}
+	c, _, _ := newClientFloor(t, gradletest.Config{GradleVersion: "7.6.4", Model: gradletest.MustModel(model(t))}, time.Minute, floor)
+	m, _, err := c.Model(context.Background(), rootDir(t))
+	if err != nil {
+		t.Fatalf("a Tier C Gradle under the hatch was refused: %v", err)
+	}
+	if len(m.Projects) == 0 {
+		t.Error("the connection opened but the model is empty")
+	}
+}
+
+// Decision (plan m1k step 7, D9; ADR-0018 rule 3): Tier D (below 7.3) is refused
+// whatever the key says, and names no hatch, because nothing admits it. Seen failing
+// with the hatch admitting 7.2.
+func TestBelowTierCIsRefusedEvenWithTheKey(t *testing.T) {
+	floor := policy.BelowFloor{Allowed: true, ConfigPath: "/etc/droidyard/config.json"}
+	c, _, _ := newClientFloor(t, gradletest.Config{GradleVersion: "7.2", Model: gradletest.MustModel(model(t))}, time.Minute, floor)
+	_, _, err := c.Model(context.Background(), rootDir(t))
+	if got := codeOf(t, err); got != capability.ErrBuildGradleUnsupported {
+		t.Fatalf("code = %s, want BUILD_GRADLE_UNSUPPORTED: %v", got, err)
+	}
+	if strings.Contains(err.Error(), "allowBelowFloor") {
+		t.Errorf("the Tier D refusal names a hatch that cannot help: %v", err)
+	}
+}
+
+// Decision (plan m1k step 7, D9): the floor itself is admitted without the hatch, so
+// 8.0.2 opens as before (the build profile is the build-level degraded case, tested
+// there).
+func TestAtTheFloorOpensWithoutTheHatch(t *testing.T) {
+	c, _, _ := newClient(t, gradletest.Config{GradleVersion: "8.0.2", Model: gradletest.MustModel(model(t))}, time.Minute)
+	if _, _, err := c.Model(context.Background(), rootDir(t)); err != nil {
+		t.Fatalf("8.0.2 is at the floor and must open without the hatch: %v", err)
 	}
 }
 

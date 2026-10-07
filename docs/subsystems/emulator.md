@@ -29,10 +29,17 @@ Consequences:
 The `emulator` launcher is resolved best-effort, in order:
 
 ```text
-<host SDK>/emulator/emulator            (sdk.md §Host SDK)
-  → derived from the adb location (<sdk>/platform-tools/adb → <sdk>/emulator/emulator)
-    → PATH
+tools.emulator (config, read at start)
+  → <host SDK>/emulator/emulator            (sdk.md §Host SDK)
+    → derived from the adb location (<sdk>/platform-tools/adb → <sdk>/emulator/emulator)
+      → PATH
 ```
+
+`tools.emulator` ([ADR-0032](../adr/0032-configuration-file-v1.md) §3) is read once at
+daemon start; one that is not executable is rejected and resolution goes on. The adb
+location the launcher is derived from is the adb resolved with `tools.adb`
+([adb-device](adb-device.md) §adb resolution and degradation). An invalid configuration
+file at start is a rejected entry naming the file.
 
 Its absence is normal and **only affects this subsystem**: every other device
 capability works without it. When it cannot be found, the error says how to proceed

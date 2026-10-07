@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,6 +20,14 @@ func fakeSidecar(t *testing.T, model gradle.Model) (cfg, events string) {
 	t.Helper()
 	events = filepath.Join(t.TempDir(), "events")
 	return gradletest.WriteConfig(t, gradletest.Config{Events: events, Model: gradletest.MustModel(model)}), events
+}
+
+// fakeSidecarVersion is fakeSidecar with a chosen Gradle version, so a test can drive a
+// Gradle below the floor (plan m1k step 7, D9).
+func fakeSidecarVersion(t *testing.T, version string, model gradle.Model) (cfg, events string) {
+	t.Helper()
+	events = filepath.Join(t.TempDir(), "events")
+	return gradletest.WriteConfig(t, gradletest.Config{Events: events, GradleVersion: version, Model: gradletest.MustModel(model)}), events
 }
 
 // fakeJDK is a directory discovery accepts as a JDK 17.
@@ -151,6 +160,56 @@ func TestProjectModulesRequiresTrustThenSharesOneSidecar(t *testing.T) {
 		t.Errorf("stop exited %d", code)
 	}
 	srv.wait(t)
+}
+
+// TestBelowFloorHatchIsReadFromTheDaemonConfiguration is plan m1k step 7's daemon-level
+// wiring (D9; ADR-0018 rule 3): the daemon reads `gradle.allowBelowFloor` from the
+// configuration at start, so a Gradle below the floor serves the project model when the
+// key is set and is refused BUILD_GRADLE_UNSUPPORTED — its nextStep naming the hatch —
+// when it is not. Seen failing when the daemon passes no key to the Gradle client.
+func TestBelowFloorHatchIsReadFromTheDaemonConfiguration(t *testing.T) {
+	t.Parallel()
+	model := gradle.Model{Root: "", Projects: []gradle.Module{{Path: ":app", Name: "app", Dir: "app"}}}
+
+	run := func(t *testing.T, allow bool) (capability.ResponseEnvelope, int) {
+		t.Helper()
+		state := shortDir(t)
+		cfg, _ := fakeSidecarVersion(t, "7.6.4", model)
+		root, sub := gradleProject(t)
+		configDir := t.TempDir()
+		body := `{"schemaVersion":1,"trust":{"roots":[` + strconv.Quote(root) + `]},"gradle":{"allowBelowFloor":` + strconv.FormatBool(allow) + `}}`
+		if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		env := []string{"DROIDYARD_CONFIG_DIR=" + configDir, gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}
+		srv := droidyardEnv(t, state, "", env, "serve")
+		srv.expect(t, "listening")
+		if _, code := callIn(t, state, sub, "workspace.open"); code != 0 {
+			t.Fatalf("workspace.open exited %d", code)
+		}
+		res, code := callIn(t, state, sub, "project.modules")
+		if c := droidyardEnv(t, state, "", env, "stop").wait(t); c != 0 {
+			t.Errorf("stop exited %d", c)
+		}
+		srv.wait(t)
+		return res, code
+	}
+
+	t.Run("with the hatch", func(t *testing.T) {
+		res, code := run(t, true)
+		if code != 0 || res.Error != nil {
+			t.Fatalf("project.modules under the hatch = (%+v, %d); want it to run", res.Error, code)
+		}
+	})
+	t.Run("without the hatch", func(t *testing.T) {
+		res, code := run(t, false)
+		if code == 0 || res.Error == nil || res.Error.Code != capability.ErrBuildGradleUnsupported {
+			t.Fatalf("project.modules without the hatch = (%+v, %d); want BUILD_GRADLE_UNSUPPORTED", res.Error, code)
+		}
+		if !strings.Contains(res.Error.NextStep, "gradle.allowBelowFloor") {
+			t.Errorf("the refusal's nextStep %q does not name the hatch", res.Error.NextStep)
+		}
+	})
 }
 
 // TestSystemCapabilitiesReportsGradleUnavailableWithoutAJVM pins the other half of the

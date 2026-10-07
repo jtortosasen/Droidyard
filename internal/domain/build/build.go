@@ -334,7 +334,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		Gradle:              gradleInfo(conn),
 		Profile:             profile,
 		MissingCapabilities: missing,
-		Validation:          "untested",
+		Validation:          validationFor(profile),
 		AGP:                 agp,
 		KGP:                 kgp,
 		ExpectedSources:     &expected,
@@ -702,9 +702,15 @@ func connectorNotice(conn gradle.Connection) string {
 // gatedCapabilities are the TAPI capabilities ADR-0018's profile degrades on.
 var gatedCapabilities = []string{"problemEvents", "problemLocations", "detailedFailure"}
 
-// profileOf is D17: full for Gradle 8.13 and newer, degraded below that or when a
-// gated capability is missing, with missingCapabilities naming what is missing.
+// profileOf is D17 and m1k D9: conservative for a Gradle below the floor (Tier C,
+// reachable only through `gradle.allowBelowFloor`: the stable skeleton only, no Problems
+// and no detailed failure), full for Gradle 8.13 and newer, degraded below that or when
+// a gated capability is missing, with missingCapabilities naming what is missing
+// (ADR-0018 §Capability profile values).
 func profileOf(conn gradle.Connection, fromSidecar []string) (string, []string) {
+	if !gradle.AtLeast(conn.GradleVersion, 8, 0) {
+		return "conservative", nil
+	}
 	missing := []string{}
 	seen := map[string]bool{}
 	for _, name := range gatedCapabilities {
@@ -723,6 +729,16 @@ func profileOf(conn gradle.Connection, fromSidecar []string) (string, []string) 
 		return "degraded", missing
 	}
 	return "full", missing
+}
+
+// validationFor is rule 6: unsupported under the conservative profile (Tier C through
+// the hatch), untested otherwise — no Gradle minor is a CI row yet, so tested is never
+// produced (ADR-0018; plan m1k D9).
+func validationFor(profile string) string {
+	if profile == "conservative" {
+		return "unsupported"
+	}
+	return "untested"
 }
 
 // pluginVersions is D10: the AGP and KGP versions the build ran with, from the model the

@@ -24,7 +24,7 @@ is [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md). The `droidyard 
 | **Shared daemon** | `adb` server | global (core) | long-lived, shared across workspaces; not ours to kill |
 | **Shared sidecar** | **Gradle TAPI sidecar** (JVM) | global (core) | one per core, serving every open root; idles out when no root is active |
 | **Workspace sidecar** | Kotlin LSP (JVM, post-MVP) | workspace | long-lived while the workspace is open |
-| **Per-operation** | `adb` client commands, `git`, `uiautomator`, `screenrecord` | operation | short, tied to an operation |
+| **Per-operation** | `adb` client commands, `git`, `uiautomator`, `screenrecord`; a `shell.exec` command (recorded, kind `shell-command`) | operation | short, tied to an operation; a `shell.exec` command's whole process group is killed when its call ends |
 | **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core |
 | **Tool-owned daemon** | Gradle daemon, Kotlin compile daemon | Gradle | spawned and detached by Gradle; never a child of ours |
 
@@ -127,7 +127,12 @@ Kotlin LSP later — should stop after a configurable idle period and restart on
      cancels in-flight TAPI work and exits. Tested like any other protocol rule.
   2. **Linux: `Pdeathsig: SIGTERM`** on every child **except the emulator launcher**,
      which is deliberately unsupervised and must outlive the daemon
-     ([emulator](../subsystems/emulator.md) §Design rule). Go delivers it when the *thread*
+     ([emulator](../subsystems/emulator.md) §Design rule), **and a `shell.exec`
+     command** (kind `shell-command`, milestone 1k D5): its leader must survive a killed
+     daemon so the next one's reconcile can find its pid record and kill its whole group;
+     while the daemon lives, the group is killed at every end of the call (exit, timeout,
+     cancel, workspace close, shutdown). A process that detaches into its own group or
+     session escapes both, by design (Gradle's daemon does). Go delivers it when the *thread*
      that forked the child exits, so children are spawned from one goroutine locked
      to its OS thread for the daemon's lifetime.
   3. **Pid records** ([ADR-0021](../adr/0021-persistence-format-and-location.md)): the

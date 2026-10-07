@@ -522,7 +522,10 @@ with `WORKSPACE_UNTRUSTED` before anything is spawned
 *(Ratified.)* The first candidate that is a runnable JVM **≥ 17** wins. Each candidate
 is validated (its `release` file or `java -version`), never assumed.
 
-1. The configured path (`gradle.sidecarJavaHome`).
+1. The configured path (`gradle.sidecarJavaHome`, [ADR-0032](../adr/0032-configuration-file-v1.md)
+   §3), read once at daemon start; a home that is not a JVM ≥ 17 is rejected naming the
+   key, and the next candidate is tried. An invalid configuration file at start is a
+   rejected entry naming the file.
 2. `JAVA_HOME` from the effective environment.
 3. `java` on the effective `PATH`, resolved through symlinks. The macOS
    `/usr/bin/java` stub counts only if it resolves to a real JDK.
@@ -594,7 +597,7 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 
 | Failure | Behavior |
 | --- | --- |
-| Gradle below the floor (8.0) | `BUILD_GRADLE_UNSUPPORTED`, naming floor, detected version and reason; the explicit escape hatch runs the conservative profile ([ADR-0018](../adr/0018-gradle-version-support-policy.md)) — not yet: the hatch waits for the configuration specification (milestone 1g, D9) |
+| Gradle below the floor (8.0) | `BUILD_GRADLE_UNSUPPORTED`, naming floor, detected version and reason; with `gradle.allowBelowFloor` (one global key read at daemon start, [ADR-0032](../adr/0032-configuration-file-v1.md), ADR-0018 rule 3 as amended) Gradle 7.3–7.x runs under the conservative profile, `validation: unsupported`; below 7.3 is refused even with it; without it the nextStep names the key and the file (milestone 1k; observed with Gradle 7.6.4 on zulu-17) |
 | Version newer than validated | Proceed with the newest capability set, marked `untested` |
 | No usable sidecar JVM | `BUILD_SIDECAR_UNAVAILABLE`, the `[gradle]` capabilities unavailable in `system.capabilities`; the error lists the candidates tried and why each was rejected |
 | Sidecar fails to start, or speaks another protocol version | `BUILD_SIDECAR_UNAVAILABLE`; other capabilities unaffected |

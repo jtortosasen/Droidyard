@@ -406,6 +406,11 @@ func TestVersion1ExampleParses(t *testing.T) {
 		got.SidecarJavaHome != "/jdk/17" || !got.AllowBelowFloor {
 		t.Errorf("Startup() = %+v; want the file's keys and state ok", got)
 	}
+	// Decision (plan m1k D9): the below-floor hatch is read at start, and the file it
+	// points a human at is named.
+	if got := p.Startup().BelowFloorKey(); !got.Allowed || got.ConfigPath != filepath.Join(dir, policy.FileName) {
+		t.Errorf("BelowFloorKey() = %+v; want the hatch admitted and the file named", got)
+	}
 }
 
 // TestInvalidFileFailsClosedForEverySection: a file that is invalid — a wrong type, a
@@ -446,6 +451,11 @@ func TestInvalidFileFailsClosedForEverySection(t *testing.T) {
 			}
 			if got := p.Startup(); got.State != policy.StateInvalid || got.ADB != "" {
 				t.Errorf("Startup = %+v; want state invalid and no tool key used", got)
+			}
+			// Decision (plan m1k D9; ADR-0032 §4): an invalid file uses no tool key, so
+			// the below-floor hatch is not admitted either.
+			if got := p.Startup().BelowFloorKey(); got.Allowed {
+				t.Errorf("BelowFloorKey() = %+v; want the hatch not admitted from an invalid file", got)
 			}
 		})
 	}

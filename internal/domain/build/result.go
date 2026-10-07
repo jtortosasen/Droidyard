@@ -123,13 +123,15 @@ type Result struct {
 	DurationMs int64      `json:"durationMs"`
 	Gradle     GradleInfo `json:"gradle" jsonschema:"required"`
 	// Profile is the toolchain profile this build ran under: full for Gradle 8.13 and
-	// newer, degraded below that or when a gated call was unsupported (ADR-0018; plan
-	// m1g D17).
-	Profile             string   `json:"profile" jsonschema:"required,enum=full,enum=degraded"`
+	// newer, degraded below that or when a gated call was unsupported, conservative for a
+	// Gradle below the floor admitted by `gradle.allowBelowFloor` (ADR-0018; plan m1g D17,
+	// m1k D9).
+	Profile             string   `json:"profile" jsonschema:"required,enum=full,enum=degraded,enum=conservative" jsonschema_description:"The toolchain profile this build ran under: full (Gradle 8.13 and newer), degraded (below that, or a gated call Gradle refused), or conservative (a Gradle below the floor, admitted by the configuration key gradle.allowBelowFloor: the stable skeleton only, with no Problems and no detailed failure)."`
 	MissingCapabilities []string `json:"missingCapabilities,omitempty" jsonschema_description:"Tooling API capabilities Gradle refused, e.g. problemEvents; the console extractor covers what they would have carried."`
-	// Validation is untested for every version: the compatibility matrix has no row
-	// yet (ADR-0018; plan m1g D17).
-	Validation string `json:"validation" jsonschema:"required,enum=untested"`
+	// Validation is untested for a version at or above the floor, unsupported under the
+	// conservative profile (`gradle.allowBelowFloor`); no minor is a CI row yet, so tested
+	// is never produced (ADR-0018; plan m1g D17, m1k D9).
+	Validation string `json:"validation" jsonschema:"required,enum=untested,enum=unsupported" jsonschema_description:"How much evidence stands behind the result: untested (at or above the floor) or unsupported (a Gradle below the floor, under the conservative profile the configuration key gradle.allowBelowFloor admits)."`
 	AGP        string `json:"agp" jsonschema:"required" jsonschema_description:"The Android Gradle Plugin version the probe read, or \"unknown\" when the probe did not read it (plan m1h D10)."`
 	KGP        string `json:"kgp" jsonschema:"required" jsonschema_description:"The Kotlin Gradle Plugin version the probe read, or \"unknown\" when the probe did not read it (plan m1h D10)."`
 	// ExpectedSources is the expected primary error source per tool, derived from the

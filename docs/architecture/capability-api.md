@@ -210,7 +210,9 @@ Codes carry no version suffix of their own.
 | `OPERATION_CANCELLED` | The error of every `cancelled` operation |
 | `OPERATION_QUEUE_TIMEOUT` | A short call stayed `queued` past the queue bound; it never ran (§Operations and cancellation) |
 | `ARTIFACT_NOT_FOUND` / `ARTIFACT_EXPIRED` | The reference is unknown, or ephemeral and past its TTL ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) |
-| `POLICY_SHELL_DISABLED` | `shell.exec` is not enabled ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7) |
+| `POLICY_SHELL_DISABLED` | `shell.exec` is not enabled for the root; its message warns that enabling it gives the agent the user's full reach, and its nextStep names `shell.roots` in the file ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7, [ADR-0032](../adr/0032-configuration-file-v1.md)) |
+| `POLICY_CONFIG_UNUSABLE` | `policy.update` met a configuration file it cannot change: invalid, of a newer version, or unwritable; the file is left as it was ([ADR-0032](../adr/0032-configuration-file-v1.md) §4, §5) |
+| `SHELL_EXEC_FAILED` | `shell.exec`'s command could not start, its root was gone, or its pid record could not be written (its group is then killed); a non-zero exit or a timeout is a completed result, not this error |
 
 `DAEMON_VERSION_MISMATCH` is a handshake reply, not a capability error
 ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
@@ -402,7 +404,16 @@ Where raw output is genuinely useful, a capability accepts `"raw": true` and add
 ```
 
 `shell.exec` is the general escape hatch for anything not yet modelled. It is a
-capability like any other and must be **explicitly enabled** by policy.
+capability like any other and must be **explicitly enabled** by policy: `shell.enabled`
+everywhere or `shell.roots` per project ([ADR-0032](../adr/0032-configuration-file-v1.md)),
+on a trusted root. It runs `/bin/sh -c` in the root as the user, so once enabled the agent
+has the user's full reach, droidyard's configuration and trust included (ADR-0032 and
+ADR-0015 §6 `Amended:`; a trusted root's builds already run code the agent can write).
+The command's whole process group is killed when the call ends (exit, `timeoutMs`,
+cancel, workspace close, daemon shutdown) and reaped after a daemon crash; a process that
+detaches into its own group or session, such as Gradle's daemon, survives. Each stream
+is its last 16 KiB inline and, over that, its first 4 MiB as an ephemeral artifact; the
+output is untrusted.
 
 ## Cross-cutting conventions
 
@@ -545,12 +556,10 @@ Exact wire details belong to [`interfaces/http-websocket.md`](../interfaces/http
 ## Open questions
 
 - **Batching**: whether to support multiple invocations per round trip.
-- **Config file spec**: policy (device rules, trusted roots, `shell.exec`), JVM
-  discovery, idle timeouts and paths are all configured, but no document yet defines
-  the file. It is user configuration, not state, and every policy decision — trust
-  included — is recorded there. Its location and its first key, trusted roots, are
-  [ADR-0031](../adr/0031-configuration-file-trust-first.md) (milestone 1g); the rest of
-  the format is still to be specified.
+- **Config file spec**: settled by [ADR-0032](../adr/0032-configuration-file-v1.md)
+  (version 1: `trust`, `devices`, `shell`, `gradle`, `tools`; `policy.get`/`update` for
+  humans only), as amended by its Q2 line: the HTTP port, the environment source, idle
+  periods, build retention and timeouts are deferred to a later version.
 
 Settled since the review: `shell.exec` is **off by default**
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7) and policy is **never**

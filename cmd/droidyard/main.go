@@ -241,7 +241,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The one Gradle sidecar client (ADR-0019): it discovers the JVM in the daemon's
 	// environment, extracts the jars to the cache directory and supervises the shared
 	// sidecar lazily (plan m1g step 5). It holds no process until a call needs one.
-	gradleOpts := gradle.Options{Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch, JavaHome: startup.JavaHomeKey()}
+	gradleOpts := gradle.Options{Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch, JavaHome: startup.JavaHomeKey(), AllowBelowFloor: startup.BelowFloorKey()}
 	if sup != nil {
 		if cache, err := env.CacheDir(); err == nil {
 			gradleOpts.CacheDir = cache
