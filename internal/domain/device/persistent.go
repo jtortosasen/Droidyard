@@ -24,14 +24,16 @@ import (
 // (plan m1f, R2). The one-shot reader of ADR-0029 remains the fallback.
 
 // Plan m1f step 1 fixes the working numbers: the idle exit is 30 minutes, and a warm
-// read is tens of milliseconds (median 14.4 ms, p95 460 ms), so 3 s is the warm read's
-// margin. The first read pushes, starts, forwards and pings inside 8 s. Variables so a
-// test is quick.
+// read is tens of milliseconds (median 14.4 ms, p95 460 ms), so 4 s is the warm read's
+// margin. It is above the reader's own device-side bound of 2.5 s (ADR-0034 §1; plan m1n
+// step 3), so a `busy` answer at that bound reaches the client with margin through the
+// forward instead of being cut off as a timeout. The first read pushes, starts, forwards
+// and pings inside 8 s. Variables so a test is quick.
 var (
 	// readerStartBound bounds the start command and the pings after it.
 	readerStartBound = 8 * time.Second
 	// warmReadTimeout bounds one dump over the forward.
-	warmReadTimeout = 3 * time.Second
+	warmReadTimeout = 4 * time.Second
 	// readerForwardTimeout bounds `adb forward tcp:0 ...`.
 	readerForwardTimeout = 5 * time.Second
 	// psOutputCap bounds `ps -A -o PID,NAME`; forwardListCap bounds `adb forward --list`,
@@ -297,17 +299,18 @@ func (c *readerClient) setStarted(port string) {
 // persistentRead is the persistent reader's turn in read: ensure the reader is
 // reachable, then take one dump over its forward. It also reports why a warm read
 // failed (rf), so the chain can log a restart with its reason without parsing the
-// sentence back out (plan m1n step 2).
-func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time) (doc []byte, kind dumpKind, line, reason string, rf readerFailure) {
+// sentence back out (plan m1n step 2), and the app's package (busyPkg) of a `busy`
+// answer (ADR-0034 §1).
+func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if ok, why := a.ensureReader(parent, t, c, end); !ok {
-		return nil, dumpOther, "", why, rfNone
+		return nil, dumpOther, "", why, "", rfNone
 	}
 	if cerr := parent.Err(); cerr != nil {
-		return nil, dumpOther, "", cerr.Error(), rfNone
+		return nil, dumpOther, "", cerr.Error(), "", rfNone
 	}
 	port := c.portValue()
 	if port == "" {
-		return nil, dumpOther, "", "the reader's forward is gone", rfNone
+		return nil, dumpOther, "", "the reader's forward is gone", "", rfNone
 	}
 	deadline := time.Now().Add(warmReadTimeout)
 	if deadline.After(end) {
@@ -319,7 +322,7 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 		// The forward no longer answers: it may have been removed (a lost forward) or
 		// the reader may be gone. The chain restarts the reader once, which reconciles
 		// the forward (plan m1f step 7).
-		return nil, dumpUnreachable, "", "the reader's forward did not answer: " + err.Error(), rfRefused
+		return nil, dumpUnreachable, "", "the reader's forward did not answer: " + err.Error(), "", rfRefused
 	}
 	defer conn.Close()
 	// A read that is blocked on its connection deadline must still stop when the
@@ -329,7 +332,7 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	defer stop()
 	conn.SetDeadline(deadline)
 	if _, err := io.WriteString(conn, "dump\n"); err != nil {
-		return nil, dumpOther, "", "the reader's forward did not take the request", rfEOF
+		return nil, dumpOther, "", "the reader's forward did not take the request", "", rfEOF
 	}
 	resp, truncated, readErr := readLimited(conn, dumpOutputCap)
 	a.logWarmRead(t.serial, time.Since(warmStart))
@@ -800,40 +803,74 @@ func (a *ADB) pingPort(ctx context.Context, port string, deadline time.Time) boo
 
 // classifyReader turns one forward response into the chain's kind. A warm read that
 // times out is a wedged reader, and an empty answer is a reader that is gone (its
-// connection ended before a document): both are restarted once (plan m1f step 7). A
+// connection ended before a document): both are restarted once (plan m1f step 7). The
+// reader's `busy` answer is not a failure of the reader (ADR-0034 §1): its kind never
+// restarts and never falls back, and busyPkg is the package the reader named, which is the
+// last app it read and so may be stale when the foreground changed since; the daemon takes
+// the package from the window manager's focus instead (plan m1n step 3, fix round). A
 // reader line is its own failure; a partial or missing document falls to the one-shot
-// reader. The readerFailure names the two restart cases for the log (plan m1n step 2).
-func classifyReader(resp []byte, truncated bool, readErr error) ([]byte, dumpKind, string, string, readerFailure) {
+// reader. busyPkg is only meaningful with dumpAppBusy; the readerFailure names the two
+// restart cases for the log (plan m1n step 2).
+func classifyReader(resp []byte, truncated bool, readErr error) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if truncated {
-		return nil, dumpOther, "", "the reader printed more than the output limit", rfNone
+		return nil, dumpOther, "", "the reader printed more than the output limit", "", rfNone
 	}
 	if readErr != nil {
 		if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
-			return nil, dumpUnreachable, "", "the reader did not finish within " + warmReadTimeout.String(), rfTimeout
+			return nil, dumpUnreachable, "", "the reader did not finish within " + warmReadTimeout.String(), "", rfTimeout
 		}
 		if len(resp) == 0 {
-			return nil, dumpVanished, "", "reading the reader's answer failed: " + readErr.Error(), rfEOF
+			return nil, dumpVanished, "", "reading the reader's answer failed: " + readErr.Error(), "", rfEOF
 		}
 	}
 	if len(resp) == 0 {
-		return nil, dumpVanished, "", "the reader's connection ended before it wrote a document", rfEOF
+		return nil, dumpVanished, "", "the reader's connection ended before it wrote a document", "", rfEOF
 	}
 	if bytes.Contains(resp, []byte("<hierarchy")) && bytes.Contains(resp, []byte("</hierarchy>")) {
-		return resp, dumpOK, "", "", rfNone
+		return resp, dumpOK, "", "", "", rfNone
 	}
-	line := strings.TrimSpace(string(resp))
+	line = strings.TrimSpace(string(resp))
 	if strings.HasPrefix(line, readerPrefix) {
 		if strings.Contains(strings.ToLower(line), "no active window") {
 			// The reader's own line is device text; the cause is the fixed sentence,
 			// as on the one-shot path (D3, R5).
-			return nil, dumpNoRoot, readerNoRootMessage, readerNoRootMessage, rfNone
+			return nil, dumpNoRoot, readerNoRootMessage, readerNoRootMessage, "", rfNone
 		}
-		return nil, dumpOther, "", truncate(line, 200), rfNone
+		if pkg, ok := readerBusy(line); ok {
+			// The foreground app did not answer within the reader's device-side bound:
+			// the reader is alive and keeps its UiAutomation, so the daemon neither
+			// restarts it nor falls back (ADR-0034 §1; plan m1n step 3). pkg is the last
+			// app the reader read, passed along but not trusted for Details: the daemon
+			// reads the window manager's focus instead (plan m1n step 3, fix round).
+			return nil, dumpAppBusy, "", "", pkg, rfNone
+		}
+		return nil, dumpOther, "", truncate(line, 200), "", rfNone
 	}
 	if bytes.Contains(resp, []byte("<hierarchy")) {
-		return nil, dumpOther, "", fmt.Sprintf("the reader sent an incomplete hierarchy (%d bytes)", len(resp)), rfNone
+		return nil, dumpOther, "", fmt.Sprintf("the reader sent an incomplete hierarchy (%d bytes)", len(resp)), "", rfNone
 	}
-	return nil, dumpOther, "", "the reader answered no hierarchy", rfNone
+	return nil, dumpOther, "", "the reader answered no hierarchy", "", rfNone
+}
+
+// readerBusy parses the reader's busy answer (ADR-0034 §1): the line the reader writes
+// when the device-side bound passed with no document, `droidyard-reader: busy <ms>
+// <package>`. ok is false for any other reader line; pkg is "" when the reader named no
+// package (it had read nothing yet). pkg is the last app the reader read, not necessarily
+// the app that failed to answer, so the daemon does not use it for Details (plan m1n step
+// 3, fix round).
+func readerBusy(line string) (pkg string, ok bool) {
+	rest, found := strings.CutPrefix(line, readerPrefix)
+	if !found {
+		return "", false
+	}
+	fields := strings.Fields(rest)
+	if len(fields) < 2 || fields[0] != "busy" {
+		return "", false
+	}
+	if len(fields) >= 3 {
+		pkg = fields[2]
+	}
+	return pkg, true
 }
 
 // readLimited reads a connection to EOF, keeping at most limit bytes. truncated says the

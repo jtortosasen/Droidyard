@@ -47,6 +47,7 @@
 //	<serial>.inputkeycombination `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input keycombination <codes…>`
 //	<serial>.inputprobe         `-s <serial> shell <the running-probe for the issued nonce>` (the device-side input-command probe; .out holds its answer token: running, gone or unknown)
 //	<serial>.inputmethod        `-s <serial> shell settings get secure default_input_method`
+//	<serial>.dumpsyswindow      `-s <serial> shell dumpsys window` (the busy path's focus read)
 //	<serial>.broadcast          `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec am broadcast -a ADB_INPUT_B64 --es msg <base64>`
 //	<serial>.install            `-s <serial> install -r <apk>`
 //	<serial>.uninstall          `-s <serial> uninstall <applicationId>`
@@ -443,6 +444,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".monkey"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.build.version.sdk":
 		return args[1] + ".sdk"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "window":
+		return args[1] + ".dumpsyswindow"
 	case len(args) == 5 && args[2] == "install" && args[3] == "-r":
 		return args[1] + ".install"
 	case len(args) == 4 && args[2] == "uninstall":

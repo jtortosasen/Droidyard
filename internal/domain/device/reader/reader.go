@@ -19,7 +19,7 @@ const Class = "DroidyardReader"
 // SHA256 is the hex digest of reader.dex, as build.sh produces it (build-tools 37.0.0,
 // android-36, javac 17.0.11 --release 11, d8 --min-api 24). A test fails when they differ; a
 // change to the source changes both the dex and this line, deliberately.
-const SHA256 = "91eab8d9f89d3490a8c5b79b73078a271cd614b82dbbcfc45f9c1bf3704821db"
+const SHA256 = "d6a29806f75008ca2236cd3fc2e0e063fb0946f95ec839896d8d1d956f037373"
 
 //go:embed reader.dex
 var dex []byte

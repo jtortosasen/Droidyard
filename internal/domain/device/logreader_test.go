@@ -78,7 +78,7 @@ func TestReaderRestartIsLoggedWithItsReason(t *testing.T) {
 	reasons := map[string]bool{}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			quickRecovery(t) // the stall is the 1 s warm read, not 3 s
+			quickRecovery(t) // the stall is the 1 s warm read, not 4 s
 			r := devicetest.StartReader(t, pixelDoc(t))
 			t.Cleanup(r.Close)
 			f := newUIFixture(t, map[string]string{

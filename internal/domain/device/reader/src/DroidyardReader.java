@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -17,8 +18,15 @@ import java.io.PrintStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Droidyard's UI reader (ADR-0029, ADR-0030). Run with app_process as the shell user.
@@ -38,12 +46,33 @@ import java.util.concurrent.atomic.AtomicLong;
  * EOF, not to a newline: a successful one is the XML document (or {@code ok <pid>}), and
  * one that cannot be answered starts with {@code droidyard-reader:}. Source of
  * reader.dex: see build.sh.
+ *
+ * <p>Each {@code dump} runs on one of at most {@link #DUMP_WORKERS} worker threads and is
+ * bounded on the device at {@link #DUMP_BOUND_MS} (ADR-0034 §1; plan m1n Q2 ¶1): when the
+ * bound passes before the document is complete the client is answered
+ * {@code droidyard-reader: busy <ms> <package>} and the worker is left to finish in the
+ * background, so an app whose main thread does not answer accessibility queries costs the
+ * client the bound and never the reader. A dump arriving while one worker is out starts a
+ * second; with two out it is answered {@code busy} at once. {@code ping} and {@code quit}
+ * are answered on the accept thread while dumps run, so a blocked read never blocks them.
+ * {@code <package>} is the package of the last app the reader read, which may have been
+ * replaced while the read was blocked: the daemon does not trust it for the failed read's
+ * details and reads the window manager's focus instead (empty when the reader has read
+ * nothing yet, and then omitted).
  */
 public class DroidyardReader {
     // Exit status when getRootInActiveWindow stays null; the daemon maps it (dump.go, readerNoRoot).
     private static final int NO_ROOT = 3;
     // Marks the reader's own lines, on stderr in one-shot mode and on the socket in serve mode.
     private static final String PREFIX = "droidyard-reader:";
+    // The device-side bound on one dump (ADR-0034 §1; plan m1n Q2 ¶1): a dump with no
+    // complete document within it is answered `busy`. Below the platform's 5 s
+    // accessibility interaction timeout, so the client hears back before the app does.
+    private static final long DUMP_BOUND_MS = 2500L;
+    // The most dump workers a reader runs at once. Accessibility queries are per-thread
+    // (AccessibilityInteractionClient.getInstanceForThread), so a second read starts a
+    // second worker without disturbing the first; a third is answered `busy` at once.
+    private static final int DUMP_WORKERS = 2;
 
     public static void main(String[] args) {
         int status = 1;
@@ -73,12 +102,13 @@ public class DroidyardReader {
         return n;
     }
 
-    // The one-shot mode of ADR-0029: connect, read once, disconnect, exit.
+    // The one-shot mode of ADR-0029: connect, read once, disconnect, exit. No device-side
+    // bound: the one-shot has one job and the daemon bounds it (readerRun).
     private static int read() throws Exception {
         Automation a = connect();
         String xml;
         try {
-            xml = document(a.ua);
+            xml = document(a.ua, Long.MAX_VALUE, null).xml;
         } finally {
             a.close();
         }
@@ -119,6 +149,19 @@ public class DroidyardReader {
         // idle exit.
         final AtomicLong lastDump = new AtomicLong(SystemClock.elapsedRealtime());
         final long idleMs = idleSeconds * 1000L;
+        // The dump workers and the timer that answers `busy` when one passes its bound.
+        // Both use daemon threads, so the process can exit without waiting for a worker
+        // still blocked on an app.
+        final ExecutorService workers = Executors.newFixedThreadPool(DUMP_WORKERS, daemonThreads("droidyard-reader-dump"));
+        final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(daemonThreads("droidyard-reader-timer"));
+        // How many dumps are out on a worker now: a dump that finds both out is answered
+        // `busy` at once.
+        final AtomicInteger out = new AtomicInteger(0);
+        // The package of the last app the reader read, named in a busy answer. It is not
+        // necessarily the app that did not answer: the foreground may have changed while
+        // the read was blocked, so the daemon reads the window manager's focus instead. A
+        // worker updates it when it reads a root.
+        final AtomicReference<String> lastPackage = new AtomicReference<String>(null);
 
         Thread idle = new Thread(new Runnable() {
             @Override
@@ -145,30 +188,42 @@ public class DroidyardReader {
             while (!done.get()) {
                 LocalSocket conn = server.accept();
                 try {
-                    // A stalled client must not hold the single-threaded loop: without a
-                    // read timeout one connection that never sends a full request (or
-                    // never reads a dump's response) blocks accept() forever, so later
-                    // clients, quit and the idle exit never run and UiAutomation stays
-                    // held. The timeout fails that read into the catch below, and the
-                    // loop goes on.
+                    // A stalled client must not hold the accept thread: without a read
+                    // timeout one connection that never sends a full request blocks
+                    // accept() forever, so later clients, quit and the idle exit never
+                    // run and UiAutomation stays held. The timeout fails that read into
+                    // the catch below, and the loop goes on.
                     conn.setSoTimeout(5000);
                     // A wake() connection, not a request: the idle timer expired.
                     if (done.get()) {
+                        closeQuietly(conn);
                         break;
                     }
-                    handle(conn, a.ua, lastDump, done);
+                    String request = readRequest(conn.getInputStream());
+                    if (request.equals("ping")) {
+                        // Answered on the accept thread, so a blocked dump never blocks
+                        // it (ADR-0034 §1): a reader that answers ping is never restarted.
+                        write(conn, "ok " + android.os.Process.myPid());
+                        closeQuietly(conn);
+                    } else if (request.equals("quit")) {
+                        done.set(true);
+                        closeQuietly(conn);
+                    } else if (request.equals("dump")) {
+                        lastDump.set(SystemClock.elapsedRealtime());
+                        // The connection is owned by the worker (or the bound's timer)
+                        // now: whichever writes first closes it.
+                        submitDump(conn, a.ua, workers, timer, out, lastPackage);
+                    } else {
+                        write(conn, PREFIX + " unknown request");
+                        closeQuietly(conn);
+                    }
                 } catch (Throwable t) {
                     try {
                         write(conn, PREFIX + " " + t);
                     } catch (IOException ignored) {
                         // The connection is gone; nothing to report it to.
                     }
-                } finally {
-                    try {
-                        conn.close();
-                    } catch (IOException ignored) {
-                        // Already closed.
-                    }
+                    closeQuietly(conn);
                 }
             }
         } catch (IOException e) {
@@ -177,11 +232,11 @@ public class DroidyardReader {
             }
         } finally {
             done.set(true);
-            try {
-                server.close();
-            } catch (IOException ignored) {
-                // Already closed.
-            }
+            closeQuietly(server);
+            // Best effort: a worker blocked in an app does not answer an interrupt, and
+            // the daemon threads do not hold the process open in any case.
+            workers.shutdownNow();
+            timer.shutdownNow();
             try {
                 a.close();
             } catch (Throwable t) {
@@ -217,22 +272,101 @@ public class DroidyardReader {
         }
     }
 
-    private static void handle(LocalSocket conn, UiAutomation ua, AtomicLong lastDump, AtomicBoolean done) throws Exception {
-        String request = readRequest(conn.getInputStream());
-        if (request.equals("ping")) {
-            write(conn, "ok " + android.os.Process.myPid());
-        } else if (request.equals("dump")) {
-            lastDump.set(SystemClock.elapsedRealtime());
-            String xml = document(ua);
-            if (xml == null) {
-                write(conn, PREFIX + " no active window root");
-            } else {
-                write(conn, xml);
+    // Hands one dump to a worker, or answers `busy` without starting one. With both workers
+    // out the reader is out of capacity: the third connection is answered `busy` at once,
+    // rather than queued behind a dump that may never finish (ADR-0034 §1).
+    private static void submitDump(final LocalSocket conn, final UiAutomation ua,
+            ExecutorService workers, ScheduledExecutorService timer,
+            final AtomicInteger out, final AtomicReference<String> lastPackage) {
+        final Answer answer = new Answer(conn);
+        final long start = SystemClock.elapsedRealtime();
+        if (out.get() >= DUMP_WORKERS) {
+            answer.write(busyLine(0, lastPackage.get()));
+            return;
+        }
+        out.incrementAndGet();
+        // The device-side bound: past it the client is answered `busy` and the worker is
+        // left to finish in the background (its document is abandoned).
+        timer.schedule(new Runnable() {
+            @Override
+            public void run() {
+                answer.write(busyLine(SystemClock.elapsedRealtime() - start, lastPackage.get()));
             }
-        } else if (request.equals("quit")) {
-            done.set(true);
-        } else {
-            write(conn, PREFIX + " unknown request");
+        }, DUMP_BOUND_MS, TimeUnit.MILLISECONDS);
+        workers.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Doc d = document(ua, start + DUMP_BOUND_MS, lastPackage);
+                    if (d.bound) {
+                        // The bound passed while the document was being built (a worker
+                        // can outlive its answer by the platform's own 5 s query wait).
+                        String pkg = d.pkg != null ? d.pkg : lastPackage.get();
+                        answer.write(busyLine(SystemClock.elapsedRealtime() - start, pkg));
+                    } else if (d.xml == null) {
+                        answer.write(PREFIX + " no active window root");
+                    } else {
+                        answer.write(d.xml);
+                    }
+                } catch (Throwable t) {
+                    answer.write(PREFIX + " " + t);
+                } finally {
+                    out.decrementAndGet();
+                }
+            }
+        });
+    }
+
+    // The busy answer of ADR-0034 §1: how long the read waited, and the package of the app
+    // that did not answer when one is known (omitted otherwise, so the daemon reports no
+    // package rather than an empty one).
+    private static String busyLine(long ms, String pkg) {
+        if (ms < 0) ms = 0;
+        return pkg == null || pkg.length() == 0 ? PREFIX + " busy " + ms : PREFIX + " busy " + ms + " " + pkg;
+    }
+
+    // The one answer of a dumped connection: whichever of the worker and the bound's timer
+    // writes first wins, and the connection is closed with it. A worker that finishes after
+    // the bound passed is discarded.
+    private static final class Answer {
+        private final LocalSocket conn;
+        private final AtomicBoolean answered = new AtomicBoolean(false);
+
+        Answer(LocalSocket conn) {
+            this.conn = conn;
+        }
+
+        void write(String s) {
+            if (!answered.compareAndSet(false, true)) return;
+            try {
+                DroidyardReader.write(conn, s);
+            } catch (IOException ignored) {
+                // The client is gone; nothing to report it to.
+            } finally {
+                closeQuietly(conn);
+            }
+        }
+    }
+
+    private static ThreadFactory daemonThreads(final String name) {
+        return new ThreadFactory() {
+            private final AtomicInteger n = new AtomicInteger(0);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, name + "-" + n.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }
+        };
+    }
+
+    private static void closeQuietly(Closeable c) {
+        if (c == null) return;
+        try {
+            c.close();
+        } catch (IOException ignored) {
+            // Already closed.
         }
     }
 
@@ -301,29 +435,69 @@ public class DroidyardReader {
         }
     }
 
-    // The active window's tree, as the XML the one-shot writes; null when there is no
-    // root. waitForIdle's timeout is not fatal: the tree is read anyway.
-    private static String document(UiAutomation ua) throws Exception {
+    // One dump's outcome: the XML (null when there is no root), whether the device-side
+    // bound passed before the document was complete, and the package the root named.
+    private static final class Doc {
+        final String xml;
+        final boolean bound;
+        final String pkg;
+
+        Doc(String xml, boolean bound, String pkg) {
+            this.xml = xml;
+            this.bound = bound;
+            this.pkg = pkg;
+        }
+    }
+
+    // Set while a document is built and the device-side bound passes between node queries.
+    private static final class Bound {
+        boolean hit;
+    }
+
+    // The active window's tree, as the XML the one-shot writes; xml null when there is no
+    // root, bound true when deadlineMs passed before the document was complete. The bound
+    // is checked between node queries, so a traversal is abandoned at it; a single blocked
+    // query cannot be interrupted and is bounded by the platform's 5 s interaction timeout
+    // instead. waitForIdle's timeout is not fatal: the tree is read anyway. A root read
+    // updates lastPackage (null when the caller does not want it).
+    private static Doc document(UiAutomation ua, long deadlineMs, AtomicReference<String> lastPackage) throws Exception {
         try {
             ua.waitForIdle(100, 500);
         } catch (Exception e) {
             // Not idle in time (a TimeoutException): read the tree anyway.
         }
+        if (SystemClock.elapsedRealtime() > deadlineMs) {
+            return new Doc(null, true, null);
+        }
         AccessibilityNodeInfo root = null;
         for (int i = 0; i < 5 && root == null; i++) {
             root = ua.getRootInActiveWindow();
-            if (root == null) Thread.sleep(100);
+            if (root == null) {
+                if (SystemClock.elapsedRealtime() > deadlineMs) break;
+                Thread.sleep(100);
+            }
         }
         if (root == null) {
-            return null;
+            return new Doc(null, SystemClock.elapsedRealtime() > deadlineMs, null);
+        }
+        String pkg = null;
+        CharSequence p = root.getPackageName();
+        if (p != null) {
+            pkg = p.toString();
+            if (lastPackage != null) lastPackage.set(pkg);
         }
         Point size = new Point();
         int rotation = display(size);
         StringBuilder sb = new StringBuilder(16 << 10);
         sb.append("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"").append(rotation).append("\">");
-        node(root, 0, new Rect(0, 0, size.x, size.y), sb);
+        Bound bound = new Bound();
+        node(root, 0, new Rect(0, 0, size.x, size.y), sb, deadlineMs, bound);
+        if (bound.hit) {
+            // The document is abandoned: a partial tree is not a document.
+            return new Doc(null, true, pkg);
+        }
         sb.append("</hierarchy>");
-        return sb.toString();
+        return new Doc(sb.toString(), false, pkg);
     }
 
     // The default display's rotation and real size, from DisplayManagerGlobal as uiautomator's
@@ -340,7 +514,7 @@ public class DroidyardReader {
         }
     }
 
-    private static void node(AccessibilityNodeInfo n, int index, Rect display, StringBuilder sb) {
+    private static void node(AccessibilityNodeInfo n, int index, Rect display, StringBuilder sb, long deadlineMs, Bound bound) {
         Rect b = new Rect();
         n.getBoundsInScreen(b);
         b.intersect(display);
@@ -366,9 +540,15 @@ public class DroidyardReader {
         sb.append('>');
         int count = n.getChildCount();
         for (int i = 0; i < count; i++) {
+            if (bound.hit) return;
+            // getChild may itself block on a frozen app: check the bound before each query.
+            if (SystemClock.elapsedRealtime() > deadlineMs) {
+                bound.hit = true;
+                return;
+            }
             AccessibilityNodeInfo c = n.getChild(i);
             // As uiautomator does: a child that is not visible to the user is not dumped.
-            if (c != null && c.isVisibleToUser()) node(c, i, display, sb);
+            if (c != null && c.isVisibleToUser()) node(c, i, display, sb, deadlineMs, bound);
         }
         sb.append("</node>");
     }
