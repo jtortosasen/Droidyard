@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Files block run 2026-10-07 (macOS, no device, OpenCode v2.0.18, the flavoured fixture) by step 3 of `docs/plans/m1j-files.md`, evidence `~/Library/Caches/droidyard-dev/m1j/l5-20261007-0612`.** Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Policy and shell block run 2026-10-07 (macOS, no device, OpenCode v2.0.18) by step 4 of `docs/plans/m1k-policy-and-shell.md`, evidence `~/Library/Caches/droidyard-dev/m1k/l5-20261007-0820`.** Files block run 2026-10-07 (macOS, no device, OpenCode v2.0.18, the flavoured fixture) by step 3 of `docs/plans/m1j-files.md`, evidence `~/Library/Caches/droidyard-dev/m1j/l5-20261007-0612`.** Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -308,7 +308,7 @@ find ~/Library/Android/sdk -maxdepth 3 -newer "$E/sdk-stamp" | grep -v knownPack
 
 - Expect `tools=25`; `project_variants` `:app` `source: probe` with eight `details`; `sdk_requirements` `complete: true`, `missing: []`; `build_assemble {":app", "paidStagingDebug"}` chosen by the agent from the flavours, `success`, `agp`/`kgp` set; `device_install` `dev.droidyard.flavoured.paid.staging`; the screen shows that package.
 
-**1i Logs and emulator** (milestone 1i; its §Scratch rules and §Emulator rules apply verbatim: a scratch AVD `droidyard_m1i` created with `avdmanager` under `ANDROID_AVD_HOME=~/Library/Caches/droidyard-dev/m1i/avd` and deleted at the end; every daemon run with that home and the adb guard as `ADB`, refusing writes to the emulators online before the run; `Pixel_9a` and the five other owner AVDs never named).
+**1i Logs and emulator** (milestone 1i; its §Scratch rules and §Emulator rules apply verbatim: a scratch AVD `droidyard_m1i` created with `avdmanager` under `ANDROID_AVD_HOME=~/Library/Caches/droidyard-dev/m1i/avd` and deleted at the end; every daemon run with that home and the adb guard as `ADB`, refusing writes to the emulators online before the run; `Pixel_9a` and the five other owner AVDs never named). **Since 1k a configuration's `tools.adb` comes before `ADB` (ADR-0032, R3) and would bypass the guard:** keep `DROIDYARD_CONFIG_DIR` unset under a scratch `DROIDYARD_STATE_DIR`, so the configuration read is the scratch one, and check `system.health` names the guard as the adb used.
 
 ```sh
 B=~/Library/Caches/droidyard-dev/m1i; export ANDROID_AVD_HOME=$B/avd ADB=$B/bin/adb DROIDYARD_STATE_DIR=$B/state
@@ -345,6 +345,24 @@ diff -r -x build -x .gradle -x .kotlin -x .idea -x opencode.jsonc -x local.prope
 ```
 
 - Expect `tools=33`; `file_list` down to the Java package, `file_read`, `file_write` with the statement, `build_assemble` `failed` with `errors[0]` `MainActivity.java` line 40 (inline in the result, so the agent need not call `build_errors`), `file_write` without it, `build_assemble` `success`; no call of OpenCode's own file or shell tools (its `execute` tool search is not one); the diff empty; no `*.droidyard-*.tmp`.
+
+**1k Policy and shell** (milestone 1k; its §Scratch rules apply: no device, emulator or real `adb`; `shell.exec` only in `proj/`; `DROIDYARD_CONFIG_DIR` unset, so the configuration is `state/config/config.json` and the user's own is never read).
+
+```sh
+B=~/Library/Caches/droidyard-dev/m1k
+cp -R sidecar/testdata/plain $B/proj; (cd $B/proj && git init -q && git add -A && git commit -qm init && echo "// changed" >>build.gradle)
+export DROIDYARD_STATE_DIR=$B/state ANDROID_ADB_SERVER_PORT=5990 ANDROID_AVD_HOME=$B/avd ADB=/nonexistent PATH=/usr/bin:/bin
+unset DROIDYARD_CONFIG_DIR; "$DY" trust $B/proj; (cd / && "$DY" serve >"$E/serve.log" 2>&1 &)
+# OpenCode as in Real client, cwd $B/proj, the 1j permission block (check with `opencode debug agents`).
+# Prompt A: run `git status --short` with the droidyard tools only; if refused, say what droidyard asks, and stop.
+"$DY" call policy.update --params "{\"shell\":{\"roots\":[\"$B/proj\"]}}"     # the human, no restart
+# Prompt B, same session (opencode run -s <sessionID>): run it again, then `seq 1 200000`; last line and where the output is.
+"$DY" call shell.exec --workspace $B/proj --params '{"command":"sleep 300 & sleep 300","timeoutMs":3000}'   # timedOut
+"$DY" call shell.exec --workspace $B/proj --detach --params '{"command":"sleep 300"}'; "$DY" stop
+pgrep -f 'sleep 300'; cat $B/state/processes.json                                  # nothing; no records
+```
+
+- Expect `tools=34`, `shell_exec` listed and no `policy_*`; prompt A's `shell_exec` `isError` `POLICY_SHELL_DISABLED`, its message warning of the user's full reach and its nextStep naming `shell.roots`, relayed by the agent; prompt B's `shell_exec` `exitCode` 0 with the modified file and `_meta` `droidyard/untrusted`, `seq` with `stdoutRef` and `200000` (read with `artifact_read`); no OpenCode file or shell tool; the timeout `timedOut`, `SIGTERM`; nothing left after `stop`.
 
 ## Evidence
 
