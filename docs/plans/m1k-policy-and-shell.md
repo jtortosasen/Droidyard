@@ -86,7 +86,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: `policy.update` (step 3); using `shell` and `devices` (steps 2, 5); tool keys reaching their resolvers (step 6).
 - Rests on: —
 - Review: a new human-only capability and the authorization input of every later step: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) `go test -race -count=1 ./internal/policy ./internal/domain/system ./cmd/droidyard ./internal/schema` green; every invalid row fails closed for trust, shell, devices and tool keys with the file named, including granting sections beside one invalid key. Seen failing: a relative tool path accepted, `shell` dropped by `Trust`, `policy.get` at audience `all` (implementer); a `decodeShell` error swallowed and the cache keyed on size only (verifier); the configuration read with a plain `os.ReadFile` (FIFO row blocked; main session). `tools/call policy_get` over MCP answers -32602 "tool not found" (`TestMCPTranscript`); the core refuses `ClientMCP` with `REQUEST_NOT_ALLOWED_HERE` (`TestPolicyGetIsRefusedFromTheCoreOnMCP`); see Changes. (b) Level 4, 2026-10-07, `~/Library/Caches/droidyard-dev/m1k/l4-s1`, S2 (`ADB=/nonexistent`, port 5990): `policy.get` with no file → `missing`; a hand-written version-1 file → its values; corrupted → `invalid` with the file named, `system.health.config` the same (`toolKeys: missing`, read at start); `droidyard trust /tmp` refused, the file byte-identical (`shasum -c`); the 5037 server pid and the `qemu-system` pids unchanged. Opus verifier: no blocker; non-blocking items below.
 
 ### 2. `shell.exec`
 
@@ -230,3 +230,7 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7). Its verdict was "
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-07, step 1 (verifier N1): over MCP `policy.get` is never registered, so `tools/call policy_get` answers the library's -32602 "tool not found" before the core sees it; the core's refusal (`REQUEST_NOT_ALLOWED_HERE`) is proven by invoking it as `ClientMCP`. A native socket session cannot carry client kind `mcp` (the daemon routes that hello to the MCP server), so the step's "native request with client mcp" row does not exist. A1 holds through both halves.
+- 2026-10-07, step 1 (verifier, fixed): the configuration file is read non-blocking, must be a regular file and at most 1 MiB, or it is invalid (a FIFO or a symlink to `/dev/zero` hung every policy check and daemon start); with no resolvable configuration directory no path is reported (it was the relative `config.json`) and a snapshot is an error, never the defaults; `encode`'s comment says what it keeps (JSON-equal content, not bytes).
+- 2026-10-07, step 1 (verifier, recorded): an empty string path key is taken as unset; duplicate keys follow Go decoding, the last one wins (`{"shell":{"enabled":false},"shell":{"enabled":true}}` enables the shell); `system.health` (audience all) shows the parse error, which can quote one offending value, as ADR-0032 §4 asks; `operation.wait` returns any operation's result by id with no audience check, so an MCP agent that learnt a human `policy.get`'s id could read its result: ids are random and no MCP tool returns another session's id (not audited exhaustively).

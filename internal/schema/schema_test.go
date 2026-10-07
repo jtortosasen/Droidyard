@@ -23,6 +23,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
@@ -60,7 +62,11 @@ func trustNothing(context.Context, *capability.Call) (any, error) { return nil, 
 func registry() *capability.Registry {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
-	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil)
+	// A hermetic policy: no configuration directory resolves, so it reads no file. Only
+	// its descriptors matter here — no handler of the golden registry is ever run.
+	pol := policy.New(platform.Env{Getenv: func(string) string { return "" }})
+	policy.Register(reg, pol)
+	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil, pol)
 	store, err := artifact.New(artifact.Options{Epoch: "schema"})
 	if err != nil {
 		panic(err)
