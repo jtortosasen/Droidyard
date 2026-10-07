@@ -72,7 +72,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Scope:        capability.Global,
 		Since:        "0.5.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description: "Starts an application's launcher activity on the device with `monkey -p <applicationId> -c android.intent.category.LAUNCHER 1`, and returns the device clock read just before as launchedAt (RFC 3339 UTC with milliseconds) and the process id observed after. " +
+		Description: "Starts an application's launcher activity on the device with `monkey --pct-syskeys 0 -p <applicationId> -c android.intent.category.LAUNCHER 1`, and returns the device clock read just before as launchedAt (RFC 3339 UTC with milliseconds) and the process id observed after. " +
 			"pid is polled with `pidof <applicationId>` every 100 ms for up to 3 s; when no process is seen, pid is null and reason says so (typically a crash on start). " +
 			"applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched, and never reaches a device shell. " +
 			"The whole call holds the device's write lock and runs at most 28 s. " +
@@ -147,7 +147,10 @@ func (a *ADB) launch(ctx context.Context, t *target, p LaunchParams) (*LaunchRes
 	// monkey starts the launcher activity; no manifest activity is needed
 	// (adb-device.md §Launch).
 	mout, err := a.runShell(actx, t, launchMonkeyTimeout, 64<<10,
-		"shell", "monkey", "-p", p.ApplicationID, "-c", "android.intent.category.LAUNCHER", "1")
+		// --pct-syskeys 0: on an image with no physical keys (API 31 google_apis) monkey
+		// aborts with "SYS_KEYS has no physical keys" and exit 251 before launching
+		// anything (milestone 1i spike S9, G15).
+		"shell", "monkey", "--pct-syskeys", "0", "-p", p.ApplicationID, "-c", "android.intent.category.LAUNCHER", "1")
 	if err != nil {
 		if errors.Is(err, ErrTimeout) {
 			return nil, launchFailed("the launch command did not answer in " + launchMonkeyTimeout.String())

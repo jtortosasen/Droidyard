@@ -1,0 +1,8 @@
+Recorded 2026-10-07 by the main session (milestone 1i step 1, spike S9) on the scratch AVD
+droidyard_m1i (system-images;android-31;google_apis;arm64-v8a, emulator 36.6.11, adb
+1.0.41 36.0.0-13206524), with the flavoured fixture's paidStagingDebug
+(dev.droidyard.flavoured.paid.staging, uid 10146) launched, its Crash button tapped
+(Java crash), relaunched and killed with SIGSEGV through run-as (native crash).
+Commands: adb -s <scratch> logcat -d -b <buffers> -v <format>; pm list packages -U <pkg>;
+date +%s.%N. Trimmed to the fixture's uid, its Start proc line and Zygote's exit line.
+Nothing here comes from the owner's emulator.

@@ -1,0 +1,19 @@
+--------- beginning of crash
+         1791336954.744887 10146  6907  6907 F DEBUG   :       #47 pc 000000000000258c  /system/bin/app_process64 (main+1336) (BuildId: 4ecb2c57d6667e4a94a73568ce392d22)
+         1791336954.744889 10146  6907  6907 F DEBUG   :       #48 pc 00000000000488c8  /apex/com.android.runtime/lib64/bionic/libc.so (__libc_init+96) (BuildId: ba489d4985c0cf173209da67405662f9)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: FATAL EXCEPTION: main
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: Process: dev.droidyard.flavoured.paid.staging, PID: 7157
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: java.lang.IllegalStateException: droidyard fixture crash
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at dev.droidyard.flavoured.MainActivity$1.onClick(MainActivity.java:35)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View.performClick(View.java:7441)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View.performClickInternal(View.java:7418)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View.access$3700(View.java:835)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View$PerformClick.run(View.java:28676)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:938)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Looper.loopOnce(Looper.java:201)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:288)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.app.ActivityThread.main(ActivityThread.java:7839)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at java.lang.reflect.Method.invoke(Native Method)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:548)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1003)

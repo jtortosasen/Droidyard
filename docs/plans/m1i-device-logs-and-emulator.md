@@ -113,7 +113,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: product code (steps 2–5); a native crash's tombstone file (the log lines suffice).
 - Rests on: the crash of an app is readable, and attributable to it, after its process died; and a detached emulator survives its starter. Level 5 (real emulator).
 - Review: the main session's record; findings that change a later step go under Changes before it starts.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: main session, 2026-10-07, `docs/research/spike-s8-s9-emulator-and-logcat.md`; recordings `internal/domain/device/testdata/logcat/` and `internal/domain/emulator/testdata/` (62 KiB together); D3's fixture change (the 1h opt-in probe tests rerun on it: pass); the scratch AVD and the adb guard under `m1i/`. Neither stop condition held (G9, G4). `Pixel_9a`'s qemu pid 18922, the adb server's pid 19285 and the five other AVDs' `userdata-qemu.img*` mtimes unchanged first to last; the guard's `refused.log` empty for the daemon run. Changes below.
 
 ### 2. `device.logs`: the snapshot
 
@@ -238,3 +238,8 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7): every blocking fi
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design. Step 1's findings that alter a later step are recorded here before that step starts.
+- 2026-10-07, step 1 → all steps (Delegated): `device.launch` failed on the API 31 scratch image (`monkey` exits 251, `SYS_KEYS has no physical keys`); it now runs `monkey --pct-syskeys 0 …`, fixed with step 1 (fake adb and `launch_test.go` follow; schema description updated).
+- 2026-10-07, step 1 → step 2 (D5, D6, D8): the line format is `-v threadtime,epoch,usec,uid` (G1); `--uid` works on API 31 but the host-side uid filter of D5 stays (one mechanism for every API); crashes live in `-b crash` only (G4, G5): a Java block is `AndroidRuntime` lines from `FATAL EXCEPTION:` with `Process: <pkg>, PID: <pid>`, a native block the `DEBUG` lines with `>>> <pkg> <<<`, both with the app's uid; `-T` takes the epoch form. Whether an app can forge a crash-buffer line was not settled, so D6's uid requirement stays as written. An invalid `-v` exits 0, so a format error is detected from the parsed lines, not the exit status.
+- 2026-10-07, step 1 → step 3: an idle app after launch logs nothing in 5 s (G6), as step 6's follow row already allows; killing the client pid ends the device's logcat (G6).
+- 2026-10-07, step 1 → steps 4–5 (D15): `emulator` execs into `qemu-system-aarch64-headless` (G9), so the launcher's pid is the emulator's; a second launch fails with the `Running multiple emulators with the same AVD` line (G10), an unknown AVD with the `ANDROID_AVD_HOME is defined but there is no file` line; `emu kill` ends it in about 2 s and works mid-boot (G12); `multiinstance.lock` outlives a kill without blocking the next boot; `-wipe-data` cold-boots (G13); headless boot about 21 s, 13 s wiped. Only `ANDROID_AVD_HOME` isolates the listing (G8).
+

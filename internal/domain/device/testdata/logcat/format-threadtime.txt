@@ -1,0 +1,19 @@
+--------- beginning of crash
+10-07 03:35:54.744  6907  6907 F DEBUG   :       #47 pc 000000000000258c  /system/bin/app_process64 (main+1336) (BuildId: 4ecb2c57d6667e4a94a73568ce392d22)
+10-07 03:35:54.744  6907  6907 F DEBUG   :       #48 pc 00000000000488c8  /apex/com.android.runtime/lib64/bionic/libc.so (__libc_init+96) (BuildId: ba489d4985c0cf173209da67405662f9)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: FATAL EXCEPTION: main
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: Process: dev.droidyard.flavoured.paid.staging, PID: 7157
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: java.lang.IllegalStateException: droidyard fixture crash
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at dev.droidyard.flavoured.MainActivity$1.onClick(MainActivity.java:35)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.view.View.performClick(View.java:7441)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.view.View.performClickInternal(View.java:7418)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.view.View.access$3700(View.java:835)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.view.View$PerformClick.run(View.java:28676)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:938)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.os.Looper.loopOnce(Looper.java:201)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:288)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at android.app.ActivityThread.main(ActivityThread.java:7839)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at java.lang.reflect.Method.invoke(Native Method)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:548)
+10-07 03:37:09.269  7157  7157 E AndroidRuntime: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1003)

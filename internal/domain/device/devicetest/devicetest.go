@@ -39,7 +39,7 @@
 //	<serial>.ps                 `-s <serial> shell ps -A -o PID,NAME` (.out holds the listing)
 //	<serial>.inputtap           `-s <serial> shell input tap <x> <y>`
 //	<serial>.date               `-s <serial> shell date +%s.%N`
-//	<serial>.monkey             `-s <serial> shell monkey -p <id> -c android.intent.category.LAUNCHER 1`
+//	<serial>.monkey             `-s <serial> shell monkey --pct-syskeys 0 -p <id> -c android.intent.category.LAUNCHER 1`
 //	<serial>.apppidof           `-s <serial> shell pidof <applicationId>`
 //	<serial>.sdk                `-s <serial> shell getprop ro.build.version.sdk`
 //	<serial>.inputtext          `-s <serial> shell input text <arg>`
@@ -307,7 +307,7 @@ func servedPrefix(args []string) string {
 		return args[1] + ".inputtap"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "date" && args[4] == "+%s.%N":
 		return args[1] + ".date"
-	case len(args) == 9 && args[2] == "shell" && args[3] == "monkey" && args[4] == "-p" && args[6] == "-c" && args[7] == "android.intent.category.LAUNCHER" && args[8] == "1":
+	case len(args) == 11 && args[2] == "shell" && args[3] == "monkey" && args[4] == "--pct-syskeys" && args[5] == "0" && args[6] == "-p" && args[8] == "-c" && args[9] == "android.intent.category.LAUNCHER" && args[10] == "1":
 		return args[1] + ".monkey"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.build.version.sdk":
 		return args[1] + ".sdk"

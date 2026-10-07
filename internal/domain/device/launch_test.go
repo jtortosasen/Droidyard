@@ -9,7 +9,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
-const launchHead = "-s " + uiSerial + " shell monkey -p dev.droidyard.formapp -c android.intent.category.LAUNCHER 1"
+const launchHead = "-s " + uiSerial + " shell monkey --pct-syskeys 0 -p dev.droidyard.formapp -c android.intent.category.LAUNCHER 1"
 
 // quickLaunch shrinks the launch's bounds so a fake test runs in milliseconds.
 func quickLaunch(t *testing.T) {
