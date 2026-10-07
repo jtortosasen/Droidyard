@@ -112,7 +112,7 @@ Rules:
 - No multi-paragraph descriptions repeating the schema. They cost tokens on every
   session.
 - Workflow guidance belongs in the **server instructions** or a **skill**, not in
-  thirty tool descriptions.
+  thirty-three tool descriptions.
 
 ## Annotations
 

@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -35,17 +36,18 @@ type slowResult struct {
 }
 
 type inProcess struct {
-	d       *daemon.Daemon
-	mcp     *mcpadapter.Server
-	http    *httpapi.Server // the UI's HTTP side, for its test seams
-	ops     *capability.Operations
-	bus     *event.Bus
-	store   *artifact.Store // the daemon's artifact store
-	token   string          // the HTTP token
-	log     *lockedBuffer   // the daemon's log, also copied to stderr
-	state   string
-	started chan string
-	release chan struct{}
+	d        *daemon.Daemon
+	mcp      *mcpadapter.Server
+	http     *httpapi.Server // the UI's HTTP side, for its test seams
+	ops      *capability.Operations
+	bus      *event.Bus
+	store    *artifact.Store // the daemon's artifact store
+	watchers *file.Watchers  // the daemon's live file.watch pollers (plan m1j, D9)
+	token    string          // the HTTP token
+	log      *lockedBuffer   // the daemon's log, also copied to stderr
+	state    string
+	started  chan string
+	release  chan struct{}
 }
 
 func startInProcess(t *testing.T) *inProcess {
@@ -100,6 +102,14 @@ var adbSeamMu sync.Mutex
 // environment, so a test can build what the daemon itself derives from it.
 func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam) *inProcess {
 	t.Helper()
+	return startInProcessFull(t, httpAddr, extra, adb, 0)
+}
+
+// startInProcessFull is startInProcessADB with the file.watch poller's interval: tick
+// > 0 replaces the one-second default for this daemon, so a test sees a change at once
+// (plan m1j step 4). Zero keeps the default.
+func startInProcessFull(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, tick time.Duration) *inProcess {
+	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
 	st, err := store.New(p.state)
 	if err != nil {
@@ -117,14 +127,17 @@ func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability
 	}}
 	adbSeamMu.Lock()
 	oldEnv, oldExec := adbEnviron, adbExec
+	oldTick := watchTick
 	if adb != nil {
 		adbEnviron, adbExec = func() []string { return adb.env }, adb.exec
 	}
-	reg, ops, bus, artifacts, deviceADB := registry(env, st, sup, os.Stderr)
-	adbEnviron, adbExec = oldEnv, oldExec
+	watchTick = tick
+	reg, ops, bus, artifacts, deviceADB, watchers := registry(env, st, sup, os.Stderr)
+	adbEnviron, adbExec, watchTick = oldEnv, oldExec, oldTick
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.ops, p.bus, p.store = ops, bus, artifacts
+	p.watchers = watchers
 	if extra != nil {
 		extra(reg, env)
 	}

@@ -124,7 +124,10 @@ Cancel(id OpID) error
   events carry their workspace id; global events (devices, emulators, adb, shared
   sidecars) carry `workspace: null` ([capability-api](capability-api.md) §Events).
 - Subscribers resume with `since` from a bounded replay ring; overflow and expired
-  resumes are reported as an explicit `events.gap`, never silent.
+  resumes are reported as an explicit `events.gap`, never silent. A capability's own
+  stream (`file.watch`'s `file.changes`, milestone 1j) takes a `seq` but is offered to
+  its one subscription and never enters the ring, so a busy watch cannot flush what
+  other subscribers resume from.
 - The bus is the **only** cross-cutting channel. Adapters subscribe and translate:
   MCP progress notifications, WebSocket frames.
 - No adapter polls. No handler knows which adapter is watching.

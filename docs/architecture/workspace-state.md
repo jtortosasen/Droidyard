@@ -9,7 +9,8 @@ global ones (devices, emulators, the SDK, the core itself) do not.
 ## What a workspace is
 
 A **workspace** is a rooted development context: a project directory plus the
-live resources attached to it (workspace-owned sidecars, build state, watchers).
+live resources attached to it (workspace-owned sidecars, build state); a file watch
+belongs to the session's subscription, and the workspace only stops its pollers on close.
 It is the unit of isolation and the unit of state.
 
 The core — one daemon per user ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md))
@@ -81,8 +82,7 @@ Workspace
 ├── project       modules, variants, build files, AGP/Gradle/Kotlin versions (fetched lazily)
 ├── code          lsp session ref, open documents, diagnostics cache, index state
 ├── builds        running operations, build registry, last result
-├── processes     workspace-owned sidecars (the Kotlin LSP, later)
-└── watchers      watched roots, filters, debounce state
+└── processes     workspace-owned sidecars (the Kotlin LSP, later)
 ```
 
 Each section is owned by exactly one domain service
@@ -92,7 +92,11 @@ state.
 What is **not** in a workspace: devices and emulators (global, below); the TAPI
 sidecar, which is shared by every root ([process-lifecycle](process-lifecycle.md));
 and subscriptions, which belong to the **session** that created them and may filter on
-any workspace.
+any workspace. A `file.watch`'s poller belongs to the subscription its call created,
+not to the workspace (milestone 1j, D9): the workspace holds no watcher state, only the
+knowledge of which of its pollers its close must stop. An earlier sketch of this model
+listed `watchers` under the workspace; the shipped design ties each watch to the
+session's subscription, so it lives and dies with it.
 
 ## Identity and reuse
 

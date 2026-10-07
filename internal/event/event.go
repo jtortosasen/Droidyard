@@ -82,7 +82,11 @@ type Bus struct {
 	seq       int64
 	ring      []Event
 	ringBytes int
-	subs      map[*Subscription]struct{}
+	// evicted is the highest seq the ring has dropped: a resume from before it has lost
+	// events. A seq PublishTo assigned never entered the ring, so it is not a loss to any
+	// resume (m1j §Changes, step 4 N5).
+	evicted int64
+	subs    map[*Subscription]struct{}
 
 	// subscribeHook is a test seam: see SetSubscribeHook.
 	subscribeHook atomic.Pointer[func()]
@@ -131,10 +135,26 @@ func (b *Bus) Publish(topic, typ, workspace, operation string, payload any) {
 	b.publish(topic, typ, workspace, operation, payload)
 }
 
-// publish stamps the event, appends it to the ring and delivers it to every
-// subscription to its topic, all under mu, and returns it. A payload that does not
-// encode is published as null.
-func (b *Bus) publish(topic, typ, workspace, operation string, payload any) Event {
+// PublishTo delivers one event to one subscription: it takes a seq like Publish, but
+// appends nothing to the replay ring and offers the event to sub alone. A capability's
+// own stream uses it to keep a busy stream out of the ring other subscribers resume
+// from, whose 4096 events and 4 MiB a watch would otherwise flush (plan m1j, D8). A nil
+// sub takes a seq and drops the event, so a stream whose subscription ended still
+// advances the daemon's sequence by nothing observable.
+func (b *Bus) PublishTo(sub *Subscription, topic, typ, workspace, operation string, payload any) {
+	e := stamp(topic, typ, workspace, operation, payload)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.assign(&e)
+	if sub != nil {
+		sub.offer(e)
+	}
+}
+
+// stamp builds an event envelope from its parts, encoding the payload; one that does
+// not encode becomes null. The epoch, seq, time and encoded size are assigned under mu
+// by assign.
+func stamp(topic, typ, workspace, operation string, payload any) Event {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		raw = json.RawMessage("null")
@@ -143,18 +163,32 @@ func (b *Bus) publish(topic, typ, workspace, operation string, payload any) Even
 	if workspace != "" {
 		e.Workspace = &workspace
 	}
+	return e
+}
+
+// assign stamps the epoch, the next seq and the time on e and records its encoded
+// length for the ring's byte cap. Called with mu held.
+func (b *Bus) assign(e *Event) {
+	b.seq++
+	e.Epoch, e.Seq, e.Time = b.epoch, b.seq, b.now()
+	if enc, err := json.Marshal(*e); err == nil {
+		e.size = len(enc)
+	}
+}
+
+// publish stamps the event, appends it to the ring and delivers it to every
+// subscription to its topic, all under mu, and returns it.
+func (b *Bus) publish(topic, typ, workspace, operation string, payload any) Event {
+	e := stamp(topic, typ, workspace, operation, payload)
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.seq++
-	e.Epoch, e.Seq, e.Time = b.epoch, b.seq, b.now()
-	if enc, err := json.Marshal(e); err == nil {
-		e.size = len(enc)
-	}
+	b.assign(&e)
 	b.ring = append(b.ring, e)
 	b.ringBytes += e.size
 	for len(b.ring) > 0 && (len(b.ring) > b.opts.RingEvents || b.ringBytes > b.opts.RingBytes) {
 		b.ringBytes -= b.ring[0].size
+		b.evicted = b.ring[0].Seq
 		b.ring[0] = Event{}
 		b.ring = b.ring[1:]
 	}
@@ -196,11 +230,8 @@ func (b *Bus) subscribe(topics []string, since *Position, queue int) *Subscripti
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if since != nil {
-		oldest := b.seq + 1
-		if len(b.ring) > 0 {
-			oldest = b.ring[0].Seq
-		}
-		from := since.Seq + 1 // the first seq the subscriber has not seen
+		oldest := b.evicted + 1 // the first seq a resume can still be given, or was never in the ring
+		from := since.Seq + 1   // the first seq the subscriber has not seen
 		if since.Epoch != b.epoch || from < 1 {
 			from = 1
 		}
@@ -237,6 +268,14 @@ type Subscription struct {
 	topics map[string]bool
 	max    int
 	ready  chan struct{} // signalled when something is queued, or on Close
+
+	// onClose, when set, runs exactly once when the subscription ends, after its queue
+	// is freed and with no lock held: a domain hook that signals a poller must never
+	// wait under bus.mu, which both Close and publishing take (plan m1j, D9). It is set
+	// at creation, under the session's lock, so a Close that finds the subscription also
+	// sees it.
+	onClose   func()
+	closeOnce sync.Once
 
 	mu      sync.Mutex
 	queue   []Event
@@ -309,16 +348,23 @@ func (s *Subscription) Next(ctx context.Context) (Event, error) {
 	}
 }
 
-// Close ends the subscription: nothing more is delivered, and its queue is freed.
+// Close ends the subscription: nothing more is delivered, and its queue is freed. It
+// is idempotent, and its onClose hook (if any) runs exactly once, after the queue is
+// freed and with no lock held, so the hook may publish.
 func (s *Subscription) Close() {
-	s.bus.mu.Lock()
-	delete(s.bus.subs, s)
-	s.bus.mu.Unlock()
-	s.mu.Lock()
-	s.closed, s.queue, s.pending = true, nil, nil
-	s.mu.Unlock()
-	select {
-	case s.ready <- struct{}{}:
-	default:
-	}
+	s.closeOnce.Do(func() {
+		s.bus.mu.Lock()
+		delete(s.bus.subs, s)
+		s.bus.mu.Unlock()
+		s.mu.Lock()
+		s.closed, s.queue, s.pending = true, nil, nil
+		s.mu.Unlock()
+		select {
+		case s.ready <- struct{}{}:
+		default:
+		}
+		if s.onClose != nil {
+			s.onClose()
+		}
+	})
 }

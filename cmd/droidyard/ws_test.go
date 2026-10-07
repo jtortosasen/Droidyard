@@ -5,9 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 )
@@ -869,4 +873,260 @@ func TestWSEndsWithTheDaemon(t *testing.T) {
 	if n := p.http.Sessions(); n != 0 {
 		t.Errorf("%d WebSocket sessions after Shutdown returned", n)
 	}
+}
+
+// writeFile plants a file under root in a WebSocket test's project.
+func writeFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// collect reads frames until the response with id arrives, returning every event frame
+// seen before it and the response.
+func (w *wsClient) collect(id string) ([]wsFrame, wsFrame) {
+	w.t.Helper()
+	var events []wsFrame
+	for {
+		f := w.must("waiting for the response " + id)
+		if f.Event != nil {
+			events = append(events, f)
+			continue
+		}
+		if f.ID == id {
+			return events, f
+		}
+		w.t.Fatalf("waiting for %s, an unexpected response: %+v", id, f)
+	}
+}
+
+// watchOn opens rel of root and starts a watch, returning the watch's subscription id
+// and its operation id.
+func (w *wsClient) watchOn(t *testing.T, root, rel string) (string, string) {
+	t.Helper()
+	w.send("wa", "file.watch", root, `{"path":"`+rel+`"}`, nil)
+	_, f := w.collect("wa")
+	if f.Error != nil {
+		t.Fatalf("file.watch %s: %+v", root, f.Error)
+	}
+	if f.Operation == nil || f.Operation.State != capability.StateCompleted {
+		t.Fatalf("file.watch: %+v; want a completed operation", f)
+	}
+	return subscriptionOf(t, f), f.Operation.ID
+}
+
+// TestWSFileWatch: over a real WebSocket, file.watch returns a subscriptionId at once
+// and its file.changes events reach that subscription alone — a second workspace's watch
+// on the same session gets none of them (plan m1j step 4 (a); the mutation "delivery by
+// topic only" fails here). events.subscribe refuses the topic, and events.unsubscribe
+// and the session's end each leave no poller running.
+func TestWSFileWatch(t *testing.T) {
+	t.Parallel()
+	p := startInProcessFull(t, "127.0.0.1:0", nil, nil, 50*time.Millisecond)
+	w := wsConnect(t, p)
+
+	rootA, rootB := t.TempDir(), t.TempDir()
+	writeFile(t, rootA, "a.txt", "x")
+	writeFile(t, rootB, "b.txt", "y")
+	for _, root := range []string{rootA, rootB} {
+		w.send("open", "workspace.open", root, "{}", nil)
+		if _, f := w.collect("open"); f.Error != nil {
+			t.Fatalf("workspace.open %s: %+v", root, f.Error)
+		}
+	}
+	widA, _ := platform.Current().WorkspaceID(rootA)
+
+	subA, opA := w.watchOn(t, rootA, ".")
+	subB, _ := w.watchOn(t, rootB, ".")
+	if subA == subB {
+		t.Fatal("the two watches share a subscription id")
+	}
+	waitLive(t, p.watchers, 2)
+
+	// A write of a new file under A is one file.changes event on A's subscription,
+	// naming A, the watch's operation and the created path. The response and the tick's
+	// event arrive in either order.
+	w.send("w1", "file.write", rootA, `{"path":"new.txt","content":"n"}`, nil)
+	var events []wsFrame
+	var resp wsFrame
+	for resp.ID != "w1" || len(events) == 0 {
+		f := w.must("file.write's frames")
+		switch {
+		case f.Event != nil:
+			events = append(events, f)
+		case f.ID == "w1":
+			resp = f
+		default:
+			t.Fatalf("an unexpected frame: %+v", f)
+		}
+	}
+	if resp.Error != nil {
+		t.Fatalf("file.write: %+v", resp.Error)
+	}
+	if len(events) != 1 || events[0].SubscriptionID != subA {
+		t.Fatalf("A's write produced %d event frames on %v; want one on %s", len(events), events, subA)
+	}
+	e := events[0].Event
+	if e.Topic != "file.changes" || e.Type != "changes" || e.Operation != opA || e.Workspace == nil || *e.Workspace != widA {
+		t.Fatalf("the change event is %+v; want file.changes/changes, operation %s, workspace %s", e, opA, widA)
+	}
+	var payload struct {
+		Path    string `json:"path"`
+		Changes []struct {
+			Path string `json:"path"`
+			Kind string `json:"kind"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Path != "." || len(payload.Changes) != 1 || payload.Changes[0].Path != "new.txt" || payload.Changes[0].Kind != "created" {
+		t.Fatalf("the payload is %+v; want path \".\" and new.txt created", payload)
+	}
+
+	// B's watch received none of A's change.
+	for {
+		f, ok := w.next(200 * time.Millisecond)
+		if !ok {
+			break
+		}
+		if f.Event != nil && f.SubscriptionID == subB {
+			t.Fatalf("B's watch received A's change: %+v", f)
+		}
+	}
+
+	// file.changes is not a subscribable topic.
+	w.send("s1", "events.subscribe", "", `{"topics":["file.changes"]}`, nil)
+	if _, f := w.collect("s1"); f.Error == nil || f.Error.Code != capability.ErrInvalidParams {
+		t.Fatalf("events.subscribe to file.changes: %+v; want REQUEST_INVALID_PARAMS", f)
+	}
+
+	// events.unsubscribe of a watch's id ends its poller.
+	w.send("u1", "events.unsubscribe", "", `{"subscriptionId":"`+subA+`"}`, nil)
+	if _, f := w.collect("u1"); f.Error != nil {
+		t.Fatalf("events.unsubscribe: %+v", f.Error)
+	}
+	waitLive(t, p.watchers, 1)
+
+	// The session's end (the socket closing) ends the remaining poller.
+	w.c.CloseNow()
+	waitLive(t, p.watchers, 0)
+}
+
+// TestWSFileWatchWorkspaceClose: a workspace close publishes one stopped event on the
+// watch's subscription, as the poller's last act, then leaves no poller; the
+// subscription itself stays until the session ends (plan m1j, D9).
+func TestWSFileWatchWorkspaceClose(t *testing.T) {
+	t.Parallel()
+	p := startInProcessFull(t, "127.0.0.1:0", nil, nil, 50*time.Millisecond)
+	w := wsConnect(t, p)
+
+	root := t.TempDir()
+	writeFile(t, root, "a.txt", "x")
+	w.send("open", "workspace.open", root, "{}", nil)
+	if _, f := w.collect("open"); f.Error != nil {
+		t.Fatalf("workspace.open: %+v", f.Error)
+	}
+	sub, _ := w.watchOn(t, root, ".")
+	waitLive(t, p.watchers, 1)
+
+	w.send("c1", "workspace.close", root, "{}", nil)
+	// The close's response and the stopped event arrive in either order.
+	var stopped *event.Event
+	closed := false
+	for !closed || stopped == nil {
+		f := w.must("the close's frames")
+		switch {
+		case f.Event != nil:
+			if f.SubscriptionID != sub {
+				t.Fatalf("an event frame names %q; want the watch's subscription", f.SubscriptionID)
+			}
+			stopped = f.Event
+		case f.ID == "c1":
+			if f.Error != nil {
+				t.Fatalf("workspace.close: %+v", f.Error)
+			}
+			closed = true
+		default:
+			t.Fatalf("an unexpected frame: %+v", f)
+		}
+	}
+	if stopped.Topic != "file.changes" || stopped.Type != "stopped" {
+		t.Fatalf("the close delivered %+v; want file.changes/stopped", stopped)
+	}
+	var sp struct {
+		Path   string `json:"path"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(stopped.Payload, &sp); err != nil {
+		t.Fatal(err)
+	}
+	if sp.Path != "." || sp.Reason != "workspaceClosed" {
+		t.Fatalf("the stopped payload is %+v; want path \".\" and reason workspaceClosed", sp)
+	}
+
+	// Nothing follows stopped, and no poller is left.
+	if f, ok := w.next(300 * time.Millisecond); ok {
+		t.Fatalf("a frame after stopped: %+v", f)
+	}
+	waitLive(t, p.watchers, 0)
+	// The subscription stays open, listed by the session, until the session ends.
+	if n := p.bus.Subscriptions(); n != 1 {
+		t.Errorf("the bus holds %d subscriptions after the close; the watch's stays until the session ends", n)
+	}
+}
+
+// TestFileWatchNeedsASession: file.watch is streaming, so through plain HTTP, a CLI call
+// and the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET /v1/ws, with
+// no operation (plan m1j step 4 (a); ADR-0010). The MCP adapter lists no file.watch tool
+// (TestMCPTranscript).
+func TestFileWatchNeedsASession(t *testing.T) {
+	t.Parallel()
+	p, _ := startHTTP(t, "127.0.0.1:0")
+	port := portOf(t, p.d.HTTPAddr())
+	params := `{"path":"."}`
+	want := func(what string, env capability.ResponseEnvelope) {
+		t.Helper()
+		if env.Error == nil || env.Error.Code != capability.ErrSessionRequired || env.Operation != nil || env.Result != nil ||
+			!strings.Contains(env.Error.NextStep, "GET /v1/ws") {
+			t.Errorf("%s: %+v (error %+v); want SESSION_REQUIRED naming GET /v1/ws, no operation, no result", what, env, env.Error)
+		}
+	}
+
+	resp := callRequest(port, p.token, `{"id":"w","capability":"file.watch","params":`+params+`}`).send(t, p.d.HTTPAddr())
+	if resp.StatusCode != 200 {
+		t.Errorf("POST /v1/call file.watch: %d; want 200 with an envelope", resp.StatusCode)
+	}
+	want("POST /v1/call file.watch", envelopeOf(t, resp))
+
+	env, code := p.call(t, "file.watch", "--params", params)
+	if code == 0 {
+		t.Error("droidyard call file.watch exited 0")
+	}
+	want("droidyard call file.watch", env)
+
+	out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "file.watch", Params: json.RawMessage(params), Client: capability.ClientMCP})
+	var e *capability.Error
+	if !errors.As(err, &e) || e.Code != capability.ErrSessionRequired || out.OperationID != "" {
+		t.Errorf("file.watch as client mcp: (%+v, %v); want SESSION_REQUIRED", out, err)
+	}
+	if n := p.bus.Subscriptions(); n != 0 {
+		t.Errorf("the rejected calls left %d subscriptions on the bus", n)
+	}
+}
+
+// waitLive waits for the daemon's live poller count to reach want.
+func waitLive(t *testing.T, ws *file.Watchers, want int) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if ws.Live() == want {
+			return
+		}
+	}
+	t.Fatalf("the live poller count is %d; want %d", ws.Live(), want)
 }

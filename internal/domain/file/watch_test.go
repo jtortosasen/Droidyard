@@ -1,0 +1,624 @@
+package file
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
+)
+
+// newWatchFixture is the read/write fixture with the daemon's bus, a poller set and a
+// session, and a short poll tick so a watch the handler starts actually ticks (plan m1j
+// step 4). The manual-tick tests do not need it; the poller tests use a long tick.
+func newWatchFixture(t *testing.T) *fixture { return newWatchFixtureTick(t, 5*time.Millisecond) }
+
+func newWatchFixtureTick(t *testing.T, tick time.Duration) *fixture {
+	t.Helper()
+	bus := event.New(event.Options{})
+	ws := NewWatchers()
+	f := newFixtureWith(t, func(o *Options) { o.Bus = bus; o.Watchers = ws; o.Tick = tick })
+	f.bus, f.watchers = bus, ws
+	f.sess = event.NewSession(bus, "ses-watch")
+	return f
+}
+
+func (f *fixture) mkdir(rel string) {
+	f.t.Helper()
+	if err := os.MkdirAll(filepath.Join(f.root, filepath.FromSlash(rel)), 0o755); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func (f *fixture) remove(rel string) {
+	f.t.Helper()
+	if err := os.Remove(filepath.Join(f.root, filepath.FromSlash(rel))); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// watchCall runs file.watch's handler with the given session (nil for no session) and
+// workspace ws.
+func (f *fixture) watchCall(sess *event.Session, params WatchParams) (WatchResult, *capability.Error) {
+	f.t.Helper()
+	d, ok := f.reg.Lookup("file.watch")
+	if !ok {
+		f.t.Fatal("file.watch is not registered")
+	}
+	res, err := d.Handler(context.Background(), &capability.Call{Workspace: "ws", OperationID: "op-watch", Params: params, Session: sess})
+	if err != nil {
+		return WatchResult{}, capability.AsError(err)
+	}
+	return res.(WatchResult), nil
+}
+
+// startManualWatch walks rel as the baseline and returns the watcher, its subscription
+// and the session, so a test drives the poll with tickOnce rather than a ticker.
+func (f *fixture) startManualWatch(rel string) (*watcher, *event.Subscription, *event.Session) {
+	f.t.Helper()
+	sess := event.NewSession(f.bus, "ses-manual")
+	root, err := os.OpenRoot(f.root)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	w := &watcher{
+		watchers: f.watchers, bus: f.bus, root: root, rel: rel,
+		workspace: "ws", operation: "op-manual", tick: time.Hour,
+		stop: make(chan string, 1),
+	}
+	id, sub, err := sess.Open([]string{TopicFileChanges}, func() { w.requestStop("") })
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	w.sub = sub
+	base, _, cerr := w.walk(root.FS(), rel)
+	if cerr != nil {
+		f.t.Fatal(cerr)
+	}
+	w.baseline = base
+	f.watchers.add(w)
+	f.t.Cleanup(func() {
+		w.requestStop("")
+		sess.Unsubscribe(id)
+		f.watchers.remove(w)
+	})
+	return w, sub, sess
+}
+
+// drainEvents takes everything the subscription holds now.
+func drainEvents(s *event.Subscription) []event.Event {
+	var out []event.Event
+	for {
+		e, ok := s.TryNext()
+		if !ok {
+			return out
+		}
+		out = append(out, e)
+	}
+}
+
+// oneChanges is the single changes event a tick published, decoded.
+func oneChanges(t *testing.T, sub *event.Subscription) ChangesPayload {
+	t.Helper()
+	got := drainEvents(sub)
+	if len(got) != 1 {
+		t.Fatalf("the tick published %d events; want one changes event", len(got))
+	}
+	if got[0].Topic != TopicFileChanges || got[0].Type != TypeChanges {
+		t.Fatalf("the event is %s/%s; want file.changes/changes", got[0].Topic, got[0].Type)
+	}
+	var p ChangesPayload
+	if err := json.Unmarshal(got[0].Payload, &p); err != nil {
+		t.Fatalf("the payload: %v", err)
+	}
+	return p
+}
+
+func kinds(changes []FileChange) map[string]string {
+	m := map[string]string{}
+	for _, c := range changes {
+		m[c.Path] = c.Kind
+	}
+	return m
+}
+
+// TestWatchTickReportsCreatedModifiedDeleted: a tick publishes only what changed since
+// the last walk — an entry that appeared is created, one whose size or modification time
+// differs is modified, one that vanished is deleted — and a tick with no change publishes
+// nothing at all (plan m1j, D7: "empty is a fact").
+func TestWatchTickReportsCreatedModifiedDeleted(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "one")
+	w, sub, _ := f.startManualWatch("w")
+
+	w.tickOnce()
+	if got := drainEvents(sub); len(got) != 0 {
+		t.Fatalf("a tick with no change published %d events", len(got))
+	}
+
+	f.write("w/b.txt", "two")
+	w.tickOnce()
+	switch p := oneChanges(t, sub); {
+	case p.Path != "w" || p.Truncated:
+		t.Errorf("the changes payload is %+v; want path \"w\" and no truncation", p)
+	case len(p.Changes) != 1 || kinds(p.Changes)["w/b.txt"] != "created":
+		t.Errorf("a new file reported %+v; want w/b.txt created", p.Changes)
+	}
+
+	// Grow a.txt, so the size differs: the mtime is not relied on.
+	f.write("w/a.txt", "one-and-a-bit")
+	w.tickOnce()
+	switch p := oneChanges(t, sub); {
+	case len(p.Changes) != 1 || kinds(p.Changes)["w/a.txt"] != "modified":
+		t.Errorf("a grown file reported %+v; want w/a.txt modified", p.Changes)
+	}
+
+	f.remove("w/b.txt")
+	w.tickOnce()
+	switch p := oneChanges(t, sub); {
+	case len(p.Changes) != 1 || kinds(p.Changes)["w/b.txt"] != "deleted":
+		t.Errorf("a removed file reported %+v; want w/b.txt deleted", p.Changes)
+	}
+}
+
+// TestWatchTickSeesANewDirectory: a new directory holding two files is three created
+// entries in one event, the directory first by name (plan m1j step 4 (a)).
+func TestWatchTickSeesANewDirectory(t *testing.T) {
+	f := newWatchFixture(t)
+	f.mkdir("d")
+	w, sub, _ := f.startManualWatch("d")
+
+	f.write("d/sub/f1", "1")
+	f.write("d/sub/f2", "2")
+	w.tickOnce()
+	p := oneChanges(t, sub)
+	got := kinds(p.Changes)
+	want := map[string]string{"d/sub": "created", "d/sub/f1": "created", "d/sub/f2": "created"}
+	if len(got) != len(want) {
+		t.Fatalf("the new directory reported %+v; want %+v", got, want)
+	}
+	for path, kind := range want {
+		if got[path] != kind {
+			t.Errorf("%s is %q; want %q", path, got[path], kind)
+		}
+	}
+}
+
+// TestWatchTickSeesARenameAsDeleteAndCreate: a rename is a deletion and a creation, not
+// a move: the walk records paths, not inodes (plan m1j step 4 (a)).
+func TestWatchTickSeesARenameAsDeleteAndCreate(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("r/old.txt", "x")
+	w, sub, _ := f.startManualWatch("r")
+
+	if err := os.Rename(filepath.Join(f.root, "r", "old.txt"), filepath.Join(f.root, "r", "new.txt")); err != nil {
+		t.Fatal(err)
+	}
+	w.tickOnce()
+	got := kinds(oneChanges(t, sub).Changes)
+	if got["r/old.txt"] != "deleted" || got["r/new.txt"] != "created" || len(got) != 2 {
+		t.Errorf("a rename reported %+v; want r/old.txt deleted and r/new.txt created", got)
+	}
+}
+
+// TestWatchExclusions: the walk records nothing under .git, .gradle, a build directory
+// beside a build.gradle.kts, or a file.write temporary name, but a source package named
+// build is kept (plan m1j, D7 and review B4's sibling: exclusion is by rule, not by a
+// name anywhere). The baseline a test reads is the walk's own record.
+func TestWatchExclusions(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("x/real.txt", "keep")
+	f.write("x/.git/objects/o", "no")
+	f.write("x/.gradle/cache/c", "no")
+	f.mkdir("x/.idea")
+	f.write("x/app/build.gradle.kts", "plugins {}")
+	f.write("x/app/build/output/t", "no")
+	f.write("x/app/src/main/java/a/build/X.java", "keep")
+	f.write("x/.notes.droidyard-01234567.tmp", "no")
+
+	w := &watcher{root: mustOpenRoot(t, f.root)}
+	defer w.root.Close()
+	base, truncated, cerr := w.walk(w.root.FS(), "x")
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if truncated {
+		t.Fatal("the walk was truncated")
+	}
+	for _, keep := range []string{"x/real.txt", "x/app/build.gradle.kts", "x/app/src/main/java/a/build/X.java"} {
+		if _, ok := base[keep]; !ok {
+			t.Errorf("the walk recorded nothing for %s; want it kept", keep)
+		}
+	}
+	for _, gone := range []string{"x/.git", "x/.git/objects", "x/.git/objects/o", "x/.gradle", "x/.gradle/cache/c", "x/.idea", "x/app/build", "x/app/build/output/t", "x/.notes.droidyard-01234567.tmp"} {
+		if _, ok := base[gone]; ok {
+			t.Errorf("the walk recorded %s; want it excluded", gone)
+		}
+	}
+}
+
+func mustOpenRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// TestWatchRecordsASymlinkWithoutWalkingIt: a symlink is one entry of type symlink and
+// the walk never descends it, so esc -> /etc adds nothing under esc (plan m1j, D7).
+func TestWatchRecordsASymlinkWithoutWalkingIt(t *testing.T) {
+	f := newWatchFixture(t)
+	_, _, _ = f.startManualWatch(".")
+	w := &watcher{root: mustOpenRoot(t, f.root)}
+	defer w.root.Close()
+	base, _, cerr := w.walk(w.root.FS(), ".")
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if got, ok := base["esc"]; !ok || got.typ != "symlink" {
+		t.Fatalf("esc is %+v; want one symlink entry", got)
+	}
+	for p := range base {
+		if strings.HasPrefix(p, "esc/") {
+			t.Errorf("the walk descended esc: it recorded %s", p)
+		}
+		if strings.HasPrefix(p, "in/") {
+			t.Errorf("the walk descended the in-root symlink in: it recorded %s", p)
+		}
+	}
+}
+
+// TestWatchWalkIsCapped: a directory of 20001 entries is watched as 20000 with truncated
+// true, and the walk is timed for the plan's evidence (plan m1j, D7 and the Unverified
+// row "a 1 s walk of 20 000 entries is cheap").
+func TestWatchWalkIsCapped(t *testing.T) {
+	f := newWatchFixtureTick(t, time.Hour) // no ticker: only the baseline walks
+	f.mkdir("big")
+	for i := 0; i < 20001; i++ {
+		name := filepath.Join(f.root, "big", "f"+pad(i)+".txt")
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := f.watchCall(f.sess, WatchParams{Path: "big"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Watched != 20000 || !res.Truncated {
+		t.Fatalf("a 20001-entry directory watched %d entries (truncated %v); want 20000 and truncated", res.Watched, res.Truncated)
+	}
+
+	w := &watcher{root: mustOpenRoot(t, f.root)}
+	defer w.root.Close()
+	start := time.Now()
+	base, truncated, cerr := w.walk(w.root.FS(), "big")
+	elapsed := time.Since(start)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if len(base) != 20000 || !truncated {
+		t.Fatalf("the walk recorded %d entries (truncated %v); want 20000 and truncated", len(base), truncated)
+	}
+	t.Logf("a 20000-entry walk took %v (plan m1j, the Unverified timing row)", elapsed)
+}
+
+func pad(i int) string {
+	s := "00000"
+	d := []byte(s)
+	for j := len(d) - 1; j >= 0 && i > 0; j-- {
+		d[j] = byte('0' + i%10)
+		i /= 10
+	}
+	return string(d)
+}
+
+// TestWatchCappedTickReportsNoDeletion: when a tick's walk is truncated, the entries the
+// cap pushed out are not deletions — the event is truncated and names no deletion (plan
+// m1j, D7 and review B4). The mutation that reports them fails here.
+func TestWatchCappedTickReportsNoDeletion(t *testing.T) {
+	f := newWatchFixture(t)
+	f.mkdir("big")
+	for i := 0; i < 20000; i++ {
+		name := filepath.Join(f.root, "big", "f"+pad(i)+".txt")
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, sub, _ := f.startManualWatch("big")
+
+	// A file that sorts before every fNNNNN.txt, so it enters the walk early and pushes
+	// the last entry past the cap.
+	if err := os.WriteFile(filepath.Join(f.root, "big", "f-0000.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.tickOnce()
+	p := oneChanges(t, sub)
+	if !p.Truncated {
+		t.Errorf("a capped walk's event is not truncated: %+v", p)
+	}
+	for _, c := range p.Changes {
+		if c.Kind == "deleted" {
+			t.Fatalf("a capped walk reported %s deleted; a cap is not a deletion", c.Path)
+		}
+	}
+	if kinds(p.Changes)["big/f-0000.txt"] != "created" {
+		t.Errorf("the new early file was not reported created: %+v", p.Changes)
+	}
+}
+
+// TestWatchChangeListIsCapped: more than 1000 changes in one tick are reported as 1000
+// with truncated true (plan m1j, D8).
+func TestWatchChangeListIsCapped(t *testing.T) {
+	f := newWatchFixture(t)
+	f.mkdir("c")
+	w, sub, _ := f.startManualWatch("c")
+
+	for i := 0; i < 1001; i++ {
+		if err := os.WriteFile(filepath.Join(f.root, "c", "f"+pad(i)+".txt"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.tickOnce()
+	p := oneChanges(t, sub)
+	if len(p.Changes) != 1000 || !p.Truncated {
+		t.Fatalf("1001 changes reported as %d (truncated %v); want 1000 and truncated", len(p.Changes), p.Truncated)
+	}
+	if !sort.SliceIsSorted(p.Changes, func(i, j int) bool { return p.Changes[i].Path < p.Changes[j].Path }) {
+		t.Error("the changes are not sorted by path")
+	}
+}
+
+// TestWatchHandlerResultAndErrors: file.watch returns a subscriptionId at once, and its
+// path errors are the ones its descriptor lists: FILE_NOT_FOUND for a missing directory,
+// FILE_WRONG_TYPE for a file (plan m1j, D7).
+func TestWatchHandlerResultAndErrors(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "x")
+
+	res, err := f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(res.SubscriptionID, "sub-") || res.Watched != 1 || res.Truncated {
+		t.Fatalf("a watch of a one-file directory: %+v; want a sub id watching 1", res)
+	}
+	if len(res.Excluded) == 0 {
+		t.Error("the result names no exclusions")
+	}
+	f.sess.Unsubscribe(res.SubscriptionID)
+	waitLive(t, f.watchers, 0)
+
+	_, err = f.watchCall(f.sess, WatchParams{Path: "missing"})
+	wantCode(t, err, capability.ErrFileNotFound)
+	_, err = f.watchCall(f.sess, WatchParams{Path: "w/a.txt"})
+	wantCode(t, err, capability.ErrFileWrongType)
+	_, err = f.watchCall(f.sess, WatchParams{Path: "../outside"})
+	wantCode(t, err, capability.ErrFileOutsideRoot)
+	_, err = f.watchCall(f.sess, WatchParams{Path: "a\x00b"})
+	wantCode(t, err, capability.ErrInvalidParams)
+}
+
+// TestWatchNeedsASession: file.watch is streaming, so a call without an event session is
+// SESSION_REQUIRED, and a registry without the daemon's bus answers the same rather than
+// panicking (plan m1j, D9; ADR-0010).
+func TestWatchNeedsASession(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "x")
+	_, err := f.watchCall(nil, WatchParams{Path: "w"})
+	wantCode(t, err, capability.ErrSessionRequired)
+
+	// The golden registry's descriptors have no bus: a watch still hears SESSION_REQUIRED
+	// even with a session, because it cannot publish.
+	g := newFixture(t)
+	g.sess = event.NewSession(event.New(event.Options{}), "ses-golden")
+	_, err = g.watchCall(g.sess, WatchParams{Path: "src"})
+	wantCode(t, err, capability.ErrSessionRequired)
+}
+
+// TestWatchCancelDuringTheBaselineWalk: a cancel that lands while the baseline walks
+// ends the subscription and starts no poller, so nothing outlives a cancelled operation
+// (plan m1j, D9). watchWalkHook holds the walk open until the test releases it.
+func TestWatchCancelDuringTheBaselineWalk(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "x")
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	watchWalkHook = func() {
+		once.Do(func() { close(entered) })
+		<-release
+	}
+	defer func() { watchWalkHook = nil }()
+
+	d, _ := f.reg.Lookup("file.watch")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.Handler(ctx, &capability.Call{Workspace: "ws", OperationID: "op-cancel", Params: WatchParams{Path: "w"}, Session: f.sess})
+		done <- err
+	}()
+	<-entered
+	cancel()
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("a cancelled watch returned no error")
+	}
+	waitLive(t, f.watchers, 0)
+	if f.sess.Len() != 0 {
+		t.Errorf("a cancelled watch left %d subscriptions on the session", f.sess.Len())
+	}
+	if f.bus.Subscriptions() != 0 {
+		t.Errorf("a cancelled watch left %d subscriptions on the bus", f.bus.Subscriptions())
+	}
+}
+
+// waitLive waits for the poller set's live count to reach want.
+func waitLive(t *testing.T, ws *Watchers, want int) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(2 * time.Millisecond) {
+		if ws.Live() == want {
+			return
+		}
+	}
+	t.Fatalf("the live poller count is %d; want %d", ws.Live(), want)
+}
+
+// TestWatchEndsWithItsSubscription: a watch started by the handler ends when its
+// subscription ends — events.unsubscribe of its id, or the session's end — so no poller
+// is left running (plan m1j, D9). The subscription's close hook is what stops it; the
+// mutation that leaves the poller running fails the live-poller assertion.
+func TestWatchEndsWithItsSubscription(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "x")
+	res, err := f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitLive(t, f.watchers, 1)
+
+	f.sess.Unsubscribe(res.SubscriptionID)
+	waitLive(t, f.watchers, 0)
+	if f.sess.Len() != 0 || f.bus.Subscriptions() != 0 {
+		t.Errorf("after the unsubscribe: %d session subscriptions, %d on the bus", f.sess.Len(), f.bus.Subscriptions())
+	}
+
+	// A session's end ends its watches the same way.
+	res, err = f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitLive(t, f.watchers, 1)
+	f.sess.Close()
+	waitLive(t, f.watchers, 0)
+	if f.sess.Len() != 0 || f.bus.Subscriptions() != 0 {
+		t.Errorf("after the session end: %d session subscriptions, %d on the bus", f.sess.Len(), f.bus.Subscriptions())
+	}
+}
+
+// TestWatchWorkspaceCloseStopsPollers: a workspace close stops every poller of that
+// workspace and each publishes stopped as its own last act, after which nothing follows
+// it; the subscription stays open until the session ends (plan m1j, D8, D9).
+func TestWatchWorkspaceCloseStopsPollers(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "x")
+	res, err := f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitLive(t, f.watchers, 1)
+
+	f.watchers.Stop("ws")
+	waitLive(t, f.watchers, 0)
+
+	sub, ok := f.sess.Subscription(res.SubscriptionID)
+	if !ok {
+		t.Fatal("the subscription ended with the workspace close; it must stay until the session ends")
+	}
+	got := drainEvents(sub)
+	if len(got) != 1 || got[0].Type != TypeStopped {
+		t.Fatalf("the workspace close delivered %+v; want one stopped event", got)
+	}
+	var sp StoppedPayload
+	if err := json.Unmarshal(got[0].Payload, &sp); err != nil {
+		t.Fatal(err)
+	}
+	if sp.Reason != ReasonWorkspaceClosed || sp.Path != "w" {
+		t.Errorf("the stopped payload is %+v; want reason %q and path \"w\"", sp, ReasonWorkspaceClosed)
+	}
+	if e, ok := sub.TryNext(); ok {
+		t.Errorf("a frame followed stopped: %+v", e)
+	}
+
+	f.sess.Close()
+	if f.sess.Len() != 0 || f.bus.Subscriptions() != 0 {
+		t.Errorf("after the session end: %d session subscriptions, %d on the bus", f.sess.Len(), f.bus.Subscriptions())
+	}
+}
+
+// TestWatchEventCarriesTheCallIdentity: a change event names the workspace and, as
+// operation, the file.watch call's id (plan m1j, D8).
+func TestWatchEventCarriesTheCallIdentity(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "x")
+	res, err := f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, ok := f.sess.Subscription(res.SubscriptionID)
+	if !ok {
+		t.Fatal("the result named an unknown subscription")
+	}
+	f.write("w/b.txt", "y")
+	var e event.Event
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if e, ok = sub.TryNext(); ok {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if e.Topic != TopicFileChanges {
+		t.Fatalf("no file.changes event arrived (got %+v)", e)
+	}
+	if e.Operation != "op-watch" || e.Workspace == nil || *e.Workspace != "ws" {
+		t.Errorf("the event carries operation %q and workspace %v; want op-watch and ws", e.Operation, e.Workspace)
+	}
+	f.sess.Close()
+}
+
+// Decision (m1j §Changes, step 4 B1; capability-api.md §Empty is a fact): a watched
+// directory that disappears has every entry reported deleted, then the watch stops with
+// reason pathGone; a tick never takes a failed walk for "nothing changed".
+func TestWatchTickReportsAGoneDirectory(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "a")
+	f.write("w/b.txt", "b")
+	w, sub, _ := f.startManualWatch("w")
+	if err := os.RemoveAll(filepath.Join(f.root, "w")); err != nil {
+		t.Fatal(err)
+	}
+	w.tickOnce()
+	got := oneChanges(t, sub)
+	if len(got.Changes) != 2 || got.Changes[0].Kind != "deleted" || got.Changes[1].Kind != "deleted" {
+		t.Fatalf("a removed watch path reported %+v; want a.txt and b.txt deleted", got.Changes)
+	}
+	select {
+	case reason := <-w.stop:
+		if reason != ReasonPathGone {
+			t.Fatalf("stop reason %q; want %q", reason, ReasonPathGone)
+		}
+	default:
+		t.Fatal("the watch was not stopped after its path disappeared")
+	}
+}
+
+// Decision (step 4 B1): a subdirectory a tick cannot read keeps its last known entries,
+// unchanged, and the rest of the tree is still reported.
+func TestWatchTickKeepsAnUnreadableSubdirectory(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads a mode-000 directory")
+	}
+	f := newWatchFixture(t)
+	f.write("w/sub/x.txt", "x")
+	w, sub, _ := f.startManualWatch("w")
+	locked := filepath.Join(f.root, "w", "sub")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	f.write("w/c.txt", "c")
+	w.tickOnce()
+	got := oneChanges(t, sub)
+	if len(got.Changes) != 1 || got.Changes[0].Path != "w/c.txt" || got.Changes[0].Kind != "created" {
+		t.Fatalf("with w/sub unreadable the tick reported %+v; want only w/c.txt created", got.Changes)
+	}
+}

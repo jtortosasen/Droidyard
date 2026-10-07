@@ -191,21 +191,46 @@ func (s *Session) Close() {
 	}
 }
 
-// subscribe opens a subscription that belongs to the session. The registration with
-// the bus happens under the session's lock, so a Close cannot slip between the check
-// and the registration and leave a subscription nobody owns.
+// Subscribe opens a subscription that belongs to the session, as events.subscribe
+// does. The registration with the bus happens under the session's lock, so a Close
+// cannot slip between the check and the registration and leave a subscription nobody
+// owns.
 func (s *Session) subscribe(topics []string, since *Position) (string, error) {
+	id, _, err := s.open(topics, since, nil)
+	return id, err
+}
+
+// Open opens a subscription that belongs to the session for a capability that carries
+// its own stream (plan m1j, file.watch): it returns the id and the subscription the
+// stream is delivered to. onClose, when not nil, runs exactly once when the
+// subscription ends, with no lock held, so a poller's stop hook never waits under
+// bus.mu (D9). The subscription registers like one events.subscribe makes, so it ends
+// with the session and events.unsubscribe can end it.
+func (s *Session) Open(topics []string, onClose func()) (string, *Subscription, error) {
+	return s.open(topics, nil, onClose)
+}
+
+// open is subscribe with the close hook and the subscription itself exposed.
+func (s *Session) open(topics []string, since *Position, onClose func()) (string, *Subscription, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return "", capability.Errorf(capability.ErrSessionRequired, "the session has ended")
+		return "", nil, capability.Errorf(capability.ErrSessionRequired, "the session has ended")
 	}
 	var b [8]byte
 	rand.Read(b[:]) // never returns an error (crypto/rand, Go 1.24)
 	id := "sub-" + hex.EncodeToString(b[:])
-	s.subs[id] = s.bus.subscribe(topics, since, s.queue)
-	return id, nil
+	sub := s.bus.subscribe(topics, since, s.queue)
+	// The hook is set before the id is in the map, so a Close that collects this
+	// subscription also sees the hook (both happen under s.mu).
+	sub.onClose = onClose
+	s.subs[id] = sub
+	return id, sub, nil
 }
+
+// Unsubscribe ends one of the session's own subscriptions, as events.unsubscribe does.
+// A file.watch handler calls it to clean up a watch it will not return an id for.
+func (s *Session) Unsubscribe(id string) { s.unsubscribe(id) }
 
 // unsubscribe ends one of the session's own subscriptions. An id it does not own,
 // another session's included, is not found here, and nothing happens: there is no
@@ -220,9 +245,14 @@ func (s *Session) unsubscribe(id string) {
 	}
 }
 
-// sessionOf is the session a call carries, when it can carry events. Start rejects a
-// call to a stateful or streaming capability without one; this is for a handler
-// called through some other path, and for a session of another kind.
+// SessionOf is the session a call carries, when it can carry events: what a handler
+// needs to open a subscription of its own (plan m1j, file.watch does). Start rejects a
+// call to a stateful or streaming capability without one, before the handler runs; a
+// handler reached through some other path, or with a session of another kind, still
+// gets SESSION_REQUIRED here rather than a panic.
+func SessionOf(call *capability.Call) (*Session, error) { return sessionOf(call) }
+
+// sessionOf is the session a call carries, when it can carry events.
 func sessionOf(call *capability.Call) (*Session, error) {
 	s, ok := call.Session.(*Session)
 	if !ok || s == nil {

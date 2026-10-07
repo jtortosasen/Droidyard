@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -263,6 +264,73 @@ func TestOnlyAnEventSessionCanSubscribe(t *testing.T) {
 	}
 	if f.bus.Subscriptions() != 0 {
 		t.Errorf("the bus holds %d subscriptions", f.bus.Subscriptions())
+	}
+}
+
+// TestOpenPutsADomainsStreamOnTheSession: Open registers a subscription the session
+// owns and returns it, so a domain capability can carry its own stream (plan m1j, D9).
+// It is the subscription events.unsubscribe ends and the session's end closes; its
+// close hook runs exactly once, with no lock held, so a hook that signals a poller (or
+// itself publishes) never waits under bus.mu.
+func TestOpenPutsADomainsStreamOnTheSession(t *testing.T) {
+	bus := New(Options{})
+	sess := NewSession(bus, "ses-x")
+
+	var runs atomic.Int64
+	hook := func() {
+		// The hook may itself publish: Close must have released bus.mu before running it.
+		bus.Publish("workspace.lifecycle", "x", "", "", nil)
+		runs.Add(1)
+	}
+	id, sub, err := sess.Open([]string{"file.changes"}, hook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(id, "sub-") || sess.Len() != 1 || bus.Subscriptions() != 1 {
+		t.Fatalf("Open gave id %q with %d session subscriptions and %d on the bus; want one sub- id", id, sess.Len(), bus.Subscriptions())
+	}
+
+	// The stream is delivered to this subscription alone, not to a topic subscriber.
+	bystander := bus.Subscribe([]string{"file.changes"}, nil)
+	bus.PublishTo(sub, "file.changes", "changes", "ws-1", "op-1", map[string]string{"p": "a"})
+	if got := drain(sub); len(got) != 1 || got[0].Topic != "file.changes" || got[0].Operation != "op-1" {
+		t.Fatalf("the domain subscription received %+v; want the one file.changes event", got)
+	}
+	if got := drain(bystander); len(got) != 0 {
+		t.Fatalf("a topic subscriber received %d events; PublishTo offers to the domain's subscription alone", len(got))
+	}
+
+	// events.unsubscribe ends it (the same path), running the hook once.
+	sess.Unsubscribe(id)
+	if runs.Load() != 1 || sess.Len() != 0 {
+		t.Fatalf("after Unsubscribe the hook ran %d times and the session holds %d; want 1 and 0", runs.Load(), sess.Len())
+	}
+	// The session's end must not run the hook a second time.
+	sess.Close()
+	if runs.Load() != 1 {
+		t.Errorf("the hook ran %d times; the close hook runs once", runs.Load())
+	}
+
+	// A session that has ended refuses a new subscription.
+	if _, _, err := sess.Open([]string{"file.changes"}, nil); err == nil {
+		t.Error("Open on an ended session succeeded")
+	}
+}
+
+// TestSessionOfReadsTheCallsSession: SessionOf returns the call's event session, and
+// SESSION_REQUIRED for a call whose session cannot carry events (plan m1j, D9).
+func TestSessionOfReadsTheCallsSession(t *testing.T) {
+	sess := NewSession(New(Options{}), "ses-y")
+	got, err := SessionOf(&capability.Call{Session: sess})
+	if err != nil || got != sess {
+		t.Fatalf("SessionOf of a call with an event session: (%v, %v); want the session", got, err)
+	}
+	for _, call := range []*capability.Call{{}, {Session: otherSession{}}} {
+		_, err := SessionOf(call)
+		var e *capability.Error
+		if !errors.As(err, &e) || e.Code != capability.ErrSessionRequired {
+			t.Errorf("SessionOf of a call without an event session: %v; want SESSION_REQUIRED", err)
+		}
 	}
 }
 
