@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Files block run 2026-10-07 (macOS, no device, OpenCode v2.0.18, the flavoured fixture) by step 3 of `docs/plans/m1j-files.md`, evidence `~/Library/Caches/droidyard-dev/m1j/l5-20261007-0612`.** Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -323,6 +323,28 @@ jq -c 'select(.method=="tools/call")|{id,n:.params.name,a:.params.arguments}' "$
 ```
 
 - Expect `tools=30`; `emulator_start` `adopted: false` with `bootMs`; `device_logs` `filter.by: uid` with `crashes[0]` `java.lang.IllegalStateException` / `droidyard fixture crash`; a follow from `since: "launch"` holding the `created` line; `emulator_wipe` and `emulator_stop` completed; `Pixel_9a`'s qemu pid, the adb server's pid and the owner AVDs' `userdata-qemu.img*` mtimes unchanged.
+
+**1j Files** (milestone 1j; its §Scratch rules apply: no device, emulator or `adb`; planted links only in scratch copies).
+
+```sh
+B=~/Library/Caches/droidyard-dev/m1j; export DROIDYARD_STATE_DIR=$B/state DROIDYARD_CONFIG_DIR=$B/config ADB=/usr/bin/false
+mkdir -p $B/outside; echo TOP-SECRET >$B/outside/secret      # outside/ holds secret and nothing else, ever
+cp -R sidecar/testdata/flavoured $B/flavoured; cp -R sidecar/testdata/flavoured $B/pristine; ln -s $B/outside $B/flavoured/escape
+echo "sdk.dir=$HOME/Library/Android/sdk" >$B/flavoured/local.properties
+"$DY" trust $B/flavoured; (cd / && "$DY" serve >"$E/serve.log" 2>&1 &)
+# OpenCode as in Real client, cwd $B/flavoured; opencode.jsonc (removed after) also sets
+#   "permission": {"bash":"deny","edit":"deny","read":"deny","list":"deny","glob":"deny","grep":"deny","webfetch":"deny"}
+# (check with `opencode debug agents`: shell, edit, read, list, glob, grep, webfetch resolve to "effect": "deny").
+# Prompt: list the app's Java sources, read MainActivity.java, add `droidyardMissing();` at the end of onCreate, build
+# paidStagingDebug, give the error's file and line, remove the statement, build until it succeeds.
+jq -c 'select(.method=="tools/call")|{id,n:.params.name}' "$E/wire.c2s.jsonl"
+diff -r -x build -x .gradle -x .kotlin -x .idea -x opencode.jsonc -x local.properties -x escape $B/flavoured $B/pristine
+"$DY" call file.read --workspace $B/flavoured --params '{"path":"escape/secret"}'         # FILE_OUTSIDE_ROOT
+"$DY" call file.write --workspace $B/flavoured --params '{"path":"escape/x","content":"x"}'  # FILE_OUTSIDE_ROOT; ls -A outside: secret
+"$DY" stop
+```
+
+- Expect `tools=33`; `file_list` down to the Java package, `file_read`, `file_write` with the statement, `build_assemble` `failed` with `errors[0]` `MainActivity.java` line 40 (inline in the result, so the agent need not call `build_errors`), `file_write` without it, `build_assemble` `success`; no call of OpenCode's own file or shell tools (its `execute` tool search is not one); the diff empty; no `*.droidyard-*.tmp`.
 
 ## Evidence
 
