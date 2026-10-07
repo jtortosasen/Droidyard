@@ -1,0 +1,5 @@
+INFO         | Loading snapshot 'default_boot'...
+WARNING      | Device 'encrypt' does not have the requested snapshot 'default_boot'
+WARNING      | Failed to load snapshot 'default_boot'
+USER_INFO    | The emulator is performing a cold boot without a saved state because there's no snapshot and you have configured it not to save on exit.
+INFO         | Saving snapshot 'default_boot' using 0 ms

@@ -1,0 +1,7 @@
+Recorded 2026-10-07 by the main session (milestone 1i step 1, spike S8) with the SDK's
+emulator 36.6.11 and adb 1.0.41 (36.0.0-13206524), ANDROID_AVD_HOME set to an isolated
+directory holding only the scratch AVD droidyard_m1i (android-31 google_apis arm64-v8a).
+list-avds.*: emulator -list-avds. second-launch.txt: a second -avd droidyard_m1i while it
+ran. unknown-avd.txt: -avd nope. emu-kill.txt / emu-avd-name.txt: adb -s <scratch> emu
+kill / emu avd name (CRLF as received). wipe-boot.txt: the launcher's lines for
+-wipe-data. Home paths rewritten to /h.

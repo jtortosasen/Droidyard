@@ -1,0 +1,4 @@
+ERROR        | Unknown AVD name [nope], use -list-avds to see valid list.
+ERROR        | ANDROID_AVD_HOME is defined but there is no file nope.ini in $ANDROID_AVD_HOME
+ERROR        | (Note: Directories are searched in the order $ANDROID_AVD_HOME, $ANDROID_SDK_HOME/avd and $HOME/.android/avd)
+exit 1

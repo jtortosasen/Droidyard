@@ -1,0 +1,218 @@
+         1791336910.842325  1000   536   584 I ActivityManager: Start proc 6406:dev.droidyard.flavoured.paid.staging/u0a146 for pre-top-activity {dev.droidyard.flavoured.paid.staging/dev.droidyard.flavoured.MainActivity}
+         1791336910.849349 10146  6406  6406 I ed.paid.stagin: Late-enabling -Xcheck:jni
+         1791336911.166556 10146  6406  6406 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10146; state: ENABLED
+         1791336911.247878 10146  6406  6406 V GraphicsEnvironment: ANGLE Developer option for 'dev.droidyard.flavoured.paid.staging' set to: 'default'
+         1791336911.247936 10146  6406  6406 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+         1791336911.259275 10146  6406  6406 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791336911.259485 10146  6406  6406 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791336911.285389 10146  6406  6406 I DroidyardFixture: created dev.droidyard.flavoured.paid.staging
+         1791336911.298187 10146  6406  6433 D libEGL  : loaded /vendor/lib64/egl/libEGL_emulation.so
+         1791336911.308504 10146  6406  6433 D libEGL  : loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+         1791336911.311047 10146  6406  6433 D libEGL  : loaded /vendor/lib64/egl/libGLESv2_emulation.so
+         1791336911.478841 10146  6406  6431 D HostConnection: createUnique: call
+         1791336911.479047 10146  6406  6431 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb8950850, tid 6431
+         1791336911.480532 10146  6406  6431 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791336911.504990 10146  6406  6431 W OpenGLRenderer: Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+         1791336911.505172 10146  6406  6431 W OpenGLRenderer: Failed to initialize 101010-2 format, error = EGL_SUCCESS
+         1791336911.505330 10146  6406  6431 D EGL_emulation: eglCreateContext: 0xb400007cb894ed50: maj 3 min 1 rcv 4
+         1791336911.506122 10146  6406  6431 D EGL_emulation: eglMakeCurrent: 0xb400007cb894ed50: ver 3 1 (tinfo 0x7ed57d5080) (first time)
+         1791336911.513196 10146  6406  6431 I Gralloc4: mapper 4.x is not supported
+         1791336911.513708 10146  6406  6431 D HostConnection: createUnique: call
+         1791336911.513797 10146  6406  6431 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb8950490, tid 6431
+         1791336911.513893 10146  6406  6431 D goldfish-address-space: allocate: Ask for block of size 0x100
+         1791336911.513982 10146  6406  6431 D goldfish-address-space: allocate: ioctl allocate returned offset 0x1f3ff8000 size 0x8000
+         1791336911.514732 10146  6406  6431 W Gralloc4: allocator 4.x is not supported
+         1791336911.521031 10146  6406  6431 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791336924.901717 10146  6406  6406 D AndroidRuntime: Shutting down VM
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: FATAL EXCEPTION: main
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: Process: dev.droidyard.flavoured.paid.staging, PID: 6406
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: java.lang.IllegalStateException: droidyard fixture crash
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at dev.droidyard.flavoured.MainActivity$1.onClick(MainActivity.java:35)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.view.View.performClick(View.java:7441)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.view.View.performClickInternal(View.java:7418)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.view.View.access$3700(View.java:835)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.view.View$PerformClick.run(View.java:28676)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:938)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.os.Looper.loopOnce(Looper.java:201)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:288)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at android.app.ActivityThread.main(ActivityThread.java:7839)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at java.lang.reflect.Method.invoke(Native Method)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:548)
+         1791336924.902678 10146  6406  6406 E AndroidRuntime: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1003)
+         1791336924.997984 10146  6406  6431 D EGL_emulation: app_time_stats: avg=1902.69ms min=8.65ms max=13162.14ms count=7
+         1791336925.014053 10146  6406  6406 I Process : Sending signal. PID: 6406 SIG: 9
+         1791336925.019320  1000   536   585 I libprocessgroup: Successfully killed process cgroup uid 10146 pid 6406 in 0ms
+         1791336951.998555  1000   536   584 I ActivityManager: Start proc 6874:dev.droidyard.flavoured.paid.staging/u0a146 for pre-top-activity {dev.droidyard.flavoured.paid.staging/dev.droidyard.flavoured.MainActivity}
+         1791336952.017316 10146  6874  6874 I ed.paid.stagin: Late-enabling -Xcheck:jni
+         1791336952.226609 10146  6874  6874 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10146; state: ENABLED
+         1791336952.264734 10146  6874  6874 V GraphicsEnvironment: ANGLE Developer option for 'dev.droidyard.flavoured.paid.staging' set to: 'default'
+         1791336952.264790 10146  6874  6874 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+         1791336952.265510 10146  6874  6874 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791336952.265793 10146  6874  6874 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791336952.275050 10146  6874  6874 I DroidyardFixture: created dev.droidyard.flavoured.paid.staging
+         1791336952.326011 10146  6874  6895 D libEGL  : loaded /vendor/lib64/egl/libEGL_emulation.so
+         1791336952.327336 10146  6874  6895 D libEGL  : loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+         1791336952.328518 10146  6874  6895 D libEGL  : loaded /vendor/lib64/egl/libGLESv2_emulation.so
+         1791336952.360828 10146  6874  6893 D HostConnection: createUnique: call
+         1791336952.360958 10146  6874  6893 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb894f710, tid 6893
+         1791336952.362148 10146  6874  6893 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791336952.363767 10146  6874  6893 W OpenGLRenderer: Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+         1791336952.363887 10146  6874  6893 W OpenGLRenderer: Failed to initialize 101010-2 format, error = EGL_SUCCESS
+         1791336952.364007 10146  6874  6893 D EGL_emulation: eglCreateContext: 0xb400007cb894eed0: maj 3 min 1 rcv 4
+         1791336952.364674 10146  6874  6893 D EGL_emulation: eglMakeCurrent: 0xb400007cb894eed0: ver 3 1 (tinfo 0x7ed572f080) (first time)
+         1791336952.394253 10146  6874  6893 I Gralloc4: mapper 4.x is not supported
+         1791336952.395028 10146  6874  6893 D HostConnection: createUnique: call
+         1791336952.395132 10146  6874  6893 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb894f650, tid 6893
+         1791336952.395328 10146  6874  6893 D goldfish-address-space: allocate: Ask for block of size 0x100
+         1791336952.395392 10146  6874  6893 D goldfish-address-space: allocate: ioctl allocate returned offset 0x1f3ff8000 size 0x8000
+         1791336952.396284 10146  6874  6893 W Gralloc4: allocator 4.x is not supported
+         1791336952.398452 10146  6874  6893 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791336954.574469 10146  6874  6874 F libc    : Fatal signal 11 (SIGSEGV), code 0 (SI_USER from pid 6903, uid 10146) in tid 6874 (ed.paid.staging), pid 6874 (ed.paid.staging)
+         1791336954.589998 10146  6907  6907 I crash_dump64: obtaining output fd from tombstoned, type: kDebuggerdTombstoneProto
+         1791336954.591316 10146  6907  6907 I crash_dump64: performing dump of process 6874 (target tid = 6874)
+         1791336954.593231 10146  6907  6907 E DEBUG   : failed to read /proc/uptime: Permission denied
+         1791336954.636942 10146  6907  6907 W unwind  : Failed to initialize DEX file support: dlopen failed: library "libdexfile.so" not found
+         1791336954.744701 10146  6907  6907 F DEBUG   : *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+         1791336954.744723 10146  6907  6907 F DEBUG   : Build fingerprint: 'google/sdk_gphone64_arm64/emulator64_arm64:12/SE1A.220630.001.A1/9056438:userdebug/dev-keys'
+         1791336954.744726 10146  6907  6907 F DEBUG   : Revision: '0'
+         1791336954.744727 10146  6907  6907 F DEBUG   : ABI: 'arm64'
+         1791336954.744731 10146  6907  6907 F DEBUG   : Timestamp: 2026-10-07 03:35:54.593115212+0200
+         1791336954.744732 10146  6907  6907 F DEBUG   : Process uptime: 0s
+         1791336954.744736 10146  6907  6907 F DEBUG   : Cmdline: dev.droidyard.flavoured.paid.staging
+         1791336954.744738 10146  6907  6907 F DEBUG   : pid: 6874, tid: 6874, name: ed.paid.staging  >>> dev.droidyard.flavoured.paid.staging <<<
+         1791336954.744740 10146  6907  6907 F DEBUG   : uid: 10146
+         1791336954.744741 10146  6907  6907 F DEBUG   : tagged_addr_ctrl: 0000000000000001
+         1791336954.744743 10146  6907  6907 F DEBUG   : signal 11 (SIGSEGV), code 0 (SI_USER from pid 6903, uid 10146), fault addr --------
+         1791336954.744748 10146  6907  6907 F DEBUG   :     x0  fffffffffffffffc  x1  0000007fef8214d0  x2  0000000000000010  x3  00000000ffffffff
+         1791336954.744750 10146  6907  6907 F DEBUG   :     x4  0000000000000000  x5  0000000000000008  x6  0000000000000000  x7  0000000000000000
+         1791336954.744752 10146  6907  6907 F DEBUG   :     x8  0000000000000016  x9  0000000000000000  x10 0000007cc8948000  x11 00000000000000e0
+         1791336954.744754 10146  6907  6907 F DEBUG   :     x12 0000000000000004  x13 0000000050395885  x14 0000007c244188fc  x15 0000000000000000
+         1791336954.744755 10146  6907  6907 F DEBUG   :     x16 0000007ecef38d40  x17 0000007ec942b080  x18 0000007eddbf8000  x19 b400007cd89588b0
+         1791336954.744757 10146  6907  6907 F DEBUG   :     x20 b400007cd8958958  x21 00000000ffffffff  x22 00000000ffffffff  x23 b400007cd89588b0
+         1791336954.744759 10146  6907  6907 F DEBUG   :     x24 000000007089eae0  x25 0000007edd82c000  x26 0000007edd82c000  x27 00000000000009df
+         1791336954.744761 10146  6907  6907 F DEBUG   :     x28 0000000000000004  x29 0000007fef8215e0
+         1791336954.744763 10146  6907  6907 F DEBUG   :     lr  0000007ecef35644  sp  0000007fef821490  pc  0000007ec9469598  pst 0000000060001000
+         1791336954.744765 10146  6907  6907 F DEBUG   : backtrace:
+         1791336954.744768 10146  6907  6907 F DEBUG   :       #00 pc 000000000009e598  /apex/com.android.runtime/lib64/bionic/libc.so (__epoll_pwait+8) (BuildId: ba489d4985c0cf173209da67405662f9)
+         1791336954.744770 10146  6907  6907 F DEBUG   :       #01 pc 0000000000016640  /system/lib64/libutils.so (android::Looper::pollInner(int)+180) (BuildId: a3acb0eba7fd91ea48db6f0befa41c65)
+         1791336954.744772 10146  6907  6907 F DEBUG   :       #02 pc 0000000000016524  /system/lib64/libutils.so (android::Looper::pollOnce(int, int*, int*, void**)+112) (BuildId: a3acb0eba7fd91ea48db6f0befa41c65)
+         1791336954.744799 10146  6907  6907 F DEBUG   :       #03 pc 000000000014ae0c  /system/lib64/libandroid_runtime.so (android::android_os_MessageQueue_nativePollOnce(_JNIEnv*, _jobject*, long, int)+44) (BuildId: db04fb413e0fca096fdfcb015acb2940)
+         1791336954.744801 10146  6907  6907 F DEBUG   :       #04 pc 000000000019c22c  /system/framework/arm64/boot-framework.oat (art_jni_trampoline+108) (BuildId: 56fb928acef1792118f6001991e3f57d774e28ed)
+         1791336954.744802 10146  6907  6907 F DEBUG   :       #05 pc 0000000000218964  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+548) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744805 10146  6907  6907 F DEBUG   :       #06 pc 0000000000284208  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+188) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744807 10146  6907  6907 F DEBUG   :       #07 pc 00000000003e34ac  /apex/com.android.art/lib64/libart.so (art::interpreter::ArtInterpreterToCompiledCodeBridge(art::Thread*, art::ArtMethod*, art::ShadowFrame*, unsigned short, art::JValue*)+400) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744808 10146  6907  6907 F DEBUG   :       #08 pc 00000000003de320  /apex/com.android.art/lib64/libart.so (bool art::interpreter::DoCall<false, false>(art::ArtMethod*, art::Thread*, art::ShadowFrame&, art::Instruction const*, unsigned short, art::JValue*)+804) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744810 10146  6907  6907 F DEBUG   :       #09 pc 0000000000756084  /apex/com.android.art/lib64/libart.so (MterpInvokeDirect+1036) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744814 10146  6907  6907 F DEBUG   :       #10 pc 0000000000203914  /apex/com.android.art/lib64/libart.so (mterp_op_invoke_direct+20) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744816 10146  6907  6907 F DEBUG   :       #11 pc 000000000044de32  /system/framework/framework.jar
+         1791336954.744817 10146  6907  6907 F DEBUG   :       #12 pc 000000000074d3e4  /apex/com.android.art/lib64/libart.so (MterpInvokeVirtual+3036) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744819 10146  6907  6907 F DEBUG   :       #13 pc 0000000000203814  /apex/com.android.art/lib64/libart.so (mterp_op_invoke_virtual+20) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744820 10146  6907  6907 F DEBUG   :       #14 pc 000000000044ce88  /system/framework/framework.jar
+         1791336954.744822 10146  6907  6907 F DEBUG   :       #15 pc 0000000000758274  /apex/com.android.art/lib64/libart.so (MterpInvokeStatic+2152) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744824 10146  6907  6907 F DEBUG   :       #16 pc 0000000000203994  /apex/com.android.art/lib64/libart.so (mterp_op_invoke_static+20) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744825 10146  6907  6907 F DEBUG   :       #17 pc 000000000044d60c  /system/framework/framework.jar
+         1791336954.744828 10146  6907  6907 F DEBUG   :       #18 pc 000000000075833c  /apex/com.android.art/lib64/libart.so (MterpInvokeStatic+2352) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744830 10146  6907  6907 F DEBUG   :       #19 pc 0000000000203994  /apex/com.android.art/lib64/libart.so (mterp_op_invoke_static+20) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744832 10146  6907  6907 F DEBUG   :       #20 pc 00000000001c879a  /system/framework/framework.jar
+         1791336954.744833 10146  6907  6907 F DEBUG   :       #21 pc 00000000003d6150  /apex/com.android.art/lib64/libart.so (art::interpreter::Execute(art::Thread*, art::CodeItemDataAccessor const&, art::ShadowFrame&, art::JValue, bool, bool)+304) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744835 10146  6907  6907 F DEBUG   :       #22 pc 000000000073b6b8  /apex/com.android.art/lib64/libart.so (artQuickToInterpreterBridge+776) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744837 10146  6907  6907 F DEBUG   :       #23 pc 0000000000222378  /apex/com.android.art/lib64/libart.so (art_quick_to_interpreter_bridge+88) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744839 10146  6907  6907 F DEBUG   :       #24 pc 0000000000218be8  /apex/com.android.art/lib64/libart.so (art_quick_invoke_static_stub+568) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744841 10146  6907  6907 F DEBUG   :       #25 pc 0000000000284224  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+216) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744843 10146  6907  6907 F DEBUG   :       #26 pc 000000000061e8f8  /apex/com.android.art/lib64/libart.so (_jobject* art::InvokeMethod<(art::PointerSize)8>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, _jobject*, _jobject*, unsigned long)+1384) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744844 10146  6907  6907 F DEBUG   :       #27 pc 000000000058fa68  /apex/com.android.art/lib64/libart.so (art::Method_invoke(_JNIEnv*, _jobject*, _jobject*, _jobjectArray*)+52) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744846 10146  6907  6907 F DEBUG   :       #28 pc 00000000000b2f74  /apex/com.android.art/javalib/arm64/boot.oat (art_jni_trampoline+132) (BuildId: 715d0a044ea13bcf499cd6094001f85c3246944e)
+         1791336954.744848 10146  6907  6907 F DEBUG   :       #29 pc 0000000000218964  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+548) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744850 10146  6907  6907 F DEBUG   :       #30 pc 0000000000284208  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+188) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744852 10146  6907  6907 F DEBUG   :       #31 pc 00000000003e34ac  /apex/com.android.art/lib64/libart.so (art::interpreter::ArtInterpreterToCompiledCodeBridge(art::Thread*, art::ArtMethod*, art::ShadowFrame*, unsigned short, art::JValue*)+400) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744854 10146  6907  6907 F DEBUG   :       #32 pc 00000000003de320  /apex/com.android.art/lib64/libart.so (bool art::interpreter::DoCall<false, false>(art::ArtMethod*, art::Thread*, art::ShadowFrame&, art::Instruction const*, unsigned short, art::JValue*)+804) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744856 10146  6907  6907 F DEBUG   :       #33 pc 000000000074cc98  /apex/com.android.art/lib64/libart.so (MterpInvokeVirtual+1168) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744858 10146  6907  6907 F DEBUG   :       #34 pc 0000000000203814  /apex/com.android.art/lib64/libart.so (mterp_op_invoke_virtual+20) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744859 10146  6907  6907 F DEBUG   :       #35 pc 00000000002480aa  /system/framework/framework.jar
+         1791336954.744861 10146  6907  6907 F DEBUG   :       #36 pc 00000000003d6150  /apex/com.android.art/lib64/libart.so (art::interpreter::Execute(art::Thread*, art::CodeItemDataAccessor const&, art::ShadowFrame&, art::JValue, bool, bool)+304) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744863 10146  6907  6907 F DEBUG   :       #37 pc 000000000073b6b8  /apex/com.android.art/lib64/libart.so (artQuickToInterpreterBridge+776) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744864 10146  6907  6907 F DEBUG   :       #38 pc 0000000000222378  /apex/com.android.art/lib64/libart.so (art_quick_to_interpreter_bridge+88) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744871 10146  6907  6907 F DEBUG   :       #39 pc 0000000000822968  /system/framework/arm64/boot-framework.oat (com.android.internal.os.ZygoteInit.main+2232) (BuildId: 56fb928acef1792118f6001991e3f57d774e28ed)
+         1791336954.744873 10146  6907  6907 F DEBUG   :       #40 pc 0000000000218be8  /apex/com.android.art/lib64/libart.so (art_quick_invoke_static_stub+568) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744875 10146  6907  6907 F DEBUG   :       #41 pc 0000000000284224  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+216) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744878 10146  6907  6907 F DEBUG   :       #42 pc 000000000061f050  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeWithVarArgs<art::ArtMethod*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, art::ArtMethod*, std::__va_list)+448) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744880 10146  6907  6907 F DEBUG   :       #43 pc 000000000061f514  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeWithVarArgs<_jmethodID*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, _jmethodID*, std::__va_list)+92) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744881 10146  6907  6907 F DEBUG   :       #44 pc 00000000004fa784  /apex/com.android.art/lib64/libart.so (art::JNI<true>::CallStaticVoidMethodV(_JNIEnv*, _jclass*, _jmethodID*, std::__va_list)+616) (BuildId: e6c658201ef1ec3760112fa1b838ab2c)
+         1791336954.744883 10146  6907  6907 F DEBUG   :       #45 pc 00000000000aeac4  /system/lib64/libandroid_runtime.so (_JNIEnv::CallStaticVoidMethod(_jclass*, _jmethodID*, ...)+120) (BuildId: db04fb413e0fca096fdfcb015acb2940)
+         1791336954.744885 10146  6907  6907 F DEBUG   :       #46 pc 00000000000ba05c  /system/lib64/libandroid_runtime.so (android::AndroidRuntime::start(char const*, android::Vector<android::String8> const&, bool)+836) (BuildId: db04fb413e0fca096fdfcb015acb2940)
+         1791336954.744887 10146  6907  6907 F DEBUG   :       #47 pc 000000000000258c  /system/bin/app_process64 (main+1336) (BuildId: 4ecb2c57d6667e4a94a73568ce392d22)
+         1791336954.744889 10146  6907  6907 F DEBUG   :       #48 pc 00000000000488c8  /apex/com.android.runtime/lib64/bionic/libc.so (__libc_init+96) (BuildId: ba489d4985c0cf173209da67405662f9)
+         1791336954.808267  1000   536   585 I libprocessgroup: Successfully killed process cgroup uid 10146 pid 6874 in 0ms
+         1791336973.313178  1000   536   584 I ActivityManager: Start proc 6988:dev.droidyard.flavoured.paid.staging/u0a146 for pre-top-activity {dev.droidyard.flavoured.paid.staging/dev.droidyard.flavoured.MainActivity}
+         1791336973.315925 10146  6988  6988 I ed.paid.stagin: Late-enabling -Xcheck:jni
+         1791336973.372576 10146  6988  6988 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10146; state: ENABLED
+         1791336973.402656 10146  6988  6988 V GraphicsEnvironment: ANGLE Developer option for 'dev.droidyard.flavoured.paid.staging' set to: 'default'
+         1791336973.402744 10146  6988  6988 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+         1791336973.405234 10146  6988  6988 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791336973.405801 10146  6988  6988 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791336973.434359 10146  6988  6988 I DroidyardFixture: created dev.droidyard.flavoured.paid.staging
+         1791336973.438133 10146  6988  7014 D libEGL  : loaded /vendor/lib64/egl/libEGL_emulation.so
+         1791336973.439031 10146  6988  7014 D libEGL  : loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+         1791336973.440271 10146  6988  7014 D libEGL  : loaded /vendor/lib64/egl/libGLESv2_emulation.so
+         1791336973.545136 10146  6988  7012 D HostConnection: createUnique: call
+         1791336973.547489 10146  6988  7012 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb894fdd0, tid 7012
+         1791336973.549517 10146  6988  7012 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791336973.572289 10146  6988  7012 W OpenGLRenderer: Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+         1791336973.575360 10146  6988  7012 W OpenGLRenderer: Failed to initialize 101010-2 format, error = EGL_SUCCESS
+         1791336973.578054 10146  6988  7012 D EGL_emulation: eglCreateContext: 0xb400007cb894eb10: maj 3 min 1 rcv 4
+         1791336973.579674 10146  6988  7012 D EGL_emulation: eglMakeCurrent: 0xb400007cb894eb10: ver 3 1 (tinfo 0x7ed57d5080) (first time)
+         1791336973.618580 10146  6988  7012 I Gralloc4: mapper 4.x is not supported
+         1791336973.619046 10146  6988  7012 D HostConnection: createUnique: call
+         1791336973.619259 10146  6988  7012 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb894eed0, tid 7012
+         1791336973.619392 10146  6988  7012 D goldfish-address-space: allocate: Ask for block of size 0x100
+         1791336973.619459 10146  6988  7012 D goldfish-address-space: allocate: ioctl allocate returned offset 0x1f3ff8000 size 0x8000
+         1791336973.626791 10146  6988  7012 W Gralloc4: allocator 4.x is not supported
+         1791336973.641293 10146  6988  7012 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791337013.237483  1000   536   585 I libprocessgroup: Successfully killed process cgroup uid 10146 pid 6988 in 0ms
+         1791337019.056531  1000   536   584 I ActivityManager: Start proc 7157:dev.droidyard.flavoured.paid.staging/u0a146 for pre-top-activity {dev.droidyard.flavoured.paid.staging/dev.droidyard.flavoured.MainActivity}
+         1791337019.068795 10146  7157  7157 I ed.paid.stagin: Late-enabling -Xcheck:jni
+         1791337019.141668 10146  7157  7157 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10146; state: ENABLED
+         1791337019.183513 10146  7157  7157 V GraphicsEnvironment: ANGLE Developer option for 'dev.droidyard.flavoured.paid.staging' set to: 'default'
+         1791337019.183607 10146  7157  7157 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+         1791337019.185173 10146  7157  7157 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791337019.185657 10146  7157  7157 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+         1791337019.190262 10146  7157  7157 I DroidyardFixture: created dev.droidyard.flavoured.paid.staging
+         1791337019.229219 10146  7157  7177 D libEGL  : loaded /vendor/lib64/egl/libEGL_emulation.so
+         1791337019.229677 10146  7157  7177 D libEGL  : loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+         1791337019.230628 10146  7157  7177 D libEGL  : loaded /vendor/lib64/egl/libGLESv2_emulation.so
+         1791337019.237869 10146  7157  7175 D HostConnection: createUnique: call
+         1791337019.246370 10146  7157  7175 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb894fdd0, tid 7175
+         1791337019.248449 10146  7157  7175 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791337019.257518 10146  7157  7175 W OpenGLRenderer: Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+         1791337019.257667 10146  7157  7175 W OpenGLRenderer: Failed to initialize 101010-2 format, error = EGL_SUCCESS
+         1791337019.280580 10146  7157  7175 D EGL_emulation: eglCreateContext: 0xb400007cb894eb10: maj 3 min 1 rcv 4
+         1791337019.288448 10146  7157  7175 D EGL_emulation: eglMakeCurrent: 0xb400007cb894eb10: ver 3 1 (tinfo 0x7ed57b6080) (first time)
+         1791337019.340645 10146  7157  7175 I Gralloc4: mapper 4.x is not supported
+         1791337019.341006 10146  7157  7175 D HostConnection: createUnique: call
+         1791337019.341124 10146  7157  7175 D HostConnection: HostConnection::get() New Host Connection established 0xb400007cb894eed0, tid 7175
+         1791337019.341411 10146  7157  7175 D goldfish-address-space: allocate: Ask for block of size 0x100
+         1791337019.341547 10146  7157  7175 D goldfish-address-space: allocate: ioctl allocate returned offset 0x1f3ff8000 size 0x8000
+         1791337019.342145 10146  7157  7175 W Gralloc4: allocator 4.x is not supported
+         1791337019.344382 10146  7157  7175 D HostConnection: HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_vulkan ANDROID_EMU_deferred_vulkan_commands ANDROID_EMU_vulkan_null_optional_strings ANDROID_EMU_vulkan_create_resources_with_requirements ANDROID_EMU_YUV_Cache ANDROID_EMU_vulkan_ignored_handles ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_vulkan_free_memory_sync ANDROID_EMU_vulkan_shader_float16_int8 ANDROID_EMU_vulkan_async_queue_submit ANDROID_EMU_vulkan_queue_submit_with_commands ANDROID_EMU_sync_buffer_data ANDROID_EMU_vulkan_async_qsri ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_color_transform GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+         1791337029.267909 10146  7157  7157 D AndroidRuntime: Shutting down VM
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: FATAL EXCEPTION: main
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: Process: dev.droidyard.flavoured.paid.staging, PID: 7157
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: java.lang.IllegalStateException: droidyard fixture crash
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at dev.droidyard.flavoured.MainActivity$1.onClick(MainActivity.java:35)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View.performClick(View.java:7441)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View.performClickInternal(View.java:7418)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View.access$3700(View.java:835)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.view.View$PerformClick.run(View.java:28676)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:938)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Looper.loopOnce(Looper.java:201)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:288)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at android.app.ActivityThread.main(ActivityThread.java:7839)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at java.lang.reflect.Method.invoke(Native Method)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:548)
+         1791337029.269993 10146  7157  7157 E AndroidRuntime: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1003)
+         1791337029.288482 10146  7157  7157 I Process : Sending signal. PID: 7157 SIG: 9
+         1791337029.294889  1000   536   585 I libprocessgroup: Successfully killed process cgroup uid 10146 pid 7157 in 0ms
+         1791337013.242085  root   331   331 I Zygote  : Process 6988 exited due to signal 9 (Killed)
+         1791337029.297487  root   331   331 I Zygote  : Process 7157 exited due to signal 9 (Killed)
