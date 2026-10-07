@@ -446,6 +446,12 @@ func servedPrefix(args []string) string {
 		return args[1] + ".sdk"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "window":
 		return args[1] + ".dumpsyswindow"
+	case len(args) == 6 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "window" && args[5] == "windows":
+		// The soft-keyboard guard's IME touchable region (plan m1n step 5, fix round L1).
+		return args[1] + ".dumpsyswindowwindows"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "input_method":
+		// The soft-keyboard guard's shown/not-shown read (plan m1n step 5, fix round L1).
+		return args[1] + ".dumpsysinputmethod"
 	case len(args) == 5 && args[2] == "install" && args[3] == "-r":
 		return args[1] + ".install"
 	case len(args) == 4 && args[2] == "uninstall":

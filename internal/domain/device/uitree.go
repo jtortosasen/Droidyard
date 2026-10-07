@@ -67,6 +67,12 @@ type UINode struct {
 	// (ui-automation.md §Resolution): the child drawn last covers its siblings. It is
 	// unexported on purpose, so it never reaches the published snapshot (plan m1f D22).
 	drawingOrder int
+
+	// hint is the node's `hint` from the dump (the reader writes it, plan m1n step 5): a
+	// field showing its hint reads back as the hint rather than as empty, so an acting
+	// request's read-back comparison treats a value equal to it as empty. Unexported on
+	// purpose, so it never reaches the published snapshot (plan m1f D22).
+	hint string
 }
 
 // NewSnapshotID returns a fresh id like "s-81c2ab34". The plan's D16 fixes the shape:
@@ -89,11 +95,11 @@ func NewSnapshotID() string {
 
 // rawNode is a parsed <node>, before compaction.
 type rawNode struct {
-	class, pkg, id, text, desc string
-	bounds                     [4]int
-	drawing                    int
-	flags                      []string
-	children                   []*rawNode
+	class, pkg, id, text, desc, hint string
+	bounds                           [4]int
+	drawing                          int
+	flags                            []string
+	children                         []*rawNode
 }
 
 // meaningful reports whether a node survives compaction: an id, text, desc or flag.
@@ -166,17 +172,21 @@ func nodeFromAttrs(attrs []xml.Attr) *rawNode {
 			n.text = a.Value
 		case "content-desc":
 			n.desc = a.Value
+		case "hint":
+			n.hint = a.Value
 		case "bounds":
 			n.bounds = parseBounds(a.Value)
 		case "drawing-order":
 			n.drawing, _ = strconv.Atoi(a.Value)
 		case "enabled":
 			enabled = a.Value != "false"
-		case "clickable", "scrollable", "checkable", "checked", "selected", "focused", "password":
+		case "clickable", "scrollable", "checkable", "checked", "selected", "focused", "password", "editable":
 			on[a.Name.Local] = a.Value == "true"
 		}
 	}
-	for _, f := range []string{"clickable", "scrollable", "checkable", "checked", "selected", "focused", "password"} {
+	// editable is written by the reader (plan m1n step 5, fix round L1), not by
+	// `uiautomator dump`, so a node read through the dump path never carries it.
+	for _, f := range []string{"clickable", "scrollable", "checkable", "checked", "selected", "focused", "password", "editable"} {
 		if on[f] {
 			n.flags = append(n.flags, f)
 		}
@@ -245,6 +255,7 @@ func buildSnapshot(dump []byte, id string, maxBytes int, within *AncestorSelecto
 		s.Nodes = append(s.Nodes, UINode{
 			Ref: "n" + strconv.Itoa(idx), Class: n.class, ID: n.id, Text: n.text,
 			Desc: n.desc, Bounds: n.bounds, Flags: n.flags, drawingOrder: n.drawing,
+			hint: n.hint,
 		})
 		depths = append(depths, depth)
 		if parent >= 0 {

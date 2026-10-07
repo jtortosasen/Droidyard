@@ -52,7 +52,8 @@ Snapshot
 │   ├── text, desc
 │   ├── bounds   [left, top, right, bottom], display pixels
 │   ├── flags    non-default only: clickable, scrollable, checkable, checked,
-│   │            selected, focused, password, disabled
+│   │            selected, focused, password, disabled, editable (persistent
+│   │            reader only)
 │   └── children the child nodes' refs ["n13", "n14"]
 ├── truncated
 └── emptyReason  noMatch (within matched nothing) | pruned | noAccessibilityInfo
@@ -151,7 +152,12 @@ contains) covers the MVP's cases, such as a counter reading "Likes: 1".
 
 1. **Before**: dump, resolve the target, and evaluate every condition against this
    tree. A condition that already holds is flagged **vacuous**.
-2. **Tap**: `input tap x y` in display pixels.
+2. **Tap**: through the persistent UI reader when it can run — an injected touch at the
+   display point ([ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md)) — and
+   `input tap x y` in display pixels when it cannot, or when the reader denied the request
+   before executing it. A tap the reader took but never answered is never repeated: the
+   call goes on to the settle and poll with a warning that the tap may have landed, since
+   a second tap could land twice.
 3. **Settle**: wait 300 ms, a constant (plan m1f D10).
 4. **Poll**: read again and again — each read starts at least 250 ms after the previous
    one started; a warm read takes tens of milliseconds, a fallback read 1–2 s — until every condition holds or
@@ -161,6 +167,21 @@ contains) covers the MVP's cases, such as a counter reading "Likes: 1".
 5. **Return.** With no `expect`: one read after the settle, for `foreground` and the
    optional tree, then return; the result omits `expect` rather than reporting a `matched`
    it never checked.
+
+Between the before read and the tap, the call checks the **soft keyboard**. When the before
+tree shows a focused editable node, `dumpsys input_method` reports `mInputShown=true`, and the
+IME window's touchable region (from `dumpsys window windows`) contains the target's tap point,
+the keyboard covers the target — a tap would land on a key. The call sends one BACK
+(`input keyevent 4`), re-reads the tree, re-resolves the same selector and re-chooses the
+point, and the result carries a warning saying the keyboard was hidden. If the point is still
+covered after BACK the call fails `DEVICE_ELEMENT_OFFSCREEN` naming the keyboard, having
+tapped nothing. A tree with no focused editable node, a keyboard reported not shown, or a
+region that cannot be read, behaves exactly as before this rule (nothing is hidden). Only the
+persistent reader's own dump carries the `editable` flag this needs, so on the `uiautomator`
+path the guard never runs. (Delegated, plan m1n step 5: found at level 5, where a target under
+the keyboard took a key press; the owner can revert it.) The focus wait after the focusing tap
+accepts only a focused node containing the tap point: a field elsewhere that keeps focus (the
+one just typed into) must not count.
 
 The defaults are starting values: spike S6 measures dump latency and the idle-failure
 rate on API 34–36 and sets them. The 20 s cap keeps `tapElement` a bounded,
@@ -212,33 +233,65 @@ read, and waits only for the dump lock.
 ## Typing: `device.inputText`
 
 ```text
-device.inputText {device, text, target?, clear?, submit?, expect?, timeoutMs?}
+device.inputText {device, text, target?, clear?, submit?, method?, expect?, timeoutMs?}
 ```
 
 - `target?` — a selector, the same vocabulary as `tapElement`. Omitted, the text goes
   to whatever holds focus.
 - `clear?` — empty the field first (select-all, delete), only meaningful with a target.
 - `submit?` — press ENTER after typing.
+- `method?` — `"auto"` (default) or `"keys"`: ask for key events instead of a set-text,
+  which a per-key field such as an OTP box needs.
 - `expect?` — the same assertion vocabulary, sequencing and timing as `tapElement`.
 - `timeoutMs?` — the poll window for `expect` (default 5000, maximum 20000).
 
-**Delivery**, chosen by the text itself, never by guesswork:
+**Delivery** goes through the persistent UI reader when it can run
+([ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md)), and the path is chosen
+before anything is tapped or typed, never by guesswork:
 
 | Text | Path | On failure |
 | --- | --- | --- |
-| Printable ASCII (space..~) | `input text`, single-quoted for the device shell, with spaces as `%s` and a literal `%s` split across two invocations | — |
-| Non-ASCII (CJK, emoji, newline, tab) | ADBKeyboard's `ADB_INPUT_B64` broadcast, when that IME is installed and selected | `DEVICE_TEXT_NOT_DELIVERABLE`, naming ADBKeyboard |
+| Any | `set_text` on the focused field — `replace` when `clear` is set, `insert` at the selection otherwise | a refused `ACTION_SET_TEXT` is retried as `keys` when the text is printable ASCII |
+| Printable ASCII, when `method: "keys"` is asked, or on a password field without `clear` | `keys` — the reader's virtual keyboard | — |
+| No reader, or the request denied before it executed: printable ASCII (space..~) | `input text`, single-quoted for the device shell, with spaces as `%s` and a literal `%s` split across two invocations | — |
+| No reader, or the request denied, and the text is non-ASCII | ADBKeyboard's `ADB_INPUT_B64` broadcast, when that IME is installed and selected | `DEVICE_TEXT_NOT_DELIVERABLE`, naming ADBKeyboard |
 
-Non-ASCII is **never silently mistyped**: without the IME the call fails and says what
-to install. The `method` in the result records which path was taken.
+`set_text` needs no installed IME, so any Unicode text is typed with nothing installed —
+ñ, CJK, an emoji. Only a `denied`, or an `ACTION_SET_TEXT` the field refused before
+executing anything, may lead to another method: once the reader has taken a request,
+another method could type the text twice. Non-ASCII on the non-reader path is **never
+silently mistyped**: without the IME the call fails and says what to install, and a
+`method: "keys"` text that is not printable ASCII fails the same way — the reader's virtual
+keyboard cannot map it — before anything is tapped or typed. With a
+`target`, the node is tapped once to focus it and, on the reader path, the call then waits
+until that node reports `focused` — a Compose field renders a frame later — before
+delivering; the non-reader path waits the fixed settle instead. The focusing tap takes the
+same soft-keyboard guard as `tapElement` (hide with BACK, re-read, re-resolve), so a field
+that sits under the keyboard is focused and typed into rather than the key above it, and a
+target the keyboard still covers after BACK fails `DEVICE_ELEMENT_OFFSCREEN` naming typing.
+When the focusing tap was taken by the reader but the field never reported focus, the call
+ends **completed** with a warning that nothing was typed.
 
-**Result**: `{typed, characters, method: "input_text" | "adbkeyboard", tapped?, expect?, warnings?}`.
+**Result**: `{typed, characters, method: "set_text" | "keys" | "input_text" | "adbkeyboard", tapped?, expect?, warnings?}`.
 `tapped` is the focused node when `target` was given. `expect` is the `tapElement`
 verification object and appears only when `expect` was given: its `matched` is the
-`matched` of this call, and an already-true condition is `vacuous`. `characters` is how
-many characters were typed: all of `text` on success, or the prefix that was delivered
-when a later chunk failed, which is a *completed* result with a warning, never an error:
-a retry would type the prefix again.
+`matched` of this call, and an already-true condition is `vacuous`. `characters` is what
+the field **read back**, not what was sent: the reader reads back the whole field, so an
+`insert` into a field that already held text reads back as that text followed by the new
+one — the field's own text is the prefix, a match counts only the delivered text, and the
+prefix is the node's text (read as empty when it equals the field's hint). An equal
+read-back counts the text, a differing one counts the field's own characters beyond the
+prefix and carries a warning quoting both, and
+it is **never retyped**, because a second set could type it twice. A password field's
+read-back is the platform's mask, so it is compared by length alone. On the non-reader
+path `characters` is the prefix that was delivered when a later chunk failed, which is a
+*completed* result with a warning, never an error: a retry would type the prefix again.
+
+**An acting request the reader took without answering** — a timeout, an EOF, a bound
+passed after execution began — ends the call **completed** with a warning that it may have
+applied; nothing is retyped and no other method is tried. A request the reader answered
+`busy` (its single acting thread still out on an earlier request) fails `DEVICE_NOT_READY`
+**before acting**, so a pending effect is never followed by a second delivery.
 
 **The rules shared with `tapElement` apply unchanged**: after typing, the call never
 returns an error because a check failed — `matched: false` is a *completed* call, since
@@ -246,8 +299,15 @@ an error would invite a retry and a retry types twice; and a check that was alre
 true before typing is flagged `vacuous`.
 
 **Errors**: `DEVICE_UI_DUMP_FAILED`, `DEVICE_ELEMENT_NOT_FOUND`, `DEVICE_ELEMENT_AMBIGUOUS`,
-`DEVICE_ELEMENT_OFFSCREEN`, `DEVICE_ELEMENT_DISABLED`, `DEVICE_STALE_REF`,
-`DEVICE_TEXT_NOT_DELIVERABLE`.
+`DEVICE_ELEMENT_OFFSCREEN` (including a target the soft keyboard still covers after BACK),
+`DEVICE_ELEMENT_DISABLED`, `DEVICE_STALE_REF`, `DEVICE_TEXT_NOT_DELIVERABLE` (undeliverable
+text, a `method: "keys"` text that is not printable ASCII, or a text over the reader's
+request-line cap), `REQUEST_INVALID_PARAMS` (a `keys` text the call's typing slot cannot
+cover, before it is sent), and `DEVICE_NOT_READY` when the reader's acting thread was busy,
+when the reader refused an acting request it could not parse (the daemon's request, not the
+call's; retrying the same call cannot help), or when the focusing tap did not take. (A tap request over the reader's length cap is also `DEVICE_NOT_READY`. A set-text or keys
+request over it means the text itself is too long to deliver, so `inputText` reports that
+refusal as `DEVICE_TEXT_NOT_DELIVERABLE` above.)
 
 ## Input primitives
 
@@ -261,10 +321,16 @@ these rules and the same `expect` vocabulary.
   entirely.
 - **Tree-derived actions work in display pixels**, because the tree's bounds are
   already in that space.
-- **Text**: `input text` takes printable ASCII, sent single-quoted with spaces as `%s`
-  (§Typing); non-ASCII (CJK, emoji) goes through the ADBKeyboard IME if
-  installed, otherwise the call is **refused with an install hint — never silently
-  mistyped**.
+- **Text goes through the persistent reader** when it can run: `set_text` (an
+  `ACTION_SET_TEXT` on the focused field) carries any Unicode text with nothing installed,
+  and `keys` types printable ASCII as virtual-keyboard events (§Typing). `input text` —
+  printable ASCII, single-quoted with spaces as `%s` — and the ADBKeyboard IME for
+  non-ASCII are the fallback, taken only when the reader cannot run or denied the request
+  before executing it; without the IME the call is **refused with an install hint — never
+  silently mistyped**.
+- **Taps go through the persistent reader too** when it can run; `input tap x y` is the
+  fallback, and a tap the reader took but never answered is never repeated (§Sequence and
+  timing).
 - **Rotation** pins `accelerometer_rotation=0` before setting `user_rotation`, so
   auto-rotate cannot fight an explicit value.
 - **Device actions** (notifications, quick settings, lock, wake, assistant) are plain
@@ -280,10 +346,17 @@ these rules and the same `expect` vocabulary.
 | Several targets | `DEVICE_ELEMENT_AMBIGUOUS` | Up to 10 candidates; `index` or a narrower selector resolves it |
 | Target off-screen | `DEVICE_ELEMENT_OFFSCREEN` | Its bounds and the display size |
 | Target covered by a node drawn above it, no visible strip left (D22) | `DEVICE_ELEMENT_OFFSCREEN` | The node and the covering node; nothing tapped. A partly covered target is tapped in its largest visible strip, with a warning |
+| Target whose tap point lies under the soft keyboard, still covered after one BACK | `DEVICE_ELEMENT_OFFSCREEN` | Names the keyboard; the tree was re-read and the target re-resolved first, and nothing was tapped |
+| `inputText`: the target the soft keyboard still covers after BACK | `DEVICE_ELEMENT_OFFSCREEN` | Names typing; nothing typed |
+| `inputText`: `method: "keys"` with non-ASCII text, or a password field without `clear` and non-ASCII text | `DEVICE_TEXT_NOT_DELIVERABLE` | The reader's virtual keyboard cannot map it; nothing tapped or typed |
+| `inputText`: a `keys` text the call's typing slot cannot cover | `REQUEST_INVALID_PARAMS` | Refused before the tap rather than sent and cut |
 | Target disabled | `DEVICE_ELEMENT_DISABLED` | The node |
 | Stale ref | `DEVICE_STALE_REF` | Candidates with the same text/desc |
 | No accessibility info | `DEVICE_ELEMENT_NOT_FOUND`, `emptyReason: noAccessibilityInfo` | Points at `device.screenshot`; OCR is post-v1 |
 | Expectation unmet | — (completed) | `matched: false` with `unmet` |
+| Reader's acting thread busy with an earlier request | `DEVICE_NOT_READY` | Nothing acted; a pending effect may still be applying (ADR-0035 §3) |
+| An acted request the reader took but never answered (timeout, EOF, bound passed) | — (completed) | A warning that it may have applied; nothing retyped, no other method tried (ADR-0020's 2026-10-06 line) |
+| `inputText`: the focusing tap the reader took but never answered and the field never reported focus | — (completed) | A warning that the tap may have landed; nothing typed |
 | `inputText`: the focusing tap overran the before phase, the input-method check failed, or the field could not be cleared | `DEVICE_NOT_READY` | Nothing typed; retry |
 | Cancelled once the tap or a typing command was issued | — (completed) | A warning that the effect may have landed; `expect.reason: cancelled` (D21) |
 

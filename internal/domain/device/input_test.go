@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -155,12 +156,15 @@ func TestInputTextEscapesForTheDeviceShell(t *testing.T) {
 	}
 }
 
-// Decision (plan m1f step 9, check; D8; reversal): non-ASCII without ADBKeyboard is
-// DEVICE_TEXT_NOT_DELIVERABLE naming the ime, with nothing tapped or typed. Seen failing
-// with deliverability checked after the tap (the tap would appear in calls.log).
-func TestInputTextNonASCIIWithoutADBKeyboardIsNotDeliverable(t *testing.T) {
+// Decision (plan m1f step 9, check; D8; reversal; plan m1n step 5): non-ASCII with no
+// reader that can run and no ADBKeyboard is DEVICE_TEXT_NOT_DELIVERABLE, decided before the
+// target is resolved and before anything is tapped or typed (the before read itself is what
+// starts the reader, so the ping that decides the path now comes after it, not before the
+// read). Seen failing with deliverability checked after the tap (the tap would appear in
+// calls.log).
+func TestNonASCIIRefusedWhenNothingCanDeliverIt(t *testing.T) {
 	quickAct(t)
-	f := newUIFixture(t, withPersistentReader(t, nil, tappable(tapNode("android.widget.EditText", "name", "old", ""))))
+	f := newUIFixture(t, nil)
 	out := f.inputCall(t, `{"device":"emulator-5554","text":"ñ","target":{"id":"name"}}`)
 	ce := mustFail(t, out, ErrTextNotDeliverable)
 	if !strings.Contains(ce.NextStep, "ADBKeyboard") {
@@ -212,7 +216,7 @@ func TestInputTextClearByAPILevel(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			quickAct(t)
 			doc := tappable(tapNode("android.widget.EditText", "name", "old", ""))
-			f := newUIFixture(t, withPersistentReader(t, map[string]string{uiSerial + ".sdk.out": c.sdk + "\n"}, doc))
+			f := newUIFixture(t, withReadOnlyReader(t, map[string]string{uiSerial + ".sdk.out": c.sdk + "\n"}, doc))
 			out := f.inputCall(t, `{"device":"emulator-5554","text":"x","target":{"id":"name"},"clear":true}`)
 			mustInput(t, out)
 			for _, want := range c.want {
@@ -344,7 +348,7 @@ func TestInputTextSecondChunkFailureIsPartial(t *testing.T) {
 func TestInputTextFocusesOnceAndNeverDumpsAfterTyping(t *testing.T) {
 	quickAct(t)
 	doc := tappable(tapNode("android.widget.EditText", "name", "old", ""))
-	f := newUIFixture(t, withPersistentReader(t, nil, doc, doc))
+	f := newUIFixture(t, withReadOnlyReader(t, nil, doc, doc))
 	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"},"expect":[{"appears":{"id":"name"}}]}`)
 	r := mustInput(t, out)
 	if r.Tapped == nil || r.Tapped.ID != "name" {
@@ -399,6 +403,9 @@ func TestInputTextCancelledAfterTheFirstChunkIsPartial(t *testing.T) {
 	doc := tappable(tapLike("Like"), tapLikes("Likes: 0"))
 	r := devicetest.StartReader(t, doc)
 	t.Cleanup(r.Close)
+	// The subject here is the cancelled `input text` chunk, not the reader's set_text, so
+	// the reader denies the act and the delivery takes the input-command path (Q1 ¶3).
+	r.SetActAnswers("droidyard-reader: denied 10123")
 	f := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":        "0",
 		uiSerial + ".start.out":        "",
@@ -1124,7 +1131,7 @@ func TestInputTextChunkNotSentWhenTheSlotEndedDuringClear(t *testing.T) {
 	defer func() { inputCommandTimeout = oldCmd }()
 
 	doc := tappable(tapNode("android.widget.EditText", "name", "old", ""))
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	f := newUIFixture(t, withReadOnlyReader(t, map[string]string{
 		uiSerial + ".sdk.out":            "34\n",
 		uiSerial + ".inputkeyevent.hang": "",
 		uiSerial + ".inputprobe.out":     probeGone,
@@ -1160,7 +1167,7 @@ func TestInputTextBroadcastNotSentWhenTheSlotEndedDuringClear(t *testing.T) {
 	defer func() { inputCommandTimeout = oldCmd }()
 
 	doc := tappable(tapNode("android.widget.EditText", "name", "old", ""))
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	f := newUIFixture(t, withReadOnlyReader(t, map[string]string{
 		uiSerial + ".sdk.out":            "34\n",
 		uiSerial + ".inputkeyevent.hang": "",
 		uiSerial + ".inputprobe.out":     probeGone,
@@ -1195,7 +1202,7 @@ func TestInputTextClearCommandNotSentWhenTheSlotEndedFirst(t *testing.T) {
 	defer func() { inputCommandTimeout = oldCmd }()
 
 	doc := tappable(tapNode("android.widget.EditText", "name", "old", ""))
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	f := newUIFixture(t, withReadOnlyReader(t, map[string]string{
 		uiSerial + ".sdk.out":                  "34\n",
 		uiSerial + ".inputkeycombination.hang": "",
 		uiSerial + ".inputprobe.out":           probeGone,
@@ -1227,7 +1234,7 @@ func TestInputTextClearStillRunningWarnsToWait(t *testing.T) {
 	defer func() { inputCommandTimeout = oldCmd }()
 
 	doc := tappable(tapNode("android.widget.EditText", "name", "old", ""))
-	f := newUIFixture(t, withPersistentReader(t, map[string]string{
+	f := newUIFixture(t, withReadOnlyReader(t, map[string]string{
 		uiSerial + ".sdk.out":                  "34\n",
 		uiSerial + ".inputkeycombination.hang": "",
 		uiSerial + ".inputprobe.out":           probeRunning,
@@ -1243,4 +1250,630 @@ func TestInputTextClearStillRunningWarnsToWait(t *testing.T) {
 	if !strings.Contains(ce.Cause, "still running") {
 		t.Errorf("cause = %q, want one saying the device-side command is still running", ce.Cause)
 	}
+}
+
+// readerForm starts a fake reader serving the form app's tree with the "name" field
+// focused, so device.inputText's reader path has nothing to wait for after the focusing
+// tap (plan m1n step 5). answers script the reader's acting answers in order — the
+// focusing tap first. The fake is returned so a test can see the requests it received.
+func readerForm(t *testing.T, answers ...string) (*uiFixture, *devicetest.FakeReader) {
+	t.Helper()
+	doc := tappable(tapNode("android.widget.EditText", "name", "", `focused="true"`))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	r.SetActAnswers(answers...)
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	return f, r
+}
+
+// Decision (plan m1n step 5, fix round B1; the level-5 facts of steps 4 and 5): the reader
+// reads back the whole field, so an insert into a field that already held pre reads back as
+// pre followed by the text, and the comparison is a length equality plus containment against
+// pre + text, never a value equality against the text alone. A field showing its hint reads
+// back as the hint, a masked password field is compared by length only, and a delivery with no
+// target (preKnown false) checks only containment. Seen failing with the pre-filled field
+// compared against the text alone: a false difference warning and a character count taken from
+// the whole field.
+func TestReadBackMatches(t *testing.T) {
+	cases := []struct {
+		name            string
+		readBack, want  string
+		pre             string
+		preKnown        bool
+		password, match bool
+	}{
+		{"equal", "Ana", "Ana", "", true, false, true},
+		{"different", "An", "Ana", "", true, false, false},
+		{"empty text on an empty field", "", "", "", true, false, true},
+		{"insert into an empty field", "Ana", "Ana", "", true, false, true},
+		{"insert into a pre-filled field", "HiAna", "Ana", "Hi", true, false, true},
+		{"insert that kept only the old text", "Hi", "Ana", "Hi", true, false, false},
+		{"the hint is an empty field", "Name", "", "Name", true, false, true},
+		{"a hint is not a non-empty text", "Name", "Ana", "Name", true, false, false},
+		{"empty differs from a non-empty text", "", "Ana", "", true, false, false},
+		{"no target matches a contained text", "HiAna", "Ana", "", false, false, true},
+		{"no target rejects an absent text", "Hi", "Ana", "", false, false, false},
+		{"a password field matches by length", "######", "secret", "", true, true, true},
+		{"a password field of the wrong length differs", "#####", "secret", "", true, true, false},
+		{"a password field with a prefix matches by length", "#######", "abc", "####", true, true, true},
+	}
+	for _, c := range cases {
+		if got := readBackMatches(c.readBack, c.want, c.pre, c.preKnown, c.password); got != c.match {
+			t.Errorf("%s: readBackMatches(%q, %q, pre=%q, preKnown=%v, password=%v) = %v, want %v",
+				c.name, c.readBack, c.want, c.pre, c.preKnown, c.password, got, c.match)
+		}
+	}
+}
+
+// Decision (plan m1n step 5, fix round B1): the characters of a read-back that did not match
+// are the field's length beyond pre, so a pre-filled field reports only what was delivered,
+// never the whole field; a read-back equal to the field's hint is the field showing its hint
+// and counts 0; a read-back shorter than pre is 0, not negative; and a delivery with no target
+// counts the whole read-back, its only known quantity.
+func TestReadBackCharacters(t *testing.T) {
+	cases := []struct {
+		name          string
+		readBack, pre string
+		preKnown      bool
+		hint          string
+		want          int
+	}{
+		{"beyond pre", "HiAn", "Hi", true, "", 2},
+		{"shorter than pre is 0", "Hi", "Hiyou", true, "", 0},
+		{"equal to pre is 0", "Hi", "Hi", true, "", 0},
+		{"the hint counts 0", "Name", "", true, "Name", 0},
+		{"no target counts the whole read-back", "HiAn", "", false, "", 4},
+	}
+	for _, c := range cases {
+		if got := readBackCharacters(c.readBack, c.pre, c.preKnown, c.hint); got != c.want {
+			t.Errorf("%s: readBackCharacters(%q, pre=%q, preKnown=%v, hint=%q) = %d, want %d",
+				c.name, c.readBack, c.pre, c.preKnown, c.hint, got, c.want)
+		}
+	}
+}
+
+// countActs counts the reader's acting requests carrying verb.
+func countActs(acts []string, verb string) int {
+	n := 0
+	for _, a := range acts {
+		if a == verb || strings.HasPrefix(a, verb+" ") {
+			n++
+		}
+	}
+	return n
+}
+
+// noInputCommand fails the test if any device input command — a bare tap or a wrapped
+// input text/broadcast, any method — reached the device.
+func noInputCommand(t *testing.T, calls []string) {
+	t.Helper()
+	for _, c := range calls {
+		if inputCommandIssued(c) {
+			t.Errorf("an input command reached the device on the reader path: %q", c)
+		}
+	}
+}
+
+// Decision (plan m1n step 5, Q1 ¶3; ADR-0035 §Decision 3): the reader's set_text carries
+// the text by default, whatever it is, so a non-ASCII text with no ADBKeyboard selected
+// never fails DEVICE_TEXT_NOT_DELIVERABLE and issues no input command. Seen failing with
+// the reader delivery removed (the non-ASCII text would be refused before the tap).
+func TestInputTextSetsTextByDefault(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done", "droidyard-reader: done w7FhbmTDug==") // "ñandú"
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"ñandú","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodSetText || !res.Typed {
+		t.Fatalf("result = %+v, want method %s and typed", res, inputTextMethodSetText)
+	}
+	if res.Characters != 5 {
+		t.Errorf("characters = %d, want the 5 the field read back", res.Characters)
+	}
+	want := []string{"tap 100 100", "settext insert w7FhbmTDug=="}
+	if got := r.Acts(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the reader received %q, want %q", got, want)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, Q1 ¶3): a set-text the field refuses before executing anything
+// is retried as keys when the text is printable ASCII, because keys can type it and nothing
+// ran. Seen failing with the refusal returned as an error (the caller would stop) and with
+// the fallback taken on a refusal (the text would reach the device a second way).
+func TestKeysWhenSetTextIsRefused(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t,
+		"droidyard-reader: done",
+		"droidyard-reader: refused settext",
+		"droidyard-reader: done QW5h", // "Ana"
+	)
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodKeys || res.Characters != 3 {
+		t.Fatalf("result = %+v, want method %s and 3 characters", res, inputTextMethodKeys)
+	}
+	want := []string{"tap 100 100", "settext insert QW5h", "keys QW5h"}
+	if got := r.Acts(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the reader received %q, want %q", got, want)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, Q1 ¶3): method "keys" asks for key events first — a per-key
+// field such as an OTP box needs them — so no set-text is sent at all. Seen failing with
+// the requested method ignored (a set-text sent first).
+func TestMethodKeysForcesTyping(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done", "droidyard-reader: done aGk=") // "hi"
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"hi","target":{"id":"name"},"method":"keys"}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodKeys || res.Characters != 2 {
+		t.Fatalf("result = %+v, want method %s and 2 characters", res, inputTextMethodKeys)
+	}
+	want := []string{"tap 100 100", "keys aGk="}
+	if got := r.Acts(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the reader received %q, want %q", got, want)
+	}
+}
+
+// Decision (plan m1n step 5, fix round N4): an empty text with no clear has nothing to
+// deliver, so the reader is not asked to set an empty string; the call completes with 0
+// characters, having done only the focusing tap — as it did before the reader path existed.
+// Seen failing with a set-text sent for an empty text.
+func TestEmptyTextWithoutClearDeliversNothing(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if !res.Typed || res.Characters != 0 {
+		t.Fatalf("result = %+v, want typed with 0 characters", res)
+	}
+	if got := r.Acts(); len(got) != 1 || got[0] != "tap 100 100" {
+		t.Errorf("the reader received %q, want only the focusing tap", got)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, fix round N3): method "keys" asks the reader's virtual keyboard,
+// which cannot map a character outside printable ASCII, so a non-ASCII keys text is refused
+// DEVICE_TEXT_NOT_DELIVERABLE before anything is tapped or typed — the input command and
+// ADBKeyboard are not tried, because the caller asked for keys. Seen failing with the keys
+// request sent and answered `refused unmappable` after the tap.
+func TestMethodKeysRefusesNonASCIIText(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"ñ","target":{"id":"name"},"method":"keys"}`)
+	mustFail(t, out, ErrTextNotDeliverable)
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q, want none: the refusal is before the tap", got)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, fix round N3): a set-text the reader refused because the request
+// line was over its cap is DEVICE_TEXT_NOT_DELIVERABLE — the text could not be carried — and
+// is not retried as keys, which would send it a second way. Seen failing with `too-long`
+// retried as keys.
+func TestRefusedTooLongSetTextIsNotDeliverable(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done", "droidyard-reader: refused too-long")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	mustFail(t, out, ErrTextNotDeliverable)
+	if n := countActs(r.Acts(), "keys"); n != 0 {
+		t.Errorf("the reader received %d key requests, want none: a too-long set-text is not retried", n)
+	}
+}
+
+// Decision (plan m1n step 5, fix round N3): the reader refusing the daemon's own request as
+// unparseable is DEVICE_NOT_READY whose next step says a retry cannot help — the wording never
+// invites the caller to send the same request again. Seen failing with a next step that read
+// as ordinary retry advice.
+func TestRefusedMalformedIsNotRetryAdvice(t *testing.T) {
+	quickAct(t)
+	f, _ := readerForm(t, "droidyard-reader: done", "droidyard-reader: refused malformed")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	ce := mustFail(t, out, ErrNotReady)
+	if !strings.Contains(ce.NextStep, "cannot help") {
+		t.Errorf("nextStep %q does not say a retry cannot help", ce.NextStep)
+	}
+}
+
+// Decision (plan m1n step 5, fix round N7): a keys text whose reader bound cannot fit the
+// call's remaining typing slot is refused REQUEST_INVALID_PARAMS before the tap, rather than
+// sent and cut as an unanswered request that may have applied. Seen failing with the keys
+// request sent (the reader would receive it and the call would end with a may-have-applied
+// warning).
+func TestKeysTextOverTheTypingSlotIsRefused(t *testing.T) {
+	quickAct(t)
+	base, per, margin := readerActBoundBase, readerActBoundPerChar, readerActMargin
+	readerActBoundBase = 5 * time.Second // any keys text now exceeds the shortened typing slot
+	t.Cleanup(func() { readerActBoundBase, readerActBoundPerChar, readerActMargin = base, per, margin })
+	f, r := readerForm(t, "droidyard-reader: done")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"},"method":"keys"}`)
+	mustFail(t, out, capability.ErrInvalidParams)
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q, want none: the keys text was refused before it was sent", got)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, Q1 ¶3): the field's own read-back is the answer, so a text
+// that does not match what was asked for is reported as a warning quoting it and counted as
+// the field's characters — never typed again, because a second set could type it twice.
+// Seen failing with the mismatch retyped (a second settext would appear) and with
+// characters taken from the requested text instead of the read-back.
+func TestReadBackDifferenceIsAWarningNotARetype(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done", "droidyard-reader: done QW4=") // read back "An"
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodSetText {
+		t.Fatalf("method = %s, want %s", res.Method, inputTextMethodSetText)
+	}
+	if res.Characters != 2 {
+		t.Errorf("characters = %d, want the 2 the field read back, not the 3 requested", res.Characters)
+	}
+	if n := countActs(r.Acts(), "settext"); n != 1 {
+		t.Errorf("the reader received %d set-texts, want exactly one: a mismatch is never retyped", n)
+	}
+	joined := strings.Join(res.Warnings, " ")
+	if !strings.Contains(joined, `"An"`) || !strings.Contains(joined, `"Ana"`) {
+		t.Errorf("warnings = %q, want one quoting the read-back %q and the request %q", res.Warnings, "An", "Ana")
+	}
+	if n := len(inputTextArgs(f.calls(t))); n != 0 {
+		t.Errorf("%d input text invocations on the reader path, want none", n)
+	}
+}
+
+// Decision (plan m1n step 5, fix round B1; the level-5 fact of step 4): the reader reads back
+// the whole field, so inserting into a field that already held text reads back as the old
+// text followed by the new, and comparing that against the requested text alone reports a
+// false difference. The field's own text is the prefix, and a match counts only the text that
+// was delivered, never the whole field. Seen failing before B1 with "HiAna" compared to
+// "Ana": a difference warning and characters taken from the whole read-back.
+func TestPreFilledFieldIsNotADifference(t *testing.T) {
+	quickAct(t)
+	doc := tappable(tapNode("android.widget.EditText", "name", "Hi", `focused="true"`))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	r.SetActAnswers("droidyard-reader: done", "droidyard-reader: done SGlBbmE=") // read back "HiAna"
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodSetText || res.Characters != 3 {
+		t.Fatalf("result = %+v, want method %s and 3 characters (the text delivered, not the whole field)", res, inputTextMethodSetText)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("warnings = %q, want none: a pre-filled field's read-back is its text plus the inserted text", res.Warnings)
+	}
+	want := []string{"tap 100 100", "settext insert QW5h"}
+	if got := r.Acts(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the reader received %q, want %q", got, want)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, fix round B1): a pre-filled password field is compared by length
+// too, so the mask's extra characters over the existing mask are the delivered ones and no
+// false difference is reported; the characters are the requested text's, not the whole mask.
+// Seen failing with the whole mask counted as delivered and reported as a difference.
+func TestPreFilledPasswordFieldCountsOnlyTheDeliveredText(t *testing.T) {
+	quickAct(t)
+	doc := tappable(tapNode("android.widget.EditText", "pw", "##", `focused="true" password="true"`))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	r.SetActAnswers("droidyard-reader: done", "droidyard-reader: done IyMjIyMjIyM=") // the mask "########"
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"secret","target":{"id":"pw"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodKeys || res.Characters != 6 {
+		t.Fatalf("result = %+v, want method %s and 6 characters", res, inputTextMethodKeys)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("warnings = %q, want none: the mask's length beyond the existing prefix matches", res.Warnings)
+	}
+}
+
+// Decision (plan m1n step 5, Q1 ¶3; ADR-0035 §1, N7): a password field the caller did not
+// clear is typed with keys, because the reader refuses an insert it cannot read back to
+// compare, and the read-back it does give is the platform's mask, so it is compared by
+// length alone — a mask of the right length is a match, not a difference to warn about.
+// Seen failing with the masked read-back compared by value (a spurious difference warning)
+// and with a password field typed by set_text.
+func TestPasswordFieldWithoutClearUsesKeys(t *testing.T) {
+	quickAct(t)
+	doc := tappable(tapNode("android.widget.EditText", "pw", "", `focused="true" password="true"`))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	r.SetActAnswers("droidyard-reader: done", "droidyard-reader: done IyMjIyMj") // the mask "######"
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"secret","target":{"id":"pw"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodKeys {
+		t.Fatalf("method = %s, want %s: a password field without clear is typed with keys", res.Method, inputTextMethodKeys)
+	}
+	if res.Characters != 6 {
+		t.Errorf("characters = %d, want the 6 the masked read-back has", res.Characters)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("warnings = %q, want none: a mask of the right length matches by length alone", res.Warnings)
+	}
+	if n := countActs(r.Acts(), "settext"); n != 0 {
+		t.Errorf("the reader received %d set-texts, want none for a password field", n)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, Q1 ¶3; ADR-0020's 2026-10-06 line): a set-text the reader took
+// and never answered may have applied, so the call ends completed with a may-have-applied
+// warning, counts no characters for certain, and retries nothing — not the set-text and not
+// another method. Seen failing with the unanswered request returned as an error (which
+// invites a retry that could set the text twice).
+func TestUnansweredSetTextIsNotRetyped(t *testing.T) {
+	oldBase, oldMargin := readerActBoundBase, readerActMargin
+	readerActBoundBase, readerActMargin = 0, 300*time.Millisecond
+	t.Cleanup(func() { readerActBoundBase, readerActMargin = oldBase, oldMargin })
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done", devicetest.ReaderGone)
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodSetText || !res.Typed {
+		t.Fatalf("result = %+v, want a typed completed result with method %s", res, inputTextMethodSetText)
+	}
+	if res.Characters != 0 {
+		t.Errorf("characters = %d, want 0: no read-back arrived", res.Characters)
+	}
+	if joined := strings.Join(res.Warnings, " "); !strings.Contains(joined, "may have applied") {
+		t.Errorf("warnings = %q, want the may-have-applied warning", res.Warnings)
+	}
+	if n := countActs(r.Acts(), "settext"); n != 1 {
+		t.Errorf("the reader received %d set-texts, want exactly one: an unanswered request is never retyped", n)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, Q1 ¶3; ADR-0020's 2026-10-06 line): the reader's `timeout` is
+// the same may-have-applied answer as an unanswered request — the set-text was taken and
+// the bound passed — so the call completes with the warning and nothing is retyped. Seen
+// failing with `timeout` treated as a refusal (the text delivered a second time) or as an
+// error.
+func TestInsertTimeoutWarnsNotRetypes(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t, "droidyard-reader: done", "droidyard-reader: timeout 2500")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodSetText || res.Characters != 0 {
+		t.Fatalf("result = %+v, want method %s and 0 characters", res, inputTextMethodSetText)
+	}
+	if joined := strings.Join(res.Warnings, " "); !strings.Contains(joined, "may have applied") {
+		t.Errorf("warnings = %q, want the may-have-applied warning", res.Warnings)
+	}
+	if n := countActs(r.Acts(), "settext"); n != 1 {
+		t.Errorf("the reader received %d set-texts, want exactly one", n)
+	}
+	noInputCommand(t, f.calls(t))
+}
+
+// Decision (plan m1n step 5, Q1 ¶3; ADR-0035 §3): a focusing tap the reader took and never
+// answered may have landed, so it is never repeated through `input tap`. When the field does
+// report focus the delivery goes on; when it never does the call ends completed with the
+// may-have-applied warning, the tap having been the last thing that may have happened. Seen
+// failing with the unanswered tap retried through `input tap` (two taps could land).
+func TestUnansweredTapIsNotRepeatedWithInputTap(t *testing.T) {
+	oldBase, oldMargin := readerActBoundBase, readerActMargin
+	readerActBoundBase, readerActMargin = 0, 300*time.Millisecond
+	t.Cleanup(func() { readerActBoundBase, readerActMargin = oldBase, oldMargin })
+
+	t.Run("the field reports focus", func(t *testing.T) {
+		quickAct(t)
+		f, _ := readerForm(t,
+			devicetest.ReaderGone,         // the focusing tap is taken and never answered
+			"droidyard-reader: done QW5h", // "Ana"
+		)
+		out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+		res := mustInput(t, out)
+		if res.Method != inputTextMethodSetText || res.Characters != 3 {
+			t.Fatalf("result = %+v, want method %s and the 3 characters the field read back", res, inputTextMethodSetText)
+		}
+		if joined := strings.Join(res.Warnings, " "); !strings.Contains(joined, "never answered") {
+			t.Errorf("warnings = %q, want one saying the tap was never answered", res.Warnings)
+		}
+		if n := countInputTaps(f.calls(t)); n != 0 {
+			t.Errorf("%d input taps, want none: the tap may have landed, so it is never repeated", n)
+		}
+	})
+
+	t.Run("the field never reports focus", func(t *testing.T) {
+		quickAct(t)
+		r := devicetest.StartReader(t,
+			tappable(tapNode("android.widget.EditText", "name", "", "")),
+			devicetest.ReaderGone,
+		)
+		t.Cleanup(r.Close)
+		r.SetActAnswers(devicetest.ReaderGone)
+		f := newUIFixture(t, map[string]string{
+			uiSerial + ".push.exit":   "0",
+			uiSerial + ".start.out":   "",
+			uiSerial + ".forward.out": r.Port,
+		})
+		out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+		res := mustInput(t, out)
+		if !res.Typed {
+			t.Errorf("result = %+v, want a typed completed result: the tap may have applied", res)
+		}
+		if res.Method != inputTextMethodSetText {
+			t.Errorf("method = %s, want %s: nothing was delivered, so the method names what the delivery would have used", res.Method, inputTextMethodSetText)
+		}
+		if joined := strings.Join(res.Warnings, " "); !strings.Contains(joined, "never answered") {
+			t.Errorf("warnings = %q, want the may-have-applied tap warning", res.Warnings)
+		}
+		if n := countInputTaps(f.calls(t)); n != 0 {
+			t.Errorf("%d input taps, want none: the tap may have landed", n)
+		}
+	})
+
+	t.Run("the asked-for method is reported when nothing was delivered", func(t *testing.T) {
+		quickAct(t)
+		r := devicetest.StartReader(t,
+			tappable(tapNode("android.widget.EditText", "name", "", "")),
+			devicetest.ReaderGone,
+		)
+		t.Cleanup(r.Close)
+		r.SetActAnswers(devicetest.ReaderGone)
+		f := newUIFixture(t, map[string]string{
+			uiSerial + ".push.exit":   "0",
+			uiSerial + ".start.out":   "",
+			uiSerial + ".forward.out": r.Port,
+		})
+		out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"},"method":"keys"}`)
+		res := mustInput(t, out)
+		if res.Method != inputTextMethodKeys {
+			t.Errorf("method = %s, want %s: the caller asked for key events", res.Method, inputTextMethodKeys)
+		}
+	})
+}
+
+// Decision (plan m1n step 5, Q1 ¶3; ADR-0035 §3): a `busy` answer means the device's single
+// acting thread was still out, so nothing was executed; the call fails DEVICE_NOT_READY
+// before acting and no delivery method is tried, so a pending effect is never followed by a
+// second delivery. Seen failing with `busy` folded into `done` (the call would look
+// successful) or answered by the input command (a second act while an earlier one is out).
+// The reader records every acting request, so asserting its acts exactly proves the call
+// stopped at the first one and tried no further method (plan m1n step 5, fix round N8).
+func TestBusyActingThreadFailsBeforeActing(t *testing.T) {
+	t.Run("with a target", func(t *testing.T) {
+		quickAct(t)
+		f, r := readerForm(t, "droidyard-reader: busy")
+		out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+		mustFail(t, out, ErrNotReady)
+		noInputCommand(t, f.calls(t))
+		want := []string{"tap 100 100"}
+		if got := r.Acts(); !slices.Equal(got, want) {
+			t.Errorf("the reader received %q, want exactly %q: the call must stop at the busy focusing tap", got, want)
+		}
+	})
+	t.Run("without a target", func(t *testing.T) {
+		quickAct(t)
+		f, r := readerForm(t, "droidyard-reader: busy")
+		out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana"}`)
+		mustFail(t, out, ErrNotReady)
+		noInputCommand(t, f.calls(t))
+		want := []string{"settext insert QW5h"}
+		if got := r.Acts(); !slices.Equal(got, want) {
+			t.Errorf("the reader received %q, want exactly %q: the call must stop at the busy set-text", got, want)
+		}
+	})
+}
+
+// Decision (plan m1n step 5, fix round N8; ADR-0035 §3): a ping the reader does not answer,
+// with the forward already cached, is "the reader cannot run". The call takes the non-reader
+// path — the focusing tap is `input tap` and the text is `input text` — and the reader
+// receives no acting request, so a wedged reader is never sent an act whose answer would
+// have to be treated as may-have-applied. Seen failing with the ping's answer not folded into
+// readerPath: the actor would mark itself ready and send the tap to the wedged reader.
+func TestActorPingFailureWithCachedForwardUsesTheOldPath(t *testing.T) {
+	quickAct(t)
+	doc := tappable(tapNode("android.widget.EditText", "name", "", `focused="true"`))
+	files, r := withPersistentReaderR(t, nil, doc)
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial)) // the first read caches the forward
+	r.SetMutePings(1)                    // the reader is alive but does not answer the actor's ping
+
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	mustInput(t, out)
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q after an unanswered ping, want none", got)
+	}
+	if n := countInputTaps(f.calls(t)); n != 1 {
+		t.Errorf("%d `input tap` commands after an unanswered ping, want the one focusing tap (%q)", n, f.calls(t))
+	}
+	if got := inputTextArgs(f.calls(t)); len(got) == 0 {
+		t.Errorf("the text was not delivered by the non-reader path (%q)", f.calls(t))
+	}
+}
+
+// Decision (plan m1n step 5, fix round N8; ADR-0035 §3): a ping the reader answers makes the
+// actor ready, but the request dials again, and if that dial fails nothing was sent. That is
+// the "reader could not run" case, so the tap falls back to `input tap` — the old path —
+// rather than being reported as a request that may have applied. Seen failing with a dial
+// failure classified as unanswered, which would complete the call with a may-have-applied
+// warning and never tap.
+func TestActorDialFailureAfterAPassedPingFallsBackToInputTap(t *testing.T) {
+	quickAct(t)
+	doc := tappable(tapNode("android.widget.Button", "like", "Like", `clickable="true"`))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	tgt := readerTarget(t, f.adb, uiSerial)
+	ctx := context.Background()
+	ac := f.adb.newActor(ctx, tgt) // pings the live reader, which answers: ready
+	if !ac.ok {
+		t.Fatalf("the actor is not ready after a ping the reader answered")
+	}
+	// The forward goes away before the request dials (the reader is gone, or its forward was
+	// removed): the request cannot be sent, so nothing was executed.
+	ac.c.setPort(closedPort(t))
+
+	warn, reader, unanswered, err := f.adb.tapAtWith(ctx, tgt, ac, [2]int{100, 100})
+	if err != nil {
+		t.Fatalf("tapAtWith: %v", err)
+	}
+	if reader || unanswered {
+		t.Errorf("tapAtWith reported reader=%v unanswered=%v, want the non-reader path", reader, unanswered)
+	}
+	if warn != "" {
+		t.Errorf("warning %q, want none: `input tap` reported success", warn)
+	}
+	if n := countInputTaps(f.calls(t)); n != 1 {
+		t.Errorf("%d `input tap` commands after a dial failure, want 1 (%q)", n, f.calls(t))
+	}
+	if got := r.Acts(); len(got) != 0 {
+		t.Errorf("the reader received %q, want none: the request never reached it", got)
+	}
+}
+
+// Decision (plan m1n step 5, fix-round review): an empty field reports its hint as its
+// text, so a node whose text equals its hint counts as empty before an insert: "Ana" into
+// a field showing the hint "Name" reads back "Ana", 3 characters and no difference. Seen
+// failing with the hint substitution disabled (the hint counted as prior text).
+func TestEmptyFieldShowingItsHintIsEmpty(t *testing.T) {
+	quickAct(t)
+	doc := tappable(tapNode("android.widget.EditText", "name", "Name", `focused="true" hint="Name"`))
+	r := devicetest.StartReader(t, doc)
+	t.Cleanup(r.Close)
+	r.SetActAnswers("droidyard-reader: done", "droidyard-reader: done QW5h") // read back "Ana"
+	f := newUIFixture(t, map[string]string{
+		uiSerial + ".push.exit":   "0",
+		uiSerial + ".start.out":   "",
+		uiSerial + ".forward.out": r.Port,
+	})
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodSetText || res.Characters != 3 {
+		t.Fatalf("result = %+v, want method %s and 3 characters", res, inputTextMethodSetText)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("warnings = %q, want none: the hint is not the field's text", res.Warnings)
+	}
+	noInputCommand(t, f.calls(t))
 }
