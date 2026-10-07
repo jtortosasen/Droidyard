@@ -72,7 +72,7 @@ Baseline on 2026-10-07 at `bbea7d4` (macOS): `go vet ./...` and `gofmt -l .` pri
 - Needs: the baseline; K2.
 - Not here: changing default flags (Scope); code.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: main session, 2026-10-07, `~/Library/Caches/droidyard-dev/m1m/spike-20261007-1524`, K2 held (nothing online), tagged daemon. (a) `emulator -help`/`-help-all`: `-report-console <socket>`, `-no-window`, `-qt-hide-window`, `-skip-adb-auth`, `-read-only`, `-feature`, `-crash-report-mode <disabled|never|always|ask>`, `-no-nested-warnings` ("Disable the warning dialog…"). (b) Ten boots through `droidyard call`: listed by adb at 0.8–2.6 s from spawn in every mode, ready (`bootMs`) 11.7–19.4 s windowed, 11.7–12.8 s headless, 12.4–13.4 s cold, wipe likewise; `hardware-qemu.ini.lock` taken 0.5–0.7 s after spawn (`multiinstance.lock` is permanent and not the lock). (c) The launch's pid is the qemu (`qemu-system-aarch64[-headless]`, pgid = pid, ppid the daemon); headless also starts `emulator/crashpad_handler --monitor-pid=<qemu>` in its own group, exiting with the qemu; no `netsimd`; no shared process in the group. (d) `SIGTERM` to a windowed launch after its lock, before its listing: exited in 4.03 s, its crashpad gone, the AVD released; the call ended `EMULATOR_LAUNCH_FAILED`; the next windowed start booted in 18.2 s. (e) Not reproduced: a `SIGKILL`ed booted instance relaunched windowed (listed 1.2 s, ready 11.7 s, the stale `hardware-qemu.ini.lock` ignored); an AVD deleted and recreated right after `emu kill` while its qemu exited relaunched (17.5 s). The 5037 pid, owner AVDs and their userdata, `opencode serve` and the SDK stamp unchanged.
 
 ### 2. Own the launch until its serial is resolved (Q1)
 
@@ -211,3 +211,4 @@ Two rounds ran; every blocking finding of both is answered in the plan text, so 
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+- 2026-10-07, step 1's decisive outcomes (before Q1's ADR): spawn → listing ≤ 2.6 s, so the serial deadline stays 45 s; the launch's pid is the qemu in a group of its own with no shared process, so the signal goes to that group (Q1 ¶1's first branch); the lock precedes the listing by 0.3–1.9 s, so step 4's SIGSTOP model has its window; the AVD is free after the SIGTERMed launch exits, so Q1 stands. The hang's cause stays unknown (not reproduced); `-crash-report-mode disabled` and `-no-window` are the candidate flags if it recurs. ADR-0033 written from these facts; ADR-0001 amended.

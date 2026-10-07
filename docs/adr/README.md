@@ -57,6 +57,7 @@ buried in prose.
 | [0030](0030-persistent-ui-reader.md) | The UI reader stays running on the device | Accepted |
 | [0031](0031-configuration-file-trust-first.md) | The configuration file starts with trusted roots only | Accepted |
 | [0032](0032-configuration-file-v1.md) | The configuration file, version 1: policy and tool keys | Accepted |
+| [0033](0033-emulator-launch-owned-until-serial.md) | An emulator launch is droidyard's until its serial is resolved | Accepted |
 
 ## Open decisions (not yet ADRs)
 
