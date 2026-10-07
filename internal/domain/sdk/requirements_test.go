@@ -310,3 +310,16 @@ func hasCode(codes []capability.ErrorCode, want capability.ErrorCode) bool {
 	}
 	return false
 }
+
+// Decision (step 3 review B1, applied here): under a partial probe a module whose read
+// failed has no Android facts and is skipped, so the answer is never complete. Seen
+// failing when partial counted as complete.
+func TestRequirementsPartialProbeIsNotComplete(t *testing.T) {
+	m := androidModel("android-36", "35.0.0", "/w/from-the-probe")
+	m.Projects = append(m.Projects, gradle.Module{Path: ":other", Name: "other", Dir: "other"})
+	m.Probe = gradle.Probe{Status: "partial", Notes: []string{":other: probe: failed"}}
+	r := runRequirements(t, Options{}, m, "/w")
+	if r.Source != SourceProbe || r.Complete {
+		t.Fatalf("a partial probe: source %q complete %v, want probe and incomplete", r.Source, r.Complete)
+	}
+}
