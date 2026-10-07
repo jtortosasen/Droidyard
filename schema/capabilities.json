@@ -5297,6 +5297,67 @@
       }
     },
     {
+      "name": "file.write",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.9.0",
+      "description": "Writes a whole text file into the project, replacing any existing file atomically: a reader sees either the old file or the new one, never a partial write. The path is relative to the project root and slash-separated; an absolute path inside the project root is accepted and treated the same. An absolute path outside the root, \"..\", and an intermediate symlink that would leave the root or has an absolute target fail FILE_OUTSIDE_ROOT; a symlink as the final component is FILE_WRONG_TYPE wherever it points, and is never followed. Missing parent directories are created. An existing file keeps its name on disk and its permission bits (setuid, setgid and sticky included; owner, ACLs and extended attributes are not kept); a new file is created 0644 before umask. Content is UTF-8, at most 512 KiB. A hard link to a replaced file keeps the old content, and a write under .git/ is allowed. An existing file without its owner-write bit is FILE_IO_FAILED; a directory, a FIFO, a socket, a device or a symlink where the file goes is FILE_WRONG_TYPE.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_OUTSIDE_ROOT",
+        "FILE_WRONG_TYPE",
+        "FILE_IO_FAILED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file to write, relative to the project root. An absolute path inside the root is accepted; missing parent directories are created."
+          },
+          "content": {
+            "type": "string",
+            "description": "The file's new content, UTF-8, at most 524288 bytes. The whole file is replaced."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "content"
+        ]
+      },
+      "output": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file written, relative to the project root, using the name it has on disk."
+          },
+          "size": {
+            "type": "integer",
+            "description": "The file's size in bytes after the write."
+          },
+          "created": {
+            "type": "boolean",
+            "description": "True when the write created the file; false when it replaced an existing one."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "size"
+        ]
+      }
+    },
+    {
       "name": "operation.cancel",
       "kind": "command",
       "scope": "global",
