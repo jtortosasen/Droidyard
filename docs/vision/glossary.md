@@ -69,8 +69,8 @@ them run inside the daemon.
 
 ## Workspace
 
-The unit of state in the core: a project root plus its build state, watchers and
-workspace-owned sidecars. Devices and emulators are global, not part of a workspace.
+The unit of state in the core: a project root plus its build state and
+workspace-owned sidecars (a file watch belongs to the session's subscription). Devices and emulators are global, not part of a workspace.
 See [workspace-state](../architecture/workspace-state.md).
 
 ## Sidecar

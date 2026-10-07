@@ -1023,6 +1023,13 @@ func TestWriteIsAtomicForReaders(t *testing.T) {
 			default:
 			}
 			got, err := os.ReadFile(filepath.Join(f.root, "atomic.txt"))
+			if errors.Is(err, fs.ErrNotExist) {
+				// A rename replaces the name in one step: the file never disappears.
+				mu.Lock()
+				failures = append(failures, "a reader found no file")
+				mu.Unlock()
+				continue
+			}
 			if err != nil {
 				continue
 			}
