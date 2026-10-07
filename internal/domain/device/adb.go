@@ -41,6 +41,24 @@ type ADB struct {
 	// (ADR-0030). Close stops them and removes their forwards.
 	rdMu    sync.Mutex
 	readers map[string]*readerClient
+
+	// appMu guards apps, the per-(serial, applicationId) launch and pid records
+	// device.logs filters an app by when its logcat has no uid column (plan m1i D11).
+	appMu sync.Mutex
+	apps  *appRegistry
+
+	// probeMu guards probes, the per-device cache of whether logcat prints the uid
+	// column (plan m1i D5). Keyed by serial and transport id, since an emulator serial
+	// is reused by other AVDs and images.
+	probeMu sync.Mutex
+	probes  map[string]columnProbe
+}
+
+// columnProbe is what one check of logcat's uid column learned, valid while the
+// device's transport id is unchanged.
+type columnProbe struct {
+	transport string
+	supported bool
 }
 
 // NewADB returns an ADB over env, the environment every adb client is given whole

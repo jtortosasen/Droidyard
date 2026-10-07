@@ -74,6 +74,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description: "Starts an application's launcher activity on the device with `monkey --pct-syskeys 0 -p <applicationId> -c android.intent.category.LAUNCHER 1`, and returns the device clock read just before as launchedAt (RFC 3339 UTC with milliseconds) and the process id observed after. " +
 			"pid is polled with `pidof <applicationId>` every 100 ms for up to 3 s; when no process is seen, pid is null and reason says so (typically a crash on start). " +
+			"The launch is recorded for the device, so a later device.logs of the same applicationId reads from this launch (its default since is \"launch\"). " +
 			"applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched, and never reaches a device shell. " +
 			"The whole call holds the device's write lock and runs at most 28 s. " +
 			"Fails with DEVICE_LAUNCH_FAILED when monkey reports no activities or exits non-zero, and with the device errors of a missing, unusable, physical or vanished device.",
@@ -139,10 +140,11 @@ func (a *ADB) launch(ctx context.Context, t *target, p LaunchParams) (*LaunchRes
 	if dout.ExitCode != 0 {
 		return nil, launchFailed("the device clock command exited with status " + strconv.Itoa(dout.ExitCode))
 	}
-	launchedAt, derr := parseDeviceDate(string(dout.Stdout))
+	launchedAtTime, derr := parseDeviceTime(string(dout.Stdout))
 	if derr != nil {
 		return nil, launchFailed("the device clock answered something this version cannot read")
 	}
+	launchedAt := launchedAtTime.UTC().Format("2006-01-02T15:04:05.000Z")
 
 	// monkey starts the launcher activity; no manifest activity is needed
 	// (adb-device.md §Launch).
@@ -167,6 +169,9 @@ func (a *ADB) launch(ctx context.Context, t *target, p LaunchParams) (*LaunchRes
 	// After monkey has run, no pidof outcome is an error: the process either was seen or
 	// was not, and the latter is pid null with a reason (plan m1f step 8, item 4).
 	pid, reason := a.pollPID(actx, t, p.ApplicationID)
+	// The launch feeds the app record device.logs filters by when there is no uid
+	// column: the latest launchedAt and, when it has one, the pid (plan m1i D11).
+	a.appStore().noteLaunch(t.serial, p.ApplicationID, launchedAtTime, launchedAt, pid)
 	return &LaunchResult{ApplicationID: p.ApplicationID, PID: pid, LaunchedAt: launchedAt, Reason: reason}, nil
 }
 
@@ -244,8 +249,8 @@ func firstPID(b []byte) (int, bool) {
 	return 0, false
 }
 
-// parseDeviceDate turns `date +%s.%N` into RFC 3339 UTC with milliseconds.
-func parseDeviceDate(s string) (string, error) {
+// parseDeviceTime turns `date +%s.%N` into the device-clock instant.
+func parseDeviceTime(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	secStr, fracStr := s, ""
 	if i := strings.IndexByte(s, '.'); i >= 0 {
@@ -253,7 +258,7 @@ func parseDeviceDate(s string) (string, error) {
 	}
 	sec, err := strconv.ParseInt(secStr, 10, 64)
 	if err != nil {
-		return "", err
+		return time.Time{}, err
 	}
 	var nsec int64
 	if fracStr != "" {
@@ -263,10 +268,10 @@ func parseDeviceDate(s string) (string, error) {
 		fracStr += strings.Repeat("0", 9-len(fracStr))
 		nsec, err = strconv.ParseInt(fracStr, 10, 64)
 		if err != nil {
-			return "", err
+			return time.Time{}, err
 		}
 	}
-	return time.Unix(sec, nsec).UTC().Format("2006-01-02T15:04:05.000Z"), nil
+	return time.Unix(sec, nsec).UTC(), nil
 }
 
 // launchFailed is DEVICE_LAUNCH_FAILED with the host tool's decisive line as cause.

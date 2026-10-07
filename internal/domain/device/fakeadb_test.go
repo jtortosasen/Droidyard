@@ -26,6 +26,10 @@ const (
 	modeForkHang = "fork-hang" // forks a child holding the pipe, then hangs
 	modeForkExit = "fork-exit" // forks a child holding the pipe, prints, exits 0
 	modeChild    = "child"     // the forked child: holds stdout and stderr, sleeps
+
+	modeLines    = "lines"     // prints three lines with a pause between them, exits 0 (RunLines)
+	modeLinesOut = "lines-out" // prints a line forever, writing its pid to fakeInfo (RunLines)
+	modeLinesErr = "lines-err" // prints two lines, writes past a small stderr cap, exits 3
 )
 
 func TestMain(m *testing.M) {
@@ -71,6 +75,26 @@ func runFake(mode string) {
 		time.Sleep(time.Minute)
 	case modeChild:
 		time.Sleep(2 * time.Minute)
+	case modeLines:
+		for i, l := range []string{"first\n", "second\r\n", "third\n"} {
+			if i > 0 {
+				time.Sleep(300 * time.Millisecond)
+			}
+			fmt.Print(l)
+		}
+	case modeLinesOut:
+		if f := os.Getenv(fakeInfo); f != "" {
+			os.WriteFile(f+".tmp", []byte(strconv.Itoa(os.Getpid())), 0o600)
+			os.Rename(f+".tmp", f)
+		}
+		for i := 0; ; i++ {
+			fmt.Printf("line %d\n", i)
+			time.Sleep(20 * time.Millisecond)
+		}
+	case modeLinesErr:
+		fmt.Print("one\r\ntwo\n")
+		fmt.Fprint(os.Stderr, strings.Repeat("e", 4096))
+		os.Exit(3)
 	}
 }
 
