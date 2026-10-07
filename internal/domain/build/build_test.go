@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/extract"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
@@ -97,6 +98,14 @@ func newFixture(t *testing.T, cfg gradletest.Config) *buildFixture {
 // second daemon over the same state (the restart in D13).
 func newFixtureAt(t *testing.T, state string, cfg gradletest.Config) *buildFixture {
 	t.Helper()
+	return newFixtureFloor(t, state, cfg, policy.BelowFloor{})
+}
+
+// newFixtureFloor is newFixtureAt with `gradle.allowBelowFloor` as read at daemon start,
+// so a test can drive a Gradle below the floor under the conservative profile (plan m1k
+// step 7, D9).
+func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor policy.BelowFloor) *buildFixture {
+	t.Helper()
 	root := t.TempDir()
 	if len(cfg.Model) == 0 {
 		cfg.Model = gradletest.MustModel(testModel(root))
@@ -124,7 +133,7 @@ func newFixtureAt(t *testing.T, state string, cfg gradletest.Config) *buildFixtu
 	cfgPath := gradletest.WriteConfig(t, cfg)
 	client := gradle.New(gradle.Options{
 		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: state,
-		Launch: gradletest.Launch(cfgPath), IdleTimeout: time.Minute,
+		Launch: gradletest.Launch(cfgPath), IdleTimeout: time.Minute, AllowBelowFloor: floor,
 	})
 
 	reg := capability.NewRegistry()
@@ -827,6 +836,55 @@ func TestDegradedProfileNamesTheMissingCapabilities(t *testing.T) {
 	}
 	if len(res.MissingCapabilities) != len(want) {
 		t.Errorf("missingCapabilities are %v, want %d names", res.MissingCapabilities, len(want))
+	}
+}
+
+// Decision (plan m1k step 7, D9; ADR-0018 rule 3): with `gradle.allowBelowFloor` set at
+// daemon start, a Gradle below the floor (Tier C) builds under the conservative profile,
+// every result says validation unsupported, and the record read by a new daemon says the
+// same. Seen failing when the profile is computed as degraded, and when the hatch admits
+// only down to 7.0.
+func TestBelowFloorUnderTheHatchIsConservative(t *testing.T) {
+	state := t.TempDir()
+	cfg := gradletest.Config{GradleVersion: "7.6.4", Build: successBuild(gradle.TaskSummary{Executed: 1})}
+	floor := policy.BelowFloor{Allowed: true, ConfigPath: "/etc/droidyard/config.json"}
+	first := newFixtureFloor(t, state, cfg, floor)
+	res := mustResult(t, first.wait(t, first.start(t, "build.run", `{"tasks":[":app:assembleDebug"]}`)))
+	if res.Outcome != "success" {
+		t.Errorf("outcome is %q, want success", res.Outcome)
+	}
+	if res.Profile != "conservative" {
+		t.Errorf("profile is %q, want conservative", res.Profile)
+	}
+	if res.Validation != "unsupported" {
+		t.Errorf("validation is %q, want unsupported", res.Validation)
+	}
+	if len(res.MissingCapabilities) != 0 {
+		t.Errorf("missingCapabilities are %v, want none: below the floor nothing is refused", res.MissingCapabilities)
+	}
+
+	second := newFixtureFloor(t, state, cfg, floor)
+	got := second.call(t, "build.lastResult", "")
+	last, ok := got.Result.(Result)
+	if !ok {
+		t.Fatalf("lastResult is %T, want Result", got.Result)
+	}
+	if last.Profile != "conservative" || last.Validation != "unsupported" {
+		t.Errorf("the restarted daemon reports profile %q validation %q, want conservative/unsupported", last.Profile, last.Validation)
+	}
+}
+
+// Decision (plan m1k step 7, D9): a Gradle at the floor but below 8.13 is degraded and
+// untested as before, unchanged by the hatch, which admits only below the floor.
+func TestAtTheFloorIsDegradedAndUntested(t *testing.T) {
+	cfg := gradletest.Config{GradleVersion: "8.0.2", Build: successBuild(gradle.TaskSummary{})}
+	f := newFixture(t, cfg)
+	res := mustResult(t, f.wait(t, f.start(t, "build.run", `{"tasks":[":app:assembleDebug"]}`)))
+	if res.Profile != "degraded" {
+		t.Errorf("profile is %q, want degraded", res.Profile)
+	}
+	if res.Validation != "untested" {
+		t.Errorf("validation is %q, want untested", res.Validation)
 	}
 }
 

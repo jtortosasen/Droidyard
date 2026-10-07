@@ -86,6 +86,11 @@ type Options struct {
 	// candidate (ADR-0032 §3; gradle.md §Sidecar JVM discovery, step 1; plan m1k D8). It
 	// is applied whichever Finder is used, so a test's probes do not hide the key.
 	JavaHome policy.ToolKey
+	// AllowBelowFloor is `gradle.allowBelowFloor` as read at daemon start (plan m1k D9;
+	// ADR-0018 rule 3; ADR-0032 §3): when set, a Gradle 7.3–7.x (Tier C) opens under the
+	// conservative profile instead of being refused. Its ConfigPath is what the refusal
+	// names when the key is not set.
+	AllowBelowFloor policy.BelowFloor
 	// JVM, when set, is the discovery result: it skips discovery entirely.
 	JVM *JVM
 	// Launch, when set, replaces the real sidecar command (tests).
@@ -426,16 +431,39 @@ func (c *Client) open(ctx context.Context, lease *process.Lease, canonical strin
 		return Connection{}, capability.Errorf(capability.ErrBuildSidecarUnavailable, "the sidecar's connection.open reply could not be read").WithCause(err.Error())
 	}
 	if !gradleAtLeast(conn.GradleVersion, 8, 0) {
+		// Tier C (7.3–7.x): the escape hatch admits it under the conservative profile
+		// when it was set at daemon start (ADR-0018 rule 3; plan m1k D9). Below 7.3
+		// (Tier D) the hatch is no help and the connection is refused whatever it says.
+		if tierC(conn.GradleVersion) && c.opts.AllowBelowFloor.Allowed {
+			return conn, nil
+		}
 		// The connection is open on the sidecar but unusable here: close it, then fail
-		// naming floor, version and reason (ADR-0018 rule 3; plan m1g D9).
+		// naming floor and version (ADR-0018 rule 3; plan m1g D9, m1k D9).
 		_, _ = c.call(ctx, lease, "connection.close", map[string]any{"root": canonical})
-		return Connection{}, capability.Errorf(capability.ErrBuildGradleUnsupported,
-			"Gradle %s is older than the floor %s this droidyard supports, so its toolchain profile is not validated", conn.GradleVersion, GradleFloor).
-			WithCause("Gradle " + conn.GradleVersion + " is below the floor " + GradleFloor).
-			WithNextStep("upgrade the project's Gradle to " + GradleFloor + " or newer (its wrapper or the daemon's distribution), then retry")
+		return Connection{}, c.belowFloorError(conn.GradleVersion)
 	}
 	return conn, nil
 }
+
+// belowFloorError is the refusal of a Gradle below the floor (ADR-0018 rule 3;
+// plan m1k D9). Tier C (7.3–7.x) names the hatch, since the start-time key can admit it;
+// Tier D (below 7.3, or a version that cannot be read) names no hatch, because nothing
+// admits it.
+func (c *Client) belowFloorError(version string) *capability.Error {
+	e := capability.Errorf(capability.ErrBuildGradleUnsupported,
+		"Gradle %s is older than the floor %s this droidyard supports, so its toolchain profile is not validated", version, GradleFloor).
+		WithCause("Gradle " + version + " is below the floor " + GradleFloor)
+	if !tierC(version) {
+		return e.WithNextStep("upgrade the project's Gradle to " + GradleFloor + " or newer (its wrapper or the daemon's distribution), then retry")
+	}
+	return e.WithNextStep("set `gradle.allowBelowFloor: true` in " + c.opts.AllowBelowFloor.ConfigPath + " and restart droidyard to run this Gradle under the conservative profile, or upgrade the project's Gradle to " + GradleFloor + " or newer")
+}
+
+// tierC reports whether a Gradle version is in Tier C, 7.3–7.x: the range the escape
+// hatch `gradle.allowBelowFloor` can admit. Below it is Tier D, refused whatever the
+// configuration says — no Java 17+ we assume can run it and no AGP 8 project is there
+// (ADR-0018 rule 3; plan m1k D9).
+func tierC(version string) bool { return gradleAtLeast(version, 7, 3) }
 
 // AtLeast reports whether a Gradle version string is at least major.minor, for a
 // caller outside this package that decides a toolchain profile from the version

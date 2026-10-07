@@ -252,6 +252,28 @@ func (s Startup) EmulatorKey() ToolKey { return s.toolKey(s.Emulator) }
 // JavaHomeKey is `gradle.sidecarJavaHome` as JVM discovery reads it (plan m1k D8).
 func (s Startup) JavaHomeKey() ToolKey { return s.toolKey(s.SidecarJavaHome) }
 
+// BelowFloor is `gradle.allowBelowFloor` as the Gradle client reads it: whether the
+// Tier C hatch was set at daemon start, and the configuration file its refusal's
+// nextStep names (ADR-0018 rule 3; ADR-0032 §3, §6; plan m1k D9). It is a value, not a
+// bare bool, so the refusal can point at the file to edit.
+type BelowFloor struct {
+	// Allowed is whether `gradle.allowBelowFloor` was true at daemon start. It admits
+	// Gradle 7.3–7.x; below 7.3 it changes nothing (ADR-0018 rule 3).
+	Allowed bool
+	// ConfigPath is the configuration file, named by the below-floor refusal so a human
+	// knows which file to edit.
+	ConfigPath string
+}
+
+// BelowFloorKey is `gradle.allowBelowFloor` as read at daemon start. An invalid file
+// sets no key, so Allowed is false and Gradle below the floor is refused (ADR-0032 §4).
+func (s Startup) BelowFloorKey() BelowFloor {
+	if s.State == StateInvalid {
+		return BelowFloor{ConfigPath: s.Path}
+	}
+	return BelowFloor{Allowed: s.AllowBelowFloor, ConfigPath: s.Path}
+}
+
 // toolKey builds a ToolKey: the configured path when the file parsed, or the file and
 // the reason it did not, when it did not (ADR-0032 §4; plan m1k D8).
 func (s Startup) toolKey(path string) ToolKey {

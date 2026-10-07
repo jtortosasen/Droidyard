@@ -309,8 +309,10 @@
                 "type": "string",
                 "enum": [
                   "full",
-                  "degraded"
-                ]
+                  "degraded",
+                  "conservative"
+                ],
+                "description": "The toolchain profile this build ran under: full (Gradle 8.13 and newer), degraded (below that, or a gated call Gradle refused), or conservative (a Gradle below the floor, admitted by the configuration key gradle.allowBelowFloor: the stable skeleton only, with no Problems and no detailed failure)."
               },
               "missingCapabilities": {
                 "items": {
@@ -322,8 +324,10 @@
               "validation": {
                 "type": "string",
                 "enum": [
-                  "untested"
-                ]
+                  "untested",
+                  "unsupported"
+                ],
+                "description": "How much evidence stands behind the result: untested (at or above the floor) or unsupported (a Gradle below the floor, under the conservative profile the configuration key gradle.allowBelowFloor admits)."
               },
               "agp": {
                 "type": "string",
@@ -989,8 +993,10 @@
             "type": "string",
             "enum": [
               "full",
-              "degraded"
-            ]
+              "degraded",
+              "conservative"
+            ],
+            "description": "The toolchain profile this build ran under: full (Gradle 8.13 and newer), degraded (below that, or a gated call Gradle refused), or conservative (a Gradle below the floor, admitted by the configuration key gradle.allowBelowFloor: the stable skeleton only, with no Problems and no detailed failure)."
           },
           "missingCapabilities": {
             "items": {
@@ -1002,8 +1008,10 @@
           "validation": {
             "type": "string",
             "enum": [
-              "untested"
-            ]
+              "untested",
+              "unsupported"
+            ],
+            "description": "How much evidence stands behind the result: untested (at or above the floor) or unsupported (a Gradle below the floor, under the conservative profile the configuration key gradle.allowBelowFloor admits)."
           },
           "agp": {
             "type": "string",
@@ -1513,8 +1521,10 @@
                 "type": "string",
                 "enum": [
                   "full",
-                  "degraded"
-                ]
+                  "degraded",
+                  "conservative"
+                ],
+                "description": "The toolchain profile this build ran under: full (Gradle 8.13 and newer), degraded (below that, or a gated call Gradle refused), or conservative (a Gradle below the floor, admitted by the configuration key gradle.allowBelowFloor: the stable skeleton only, with no Problems and no detailed failure)."
               },
               "missingCapabilities": {
                 "items": {
@@ -1526,8 +1536,10 @@
               "validation": {
                 "type": "string",
                 "enum": [
-                  "untested"
-                ]
+                  "untested",
+                  "unsupported"
+                ],
+                "description": "How much evidence stands behind the result: untested (at or above the floor) or unsupported (a Gradle below the floor, under the conservative profile the configuration key gradle.allowBelowFloor admits)."
               },
               "agp": {
                 "type": "string",
