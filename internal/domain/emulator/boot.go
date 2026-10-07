@@ -74,7 +74,10 @@ func (e *Emulator) runningSerialOf(ctx context.Context, avd string) (string, err
 		return "", err
 	}
 	for _, d := range devices {
-		if d.Kind != device.KindEmulator || !d.Online {
+		// Offline counts: a boot cancelled seconds in leaves an emulator listed offline
+		// that answers `emu avd name` (spike S8 G11); skipping it would let a wipe launch
+		// -wipe-data beside the live instance (close review N1).
+		if d.Kind != device.KindEmulator {
 			continue
 		}
 		if e.adb.AvdName(ctx, d.Device) == avd {

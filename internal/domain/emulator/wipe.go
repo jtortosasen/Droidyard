@@ -36,12 +36,12 @@ func registerWipe(reg *capability.Registry, e *Emulator) {
 		Availability: []capability.Requirement{capability.RequiresEmulator, capability.RequiresADB},
 		Description: "Factory-resets one AVD's user data and leaves it running. If the AVD is running it is stopped first and its serial's release waited for, exactly as emulator.stop does; then the launcher boots it detached with -wipe-data, output to <state>/emulator/<avd>.log, and the call returns {device, avd} once the new serial reports sys.boot_completed 1, bounded at 180 s. Adoption is skipped: this is a fresh boot of a wiped AVD. " +
 			"The emulator is not ours to own: it outlives this daemon, and no pid record is kept. Boots are serialised with emulator.start. Cancelling after the stop and before the boot leaves the AVD stopped and unwiped; cancelling after the boot has started stops waiting, leaves the emulator running and the wipe already applied. " +
-			"Fails with the preamble's errors, EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, EMULATOR_STOP_TIMEOUT when the running instance does not stop, REQUEST_INVALID_PARAMS for a name that is not a bare AVD name, and OPERATION_QUEUE_TIMEOUT behind another boot.",
+			"Fails with DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED (including a kill adb refused), DEVICE_DISCONNECTED, EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, EMULATOR_STOP_TIMEOUT when the running instance does not stop, and REQUEST_INVALID_PARAMS for a name that is not a bare AVD name; behind another boot it waits, queued.",
 		Params: WipeParams{},
 		Result: WipeResult{},
-		Errors: append(append([]capability.ErrorCode{}, device.PreambleErrors...),
+		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrDisconnected,
 			ErrLauncherNotFound, ErrAVDNotFound, ErrLaunchFailed, ErrAVDLocked, ErrBootTimeout, ErrStopTimeout,
-			capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
+			capability.ErrInvalidParams},
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(true),
