@@ -104,7 +104,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 			"tasks are 1 to 20 Gradle task names or paths, each checked against the pattern Gradle accepts before anything is started; whether a task exists is Gradle's own answer, and an unknown one is a failed build, not a rejected call (build.tasks lists what exists). " +
 			"The build's id is its operation id, so a cancel is operation.cancel on the id this call returned and the record says cancelled. " +
 			"A failed build is a completed operation whose outcome is failed: read its errors with build.errors and its whole console with artifact.read {ref: consoleRef}. " +
-			"The record reports the AGP and KGP versions the probe read (\"unknown\" when it did not run) and expectedSources, the primary error source expected per tool. " +
+			"The record reports the AGP and KGP versions the probe read (\"unknown\" when the probe did not read them) and expectedSources, the primary error source expected per tool. " +
 			"The result is also persisted, and build.lastResult returns it after a restart. " +
 			"The console is not readable until the build has finished. " +
 			"Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). " +
@@ -337,7 +337,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		Validation:          "untested",
 		AGP:                 agp,
 		KGP:                 kgp,
-		ExpectedSources:     expected,
+		ExpectedSources:     &expected,
 		TaskSummary:         taskSummary(sink.counts()),
 		Tasks:               tasks,
 		Failures:            failureNodes(fin.Failures),

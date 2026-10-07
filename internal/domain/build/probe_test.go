@@ -196,7 +196,7 @@ func TestPluginVersionsUnknownWhenTheProbeFailedAndPersisted(t *testing.T) {
 	if got.AGP != "unknown" || got.KGP != "unknown" {
 		t.Errorf("after a restart agp/kgp are %q/%q, want unknown", got.AGP, got.KGP)
 	}
-	if got.ExpectedSources != res.ExpectedSources {
+	if got.ExpectedSources == nil || res.ExpectedSources == nil || *got.ExpectedSources != *res.ExpectedSources {
 		t.Errorf("after a restart expectedSources are %+v, want the recorded %+v", got.ExpectedSources, res.ExpectedSources)
 	}
 }

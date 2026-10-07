@@ -118,9 +118,18 @@ var variantSuffixes = []string{"AndroidTest", "UnitTest", "TestFixtures"}
 // non-nil only for source probe, and mirrors the probe's dimension order.
 func Variants(m Module, probe Probe) (names []string, details []Variant, source string) {
 	if probe.Read() {
-		if m.Android == nil {
-			// A non-Android project: the probe read it and it has no variants (D8).
+		if m.Android == nil && probe.Status == "ok" {
+			// A non-Android project: the probe read every project and this one has no
+			// Android facts (D8). Under partial, a missing block may be a project whose
+			// read failed, so it falls back (step 3 review B1).
 			return []string{}, nil, "probe"
+		}
+		if m.Android == nil {
+			fallback := VariantNames(m)
+			if fallback == nil {
+				fallback = []string{}
+			}
+			return fallback, nil, "task-names"
 		}
 		if m.Android.Variants != nil {
 			names = make([]string, 0, len(m.Android.Variants))
