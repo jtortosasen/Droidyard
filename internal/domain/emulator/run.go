@@ -24,7 +24,7 @@ const waitDelay = 250 * time.Millisecond
 // cannot call device.Run directly. Errors are device.ErrTimeout on timeout,
 // device.ErrNoStarter when the daemon has no spawner, or the error starting the launcher.
 func (e *Emulator) launcherRun(ctx context.Context, path string, timeout time.Duration, limit int, args ...string) (device.Output, error) {
-	if e.start == nil {
+	if e.starter == nil {
 		return device.Output{ExitCode: -1}, device.ErrNoStarter
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -35,7 +35,7 @@ func (e *Emulator) launcherRun(ctx context.Context, path string, timeout time.Du
 	cmd.WaitDelay = waitDelay
 	out, errb := &capped{max: limit}, &capped{max: limit}
 	cmd.Stdout, cmd.Stderr = out, errb
-	if err := e.start(cmd); err != nil {
+	if err := e.starter(cmd); err != nil {
 		return device.Output{ExitCode: -1}, fmt.Errorf("starting emulator: %w", err)
 	}
 	werr := cmd.Wait()

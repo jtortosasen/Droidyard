@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -68,6 +69,7 @@ func start(cmd *exec.Cmd) error { return cmd.Start() }
 type fixture struct {
 	adbDir string
 	ldir   string
+	state  string
 	env    []string
 	adb    *device.ADB
 	em     *Emulator
@@ -82,12 +84,106 @@ func newFixture(t *testing.T, adbFiles map[string]string, envExtra ...string) *f
 	}
 	adb := device.NewADBWithExec(devicetest.Env(t, adbDir, closedPort(t)), devicetest.Exec(adbDir))
 	ldir := t.TempDir()
-	env := append(emulatortest.Env(t, ldir), envExtra...)
-	em := New(env, adb, start)
+	// The launcher's table is the fake adb's scenario directory, so a boot it starts is
+	// listed by the fake adb (plan m1i, D20).
+	env := append(emulatortest.Env(t, ldir), emulatortest.TableEnv+"="+adbDir)
+	env = append(env, envExtra...)
+	state := t.TempDir()
+	em := New(env, adb, start, state)
 	reg := capability.NewRegistry()
 	device.Register(reg, adb, nil, nil)
 	Register(reg, em)
-	return &fixture{adbDir: adbDir, ldir: ldir, env: env, adb: adb, em: em, ops: capability.NewOperations(reg)}
+	f := &fixture{adbDir: adbDir, ldir: ldir, state: state, env: env, adb: adb, em: em, ops: capability.NewOperations(reg)}
+	t.Cleanup(f.killLaunchers)
+	return f
+}
+
+// killLaunchers ends every launcher the fixture started, so a test that cancels a boot
+// (which leaves the emulator running on purpose) still cleans up.
+func (f *fixture) killLaunchers() {
+	f.em.mu.Lock()
+	launches := make([]*launch, 0, len(f.em.launches))
+	for _, l := range f.em.launches {
+		launches = append(launches, l)
+	}
+	f.em.mu.Unlock()
+	for _, l := range launches {
+		if p, err := os.FindProcess(l.pid); err == nil {
+			p.Kill()
+		}
+	}
+}
+
+// startFixture boots the fake's AVD from stopped: the launcher lists it, boots at once
+// and stays alive. It is what a boot test starts from.
+func (f *fixture) stopped(t *testing.T, list string) {
+	t.Helper()
+	f.launcher(t, list)
+}
+
+// logOf is the AVD's launcher log, "" when there is none.
+func (f *fixture) logOf(t *testing.T, avd string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(f.state, "emulator", avd+".log"))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// boot runs emulator.start through the operation store, waits for it and returns the
+// outcome.
+func (f *fixture) boot(t *testing.T, params string) capability.Outcome {
+	t.Helper()
+	return f.invoke(t, "emulator.start", params)
+}
+
+// mustStart is a completed emulator.start.
+func mustStart(t *testing.T, out capability.Outcome) StartResult {
+	t.Helper()
+	if out.State != capability.StateCompleted {
+		t.Fatalf("emulator.start %s: %+v", out.State, out.Error)
+	}
+	r, ok := out.Result.(StartResult)
+	if !ok {
+		t.Fatalf("result is %T, want StartResult", out.Result)
+	}
+	return r
+}
+
+// mustWipe is a completed emulator.wipe.
+func mustWipe(t *testing.T, out capability.Outcome) WipeResult {
+	t.Helper()
+	if out.State != capability.StateCompleted {
+		t.Fatalf("emulator.wipe %s: %+v", out.State, out.Error)
+	}
+	r, ok := out.Result.(WipeResult)
+	if !ok {
+		t.Fatalf("result is %T, want WipeResult", out.Result)
+	}
+	return r
+}
+
+// scaleBoot shrinks the boot bound and poll so a test runs in milliseconds.
+func scaleBoot(t *testing.T, timeout, poll time.Duration) {
+	t.Helper()
+	bt, bp := bootTimeout, bootPollInterval
+	bootTimeout, bootPollInterval = timeout, poll
+	t.Cleanup(func() { bootTimeout, bootPollInterval = bt, bp })
+}
+
+// alive reports whether a pid is still there (signal 0 reached it).
+func alive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return syscall.Kill(pid, 0) == nil
+}
+
+// launcherPid is the pid a boot of avd reported to the table.
+func (f *fixture) launcherPid(t *testing.T, serial string) int {
+	t.Helper()
+	return devicetest.EmulatorPID(f.adbDir, serial)
 }
 
 // launcher makes the fake print stdout for `-list-avds`.
@@ -400,7 +496,7 @@ func TestListFailsWhenNoLauncherIsFound(t *testing.T) {
 	adbDir := t.TempDir()
 	devicetest.Write(t, adbDir, "devices.out", []byte(listHead))
 	adb := device.NewADBWithExec(devicetest.Env(t, adbDir, closedPort(t)), devicetest.Exec(adbDir))
-	em := New([]string{"PATH=", "HOME=" + t.TempDir()}, adb, start)
+	em := New([]string{"PATH=", "HOME=" + t.TempDir()}, adb, start, "")
 	reg := capability.NewRegistry()
 	Register(reg, em)
 	ops := capability.NewOperations(reg)

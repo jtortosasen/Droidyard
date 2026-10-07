@@ -4692,6 +4692,148 @@
       }
     },
     {
+      "name": "emulator.start",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.8.0",
+      "description": "Boots one AVD and returns {device, avd, adopted} once its device reports sys.boot_completed 1. If the AVD is already running it is adopted: adopted is true, nothing is spawned, and the call still waits for readiness. Otherwise the launcher is started detached — a session and process group of its own, output to \u003cstate\u003e/emulator/\u003cavd\u003e.log — and the serial it creates is found by difference and its `emu avd name`, then polled every second until boot completes, bounded at 180 s. The emulator is not ours to own: it outlives this daemon, and no pid record is kept. Boots are serialised: a second emulator.start or emulator.wipe runs behind the first as a queued operation, and once the first finishes it adopts the AVD. Cancelling a boot stops waiting and leaves the emulator running. A timeout is EMULATOR_BOOT_TIMEOUT. The AVD is looked up in emulator -list-avds first, so an AVD the launcher does not know is EMULATOR_AVD_NOT_FOUND; a launcher that refuses a second instance is EMULATOR_AVD_LOCKED, and one that exits before the device finished booting (the log tail carries why) EMULATOR_LAUNCH_FAILED. Fails with the preamble's errors, EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, REQUEST_INVALID_PARAMS for a name that is not a bare AVD name, and OPERATION_QUEUE_TIMEOUT behind another boot.",
+      "availability": [
+        "emulator",
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "EMULATOR_LAUNCHER_NOT_FOUND",
+        "EMULATOR_AVD_NOT_FOUND",
+        "EMULATOR_LAUNCH_FAILED",
+        "EMULATOR_AVD_LOCKED",
+        "EMULATOR_BOOT_TIMEOUT",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "avd": {
+            "type": "string",
+            "description": "The AVD to boot, as emulator.list names it."
+          },
+          "coldBoot": {
+            "type": "boolean",
+            "description": "Boot without loading a saved snapshot (adds -no-snapshot-load)."
+          },
+          "headless": {
+            "type": "boolean",
+            "description": "Boot with no window (adds -no-window)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "avd"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "device": {
+                "type": "string",
+                "description": "The running emulator's serial, ready for every device capability."
+              },
+              "avd": {
+                "type": "string",
+                "description": "The AVD the serial runs."
+              },
+              "adopted": {
+                "type": "boolean",
+                "description": "True when the AVD was already running and nothing was spawned."
+              },
+              "bootMs": {
+                "type": "integer",
+                "description": "How long a fresh boot took, in milliseconds; absent when the AVD was adopted."
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "device",
+              "avd",
+              "adopted"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "emulator.stop",
       "kind": "command",
       "scope": "global",
@@ -4752,6 +4894,136 @@
         "type": "object",
         "required": [
           "device"
+        ]
+      }
+    },
+    {
+      "name": "emulator.wipe",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.8.0",
+      "description": "Factory-resets one AVD's user data and leaves it running. If the AVD is running it is stopped first and its serial's release waited for, exactly as emulator.stop does; then the launcher boots it detached with -wipe-data, output to \u003cstate\u003e/emulator/\u003cavd\u003e.log, and the call returns {device, avd} once the new serial reports sys.boot_completed 1, bounded at 180 s. Adoption is skipped: this is a fresh boot of a wiped AVD. The emulator is not ours to own: it outlives this daemon, and no pid record is kept. Boots are serialised with emulator.start. Cancelling after the stop and before the boot leaves the AVD stopped and unwiped; cancelling after the boot has started stops waiting, leaves the emulator running and the wipe already applied. Fails with the preamble's errors, EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, EMULATOR_STOP_TIMEOUT when the running instance does not stop, REQUEST_INVALID_PARAMS for a name that is not a bare AVD name, and OPERATION_QUEUE_TIMEOUT behind another boot.",
+      "availability": [
+        "emulator",
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "EMULATOR_LAUNCHER_NOT_FOUND",
+        "EMULATOR_AVD_NOT_FOUND",
+        "EMULATOR_LAUNCH_FAILED",
+        "EMULATOR_AVD_LOCKED",
+        "EMULATOR_BOOT_TIMEOUT",
+        "EMULATOR_STOP_TIMEOUT",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "avd": {
+            "type": "string",
+            "description": "The AVD to factory-reset, as emulator.list names it."
+          },
+          "headless": {
+            "type": "boolean",
+            "description": "Boot with no window (adds -no-window)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "avd"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "device": {
+                "type": "string",
+                "description": "The running emulator's serial after the wipe."
+              },
+              "avd": {
+                "type": "string",
+                "description": "The AVD that was wiped."
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "device",
+              "avd"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
         ]
       }
     },

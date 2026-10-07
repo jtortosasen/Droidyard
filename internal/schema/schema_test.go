@@ -65,7 +65,7 @@ func registry() *capability.Registry {
 		panic(err)
 	}
 	device.Register(reg, device.NewADB(nil, nil), store, nil)
-	emulator.Register(reg, emulator.New(nil, device.NewADB(nil, nil), nil))
+	emulator.Register(reg, emulator.New(nil, device.NewADB(nil, nil), nil, ""))
 	artifacts.Register(reg, store)
 	// The golden registry only needs the sdk descriptors: no handler is run, so an empty
 	// environment (which resolves no SDK) and no client are enough.

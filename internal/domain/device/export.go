@@ -2,8 +2,13 @@ package device
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
+
+// getpropOutputCap bounds a readiness probe's output; `sys.boot_completed` is one digit.
+const getpropOutputCap = 256
 
 // What the emulator subsystem (internal/domain/emulator) needs from this package,
 // exported rather than duplicated (plan m1i step 4): the device preamble's policy hook,
@@ -74,4 +79,39 @@ func (a *ADB) AvdName(ctx context.Context, serial string) string {
 		return ""
 	}
 	return parseAvdName(string(out.Stdout))
+}
+
+// ADBPath resolves adb for a caller that runs it without the device preamble (the
+// emulator subsystem's own stop on emulator.wipe's behalf, which holds no device key and
+// runs no hook): the path, or DEVICE_ADB_NOT_FOUND naming what was tried, exactly as
+// device.list's resolution answers it.
+func (a *ADB) ADBPath(again string) (string, error) {
+	res := a.Resolve()
+	if !res.Found {
+		return "", adbNotFound(res, again)
+	}
+	return res.Path, nil
+}
+
+// BootCompleted reads `-s <serial> shell getprop sys.boot_completed`: value is the
+// trimmed property, "1" once the device finished booting; gone is true when adb says the
+// serial is no longer there (the device disconnected mid-wait, which is
+// DEVICE_DISCONNECTED); err is set when adb could not be run at all, which a readiness
+// poll treats as "not yet", never as an error. It is the readiness signal of a boot and
+// of an adoption (emulator.md §Boot sequence 5; plan m1i, D15).
+func (a *ADB) BootCompleted(ctx context.Context, serial string) (value string, gone bool, err error) {
+	res := a.Resolve()
+	if !res.Found {
+		return "", false, fmt.Errorf("adb was not found")
+	}
+	out, err := a.Run(ctx, res.Path, bootTimeout, getpropOutputCap, "-s", serial, "shell", "getprop", "sys.boot_completed")
+	if err != nil {
+		return "", false, err
+	}
+	if out.ExitCode != 0 {
+		if line := disconnectedLine(serial, out); line != "" {
+			return "", true, nil
+		}
+	}
+	return strings.TrimSpace(string(out.Stdout)), false, nil
 }
