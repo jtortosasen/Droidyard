@@ -149,8 +149,9 @@ Cancel(id OpID) error
   still queued after 20 s fails with `OPERATION_QUEUE_TIMEOUT` without having run
   ([ADR-0020](../adr/0020-operation-contract.md) §States). The scheduler enforces it,
   not the handler.
-- Device writes are serialised per device, and `emulator.start/stop/wipe` per AVD;
-  reads proceed in parallel.
+- Device writes are serialised per device, and `emulator.start`/`wipe` share one boot
+  key while `emulator.stop` takes the device's write key (milestone 1i D12); reads
+  proceed in parallel.
 - A lock is never held while blocked on a subprocess without a timeout.
 
 ## State ownership

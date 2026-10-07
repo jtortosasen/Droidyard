@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -307,6 +307,22 @@ find ~/Library/Android/sdk -maxdepth 3 -newer "$E/sdk-stamp" | grep -v knownPack
 ```
 
 - Expect `tools=25`; `project_variants` `:app` `source: probe` with eight `details`; `sdk_requirements` `complete: true`, `missing: []`; `build_assemble {":app", "paidStagingDebug"}` chosen by the agent from the flavours, `success`, `agp`/`kgp` set; `device_install` `dev.droidyard.flavoured.paid.staging`; the screen shows that package.
+
+**1i Logs and emulator** (milestone 1i; its §Scratch rules and §Emulator rules apply verbatim: a scratch AVD `droidyard_m1i` created with `avdmanager` under `ANDROID_AVD_HOME=~/Library/Caches/droidyard-dev/m1i/avd` and deleted at the end; every daemon run with that home and the adb guard as `ADB`, refusing writes to the emulators online before the run; `Pixel_9a` and the five other owner AVDs never named).
+
+```sh
+B=~/Library/Caches/droidyard-dev/m1i; export ANDROID_AVD_HOME=$B/avd ADB=$B/bin/adb DROIDYARD_STATE_DIR=$B/state
+echo no | avdmanager create avd -n droidyard_m1i -k "system-images;android-31;google_apis;arm64-v8a" -d pixel_5
+adb devices | awk 'NR>1 && $2=="device"{print $1}' >$B/bin/protected; : >$B/bin/refused.log   # before the scratch boots
+cp -R sidecar/testdata/flavoured $B/flavoured; "$DY" trust $B/flavoured; (cd / && "$DY" serve >"$E/serve.log" 2>&1 &)
+# OpenCode as in Real client, cwd $B/flavoured, shell and edit denied; prompt: start droidyard_m1i and use only its device;
+# build paidStagingDebug, install, launch, press Crash, read the crash from the logs; relaunch and follow its logs 5 s;
+# wipe, check the app is gone, stop the emulator
+jq -c 'select(.method=="tools/call")|{id,n:.params.name,a:.params.arguments}' "$E/wire.c2s.jsonl"   # nothing names emulator-5554
+"$DY" stop; avdmanager delete avd -n droidyard_m1i; rm -rf $B/avd; wc -l <$B/bin/refused.log   # 0
+```
+
+- Expect `tools=30`; `emulator_start` `adopted: false` with `bootMs`; `device_logs` `filter.by: uid` with `crashes[0]` `java.lang.IllegalStateException` / `droidyard fixture crash`; a follow from `since: "launch"` holding the `created` line; `emulator_wipe` and `emulator_stop` completed; `Pixel_9a`'s qemu pid, the adb server's pid and the owner AVDs' `userdata-qemu.img*` mtimes unchanged.
 
 ## Evidence
 

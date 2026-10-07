@@ -232,8 +232,8 @@ Codes carry no version suffix of their own.
 - Terminal operations stay waitable for 15 minutes (at least the last 200).
 - **Queue bound.** A capability not flagged long-running that is still `queued` after
   20 s fails with `OPERATION_QUEUE_TIMEOUT`, naming `blockedBy`; it never ran, so a
-  retry is safe. This keeps a `device.tapElement` queued behind a `device.install`, or
-  an `emulator.stop` behind a boot, from outliving a client timeout
+  retry is safe. This keeps a `device.tapElement` queued behind a `device.install` from
+  outliving a client timeout
   ([ADR-0020](../adr/0020-operation-contract.md) §States).
 
 ### Idempotency
@@ -351,7 +351,7 @@ subscription receives when it lost events.
 | `operation.progress` | `{done, total?, message?, phase?}` | 1d |
 | `events.gap` | the loss marker `{fromSeq, toSeq}`, `seq` equal to `toSeq` | 1d |
 | `build.progress`, `build.output` | Gradle progress and console lines | with their first consumer, the Phase 2 UI (milestone 1g put build progress on `operation.progress`) |
-| `device.logcat`, `device.screen`, `device.state` | device streams and state | with their producers: `device.logs` and later device milestones (not 1e) |
+| `device.logcat`, `device.screen`, `device.state` | device streams and state | with their first consumer, the Phase 2 UI (milestone 1i shipped `device.logs` without the topic, D18) |
 | `process.lifecycle`, `process.output` | supervised sidecars | with their first consumer, the Phase 2 UI (the first sidecar shipped in 1g without them) |
 | `operation.state` | operation transitions for the UI | Phase 2 |
 
