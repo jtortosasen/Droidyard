@@ -673,3 +673,24 @@ func TestStopHoldsTheDeviceWriteKey(t *testing.T) {
 		t.Errorf("a stop of %s queued behind %s's key, which is a different lock", serial2, serial)
 	}
 }
+
+// Decision (level 4, step 5): a refused or failing `emu kill` whose serial stays listed is
+// adb's failure, reported after a short grace instead of the whole stop bound (the adb
+// guard's refusal on Pixel_9a took the full 20 s). Seen failing with the exit ignored.
+func TestStopFailsFastWhenEmuKillFails(t *testing.T) {
+	scaleStop(t, 10*time.Second, 10*time.Millisecond)
+	g := killFailedGrace
+	killFailedGrace = 100 * time.Millisecond
+	t.Cleanup(func() { killFailedGrace = g })
+	f := newFixture(t, map[string]string{
+		"devices.out":            listOf(emuLine),
+		serial + ".emukill.exit": "97\n",
+		serial + ".emukill.err":  "m1i adb guard: refused\n",
+	})
+	start := time.Now()
+	out := f.invoke(t, "emulator.stop", `{"device":"`+serial+`"}`)
+	mustFail(t, out, device.ErrADBFailed)
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("a failed kill took %s to report, want the short grace", d)
+	}
+}
