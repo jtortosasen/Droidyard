@@ -307,7 +307,7 @@ these rules and the same `expect` vocabulary.
 
 ## Open questions
 
-- **An ANR over the app.** In the m1m comparison pilot the app showed "isn't responding"
+- **An ANR over the app.** In the m1l comparison pilot (`m1l/cmp-20261007-1303`) the app showed "isn't responding"
   while typing on a memory-pressed emulator; the device then stopped answering adb for
   seconds (`getprop` unanswered in 3 s, `screencap` timing out at 10 s), so a structured
   report of the dialog would not have reached the agent either. The agent recovered by
@@ -316,6 +316,8 @@ these rules and the same `expect` vocabulary.
   died around the app's crash and was restarted for the next read, which made that tap
   take 8.7 s; a restart is not reported (by design, warnings are for fallbacks). Whether a
   crash should be reported, or the restart made cheaper, is open.
-- **Verified interactions in agent runs** took 1.5–3.6 s (the app's own rendering on a
-  software-GL emulator, polled every ~0.6 s), against 0.4–1.7 s on a quiet emulator; the
-  reader was alive and the emulator had 300–450 MB free throughout (m1m dy6).
+- **Verified interactions in agent runs** took 1.5–6 s for taps and up to 13 s for inputs
+  across the m1m comparison, against 0.4–1.7 s on a quiet emulator. In the monitored run
+  (dy6) the reader kept its pid through every interaction and the emulator had 300–450 MB
+  free; the app's rendering on a software-GL emulator, polled every ~0.6 s, is the
+  hypothesis, not measured.

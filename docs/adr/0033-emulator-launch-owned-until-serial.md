@@ -8,6 +8,8 @@
 - Decided by the main session under the owner's standing instruction (Delegated,
   2026-10-07, plan m1m Q1), after the owner's "Necesito que sea igual de robusto, sí. Y
   rápido. Arréglalo."; the owner can revert it.
+- Amended: 2026-10-07 (m1m close review) — Consequences' "at most 45 s" is the serial
+  deadline; ending the launch adds up to 10 s (50.0 s observed for a stopped qemu).
 
 ## Context
 

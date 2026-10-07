@@ -30,7 +30,7 @@ is [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md). The `droidyard 
 
 Note the last two rows: those processes are **not** children of the core. We
 start/stop them through their own tools and observe them; we do not own their
-process tree.
+process tree (an emulator launch is ours only until its serial resolves, ADR-0033).
 
 **One TAPI sidecar for all roots.** The sidecar protocol already passes `root` on every
 call, and each extra JVM costs hundreds of megabytes for nothing: per-root isolation
