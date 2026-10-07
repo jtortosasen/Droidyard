@@ -25,7 +25,7 @@ run twice — once through our MCP surface, once through raw shell/adb.
 
 One scenario. Everything in the MVP exists to serve it.
 
-On DopamineControl ([below](#validation-target-dopaminecontrol)):
+On the golden sample, `samples/golden/` ([below](#validation-target-dopaminecontrol)):
 
 | # | Step | Capability |
 | --- | --- | --- |
@@ -160,8 +160,12 @@ Deliverables (capabilities):
 - `shell.exec` (**off by default**; a call returns `POLICY_SHELL_DISABLED`).
 
 Acceptance — the golden path is completed end-to-end by an **external agent**
-(**Cursor** and **OpenCode**: the two the owner uses) over MCP, against DopamineControl,
-with structured results at every step and **no stdout parsing by the agent**.
+(**Cursor** and **OpenCode**: the two the owner uses) over MCP, against the golden
+sample (§Validation target), with structured results at every step and **no stdout
+parsing by the agent**. **Accepted 2026-10-07** ([m1l plan](../plans/m1l-phase1-acceptance.md)):
+OpenCode (`deepseek-v4.1-flash`) and Cursor (Grok 4.6) each completed it in one session
+on a scratch API 31 AVD; Cursor attempted its own read tool once, on a file outside the
+project, and the deny rule refused it (nothing read).
 
 ### Phase 2 — Minimal web UI (closes the MVP)
 
@@ -190,11 +194,21 @@ Acceptance:
 
 ## Validation target: DopamineControl
 
-**Ratified 2026-09-29: the acceptance run happens against `DopamineControl`**, the
-owner's real Android project — multi-module, with `build-logic` convention plugins and
-Compose. A real project exercises the design far harder than a template would.
+**Superseded 2026-10-07 by the owner's decision: the acceptance target is the golden
+sample, `samples/golden/`.** The owner, when DopamineControl turned out to lack the
+form, the `testTagsAsResourceId` and the crash path below: "Si dopamine control no te
+sirve, create una app de ejemplo sencilla que te haga el mismo papel" (if DopamineControl
+does not serve, create a simple sample app that plays the same role). The sample plays
+its role item by item: Kotlin + Compose, `:app` and `:feature:golden` with a
+`build-logic` convention plugin, a validated form, a list with like counters,
+`testTagsAsResourceId`, a crash button, a marked compile-error site; Gradle 8.13, AGP
+8.13.2, KGP 2.0.21. The ratified choice (2026-09-29) was `DopamineControl`, the owner's
+real Android project — multi-module, with `build-logic` convention plugins and Compose —
+because a real project exercises the design far harder than a template would; that
+argument still holds, and DopamineControl stays the project the Gradle work was tried on
+(1g).
 
-What the golden path needs from it:
+What the golden path needs from the target:
 
 - Kotlin + Jetpack Compose, one activity, a navigation with 2–3 screens.
 - A **form** (text input, button, validation) to exercise `uiTree` / `tapElement` /
@@ -216,10 +230,10 @@ What the golden path needs from it:
 
 Two practical notes:
 
-- **DopamineControl has uncommitted work.** An acceptance run needs a clean checkout — a
-  branch or a worktree — so the measurement is reproducible and nothing is disturbed.
-- **CI still needs small synthetic fixtures.** DopamineControl is the acceptance target,
-  not a test fixture: too large and too personal to pin in CI. The Gradle subsystem's
+- **An acceptance run needs a clean checkout** so the measurement is reproducible and
+  nothing is disturbed: the sample is copied with `git archive` from the commit under test.
+- **CI still needs small synthetic fixtures.** The acceptance target is not a test
+  fixture: it is built only in scratch copies. The Gradle subsystem's
   fixture pattern (a generated project per pinned version) covers CI, and the two
   Kotlin-plugin fixtures above exist for that reason.
 
@@ -247,14 +261,15 @@ scheduled last and may slip.
 
 ## Definition of done
 
-- [ ] The golden path completes from an external agent with **zero stdout parsing by
-      the agent**.
+- [x] The golden path completes from an external agent with **zero stdout parsing by
+      the agent** (m1l: OpenCode and Cursor, on the golden sample).
 - [ ] The golden path completes from the browser.
 - [ ] `build.errors` returns structured `{file, line, column, message}` for a real
       Kotlin compile failure — on both fixtures, the KGP < 2.4 one going through the
       console extractor.
-- [ ] `device.tapElement` and `device.inputText` verify their effect in a single call.
-- [ ] `workspace.close` leaves no orphan processes. (**Not** the adb server, the
+- [x] `device.tapElement` and `device.inputText` verify their effect in a single call
+      (m1l G7, both clients, on Compose).
+- [x] `workspace.close` leaves no orphan processes (m1l, every run's hygiene; 1c, 1k). (**Not** the adb server, the
       Gradle daemon or emulators: those are not ours and are meant to survive.)
 - [ ] Idle footprint reported **per process** (see Metrics), with the core under
       50 MB RSS and the Gradle sidecar stopped when idle.
@@ -309,7 +324,7 @@ in the MVP rather than assumed.
 | --- | --- |
 | Build error shapes vary by AGP, Kotlin plugin and producer | A core console extractor for Kotlin, javac, kapt, KSP, AAPT2 and manifest-merger messages, with golden tests from recorded output. **Recorded so far: Kotlin, KSP and AAPT2, from the command line only** ([spike S1 run 1](../research/spike-s1-error-formats.md)); javac, kapt and manifest merger are still to record. The Problems API where the plugin versions deliver it; a labelled raw tail only when nothing is recognised ([ADR-0022](../adr/0022-build-error-extraction.md)) |
 | AAPT2 errors name AGP's *merged* resources, not source files | Observed in spike S1 run 1. Working assumption: report the virtual path labelled `merged: true` always, and quote the merged line where the file can be located. **Must be settled before `build.errors` is implemented** ([ADR-0022](../adr/0022-build-error-extraction.md) §Known open item) |
-| Compose exposes no resource-ids | DopamineControl ships `testTagsAsResourceId` on its Compose root; fall back to text/content-desc |
+| Compose exposes no resource-ids | The golden sample ships `testTagsAsResourceId` on its Compose root, and Droidyard's reader resolves the tags as ids (observed, m1l); fall back to text/content-desc |
 | `uiautomator dump` is flaky ("could not get idle state"); since ADR-0029 it is only the fallback to Droidyard's reader | Retry once, then a cause-attributed error that routes to text/OCR later |
 | MCP client differences (tool timeouts, tool limits, annotations) | Bounded wait with `operation.wait`; keep the exposed set small; verified against **Cursor and OpenCode**, the two the owner uses (spike S2) |
 | The comparison metric is noisy | N runs, a pinned model, a scripted reset and a pre-stated threshold |
@@ -338,9 +353,9 @@ in the MVP rather than assumed.
   editor comes later, with code intelligence.
 - **SDK provisioning is staged**: read-only requirement checking in the MVP, package
   installation and AVD creation after it.
-- **The validation target is DopamineControl**, the owner's real project
-  ([ADR-0024](../adr/0024-project-name-and-identifiers.md) covers the name);
-  acceptance runs against it, while CI keeps small synthetic fixtures.
+- **The validation target is the golden sample** (`samples/golden/`), by the owner's
+  decision of 2026-10-07, replacing DopamineControl (§Validation target); CI keeps small
+  synthetic fixtures.
 - **The assistants that matter are Cursor and OpenCode**; spike S2 measures their real
   client behaviour.
 - **Remote access comes after v1**, although it is where the project started.

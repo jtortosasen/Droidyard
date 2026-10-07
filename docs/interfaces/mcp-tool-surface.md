@@ -216,8 +216,11 @@ typed contract.
 - `--no-inline-images` (not built: cut from 1e because OpenCode accepted image blocks;
   it lands with an ADR-0019 §7 amendment if a client refuses them) covers clients that
   reject image content. The reference and its
-  metadata remain. *Assumption:* **Cursor and OpenCode** accept `ImageContent`
-  in tool results. MCP has no capability flag to detect this; spike S2 verifies it.
+  metadata remain. **Cursor and OpenCode** accept `ImageContent` in tool results:
+  observed in m1l (OpenCode v2.0.18 and `cursor-agent` 2026.10.01, each received the
+  screenshot's image block; Cursor described the form from it). MCP has no capability
+  flag to detect this. The same runs showed OpenCode sending a `progressToken` on every
+  `tools/call` and Cursor on none.
 
 ## Errors vs. failures
 
@@ -342,5 +345,5 @@ wholesale.
   the right place for consent.
 - Whether to offer a reduced "minimal" surface for clients that struggle with long
   tool lists.
-- The image defaults (edge, format, size threshold) and `ImageContent` support per
-  client. Both wait on spike S2.
+- The image defaults (edge, format, size threshold) wait on spike S2; `ImageContent`
+  support was observed in both clients (m1l).

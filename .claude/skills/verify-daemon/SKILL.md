@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> **Policy and shell block run 2026-10-07 (macOS, no device, OpenCode v2.0.18) by step 4 of `docs/plans/m1k-policy-and-shell.md`, evidence `~/Library/Caches/droidyard-dev/m1k/l5-20261007-0820`.** Files block run 2026-10-07 (macOS, no device, OpenCode v2.0.18, the flavoured fixture) by step 3 of `docs/plans/m1j-files.md`, evidence `~/Library/Caches/droidyard-dev/m1j/l5-20261007-0612`.** Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
+> **Phase 1 acceptance block run 2026-10-07 (macOS, a scratch API 31 AVD, OpenCode v2.0.18 and cursor-agent 2026.10.01 with Grok 4.6, the golden sample) by steps 4–5 of `docs/plans/m1l-phase1-acceptance.md`, evidence `~/Library/Caches/droidyard-dev/m1l/{opencode-20261007-1110,cursor-20261007-1114}`.** Policy and shell block run 2026-10-07 (macOS, no device, OpenCode v2.0.18) by step 4 of `docs/plans/m1k-policy-and-shell.md`, evidence `~/Library/Caches/droidyard-dev/m1k/l5-20261007-0820`.** Files block run 2026-10-07 (macOS, no device, OpenCode v2.0.18, the flavoured fixture) by step 3 of `docs/plans/m1j-files.md`, evidence `~/Library/Caches/droidyard-dev/m1j/l5-20261007-0612`.** Logs and emulator block run 2026-10-07 (macOS, a scratch API 31 AVD in an isolated `ANDROID_AVD_HOME`, OpenCode v2.0.18) by step 6 of `docs/plans/m1i-device-logs-and-emulator.md`, evidence `~/Library/Caches/droidyard-dev/m1i/l5-20261007-0459`.** Probe block run 2026-10-07 (macOS, Pixel_9a, OpenCode v2.0.18, the flavoured fixture) by step 5 of `docs/plans/m1h-android-probe-and-sdk.md`, evidence `~/Library/Caches/droidyard-dev/m1h/l5-20261007-0251`.** Build block run 2026-10-07 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18, DopamineControl: Gradle 8.13, AGP 8.13.2, KGP 2.0.21) by step 9 of `docs/plans/m1g-gradle-sidecar-and-build.md`, evidence `~/Library/Caches/droidyard-dev/m1g/l5-20261007-0024`.** Device actions block run 2026-10-06 (macOS, Pixel_9a API 36.1, OpenCode v2.0.18) by step 10 of `docs/plans/m1f-device-actions.md`, evidence `/private/tmp/dy.QWqFfz`. Device block run 2026-10-04 by step 9 of `docs/plans/m1e-jvm-free-device-slice.md`, evidence `/private/tmp/dy.7Pknqq`.**
 >
 > **Status: run end to end on 2026-10-03, macOS (Darwin 25.6.0), against the built binary, by step 8 of `docs/plans/m1d-http-websocket-and-events.md`** (evidence `/private/tmp/dy.1SZVqK`); before that by step 8 of `docs/plans/m1c-process-supervisor-and-workspace.md` (evidence `/private/tmp/dy.MZtec4`). All five sections completed. Drive rows run in 1d: the shipped surface, the HTTP row, parity (`system.capabilities` and `workspace.describe`), workspaces, the WebSocket and events rows as Go tests, and the OpenCode procedure with a bound session; the auto-start row and the dummy-sidecar and crash-recovery Go tests were not rerun. The auto-start and single-instance row was last run at milestone 1b (2026-09-30, step 10 of `docs/plans/m1b-daemon-and-mcp-adapter.md`). Every other row names the milestone that makes it runnable. Not yet run on Linux.
 >
@@ -363,6 +363,27 @@ pgrep -f 'sleep 300'; cat $B/state/processes.json                               
 ```
 
 - Expect `tools=34`, `shell_exec` listed and no `policy_*`; prompt A's `shell_exec` `isError` `POLICY_SHELL_DISABLED`, its message warning of the user's full reach and its nextStep naming `shell.roots`, relayed by the agent; prompt B's `shell_exec` `exitCode` 0 with the modified file and `_meta` `droidyard/untrusted`, `seq` with `stdoutRef` and `200000` (read with `artifact_read`); no OpenCode file or shell tool; the timeout `timedOut`, `SIGTERM`; nothing left after `stop`.
+
+**1l Phase 1 acceptance** (milestone 1l; its §Scratch rules, §Emulator rules and §Client rules apply verbatim: the golden sample copied with `git archive`, a scratch AVD `droidyard_m1l` behind the m1i-style guard, `ANDROID_SERIAL=droidyard-m1l-none`, `DROIDYARD_CONFIG_DIR` unset, owner emulators off during agent runs).
+
+```sh
+B=~/Library/Caches/droidyard-dev/m1l; R=<run>; G=$B/g-$R/samples/golden
+git archive HEAD samples/golden | tar -x -C $B/g-$R; echo "sdk.dir=$HOME/Library/Android/sdk" >$G/local.properties
+adb devices | awk 'NR>1 && $2=="device"{print $1}' >$B/bin/protected; : >$B/bin/refused.log
+export DROIDYARD_STATE_DIR=$B/state-$R ADB=$B/bin/adb ANDROID_AVD_HOME=$B/avd ANDROID_SERIAL=droidyard-m1l-none; unset DROIDYARD_CONFIG_DIR
+go build -tags droidyard_nodump -o $E/dy ./cmd/droidyard; "$DY" trust $G; (cd / && "$DY" serve >"$E/serve.log" 2>&1 &)
+# rec.sh: export DROIDYARD_STATE_DIR; tee c2s | "$DY" mcp --no-autostart --root "$G" | tee s2c
+# OpenCode: $G/opencode.jsonc (rec.sh, the 1j permission block); opencode run ... -m opencode-go/deepseek-v4.1-flash "<prompt>"
+# Cursor: $G/.cursor/mcp.json (rec.sh), $G/.cursor/cli.json {"permissions":{"allow":["Mcp(droidyard:*)"],"deny":["Shell(*)","Read(**)","Write(**)"]}}
+#   CURSOR_DATA_DIR=$B/cursor-data; cursor-agent mcp enable droidyard; mcp disable github; mcp disable Figma
+#   cursor-agent -p --trust --output-format stream-json --model cursor-grok-4.6-high --workspace $G "<prompt>"   # never -f/--yolo/--approve-mcps, never status/login
+jq -c 'select(.method=="tools/call")|{id,n:.params.name}' "$E/wire.c2s.jsonl"
+jq -c 'select(.result.structuredContent?)|.result.structuredContent.result.errors?[0]?' "$E/wire.s2c.jsonl"     # G3: kotlin, console, MainActivity.kt:35:9
+"$DY" call emulator.wipe --params '{"avd":"droidyard_m1l"}'; sleep 3; "$DY" call emulator.stop --params '{"device":"<serial>"}'; "$DY" stop
+diff -r -x build -x .gradle -x .kotlin -x .cursor -x opencode.jsonc -x local.properties $G $B/g-fresh/samples/golden   # empty
+```
+
+- The prompt is the plan's §The golden-path run, `<file>` = `app/src/main/kotlin/dev/droidyard/golden/MainActivity.kt`. Expect `tools=34`; G1–G8 as the plan's table; G7's four results `expect.matched: true`; G8 `crashes[0]` `java.lang.IllegalStateException` "golden app crash"; no `artifact_read` before `build_errors`; no `shell_exec`; no build task matching `install*`, `uninstall*`, `connected*`, `device*`; `refused.log` empty; the 5037 pid, owner AVDs and the SDK stamp unchanged. A `stop` right after a `wipe` can time out (m1l step 4): leave a few seconds between them.
 
 ## Evidence
 
