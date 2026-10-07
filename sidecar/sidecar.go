@@ -37,9 +37,9 @@ const (
 	// slf4j-api, Kotlin stdlib).
 	DepsSHA256 = "1b54ae742a1e00e1cb446f8f3252801251f1ef954249b012280bbd5bdcbe394f"
 	// SHA256 is the hex digest of jars/gradle-sidecar.jar, the sidecar's own classes.
-	SHA256 = "f4adf6eedd371bfafc0fe38384c045eb98aca21fe059759726ed52ec1de7631f"
+	SHA256 = "48317595e2c77e8eef93b327fa9fb8ea9a8a1219deb462b285a4c59f1355cb7f"
 	// ProbeSHA256 is the hex digest of jars/droidyard-probe.jar, the probe's classes.
-	ProbeSHA256 = "9583a8f4383c79e0d28644a740a52e79a32d2ba6c5da26e096257ac178c247f8"
+	ProbeSHA256 = "6a54f8573130e1e8d1302735daa602052b136a6550e76ed97b12bed51b5bbbb6"
 	// InitSHA256 is the hex digest of the bytes of probe/droidyard-probe.init.gradle,
 	// the design's only init script. It is fixed text, not a build output, but it is
 	// pinned like one: the daemon writes it into the cache and a drift here would change
