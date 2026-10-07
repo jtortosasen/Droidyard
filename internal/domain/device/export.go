@@ -110,6 +110,16 @@ func (a *ADB) BootCompleted(ctx context.Context, serial string) (value string, g
 	}
 	if out.ExitCode != 0 {
 		if line := disconnectedLine(serial, out); line != "" {
+			// A booting emulator is listed offline for seconds (spike S8 G11), and adb
+			// then says "device offline": that is not gone. Gone is absent from the
+			// listing (level 4, step 5: a fresh boot failed DEVICE_DISCONNECTED).
+			if devs, derr := a.Devices(ctx); derr == nil {
+				for _, d := range devs {
+					if d.Device == serial {
+						return "", false, nil
+					}
+				}
+			}
 			return "", true, nil
 		}
 	}

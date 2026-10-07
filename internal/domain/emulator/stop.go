@@ -2,6 +2,7 @@ package emulator
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -94,17 +95,35 @@ func (e *Emulator) stopSerial(ctx context.Context, serial string) error {
 // returns (emulator.md §Stop; plan m1i, D12, D15). We never escalate to signals: the
 // emulator is not ours. One bound covers the kill and both waits, so the whole stop
 // cannot exceed stopTimeout.
+// killFailedGrace is how long a stop waits for the serial to leave after `emu kill`
+// reported failure.
+var killFailedGrace = 3 * time.Second
+
 func (e *Emulator) stopSerialWith(ctx context.Context, adbPath, serial string) error {
 	deadline := time.Now().Add(stopTimeout)
-	// The exit status is ignored: a kill that reported failure may still have stopped it,
-	// and only the listing says. A successful one may too, so the wait always follows.
-	_, _ = e.adb.Run(ctx, adbPath, time.Until(deadline), emuOutputCap, "-s", serial, "emu", "kill")
+	// A kill that reported failure may still have stopped it, and only the listing says,
+	// so the wait follows either way; but after a failed kill it is short, and a serial
+	// still listed then is adb's failure, reported at once instead of after the whole
+	// bound (level 4, step 5: a refused kill took the full 20 s to time out).
+	out, runErr := e.adb.Run(ctx, adbPath, time.Until(deadline), emuOutputCap, "-s", serial, "emu", "kill")
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
-	gone, err := e.waitGone(ctx, serial, deadline)
+	failed := runErr != nil || out.ExitCode != 0
+	waitUntil := deadline
+	if failed {
+		if g := time.Now().Add(killFailedGrace); g.Before(waitUntil) {
+			waitUntil = g
+		}
+	}
+	gone, err := e.waitGone(ctx, serial, waitUntil)
 	if err != nil {
 		return err
+	}
+	if !gone && failed {
+		return capability.Errorf(device.ErrADBFailed, "adb could not stop the emulator %s", serial).
+			WithCause(fmt.Sprintf("adb -s %s emu kill exited with status %d and the serial stayed listed", serial, out.ExitCode)).
+			WithNextStep("check `adb devices` and the emulator; close it from its own window if it is wedged")
 	}
 	if !gone {
 		return stopTimedOut(serial)

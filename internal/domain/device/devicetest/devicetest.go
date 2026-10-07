@@ -247,6 +247,12 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 				fmt.Fprintf(stderr, "error: device '%s' not found\n", args[1])
 				return 1
 			}
+			// A booting emulator is listed offline first, and getprop then fails with
+			// "device offline" (spike S8 G11): <avd>.offlinepolls polls do that.
+			if offlineFromTable(dir, args[1]) {
+				fmt.Fprintln(stderr, "error: device offline")
+				return 1
+			}
 			if bootCompletedFromTable(dir, args[1]) {
 				fmt.Fprintln(stdout, "1")
 			} else {
@@ -1387,6 +1393,29 @@ func bootCompletedFromTable(dir, serial string) bool {
 	n++
 	os.WriteFile(name, []byte(strconv.Itoa(n)), 0o600)
 	return n > want
+}
+
+// offlineFromTable is whether a registered serial still answers as offline: true for its
+// first <avd>.offlinepolls polls (default 0).
+func offlineFromTable(dir, serial string) bool {
+	avd, ok := tableAVD(dir, serial)
+	if !ok {
+		return false
+	}
+	want := 0
+	if b, err := os.ReadFile(filepath.Join(dir, avd+".offlinepolls")); err == nil {
+		want, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	emulMu.Lock()
+	defer emulMu.Unlock()
+	name := filepath.Join(dir, serial+".offline")
+	n := 0
+	if b, err := os.ReadFile(name); err == nil {
+		n, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	n++
+	os.WriteFile(name, []byte(strconv.Itoa(n)), 0o600)
+	return n <= want
 }
 
 // serialGone is whether a serial's `emu kill` took it out of the listing for good.

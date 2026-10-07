@@ -574,3 +574,20 @@ func jsonString(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// Decision (spike S8 G11; level 4, step 5): a booting emulator is listed offline for
+// seconds and its getprop fails "device offline"; that is not a disconnection, so the
+// boot keeps polling until sys.boot_completed. Seen failing at level 4 (a fresh boot
+// failed DEVICE_DISCONNECTED) and with the listing check removed.
+func TestStartWaitsThroughAnOfflineBoot(t *testing.T) {
+	scaleBoot(t, 10*time.Second, 10*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	devicetest.Write(t, f.adbDir, loadedAVD+".offlinepolls", []byte("3\n"))
+	devicetest.Write(t, f.adbDir, loadedAVD+".bootpolls", []byte("1\n"))
+
+	r := mustStart(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`))
+	if r.Adopted || r.Device != "emulator-5556" {
+		t.Fatalf("result = %+v; want a fresh boot that waited through offline", r)
+	}
+}
