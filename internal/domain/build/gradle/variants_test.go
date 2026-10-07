@@ -132,3 +132,14 @@ func TestKGPAtLeastThreshold(t *testing.T) {
 		}
 	}
 }
+
+// Decision (plan m1h D8; step 3 review B1): under a partial probe, an Android project
+// with no Android facts may be one the probe could not read, so it falls back to task
+// names instead of being published as an exact, empty list. Seen failing when partial
+// was treated as ok.
+func TestPartialProbeFallsBackForAProjectItDidNotRead(t *testing.T) {
+	names, _, source := gradle.Variants(appModule(nil), gradle.Probe{Status: "partial"})
+	if source != "task-names" || len(names) == 0 {
+		t.Fatalf("an Android project omitted from a partial probe is %v/%q, want its task-name variants", names, source)
+	}
+}

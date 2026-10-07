@@ -131,36 +131,37 @@ type OutputPath struct {
 // failure tree with its descriptions, the merged problems with gradle.md's caps, and
 // the output-path index.
 type record struct {
-	BuildID             string           `json:"buildId"`
-	Root                string           `json:"root"`
-	Request             Request          `json:"request"`
-	Outcome             string           `json:"outcome"`
-	StartedAt           time.Time        `json:"startedAt"`
-	FinishedAt          time.Time        `json:"finishedAt"`
-	DurationMs          int64            `json:"durationMs"`
-	Gradle              GradleInfo       `json:"gradle"`
-	Profile             string           `json:"profile"`
-	MissingCapabilities []string         `json:"missingCapabilities,omitempty"`
-	Validation          string           `json:"validation"`
-	AGP                 string           `json:"agp"`
-	KGP                 string           `json:"kgp"`
-	ExpectedSources     ExpectedSources  `json:"expectedSources"`
-	TaskSummary         TaskSummary      `json:"taskSummary"`
-	Tasks               []TaskOutcome    `json:"tasks,omitempty"`
-	Failures            []FailureNode    `json:"failures,omitempty"`
-	FailureDropped      int              `json:"failureProblemsDropped,omitempty"`
-	Errors              []extract.Record `json:"errors,omitempty"`
-	Warnings            []extract.Record `json:"warnings,omitempty"`
-	Truncated           int              `json:"truncated,omitempty"`
-	Sources             []string         `json:"sources,omitempty"`
-	Unrecognised        bool             `json:"unrecognised,omitempty"`
-	RootFailures        []string         `json:"rootFailures,omitempty"`
-	Tail                string           `json:"tail,omitempty"`
-	Outputs             []Output         `json:"outputs,omitempty"`
-	OutputPaths         []OutputPath     `json:"outputPaths,omitempty"`
-	ConsoleRef          string           `json:"consoleRef"`
-	ConsoleBytes        int64            `json:"consoleBytes"`
-	ConsoleDropped      int64            `json:"consoleDropped,omitempty"`
+	BuildID             string     `json:"buildId"`
+	Root                string     `json:"root"`
+	Request             Request    `json:"request"`
+	Outcome             string     `json:"outcome"`
+	StartedAt           time.Time  `json:"startedAt"`
+	FinishedAt          time.Time  `json:"finishedAt"`
+	DurationMs          int64      `json:"durationMs"`
+	Gradle              GradleInfo `json:"gradle"`
+	Profile             string     `json:"profile"`
+	MissingCapabilities []string   `json:"missingCapabilities,omitempty"`
+	Validation          string     `json:"validation"`
+	AGP                 string     `json:"agp"`
+	KGP                 string     `json:"kgp"`
+	// Absent in records written before 0.7.0, which then publish no expectedSources.
+	ExpectedSources *ExpectedSources `json:"expectedSources,omitempty"`
+	TaskSummary     TaskSummary      `json:"taskSummary"`
+	Tasks           []TaskOutcome    `json:"tasks,omitempty"`
+	Failures        []FailureNode    `json:"failures,omitempty"`
+	FailureDropped  int              `json:"failureProblemsDropped,omitempty"`
+	Errors          []extract.Record `json:"errors,omitempty"`
+	Warnings        []extract.Record `json:"warnings,omitempty"`
+	Truncated       int              `json:"truncated,omitempty"`
+	Sources         []string         `json:"sources,omitempty"`
+	Unrecognised    bool             `json:"unrecognised,omitempty"`
+	RootFailures    []string         `json:"rootFailures,omitempty"`
+	Tail            string           `json:"tail,omitempty"`
+	Outputs         []Output         `json:"outputs,omitempty"`
+	OutputPaths     []OutputPath     `json:"outputPaths,omitempty"`
+	ConsoleRef      string           `json:"consoleRef"`
+	ConsoleBytes    int64            `json:"consoleBytes"`
+	ConsoleDropped  int64            `json:"consoleDropped,omitempty"`
 }
 
 // index is ws/<wsid>/builds/index.json: the records this state root holds, newest
