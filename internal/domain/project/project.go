@@ -54,9 +54,26 @@ type VariantsResult struct {
 // ModuleVariants is one module's variants and how they were derived.
 type ModuleVariants struct {
 	Module   string   `json:"module" jsonschema:"required"`
-	Variants []string `json:"variants" jsonschema:"required" jsonschema_description:"Variant names; empty for a module that produces no APK variants."`
-	Source   string   `json:"source" jsonschema:"required,enum=probe,enum=task-names" jsonschema_description:"How the variants were derived: probe is exact (a later milestone); task-names is the labelled fallback of ADR-0023 §Decision 4."`
+	Variants []string `json:"variants" jsonschema:"required" jsonschema_description:"Variant names, lowercase-first; empty for a module that has none (a non-Android project, or a library the task-name fallback cannot see)."`
+	Source   string   `json:"source" jsonschema:"required,enum=probe,enum=task-names" jsonschema_description:"How the variants were derived: probe is exact, read from AGP's public Variant API; task-names is the labelled fallback of ADR-0023 §Decision 4."`
 	Exact    bool     `json:"exact" jsonschema_description:"True only for source probe."`
+	// Details is present only when source is probe: each variant with its build type and
+	// its product flavours in dimension order (plan m1h D8).
+	Details []VariantDetail `json:"details,omitempty" jsonschema_description:"With source probe: each variant's name, build type and product flavours in dimension order."`
+}
+
+// VariantDetail is one variant of project.variants' details: its name, build type and
+// its product flavours (plan m1h D8).
+type VariantDetail struct {
+	Name      string         `json:"name" jsonschema:"required"`
+	BuildType string         `json:"buildType" jsonschema:"required"`
+	Flavors   []FlavorDetail `json:"flavors" jsonschema:"required" jsonschema_description:"The variant's product flavours in dimension order; empty for a variant with no flavours."`
+}
+
+// FlavorDetail is one product flavour: the dimension it belongs to and its name.
+type FlavorDetail struct {
+	Dimension string `json:"dimension" jsonschema:"required"`
+	Name      string `json:"name" jsonschema:"required"`
 }
 
 // errors are the codes a handler here can return: the sidecar's (plan m1g D9), the
@@ -116,9 +133,10 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 		Params:       VariantsParams{},
 		Result:       VariantsResult{},
 		Errors:       append(append([]capability.ErrorCode{}, baseErrors...), capability.ErrInvalidParams),
-		Description: "Reports the build variants of each module (or of one, with module), as { module, variants[], source, exact } per module. " +
-			"Without the Android probe this milestone derives them from task names: the X with both assemble<X> and package<X> among the module's tasks, minus names ending AndroidTest, UnitTest or TestFixtures, so source is task-names and exact is false (ADR-0023 §Decision 4). " +
-			"A module that produces no APK variants (a library, or the root project) reports an empty list. " +
+		Description: "Reports the build variants of each module (or of one, with module), as { module, variants[], source, exact, details? } per module. " +
+			"The Android probe reads them exactly from AGP's public Variant API: source is probe, exact is true, and details carries each variant's build type and its product flavours in dimension order. " +
+			"Without the probe (or for a project the probe could not read) they come from task names: the X with both assemble<X> and package<X> among the module's tasks, minus names ending AndroidTest, UnitTest or TestFixtures, so source is task-names and exact is false (ADR-0023 §Decision 4). " +
+			"A module that has no variants — the root project, a non-Android project, or a library the task-name fallback cannot see — reports an empty list. " +
 			"A module argument that names no project is REQUEST_INVALID_PARAMS. " + modelNote,
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(VariantsParams)
@@ -138,11 +156,14 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 			}
 			out := VariantsResult{Modules: []ModuleVariants{}, Stale: stale}
 			for _, m := range modules {
-				variants := gradle.VariantNames(m)
-				if variants == nil {
-					variants = []string{}
-				}
-				out.Modules = append(out.Modules, ModuleVariants{Module: m.Path, Variants: variants, Source: "task-names", Exact: false})
+				variants, details, source := gradle.Variants(m, model.Probe)
+				out.Modules = append(out.Modules, ModuleVariants{
+					Module:   m.Path,
+					Variants: variants,
+					Source:   source,
+					Exact:    source == "probe",
+					Details:  variantDetails(details),
+				})
 			}
 			return out, nil
 		},
@@ -151,6 +172,24 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 
 // root is the canonical project root the Authorize hook decided.
 func root(call *capability.Call) string { return call.Authorized.(string) }
+
+// variantDetails turns the probe's variants into the published details, normalising a
+// flavour list to an empty array so a flavourless variant carries [] and not null. Nil
+// in is nil out: the task-name fallback publishes no details (plan m1h D8).
+func variantDetails(in []gradle.Variant) []VariantDetail {
+	if in == nil {
+		return nil
+	}
+	out := make([]VariantDetail, 0, len(in))
+	for _, v := range in {
+		flavors := make([]FlavorDetail, 0, len(v.Flavors))
+		for _, f := range v.Flavors {
+			flavors = append(flavors, FlavorDetail{Dimension: f.Dimension, Name: f.Name})
+		}
+		out = append(out, VariantDetail{Name: v.Name, BuildType: v.BuildType, Flavors: flavors})
+	}
+	return out
+}
 
 func modulePaths(m gradle.Model) []string {
 	paths := make([]string, 0, len(m.Projects))

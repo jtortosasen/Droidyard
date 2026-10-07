@@ -143,6 +143,76 @@ func TestVariantsOverTheRecordedModel(t *testing.T) {
 	}
 }
 
+// probedModel is a model whose probe read :app's Android variants and :lib as a
+// non-Android project.
+func probedModel() gradle.Model {
+	app := gradle.Android{Variants: []gradle.Variant{
+		{Name: "freeStagingDebug", BuildType: "debug", Flavors: []gradle.Flavor{{Dimension: "tier", Name: "free"}, {Dimension: "stage", Name: "staging"}}},
+		{Name: "paidStagingDebug", BuildType: "debug", Flavors: []gradle.Flavor{{Dimension: "tier", Name: "paid"}, {Dimension: "stage", Name: "staging"}}},
+	}}
+	return gradle.Model{
+		Root:    "/w/flavoured",
+		Plugins: gradle.Plugins{AGP: "8.13.2", KGP: "2.0.21"},
+		Probe:   gradle.Probe{Status: "ok"},
+		Projects: []gradle.Module{
+			{Path: ":app", Name: "app", Dir: "app", Android: &app},
+			{Path: ":lib", Name: "lib", Dir: "lib"},
+		},
+	}
+}
+
+// Decision (plan m1h D8, A3): when the probe read a project, project.variants reports
+// source probe, exact true and the details, in dimension order; a non-Android project
+// the probe read is exactly empty. Seen failing with the details dropped.
+func TestVariantsFromTheProbe(t *testing.T) {
+	reg := capability.NewRegistry()
+	Register(reg, fakeClient{model: probedModel()}, nil)
+	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: "/w/flavoured", Params: VariantsParams{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byModule := map[string]ModuleVariants{}
+	for _, m := range got.(VariantsResult).Modules {
+		byModule[m.Module] = m
+	}
+	app := byModule[":app"]
+	if app.Source != "probe" || !app.Exact {
+		t.Errorf(":app = %+v; want source probe, exact true", app)
+	}
+	if strings.Join(app.Variants, ",") != "freeStagingDebug,paidStagingDebug" {
+		t.Errorf(":app variants = %v, want the probe's two", app.Variants)
+	}
+	if len(app.Details) != 2 || app.Details[1].Name != "paidStagingDebug" || app.Details[1].BuildType != "debug" {
+		t.Fatalf(":app details = %+v, want two with paidStagingDebug/debug", app.Details)
+	}
+	if fl := app.Details[1].Flavors; len(fl) != 2 || fl[0].Dimension != "tier" || fl[0].Name != "paid" || fl[1].Dimension != "stage" {
+		t.Errorf("paidStagingDebug details flavours = %+v, want tier then stage", fl)
+	}
+
+	lib := byModule[":lib"]
+	if lib.Source != "probe" || !lib.Exact || len(lib.Variants) != 0 || lib.Details != nil {
+		t.Errorf(":lib = %+v; want probe, exact, empty and no details", lib)
+	}
+}
+
+// Decision (plan m1h D8): a failed probe publishes no details and falls back to task
+// names for every module.
+func TestVariantsFallBackWhenTheProbeFailed(t *testing.T) {
+	m := probedModel()
+	m.Probe = gradle.Probe{Status: "failed"}
+	m.Plugins = gradle.Plugins{}
+	reg := capability.NewRegistry()
+	Register(reg, fakeClient{model: m}, nil)
+	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: "/w/flavoured", Params: VariantsParams{Module: ":app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := got.(VariantsResult).Modules[0]
+	if app.Source != "task-names" || app.Exact || app.Details != nil {
+		t.Errorf(":app under a failed probe = %+v; want task-names, not exact, no details", app)
+	}
+}
+
 // TestVariantsForOneModuleAndAnUnknownOne pins the module filter: naming one project
 // narrows the result to it, and an unknown path is REQUEST_INVALID_PARAMS carrying the
 // known paths, not an empty answer.

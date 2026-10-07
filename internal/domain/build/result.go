@@ -89,6 +89,20 @@ type Output struct {
 	Reason        string      `json:"reason,omitempty"`
 }
 
+// ExpectedSources is the expected primary error source per tool, derived from the
+// connection's Gradle capabilities and the probe's plugin facts (gradle.md §Version
+// detection and toolchain profile, item 4; ADR-0018 rule 1; plan m1h D10). Each value is
+// "problems" (structured events) or "console" (the extractor). It reports what to
+// expect; it never switches the extractor off.
+type ExpectedSources struct {
+	Kotlin         string `json:"kotlin" jsonschema:"required,enum=problems,enum=console"`
+	Javac          string `json:"javac" jsonschema:"required,enum=problems,enum=console"`
+	AAPT2          string `json:"aapt2" jsonschema:"required,enum=problems,enum=console"`
+	ManifestMerger string `json:"manifestMerger" jsonschema:"required,enum=problems,enum=console"`
+	KSP            string `json:"ksp" jsonschema:"required,enum=problems,enum=console"`
+	Kapt           string `json:"kapt" jsonschema:"required,enum=problems,enum=console"`
+}
+
 // Extraction is where the merged errors came from (gradle.md §The build model): the
 // merge sources that produced a record, in precedence order, and whether a failed
 // build recognised nothing.
@@ -115,11 +129,14 @@ type Result struct {
 	MissingCapabilities []string `json:"missingCapabilities,omitempty" jsonschema_description:"Tooling API capabilities Gradle refused, e.g. problemEvents; the console extractor covers what they would have carried."`
 	// Validation is untested for every version: the compatibility matrix has no row
 	// yet (ADR-0018; plan m1g D17).
-	Validation  string       `json:"validation" jsonschema:"required,enum=untested"`
-	AGP         string       `json:"agp" jsonschema:"required" jsonschema_description:"The Android Gradle Plugin version, or \"unknown\" until the probe lands: the console extractor is primary for every tool (plan m1g D17)."`
-	KGP         string       `json:"kgp" jsonschema:"required"`
-	TaskSummary TaskSummary  `json:"taskSummary" jsonschema:"required"`
-	FailedTasks []FailedTask `json:"failedTasks,omitempty"`
+	Validation string `json:"validation" jsonschema:"required,enum=untested"`
+	AGP        string `json:"agp" jsonschema:"required" jsonschema_description:"The Android Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."`
+	KGP        string `json:"kgp" jsonschema:"required" jsonschema_description:"The Kotlin Gradle Plugin version the probe read, or \"unknown\" when it did not run (plan m1h D10)."`
+	// ExpectedSources is the expected primary error source per tool, derived from the
+	// connection's Gradle capabilities and the plugin versions (plan m1h D10).
+	ExpectedSources ExpectedSources `json:"expectedSources" jsonschema_description:"The expected primary error source per tool: problems (structured) or console (the extractor), from the connection's capabilities and the plugin versions."`
+	TaskSummary     TaskSummary     `json:"taskSummary" jsonschema:"required"`
+	FailedTasks     []FailedTask    `json:"failedTasks,omitempty"`
 
 	ErrorCount   int              `json:"errorCount"`
 	WarningCount int              `json:"warningCount"`

@@ -399,6 +399,13 @@ func (c *Client) fetch(ctx context.Context, r *root) (Model, error) {
 		c.fail(r, e)
 		return Model{}, e
 	}
+	// The probe's notes go to the daemon log (plan m1h step 3): they name a field the
+	// probe could not read, and nothing in the published contract carries them.
+	for _, note := range m.Probe.Notes {
+		if note != "" {
+			c.logf("probe: %s", note)
+		}
+	}
 	return m, nil
 }
 
