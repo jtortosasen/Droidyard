@@ -269,7 +269,10 @@ scheduled last and may slip.
       console extractor.
 - [x] `device.tapElement` and `device.inputText` verify their effect in a single call
       (m1l G7, both clients, on Compose).
-- [x] `workspace.close` leaves no orphan processes (m1l, every run's hygiene; 1c, 1k). (**Not** the adb server, the
+- [x] `workspace.close` leaves no orphan processes (1c, on a supervised workspace-owned
+      sidecar; the Gradle sidecar is global and ends with `droidyard stop`, observed in
+      every run since 1g; m1l's runs left none of droidyard's, once its own recorder
+      scripts were cleaned up). (**Not** the adb server, the
       Gradle daemon or emulators: those are not ours and are meant to survive.)
 - [ ] Idle footprint reported **per process** (see Metrics), with the core under
       50 MB RSS and the Gradle sidecar stopped when idle.

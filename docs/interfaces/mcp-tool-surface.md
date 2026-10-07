@@ -217,8 +217,9 @@ typed contract.
   it lands with an ADR-0019 §7 amendment if a client refuses them) covers clients that
   reject image content. The reference and its
   metadata remain. **Cursor and OpenCode** accept `ImageContent` in tool results:
-  observed in m1l (OpenCode v2.0.18 and `cursor-agent` 2026.10.01, each received the
-  screenshot's image block; Cursor described the form from it). MCP has no capability
+  observed in m1l (OpenCode v2.0.18 and `cursor-agent` 2026.10.01: each was sent the
+  screenshot's image block and neither refused it; whether the model used the image
+  rather than the UI tree is not shown). MCP has no capability
   flag to detect this. The same runs showed OpenCode sending a `progressToken` on every
   `tools/call` and Cursor on none.
 
