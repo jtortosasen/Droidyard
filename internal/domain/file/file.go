@@ -90,7 +90,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Since: version,
 		Description: "Reads a byte range of a text file in the project, paging exactly as artifact.read does. " + pathNote + " " +
 			"Returns path, size, modTime, offset, nextOffset, text and truncated: text ends at the last complete line within limit (default 16384 bytes, maximum 262144), a negative offset counts back from the end and a negative offset that lands mid-line starts at the next line, and an offset at or past the end is empty text. " +
-			"A file whose window holds a NUL byte or invalid UTF-8 (a rune cut by the window's end excepted) is binary: binary is true and text is omitted, size is kept. " +
+			"A page holding a NUL byte or invalid UTF-8 is binary: binary is true and text is omitted, while size, offset and nextOffset are kept so a caller can page past it. " +
 			"A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing file is FILE_NOT_FOUND; a directory, FIFO, socket or device is FILE_WRONG_TYPE.",
 		Params: ReadParams{},
 		Result: ReadResult{},
@@ -186,18 +186,18 @@ func Register(reg *capability.Registry, opts Options) {
 
 // pathNote is the sentence both descriptions share: how the path is named and where
 // containment is decided (D2, D10).
-const pathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. " +
+const pathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and resolved to the same name (a /var-style alias of the root resolves intermediate links on the way). " +
 	"Every path stays inside the project root: an absolute path outside it, \"..\", a symlink (intermediate or final) that would leave it, and any symlink with an absolute target, even one pointing inside the root, fail FILE_OUTSIDE_ROOT."
 
 // watchPathNote is file.watch's path rule: as pathNote, but the path must name a
 // directory and the walk reports a symlink without descending it (D7).
-const watchPathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. " +
+const watchPathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and resolved to the same name (a /var-style alias of the root resolves intermediate links on the way). " +
 	"Every path stays inside the project root: an absolute path outside it, \"..\", and any symlink (intermediate or final) that would leave it fail FILE_OUTSIDE_ROOT. The walk records a symlink as a symlink but never descends into it."
 
 // writePathNote is file.write's path rule: as pathNote for the directories on the way,
 // but a symlink as the final component is never followed, wherever it points, so it is
 // FILE_WRONG_TYPE rather than FILE_OUTSIDE_ROOT (D6).
-const writePathNote = "The path is relative to the project root and slash-separated; an absolute path inside the project root is accepted and treated the same. " +
+const writePathNote = "The path is relative to the project root and slash-separated; an absolute path inside the project root is accepted and resolved to the same name (a /var-style alias of the root resolves intermediate links on the way). " +
 	"An absolute path outside the root, \"..\", and an intermediate symlink that would leave the root or has an absolute target fail FILE_OUTSIDE_ROOT; a symlink as the final component is FILE_WRONG_TYPE wherever it points, and is never followed."
 
 // resolver builds the per-call resolver from the call's workspace, or fails when the

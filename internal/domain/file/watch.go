@@ -275,7 +275,9 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 		children, err := fs.ReadDir(fsys, dir)
 		if err != nil {
 			if tick && dir != rel {
-				keepUnder(entries, prev, dir)
+				if keepUnder(entries, prev, dir) {
+					truncated = true
+				}
 				return nil
 			}
 			return r.classify(dir, err)
@@ -321,14 +323,22 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 }
 
 // keepUnder copies prev's entries beneath dir into entries: a subdirectory a tick could
-// not read is reported as unchanged, never as emptied.
-func keepUnder(entries, prev map[string]watchEntry, dir string) {
+// not read is reported as unchanged, never as emptied. It reports whether the cap cut the
+// copy, so the tick is marked truncated and reports no deletion.
+func keepUnder(entries, prev map[string]watchEntry, dir string) bool {
 	prefix := dir + "/"
+	cut := false
 	for p, e := range prev {
-		if strings.HasPrefix(p, prefix) && len(entries) < watchCap {
-			entries[p] = e
+		if !strings.HasPrefix(p, prefix) {
+			continue
 		}
+		if len(entries) >= watchCap {
+			cut = true
+			continue
+		}
+		entries[p] = e
 	}
+	return cut
 }
 
 // excludedDir reports whether a directory name is one D7 skips anywhere.

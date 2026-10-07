@@ -27,7 +27,7 @@ type ReadResult struct {
 	NextOffset int64     `json:"nextOffset" jsonschema:"required" jsonschema_description:"Where the next read should start."`
 	Text       *string   `json:"text,omitempty" jsonschema_description:"The bytes read; absent for a binary file."`
 	Truncated  bool      `json:"truncated" jsonschema_description:"True when a single line longer than limit was cut at a UTF-8 boundary."`
-	Binary     bool      `json:"binary" jsonschema_description:"True when the window holds a NUL byte or invalid UTF-8; text is then absent."`
+	Binary     bool      `json:"binary" jsonschema_description:"True when the page read holds a NUL byte or invalid UTF-8; text is then absent, and offset and nextOffset still page past it."`
 }
 
 // read serves file.read (D5): a regular file, opened through the root and paged exactly

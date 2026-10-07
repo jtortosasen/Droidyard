@@ -405,6 +405,13 @@ func TestWatchHandlerResultAndErrors(t *testing.T) {
 	wantCode(t, err, capability.ErrFileOutsideRoot)
 	_, err = f.watchCall(f.sess, WatchParams{Path: "a\x00b"})
 	wantCode(t, err, capability.ErrInvalidParams)
+	// D9: a call that returns no id leaves no subscription behind.
+	if n := f.sess.Len(); n != 0 {
+		t.Errorf("after the refused watches the session holds %d subscriptions; want 0", n)
+	}
+	if n := f.bus.Subscriptions(); n != 0 {
+		t.Errorf("after the refused watches the bus holds %d subscriptions; want 0", n)
+	}
 }
 
 // TestWatchNeedsASession: file.watch is streaming, so a call without an event session is
