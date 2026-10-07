@@ -2,9 +2,11 @@
 // device with app_process that writes the active window's tree in the XML shape of
 // `uiautomator dump`, with UiAutomation connected so that other accessibility services
 // keep running. With no arguments it reads once and exits (ADR-0029); `serve <socket>
-// <idleSeconds>` keeps it running and answers `ping`, `dump` and `quit` over a local
-// socket (ADR-0030). The dex is built from src/DroidyardReader.java by build.sh, checked
-// in and embedded; SHA256 pins it. Building the daemon needs no Android SDK.
+// <idleSeconds>` keeps it running and answers `ping`, `dump`, `quit`, and the acting
+// requests `tap`, `keys` and `settext` over a local socket (ADR-0030; ADR-0035 fences the
+// acting ones by the peer's uid). The dex is built from src/DroidyardReader.java by
+// build.sh, checked in and embedded; SHA256 pins it. Building the daemon needs no Android
+// SDK.
 package reader
 
 import (
@@ -19,7 +21,7 @@ const Class = "DroidyardReader"
 // SHA256 is the hex digest of reader.dex, as build.sh produces it (build-tools 37.0.0,
 // android-36, javac 17.0.11 --release 11, d8 --min-api 24). A test fails when they differ; a
 // change to the source changes both the dex and this line, deliberately.
-const SHA256 = "d6a29806f75008ca2236cd3fc2e0e063fb0946f95ec839896d8d1d956f037373"
+const SHA256 = "64a1f7d5dfbb1c80737f65ca94bad73151fa78cf2b6911d8186e62046a7e2138"
 
 //go:embed reader.dex
 var dex []byte
