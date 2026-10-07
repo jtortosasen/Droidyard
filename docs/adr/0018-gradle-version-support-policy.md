@@ -15,6 +15,9 @@
 - Relates to: [ADR-0017](0017-gradle-execution-strategy.md),
   [ADR-0022](0022-build-error-extraction.md),
   [ADR-0023](0023-android-project-facts-and-build-outputs.md)
+- Amended: 2026-10-07 (Delegated, plan m1k Q2, [ADR-0032](0032-configuration-file-v1.md)).
+  Rule 3's hatch is `gradle.allowBelowFloor`, one global key in `config.json` read at
+  daemon start, not a per-workspace setting.
 
 ## Context
 

@@ -12,6 +12,10 @@
   HTTP and WebSocket error envelopes, `_meta` over MCP with the error JSON alone as the
   text (ADR-0020 §Adapter projections unchanged), and the capability layer appends a
   fixed warning to the error's `message`. The decision of §1 is unchanged.
+- Amended: 2026-10-07 (Delegated, plan m1k Q1, [ADR-0032](0032-configuration-file-v1.md)).
+  §6's defence, "our agent-facing surface offers no path to it", holds only while
+  `shell.exec` is off for the root: once a human enables it, the agent has the user's
+  reach, policy included, and the defence is the human's informed choice.
 
 ## Context
 
