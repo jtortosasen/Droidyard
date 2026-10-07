@@ -387,6 +387,20 @@ ps -A -o pid,ppid,command | grep -F "$E/rec.sh" | grep -v grep   # empty: the ow
 
 - The prompt is the plan's §The golden-path run, `<file>` = `app/src/main/kotlin/dev/droidyard/golden/MainActivity.kt`. Expect `tools=34`; G1–G8 as the plan's table; G7's four results `expect.matched: true`; G8 `crashes[0]` `java.lang.IllegalStateException` "golden app crash"; no `artifact_read` before `build_errors`; no `shell_exec`; no build task matching `install*`, `uninstall*`, `connected*`, `device*`; `refused.log` empty; the 5037 pid, owner AVDs and the SDK stamp unchanged. A `stop` right after a `wipe` timed out once (m1l step 4; the emulator's own shutdown grace is 20 s, the same as droidyard's stop bound): a hypothesis, not a rule, but leaving a few seconds between them worked. Host-side `adb` checks run with `ANDROID_ADB_SERVER_PORT` unset, or they start a server on the run's port.
 
+**1m Emulator ownership and the comparison** (milestone 1m; its K1–K7 apply: scratch AVD `droidyard_m1m` under `B=~/Library/Caches/droidyard-dev/m1m`, the guard as `ADB`, nothing else online; the kit in `$B/kit`).
+
+```sh
+# A hung launch, modelled by SIGSTOP between the AVD lock and the listing (step 4):
+OP=$("$DY" call --detach emulator.start --params '{"avd":"droidyard_m1m"}')     # --detach prints the bare operation id
+until [ -e $B/avd/droidyard_m1m.avd/hardware-qemu.ini.lock ] && Q=$(pgrep -f "qemu-system.*droidyard_m1m"); do sleep 0.02; done; kill -STOP $Q
+"$DY" call operation.wait --params "{\"operationId\":\"$OP\",\"timeoutMs\":120000}"    # failed EMULATOR_BOOT_TIMEOUT ~50 s, "was stopped", $Q gone
+# cancel or `droidyard stop` before the serial: the qemu gone within a second; cancel after the serial is `device`: it stays
+# a hand-started instance (perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' emulator -avd droidyard_m1m -no-window) is never signalled: EMULATOR_AVD_LOCKED
+# The comparison: $B/kit/reset.sh <sh|dy> <n> && $B/kit/run.sh <sh|dy> <n>; python3 $B/kit/metrics.py --table $B/runs/*
+```
+
+- Expect the times and verdicts of the m1m plan's steps 4 and 6. `reset.sh` waits until `adb devices` is empty (K2) and stops and awaits a leftover scratch qemu before deleting the AVD; the shell arm's `adb` is `$B/kit/bin/adb`, which refuses only adb's own server- and host-level options.
+
 ## Evidence
 
 Everything stays under `$E`. For each named step, `run` keeps the command line, stdout, stderr and exit code; each MCP session keeps `<name>.sent`, `<name>.out`, `<name>.err` and `<name>.exit`. Keep `serve.out`, `<state>/daemon.log` once a daemon was auto-started, the wire files of a real-client run, and the snapshots. This build logs no operation records; which surface returns them (`docs/architecture/overview.md`, the capability trace) is an open owner question, not decided by milestone 1b. The report quotes the decisive line and gives `$R`. On a plan step it is level 5 evidence (`prove-change`).

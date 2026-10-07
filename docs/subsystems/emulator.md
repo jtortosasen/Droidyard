@@ -160,7 +160,8 @@ Wiping without booting, by deleting the user-data images, is what Android Studio
 *Wipe Data* does; we do not, because it depends on the emulator's disk layout, while
 `-wipe-data` is the emulator's own contract. Cancelling after step 1 leaves the AVD
 stopped and unwiped; cancelling after the spawn behaves like a cancelled boot
-(§Timeouts), and the wipe has happened.
+(§Timeouts): before the serial resolves the launch is ended and the wipe may be partial
+(call `emulator.wipe` again); after it the wipe has happened.
 
 ## Flags and configuration
 
@@ -261,9 +262,20 @@ Claims above that a machine with the SDK can confirm before they are relied on:
   (the documented order omits them);
 - headless boot on macOS Apple Silicon and on Linux.
 
+*Observed in m1m step 1 (2026-10-07, emulator 36.6.11, API 31 arm64, macOS):* the launch's
+pid is the qemu (the launcher execs; its own process group), a headless boot adds the SDK's
+`crashpad_handler` in a group of its own that exits with it, the AVD's
+`hardware-qemu.ini.lock` is taken 0.5–0.7 s after spawn and adb lists the serial at
+0.8–2.6 s in every mode, and boots are ready in 11.7–19.4 s (windowed, headless, cold or
+wiped alike). A `SIGTERM` before the listing ends the qemu in about 4 s and frees the AVD.
+The pilot's hung windowed launches were not reproduced.
+
 ## Open questions
 
-- The default boot-flag set and how it is surfaced to the caller.
+- The default boot-flag set and how it is surfaced to the caller. Candidates if a windowed
+  launch hangs again: `-no-window` (headless boots were never seen to hang) and
+  `-crash-report-mode disabled` (the hang was suspected to be a post-crash dialog; not
+  reproduced, m1m step 1).
 - Whether to report emulator resource usage (the emulator's own memory settings) as
   part of `emulator.list`.
 - How to detect an emulator that is wedged after its serial resolved (listed but never
