@@ -165,6 +165,18 @@ single source is AGP's `output-metadata.json`
 `device.logs {device, applicationId?, since?, tags?, minPriority?, buffers?,
 contains?, follow?}`
 
+*As built in milestone 1i ([plan](../plans/m1i-device-logs-and-emulator.md) D4–D11):*
+`follow?` is `followMs` (1 000–60 000), a window that starts at the call (or at an
+explicit `since`); `since` is `"launch"` (the default after a recorded `device.launch`)
+or a device-clock time. Lines are read in `-v threadtime,epoch,usec,uid` and filtered
+host-side by the app's uid from `pm list packages -U` (the pid history when no uid is
+known), so the app's lines survive its death; crash blocks in `-b crash` are reported in
+`crashes[]` (Java by `Process: <pkg>, PID:`, native by `>>> <pkg> <<<`, both only with
+the app's uid); the result carries `filter {by, uid?}`, bounded inline `lines`, a
+capture artifact of at most 4 MiB (marked untrusted, with a dropped count when cut),
+`truncated`, `emptyReason` and `warnings`. A disconnection is read from adb's stderr
+only. Every device-derived field is untrusted.
+
 - **Snapshot** (`logcat -d`) from a **device-clock** timestamp, so timezone differences
   between host and device cannot silently shift the window. `since: "launch"` means
   the latest recorded `device.launch` of that app, and is the default when an
@@ -297,6 +309,11 @@ is ever needed, the right answer is an **H.264 path** (scrcpy-style) behind a
 the pipeline.
 
 ## To verify (spike S9, plus adb)
+
+*Answered by spike S9 (2026-10-07, [findings](../research/spike-s8-s9-emulator-and-logcat.md)),
+API 31: `--uid` works and passes the crash buffer; the Java and the native crash stay
+readable in `-b crash` after the process died, with the app's uid; killing the
+`adb logcat` client ends the device's logcat. Older API levels not run.*
 
 - The API level from which `logcat --uid` works, and whether it covers the crash
   buffer; below it, the pid-history path is the only one.

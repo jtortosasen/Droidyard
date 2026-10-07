@@ -163,6 +163,13 @@ configuration: that is the AVD's business.
 
 ## Concurrency
 
+*As built in milestone 1i (D12, Delegated):* `start` and `wipe` share one `emulator.boot`
+key (one boot at a time); `stop` takes the device's `device.write:<serial>` key, so it
+can end a boot in flight instead of queueing behind it (that boot then fails
+`EMULATOR_LAUNCH_FAILED`, which now covers "exited before the device finished
+booting"); adoption of a running AVD waits for readiness and queues behind an unrelated
+boot. An emulator listed offline counts as running.
+
 - Boots are **serialised**. Emulators compete for console/adb ports and for machine
   resources; racing boots produce confusing failures.
 - `start`, `stop` and `wipe` on the same AVD are serialised by a per-AVD lock; a wipe
@@ -177,6 +184,13 @@ configuration: that is the AVD's business.
 
 ## Failure modes
 
+*As built in milestone 1i:* the policy hook's `DEVICE_NOT_ALLOWED` comes before
+`EMULATOR_NOT_AN_EMULATOR`; a failed `emu kill` whose serial stays listed is
+`DEVICE_ADB_FAILED` after 3 s; adb's `device offline` during a boot is not a
+disconnection; an unknown AVD is `EMULATOR_AVD_NOT_FOUND` from `-list-avds`, a second
+instance `EMULATOR_AVD_LOCKED` (the launcher's `Running multiple emulators with the same
+AVD` line).
+
 | Failure | Code | Behaviour |
 | --- | --- | --- |
 | No launcher found | `EMULATOR_LAUNCHER_NOT_FOUND` | Actionable error; other device capabilities unaffected |
@@ -189,6 +203,9 @@ configuration: that is the AVD's business.
 | Stop does not complete | `EMULATOR_STOP_TIMEOUT` | Serial and pid when known; no signal escalation |
 
 ## Timeouts
+
+*Milestone 1i (D14):* boot 180 s, stop 20 s, listing 10 s, constants until a
+configuration key exists.
 
 Booting is slow (tens of seconds to minutes for a cold boot). The default timeout is
 generous (180 s, configurable), and `start`/`wipe` are long-running
@@ -214,6 +231,12 @@ configuration and report it, which is what makes "why is this emulator so slow"
 answerable.
 
 ## To verify (spike S8)
+
+*Answered by spike S8 (2026-10-07, [findings](../research/spike-s8-s9-emulator-and-logcat.md)):
+`emulator` execs into `qemu-system-aarch64(-headless)` and, started through `setsid`,
+outlives its starter; only `ANDROID_AVD_HOME` isolates the AVD listing; `emu kill` ends
+an emulator in about 2 s, also mid-boot; `multiinstance.lock` outlives a kill without
+blocking the next boot; `-wipe-data` cold-boots; a headless boot took 21 s (13 s wiped).*
 
 Claims above that a machine with the SDK can confirm before they are relied on:
 
