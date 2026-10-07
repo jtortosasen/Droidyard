@@ -78,7 +78,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: recursive listing, globbing, search, a cursor past `limit` (agents have their own tools; no acceptance item needs them); base64 reads (no consumer before Phase 2).
 - Rests on: `os.Root` refuses every escape on macOS APFS without a race. Level 4 (real file system); the source reading in §Starting point is level 2; Linux not run.
 - Review: a new capability family behind the containment fence: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) `go test -count=1 ./internal/domain/file` green on macOS APFS (case-insensitive, `/var` alias, FIFO and mode-000 rows ran, none skipped); `internal/artifact` tests unchanged and green. Seen failing (main session, `go test -overlay`): the binary check on the raw window instead of the page returned (the `x\nééé\nok\n` at -7 and late-NUL rows), and the absolute path canonicalised whole (the `/var/…/root/abs` and `/var/…/root/rel` rows). The plan's three named mutations (`os.Open` join, blocking FIFO, `EvalSymlinks` classification) were not run as such; the verifier judged the rows that cover them sufficient. (b) Level 4, 2026-10-07, `~/Library/Caches/droidyard-dev/m1j/l4-s1`: the untrusted copy opened; `file.list` shows `escape` as `symlink`; `file.read` of `MainActivity.java` returns its text; `escape/secret`, `../../outside/secret`, the absolute outside path and `file.list escape` → `FILE_OUTSIDE_ROOT`; no result holds the secret. MCP tool count 32. Opus verifier: one blocker (B1 below), fixed.
 
 ### 2. `file.write`
 
@@ -164,3 +164,7 @@ Round 2 was the last (`milestone-plan` §Writing one, item 7): every blocking fi
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-07, step 1 (verifier B1): `file.read`'s binary check ran on the raw window at the unadjusted offset, not on the page ADR-0012's paging returns, so a negative offset inside a multibyte rune gave `binary: true` and a NUL past that window reached `text`. The check now runs on the returned page; a binary result keeps that page's `offset` and `nextOffset`, so paging continues past it (the binary verdict is per window, not per file).
+- 2026-10-07, step 1 (verifier, non-blocking, fixed): `file.list` on a file says "not a directory" with `type: regular file`; a slimmed `file.list` result carries the hint "entries dropped after delivery; call file.list again", so `entries: []` is not mistaken for an empty directory; the path note states D2's rule that every absolute-target symlink is refused.
+- 2026-10-07, step 1 (verifier, recorded, not changed): an absolute path whose *directory* is spelled through an alias (`/var/…`) is canonicalised with `Env.Canonical`, which resolves every intermediate link, so `/var/…/root/hop/A.kt` (`hop` leaving and re-entering the root) reads the in-root file that `hop/A.kt` refuses. Containment holds (only in-root bytes, opened through `os.Root`); the spellings disagree. A2's "intermediate symlinks" holds for root-relative and canonical-absolute spellings. Also: `artifact.ReadText` now opens a durable entry's file before the past-the-end early return, so a file deleted between lookup and read errors instead of returning an empty page.

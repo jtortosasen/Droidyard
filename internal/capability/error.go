@@ -30,6 +30,15 @@ const (
 	ErrArtifactNotFound ErrorCode = "ARTIFACT_NOT_FOUND"
 	ErrArtifactExpired  ErrorCode = "ARTIFACT_EXPIRED"
 
+	// The file codes (plan m1j D3). Containment is os.Root's, so a refusal to leave
+	// the project root is FILE_OUTSIDE_ROOT; the rest say what the path is or what
+	// the filesystem did. ErrFileIOFailed covers permissions, a read-only file, no
+	// space and anything else, with the OS error as its cause.
+	ErrFileNotFound    ErrorCode = "FILE_NOT_FOUND"
+	ErrFileOutsideRoot ErrorCode = "FILE_OUTSIDE_ROOT"
+	ErrFileWrongType   ErrorCode = "FILE_WRONG_TYPE"
+	ErrFileIOFailed    ErrorCode = "FILE_IO_FAILED"
+
 	ErrPolicyShellDisabled ErrorCode = "POLICY_SHELL_DISABLED"
 
 	// The Gradle sidecar codes (gradle.md §Failure modes; plan m1g D9). They arrive with

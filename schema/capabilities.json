@@ -1,5 +1,5 @@
 {
-  "version": "0.8.0",
+  "version": "0.9.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -5110,6 +5110,190 @@
         "properties": {},
         "additionalProperties": false,
         "type": "object"
+      }
+    },
+    {
+      "name": "file.list",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.9.0",
+      "description": "Lists one level of a directory in the project, never recursively. The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. Every path stays inside the project root: an absolute path outside it, \"..\", a symlink (intermediate or final) that would leave it, and any symlink with an absolute target, even one pointing inside the root, fail FILE_OUTSIDE_ROOT. Each entry carries name, type (file, dir, symlink or other), size and modification time; a symlink is reported, never followed. Entries are sorted by name; up to limit (1 to 2000, default 500) are returned, and when more exist truncated is true and the hint names how to narrow (a directory holding more than 20000 entries yields a sorted subset). A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing directory is FILE_NOT_FOUND; a file where a directory is needed is FILE_WRONG_TYPE.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_NOT_FOUND",
+        "FILE_OUTSIDE_ROOT",
+        "FILE_WRONG_TYPE",
+        "FILE_IO_FAILED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The directory to list, relative to the project root; \".\" or absent is the root. An absolute path inside the root is accepted."
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 2000,
+            "minimum": 1,
+            "description": "The most entries to return, 1 to 2000. Absent means 500."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The directory listed, relative to the project root."
+          },
+          "entries": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "dir",
+                    "symlink",
+                    "other"
+                  ],
+                  "description": "The entry's kind; a symlink is reported as symlink, never followed."
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "modTime": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "type"
+              ]
+            },
+            "type": "array",
+            "description": "One level of entries, sorted by name; empty when the directory is empty."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when more entries exist than were returned."
+          },
+          "hint": {
+            "type": "string",
+            "description": "Present when truncated, how to narrow the listing; or, on a result returned again after delivery, that its entries were dropped and file.list must be called again."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "entries"
+        ]
+      }
+    },
+    {
+      "name": "file.read",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.9.0",
+      "description": "Reads a byte range of a text file in the project, paging exactly as artifact.read does. The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. Every path stays inside the project root: an absolute path outside it, \"..\", a symlink (intermediate or final) that would leave it, and any symlink with an absolute target, even one pointing inside the root, fail FILE_OUTSIDE_ROOT. Returns path, size, modTime, offset, nextOffset, text and truncated: text ends at the last complete line within limit (default 16384 bytes, maximum 262144), a negative offset counts back from the end and a negative offset that lands mid-line starts at the next line, and an offset at or past the end is empty text. A file whose window holds a NUL byte or invalid UTF-8 (a rune cut by the window's end excepted) is binary: binary is true and text is omitted, size is kept. A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing file is FILE_NOT_FOUND; a directory, FIFO, socket or device is FILE_WRONG_TYPE.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_NOT_FOUND",
+        "FILE_OUTSIDE_ROOT",
+        "FILE_WRONG_TYPE",
+        "FILE_IO_FAILED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file to read, relative to the project root. An absolute path inside the root is accepted."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "The byte offset to read from; negative counts back from the end, and a negative offset that lands mid-line starts at the next line."
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 262144,
+            "minimum": 4,
+            "description": "The most bytes to return, 4 to 262144. Absent means 16384. A read ends at the last complete line within it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file read, relative to the project root."
+          },
+          "size": {
+            "type": "integer",
+            "description": "The file's size in bytes."
+          },
+          "modTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "The byte the text starts at, after a negative offset was moved forward to a line start."
+          },
+          "nextOffset": {
+            "type": "integer",
+            "description": "Where the next read should start."
+          },
+          "text": {
+            "type": "string",
+            "description": "The bytes read; absent for a binary file."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when a single line longer than limit was cut at a UTF-8 boundary."
+          },
+          "binary": {
+            "type": "boolean",
+            "description": "True when the window holds a NUL byte or invalid UTF-8; text is then absent."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "size",
+          "modTime",
+          "offset",
+          "nextOffset"
+        ]
       }
     },
     {

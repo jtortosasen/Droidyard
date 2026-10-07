@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
+	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -73,6 +74,7 @@ func registry() *capability.Registry {
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing})
+	file.Register(reg, file.Options{})
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
 	event.Register(reg)
 	return reg

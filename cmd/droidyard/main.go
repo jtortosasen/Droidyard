@@ -24,6 +24,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
+	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -296,6 +297,18 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorize})
 	project.Register(reg, gradleClient, authorize)
 	build.Register(reg, build.Options{Client: gradleClient, History: history, Authorize: authorize})
+	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its
+	// only registry read is the workspace's canonical root (ADR-0015 §1, §5; plan m1j D2).
+	file.Register(reg, file.Options{
+		Root: func(id string) (string, bool) {
+			info, err := ws.Describe(id)
+			if err != nil {
+				return "", false
+			}
+			return info.Root, true
+		},
+		Env: env,
+	})
 	workspace.Register(reg, ws)
 	event.Register(reg)
 	if testCapabilities != nil {
