@@ -2,6 +2,7 @@ package dev.droidyard.formapp;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -22,7 +23,11 @@ import android.widget.TextView;
  *   <li>{@code banner} TextView removed by {@code dismiss} Button — the {@code gone}
  *       expectation;</li>
  *   <li>two Buttons labelled "Twin" — DEVICE_ELEMENT_AMBIGUOUS;</li>
- *   <li>{@code disabled} Button, not enabled — DEVICE_ELEMENT_DISABLED.</li>
+ *   <li>{@code disabled} Button, not enabled — DEVICE_ELEMENT_DISABLED;</li>
+ *   <li>{@code crash} Button, throwing on the main thread, and {@code freeze} Button,
+ *       blocking the main thread for 15 s — milestone 1n's app crash and ANR;</li>
+ *   <li>{@code password} EditText, masked — the field that reads back masked
+ *       (plan m1n step 5).</li>
  * </ul>
  *
  * The layout is deliberately compact: the reader drops nodes not visible to the user,
@@ -119,6 +124,55 @@ public class FormActivity extends Activity {
         disabled.setText("Disabled");
         disabled.setEnabled(false);
         root.addView(disabled);
+
+        // m1n step 2: the crash control. An uncaught exception on the main thread kills
+        // the process, which is the crash the spike watches (the daemon reports it from
+        // the crash buffer). No view change precedes it, so a read after the tap is the
+        // only sign.
+        Button crash = new Button(this);
+
+        crash.setAllCaps(false);
+        crash.setId(R.id.crash);
+        crash.setText("Crash");
+        crash.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                throw new IllegalStateException("formapp crash");
+            }
+        });
+        root.addView(crash);
+
+        // m1n step 2: the ANR control. Blocking the main thread past the platform's
+        // timeout makes the window stop answering, so the system shows the "isn't
+        // responding" dialog and, if the app has crashed before, the "keeps stopping"
+        // one.
+        Button freeze = new Button(this);
+
+        freeze.setAllCaps(false);
+        freeze.setId(R.id.freeze);
+        freeze.setText("Freeze");
+        freeze.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    Thread.sleep(15000);
+                } catch (InterruptedException e) {
+                    // The app is being torn down: keep the flag so the sleep is not
+                    // silently swallowed.
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        root.addView(freeze);
+
+        // m1n step 5: a masked field. Its text reads back as bullets, so a read-back is
+        // compared by length, and `clear` plus `set_text` is what the checks exercise.
+        final EditText password = new EditText(this);
+
+        password.setId(R.id.password);
+        password.setHint("Password");
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        root.addView(password);
 
         setContentView(root);
     }

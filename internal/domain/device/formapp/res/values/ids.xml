@@ -12,4 +12,11 @@
     <item name="banner" type="id" />
     <item name="dismiss" type="id" />
     <item name="disabled" type="id" />
+    <!-- m1n step 2: the spike's controls. crash throws on the main thread (an app
+         crash); freeze blocks the main thread for 15 s (an ANR); password is a masked
+         field; probe_result shows ProbeActivity's socket reply. -->
+    <item name="crash" type="id" />
+    <item name="freeze" type="id" />
+    <item name="password" type="id" />
+    <item name="probe_result" type="id" />
 </resources>

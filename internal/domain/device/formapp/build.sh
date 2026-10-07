@@ -33,10 +33,11 @@ trap 'rm -rf "$work"' EXIT
 
 javac --release 11 -cp "$androidjar" -d "$work/classes" \
     "$here/src/dev/droidyard/formapp/FormActivity.java" \
+    "$here/src/dev/droidyard/formapp/ProbeActivity.java" \
     "$work/gen/dev/droidyard/formapp/R.java"
 
 mkdir "$work/dex"
-# The glob covers FormActivity's anonymous inner classes and R/R$id as well.
+# The glob covers the activities' anonymous inner classes and R/R$id as well.
 "$sdk/build-tools/$tools/d8" --release --min-api "$min_api" --lib "$androidjar" \
     --output "$work/dex" "$work/classes/dev/droidyard/formapp/"*.class
 
