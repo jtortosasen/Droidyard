@@ -58,6 +58,8 @@ buried in prose.
 | [0031](0031-configuration-file-trust-first.md) | The configuration file starts with trusted roots only | Accepted |
 | [0032](0032-configuration-file-v1.md) | The configuration file, version 1: policy and tool keys | Accepted |
 | [0033](0033-emulator-launch-owned-until-serial.md) | An emulator launch is droidyard's until its serial is resolved | Accepted |
+| [0034](0034-device-calls-report-busy-crash-dialog.md) | Device calls report a busy app, an app crash and a system dialog | Accepted |
+| [0035](0035-reader-acts-fenced-by-peer-uid.md) | The reader acts: taps, keys and set-text, fenced by its peer's uid | Accepted |
 
 ## Open decisions (not yet ADRs)
 

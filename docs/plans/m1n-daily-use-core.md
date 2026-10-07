@@ -1,7 +1,7 @@
 # Plan: Milestone 1n — the daily-use core: crashes, ANRs, typing and speed
 
-- Status: Blocked
-- Approved in part: 2026-10-07, Delegated: steps 1 and 2 only. Q1 and Q2 are answered after step 2's facts; the main session then applies the recommended drafts under the owner's standing instruction unless the owner says otherwise, and labels them Delegated.
+- Status: Approved
+- Approved: 2026-10-07, Delegated: steps 1 and 2 first; after step 2's facts, Q2 accepted as [ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) and Q1 as [ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md) (with step 2's two additions: a bounded synchronous injection, a polled read-back). Q1 changes an owner decision (ADR-0030) and is flagged to the owner, who can revert it.
 - Date: 2026-10-07
 - Milestone: not in `docs/README.md` (its **Next** row names Phase 2). Inserted by the owner, 2026-10-07, through the main session's brief: before Phase 2 the core must be solid enough to use every day with Cursor and to build on, "sin dejar cosas a medias" (without leaving things half done). One brief, three plans: this one (A crash, B ANR, C typing and speed, F error texts, I the known-limits register, J test hygiene); `m1o-tokens-and-harness.md` (D tokens, E harness integration, the comparison rerun with a Cursor arm); `m1p-functional-gaps.md` (G the "in part" acceptance gaps, H the earlier plans' ideas).
 - Phase: none of `docs/roadmap/mvp.md`'s phases; it serves `mvp.md` §Definition of done only through m1o's rerun. Phase 2 waits for 1n–1p.

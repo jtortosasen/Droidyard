@@ -16,6 +16,7 @@
   `uiautomator dump`. Recovery also finds readers of another digest by process name, not
   only by forward; the instrumented-test integration still lands with the first
   capability that runs tests.
+- Amended: 2026-10-07 (Delegated, plan m1n) — [ADR-0034](0034-device-calls-report-busy-crash-dialog.md): a read bounded at 2.5 s answers `busy` and a reader that answers `ping` is never restarted; [ADR-0035](0035-reader-acts-fenced-by-peer-uid.md): the reader also taps, presses keys and sets text, and those requests alone are fenced by the peer's uid (reads stay unauthenticated).
 
 ## Context
 
