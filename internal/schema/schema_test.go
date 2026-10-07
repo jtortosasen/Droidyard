@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -64,6 +65,7 @@ func registry() *capability.Registry {
 		panic(err)
 	}
 	device.Register(reg, device.NewADB(nil, nil), store, nil)
+	emulator.Register(reg, emulator.New(nil, device.NewADB(nil, nil), nil))
 	artifacts.Register(reg, store)
 	// The golden registry only needs the sdk descriptors: no handler is run, so an empty
 	// environment (which resolves no SDK) and no client are enough.

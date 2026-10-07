@@ -2,12 +2,14 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 )
 
 // TestRequirementsAskTheDevicePackageAboutAdb pins that adb availability is the
@@ -64,4 +66,31 @@ func TestRequirementsAskTheSidecarClientAboutGradle(t *testing.T) {
 
 func writeExecutable(path string) error {
 	return os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755)
+}
+
+// TestRequirementsAskTheEmulatorPackageAboutTheLauncher pins that the emulator
+// requirement is the emulator package's launcher resolution (plan m1i step 4, D15, D19),
+// not a constant: no subsystem is missing with its own reason, and one whose resolution
+// found no launcher reports what was tried, which is what system.capabilities shows.
+// The environment is explicit: this machine's launcher is never found.
+func TestRequirementsAskTheEmulatorPackageAboutTheLauncher(t *testing.T) {
+	if _, missing := (requirements{}).Missing(capability.RequiresEmulator); !missing {
+		t.Error("with no emulator subsystem, the launcher must be reported missing")
+	}
+
+	empty := t.TempDir()
+	none := requirements{emulator: emulator.New([]string{"HOME=" + empty, "PATH=" + empty}, nil, nil)}
+	reason, missing := none.Missing(capability.RequiresEmulator)
+	if !missing || !strings.Contains(reason, "ANDROID_HOME") || !strings.Contains(reason, "Tried:") {
+		t.Errorf("with no launcher: missing %v, reason %q, want missing and naming what to set", missing, reason)
+	}
+
+	bin := t.TempDir()
+	if err := writeExecutable(filepath.Join(bin, "emulator")); err != nil {
+		t.Fatal(err)
+	}
+	have := requirements{emulator: emulator.New([]string{"HOME=" + empty, "PATH=" + bin}, nil, nil)}
+	if reason, missing := have.Missing(capability.RequiresEmulator); missing {
+		t.Errorf("with emulator on PATH: missing, %q", reason)
+	}
 }

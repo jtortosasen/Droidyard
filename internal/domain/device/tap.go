@@ -151,6 +151,12 @@ func (p TapParams) validate() error {
 // (ui-automation.md §Concurrency; plan m1f, R2).
 func writeKey(serial string) string { return "device.write:" + serial }
 
+// WriteKey is writeKey, exported so emulator.stop shares the exact key a device.launch
+// or an install on the same serial holds, instead of a copy that could drift (plan m1i,
+// D12: the key serialises a stop with the writes to that device and lets it end a stuck
+// boot).
+func WriteKey(serial string) string { return writeKey(serial) }
+
 func registerTapElement(reg *capability.Registry, adb *ADB) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "device.tapElement",

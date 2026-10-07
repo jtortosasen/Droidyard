@@ -23,6 +23,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -109,19 +110,30 @@ func main() {
 }
 
 // requirements reports what is missing: adb through the device package, which
-// resolves it afresh on every question, gradle through the sidecar client, which
+// resolves it afresh on every question, the emulator launcher through the emulator
+// package (plan m1i, D19), gradle through the sidecar client, which
 // answers from the JVM discovery result it cached at startup (plan m1g D22), and every
 // other external tool as missing until its own check exists, with the reason, rather
 // than the capability vanishing.
 type requirements struct {
-	adb    *device.ADB
-	gradle *gradle.Client
+	adb      *device.ADB
+	emulator *emulator.Emulator
+	gradle   *gradle.Client
 }
 
 func (r requirements) Missing(req capability.Requirement) (string, bool) {
 	switch req {
 	case capability.RequiresADB:
 		res := r.adb.Resolve()
+		if res.Found {
+			return "", false
+		}
+		return res.NotFound(), true
+	case capability.RequiresEmulator:
+		if r.emulator == nil {
+			return "no emulator launcher subsystem is configured", true
+		}
+		res := r.emulator.Resolve()
 		if res.Found {
 			return "", false
 		}
@@ -224,7 +236,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		gradleOpts.Finder = gradleFinder(gradleEnviron())
 	}
 	gradleClient := gradle.New(gradleOpts)
-	system.Register(reg, requirements{adb: adb, gradle: gradleClient}, adb, ops, problems, gradleClient)
+	// The emulator subsystem (plan m1i step 4): it resolves the launcher in the daemon's
+	// environment, shares adb for the device side, and runs the launcher through the same
+	// locked spawner adb clients use. It owns no device logic (emulator package doc).
+	emulatorClient := emulator.New(adbEnviron(), adb, spawn)
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient)
 	// The daemon's one artifact store, for the bus's epoch: a reference from an earlier
 	// daemon run is ARTIFACT_EXPIRED (ADR-0012). Its state root is the daemon's, so a
 	// durable build console survives a restart; without one (caps, schema) it serves
@@ -242,6 +258,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// handlers report that nothing is configured.
 	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log})
 	device.Register(reg, adb, artifacts, history)
+	emulator.Register(reg, emulatorClient)
 	artifactcap.Register(reg, artifacts)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
