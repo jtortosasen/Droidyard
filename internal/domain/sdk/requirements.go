@@ -74,7 +74,10 @@ type Required struct {
 // RequirementsResult is sdk.requirements' result (D12).
 type RequirementsResult struct {
 	Source   string `json:"source" jsonschema:"required,enum=probe,enum=failure-signatures" jsonschema_description:"Where the requirements came from: probe when the Android probe read the project's facts, failure-signatures when it read nothing and nothing could be checked."`
-	Complete bool   `json:"complete" jsonschema_description:"True only when the probe read every Android module's compile target and build-tools."`
+	Complete bool   `json:"complete" jsonschema:"required" jsonschema_description:"True only when the probe read every Android module's compile target and build-tools from a current model."`
+	// Stale is true when a build holds the root and the build files changed since the
+	// model was read: the answer is the cached model's, and never complete (close review).
+	Stale bool `json:"stale" jsonschema:"required" jsonschema_description:"True when a build holds the project and its build files changed since the model was read: the answer comes from the cached model and complete is false; ask again once the build ends."`
 	// ProjectSDK is the SDK the build would use.
 	ProjectSDK ProjectSDK `json:"projectSdk" jsonschema:"required"`
 	// HostSDK is the SDK Droidyard's own tools use.
@@ -111,9 +114,15 @@ func registerRequirements(reg *capability.Registry, o Options) {
 			"Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED as project.modules does.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			root := call.Authorized.(string)
-			model, _, err := o.Client.Model(ctx, root)
+			model, stale, err := o.Client.Model(ctx, root)
 			if err != nil {
 				return nil, err
+			}
+			if stale {
+				res := Requirements(o, root, model)
+				res.Stale, res.Complete = true, false
+				res.Notes = append(res.Notes, "a build holds the project and its build files changed since the model was read: this answer is from the cached model; ask again once the build ends")
+				return res, nil
 			}
 			return Requirements(o, root, model), nil
 		},

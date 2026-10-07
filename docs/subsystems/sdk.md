@@ -51,7 +51,10 @@ A daemon auto-started by a GUI-launched client has no shell `ANDROID_HOME`
 config key usually decides there. The root, its source and every rejected candidate
 are reported in `system.health`. If nothing resolves, SDK-dependent capabilities are
 reported unavailable and name the variable or key that would fix it; the build
-subsystem is unaffected (Gradle finds its own SDK).
+subsystem is unaffected (Gradle finds its own SDK). *Milestone 1h (D11, Delegated):
+the root, its source and the rejected candidates are reported by `sdk.status`, which
+always answers (`found: false` naming `ANDROID_HOME`), not yet by `system.health`;
+`RequiresSDK` gates nothing until `emulator.*`.*
 
 ### Project SDK
 
@@ -72,7 +75,10 @@ installed.
 
 ### Reading what is installed
 
-Every installed package directory carries a `package.xml` whose `path` attribute is
+*Not on every host:* a package unpacked by hand may carry only `source.properties`
+(this host's cmdline-tools, milestone 1h); such a package is not listed until a
+fallback is decided. Otherwise every installed package directory carries a
+`package.xml` whose `path` attribute is
 the package id (`platforms;android-35`, `build-tools;35.0.0`,
 `system-images;android-35;google_apis;arm64-v8a`). Walking those files answers
 "what is installed" with **no JVM and no `sdkmanager` call**; `sdkmanager` is needed

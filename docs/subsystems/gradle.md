@@ -77,7 +77,7 @@ raw; everything interpretive runs in the core, where it is pure Go and fixture-t
 | `build.test` | `build.test` | Post-MVP; filters gated by capability |
 | `build.errors` | — | Core, from the build record (merged sources) |
 | `build.lastResult` | — | Core, from the registry |
-| `sdk.requirements` (build side) | `project.model` | Probe facts + failure signatures ([below](#sdk-requirements-build-side)) |
+| `sdk.requirements` (build side) | `project.model` | Probe facts ([below](#sdk-requirements-build-side)); failure signatures not yet (1h D12) |
 | cancellation | `build.cancel` | Reached through `operation.cancel`; there is no `build.cancel` capability |
 
 Long-running behaviour (how long a caller blocks, polling, cancel) is the operation
@@ -371,16 +371,18 @@ the `project.*`, `build.tasks` and build-side `sdk.requirements` capabilities ne
 ProjectModel
 ├── root, fingerprint
 ├── gradle      { version, source, daemonJavaHome }
-├── plugins     { agp?, kgp?, kotlinBuiltIn? }            probe; "unknown" otherwise
+├── plugins     { agp?, kgp? }                         probe; "unknown" otherwise
 ├── modules[]
 │   ├── path, name, dir (root-relative), buildDir (core-internal)
 │   ├── tasks[]  { name, path, group, description, public }
-│   └── android? { type: application | library | dynamic-feature | test,
-│                  namespace, compileSdk, buildToolsVersion, minSdk,
-│                  sdkDir (core-internal),
-│                  variants[] { name, buildType, flavors[] } }
+│   └── android? { compileTarget?, buildTools?, sdkDir?,
+│                  variants?[] { name, buildType, flavors[] { dimension, name } } }
 └── probe       { status: ok | partial | failed | skipped, notes[] }
 ```
+
+As built in milestone 1h (D6, D7): a field the probe could not read is omitted, never
+`unknown`; `sdkDir` is published by `sdk.requirements` only. The design's `type`,
+`namespace`, `minSdk` and `kotlinBuiltIn` wait for a consumer.
 
 - **Cost is real**: a configuration pass. The model is cached per
   `(root, fingerprint)`; the fingerprint covers settings and build scripts,
@@ -452,10 +454,15 @@ variant names are lowercase-first (`assembleDebug` → `debug`).
   `platforms;android-N`), the effective `buildToolsVersion` (→ `build-tools;X`) and the
   SDK directory AGP will use.
 - **Reactive**, from the extractor: AGP SDK signatures in a failed build, as
-  `category: sdk.missing` records naming the package.
+  `category: sdk.missing` records naming the package. *Not built in milestone 1h (D12):
+  spike S3 found that a missing platform does not fail configuration on AGP 8.13 or
+  9.4, so the probe's compile target names it before any build; the build-time text is
+  recorded for a later form.*
 
-Without the probe, `sdk.requirements` answers from failure signatures only and says so
-(`source: failure-signatures`, `complete: false`).
+Without the probe, `sdk.requirements` answers `source: failure-signatures`,
+`complete: false`, with nothing checked and a note saying so. While a build holds the
+root and the build files changed, it answers from the cached model with `stale: true`
+and `complete: false`.
 
 ## Task listing
 
@@ -594,7 +601,7 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
 | Sidecar crashes mid-call or mid-build, or breaks the protocol | `BUILD_SIDECAR_CRASHED`; every root with a connection is marked degraded inside the Gradle client until the next handshake (not yet the workspace's published state, 1g); no record for a build it was running; registry keeps history; restart on next use |
 | Configuration of the project fails | `PROJECT_MODEL_FAILED`, Gradle's root failure as the cause |
 | `build.errors` or `build.lastResult` with no finished build, or an unknown `buildId` | `BUILD_NOT_FOUND` |
-| Probe fails, fully or per field | Generic model still returned; affected fields `unknown`; variants fall back to task names |
+| Probe fails, fully or per field | A field it cannot read is omitted and noted (`probe.status: partial`); a fetch the probe breaks is retried once without it (`failed`, its own message as the note), never a cancel or the project's own failure, which is `PROJECT_MODEL_FAILED` with Gradle's failure chain as the cause; variants fall back to task names per module |
 | Problems API unavailable or partial | Console extractor covers it; the result reports the source per tool |
 | Failed build, nothing recognised | `unrecognised: true`, root failure messages and a bounded tail — never an empty success |
 | Output metadata missing | No output for that variant, with the reason; install gets `BUILD_OUTPUT_NOT_FOUND` |
@@ -627,7 +634,9 @@ Per [ADR-0021](../adr/0021-persistence-format-and-location.md):
   "Expected" form in the extractor table needs its own recording.
 - **Probe canary**: the probe against the Gradle floor and the newest release, and AGP
   floor and latest. It must return a model, and a broken field must degrade to
-  `unknown`, never fail the fetch.
+  `unknown`, never fail the fetch. *Run in milestone 1h (`DROIDYARD_GRADLE_TESTS=1 go
+  test ./sidecar`): AGP 8.0.2 on Gradle 8.0.2, AGP 8.13.2 on 8.13, AGP 9.4.1 on 9.6.0;
+  a broken field is omitted with a note; not yet in CI.*
 - **Daemon hygiene**: pinned `GRADLE_USER_HOME`, pinned `javaHome`, short daemon idle
   timeout, bounded workers — otherwise tests leak daemons.
 - Protocol tests that spawn the real sidecar and assert the handshake, the method
