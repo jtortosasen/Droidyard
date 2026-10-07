@@ -16,7 +16,6 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
-	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
@@ -308,7 +307,7 @@ func TestUIWithoutAnHTTPListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, ops, _, _, _, _ := registry(platform.Current(), st, nil, io.Discard)
+	reg, ops, _, _, _, _ := registry(isolatedEnv(t), st, nil, io.Discard)
 	d, err := daemon.Start(daemon.Options{
 		State: state, Store: st, Socket: sockFor(state), Version: system.Version, UID: os.Getuid(), Ops: ops,
 		Handlers: map[capability.ClientKind]daemon.Handler{capability.ClientCLI: daemon.Native(reg, ops)},

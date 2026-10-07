@@ -21,8 +21,9 @@
   the project's build scripts, which an agent can edit with `file.write` (1j), so
   trusting a root already lets an agent run code as the user there, droidyard's
   configuration included. `shell.exec` makes that direct; it does not create it. For
-  both, the defence is the human's informed choice, trusting a root and enabling the
-  shell; an untrusted root runs no project code. No fence on `file.write` is attempted
+  both, the defence is the human's choice, trusting a root and enabling the shell; an
+  untrusted root runs no project code. The human is told at each: `droidyard trust`
+  prints what trusting means, and `POLICY_SHELL_DISABLED` what enabling the shell means. No fence on `file.write` is attempted
   (the configuration lives outside every root, and a build script needs no file tool).
 
 ## Context

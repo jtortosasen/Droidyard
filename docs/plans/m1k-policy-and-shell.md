@@ -1,6 +1,6 @@
 # Plan: Milestone 1k — `policy.*`, `shell.exec` and the configuration file
 
-- Status: Approved
+- Status: Done
 - Approval: Delegated, 2026-10-07. Q1 and Q2 applied as drafted (`Amended:` lines on ADR-0032, ADR-0015 §6, ADR-0018 rule 3); the main session checked the plan against them and approved under the owner's standing instruction.
 - Date: 2026-10-07
 - Milestone: "Next: `file.*` (1j), then `policy.*` and `shell.exec` with the configuration file (1k); each needs a plan." (`docs/README.md` §Where the work stands, row **Next**). Owner, 2026-10-07: finish what remains of Phase 1.
@@ -63,15 +63,15 @@ Taken under the owner's standing instruction; each can be reverted.
 
 ## Acceptance
 
-- [ ] A1. `policy.get` and `policy.update` work from the CLI and over HTTP, are absent from MCP's tool list and are refused from an MCP session with `REQUEST_NOT_ALLOWED_HERE`. Source: ADR-0015 §6; ADR-0032 §5. Proven by: step 1, step 3, step 4
-- [ ] A2. Configuration version 1 parses per ADR-0032 §1; an invalid file fails closed for every key and is reported by `system.health` and by each capability it affects; unknown keys survive both writers. Source: ADR-0032 §1, §4; ADR-0031 §1, §3. Proven by: step 1, step 3, step 6
-- [ ] A3. `policy.update` applies a restricted Merge Patch under the lock, canonicalised and atomic, loses nothing to a concurrent `droidyard trust` on other keys, and takes effect without a restart. Source: ADR-0032 §5, §6. Proven by: step 3
-- [ ] A4. `shell.exec` is always listed; it fails `POLICY_SHELL_DISABLED` unless enabled globally or for the root, and `WORKSPACE_UNTRUSTED` on an untrusted root; enabled, it is bounded in time and output, kills its process group at every end, is recorded so a killed daemon's successor reaps it, and its output is marked untrusted. Source: ADR-0015 §7; ADR-0032 §2; ADR-0021 §Pid records; `capability-api.md` §Bounded output. Proven by: step 2, step 4
-- [ ] A5. A physical device is listed and usable only when `allowPhysical` and an exact `allowlist` entry admit it, read live; with fakes only. Source: ADR-0015 §4; ADR-0032 §2. Proven by: step 5
-- [ ] A6. `gradle.sidecarJavaHome`, `tools.adb` and `tools.emulator` are the first candidates from the next daemon start, and `system.health` names them as sources. Source: ADR-0032 §3, §6; ADR-0019 §8. Proven by: step 6
-- [ ] A7. With `gradle.allowBelowFloor`, Gradle 7.3–7.x builds under the conservative profile with `validation: unsupported`; without it the error names the hatch; below 7.3 is refused. Source: ADR-0018 rule 3; ADR-0032 §3. Proven by: step 7
-- [ ] A8. From OpenCode: no `policy_*` tool; `shell_exec` listed and refused with `POLICY_SHELL_DISABLED` and its nextStep; after the human enables it from the CLI, with no restart, it runs; nothing is left running. Source: ADR-0015 §6, §7; `mvp.md` §Phase 1. Proven by: step 4
-- [ ] A9. `schema/capabilities.json` is `0.10.0` with three new capabilities per R2; 39 capabilities, 34 MCP tools. Source: R1, R2, R5. Proven by: step 1, step 2, step 3, step 7
+- [x] A1. `policy.get` and `policy.update` work from the CLI and over HTTP, are absent from MCP's tool list and are refused from an MCP session with `REQUEST_NOT_ALLOWED_HERE`. Source: ADR-0015 §6; ADR-0032 §5. Proven by: step 1, step 3, step 4
+- [ ] A2. Configuration version 1 parses per ADR-0032 §1; an invalid file fails closed for every key and is reported by `system.health` and by each capability it affects; unknown keys survive both writers. Source: ADR-0032 §1, §4; ADR-0031 §1, §3. Proven by: step 1, step 3, step 6 **In part:** the parse, fail-closed on every key, health and unknown keys proven; an invalid file is reported by the below-floor refusal since the close (N3), but `device.list` hides an admitted device under it without saying so, and the resolutions' "Tried:" texts do not name the key and the file (N4).
+- [x] A3. `policy.update` applies a restricted Merge Patch under the lock, canonicalised and atomic, loses nothing to a concurrent `droidyard trust` on other keys, and takes effect without a restart. Source: ADR-0032 §5, §6. Proven by: step 3
+- [x] A4. `shell.exec` is always listed; it fails `POLICY_SHELL_DISABLED` unless enabled globally or for the root, and `WORKSPACE_UNTRUSTED` on an untrusted root; enabled, it is bounded in time and output, kills its process group at every end, is recorded so a killed daemon's successor reaps it, and its output is marked untrusted. Source: ADR-0015 §7; ADR-0032 §2; ADR-0021 §Pid records; `capability-api.md` §Bounded output. Proven by: step 2, step 4 (macOS; Linux reaping not run.)
+- [x] A5. A physical device is listed and usable only when `allowPhysical` and an exact `allowlist` entry admit it, read live; with fakes only. Source: ADR-0015 §4; ADR-0032 §2. Proven by: step 5 (Fake adb only: no physical device here.)
+- [x] A6. `gradle.sidecarJavaHome`, `tools.adb` and `tools.emulator` are the first candidates from the next daemon start, and `system.health` names them as sources. Source: ADR-0032 §3, §6; ADR-0019 §8. Proven by: step 6
+- [ ] A7. With `gradle.allowBelowFloor`, Gradle 7.3–7.x builds under the conservative profile with `validation: unsupported`; without it the error names the hatch; below 7.3 is refused. Source: ADR-0018 rule 3; ADR-0032 §3. Proven by: step 7 **In part:** a real Gradle 7.6.4 `build.run` under the hatch and its refusal without it, observed; Tier D and `build.lastResult` from a new daemon proven with the fake (the level-4 lastResult observed, not saved); `project.*`, `build.tasks`, `build.assemble` and the probe under 7.x not exercised.
+- [x] A8. From OpenCode: no `policy_*` tool; `shell_exec` listed and refused with `POLICY_SHELL_DISABLED` and its nextStep; after the human enables it from the CLI, with no restart, it runs; nothing is left running. Source: ADR-0015 §6, §7; `mvp.md` §Phase 1. Proven by: step 4 (The tool list was re-read by a new `opencode run -s` process, not kept across the change in one process.)
+- [x] A9. `schema/capabilities.json` is `0.10.0` with three new capabilities per R2; 39 capabilities, 34 MCP tools. Source: R1, R2, R5. Proven by: step 1, step 2, step 3, step 7
 
 ## Steps
 
@@ -200,14 +200,15 @@ Both are recordings rather than new mechanisms: no step changes when they are an
 | A process that leaves the group (`setsid`, `setpgid`) outlives the call and reconciliation; a double-forked child stays in the group and is killed | 2 | stated limit, D5 |
 | A leader that dies with the daemon (a shell that exited just before, or SIGPIPE once the daemon's pipes close) leaves its group unreaped: `Reconcile` keys on a live leader | 2 | stated limit; not tested |
 | Without `Pdeathsig`, the reconcile row holds on Linux as on macOS | 2 | Linux not run |
-| A Gradle daemon started inside `shell.exec` leaves the shell's group | 2 | step 2 (b) |
+| A Gradle daemon started inside `shell.exec` leaves the shell's group | 2 | observed, step 2 (b): its own pgid, alive after the call |
 | How macOS answers `kill(-pgid, 0)` once only a zombie leader is left (D5 reaps first, so it should not arise) | 2 | step 2 (a)'s timing rows |
 | Off USB, a device reporting a `product:` starting `sdk_gphone` is classified an emulator, so it bypasses the physical-device policy | 5 | not addressed; the field is device-controlled |
-| The Tooling API 9.8 client drives Gradle 7.6.4, on JDK 17 | 7 | step 7 (b), network needed |
+| The Tooling API 9.8 client drives Gradle 7.6.4, on JDK 17 | 7 | observed, step 7 (b): `build.run` success |
+| The model fetch and probe (`project.*`, `build.tasks`, `build.assemble`, AGP) work under Gradle 7.x | 7 | not run; only `build.run` was |
 | `flock` serialises configuration writers across processes | 3 | step 3 (a) on APFS; Linux not run |
-| Size and mtime see every hand edit (APFS nanosecond mtimes) | 1–3, 5 | not tested on coarse-mtime file systems; `policy.update` drops the cache itself |
+| Size and mtime see every hand edit (APFS nanosecond mtimes) | 1–3, 5 | not tested on coarse-mtime file systems; `policy.update` drops the cache itself, which no test observes |
 | A list edit racing `droidyard trust` can lose a root (RFC 7386 arrays) | 3 | stated limit, D3 |
-| OpenCode relays the nextStep and keeps a stable tool list across a policy change | 4 | step 4 |
+| OpenCode relays the nextStep and keeps a stable tool list across a policy change | 4 | the relay observed (step 4); the list was re-read by a new process, so stability within one process is untested |
 
 ## Review
 
@@ -242,3 +243,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-07, step 4: the untrusted first line the MCP adapter prepends reads "contains device/app data", which is inexact for a shell command's output (recorded for the close's documents; the mark itself is right).
 - 2026-10-07, step 5 (verifier B1, fixed; predates the step, m1f step 9): the hook left a device string that is not a listed serial to the handler's readiness check, and `device.inputText` without a target runs none, so `{"device":"usb:1-1.2"}` (or `model:…`, `product:…`) typed into an unadmitted physical device through adb's `-s` selectors, with no configuration at all. The hook now refuses any unlisted string `DEVICE_NOT_FOUND` before a handler runs, for every device capability; the `online` list names admitted devices only. B2: `emulator.stop`'s description said a physical device is `DEVICE_NOT_ALLOWED`; under D7 only an unadmitted one is.
 - 2026-10-07, step 5 (verifier, recorded): the in-process daemon test covers no file, admitted, `emulator.stop` both ways and a live edit; allowPhysical alone, the prefix, the invalid file and the online list are proven in the package with a real policy. Off USB a self-reported `product:sdk_gphone*` classifies a device as an emulator (a tampered device on wireless debugging bypasses the policy; tightening the rule to loopback serials is a later change). Devices sharing a serial (`0123456789ABCDEF`) are admitted together. `device.list` hides an otherwise-admitted device under an invalid file without a warning (`system.health` reports the file). `TestFollowWindowKeepsOnlyItsLinesAndRecordsTheClient` fails every time under `-race` (6.3 s against a 3 s bound) and passes without; it predates 1k (1i), to fix separately.
+- 2026-10-07, close (Opus close review; B1 fixed): ADR-0032's Consequences said an agent cannot change policy; on a trusted root it can, through the build (ADR-0015's second line). ADR-0032 has an `Amended:` line saying so, and `droidyard trust` now prints what trusting means, so ADR-0015's "the human's choice" has the human told at both choices. Also fixed: two in-process registry tests read the developer's real configuration (`isolatedEnv`); a test now pins that other kinds' failed record write spares the group (seen failing with every group killed); the below-floor refusal reports an invalid file (cause and nextStep; `TestBelowFloorUnderAnInvalidFileReportsTheFile`); the MCP untrusted first line reads "contains device, app or command output"; two stale comments; the cache test renamed to what it shows (`TestTheNextCheckSeesAnUpdate`).
+- 2026-10-07, close (recorded): the resolutions' "Tried:" texts list `candidate (reason)` without the key and the file for `tools.emulator` and `sidecarJavaHome` (the structured `source` in `system.health` names them; D8's wording not met); `{"shell":{}}` on a file without the section writes it (no policy change); step 7 (b) did not rerun step 4 (4) on the final tree (`internal/domain/shell` and `internal/process` changed since only by the close's test); step 6's `emulator.list` and step 7's `build.lastResult` were observed in the transcript, not saved.

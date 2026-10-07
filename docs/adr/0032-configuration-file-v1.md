@@ -27,6 +27,10 @@
   workspace (ADR-0018 rule 3 amended). The Alternatives' claim holds only for a patch
   that does not carry `trust.roots`: Merge Patch replaces arrays whole, so such a patch
   racing a `droidyard trust` can lose a root.
+- Amended: 2026-10-07 (Delegated, m1k close review B1). Consequences' second bullet
+  overstates: an agent cannot change policy through droidyard's agent-facing surface,
+  but on a trusted root it can through the build (ADR-0015, second 2026-10-07
+  `Amended:` line), shell or no shell. `droidyard trust` now says so when it trusts.
 
 ## Context
 

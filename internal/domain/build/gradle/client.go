@@ -456,6 +456,10 @@ func (c *Client) belowFloorError(version string) *capability.Error {
 	if !tierC(version) {
 		return e.WithNextStep("upgrade the project's Gradle to " + GradleFloor + " or newer (its wrapper or the daemon's distribution), then retry")
 	}
+	if bf := c.opts.AllowBelowFloor; bf.Invalid != "" {
+		return e.WithCause("the configuration file " + bf.ConfigPath + " was invalid at daemon start, so gradle.allowBelowFloor was not read: " + bf.Invalid).
+			WithNextStep("fix " + bf.ConfigPath + " and restart droidyard; with `gradle.allowBelowFloor: true` this Gradle runs under the conservative profile, or upgrade the project's Gradle to " + GradleFloor + " or newer")
+	}
 	return e.WithNextStep("set `gradle.allowBelowFloor: true` in " + c.opts.AllowBelowFloor.ConfigPath + " and restart droidyard to run this Gradle under the conservative profile, or upgrade the project's Gradle to " + GradleFloor + " or newer")
 }
 

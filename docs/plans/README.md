@@ -22,4 +22,4 @@ the output.
 | [m1h-android-probe-and-sdk.md](m1h-android-probe-and-sdk.md) | 1h — the Android probe, exact variants and `sdk.*` | Done |
 | [m1i-device-logs-and-emulator.md](m1i-device-logs-and-emulator.md) | 1i — `device.logs` and `emulator.*` | Done |
 | [m1j-files.md](m1j-files.md) | 1j — `file.*` | Done |
-| [m1k-policy-and-shell.md](m1k-policy-and-shell.md) | 1k — `policy.*`, `shell.exec` and the configuration file | Approved |
+| [m1k-policy-and-shell.md](m1k-policy-and-shell.md) | 1k — `policy.*`, `shell.exec` and the configuration file | Done |

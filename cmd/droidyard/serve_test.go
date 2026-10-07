@@ -65,6 +65,25 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// isolatedEnv is the platform with its configuration directory moved to a fresh
+// temporary directory, for a test that builds the registry in process: since 1k the
+// policy reads the configuration file when it is built, and this test process has no
+// DROIDYARD_STATE_DIR, so it would otherwise read the developer's real configuration
+// (m1k close review, N1).
+func isolatedEnv(t *testing.T) platform.Env {
+	t.Helper()
+	env := platform.Current()
+	dir := t.TempDir()
+	base := env.Getenv
+	env.Getenv = func(k string) string {
+		if k == "DROIDYARD_CONFIG_DIR" {
+			return dir
+		}
+		return base(k)
+	}
+	return env
+}
+
 // testParentEnv names the test binary's pid for the processes it re-executes.
 const testParentEnv = "DROIDYARD_TEST_PARENT"
 
