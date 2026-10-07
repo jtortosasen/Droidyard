@@ -34,7 +34,7 @@ func registerStop(reg *capability.Registry, e *Emulator) {
 		Since:        "0.8.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description: "Stops one running emulator with `adb emu kill` and returns once its serial leaves adb devices, bounded at 20 s; a timeout is EMULATOR_STOP_TIMEOUT and we never escalate to signals, because the emulator is not ours. It holds the device's write lock, so it serialises with installs and other writes to that device and can end a stuck boot. " +
-			"Only emulator-<port> serials answer the console: anything else — a physical device, or an emulator reached over ip:port — is EMULATOR_NOT_AN_EMULATOR. The call runs the device preamble's policy check (a physical device is DEVICE_NOT_ALLOWED) but not its readiness check, so an emulator that is still booting or offline can be stopped. " +
+			"Only emulator-<port> serials answer the console: anything else — a physical device, or an emulator reached over ip:port — is EMULATOR_NOT_AN_EMULATOR. The call runs the device preamble's policy check (a physical device the configuration does not admit is DEVICE_NOT_ALLOWED) but not its readiness check, so an emulator that is still booting or offline can be stopped. " +
 			"Stopping is not idempotent: a second call for an already-gone serial is DEVICE_NOT_FOUND. " +
 			"Fails with DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED (including an emu kill adb refused while the serial stays listed), DEVICE_NOT_FOUND, DEVICE_NOT_ALLOWED, EMULATOR_NOT_AN_EMULATOR, EMULATOR_STOP_TIMEOUT, and OPERATION_QUEUE_TIMEOUT behind another write to the same device.",
 		Params: StopParams{},
@@ -183,9 +183,9 @@ func listed(devices []device.Device, serial string) bool {
 	return false
 }
 
-// notFound is DEVICE_NOT_FOUND for a serial the listing does not have, with the online
-// emulator serials the caller could use, exactly as the device preamble's readiness check
-// answers it.
+// notFound is DEVICE_NOT_FOUND for a listed serial that left before the stop, with the
+// online emulator serials the caller could use. A serial the listing never held is
+// refused earlier, by the device hook (m1k step 5 B1).
 func notFound(auth *device.Authorized) *capability.Error {
 	online := []string{}
 	for _, d := range auth.All {

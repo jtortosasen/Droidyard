@@ -50,7 +50,7 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 		Scope:        capability.Global,
 		Since:        "0.4.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Lists the connected emulators with their serial (the value of every device argument), state (device, offline, unauthorized, recovery, sideload, unknown), kind and, best effort, model, product, Android version, API level and AVD name. Physical devices are hidden by default. Fails with DEVICE_ADB_NOT_FOUND when adb cannot be found and DEVICE_ADB_FAILED when adb fails on the host.",
+		Description:  "Lists the connected emulators and the physical devices the configuration admits, with their serial (the value of every device argument), state (device, offline, unauthorized, recovery, sideload, unknown), kind and, best effort, model, product, Android version, API level and AVD name. A physical device is listed only when `devices.allowPhysical` is true and its exact serial is in `devices.allowlist`, read from the configuration at the call; otherwise it is hidden. Fails with DEVICE_ADB_NOT_FOUND when adb cannot be found and DEVICE_ADB_FAILED when adb fails on the host.",
 		Params:       struct{}{},
 		Result:       ListResult{},
 		Errors:       []capability.ErrorCode{ErrADBNotFound, ErrADBFailed},
@@ -72,8 +72,8 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 	registerInputText(reg, adb)
 }
 
-// List runs `adb devices -l`, drops what the default policy hides (physical devices,
-// ADR-0015 §4; no configuration file exists in 1e, plan R5) and fills in the details of
+// List runs `adb devices -l`, drops what the policy hides (a physical device is listed
+// only when its serial is admitted, ADR-0015 §4; plan m1k D7) and fills in the details of
 // each online emulator, best effort, in parallel, under one deadline: a device that
 // does not answer in time is listed with sparse details. The errors it returns are the
 // contract's: *capability.Error with DEVICE_ADB_NOT_FOUND or DEVICE_ADB_FAILED, or
@@ -84,7 +84,9 @@ func (a *ADB) List(ctx context.Context) ([]Device, error) {
 }
 
 // list is List plus the adb client/server version-mismatch warnings (adb-device.md
-// §Failure modes: reported on the device call as well as by system.health).
+// §Failure modes: reported on the device call as well as by system.health). It drops
+// what the policy hides: a physical device is listed only when its serial is admitted
+// (ADR-0015 §4; ADR-0032 §2; plan m1k D7), read live at each call.
 func (a *ADB) list(ctx context.Context) ([]Device, []string, error) {
 	res := a.Resolve()
 	if !res.Found {
@@ -101,7 +103,7 @@ func (a *ADB) list(ctx context.Context) ([]Device, []string, error) {
 	}
 	visible := listed[:0:0]
 	for _, d := range listed {
-		if d.Kind == KindEmulator { // R5: emulators only
+		if d.Kind == KindEmulator || a.admitted(d.Device).Admitted {
 			visible = append(visible, d)
 		}
 	}

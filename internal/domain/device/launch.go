@@ -77,7 +77,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 			"The launch is recorded for the device, so a later device.logs of the same applicationId reads from this launch (its default since is \"launch\"). " +
 			"applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched, and never reaches a device shell. " +
 			"The whole call holds the device's write lock and runs at most 28 s. " +
-			"Fails with DEVICE_LAUNCH_FAILED when monkey reports no activities or exits non-zero, and with the device errors of a missing, unusable, physical or vanished device.",
+			"Fails with DEVICE_LAUNCH_FAILED when monkey reports no activities or exits non-zero, and with the device errors of a missing, unusable, unadmitted physical or vanished device.",
 		Params: LaunchParams{},
 		Result: LaunchResult{},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),

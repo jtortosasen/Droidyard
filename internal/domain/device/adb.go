@@ -31,6 +31,10 @@ type ADB struct {
 	// D9), nil when the daemon passed none: a follow then reports DEVICE_LOGS_FAILED.
 	stream StreamStarter
 	exec   Exec // nil in production; a test's in-process stand-in for the client
+	// policy is the physical-device policy seam (plan m1k D7), set once at wiring,
+	// before any call, and read at each device check; nil is the emulators-only
+	// default.
+	policy Policy
 
 	mu    sync.Mutex
 	cache *versions
@@ -76,6 +80,12 @@ func NewADB(env []string, start Starter) *ADB {
 // supervisor's SpawnRecorded through the daemon's adapter (plan m1i D9). Without one a
 // follow cannot be recorded and fails rather than leave a client no daemon can find.
 func (a *ADB) SetStreamStarter(s StreamStarter) { a.stream = s }
+
+// SetPolicy gives the ADB the daemon's policy, so a physical device's admission is
+// decided live at each check (ADR-0032 §2, §6; plan m1k D7). It is called once, at
+// wiring, before any call. Without one the emulators-only default applies, which is what
+// every registry that predates the configuration file gets.
+func (a *ADB) SetPolicy(p Policy) { a.policy = p }
 
 // Exec is an in-process stand-in for starting an adb client, for tests whose subject
 // is not the process runner: it returns what the client would have written and its

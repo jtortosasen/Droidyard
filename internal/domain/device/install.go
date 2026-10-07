@@ -163,7 +163,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 			"The build reference is resolved from the build registry, never from a build script or manifest: buildId names one build, and absent means the newest finished build of the workspace with an output for module and variant. " +
 			"module and variant are checked against project.modules' and project.variants' shape before anything runs, and the resolution requires exactly one unfiltered APK whose file still matches the build's size and mtime. " +
 			"`install -r` replaces the app and keeps its data, so the call is not destructive; it is not idempotent. " +
-			"Fails with BUILD_OUTPUT_NOT_FOUND when no build produced the output, BUILD_OUTPUT_STALE when the file is gone or changed, BUILD_OUTPUT_UNSUPPORTED when the output is not one unfiltered APK, BUILD_NOT_FOUND for an unknown buildId, and DEVICE_INSTALL_FAILED when adb rejects the install (detected even on exit 0, with the INSTALL_FAILED_* reason as the cause), besides the device errors of a missing, unusable, physical or vanished device.",
+			"Fails with BUILD_OUTPUT_NOT_FOUND when no build produced the output, BUILD_OUTPUT_STALE when the file is gone or changed, BUILD_OUTPUT_UNSUPPORTED when the output is not one unfiltered APK, BUILD_NOT_FOUND for an unknown buildId, and DEVICE_INSTALL_FAILED when adb rejects the install (detected even on exit 0, with the INSTALL_FAILED_* reason as the cause), besides the device errors of a missing, unusable, unadmitted physical or vanished device.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(InstallParams).Device; s != "" {
 				return writeKey(s)
@@ -220,7 +220,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 			"Otherwise it runs `adb -s <serial> uninstall <applicationId>`; \"Success\" is uninstalled true, and a \"Failure […]\" is DEVICE_UNINSTALL_FAILED with the bracketed token as the cause. " +
 			"Uninstalling removes the app's data, so the call is destructive, and it is not idempotent. " +
 			"applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched. " +
-			"Besides DEVICE_UNINSTALL_FAILED, it fails with the device errors of a missing, unusable, physical or vanished device.",
+			"Besides DEVICE_UNINSTALL_FAILED, it fails with the device errors of a missing, unusable, unadmitted physical or vanished device.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(UninstallParams).Device; s != "" {
 				return writeKey(s)

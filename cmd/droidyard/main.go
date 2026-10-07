@@ -261,6 +261,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// effect without a restart; the tool keys are read once, at construction.
 	pol := policy.New(env)
 	policy.Register(reg, pol)
+	// The device policy seam (plan m1k D7): the ADB consults the one Policy for a
+	// physical device's admission, re-reading the configuration at each check, so a hand
+	// edit decides the next call without a restart. The emulator subsystem shares this
+	// ADB, so its policy check uses the same configuration.
+	adb.SetPolicy(pol)
 	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient, pol)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {

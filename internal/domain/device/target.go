@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 // The codes of the device preamble every capability with a `device` argument runs
@@ -43,9 +44,18 @@ type target struct {
 	started time.Time
 }
 
-// authorize is the authorization hook of a device capability (plan m1e, Q2). It runs
-// the call's one `devices -l` and decides DEVICE_NOT_ALLOWED for a physical device
-// (the emulators-only default, ADR-0015 §4; no configuration file exists in 1e), then
+// Policy is the physical-device policy seam (ADR-0015 §4; ADR-0032 §2; plan m1k D7):
+// it decides whether a physical device's exact serial is admitted. *policy.Policy
+// implements it, re-reading the configuration by size and mtime at each call. A nil
+// policy is the emulators-only default that predates the configuration file, so every
+// registry that sets none keeps that behaviour.
+type Policy interface {
+	PhysicalAdmitted(serial string) policy.Admission
+}
+
+// authorize is the authorization hook of a device capability (plan m1e, Q2; m1k D7). It
+// runs the call's one `devices -l` and decides DEVICE_NOT_ALLOWED for a physical device
+// the policy does not admit (the emulators-only default when no policy is set), then
 // hands the listing on. A serial that is not listed is not decided here: the handler
 // answers DEVICE_NOT_FOUND from the same listing.
 func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, error) {
@@ -69,28 +79,69 @@ func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, err
 			break
 		}
 	}
-	if t.dev != nil && t.dev.Kind != KindEmulator {
-		return nil, capability.NewError(ErrNotAllowed, "the device "+serial+" is not permitted by policy").
-			WithCause("the default policy admits emulators only; the device is a physical device").
-			WithNextStep("Use an emulator serial from device.list.")
+	// A string that is not a listed serial is refused here, before any handler runs: adb's
+	// -s also accepts selectors (usb:<path>, product:, model:, device:, a wireless host
+	// without its port) that would reach a device under another name, past the policy
+	// (m1k §Changes, step 5 B1).
+	if t.dev == nil {
+		return nil, a.notFound(t)
+	}
+	if t.dev.Kind != KindEmulator {
+		if adm := a.admitted(serial); !adm.Admitted {
+			return nil, notAllowed(serial, adm.Cause)
+		}
 	}
 	return t, nil
+}
+
+// notFound is DEVICE_NOT_FOUND for a serial the listing does not hold. Its online list
+// names emulators and admitted physical devices only, so it never discloses one the
+// configuration hides.
+func (a *ADB) notFound(t *target) error {
+	online := []string{}
+	for _, d := range t.all {
+		if d.State != StateDevice {
+			continue
+		}
+		if d.Kind == KindEmulator || a.admitted(d.Device).Admitted {
+			online = append(online, d.Device)
+		}
+	}
+	return capability.NewError(ErrNotFound, "no device "+t.serial+" is connected").
+		WithDetails(map[string]any{"online": online}).
+		WithNextStep("Call device.list for the serials that are connected.")
+}
+
+// admitted consults the policy seam for a physical serial (ADR-0015 §4; ADR-0032 §2;
+// plan m1k D7). The policy re-reads the configuration on every check, so a hand edit or
+// a `droidyard trust` decides the next call without a restart. With no policy set — every
+// test and registry that predates the configuration file — the emulators-only default
+// refuses every physical device.
+func (a *ADB) admitted(serial string) policy.Admission {
+	if a.policy == nil {
+		return policy.Admission{Cause: "the default policy admits emulators only; the device is a physical device"}
+	}
+	return a.policy.PhysicalAdmitted(serial)
+}
+
+// notAllowed is DEVICE_NOT_ALLOWED for a physical device the configuration does not
+// admit; cause says which condition failed — `allowPhysical` is false, the serial is not
+// in `devices.allowlist`, or the configuration file could not be used, by name (plan m1k
+// D7). Its nextStep names both keys so a human can admit the serial.
+func notAllowed(serial, cause string) *capability.Error {
+	return capability.NewError(ErrNotAllowed, "the device "+serial+" is not permitted by policy").
+		WithCause(cause).
+		WithNextStep("use an emulator serial from device.list, or ask the user to admit " + serial + " in the droidyard configuration (`devices.allowPhysical` and `devices.allowlist`)")
 }
 
 // ready decides what the listing says about the device: DEVICE_NOT_FOUND with the
 // online candidates, DEVICE_NOT_READY naming the state, and DEVICE_NOT_READY for a
 // device that reports `device` but has not finished booting (sys.boot_completed not 1).
+// Its online candidates are the devices the policy admits: every online emulator, and a
+// physical device only when its serial is admitted (plan m1k D7).
 func (a *ADB) ready(ctx context.Context, t *target) error {
 	if t.dev == nil {
-		online := []string{}
-		for _, d := range t.all {
-			if d.Kind == KindEmulator && d.State == StateDevice {
-				online = append(online, d.Device)
-			}
-		}
-		return capability.NewError(ErrNotFound, "no device "+t.serial+" is connected").
-			WithDetails(map[string]any{"online": online}).
-			WithNextStep("Call device.list for the serials that are connected.")
+		return a.notFound(t)
 	}
 	if t.dev.State != StateDevice {
 		fix := map[string]string{

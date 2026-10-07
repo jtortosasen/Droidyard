@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,98 @@ func listOf(t *testing.T, env capability.ResponseEnvelope) []device.Device {
 		t.Fatalf("device.list result %s: %v (error %+v)", env.Result, err, env.Error)
 	}
 	return r.Devices
+}
+
+// writeDaemonConfig writes the daemon's configuration file under its state directory, as
+// a hand edit would; the daemon's policy reads it live, at each device check (plan m1k
+// D7). The in-process daemon places its configuration at <state>/config, since only
+// DROIDYARD_STATE_DIR is set for it (platform.ConfigDir).
+func writeDaemonConfig(t *testing.T, p *inProcess, body string) {
+	t.Helper()
+	dir := filepath.Join(p.state, "config")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// failedCode is the code of a call's error, failing the test when the call succeeded.
+func failedCode(t *testing.T, env capability.ResponseEnvelope) string {
+	t.Helper()
+	if env.Error == nil {
+		t.Fatalf("call succeeded, want an error (operation %+v)", env.Operation)
+	}
+	return string(env.Error.Code)
+}
+
+// Decision (plan m1k step 5, check): the physical-device policy through the shipped
+// wiring, driven by the configuration file the daemon reads live. With no file a physical
+// device is hidden and every call for it is DEVICE_NOT_ALLOWED; admitting it in the file
+// makes device.list show it as physical, a device call completes, and emulator.stop
+// reaches its not-an-emulator refusal (ADR-0015 §4; ADR-0032 §2, §6; plan m1k D7).
+func TestPhysicalDevicePolicyThroughTheDaemon(t *testing.T) {
+	const phys = "R58M123"
+	p := fakeADBDaemon(t, map[string]string{
+		"devices.out": "List of devices attached\n" +
+			"emulator-5554 device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:1\n" +
+			"R58M123 device usb:1-1.2 product:raven model:Pixel_6_Pro transport_id:2\n",
+		"emulator-5554.getprop":           fixtureFile(t, "pixel9a-getprop.txt"),
+		"emulator-5554.avd":               fixtureFile(t, "pixel9a-emu-avd-name.txt"),
+		"emulator-5554.bootcompleted.out": "1\n",
+		"emulator-5554.screencap.out":     fixtureFile(t, "pixel9a-screencap.png"),
+		phys + ".bootcompleted.out":       "1\n",
+		phys + ".screencap.out":           fixtureFile(t, "pixel9a-screencap.png"),
+	})
+
+	// No configuration file: the physical device is hidden, and every call for it is
+	// DEVICE_NOT_ALLOWED (device.list, device.screenshot, emulator.stop).
+	env, code := p.call(t, "device.list")
+	if code != 0 || env.Operation == nil || env.Operation.State != capability.StateCompleted {
+		t.Fatalf("device.list exited %d with %+v (error %+v)", code, env.Operation, env.Error)
+	}
+	if got := listOf(t, env); len(got) != 1 || got[0].Device != "emulator-5554" {
+		t.Errorf("listed %+v, want the emulator only with no configuration", got)
+	}
+	shot, code := p.call(t, "device.screenshot", "--params", `{"device":"`+phys+`"}`)
+	if code == 0 || shot.Operation == nil || shot.Operation.State != capability.StateFailed {
+		t.Errorf("device.screenshot exited %d with %+v, want a failed operation", code, shot.Operation)
+	}
+	if c := failedCode(t, shot); c != "DEVICE_NOT_ALLOWED" {
+		t.Errorf("device.screenshot error %s, want DEVICE_NOT_ALLOWED", c)
+	}
+	stop, _ := p.call(t, "emulator.stop", "--params", `{"device":"`+phys+`"}`)
+	if c := failedCode(t, stop); c != "DEVICE_NOT_ALLOWED" {
+		t.Errorf("emulator.stop error %s, want DEVICE_NOT_ALLOWED while unadmitted", c)
+	}
+
+	// Admit the exact serial, with no restart: the edit decides the next calls.
+	writeDaemonConfig(t, p, `{"schemaVersion":1,"devices":{"allowPhysical":true,"allowlist":["`+phys+`"]}}`)
+	env, code = p.call(t, "device.list")
+	if code != 0 || env.Operation == nil || env.Operation.State != capability.StateCompleted {
+		t.Fatalf("device.list (admitted) exited %d with %+v (error %+v)", code, env.Operation, env.Error)
+	}
+	var found bool
+	for _, d := range listOf(t, env) {
+		if d.Device == phys {
+			found = true
+			if d.Kind != "physical" {
+				t.Errorf("admitted device kind = %q, want physical", d.Kind)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("listed %+v, want the admitted physical device %s", listOf(t, env), phys)
+	}
+	shot, code = p.call(t, "device.screenshot", "--params", `{"device":"`+phys+`"}`)
+	if code != 0 || shot.Operation == nil || shot.Operation.State != capability.StateCompleted {
+		t.Errorf("device.screenshot (admitted) exited %d with %+v (error %+v), want completed", code, shot.Operation, shot.Error)
+	}
+	stop, _ = p.call(t, "emulator.stop", "--params", `{"device":"`+phys+`"}`)
+	if c := failedCode(t, stop); c != "EMULATOR_NOT_AN_EMULATOR" {
+		t.Errorf("emulator.stop error %s, want EMULATOR_NOT_AN_EMULATOR once admitted", c)
+	}
 }
 
 // TestDeviceListThroughCLI: `droidyard call device.list` against a daemon whose adb is

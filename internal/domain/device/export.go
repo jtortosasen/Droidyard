@@ -38,10 +38,10 @@ type Authorized struct {
 
 // Authorize runs a device call's authorization hook over serial — the policy re-check
 // and the call's one `devices -l` (ADR-0015 §4) — and returns what it read, without the
-// readiness check a device capability runs next. A physical device is refused
-// DEVICE_NOT_ALLOWED here, exactly as a device call refuses it; a serial that is not
-// listed is not an error (Device is nil) and the caller decides, as the preamble
-// answers DEVICE_NOT_FOUND. again names the capability, for the error's nextStep.
+// readiness check a device capability runs next. A physical device the configuration does
+// not admit is refused DEVICE_NOT_ALLOWED here, and a serial the listing does not hold is
+// DEVICE_NOT_FOUND, exactly as a device call refuses them. again names the capability,
+// for the error's nextStep.
 func (a *ADB) Authorize(ctx context.Context, serial, again string) (*Authorized, error) {
 	t, err := a.authorize(ctx, serial, again)
 	if err != nil {
