@@ -8,6 +8,11 @@
   `docs/research/daily-use-crash-anr-2026-10.md`
 - Decided by the main session under the owner's standing instruction (Delegated,
   2026-10-07, plan m1n Q2), from step 2's facts; the owner can revert it.
+- Amended: 2026-10-07 (Delegated, plan m1n step 3 review) — Decision 1's package is the
+  focused window's (`dumpsys window`, read on the busy path only), not the reader's last
+  read, which is stale after a foreground change; when it cannot be read, or is not a
+  package name, it is omitted and the error, then carrying no device text, is not marked
+  untrusted. The host's warm-read bound is 4 s, above the device's 2.5 s.
 
 ## Context
 
