@@ -170,7 +170,8 @@ type crashSummary struct {
 // AndroidRuntime run from "FATAL EXCEPTION:" carrying "Process: <app>, PID: <pid>", a
 // native one a DEBUG run carrying ">>> <app> <<<". app "" matches any app (no filter);
 // otherwise the block must name app exactly, and a Java block must also carry uid
-// (byUID) — a native block is tombstoned's and is matched by its header alone. It
+// (byUID), and so must a native block: its DEBUG lines carry the app's uid, since
+// crash_dump runs as the app (spike S9 G5; step 2 review B2). It
 // returns the summaries and which lines are crash lines.
 func crashBlocks(lines []logLine, app string, uid int, byUID bool) (crashes []crashSummary, crashLine []bool) {
 	crashLine = make([]bool, len(lines))
@@ -199,7 +200,7 @@ func classifyCrash(block []logLine, app string, uid int, byUID bool) (crashSumma
 	case "AndroidRuntime":
 		return javaCrash(block, app, uid, byUID)
 	case "DEBUG":
-		return nativeCrash(block, app)
+		return nativeCrash(block, app, uid, byUID)
 	}
 	return crashSummary{}, false
 }
@@ -243,8 +244,13 @@ func javaCrash(block []logLine, app string, uid int, byUID bool) (crashSummary, 
 	return s, true
 }
 
-// nativeCrash recognises a native crash block: the tombstone header names the app.
-func nativeCrash(block []logLine, app string) (crashSummary, bool) {
+// nativeCrash recognises a native crash block: the tombstone header names the app and,
+// under the uid filter, the block's lines carry the app's uid, so another app cannot log
+// a ">>> <app> <<<" header and have its lines reported as this app's crash (review B2).
+func nativeCrash(block []logLine, app string, uid int, byUID bool) (crashSummary, bool) {
+	if app != "" && byUID && block[0].uid != uid {
+		return crashSummary{}, false
+	}
 	header, signal, pid := -1, -1, 0
 	for i, l := range block {
 		if m := nativeHeaderRE.FindStringSubmatch(l.message); m != nil && (app == "" || m[2] == app) {

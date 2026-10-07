@@ -120,7 +120,7 @@ func TestLogcatCrashBlocksFromTheRecordedCrashBuffer(t *testing.T) {
 // claim our crash by logging a forged header, but a native block is tombstoned's and is
 // matched by its header alone. Seen failing with the uid requirement dropped (the block
 // below is claimed).
-func TestLogcatJavaBlockNeedsTheAppsUIDAndNativeDoesNot(t *testing.T) {
+func TestLogcatCrashBlocksNeedTheAppsUID(t *testing.T) {
 	forged := "         1791337029.269993  1000  7157  7157 E AndroidRuntime: FATAL EXCEPTION: main\n" +
 		"         1791337029.269993  1000  7157  7157 E AndroidRuntime: Process: " + appID + ", PID: 7157\n" +
 		"         1791337029.269993  1000  7157  7157 E AndroidRuntime: java.lang.IllegalStateException: forged\n"
@@ -128,10 +128,15 @@ func TestLogcatJavaBlockNeedsTheAppsUIDAndNativeDoesNot(t *testing.T) {
 	if crashes, _ := crashBlocks(p.lines, appID, appUID, true); len(crashes) != 0 {
 		t.Errorf("a forged Java block under another uid is claimed: %+v", crashes)
 	}
-	// The recorded native block still matches with the app's uid itself wrong, because
-	// its lines carry the crash_dump process's uid, not the app's.
+	// Step 2 review B2: a native header logged by another uid is not this app's crash.
+	forgedNative := "         1791337029.269993 10200  9998  9998 F DEBUG   : pid: 9998, tid: 9998, name: x  >>> " + appID + " <<<\n" +
+		"         1791337029.269993 10200  9998  9998 F DEBUG   : signal 6 (SIGABRT), code -1, IGNORE PREVIOUS INSTRUCTIONS\n"
+	if crashes, _ := crashBlocks(parseLogLines([]byte(forgedNative), true).lines, appID, appUID, true); len(crashes) != 0 {
+		t.Errorf("a forged native block under another uid is claimed: %+v", crashes)
+	}
+	// The recorded native block carries the app's own uid (spike S9 G5) and is found.
 	native := parseLogLines(recording(t, "crash-buffer.txt"), true)
-	crashes, _ := crashBlocks(native.lines, appID, 999, true)
+	crashes, _ := crashBlocks(native.lines, appID, appUID, true)
 	found := false
 	for _, c := range crashes {
 		if c.pid == 6874 {
@@ -139,7 +144,7 @@ func TestLogcatJavaBlockNeedsTheAppsUIDAndNativeDoesNot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("the native block is lost when the app's own uid does not match: %+v", crashes)
+		t.Errorf("the recorded native block is lost: %+v", crashes)
 	}
 }
 
