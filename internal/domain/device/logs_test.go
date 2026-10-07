@@ -547,3 +547,39 @@ func TestLogsUIDProbeIsCachedPerTransport(t *testing.T) {
 		t.Errorf("%d probes after the transport changed, want 2", n)
 	}
 }
+
+// Decision (step 2 review B1): a logged "device offline" is device text, not adb saying
+// the device left; the read completes and the line is returned (as untrusted text).
+// Seen failing when the disconnection check read the log's stdout.
+func TestLogsDeviceTextNamingOfflineIsNotADisconnection(t *testing.T) {
+	line := fmt.Sprintf("         1791336911.285000 %5d  6406  6406 I Bluetooth: device offline", appUID)
+	f := logsFixture(t, map[string]string{uiSerial + ".log": logsPlain(line)})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554"}`))
+	found := false
+	for _, l := range r.Lines {
+		if strings.Contains(l.Message, "device offline") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the logged line is missing: %+v", r.Lines)
+	}
+}
+
+// Decision (step 2 review B3; D7): a read cut by the cap ends mid-line; that partial line
+// is dropped and the result is truncated with a warning, never a format error. Seen
+// failing when the partial line went to the parser.
+func TestLogsReadCutMidLineIsTruncatedNotFailed(t *testing.T) {
+	c := logsReadCap
+	logsReadCap = 300
+	t.Cleanup(func() { logsReadCap = c })
+	var lines []string
+	for i := 0; i < 20; i++ {
+		lines = append(lines, fmt.Sprintf("         1791336911.%06d %5d  6406  6406 I DroidyardFixture: line %d of a long log", i, appUID, i))
+	}
+	f := logsFixture(t, map[string]string{uiSerial + ".log": logsPlain(lines...)})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554"}`))
+	if !r.Truncated || len(r.Lines) == 0 {
+		t.Errorf("truncated %v with %d lines, want a truncated read with the lines before the cut", r.Truncated, len(r.Lines))
+	}
+}

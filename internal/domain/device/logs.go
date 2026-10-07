@@ -30,11 +30,12 @@ var (
 	logsProbeTimeout = 5 * time.Second
 )
 
+// logsReadCap is the largest logcat dump read; a var so a test can cut a read mid-line.
+// A whole -b main,system,crash read is bounded by the device's ~2 MiB rings (spike S9,
+// G7); past this the newest lines are missing, since `-d` prints oldest first.
+var logsReadCap = 32 << 20
+
 const (
-	// logsReadCap is the largest logcat dump read. A whole -b main,system,crash read is
-	// bounded by the device's ~2 MiB rings (spike S9, G7); past this the newest lines
-	// are missing, since `-d` prints oldest first, and the result says so.
-	logsReadCap = 32 << 20
 	// logsCaptureCap is the inline capture artifact's bound: line-based text, so the
 	// ephemeral store's 64 MiB budget is never approached (plan m1i D7).
 	logsCaptureCap = 4 << 20
@@ -307,7 +308,7 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 		if cerr := ctx.Err(); cerr != nil {
 			return LogsResult{}, cerr
 		}
-		if line := disconnectedLine(t.serial, out); line != "" {
+		if line := disconnectedLine(t.serial, Output{Stderr: out.Stderr}); line != "" {
 			return LogsResult{}, disconnected(t.serial, line)
 		}
 		if runErr != nil && !errors.Is(runErr, ErrTimeout) {
@@ -334,6 +335,16 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 		raw = out.Stdout
 	}
 
+	// adb reports a vanished device on its own stderr; stdout here is the device log,
+	// where "device offline" is only text (review B1). A read cut by its cap or timeout
+	// ends mid-line: that partial line is dropped, never a format error (review B3; D7).
+	if readTruncated {
+		if i := bytes.LastIndexByte(raw, '\n'); i >= 0 {
+			raw = raw[:i+1]
+		} else {
+			raw = nil
+		}
+	}
 	parsed := parseLogLines(raw, columnPresent)
 	if parsed.format {
 		return LogsResult{}, logsFormatError(logcatCommand(follow, buffers, since))
@@ -540,7 +551,7 @@ func (a *ADB) followWindow(ctx context.Context, t *target, buffers []string, sin
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, false, warnings, cerr
 	}
-	if line := disconnectedLine(t.serial, out); line != "" {
+	if line := disconnectedLine(t.serial, Output{Stderr: out.Stderr}); line != "" {
 		return nil, false, warnings, disconnected(t.serial, line)
 	}
 	switch {
@@ -593,8 +604,15 @@ func (a *ADB) classifyCrashes(serial, app string, uid int, byUID bool, lines []l
 	blocks, crashLine := crashBlocks(lines, app, uid, byUID)
 	if app != "" {
 		for i, l := range lines {
-			if crashLine[i] && l.pid > 0 {
+			// A Java block's lines are the app's own process; a native block's are
+			// crash_dump's, so its header's pid is the one recorded (below).
+			if crashLine[i] && l.pid > 0 && l.tag == "AndroidRuntime" {
 				a.appStore().notePID(serial, app, l.pid, l.at)
+			}
+		}
+		for _, b := range blocks {
+			if b.pid > 0 {
+				a.appStore().notePID(serial, app, b.pid, b.at)
 			}
 		}
 	}
@@ -872,7 +890,7 @@ func (a *ADB) uidColumnSupported(ctx context.Context, t *target) (bool, error) {
 	if cerr := ctx.Err(); cerr != nil {
 		return false, cerr
 	}
-	if line := disconnectedLine(serial, out); line != "" {
+	if line := disconnectedLine(serial, Output{Stderr: out.Stderr}); line != "" {
 		return false, disconnected(serial, line)
 	}
 	if err != nil && !errors.Is(err, ErrTimeout) {
