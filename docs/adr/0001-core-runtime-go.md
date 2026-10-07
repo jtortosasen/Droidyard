@@ -5,6 +5,9 @@
 - Amended: 2026-09-29 — process ownership corrected (the Gradle daemon belongs to
   Gradle, not to us), and Gradle output parsing is now the core's console extractor
   ([ADR-0022](0022-build-error-extraction.md)), not a set of CLI parsers.
+- Amended: 2026-10-07 — an emulator launch is the core's until its serial is resolved, and
+  is ended if its boot fails before then ([ADR-0033](0033-emulator-launch-owned-until-serial.md));
+  a running emulator is still not ours.
 
 ## Context
 
