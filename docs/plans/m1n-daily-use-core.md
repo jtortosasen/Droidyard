@@ -80,7 +80,7 @@ Baseline on 2026-10-07 at `3abf127` with the four research notes untracked: `go 
 - Needs: nothing.
 - Not here: other `-race` slowness (none known).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-07, DeepSeek implementer, main session review. Cause: the race runtime's startup, not the follow: an empty `-race` binary starts in 1.05–1.6 s on this host (main session reproduced 1.55 s vs 0.33 s plain), and the fixture spawns the re-executed fake adb four times before the window closes (4.28 s measured). Branch taken: the bound widened under `-race` only (`followRaceOverhead` 5 s, `follow_race_on_test.go`; zero without, `follow_race_off_test.go`); the 2 s lower bound and the follow path unchanged. `go test -race -count=5 -run TestFollowWindow… ./internal/domain/device` 5/5 (implementer), 3/3 (main session); `go test ./...` green; vet, gofmt clean. The citation fixed in `2bc0842`.
 
 ### 2. Spike: what a crash, an ANR, typing and acting cost on a device
 
