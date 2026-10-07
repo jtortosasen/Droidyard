@@ -56,6 +56,9 @@ type Emulator struct {
 	adb     *device.ADB
 	starter device.Starter
 	state   string
+	// keys is the configuration's tool keys as read at daemon start, handed to every
+	// resolution (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
+	keys Keys
 
 	// mu guards launches, the in-memory table of launchers we started (plan m1i, D15).
 	// It is deliberately not a pid record: a record would get the emulator killed by the
@@ -73,9 +76,16 @@ func New(env []string, adb *device.ADB, starter device.Starter, stateRoot string
 		launches: map[string]*launch{}}
 }
 
+// SetToolKeys gives the Emulator `tools.emulator` and `tools.adb` as the daemon read
+// them at start (ADR-0032 §3, §6; plan m1k D8): the first launcher candidate and the
+// adb the launcher derived from adb's location uses. The values are snapshots, so an
+// edit of the configuration file does not change them until a new daemon starts.
+func (e *Emulator) SetToolKeys(keys Keys) { e.keys = keys }
+
 // Resolve finds the launcher again, afresh, as ADB.Resolve does for adb: an emulator
-// installed or removed while the daemon runs is seen.
-func (e *Emulator) Resolve() Resolution { return Resolve(e.env) }
+// installed or removed while the daemon runs is seen. The configured `tools.emulator`
+// and `tools.adb` are fixed at start (ADR-0032 §6; plan m1k D8).
+func (e *Emulator) Resolve() Resolution { return ResolveWith(e.env, e.keys) }
 
 // Register adds the subsystem's capabilities to reg.
 func Register(reg *capability.Registry, e *Emulator) {

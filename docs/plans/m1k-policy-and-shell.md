@@ -151,7 +151,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: `tools.adb` in host SDK discovery (D8); live reload of tool keys (ADR-0032 §6).
 - Rests on: —
 - Review: resolution plumbing fully covered by its tests: the main session's review (it may be grouped with step 7, `milestone-workflow` §Grouping).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) `go test ./...` green; the rows in `gradle.TestDiscoverPrefersTheConfiguredJavaHome`, `device.TestResolveConfiguredToolKey*`, `emulator.TestResolve*Configured*`/`DerivesTheLauncherFromTheConfiguredADB`, and `cmd/droidyard/toolkeys_test.go` (an invalid file at start reported by every resolution, keys read once, the configured adb named by health). Seen failing (implementer): `ADB` before `tools.adb`, `tools.adb` falling through, the keys read per call. (b) Level 4, 2026-10-07, `~/Library/Caches/droidyard-dev/m1k/l4-s6`, S1–S2, `JAVA_HOME=/nonexistent`, `ADB=/nonexistent`, the file setting zulu-17, `fake/adb` and `fake/emulator`: `system.health` → `jvm.source` `gradle.sidecarJavaHome` 17.0.11, `adb.source` `tools.adb` with `ADB` rejected "overridden by tools.adb", `config.toolKeys` `ok`; `emulator.list` → `droidyard_fake` (its `.ini` absent, as the fake has none); the 5037 server pid and the `qemu-system` pids unchanged. Main session's review of the diff (adb resolution order and fail-closed paths read line by line).
 
 ### 7. Below the floor, and the documents
 

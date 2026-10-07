@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/sidecar"
 )
@@ -81,6 +82,10 @@ type Options struct {
 	GOOS string
 	// Finder overrides discovery's probes; nil uses the real environment.
 	Finder *Finder
+	// JavaHome is `gradle.sidecarJavaHome` as read at daemon start, discovery's first
+	// candidate (ADR-0032 §3; gradle.md §Sidecar JVM discovery, step 1; plan m1k D8). It
+	// is applied whichever Finder is used, so a test's probes do not hide the key.
+	JavaHome policy.ToolKey
 	// JVM, when set, is the discovery result: it skips discovery entirely.
 	JVM *JVM
 	// Launch, when set, replaces the real sidecar command (tests).
@@ -173,6 +178,7 @@ func (c *Client) JVM() JVM {
 		if c.opts.Finder != nil {
 			f = *c.opts.Finder
 		}
+		f.JavaHome = c.opts.JavaHome
 		c.jvm = Discover(f)
 	})
 	return c.jvm
@@ -493,7 +499,7 @@ func (c *Client) descriptor() (process.Descriptor, error) {
 		return process.Descriptor{}, capability.Errorf(capability.ErrBuildSidecarUnavailable,
 			"the Gradle sidecar needs a JVM 17 or newer and none was found").
 			WithCause(j.NotFound()).
-			WithNextStep("install a JDK 17 or newer, set JAVA_HOME to it, and restart droidyard")
+			WithNextStep("install a JDK 17 or newer, set `gradle.sidecarJavaHome` in the droidyard configuration (or JAVA_HOME) to it, and restart droidyard")
 	}
 	command, args, env, err := c.launch(j)
 	if err != nil {
@@ -749,7 +755,7 @@ func (c *Client) useError(ctx context.Context, err error) error {
 	default:
 		return capability.Errorf(capability.ErrBuildSidecarUnavailable, "the Gradle sidecar could not be started or did not become ready").
 			WithCause(err.Error()).
-			WithNextStep("check that a JDK 17 or newer is installed and JAVA_HOME points at it, then retry")
+			WithNextStep("check that a JDK 17 or newer is installed and `gradle.sidecarJavaHome` in the droidyard configuration (or JAVA_HOME) points at it, then retry")
 	}
 }
 

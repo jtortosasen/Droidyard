@@ -190,7 +190,7 @@ func decisiveLine(out Output) string {
 func adbNotFound(res Resolution, again string) *capability.Error {
 	return capability.NewError(ErrADBNotFound, "adb was not found").
 		WithCause(res.NotFound()).
-		WithNextStep("Set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH, then call " + again + " again.")
+		WithNextStep("Set `tools.adb` in the droidyard configuration to the adb binary, or ADB in the environment, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH, then call " + again + " again.")
 }
 
 // listAll runs `adb devices -l` with the adb at path and parses it: every device adb

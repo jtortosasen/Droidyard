@@ -8,6 +8,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 // TestMain runs the fake sidecar when this binary is re-executed in its mode, so the
@@ -128,6 +129,70 @@ func TestDiscoverRejectsOlderAndBrokenCandidates(t *testing.T) {
 	}
 	if n := got.NotFound(); !strings.Contains(n, "17") || !strings.Contains(n, "JAVA_HOME") {
 		t.Errorf("NotFound() = %q, want the floor and what to set", n)
+	}
+}
+
+// TestDiscoverPrefersTheConfiguredJavaHome pins ADR-0032 §3 and D8: `gradle.sidecarJavaHome`
+// is the first JVM candidate, ahead of JAVA_HOME (gradle.md §Sidecar JVM discovery, step
+// 1); a configured home that is a JVM below the floor is rejected naming the key, and
+// JAVA_HOME wins. Seen failing with JAVA_HOME before the key.
+func TestDiscoverPrefersTheConfiguredJavaHome(t *testing.T) {
+	dir := t.TempDir()
+	configured := jdk(t, dir, "configured", "17.0.11")
+	javaHome := jdk(t, dir, "java-home", "21.0.1")
+	base := gradle.Finder{
+		GOOS:        "linux",
+		Env:         []string{"JAVA_HOME=" + javaHome, "PATH="},
+		StudioHomes: func() []string { return nil },
+		JavaHome:    policy.ToolKey{Path: configured},
+	}
+	if got := gradle.Discover(base); !got.Found || got.Home != configured || got.Version != "17.0.11" || got.Source != gradle.SourceSidecarJavaHome {
+		t.Fatalf("with the key set: %+v, want the configured candidate", got)
+	}
+
+	// A configured home below the floor is rejected naming the key, and JAVA_HOME wins.
+	eleven := jdk(t, dir, "eleven", "11.0.2")
+	below := base
+	below.JavaHome = policy.ToolKey{Path: eleven}
+	got := gradle.Discover(below)
+	if !got.Found || got.Home != javaHome || got.Source != gradle.SourceJavaHome {
+		t.Fatalf("with an 11 configured: %+v, want JAVA_HOME after the rejected key", got)
+	}
+	var rejected string
+	for _, r := range got.Rejected {
+		if r.Candidate == eleven && r.Source == gradle.SourceSidecarJavaHome {
+			rejected = r.Reason
+		}
+	}
+	if !strings.Contains(rejected, "older than 17") {
+		t.Errorf("the key's rejection = %q; want it recorded with its reason", rejected)
+	}
+}
+
+// TestDiscoverInvalidConfigurationNamesTheFile pins D8's invalid-file entry: with an
+// unusable configuration no key is used and the file is listed as rejected with
+// `gradle.sidecarJavaHome` as its source, while a later candidate still wins.
+func TestDiscoverInvalidConfigurationNamesTheFile(t *testing.T) {
+	dir := t.TempDir()
+	javaHome := jdk(t, dir, "java-home", "17.0.11")
+	configPath := filepath.Join(dir, "config.json")
+	got := gradle.Discover(gradle.Finder{
+		GOOS:        "linux",
+		Env:         []string{"JAVA_HOME=" + javaHome, "PATH="},
+		StudioHomes: func() []string { return nil },
+		JavaHome:    policy.ToolKey{ConfigPath: configPath, Invalid: "gradle.sidecarJavaHome: not an absolute path"},
+	})
+	if !got.Found || got.Source != gradle.SourceJavaHome {
+		t.Fatalf("Discover = %+v; want JAVA_HOME despite the bad file", got)
+	}
+	var named bool
+	for _, r := range got.Rejected {
+		if r.Candidate == configPath && r.Source == gradle.SourceSidecarJavaHome && strings.Contains(r.Reason, "the configuration file is invalid") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("rejected = %+v; want the invalid file with source %s", got.Rejected, gradle.SourceSidecarJavaHome)
 	}
 }
 
