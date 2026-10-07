@@ -10,6 +10,23 @@
 - Decided by the main session under the owner's standing instruction to apply the
   recommended option (Delegated, 2026-10-07, so milestone 1k can plan `policy.*` and
   `shell.exec`); the owner can revert it.
+- Amended: 2026-10-07 (Delegated, plan m1k Q1). Enabling `shell.exec`, globally or for one
+  root, gives the agent the user account's full reach, not confined to that root:
+  droidyard's configuration and trust included (`droidyard trust`, `droidyard call
+  policy.update` as a `cli` client, or an edit of `config.json`). No fence is attempted;
+  a same-uid process can always write the file. The human is told before enabling (the
+  `shell.exec` description and `POLICY_SHELL_DISABLED`'s message), and the description
+  tells the agent never to change droidyard's configuration or trust through it.
+  Rejected: a marker variable that `droidyard trust`/`call` refuse (bypassed by editing
+  the file); a sandbox (platform-specific, no MVP item needs it).
+- Amended: 2026-10-07 (Delegated, plan m1k Q2). Version 1 also defers the HTTP port
+  (7317 with its ephemeral fallback stays), the environment source (inherit), idle
+  periods and build retention, to later sections. `tools.adb` precedes the `ADB`
+  variable, the reverse of `adb-device.md`'s order (§3 makes the key the first
+  candidate). `gradle.allowBelowFloor` is one global key read at start, not per
+  workspace (ADR-0018 rule 3 amended). The Alternatives' claim holds only for a patch
+  that does not carry `trust.roots`: Merge Patch replaces arrays whole, so such a patch
+  racing a `droidyard trust` can lose a root.
 
 ## Context
 
