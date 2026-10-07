@@ -134,7 +134,7 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
-	reg, ops, bus, artifacts, adb := registry(env, st, sup, os.Stderr)
+	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, os.Stderr)
 	defer artifacts.Close()
 	socket := env.SocketPath(state)
 	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb.Close, os.Stderr)

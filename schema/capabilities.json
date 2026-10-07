@@ -5297,6 +5297,68 @@
       }
     },
     {
+      "name": "file.watch",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.9.0",
+      "description": "Watches a directory in the project and reports what changes under it, WebSocket-only. The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. Every path stays inside the project root: an absolute path outside it, \"..\", and any symlink (intermediate or final) that would leave it fail FILE_OUTSIDE_ROOT. The walk records a symlink as a symlink but never descends into it. The result carries subscriptionId and the events then arrive on the calling session, on topic file.changes, each naming this subscription and this call's operation: type changes with {path, changes [{path, kind: created | modified | deleted, type}], truncated} (at most 1000 changes per event) and, once and last, type stopped {path, reason}: workspaceClosed when the workspace closes, pathGone when the watched directory is gone (its entries reported deleted first), unreadable when it can no longer be read. The watch polls: the directory is walked at the call, then once a second, and a change is an entry's type, size or modification time differing. Each walk records at most 20000 entries (watched, truncated), and a truncated tick reports no deletions; a subdirectory that cannot be read keeps its last known entries; excluded are .git/, .gradle/, .idea/, .kotlin/, .cxx/, a build/ directory beside a build.gradle or build.gradle.kts, and file.write's temporary files. A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing directory is FILE_NOT_FOUND; a file where a directory is needed is FILE_WRONG_TYPE.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_NOT_FOUND",
+        "FILE_OUTSIDE_ROOT",
+        "FILE_WRONG_TYPE",
+        "FILE_IO_FAILED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The directory to watch, relative to the project root; \".\" or absent is the root. An absolute path inside the root is accepted."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the changes arrive on, over the WebSocket session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."
+          },
+          "watched": {
+            "type": "integer",
+            "description": "How many entries the baseline walk recorded; at most 20000."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the baseline walk stopped at 20000 entries; watch a subdirectory."
+          },
+          "excluded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Directories and names the watch never reports."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "watched",
+          "excluded"
+        ]
+      }
+    },
+    {
       "name": "file.write",
       "kind": "command",
       "scope": "workspace",

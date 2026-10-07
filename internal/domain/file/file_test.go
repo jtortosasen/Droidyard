@@ -18,6 +18,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
@@ -26,14 +27,21 @@ import (
 // exactly as workspace.open canonicalises one, so the macOS /var → /private/var alias
 // is exercised for real (plan m1j step 1).
 type fixture struct {
-	t    *testing.T
-	base string // the raw temp dir, the /var/… spelling
-	root string // the canonical root, the /private/var/… spelling
-	env  platform.Env
-	reg  *capability.Registry
+	t        *testing.T
+	base     string // the raw temp dir, the /var/… spelling
+	root     string // the canonical root, the /private/var/… spelling
+	env      platform.Env
+	reg      *capability.Registry
+	bus      *event.Bus // the bus a watch publishes on (nil for the read/write fixture)
+	watchers *Watchers  // the live pollers (nil for the read/write fixture)
+	sess     *event.Session
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T) *fixture { return newFixtureWith(t, nil) }
+
+// newFixtureWith is newFixture with the Options tune may change before the descriptors
+// register: the watch tests give it a bus and a poller set (plan m1j step 4).
+func newFixtureWith(t *testing.T, tune func(*Options)) *fixture {
 	t.Helper()
 	base := t.TempDir()
 	rootDir := filepath.Join(base, "root")
@@ -61,10 +69,14 @@ func newFixture(t *testing.T) *fixture {
 	f.symlink("src", "in")
 
 	f.reg = capability.NewRegistry()
-	Register(f.reg, Options{
+	opts := Options{
 		Root: func(string) (string, bool) { return root, true },
 		Env:  env,
-	})
+	}
+	if tune != nil {
+		tune(&opts)
+	}
+	Register(f.reg, opts)
 	return f
 }
 

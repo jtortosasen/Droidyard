@@ -176,6 +176,10 @@ var (
 	// embedded jars on the discovered JVM: the fake sidecar of a test. Nil runs the
 	// real one.
 	gradleLaunch gradle.Launch
+	// watchTick, when > 0, is the file.watch poller's interval for the daemons this
+	// process starts: the in-process WebSocket test shortens it to 50 ms so a change is
+	// seen at once (plan m1j step 4). Set under adbSeamMu, like adbEnviron.
+	watchTick time.Duration
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -188,7 +192,7 @@ var (
 // env is the daemon's environment: it decides where the state root and, with it, the
 // user configuration live, so an in-process test daemon reads its own configuration
 // and not this machine's (plan m1g step 3).
-func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB) {
+func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *file.Watchers) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (core-runtime.md §Events).
@@ -277,8 +281,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		defer cancel()
 		gradleClient.Close(ctx, root)
 	}
+	// The daemon's live file.watch pollers: a workspace close ends that workspace's
+	// watches, each publishing its stopped event (plan m1j, D9).
+	watchers := file.NewWatchers()
 	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: policy.New(env), Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, CloseRoot: closeRoot, Publisher: bus,
+		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus,
 		OnOpen: func(id, _ string) { history.Sweep(id) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
@@ -307,18 +314,21 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			}
 			return info.Root, true
 		},
-		Env: env,
+		Env:      env,
+		Bus:      bus,
+		Watchers: watchers,
+		Tick:     watchTick,
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg)
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
-	return reg, ops, bus, artifacts, adb
+	return reg, ops, bus, artifacts, adb, watchers
 }
 
 func printCaps() error {
-	reg, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -355,7 +365,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

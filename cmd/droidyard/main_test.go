@@ -33,7 +33,7 @@ func TestShippedRegistryIsThePublishedOne(t *testing.T) {
 		published[c.Name] = true
 	}
 	shipped := map[string]bool{}
-	reg, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	for _, d := range reg.All() {
 		shipped[d.Name] = true
 		if !published[d.Name] {

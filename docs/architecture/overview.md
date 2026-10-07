@@ -109,8 +109,8 @@ Workspace
 ├── project         modules, variants, toolchain profile
 ├── code            LSP session, diagnostics (post-MVP)
 ├── builds          running operations, build registry, last result, console artifacts
-├── processes       workspace-owned sidecars (the Kotlin LSP, later)
-└── watchers        filesystem events
+└── processes       workspace-owned sidecars (the Kotlin LSP, later)
+                    (file watchers belong to the session's subscription, not here: files.md)
 ```
 
 Not in a workspace: devices and emulators (global, with no "active device"), the shared

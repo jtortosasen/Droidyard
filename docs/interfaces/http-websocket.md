@@ -128,7 +128,10 @@ One connection is one **session** (ADR-0019). Frames are JSON text messages:
 
 Subscriptions (`events.subscribe`, `file.watch`) belong to the session and end with
 it. After a reconnect, the UI resumes with `since`
-([capability-api](../architecture/capability-api.md) §Subscriptions). The per-session
+([capability-api](../architecture/capability-api.md) §Subscriptions) — except a
+`file.watch`, whose `file.changes` topic takes no `since` and never enters the replay
+ring, so after a reconnect the client watches again and re-lists (milestone 1j, D8).
+The per-session
 send buffer is bounded: a queue of 1024 events per subscription (working default),
 so a busy subscription never costs a quiet one its events. When it overflows, the
 dropped events are replaced by an

@@ -385,6 +385,78 @@ func TestDeliveryIsSynchronous(t *testing.T) {
 	}
 }
 
+// TestPublishToKeepsAStreamOutOfTheRing: PublishTo assigns a seq but appends nothing to
+// the replay ring and offers the event to its one subscription alone (plan m1j, D8).
+// The ring holds 16 events; two operation.progress events are followed by twenty
+// file.changes events delivered through PublishTo, more than a ring of sixteen could
+// hold. A subscriber that resumes from before the two progress events replays both and
+// gets no gap — because the twenty never entered the ring. Were PublishTo to append to
+// the ring (the mutation), the two progress events would be evicted and the resume would
+// start with an events.gap.
+func TestPublishToKeepsAStreamOutOfTheRing(t *testing.T) {
+	b := New(Options{RingEvents: 16})
+	before := b.Position()
+
+	// The stream's one subscription: file.changes is offered to it alone.
+	stream := b.Subscribe([]string{"file.changes"}, nil)
+	// A second subscription to the same topic only hears what Publish delivers to the
+	// topic, never what PublishTo offers to another subscription.
+	bystander := b.Subscribe([]string{"file.changes"}, nil)
+
+	b.Publish("operation.progress", "progress", "", "op-1", nil)
+	b.Publish("operation.progress", "progress", "", "op-1", nil)
+	for i := 0; i < 20; i++ {
+		b.PublishTo(stream, "file.changes", "changes", "ws-1", "op-watch", map[string]int{"i": i})
+	}
+
+	if got := len(drain(stream)); got != 20 {
+		t.Fatalf("the stream received %d file.changes events; want 20", got)
+	}
+	if got := drain(bystander); len(got) != 0 {
+		t.Fatalf("a second subscription to file.changes received %d events; PublishTo offers to one subscription alone", len(got))
+	}
+	if p := b.Position(); p.Seq != 22 {
+		t.Errorf("position seq %d; want 22 (each PublishTo takes a seq)", p.Seq)
+	}
+
+	resumed := b.Subscribe([]string{"operation.progress"}, &Position{Epoch: before.Epoch, Seq: before.Seq})
+	got := drain(resumed)
+	if len(got) != 2 {
+		t.Fatalf("the resume replayed %d events; want the two operation.progress events and no gap", len(got))
+	}
+	for i, e := range got {
+		if e.Topic != "operation.progress" || e.Seq != int64(i+1) {
+			t.Fatalf("resumed event %d is %s seq %d; want operation.progress seq %d", i, e.Topic, e.Seq, i+1)
+		}
+	}
+}
+
+// TestResumeGapCountsOnlyEvictedEvents: seqs PublishTo assigned never entered the ring,
+// so a resume from just before them reports no gap for them; only what the ring dropped
+// is a loss (m1j §Changes, step 4 N5).
+func TestResumeGapCountsOnlyEvictedEvents(t *testing.T) {
+	b := New(Options{RingEvents: 3})
+	stream := b.Subscribe([]string{"file.changes"}, nil)
+	b.Publish("t", "x", "", "", nil) // seq 1, seen by the client
+	seen := b.Position()
+	for i := 0; i < 4; i++ { // seqs 2-5, never in the ring
+		b.PublishTo(stream, "file.changes", "changes", "ws", "op", nil)
+	}
+	for i := 0; i < 3; i++ { // seqs 6-8; the ring of 3 drops seq 1
+		b.Publish("t", "x", "", "", nil)
+	}
+	got := drain(b.Subscribe([]string{"t"}, &seen))
+	if len(got) != 3 || got[0].Seq != 6 {
+		t.Fatalf("resume from seq 1 gave %d events starting %s seq %d; want seqs 6-8 and no gap", len(got), got[0].Topic, got[0].Seq)
+	}
+
+	// From before the dropped seq 1, the gap is reported and ends at it.
+	got = drain(b.Subscribe([]string{"t"}, &Position{Epoch: seen.Epoch, Seq: 0}))
+	if len(got) != 4 || got[0].Type != "gap" {
+		t.Fatalf("resume from seq 0 gave %+v; want a gap then seqs 6-8", got)
+	}
+}
+
 // TestNextWaitsAndEndsOnClose: the blocking read returns what is published, and
 // ErrClosed once the subscription is closed.
 func TestNextWaitsAndEndsOnClose(t *testing.T) {

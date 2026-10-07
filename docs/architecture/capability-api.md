@@ -295,7 +295,7 @@ marked is `stateless`.
 | `sdk.requirements` | W | Q | | ✓ | |
 | `file.list`, `file.read` | W | Q | | | |
 | `file.write` | W | C | | | |
-| `file.watch` | W | Q (to revisit, see below) | **streaming** | | |
+| `file.watch` | W | C | **streaming** | | |
 | `git.status`, `git.diff`, `git.log`, `git.branches` | W | Q | | | |
 | `shell.exec` | W | C | | ✓ | ✓ |
 | `artifact.read` | G | Q | | | ✓ |
@@ -350,6 +350,7 @@ subscription receives when it lost events.
 | `workspace.lifecycle` | the new state; `{state, degradedBy?}` | 1d |
 | `operation.progress` | `{done, total?, message?, phase?}` | 1d |
 | `events.gap` | the loss marker `{fromSeq, toSeq}`, `seq` equal to `toSeq` | 1d |
+| `file.changes` | `changes {path, changes [{path, kind, type}], truncated}` and `stopped {path, reason}` | 1j (delivered to the subscription `file.watch` creates and to no other; not subscribable, and not in the ring — see below) |
 | `build.progress`, `build.output` | Gradle progress and console lines | with their first consumer, the Phase 2 UI (milestone 1g put build progress on `operation.progress`) |
 | `device.logcat` | the log stream | with its first consumer, the Phase 2 Logcat panel (milestone 1i shipped `device.logs` without the topic, D18) |
 | `device.screen`, `device.state` | device streams and state | with their producers, later device milestones |
@@ -357,7 +358,8 @@ subscription receives when it lost events.
 | `operation.state` | operation transitions for the UI | Phase 2 |
 
 A subscription to any other topic is rejected with `REQUEST_INVALID_PARAMS`, and
-adding a topic is a minor-version change.
+adding a topic is a minor-version change. `file.changes` is a topic a caller never
+subscribes to: `file.watch` opens its subscription itself.
 
 ### Subscriptions
 
@@ -365,13 +367,18 @@ adding a topic is a minor-version change.
 returns a `subscriptionId`. Events are delivered in `seq` order per subscription.
 `events.subscribe` is a command: each call creates a subscription, so it is neither
 read-only nor idempotent (milestone 1d; a query that writes is a `Kind` bug,
-[mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Annotations). `file.watch` creates a subscription the same way and is still listed as a query;
-the milestone that ships it settles its kind.
+[mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Annotations). `file.watch` creates a subscription the same way, so it is a command too
+(milestone 1j settled the `Q (to revisit)` above).
 
 - **Resume** with `since`: the core replays matching events from a bounded in-memory
   ring buffer (count and byte caps), then continues live. If `since` is older than the
   buffer, or from another epoch, delivery starts with an `events.gap` marker. Events
-  are never persisted.
+  are never persisted. `file.changes` is the exception: it takes a `seq` but never
+  enters the ring, because a busy watch would otherwise flush the 4096 events and 4 MiB
+  that other subscribers resume from. It is offered to the subscription `file.watch`
+  created and to no other, and it does not accept `since`: a watch that was not running
+  produced nothing to replay, so after a reconnect the client watches again and
+  re-lists.
 - **Bounds** (working defaults, milestone 1d, D5): the ring holds 4096 events or
   4 MiB, whichever is reached first; each subscription has its own queue of 1024
   events, and overflowing it costs that subscription a gap, not the session. On the

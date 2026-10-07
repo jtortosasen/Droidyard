@@ -1,6 +1,6 @@
 // Package file registers the capabilities that read and write files in a workspace's
-// project root: file.list, file.read and file.write (this milestone), file.watch
-// (the next one). Every caller-provided path is resolved to a name relative to the
+// project root: file.list, file.read, file.write and file.watch (plan m1j). Every
+// caller-provided path is resolved to a name relative to the
 // root and every filesystem call goes through os.Root opened on that root, so no path
 // escapes it however it is spelled — an absolute path, "..", or a symlink (D2). The
 // package runs no trust check: file.* works on trusted and untrusted roots alike
@@ -11,12 +11,15 @@ import (
 	"context"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
 // version is the API version that introduces file.list, file.read and file.write (R1).
+// file.watch, in the same milestone, keeps it.
 const version = "0.9.0"
 
 // Options configure the file capabilities.
@@ -29,6 +32,16 @@ type Options struct {
 	// "/private/var/…" spellings of the root agree (D2). Its Canonical is
 	// platform.Env.Canonical.
 	Env platform.Env
+	// Bus is the daemon's event bus: file.watch publishes each tick's differences on it,
+	// to its own subscription alone (D8). Nil (the golden registry's descriptors) makes a
+	// watch answer SESSION_REQUIRED.
+	Bus *event.Bus
+	// Watchers is the daemon's live-poller set, so a workspace close can stop that
+	// workspace's watches (D9). Nil makes a watch answer SESSION_REQUIRED, as Bus does.
+	Watchers *Watchers
+	// Tick is the poller's interval between walks; <= 0 is watchInterval's one second. A
+	// test shortens it (plan m1j step 4).
+	Tick time.Duration
 }
 
 // Register adds file.list, file.read and file.write to the registry.
@@ -134,12 +147,52 @@ func Register(reg *capability.Registry, opts Options) {
 			return r.write(call.Params.(WriteParams))
 		},
 	})
+
+	// A watch creates a subscription, so it is a command, not a query (mcp-tool-surface.md
+	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
+	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
+	// subscription) and, being a command, is destructive by default: the override and its
+	// reason say it changes no file (D7).
+	notDestructiveWatch := false
+	reg.MustRegister(capability.Descriptor{
+		Name:         "file.watch",
+		Kind:         capability.Command,
+		Scope:        capability.Workspace,
+		Statefulness: capability.Streaming,
+		Since:        version,
+		Description: "Watches a directory in the project and reports what changes under it, WebSocket-only. " + watchPathNote + " " +
+			"The result carries subscriptionId and the events then arrive on the calling session, on topic file.changes, each naming this subscription and this call's operation: type changes with {path, changes [{path, kind: created | modified | deleted, type}], truncated} (at most 1000 changes per event) and, once and last, type stopped {path, reason}: workspaceClosed when the workspace closes, pathGone when the watched directory is gone (its entries reported deleted first), unreadable when it can no longer be read. " +
+			"The watch polls: the directory is walked at the call, then once a second, and a change is an entry's type, size or modification time differing. " +
+			"Each walk records at most 20000 entries (watched, truncated), and a truncated tick reports no deletions; a subdirectory that cannot be read keeps its last known entries; excluded are .git/, .gradle/, .idea/, .kotlin/, .cxx/, a build/ directory beside a build.gradle or build.gradle.kts, and file.write's temporary files. " +
+			"A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing directory is FILE_NOT_FOUND; a file where a directory is needed is FILE_WRONG_TYPE.",
+		Params: WatchParams{},
+		Result: WatchResult{},
+		// The codes the handler returns (D3, D7). WORKSPACE_NOT_OPEN and SESSION_REQUIRED
+		// come from Start.
+		Errors: []capability.ErrorCode{
+			capability.ErrFileNotFound, capability.ErrFileOutsideRoot,
+			capability.ErrFileWrongType, capability.ErrFileIOFailed,
+			capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructiveWatch,
+			Reason:      "adds a subscription to the calling session; changes no file",
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			return opts.watch(ctx, call)
+		},
+	})
 }
 
 // pathNote is the sentence both descriptions share: how the path is named and where
 // containment is decided (D2, D10).
 const pathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. " +
 	"Every path stays inside the project root: an absolute path outside it, \"..\", a symlink (intermediate or final) that would leave it, and any symlink with an absolute target, even one pointing inside the root, fail FILE_OUTSIDE_ROOT."
+
+// watchPathNote is file.watch's path rule: as pathNote, but the path must name a
+// directory and the walk reports a symlink without descending it (D7).
+const watchPathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. " +
+	"Every path stays inside the project root: an absolute path outside it, \"..\", and any symlink (intermediate or final) that would leave it fail FILE_OUTSIDE_ROOT. The walk records a symlink as a symlink but never descends into it."
 
 // writePathNote is file.write's path rule: as pathNote for the directories on the way,
 // but a symlink as the final component is never followed, wherever it points, so it is
