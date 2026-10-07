@@ -26,6 +26,10 @@ const (
 	// DeviceStream is a recorded process that streams a device's log for the life of one
 	// call (plan m1i D9): recorded like a sidecar, reaped by Reconcile, never supervised.
 	DeviceStream Kind = "device-stream"
+	// ShellCommand is a recorded process running one shell.exec command (plan m1k D5):
+	// recorded like a sidecar and reaped by Reconcile, but its own group is killed when
+	// the call ends, so nothing it left behind outlives it.
+	ShellCommand Kind = "shell-command"
 )
 
 // Record is what the daemon writes when it spawns a supervised process and removes

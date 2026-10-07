@@ -27,6 +27,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
+	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -327,10 +328,44 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg)
+	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
+	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
+	// hook the project-code capabilities share; its command is spawned through the
+	// supervisor's recorded starter and its group killed at every end. Its children
+	// inherit the daemon's own environment: not adbEnviron, which a test replaces with
+	// an empty PATH for adb's sake (the shell then failed to find sleep, a flake that
+	// showed under one parent shell only; m1k §Changes, step 2).
+	shell.Register(reg, shell.Options{
+		RootOf: func(call *capability.Call) (string, bool) {
+			info, err := ws.Describe(call.Workspace)
+			if err != nil {
+				return "", false
+			}
+			return info.Root, true
+		},
+		ShellAllowed: pol.ShellAllowed,
+		Authorize:    authorize,
+		Recorded:     shellStarter(sup),
+		Env:          os.Environ(),
+		Artifacts:    artifacts,
+	})
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
 	return reg, ops, bus, artifacts, adb, watchers
+}
+
+// shellStarter adapts the supervisor's recorded spawner to shell.exec's starter: the
+// command is recorded while it runs and its whole group is killed if the record cannot
+// be written (plan m1k D5). Without a supervisor (caps, schema) it is nil, and a call
+// that somehow reached the handler would fail SHELL_EXEC_FAILED.
+func shellStarter(sup *proc.Supervisor) shell.Starter {
+	if sup == nil {
+		return nil
+	}
+	return func(cmd *exec.Cmd, kind string) (shell.Recorded, error) {
+		return sup.SpawnRecorded(cmd, proc.Kind(kind))
+	}
 }
 
 func printCaps() error {

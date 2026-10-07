@@ -1,0 +1,13 @@
+package process
+
+// deathSignal reports whether a kind's child is asked for SIGTERM when the thread that
+// forked it exits: Pdeathsig on Linux, a no-op elsewhere. It is true for every kind
+// except ShellCommand.
+//
+// A shell.exec command keeps the leader alive when the daemon dies, so its recorded pid
+// stays valid and the next daemon's Reconcile reaps its whole group (plan m1k D5).
+// Pdeathsig would kill only the leader; Reconcile keys on a live leader, so it would
+// drop the record and leave the rest of the group running. Sidecars and device streams
+// keep it: their leader dying with the daemon is what layer 2 of
+// process-lifecycle.md §Shutdown wants.
+func deathSignal(kind Kind) bool { return kind != ShellCommand }

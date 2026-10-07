@@ -40,6 +40,11 @@ const (
 	ErrFileIOFailed    ErrorCode = "FILE_IO_FAILED"
 
 	ErrPolicyShellDisabled ErrorCode = "POLICY_SHELL_DISABLED"
+	// ErrShellExecFailed: shell.exec's command could not be started, its project root is
+	// gone, or its pid record could not be written (the command had started and may have
+	// had effects; its group is killed). A non-zero exit or a timeout is not this: they
+	// are completed results (plan m1k D6).
+	ErrShellExecFailed ErrorCode = "SHELL_EXEC_FAILED"
 
 	// The Gradle sidecar codes (gradle.md §Failure modes; plan m1g D9). They arrive with
 	// the sidecar client (step 5).

@@ -216,7 +216,8 @@ func (s *Supervisor) Load() error {
 
 // spawner starts every child from one goroutine locked to its OS thread for the
 // supervisor's life: on Linux, Pdeathsig fires when the thread that forked a child
-// exits, not the process (process-lifecycle.md §Shutdown, layer 2).
+// exits, not the process (process-lifecycle.md §Shutdown, layer 2). Every kind but
+// shell-command asks for that SIGTERM; shell.exec's does not (deathSignal).
 func (s *Supervisor) spawner() {
 	runtime.LockOSThread()
 	for {
@@ -233,10 +234,10 @@ func (s *Supervisor) spawner() {
 // (and, on Linux, with Pdeathsig), for a child that is neither supervised nor
 // recorded: a short per-operation command whose caller waits for it itself
 // (ADR-0021 §Pid records: such commands are not recorded; process-lifecycle.md
-// §Shutdown, layer 2). It overwrites cmd.SysProcAttr. The caller owns the child: it
-// must call cmd.Wait.
+// §Shutdown, layer 2). It has no kind of its own and keeps the death signal. It
+// overwrites cmd.SysProcAttr. The caller owns the child: it must call cmd.Wait.
 func (s *Supervisor) Spawn(cmd *exec.Cmd) error {
-	cmd.SysProcAttr = sysProcAttr()
+	cmd.SysProcAttr = sysProcAttr("")
 	done := make(chan error, 1)
 	select {
 	case s.spawn <- spawnRequest{cmd: cmd, done: done}:
@@ -259,9 +260,17 @@ type Recorded struct {
 // Pid is the recorded process's pid.
 func (r *Recorded) Pid() int { return r.pid }
 
+// SignalGroup sends sig to the recorded process's entire group (never its pid alone):
+// the caller that kills a shell.exec command's group uses it, so a background child the
+// command left behind is killed too (plan m1k D5). A group with no member left is
+// ESRCH, which the caller treats as "already gone".
+func (r *Recorded) SignalGroup(sig syscall.Signal) error {
+	return unix.Kill(-r.pid, sig)
+}
+
 // Wait reaps the process and removes its record. Call it once, however the process
-// ended — by itself, or killed by its pid; a record left behind outlives the process
-// and is reaped by the next daemon's Reconcile.
+// ended — by itself, by its pid, or by its group (SignalGroup); a record left behind
+// outlives the process and is reaped by the next daemon's Reconcile.
 func (r *Recorded) Wait() error {
 	var err error
 	r.once.Do(func() {
@@ -272,13 +281,19 @@ func (r *Recorded) Wait() error {
 }
 
 // SpawnRecorded starts cmd through the locked spawner thread, in a process group of its
-// own (and, on Linux, with Pdeathsig), and writes its pid record while it runs: a
-// long-lived child that is neither supervised nor stopped when idle, but must be
-// findable after the daemon dies, so the next daemon's Reconcile reaps it (ADR-0021
-// §Pid records: the durable exception; plan m1i D9). It overwrites cmd.SysProcAttr. The
-// caller owns the returned handle and must call Wait. When the record cannot be written
-// the child is killed by its pid — never its group, which a forked adb server shares
-// (m1e R8) — and no handle is returned.
+// own, and writes its pid record while it runs: a long-lived child that is neither
+// supervised nor stopped when idle, but must be findable after the daemon dies, so the
+// next daemon's Reconcile reaps it (ADR-0021 §Pid records: the durable exception;
+// plan m1i D9). A shell.exec command (kind ShellCommand) is spawned without the death
+// signal, so its leader survives the daemon and Reconcile can reach its group
+// (plan m1k D5); every other kind is spawned with it, as before. It overwrites
+// cmd.SysProcAttr. The caller owns the returned handle and must call Wait.
+//
+// When the record cannot be written the child is killed and no handle is returned. A
+// shell-command's whole group is killed — nothing outside it was forked into it, and a
+// background child the command left would otherwise outlive the daemon unrecorded. Every
+// other kind is killed by its pid, never its group, which a forked adb server shares
+// (m1e R8).
 func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) {
 	s.mu.Lock()
 	closed, refuse := s.closed, s.refuse
@@ -289,7 +304,7 @@ func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) 
 	case refuse != "":
 		return nil, fmt.Errorf("%w: %s", ErrUnrecordable, refuse)
 	}
-	cmd.SysProcAttr = sysProcAttr()
+	cmd.SysProcAttr = sysProcAttr(kind)
 	done := make(chan error, 1)
 	select {
 	case s.spawn <- spawnRequest{cmd: cmd, done: done}:
@@ -303,13 +318,25 @@ func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) 
 	started, _ := platform.StartTime(pid)
 	rec := Record{ID: string(kind), Kind: kind, PID: pid, PGID: pid,
 		StartTime: started, Command: append([]string(nil), cmd.Args...)}
+	if beforeRecord != nil {
+		beforeRecord(cmd)
+	}
 	if err := s.addRecord(rec); err != nil {
-		cmd.Process.Kill()
+		if kind == ShellCommand {
+			unix.Kill(-pid, unix.SIGKILL)
+		} else {
+			cmd.Process.Kill()
+		}
 		cmd.Wait()
 		return nil, fmt.Errorf("%w: %v", ErrUnrecordable, err)
 	}
 	return &Recorded{s: s, cmd: cmd, pid: pid}, nil
 }
+
+// beforeRecord, when non-nil, runs between a recorded spawn and its record write. A test
+// holds it until the command has forked a child, so a failed write's group kill is
+// observable. Nil in production.
+var beforeRecord func(*exec.Cmd)
 
 func key(id string, scope Scope) string { return id + "\x00" + string(scope) }
 
@@ -489,7 +516,7 @@ func (s *Supervisor) start(p *proc) error {
 	if errW != nil {
 		cmd.Stderr = errW
 	}
-	cmd.SysProcAttr = sysProcAttr()
+	cmd.SysProcAttr = sysProcAttr(p.d.Kind)
 	done := make(chan error, 1)
 	select {
 	case s.spawn <- spawnRequest{cmd: cmd, done: done}:
