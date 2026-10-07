@@ -23,4 +23,4 @@ the output.
 | [m1i-device-logs-and-emulator.md](m1i-device-logs-and-emulator.md) | 1i — `device.logs` and `emulator.*` | Done |
 | [m1j-files.md](m1j-files.md) | 1j — `file.*` | Done |
 | [m1k-policy-and-shell.md](m1k-policy-and-shell.md) | 1k — `policy.*`, `shell.exec` and the configuration file | Done |
-| [m1l-phase1-acceptance.md](m1l-phase1-acceptance.md) | 1l — the Phase 1 acceptance run | Approved |
+| [m1l-phase1-acceptance.md](m1l-phase1-acceptance.md) | 1l — the Phase 1 acceptance run | Done |

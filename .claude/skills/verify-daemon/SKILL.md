@@ -378,12 +378,14 @@ go build -tags droidyard_nodump -o $E/dy ./cmd/droidyard; "$DY" trust $G; (cd / 
 #   CURSOR_DATA_DIR=$B/cursor-data; cursor-agent mcp enable droidyard; mcp disable github; mcp disable Figma
 #   cursor-agent -p --trust --output-format stream-json --model cursor-grok-4.6-high --workspace $G "<prompt>"   # never -f/--yolo/--approve-mcps, never status/login
 jq -c 'select(.method=="tools/call")|{id,n:.params.name}' "$E/wire.c2s.jsonl"
-jq -c 'select(.result.structuredContent?)|.result.structuredContent.result.errors?[0]?' "$E/wire.s2c.jsonl"     # G3: kotlin, console, MainActivity.kt:35:9
+ID=$(jq -r 'select(.method=="tools/call" and .params.name=="build_errors")|.id' "$E/wire.c2s.jsonl" | tail -1)
+jq -c --argjson id "$ID" 'select(.id==$id)|.result.structuredContent.errors[0]' "$E/wire.s2c.jsonl"   # G3: kotlin, console, MainActivity.kt:35:9
 "$DY" call emulator.wipe --params '{"avd":"droidyard_m1l"}'; sleep 3; "$DY" call emulator.stop --params '{"device":"<serial>"}'; "$DY" stop
-diff -r -x build -x .gradle -x .kotlin -x .cursor -x opencode.jsonc -x local.properties $G $B/g-fresh/samples/golden   # empty
+diff -r -x build -x .gradle -x .kotlin -x .idea -x .cursor -x opencode.jsonc -x local.properties $G $B/g-fresh/samples/golden   # empty
+ps -A -o pid,ppid,command | grep -F "$E/rec.sh" | grep -v grep   # empty: the owner's `opencode serve --service` loads a copy's opencode.jsonc when an opencode CLI command runs in it, and spawns the recorder; kill only those rec.sh/tee pids
 ```
 
-- The prompt is the plan's §The golden-path run, `<file>` = `app/src/main/kotlin/dev/droidyard/golden/MainActivity.kt`. Expect `tools=34`; G1–G8 as the plan's table; G7's four results `expect.matched: true`; G8 `crashes[0]` `java.lang.IllegalStateException` "golden app crash"; no `artifact_read` before `build_errors`; no `shell_exec`; no build task matching `install*`, `uninstall*`, `connected*`, `device*`; `refused.log` empty; the 5037 pid, owner AVDs and the SDK stamp unchanged. A `stop` right after a `wipe` can time out (m1l step 4): leave a few seconds between them.
+- The prompt is the plan's §The golden-path run, `<file>` = `app/src/main/kotlin/dev/droidyard/golden/MainActivity.kt`. Expect `tools=34`; G1–G8 as the plan's table; G7's four results `expect.matched: true`; G8 `crashes[0]` `java.lang.IllegalStateException` "golden app crash"; no `artifact_read` before `build_errors`; no `shell_exec`; no build task matching `install*`, `uninstall*`, `connected*`, `device*`; `refused.log` empty; the 5037 pid, owner AVDs and the SDK stamp unchanged. A `stop` right after a `wipe` timed out once (m1l step 4; the emulator's own shutdown grace is 20 s, the same as droidyard's stop bound): a hypothesis, not a rule, but leaving a few seconds between them worked. Host-side `adb` checks run with `ANDROID_ADB_SERVER_PORT` unset, or they start a server on the run's port.
 
 ## Evidence
 

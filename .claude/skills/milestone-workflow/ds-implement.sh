@@ -45,18 +45,31 @@ for attempt in 1 2; do
 		kill "$pid"; sleep 1; kill -9 "$pid" 2>/dev/null
 		continue
 	fi
-	tail -n +1 -f "$out/events.jsonl" 2>/dev/null | python3 -u -c '
-import json, sys
-for l in sys.stdin:
-    try: e = json.loads(l)
-    except ValueError: continue
-    if e.get("type") != "assistant": continue
-    for c in (e.get("message") or {}).get("content", []):
-        if c.get("type") == "tool_use":
-            i = c.get("input") or {}
-            what = i.get("command") or i.get("file_path") or i.get("path") or i.get("pattern") or ""
-            print(c.get("name"), str(what).replace("\n", " ")[:160], flush=True)
-' >"$out/progress.log" &
+	# The follower reads events.jsonl itself and ends when the run ends: a `tail -f` piped
+	# into it outlived every run (killing the pipeline's last process left tail waiting).
+	python3 -u - "$out/events.jsonl" "$pid" >"$out/progress.log" <<'FOLLOW' &
+import json, os, sys, time
+path, pid = sys.argv[1], int(sys.argv[2])
+def alive():
+    try: os.kill(pid, 0); return True
+    except OSError: return False
+with open(path) as f:
+    while True:
+        l = f.readline()
+        if not l:
+            if not alive():
+                break
+            time.sleep(0.5)
+            continue
+        try: e = json.loads(l)
+        except ValueError: continue
+        if e.get("type") != "assistant": continue
+        for c in (e.get("message") or {}).get("content", []):
+            if c.get("type") == "tool_use":
+                i = c.get("input") or {}
+                what = i.get("command") or i.get("file_path") or i.get("path") or i.get("pattern") or ""
+                print(c.get("name"), str(what).replace("\n", " ")[:160], flush=True)
+FOLLOW
 	follower=$!
 	wait "$pid"
 	kill "$follower" 2>/dev/null
