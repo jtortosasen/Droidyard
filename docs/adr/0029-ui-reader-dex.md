@@ -11,6 +11,7 @@
   costs ~1.3 s end to end (push, `app_process` JVM start, the idle wait, removal), not
   the spike's ~150 ms, which was connect-to-read only; still faster than the dump (2–8 s
   observed). The dex is pushed and removed on every read.
+- Amended: 2026-10-07 (Delegated, plan m1n) — [ADR-0035](0035-reader-acts-fenced-by-peer-uid.md): the reader dex also acts (tap, keys, set-text); the one-shot run stays read-only.
 
 ## Context
 
