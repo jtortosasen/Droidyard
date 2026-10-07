@@ -56,6 +56,7 @@ buried in prose.
 | [0029](0029-ui-reader-dex.md) | UI reads through a one-shot dex reader that keeps accessibility services running | Accepted |
 | [0030](0030-persistent-ui-reader.md) | The UI reader stays running on the device | Accepted |
 | [0031](0031-configuration-file-trust-first.md) | The configuration file starts with trusted roots only | Accepted |
+| [0032](0032-configuration-file-v1.md) | The configuration file, version 1: policy and tool keys | Accepted |
 
 ## Open decisions (not yet ADRs)
 

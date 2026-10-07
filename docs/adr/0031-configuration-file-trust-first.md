@@ -7,6 +7,8 @@
   `docs/plans/m1g-gradle-sidecar-and-build.md` D1–D3
 - Decided by the main session under the owner's standing instruction to apply the
   recommended option (Delegated, milestone 1g plan D1 and D2); the owner can revert it.
+- Amended: 2026-10-07 — extended by [ADR-0032](0032-configuration-file-v1.md): the rest of
+  version 1 (devices, shell, gradle and tool keys) and `policy.get`/`update`.
 
 ## Context
 
