@@ -73,6 +73,12 @@ type Probe struct {
 	Notes  []string `json:"notes"`
 }
 
+// Read reports whether the probe produced the model's Android facts: ok, or partial with
+// some field isolated (plan m1h D6). failed, skipped and an absent probe status do not.
+// It is the one place that decision lives, so project.variants, build.assemble's
+// validation and sdk.requirements cannot drift (D8, D9, D12).
+func (p Probe) Read() bool { return p.Status == "ok" || p.Status == "partial" }
+
 // Model is the cached project model: one configuration pass's worth of modules and
 // tasks, plus the probe's plugin facts and status when it ran (gradle.md §Project model;
 // D25: the generic TAPI model plus the probe's Android facts).
@@ -111,7 +117,7 @@ var variantSuffixes = []string{"AndroidTest", "UnitTest", "TestFixtures"}
 // names is never nil: a module with no variants reports an empty list. details is
 // non-nil only for source probe, and mirrors the probe's dimension order.
 func Variants(m Module, probe Probe) (names []string, details []Variant, source string) {
-	if probeRead(probe) {
+	if probe.Read() {
 		if m.Android == nil {
 			// A non-Android project: the probe read it and it has no variants (D8).
 			return []string{}, nil, "probe"
@@ -130,11 +136,6 @@ func Variants(m Module, probe Probe) (names []string, details []Variant, source 
 	}
 	return fallback, nil, "task-names"
 }
-
-// probeRead reports whether the probe produced the model's Android facts: ok, or
-// partial with some field isolated (plan m1h D6). failed, skipped and an absent probe
-// status do not.
-func probeRead(p Probe) bool { return p.Status == "ok" || p.Status == "partial" }
 
 // KGPAtLeast reports whether a Kotlin Gradle Plugin version is at least major.minor
 // (plan m1h D10). An unreadable, absent or "unknown" version is not at least anything,

@@ -65,9 +65,9 @@ func registry() *capability.Registry {
 	}
 	device.Register(reg, device.NewADB(nil, nil), store, nil)
 	artifacts.Register(reg, store)
-	// The golden registry only needs sdk.status' descriptor: no handler is run, so an
-	// empty environment (which resolves no SDK) is enough.
-	sdk.Register(reg, nil)
+	// The golden registry only needs the sdk descriptors: no handler is run, so an empty
+	// environment (which resolves no SDK) and no client are enough.
+	sdk.Register(reg, sdk.Options{})
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing})

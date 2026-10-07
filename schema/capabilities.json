@@ -4722,6 +4722,206 @@
       }
     },
     {
+      "name": "sdk.requirements",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.7.0",
+      "description": "Reports what this project's build requires of the SDK, compared against the SDK that build would use, without changing anything. For each Android module the Android probe read, required lists platforms;\u003ccompile target\u003e and build-tools;\u003cversion\u003e and whether the project SDK has each; missing lists the package ids it lacks, and a note names `sdkmanager --sdk_root=\u003cprojectSdk.root\u003e \"\u003cpackage\u003e\"` for each. A compile target android-N is satisfied by an installed platforms;android-N or platforms;android-N.0. projectSdk is the directory AGP resolved (source agp, exact), else local.properties sdk.dir (relative to the root, Java properties escapes; source local.properties), else ANDROID_HOME or ANDROID_SDK_ROOT (source env); sameAsHost says whether it is the host SDK, canonicalised. With none, projectSdk.found is false and a note names the \"SDK location not found\" failure the build will hit. source is probe when the probe read the project's facts and failure-signatures otherwise (complete false, required empty, and a note), so an incomplete answer is never presented as a complete one. Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED as project.modules does.",
+      "availability": [
+        "gradle"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_UNTRUSTED",
+        "BUILD_SIDECAR_UNAVAILABLE",
+        "BUILD_SIDECAR_CRASHED",
+        "BUILD_GRADLE_UNSUPPORTED",
+        "PROJECT_MODEL_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "probe",
+                  "failure-signatures"
+                ],
+                "description": "Where the requirements came from: probe when the Android probe read the project's facts, failure-signatures when it read nothing and nothing could be checked."
+              },
+              "complete": {
+                "type": "boolean",
+                "description": "True only when the probe read every Android module's compile target and build-tools."
+              },
+              "projectSdk": {
+                "properties": {
+                  "found": {
+                    "type": "boolean",
+                    "description": "Whether a project SDK location was resolved."
+                  },
+                  "root": {
+                    "type": "string",
+                    "description": "The project SDK directory: the directory a missing package would be installed into (sdkmanager --sdk_root)."
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "agp",
+                      "local.properties",
+                      "env"
+                    ],
+                    "description": "How the directory was resolved: agp (the probe's own sdkDir, exact), local.properties (its sdk.dir) or env (ANDROID_HOME or ANDROID_SDK_ROOT, inexact)."
+                  },
+                  "exact": {
+                    "type": "boolean",
+                    "description": "True only for source agp: the directory AGP itself resolved."
+                  },
+                  "sameAsHost": {
+                    "type": "boolean",
+                    "description": "Whether the project SDK and the host SDK are the same directory, canonicalised (symlinks resolved)."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "found"
+                ]
+              },
+              "hostSdk": {
+                "properties": {
+                  "found": {
+                    "type": "boolean",
+                    "description": "Whether a host SDK was found (see sdk.status)."
+                  },
+                  "root": {
+                    "type": "string",
+                    "description": "The host SDK directory."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "found"
+                ]
+              },
+              "required": {
+                "items": {
+                  "properties": {
+                    "module": {
+                      "type": "string",
+                      "description": "The Gradle project path requiring the package, e.g. \":app\"."
+                    },
+                    "package": {
+                      "type": "string",
+                      "description": "The SDK package id, e.g. \"platforms;android-36\" or \"build-tools;35.0.0\"."
+                    },
+                    "installed": {
+                      "type": "boolean",
+                      "description": "Whether the project SDK has this package."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "module",
+                    "package",
+                    "installed"
+                  ]
+                },
+                "type": "array"
+              },
+              "missing": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The required package ids the project SDK does not have, in required's order."
+              },
+              "notes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "source",
+              "projectSdk",
+              "hostSdk",
+              "required",
+              "missing",
+              "notes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "sdk.status",
       "kind": "query",
       "scope": "global",

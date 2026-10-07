@@ -24,9 +24,9 @@ type StatusResult struct {
 	Installed Installed `json:"installed" jsonschema:"required"`
 }
 
-// Register adds sdk.status to the registry, resolving the host SDK in env, the daemon's
-// environment.
-func Register(reg *capability.Registry, env []string) {
+// registerStatus adds sdk.status to the registry, resolving the host SDK in env, the
+// daemon's environment.
+func registerStatus(reg *capability.Registry, env []string) {
 	reg.MustRegister(capability.Descriptor{
 		Name:  "sdk.status",
 		Kind:  capability.Query,
