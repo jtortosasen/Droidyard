@@ -30,6 +30,10 @@ const (
 	// TermExits dies on SIGTERM, having started a Sleep grandchild in its own process
 	// group; its ready line ends with the grandchild's pid.
 	TermExits = "term-exits"
+	// TermExitsOwnGroup dies on SIGTERM, having started a Sleep helper in a process group
+	// of its own, as `adb` forks the shared server; its ready line ends with the helper's
+	// pid. Reaping the client's group must leave that helper running (plan m1i D9).
+	TermExitsOwnGroup = "term-exits-own-group"
 	// TermIgnored ignores SIGTERM.
 	TermIgnored = "term-ignored"
 	// TermRecorded appends "SIGTERM" to FileEnv's file on each SIGTERM and runs on.
@@ -56,6 +60,23 @@ func Main() {
 	case TermExits:
 		gc := exec.Command(os.Args[0])
 		gc.Env = append(os.Environ(), ModeEnv+"="+Sleep)
+		if err := gc.Start(); err != nil {
+			os.Stderr.WriteString("processtest: " + err.Error() + "\n")
+			os.Exit(2)
+		}
+		ready += " " + strconv.Itoa(gc.Process.Pid)
+	case TermExitsOwnGroup:
+		gc := exec.Command(os.Args[0])
+		gc.Env = append(os.Environ(), ModeEnv+"="+Sleep)
+		gc.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		// Detached from this process's stdio, as the adb server is from its client's: the
+		// helper must not hold the client's output pipe open past the client's death.
+		devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if err != nil {
+			os.Stderr.WriteString("processtest: " + err.Error() + "\n")
+			os.Exit(2)
+		}
+		gc.Stdout, gc.Stderr = devnull, devnull
 		if err := gc.Start(); err != nil {
 			os.Stderr.WriteString("processtest: " + err.Error() + "\n")
 			os.Exit(2)

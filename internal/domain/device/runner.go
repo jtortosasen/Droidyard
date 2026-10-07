@@ -23,12 +23,33 @@ const waitDelay = 250 * time.Millisecond
 // (process-lifecycle.md §Shutdown, layer 2).
 type Starter func(cmd *exec.Cmd) error
 
+// Stream is a client started through a StreamStarter: its pid, and its end, which
+// removes the pid record it was started with.
+type Stream interface {
+	Pid() int
+	Wait() error
+}
+
+// StreamStarter starts cmd in a process group of its own, records its pid for its life
+// and returns once it runs; the caller waits for it with Stream.Wait. The daemon passes
+// the supervisor's SpawnRecorded through a thin adapter; a test its own. An error
+// wrapping ErrStreamUnrecorded means the record could not be written and the client was
+// killed by its pid before it was handed back; any other error is a failure to start.
+type StreamStarter func(cmd *exec.Cmd, kind string) (Stream, error)
+
+// deviceStreamKind is the kind of the pid record a follow's client gets (plan m1i D9).
+const deviceStreamKind = "device-stream"
+
 // Errors Run returns besides a failure to start.
 var (
 	// ErrTimeout: the client ran past its timeout and was killed.
 	ErrTimeout = errors.New("adb did not finish in time")
 	// ErrNoStarter: the runner was built without a Starter.
 	ErrNoStarter = errors.New("no process starter is configured")
+	// ErrStreamUnrecorded: a StreamStarter could not write the client's pid record, so
+	// it killed the client and returns this; the follow reports DEVICE_LOGS_FAILED
+	// (plan m1i D9).
+	ErrStreamUnrecorded = errors.New("the stream client could not be recorded")
 )
 
 // Output is what one adb client run produced.
@@ -109,6 +130,44 @@ func (a *ADB) RunLines(ctx context.Context, path string, timeout time.Duration, 
 	if a.start == nil {
 		return Output{}, ErrNoStarter
 	}
+	return a.runLines(ctx, path, timeout, stderrLimit, onLine, plainStart(a.start), args)
+}
+
+// RunLinesRecorded is RunLines for a client that must be recorded while it runs: the
+// client is started through the recorded starter, so its pid record lives as long as it
+// does and a daemon that dies mid-stream leaves it findable (plan m1i D9). Everything
+// else — the timeout, the pid-only kill, the stderr cap and the error mapping — is
+// RunLines'. When the record cannot be written the starter leaves no client and returns
+// an error wrapping ErrStreamUnrecorded.
+func (a *ADB) RunLinesRecorded(ctx context.Context, path string, timeout time.Duration, stderrLimit int, onLine func(line []byte) error, args ...string) (Output, error) {
+	if a.stream == nil {
+		return Output{}, ErrNoStarter
+	}
+	return a.runLines(ctx, path, timeout, stderrLimit, onLine, func(cmd *exec.Cmd) (func() error, error) {
+		st, err := a.stream(cmd, deviceStreamKind)
+		if err != nil {
+			return nil, err
+		}
+		return st.Wait, nil
+	}, args)
+}
+
+// plainStart adapts a Starter to the shape runLines uses: the caller reaps the client
+// with cmd.Wait.
+func plainStart(start Starter) func(*exec.Cmd) (func() error, error) {
+	return func(cmd *exec.Cmd) (func() error, error) {
+		if err := start(cmd); err != nil {
+			return nil, err
+		}
+		return cmd.Wait, nil
+	}
+}
+
+// runLines is RunLines over a starter that also names the function that reaps the
+// client, so a recorded client's record is removed by the same call that reaps it. A
+// starter error is wrapped as a failure to start, so the caller's mapping is the same
+// whichever starter it used.
+func (a *ADB) runLines(ctx context.Context, path string, timeout time.Duration, stderrLimit int, onLine func(line []byte) error, start func(*exec.Cmd) (func() error, error), args []string) (Output, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
@@ -121,7 +180,8 @@ func (a *ADB) RunLines(ctx context.Context, path string, timeout time.Duration, 
 	}
 	errb := &capped{max: stderrLimit}
 	cmd.Stderr = errb
-	if err := a.start(cmd); err != nil {
+	wait, err := start(cmd)
+	if err != nil {
 		return Output{}, fmt.Errorf("starting adb: %w", err)
 	}
 	sc := bufio.NewScanner(stdout)
@@ -137,7 +197,7 @@ func (a *ADB) RunLines(ctx context.Context, path string, timeout time.Duration, 
 	if lineErr != nil {
 		io.Copy(io.Discard, stdout) // unblock a client still writing to a full pipe
 	}
-	err = cmd.Wait()
+	err = wait()
 	res := Output{Stderr: errb.bytes(), Truncated: errb.cut, ExitCode: -1}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()

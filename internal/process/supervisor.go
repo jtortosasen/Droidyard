@@ -246,6 +246,71 @@ func (s *Supervisor) Spawn(cmd *exec.Cmd) error {
 	}
 }
 
+// Recorded is a process the supervisor started and records while it runs, without
+// supervising it (SpawnRecorded): a long-lived child that must not outlive the daemon
+// unseen. Its record is removed when the caller reaps it (Wait).
+type Recorded struct {
+	s    *Supervisor
+	cmd  *exec.Cmd
+	pid  int
+	once sync.Once
+}
+
+// Pid is the recorded process's pid.
+func (r *Recorded) Pid() int { return r.pid }
+
+// Wait reaps the process and removes its record. Call it once, however the process
+// ended — by itself, or killed by its pid; a record left behind outlives the process
+// and is reaped by the next daemon's Reconcile.
+func (r *Recorded) Wait() error {
+	var err error
+	r.once.Do(func() {
+		err = r.cmd.Wait()
+		r.s.removeRecord(r.pid)
+	})
+	return err
+}
+
+// SpawnRecorded starts cmd through the locked spawner thread, in a process group of its
+// own (and, on Linux, with Pdeathsig), and writes its pid record while it runs: a
+// long-lived child that is neither supervised nor stopped when idle, but must be
+// findable after the daemon dies, so the next daemon's Reconcile reaps it (ADR-0021
+// §Pid records: the durable exception; plan m1i D9). It overwrites cmd.SysProcAttr. The
+// caller owns the returned handle and must call Wait. When the record cannot be written
+// the child is killed by its pid — never its group, which a forked adb server shares
+// (m1e R8) — and no handle is returned.
+func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) {
+	s.mu.Lock()
+	closed, refuse := s.closed, s.refuse
+	s.mu.Unlock()
+	switch {
+	case closed:
+		return nil, ErrClosed
+	case refuse != "":
+		return nil, fmt.Errorf("%w: %s", ErrUnrecordable, refuse)
+	}
+	cmd.SysProcAttr = sysProcAttr()
+	done := make(chan error, 1)
+	select {
+	case s.spawn <- spawnRequest{cmd: cmd, done: done}:
+		if err := <-done; err != nil {
+			return nil, err
+		}
+	case <-s.quit:
+		return nil, ErrClosed
+	}
+	pid := cmd.Process.Pid
+	started, _ := platform.StartTime(pid)
+	rec := Record{ID: string(kind), Kind: kind, PID: pid, PGID: pid,
+		StartTime: started, Command: append([]string(nil), cmd.Args...)}
+	if err := s.addRecord(rec); err != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
+		return nil, fmt.Errorf("%w: %v", ErrUnrecordable, err)
+	}
+	return &Recorded{s: s, cmd: cmd, pid: pid}, nil
+}
+
 func key(id string, scope Scope) string { return id + "\x00" + string(scope) }
 
 func (s *Supervisor) logf(format string, args ...any) {

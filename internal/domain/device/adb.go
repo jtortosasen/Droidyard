@@ -27,7 +27,10 @@ var defaultServerPort = "5037"
 type ADB struct {
 	env   []string
 	start Starter
-	exec  Exec // nil in production; a test's in-process stand-in for the client
+	// stream starts a logcat follow client and records its pid for its life (plan m1i
+	// D9), nil when the daemon passed none: a follow then reports DEVICE_LOGS_FAILED.
+	stream StreamStarter
+	exec   Exec // nil in production; a test's in-process stand-in for the client
 
 	mu    sync.Mutex
 	cache *versions
@@ -68,6 +71,11 @@ type columnProbe struct {
 func NewADB(env []string, start Starter) *ADB {
 	return &ADB{env: append([]string(nil), env...), start: start}
 }
+
+// SetStreamStarter gives the ADB the recorded starter a bounded follow uses, the
+// supervisor's SpawnRecorded through the daemon's adapter (plan m1i D9). Without one a
+// follow cannot be recorded and fails rather than leave a client no daemon can find.
+func (a *ADB) SetStreamStarter(s StreamStarter) { a.stream = s }
 
 // Exec is an in-process stand-in for starting an adb client, for tests whose subject
 // is not the process runner: it returns what the client would have written and its

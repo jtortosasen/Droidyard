@@ -62,6 +62,12 @@
 // output drop the uid column, as a device that ignores the format element does.
 // `<serial>.logcat.hang`, `.delay`, `.exit` and `.err` script its outcome.
 //
+// A logcat with no `-d` is a follow: the fake streams the log's lines as they become due
+// — the backlog from `-T` at once, then each line once the device clock (`<serial>.date.out`,
+// or `-T` when it is absent) has reached its epoch — and blocks until it is killed, as the
+// daemon ends the window by killing the client's pid. It writes its pid to
+// `<serial>.follow.pid`, so a test can tell the window's client is gone afterwards.
+//
 // The fake models `pm list packages -U <filter>` as a table: `<serial>.pm.out` holds one
 // `package:<name> uid:<n>` line per installed package and the command prints the lines
 // whose package contains the filter, as real pm's substring match does, so a caller must
@@ -849,40 +855,22 @@ func runPM(ctx context.Context, dir, serial, filter string, stdout, stderr io.Wr
 // with `--------- beginning of <buffer>` markers: it prints the buffers asked for, from
 // the epoch `-T` gives, in time order as the device's own logcat does (the sections
 // interleave), at most `-t` lines (the newest kept). Any other `-v` exits 1, and a
-// <serial>.nouid file drops the uid column, as a device that ignored it does.
+// <serial>.nouid file drops the uid column, as a device that ignored it does. A command
+// with no `-d` is a follow, streamed as lines become due until it is killed.
 func runLogcat(ctx context.Context, dir, serial string, rest []string, stdout, stderr io.Writer) int {
 	if code, done := scripted(ctx, dir, serial+".logcat", stderr); done {
 		return code
 	}
-	format, buffers, since, tail := parseLogcatArgs(rest)
+	format, buffers, since, tail, dump := parseLogcatArgs(rest)
 	if format != logcatFormat {
 		fmt.Fprintf(stderr, "fake adb: unsupported logcat format %q\n", format)
 		return 1
 	}
-	nouid := false
-	if _, err := os.Stat(filepath.Join(dir, serial+".nouid")); err == nil {
-		nouid = true
+	if !dump {
+		return followLogcat(ctx, dir, serial, buffers, since, stdout)
 	}
-	type entry struct{ buffer, line string }
-	var entries []entry
-	for _, sec := range readLogSections(dir, serial) {
-		if !containsString(buffers, sec.buffer) {
-			continue
-		}
-		for _, l := range sec.lines {
-			if since != "" && !epochAtLeast(l, since) {
-				continue
-			}
-			entries = append(entries, entry{sec.buffer, l})
-		}
-	}
-	// Real logcat merges the buffers in time order; a scenario's sections are grouped by
-	// buffer, so sort them the way a read of the device would arrive.
-	sort.SliceStable(entries, func(i, j int) bool {
-		a, aok := lineEpoch(entries[i].line)
-		b, bok := lineEpoch(entries[j].line)
-		return aok && bok && a < b
-	})
+	nouid := nouidColumn(dir, serial)
+	entries := logcatEntries(dir, serial, buffers, since)
 	if tail >= 0 && len(entries) > tail {
 		entries = entries[len(entries)-tail:]
 	}
@@ -892,13 +880,115 @@ func runLogcat(ctx context.Context, dir, serial string, rest []string, stdout, s
 			fmt.Fprintf(stdout, "--------- beginning of %s\n", e.buffer)
 			cur = e.buffer
 		}
-		if nouid {
-			fmt.Fprintln(stdout, stripUID(e.line))
-		} else {
-			fmt.Fprintln(stdout, e.line)
-		}
+		fmt.Fprintln(stdout, maybeStripUID(nouid, e.line))
 	}
 	return 0
+}
+
+// followLogcat answers a follow (plan m1i D9, D20): one logcat client with no `-d`,
+// started from the epoch `-T` gives. It streams the log's lines as they become due — the
+// backlog (those at or before the device clock) at once, then each line once the device
+// clock has reached its epoch, so a line in the future arrives `epoch - device clock`
+// after the follow starts — and blocks until it is killed, as the daemon ends the window
+// by killing the client's pid. It records its pid in <serial>.follow.pid so a test can
+// tell the window's client is gone after the call.
+func followLogcat(ctx context.Context, dir, serial string, buffers []string, since string, stdout io.Writer) int {
+	writeFollowPid(dir, serial)
+	from, _ := strconv.ParseFloat(since, 64)
+	deviceNow := from
+	// The device clock is the answer a `shell date +%s.%N` gives, so the fake paces by the
+	// same instant the daemon read for its `-T` bound.
+	if v := dirString(dir, serial+".date.out"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			deviceNow = f
+		}
+	}
+	nouid := nouidColumn(dir, serial)
+	start := time.Now()
+	cur := ""
+	emitted := 0
+	for {
+		entries := logcatEntries(dir, serial, buffers, since)
+		elapsed := time.Since(start).Seconds()
+		for ; emitted < len(entries); emitted++ {
+			e := entries[emitted]
+			// A line comes due at its epoch once the device clock would have reached it: a
+			// line in the future waits, a line at or before the clock is backlog and comes
+			// at once. The entries are in epoch order, so once one is not due, none after
+			// it is either.
+			if e.epoch > deviceNow && elapsed < e.epoch-deviceNow {
+				break
+			}
+			if e.buffer != cur {
+				fmt.Fprintf(stdout, "--------- beginning of %s\n", e.buffer)
+				cur = e.buffer
+			}
+			fmt.Fprintln(stdout, maybeStripUID(nouid, e.line))
+		}
+		// The log file is re-read each turn, so a line a test appends is picked up; the
+		// loop ends only when the client is killed or ctx ends (an in-process follow).
+		if !wait(ctx, 20*time.Millisecond) {
+			return 0
+		}
+	}
+}
+
+// writeFollowPid records the follow client's pid in <serial>.follow.pid, so a test can
+// tell the window's client is gone after the call. Written and renamed, so a test
+// polling for it never reads it half written (as fakeadb_test's process fakes do).
+func writeFollowPid(dir, serial string) {
+	name := filepath.Join(dir, serial+".follow.pid")
+	tmp := name + ".tmp"
+	os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
+	os.Rename(tmp, name)
+}
+
+// nouidColumn reports whether <serial>.nouid asks for the uid column to be dropped, as a
+// device that ignored the format element does.
+func nouidColumn(dir, serial string) bool {
+	_, err := os.Stat(filepath.Join(dir, serial+".nouid"))
+	return err == nil
+}
+
+// maybeStripUID drops the uid column from a line when the device ignored the format.
+func maybeStripUID(nouid bool, line string) string {
+	if nouid {
+		return stripUID(line)
+	}
+	return line
+}
+
+// logEntry is one line of the device's log, its buffer and (when it has one) its leading
+// epoch.
+type logEntry struct {
+	buffer   string
+	line     string
+	epoch    float64
+	hasEpoch bool
+}
+
+// logcatEntries reads the buffers asked for from <serial>.log, from the epoch `-T` gives,
+// in time order as the device's own logcat merges them (a scenario's sections are grouped
+// by buffer, so they are sorted the way a read of the device arrives). The snapshot keeps
+// the newest `-t` of them; a follow streams them as they become due.
+func logcatEntries(dir, serial string, buffers []string, since string) []logEntry {
+	var entries []logEntry
+	for _, sec := range readLogSections(dir, serial) {
+		if !containsString(buffers, sec.buffer) {
+			continue
+		}
+		for _, l := range sec.lines {
+			if since != "" && !epochAtLeast(l, since) {
+				continue
+			}
+			e, ok := lineEpoch(l)
+			entries = append(entries, logEntry{buffer: sec.buffer, line: l, epoch: e, hasEpoch: ok})
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].hasEpoch && entries[j].hasEpoch && entries[i].epoch < entries[j].epoch
+	})
+	return entries
 }
 
 // logSection is one buffer's lines, in the order the log file holds them.
@@ -941,8 +1031,9 @@ func rawLogLines(b []byte) []string {
 	return lines
 }
 
-// parseLogcatArgs reads the logcat command's own arguments.
-func parseLogcatArgs(rest []string) (format string, buffers []string, since string, tail int) {
+// parseLogcatArgs reads the logcat command's own arguments: dump is true when `-d` makes
+// it a snapshot, false a follow (plan m1i D9).
+func parseLogcatArgs(rest []string) (format string, buffers []string, since string, tail int, dump bool) {
 	buffers = append([]string(nil), logcatBuffers...)
 	tail = -1
 	for i := 0; i < len(rest); i++ {
@@ -967,9 +1058,11 @@ func parseLogcatArgs(rest []string) (format string, buffers []string, since stri
 				i++
 				tail, _ = strconv.Atoi(rest[i])
 			}
+		case "-d":
+			dump = true
 		}
 	}
-	return format, buffers, since, tail
+	return format, buffers, since, tail, dump
 }
 
 // lineEpoch is a log line's leading epoch, false when it has none (a marker).

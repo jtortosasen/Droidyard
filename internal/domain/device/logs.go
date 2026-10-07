@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -48,6 +49,11 @@ const (
 	// logsMaxLinesMax and logsMaxLinesDefault bound the inline lines (plan m1i D4).
 	logsMaxLinesMax     = 1000
 	logsMaxLinesDefault = 100
+	// logsFollowMinMs and logsFollowMaxMs bound followMs (plan m1i D9, schema).
+	logsFollowMinMs = 1000
+	logsFollowMaxMs = 60000
+	// logsFollowStderrCap bounds a follow's stderr, where adb says a device is gone.
+	logsFollowStderrCap = 64 << 10
 )
 
 // LogsParams is device.logs's parameters. Nothing here reaches a device shell: the
@@ -68,6 +74,9 @@ type LogsParams struct {
 	Contains string `json:"contains,omitempty" jsonschema_description:"A literal substring to match against the message, at most 256 bytes. Applied on the host: it never reaches a device shell."`
 	// MaxLines is how many matching lines are returned inline, newest kept.
 	MaxLines int `json:"maxLines,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"How many matching lines to return inline, newest kept (1-1000, default 100). The full capture is the capture artifact."`
+	// FollowMs turns the read into a bounded follow: read the log as it is written for
+	// this many milliseconds, then return what the window accumulated (plan m1i D9).
+	FollowMs int `json:"followMs,omitempty" jsonschema:"minimum=1000,maximum=60000" jsonschema_description:"Follow the log for this many milliseconds (1000-60000) and return what the window accumulated, instead of a snapshot; without since the window starts now, with it the backlog from it is read first."`
 }
 
 // LogWindow is the device-clock window the result covers, RFC 3339 UTC with
@@ -167,6 +176,9 @@ func (p LogsParams) validate() error {
 	if p.MaxLines != 0 && (p.MaxLines < 1 || p.MaxLines > logsMaxLinesMax) {
 		return capability.Errorf(capability.ErrInvalidParams, "maxLines is %d; it must be between 1 and %d", p.MaxLines, logsMaxLinesMax)
 	}
+	if p.FollowMs != 0 && (p.FollowMs < logsFollowMinMs || p.FollowMs > logsFollowMaxMs) {
+		return capability.Errorf(capability.ErrInvalidParams, "followMs is %d; a follow must be between %d and %d milliseconds", p.FollowMs, logsFollowMinMs, logsFollowMaxMs)
+	}
 	return nil
 }
 
@@ -194,7 +206,8 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 			"Returns structured lines {time, pid, tid, priority, tag, message, crash}, the crash blocks the app owns as crashes[] {pid, time, exception, message}, the window, how lines were selected (filter.by: uid, pids or none), the counts scanned, matched and returned, whether the result is truncated, why it is empty (emptyReason: noKnownProcess, noLines or filtered), and capture: the full matched set as an ephemeral untrusted artifact, readable with artifact.read. " +
 			"An app is matched by its uid from `pm list packages -U` (a Java crash block must also carry that uid, so another app cannot forge one), or, where the device's logcat prints no uid column, by the pids the daemon has seen for it. So an app's lines and its crash are found after its process died. " +
 			"since is a device-clock RFC 3339 timestamp (inclusive) or \"launch\" (the latest recorded device.launch of applicationId); tags, minPriority and contains are applied on the host and never reach a device shell. maxLines (1-1000, default 100) bounds the inline lines, newest kept; the read gets 20 s and pm 5 s. " +
-			"Fails with DEVICE_LOGS_FAILED when logcat or pm fails or prints an unexpected format on a ready device, with REQUEST_INVALID_PARAMS for a bad applicationId, since, priority, buffer, tag count, substring or maxLines, and with the device errors of a missing, unusable, physical or vanished device.",
+			"followMs (1000-60000) makes it a bounded follow instead: one logcat client with no -d, read as it arrives and filtered on the host, ended at the window by killing the client's pid (never its group). The client's pid is recorded for its life, so a daemon that dies mid-window leaves nothing the next daemon does not reap. Without since the window starts at the device clock read first; an explicit since adds its backlog first. The window's end is a normal end, not a failure; a cancellation or a graceful stop returns `cancelled` with no partial result. " +
+			"Fails with DEVICE_LOGS_FAILED when logcat or pm fails or prints an unexpected format on a ready device, or when a follow's pid record cannot be written (no client is left), with REQUEST_INVALID_PARAMS for a bad applicationId, since, priority, buffer, tag count, substring, maxLines or followMs, and with the device errors of a missing, unusable, physical or vanished device.",
 		Params: LogsParams{},
 		Result: LogsResult{},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...), ErrLogsFailed, capability.ErrInvalidParams),
@@ -221,9 +234,11 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 	})
 }
 
-// logs runs the snapshot of adb-device.md §Logs under plan m1i D4–D8, D10 and D11.
+// logs runs the snapshot of adb-device.md §Logs under plan m1i D4–D8, D10 and D11, or
+// the bounded follow of D9 when followMs is set.
 func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact.Store) (LogsResult, error) {
 	appFiltered := p.ApplicationID != ""
+	follow := p.FollowMs > 0
 
 	view, haveRec := appView{}, false
 	if appFiltered {
@@ -231,8 +246,15 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	}
 	haveLaunch := haveRec && !view.launchedAt.IsZero()
 
-	// since (plan m1i D8): explicit, or "launch" as the default when a launch is known.
-	since, err := resolveSince(p.Since, view, haveLaunch)
+	// since (plan m1i D8, D9): explicit, or the mode's default. A snapshot defaults to
+	// "launch" when a launch is known; a follow defaults to the device clock read now.
+	var since time.Time
+	var err error
+	if follow {
+		since, err = a.followSince(ctx, t, p.Since, view, haveLaunch)
+	} else {
+		since, err = resolveSince(p.Since, view, haveLaunch)
+	}
 	if err != nil {
 		return LogsResult{}, err
 	}
@@ -272,39 +294,49 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 		res.Warnings = append(res.Warnings, "the device's logcat does not print a uid column: the app's lines are matched by its known pids (device.launch, pidof and Start proc lines)")
 	}
 
-	out, runErr := a.runLogcat(ctx, t, buffers, since)
-	if cerr := ctx.Err(); cerr != nil {
-		return LogsResult{}, cerr
-	}
-	if line := disconnectedLine(t.serial, out); line != "" {
-		return LogsResult{}, disconnected(t.serial, line)
-	}
-	if runErr != nil && !errors.Is(runErr, ErrTimeout) {
-		return LogsResult{}, capability.NewError(ErrADBFailed, "adb could not be run").
-			WithCause("adb logcat: " + runErr.Error()).
-			WithNextStep("Check that the adb binary is executable, then retry.")
-	}
+	var raw []byte
 	readTruncated := false
-	// A logcat that exited non-zero failed, whatever it printed: a bad argument is the
-	// case the format check cannot see, since logcat answers it on stdout (plan m1i D10,
-	// G6). A read cut by its timeout is not a failure, only a short one.
-	if !errors.Is(runErr, ErrTimeout) && out.ExitCode != 0 {
-		return LogsResult{}, logsReadError(buffers, since, out.ExitCode)
-	}
-	if errors.Is(runErr, ErrTimeout) {
-		// `-d` prints oldest first, so a read cut by the timeout is missing its newest
-		// lines — where a crash is (plan m1i D7).
-		readTruncated = true
-		res.Warnings = append(res.Warnings, "the logcat read did not finish in "+logsReadTimeout.String()+": the newest lines are missing")
-	}
-	if out.Truncated {
-		readTruncated = true
-		res.Warnings = append(res.Warnings, fmt.Sprintf("the logcat read passed the %d MiB limit: the newest lines are missing", logsReadCap>>20))
+	if follow {
+		var ferr error
+		raw, readTruncated, res.Warnings, ferr = a.followWindow(ctx, t, buffers, since, time.Duration(p.FollowMs)*time.Millisecond, res.Warnings)
+		if ferr != nil {
+			return LogsResult{}, ferr
+		}
+	} else {
+		out, runErr := a.runLogcat(ctx, t, buffers, since)
+		if cerr := ctx.Err(); cerr != nil {
+			return LogsResult{}, cerr
+		}
+		if line := disconnectedLine(t.serial, out); line != "" {
+			return LogsResult{}, disconnected(t.serial, line)
+		}
+		if runErr != nil && !errors.Is(runErr, ErrTimeout) {
+			return LogsResult{}, capability.NewError(ErrADBFailed, "adb could not be run").
+				WithCause("adb logcat: " + runErr.Error()).
+				WithNextStep("Check that the adb binary is executable, then retry.")
+		}
+		// A logcat that exited non-zero failed, whatever it printed: a bad argument is
+		// the case the format check cannot see, since logcat answers it on stdout (plan
+		// m1i D10, G6). A read cut by its timeout is not a failure, only a short one.
+		if !errors.Is(runErr, ErrTimeout) && out.ExitCode != 0 {
+			return LogsResult{}, logsReadError(true, buffers, since, out.ExitCode)
+		}
+		if errors.Is(runErr, ErrTimeout) {
+			// `-d` prints oldest first, so a read cut by the timeout is missing its
+			// newest lines — where a crash is (plan m1i D7).
+			readTruncated = true
+			res.Warnings = append(res.Warnings, "the logcat read did not finish in "+logsReadTimeout.String()+": the newest lines are missing")
+		}
+		if out.Truncated {
+			readTruncated = true
+			res.Warnings = append(res.Warnings, fmt.Sprintf("the logcat read passed the %d MiB limit: the newest lines are missing", logsReadCap>>20))
+		}
+		raw = out.Stdout
 	}
 
-	parsed := parseLogLines(out.Stdout, columnPresent)
+	parsed := parseLogLines(raw, columnPresent)
 	if parsed.format {
-		return LogsResult{}, logsFormatError(buffers, since)
+		return LogsResult{}, logsFormatError(logcatCommand(follow, buffers, since))
 	}
 
 	// The app's pids, from the read's Start proc lines, from its crash blocks, from the
@@ -443,6 +475,94 @@ func effectiveBuffers(want []string, appFiltered bool) []string {
 	return out
 }
 
+// followSince is the follow window's lower bound (plan m1i D9): the parameter's
+// timestamp or "launch", or the device clock read now when it is absent. A follow has
+// no "launch" default, so its window starts at the call unless the caller says
+// otherwise.
+func (a *ADB) followSince(ctx context.Context, t *target, pSince string, view appView, haveLaunch bool) (time.Time, error) {
+	if pSince != "" {
+		return resolveSince(pSince, view, haveLaunch)
+	}
+	out, err := a.runShell(ctx, t, launchDateTimeout, 1<<10, "shell", "date", "+%s.%N")
+	if cerr := ctx.Err(); cerr != nil {
+		return time.Time{}, cerr
+	}
+	if err != nil {
+		if errors.Is(err, ErrTimeout) {
+			return time.Time{}, followClockError("the device clock did not answer in " + launchDateTimeout.String())
+		}
+		return time.Time{}, err
+	}
+	if out.ExitCode != 0 {
+		return time.Time{}, followClockError("the device clock command exited with status " + strconv.Itoa(out.ExitCode))
+	}
+	tm, derr := parseDeviceTime(string(out.Stdout))
+	if derr != nil {
+		return time.Time{}, followClockError("the device clock answered something this version cannot read")
+	}
+	return tm, nil
+}
+
+// followClockError is DEVICE_LOGS_FAILED for a device clock a follow could not read.
+func followClockError(cause string) *capability.Error {
+	return capability.NewError(ErrLogsFailed, "the device clock could not be read").
+		WithCause("adb shell date +%s.%N: " + cause).
+		WithNextStep("Call device.list to check the device, then retry.")
+}
+
+// followWindow reads a bounded follow (plan m1i D9): one `logcat` client with no `-d`,
+// its stdout accumulated line by line until the window ends, the client killed by its
+// pid — never its group, which a forked adb server may share (m1e R8) — and its pid
+// recorded for its life through the recorded starter. The window's end is ErrTimeout
+// from the runner, and it is a normal end here, not a failure. It returns the raw lines
+// the window accumulated (bounded at logsReadCap, oldest dropped).
+func (a *ADB) followWindow(ctx context.Context, t *target, buffers []string, since time.Time, window time.Duration, warnings []string) ([]byte, bool, []string, error) {
+	if a.stream == nil {
+		return nil, false, warnings, capability.NewError(ErrLogsFailed, "the device log could not be followed").
+			WithCause("no recorded process starter is configured").
+			WithNextStep("Report this as a bug: a follow needs the daemon's process supervisor.")
+	}
+	args := []string{"-s", t.serial, "logcat", "-v", logcatFormat, "-b", strings.Join(buffers, ","), "-T", epochForm(since)}
+	var buf bytes.Buffer
+	truncated := false
+	out, runErr := a.RunLinesRecorded(ctx, t.adb, window, logsFollowStderrCap, func(line []byte) error {
+		// The window's lines are bounded like the snapshot's read (plan m1i D7): past the
+		// cap the oldest go first, since a follow's newest lines are what a caller wants,
+		// and the client keeps running to the window's end.
+		if buf.Len()+len(line)+1 > logsReadCap {
+			truncated = true
+			return nil
+		}
+		buf.Write(line)
+		buf.WriteByte('\n')
+		return nil
+	}, args...)
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, false, warnings, cerr
+	}
+	if line := disconnectedLine(t.serial, out); line != "" {
+		return nil, false, warnings, disconnected(t.serial, line)
+	}
+	switch {
+	case errors.Is(runErr, ErrStreamUnrecorded):
+		return nil, false, warnings, capability.NewError(ErrLogsFailed, "the device log could not be followed").
+			WithCause("the client's pid record could not be written to the state store: " + runErr.Error()).
+			WithNextStep("Check that the state directory is writable, then retry.")
+	case runErr != nil && !errors.Is(runErr, ErrTimeout):
+		return nil, false, warnings, capability.NewError(ErrADBFailed, "adb could not be run").
+			WithCause("adb logcat (follow): " + runErr.Error()).
+			WithNextStep("Check that the adb binary is executable, then retry.")
+	case runErr == nil && out.ExitCode != 0:
+		// The client exited by itself before the window ended: a device-side logcat that
+		// failed. The window's own end (ErrTimeout) is a normal end, not this.
+		return nil, false, warnings, logsReadError(false, buffers, since, out.ExitCode)
+	}
+	if truncated {
+		warnings = append(warnings, fmt.Sprintf("the follow passed the %d MiB limit: the oldest lines are missing", logsReadCap>>20))
+	}
+	return buf.Bytes(), truncated, warnings, nil
+}
+
 // runLogcat runs the snapshot read once.
 func (a *ADB) runLogcat(ctx context.Context, t *target, buffers []string, since time.Time) (Output, error) {
 	args := []string{"-s", t.serial, "logcat", "-d", "-v", logcatFormat, "-b", strings.Join(buffers, ",")}
@@ -450,6 +570,20 @@ func (a *ADB) runLogcat(ctx context.Context, t *target, buffers []string, since 
 		args = append(args, "-T", epochForm(since))
 	}
 	return a.Run(ctx, t.adb, logsReadTimeout, logsReadCap, args...)
+}
+
+// logcatCommand names the logcat command a failure's cause carries, with the mode's `-d`
+// (plan m1i D10: the cause names the command, never a device line).
+func logcatCommand(dump bool, buffers []string, since time.Time) string {
+	cmd := "logcat"
+	if dump {
+		cmd += " -d"
+	}
+	cmd += " -v " + logcatFormat + " -b " + strings.Join(buffers, ",")
+	if !since.IsZero() {
+		cmd += " -T " + epochForm(since)
+	}
+	return cmd
 }
 
 // classifyCrashes finds the crash blocks among the parsed lines, notes their pids in the
@@ -631,26 +765,18 @@ func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
 // logsReadError is DEVICE_LOGS_FAILED for a logcat that exited non-zero: the cause
 // names the command, its exit status and the buffers, never a device line
 // (capability-api.md §Untrusted outputs).
-func logsReadError(buffers []string, since time.Time, code int) *capability.Error {
-	cause := "logcat -d -v " + logcatFormat + " -b " + strings.Join(buffers, ",")
-	if !since.IsZero() {
-		cause += " -T " + epochForm(since)
-	}
+func logsReadError(dump bool, buffers []string, since time.Time, code int) *capability.Error {
 	return capability.NewError(ErrLogsFailed, "the device log could not be read").
-		WithCause(cause + " exited with status " + strconv.Itoa(code)).
+		WithCause(logcatCommand(dump, buffers, since) + " exited with status " + strconv.Itoa(code)).
 		WithNextStep("Call device.list to check the device, then retry.")
 }
 
 // logsFormatError is DEVICE_LOGS_FAILED for a read whose lines are not the format we
 // asked for. The cause names the command and the buffers, never a device line
 // (capability-api.md §Untrusted outputs).
-func logsFormatError(buffers []string, since time.Time) *capability.Error {
-	cause := "logcat -d -v " + logcatFormat + " -b " + strings.Join(buffers, ",") + " printed a line this version cannot read"
-	if !since.IsZero() {
-		cause += " (-T " + epochForm(since) + ")"
-	}
+func logsFormatError(cmd string) *capability.Error {
 	return capability.NewError(ErrLogsFailed, "the device log is not in the expected format").
-		WithCause(cause).
+		WithCause(cmd + " printed a line this version cannot read").
 		WithNextStep("The device's logcat did not honour the requested format; report this as a bug with the device's API level.")
 }
 

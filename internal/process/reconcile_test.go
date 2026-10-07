@@ -5,10 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/process/processtest"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
@@ -88,6 +91,53 @@ func TestReconcileNeverSignalsGroupZeroOrOne(t *testing.T) {
 	var left Records
 	if out, err := st.Read(RecordsFile, store.Version, &left); out != store.Loaded || err != nil || len(left.Processes) != 0 {
 		t.Errorf("after reconciling: %v, %v, %+v", out, err, left)
+	}
+}
+
+// TestReconcileSparesAChildInItsOwnGroup pins the other half of "the group is signalled,
+// not the pid" (plan m1i D9; m1e R8): a recorded follow client — a device-stream record —
+// is reaped by signalling its own process group, so a child it forked into a group of its
+// own, as `adb` forks the shared server, is never reached. Real processes: the client dies
+// on SIGTERM, the helper in its own group lives. Seen failing reversed (the pid, or the
+// daemon's own group, signalled): a starting daemon would kill the user's shared adb
+// server and every process in its own group.
+func TestReconcileSparesAChildInItsOwnGroup(t *testing.T) {
+	t.Parallel()
+	st := newStore(t)
+	client := processtest.Start(t, processtest.TermExitsOwnGroup)
+	helper, err := strconv.Atoi(client.Ready)
+	if err != nil {
+		t.Fatalf("the client's ready line named no helper: %q", client.Ready)
+	}
+	// In its own group, the helper is not reached by the client's cleanup: kill it here,
+	// before the client's, so the client's stdout pipe closes and it is reaped.
+	t.Cleanup(func() { syscall.Kill(helper, syscall.SIGKILL) })
+
+	started, err := platform.StartTime(client.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := Records{Processes: []Record{{
+		ID: string(DeviceStream), Kind: DeviceStream, PID: client.Pid, PGID: client.Pid,
+		StartTime: started, Command: []string{"adb", "-s", "emulator-5554", "logcat", "-v", "epoch"},
+	}}}
+	if err := st.Write(RecordsFile, recs); err != nil {
+		t.Fatal(err)
+	}
+
+	var log bytes.Buffer
+	if err := Reconcile(st, &log); err != nil {
+		t.Fatal(err)
+	}
+	<-client.Done()
+	if !dead(client.Pid) {
+		t.Errorf("the recorded client (pid %d) survived reconcling", client.Pid)
+	}
+	if dead(helper) {
+		t.Error("the helper in its own process group died with the client: the group was not the one signalled")
+	}
+	if !strings.Contains(log.String(), "reaped") {
+		t.Errorf("Reconcile's log does not name the client reaped:\n%s", log.String())
 	}
 }
 

@@ -8,9 +8,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -187,14 +189,27 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// the daemon's whole environment (plan m1e, R8). Without a supervisor (caps,
 	// schema) adb can be resolved and reported but not run.
 	var spawn device.Starter
+	var recorded device.StreamStarter
 	if sup != nil {
 		spawn = sup.Spawn
+		// A logcat follow's client is recorded for its life, so a daemon that dies
+		// mid-window leaves it findable for the next start's reconciliation (plan m1i
+		// D9). The supervisor's error is mapped to the device's, so the follow can tell
+		// a record it could not write from a client it could not start.
+		recorded = func(cmd *exec.Cmd, kind string) (device.Stream, error) {
+			r, err := sup.SpawnRecorded(cmd, proc.Kind(kind))
+			if errors.Is(err, proc.ErrUnrecordable) {
+				return nil, fmt.Errorf("%w: %v", device.ErrStreamUnrecorded, err)
+			}
+			return r, err
+		}
 	}
 	var adb *device.ADB
 	if adbExec != nil {
 		adb = device.NewADBWithExec(adbEnviron(), adbExec)
 	} else {
 		adb = device.NewADB(adbEnviron(), spawn)
+		adb.SetStreamStarter(recorded)
 	}
 	// The one Gradle sidecar client (ADR-0019): it discovers the JVM in the daemon's
 	// environment, extracts the jars to the cache directory and supervises the shared
