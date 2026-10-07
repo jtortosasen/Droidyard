@@ -5661,6 +5661,247 @@
       }
     },
     {
+      "name": "policy.update",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.10.0",
+      "description": "Applies a JSON Merge Patch (RFC 7386) to the droidyard policy and writes the result, returning policy.get's shape after the write. The patch is restricted to the `trust`, `devices` and `shell` sections: each is written as a section object, or as `null` to remove the section and return it to its defaults; inside a section each known key is written as a value, or as `null` to remove the key (`trust.roots`, `trust.prefixes`, `devices.allowPhysical`, `devices.allowlist`, `shell.enabled`, `shell.roots`). Arrays are replaced whole, so to add a trusted root send the whole list. Any other key, at the top level or inside a section, is REQUEST_INVALID_PARAMS, not a silent no-op. Policy is the user's to change, so it is answerable only to a human client: the core refuses this capability from an agent session. It takes the exclusive lock on the configuration's lock file, re-reads the file under it (so a concurrent `droidyard trust` on another key is not lost), canonicalises the path entries the patch wrote, validates the whole result and writes atomically; unknown keys in the file, and every other section, are kept. A relative path is REQUEST_INVALID_PARAMS and the file is untouched; a file that does not parse or is of a newer version is POLICY_CONFIG_UNUSABLE and is left untouched. Tool keys are edited by hand, not here. A patch that changes nothing writes nothing.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "POLICY_CONFIG_UNUSABLE",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "trust": {
+            "oneOf": [
+              {
+                "properties": {
+                  "roots": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array",
+                        "description": "The trusted roots, each an absolute path, canonicalised as droidyard trust does. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "prefixes": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array",
+                        "description": "The trusted prefixes, each an absolute path. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "devices": {
+            "oneOf": [
+              {
+                "properties": {
+                  "allowPhysical": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "Whether physical devices may be used at all."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "allowlist": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array",
+                        "description": "The exact physical serials admitted. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shell": {
+            "oneOf": [
+              {
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean",
+                        "description": "Whether shell.exec is enabled everywhere."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "roots": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array",
+                        "description": "The project roots shell.exec is enabled for, each an absolute path, canonicalised as droidyard trust does. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The configuration file's path."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "ok",
+              "invalid"
+            ],
+            "description": "missing when there is no file, ok when it parsed, invalid when it could not be used."
+          },
+          "error": {
+            "type": "string",
+            "description": "The parse error, when state is invalid."
+          },
+          "trust": {
+            "properties": {
+              "roots": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The exact roots trusted."
+              },
+              "prefixes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The prefixes whose subtrees are trusted, at a path-component boundary."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "roots",
+              "prefixes"
+            ]
+          },
+          "devices": {
+            "properties": {
+              "allowPhysical": {
+                "type": "boolean",
+                "description": "Whether physical devices may be used at all."
+              },
+              "allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The exact physical serials admitted."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "allowPhysical",
+              "allowlist"
+            ]
+          },
+          "shell": {
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether shell.exec is enabled everywhere."
+              },
+              "roots": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The project roots shell.exec is enabled for."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "enabled",
+              "roots"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "state",
+          "trust",
+          "devices",
+          "shell"
+        ]
+      }
+    },
+    {
       "name": "project.modules",
       "kind": "query",
       "scope": "workspace",

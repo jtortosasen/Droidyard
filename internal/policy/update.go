@@ -1,0 +1,346 @@
+package policy
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync/atomic"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+)
+
+// UpdateParams is policy.update's parameter object: a JSON Merge Patch (RFC 7386)
+// restricted to the three policy sections (ADR-0032 §5; plan m1k D3). Each section is
+// a patch object or JSON null (remove the section and return it to its defaults); each
+// known key inside a section is a value or null (remove the key). Every object is
+// closed: an unknown key anywhere is REQUEST_INVALID_PARAMS at Start, not a silent
+// no-op, so `{"gradle": {}}` and `{"shell": {"enable": true}}` are refused (the keys
+// already in the file are still kept by the write).
+//
+// The three exported fields generate the published schema and give the decoder its
+// strict shape; UnmarshalJSON additionally keeps the sections as the caller wrote them,
+// so the handler can tell a section or key written as null from one not written at all
+// (RFC 7386 needs the difference: absent is no change, null removes).
+type UpdateParams struct {
+	Trust   *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
+	Devices *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
+	Shell   *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
+
+	// raw is the patch as the caller wrote it, kept so a section or key written as null
+	// is distinguishable from one not written (RFC 7386). Set by UnmarshalJSON.
+	raw map[string]json.RawMessage
+}
+
+// TrustPatch is the trust section of a policy.update patch.
+type TrustPatch struct {
+	Roots    *[]string `json:"roots,omitempty" jsonschema_description:"The trusted roots, each an absolute path, canonicalised as droidyard trust does. Replaces the whole list." jsonschema:"nullable"`
+	Prefixes *[]string `json:"prefixes,omitempty" jsonschema_description:"The trusted prefixes, each an absolute path. Replaces the whole list." jsonschema:"nullable"`
+}
+
+// DevicesPatch is the devices section of a policy.update patch.
+type DevicesPatch struct {
+	AllowPhysical *bool     `json:"allowPhysical,omitempty" jsonschema_description:"Whether physical devices may be used at all." jsonschema:"nullable"`
+	Allowlist     *[]string `json:"allowlist,omitempty" jsonschema_description:"The exact physical serials admitted. Replaces the whole list." jsonschema:"nullable"`
+}
+
+// ShellPatch is the shell section of a policy.update patch.
+type ShellPatch struct {
+	Enabled *bool     `json:"enabled,omitempty" jsonschema_description:"Whether shell.exec is enabled everywhere." jsonschema:"nullable"`
+	Roots   *[]string `json:"roots,omitempty" jsonschema_description:"The project roots shell.exec is enabled for, each an absolute path, canonicalised as droidyard trust does. Replaces the whole list." jsonschema:"nullable"`
+}
+
+// UnmarshalJSON decodes a patch strictly — an unknown key at the top level or inside a
+// section, a wrong type, or trailing data is an error, so a bad patch is
+// REQUEST_INVALID_PARAMS at Start rather than a silent no-op (plan m1k D3) — and keeps
+// the raw sections for the handler.
+func (p *UpdateParams) UnmarshalJSON(data []byte) error {
+	// A distinct type has no methods, so Decode does not recurse into this one; the
+	// strict decode then applies to every level.
+	type wire UpdateParams
+	var w wire
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&w); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("unexpected data after the parameter object")
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == nil {
+		return errors.New("the patch must be a JSON object")
+	}
+	// encoding/json matches field names regardless of case, so "Shell" or "Roots" would
+	// pass the strict decode and then be merged as written: the keys are checked exactly
+	// (plan m1k D3; step 3 B1).
+	allowed := map[string][]string{
+		"trust":   {"roots", "prefixes"},
+		"devices": {"allowPhysical", "allowlist"},
+		"shell":   {"enabled", "roots"},
+	}
+	for k, v := range raw {
+		keys, ok := allowed[k]
+		if !ok {
+			return fmt.Errorf("unknown key %q: a patch names trust, devices or shell, exactly", k)
+		}
+		if isNull(v) {
+			continue
+		}
+		var sec map[string]json.RawMessage
+		if err := json.Unmarshal(v, &sec); err != nil {
+			return fmt.Errorf("%s: %w", k, err)
+		}
+		for sk := range sec {
+			if !slices.Contains(keys, sk) {
+				return fmt.Errorf("unknown key %q in %s: it takes %s, exactly", sk, k, strings.Join(keys, " and "))
+			}
+		}
+	}
+	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Shell: w.Shell, raw: raw}
+	return nil
+}
+
+// MergePatch applies an RFC 7386 JSON Merge Patch. As the codebase uses it, patch is a
+// section object (the layer above has already removed a null section): a null value
+// removes the key, a value that is not an object replaces the target, and an object
+// merges key by key. It is the ten-line recursion the plan names (R5).
+func MergePatch(target, patch json.RawMessage) json.RawMessage {
+	var pm map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &pm); err != nil || pm == nil {
+		return patch
+	}
+	var tm map[string]json.RawMessage
+	if err := json.Unmarshal(target, &tm); err != nil || tm == nil {
+		tm = map[string]json.RawMessage{}
+	}
+	for k, v := range pm {
+		if isNull(v) {
+			delete(tm, k)
+			continue
+		}
+		tm[k] = MergePatch(tm[k], v)
+	}
+	out, err := json.Marshal(tm)
+	if err != nil {
+		return patch
+	}
+	return out
+}
+
+// updateSeam, when non-nil, runs inside policy.update's critical section — after the
+// file is read and before it is written, with the exclusive lock held — so a test can
+// interleave a concurrent writer deterministically (plan m1k step 3). Production leaves
+// it nil; SetUpdateSeam sets and clears it.
+var updateSeam atomic.Pointer[func()]
+
+// SetUpdateSeam installs the update seam, or clears it with nil. For tests only.
+func SetUpdateSeam(f func()) {
+	if f == nil {
+		updateSeam.Store(nil)
+		return
+	}
+	updateSeam.Store(&f)
+}
+
+// Update applies patch to the policy and writes the result, returning the policy in
+// policy.get's shape after the write (ADR-0032 §5; plan m1k D3). It takes the exclusive
+// flock on <config dir>/config.json.lock, re-reads the file under it, applies RFC 7386
+// to the three sections, canonicalises the path entries the patch wrote, validates the
+// whole result and writes atomically, so nothing a concurrent `droidyard trust` wrote
+// to another key is lost. The file is left untouched on every failure. A patch that
+// changes nothing writes nothing.
+func (p *Policy) Update(patch UpdateParams) (GetResult, *capability.Error) {
+	if p.dirErr != nil {
+		return GetResult{}, configUnusable("", p.dirErr)
+	}
+	dir := filepath.Dir(p.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return GetResult{}, configUnusable(p.path, err)
+	}
+	lock, err := lockExclusive(filepath.Join(dir, LockName))
+	if err != nil {
+		return GetResult{}, configUnusable(p.path, err)
+	}
+	defer lock.Close()
+
+	top, cerr := p.readTop()
+	if cerr != nil {
+		return GetResult{}, cerr
+	}
+	if seam := updateSeam.Load(); seam != nil {
+		(*seam)()
+	}
+
+	merged := make(map[string]json.RawMessage, len(top))
+	for k, v := range top {
+		merged[k] = v
+	}
+	for k, v := range patch.raw {
+		if isNull(v) {
+			delete(merged, k) // a null section is removed: its defaults apply
+			continue
+		}
+		merged[k] = MergePatch(merged[k], v)
+	}
+	if serr := p.canonicalise(patch.raw, merged); serr != nil {
+		return GetResult{}, serr
+	}
+	if semanticEqual(top, merged) {
+		// An empty or no-op patch writes nothing.
+		return p.Get(), nil
+	}
+
+	data, err := json.Marshal(merged)
+	if err != nil {
+		return GetResult{}, configUnusable(p.path, err)
+	}
+	doc, derr := decode(data)
+	if derr != nil {
+		// The file was valid when read, so only the patch can be the cause: a key the
+		// schema did not close, or a value the section rules reject (D1).
+		return GetResult{}, capability.Errorf(capability.ErrInvalidParams, "the patch would make the configuration invalid, so it is left untouched").
+			WithCause(derr.Error())
+	}
+	// The reader refuses a file over maxConfigBytes; a patch that would write one is
+	// refused here, so an update never leaves a file its own reader rejects (step 3 B3).
+	if out, err := encode(doc); err != nil {
+		return GetResult{}, configUnusable(p.path, err)
+	} else if len(out) > maxConfigBytes {
+		return GetResult{}, capability.Errorf(capability.ErrInvalidParams, "the patched configuration would be %d bytes, over the %d the reader accepts, so it is left untouched", len(out), maxConfigBytes)
+	}
+	if err := writeAtomic(p.path, doc); err != nil {
+		return GetResult{}, configUnusable(p.path, err)
+	}
+	p.mu.Lock()
+	p.cached = nil
+	p.mu.Unlock()
+	return p.Get(), nil
+}
+
+// readTop reads the configuration file as the top-level object map, validating it with
+// D1's rules first. A missing file is an empty object; an invalid or newer one is
+// POLICY_CONFIG_UNUSABLE, left untouched (ADR-0032 §4; plan m1k D3).
+func (p *Policy) readTop() (map[string]json.RawMessage, *capability.Error) {
+	data, err := readConfigFile(p.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]json.RawMessage{}, nil
+	}
+	if err != nil {
+		return nil, configUnusable(p.path, err)
+	}
+	if _, derr := decode(data); derr != nil {
+		return nil, configUnusable(p.path, derr)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil || top == nil {
+		return nil, configUnusable(p.path, err)
+	}
+	return top, nil
+}
+
+// canonicalise maps the path entries the patch wrote through the environment's
+// canonicaliser, as `droidyard trust` does (ADR-0032 §5; plan m1k D3). Only the keys
+// the patch supplied are touched, so an untouched section keeps its exact bytes. A
+// relative entry is REQUEST_INVALID_PARAMS naming the key, and the file is left
+// untouched.
+func (p *Policy) canonicalise(patch, merged map[string]json.RawMessage) *capability.Error {
+	for _, ref := range []struct{ section, key string }{
+		{"trust", "roots"},
+		{"trust", "prefixes"},
+		{"shell", "roots"},
+	} {
+		ps, ok := patch[ref.section]
+		if !ok || isNull(ps) {
+			continue
+		}
+		var pm map[string]json.RawMessage
+		if json.Unmarshal(ps, &pm) != nil {
+			continue
+		}
+		if _, ok := pm[ref.key]; !ok {
+			continue
+		}
+		var sm map[string]json.RawMessage
+		if err := json.Unmarshal(merged[ref.section], &sm); err != nil || sm == nil {
+			continue
+		}
+		rawEntry, ok := sm[ref.key]
+		if !ok || isNull(rawEntry) {
+			continue // the patch removed the key
+		}
+		var arr []string
+		if err := json.Unmarshal(rawEntry, &arr); err != nil {
+			continue // not an array of strings; the typed decode prevents this
+		}
+		for i, e := range arr {
+			if e == "" {
+				continue
+			}
+			if !filepath.IsAbs(e) {
+				return capability.Errorf(capability.ErrInvalidParams, "%s would be a relative path, so the configuration would be invalid", ref.section+"."+ref.key).
+					WithCause(fmt.Sprintf("%s: %q is not an absolute path", ref.section+"."+ref.key, e)).
+					WithNextStep("send absolute paths")
+			}
+			arr[i] = p.env.Canonical(e)
+		}
+		if b, err := json.Marshal(arr); err == nil {
+			sm[ref.key] = b
+		}
+		if b, err := json.Marshal(sm); err == nil {
+			merged[ref.section] = b
+		}
+	}
+	return nil
+}
+
+// configUnusable is policy.update's failure when the configuration cannot be read,
+// parsed or written (ADR-0032 §4, §5; plan m1k D3). Its cause is the parse or OS error,
+// and it names the file.
+func configUnusable(path string, err error) *capability.Error {
+	e := capability.Errorf(capability.ErrPolicyConfigUnusable, "the droidyard configuration could not be used, so it is left untouched")
+	if path != "" {
+		e = capability.Errorf(capability.ErrPolicyConfigUnusable, "the configuration file %s could not be used, so it is left untouched", path)
+	}
+	if err != nil {
+		e = e.WithCause(path + ": " + err.Error())
+		if path == "" {
+			e = e.WithCause(err.Error())
+		}
+	}
+	next := "fix or remove the configuration file, then retry"
+	if path != "" {
+		next = "fix or remove " + path + ", then retry"
+	}
+	return e.WithNextStep(next)
+}
+
+// semanticEqual reports whether two top-level maps are the same JSON: a no-op patch
+// (an empty one, or a section object that merges nothing) writes nothing, and byte
+// layout — key order, indentation — does not count.
+func semanticEqual(a, b map[string]json.RawMessage) bool {
+	ca, ea := canonicalJSON(a)
+	cb, eb := canonicalJSON(b)
+	return ea == nil && eb == nil && bytes.Equal(ca, cb)
+}
+
+func canonicalJSON(m map[string]json.RawMessage) ([]byte, error) {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
+}
