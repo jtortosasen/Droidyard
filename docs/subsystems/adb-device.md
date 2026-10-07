@@ -267,6 +267,7 @@ quirks, accepting the prompt. That belongs in a skill
 | Install rejected | `DEVICE_INSTALL_FAILED` | The `INSTALL_FAILED_*` reason as the cause; detected even on exit 0 |
 | Uninstall rejected | `DEVICE_UNINSTALL_FAILED` | The `Failure […]` token as the cause; a package that is not installed is a completed call, not an error (plan m1g D18) |
 | Launch finds no launcher activity | `DEVICE_LAUNCH_FAILED` | The monkey output line as the cause |
+| `logcat` or `pm` fails on a ready device, exits non-zero, or prints a line that is not the requested format | `DEVICE_LOGS_FAILED` | `cause` names the command, its exit status or the format mismatch, never a device line; the wrong format is detected from the lines, since `logcat -v` with a bad argument exits 0 (milestone 1i, D10) |
 | Device disconnects mid-operation | `DEVICE_DISCONNECTED` | That operation fails with the transport error; other devices and workspaces are unaffected |
 | adb missing, or `ADB` names no file | `DEVICE_ADB_NOT_FOUND` | Capabilities remain listed; every device call explains how to fix it. A bad `ADB` value fails closed, naming the value, and is not skipped: another adb could mismatch the running server and restart it (milestone 1e, Q6) |
 | adb fails on the host (the server cannot start, `devices -l` times out or cannot be parsed) | `DEVICE_ADB_FAILED` | `cause` names the command, its exit status or timeout and the decisive line (milestone 1e, Q3) |

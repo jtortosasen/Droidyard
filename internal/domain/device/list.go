@@ -39,9 +39,10 @@ type ListResult struct {
 
 // Register adds the device capabilities to reg: device.list, device.uiTree and
 // device.screenshot (which stores its image in store), device.tapElement,
-// device.launch, device.install (which resolves its build reference through builds),
-// device.uninstall and device.inputText. builds may be nil in a descriptor-only
-// registry, where device.install reports no build registry rather than panicking.
+// device.launch, device.logs (which stores its capture in store), device.install
+// (which resolves its build reference through builds), device.uninstall and
+// device.inputText. builds may be nil in a descriptor-only registry, where
+// device.install reports no build registry rather than panicking.
 func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds BuildResolver) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "device.list",
@@ -65,6 +66,7 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 	registerScreenshot(reg, adb, store)
 	registerTapElement(reg, adb)
 	registerLaunch(reg, adb)
+	registerLogs(reg, adb, store)
 	registerInstall(reg, adb, builds)
 	registerUninstall(reg, adb)
 	registerInputText(reg, adb)

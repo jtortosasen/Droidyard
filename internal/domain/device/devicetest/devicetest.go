@@ -50,6 +50,23 @@
 //	<serial>.install            `-s <serial> install -r <apk>`
 //	<serial>.uninstall          `-s <serial> uninstall <applicationId>`
 //	<serial>.pmpath             `-s <serial> shell pm path <applicationId>`
+//	<serial>.pm                 `-s <serial> shell pm list packages -U <filter>` (see below)
+//	<serial>.log                `-s <serial> logcat …` (see below)
+//
+// The fake models the device's log (§D20): `<serial>.log` holds logcat text with the
+// `--------- beginning of <buffer>` markers, and a logcat command reads only the buffers
+// it names, from the epoch it is given, merging them in time order as the device's own
+// logcat does and keeping at most `-t` lines (the newest), printing the marker of each
+// buffer it emits. Any `-v` other than `threadtime,epoch,usec,uid`
+// exits 1, so a change to the daemon's format fails a test; `<serial>.nouid` makes the
+// output drop the uid column, as a device that ignores the format element does.
+// `<serial>.logcat.hang`, `.delay`, `.exit` and `.err` script its outcome.
+//
+// The fake models `pm list packages -U <filter>` as a table: `<serial>.pm.out` holds one
+// `package:<name> uid:<n>` line per installed package and the command prints the lines
+// whose package contains the filter, as real pm's substring match does, so a caller must
+// take the exact package it asked for. `<serial>.pm.hang`, `.delay`, `.exit` and `.err`
+// script its outcome.
 //
 // The fake models the host's forwards in `forwards.list`, one `<serial> tcp:<port>
 // <remote>` line per forward. A `forward tcp:0 localabstract:<remote>` binds a real host
@@ -90,6 +107,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -250,6 +269,10 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		}
 		writeForwardList(dir, stdout)
 		return 0
+	case len(args) == 8 && args[0] == "-s" && args[2] == "shell" && args[3] == "pm" && args[4] == "list" && args[5] == "packages" && args[6] == "-U":
+		return runPM(ctx, dir, args[1], args[7], stdout, stderr)
+	case len(args) >= 4 && args[0] == "-s" && args[2] == "logcat":
+		return runLogcat(ctx, dir, args[1], args[3:], stdout, stderr)
 	}
 	fmt.Fprintln(stderr, "fake adb: unexpected arguments:", strings.Join(args, " "))
 	return 9
@@ -768,4 +791,225 @@ func dropKilledPids(dir string, out []byte) []byte {
 		return nil
 	}
 	return []byte(strings.Join(kept, "\n") + "\n")
+}
+
+// logcatFormat is the -v value the daemon asks for; the fake answers only this one
+// (plan m1i D20), so a change to the daemon's format fails a test.
+const logcatFormat = "threadtime,epoch,usec,uid"
+
+// logcatBuffers is logcat's default buffer set, the values a log file may name.
+var logcatBuffers = []string{"main", "system", "crash"}
+
+// logUIDRE pulls the uid column out of a line, so a device that ignored the format
+// element can be modelled.
+var logUIDRE = regexp.MustCompile(`^\s*([0-9]+\.[0-9]+)\s+(\S+)\s+([0-9]+)\s+([0-9]+)\s+([VDIWEF])\s+(.*)$`)
+
+// pmLineRE reads one `pm list packages -U` line's package name.
+var pmLineRE = regexp.MustCompile(`^package:(\S+) uid:[0-9]+$`)
+
+// scripted applies <prefix>.hang and .delay, prints <prefix>.err and returns the
+// scripted exit status as (code, true) when <prefix>.exit exists.
+func scripted(ctx context.Context, dir, prefix string, stderr io.Writer) (int, bool) {
+	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
+	if has(prefix + ".hang") {
+		wait(ctx, time.Minute)
+		return 0, true
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, prefix+".delay")); err == nil {
+		ms, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		if !wait(ctx, time.Duration(ms)*time.Millisecond) {
+			return 0, true
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, prefix+".err")); err == nil {
+		stderr.Write(b)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, prefix+".exit")); err == nil {
+		code, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		return code, true
+	}
+	return 0, false
+}
+
+// runPM answers `-s <serial> shell pm list packages -U <filter>` from the <serial>.pm.out
+// table: the lines whose package contains the filter, as real pm's substring match does.
+func runPM(ctx context.Context, dir, serial, filter string, stdout, stderr io.Writer) int {
+	if code, done := scripted(ctx, dir, serial+".pm", stderr); done {
+		return code
+	}
+	for _, l := range strings.Split(strings.TrimSuffix(string(dirBytes(dir, serial+".pm.out")), "\n"), "\n") {
+		if m := pmLineRE.FindStringSubmatch(l); m != nil && strings.Contains(m[1], filter) {
+			fmt.Fprintln(stdout, l)
+		}
+	}
+	return 0
+}
+
+// runLogcat answers `-s <serial> logcat …` from <serial>.log, which holds logcat text
+// with `--------- beginning of <buffer>` markers: it prints the buffers asked for, from
+// the epoch `-T` gives, in time order as the device's own logcat does (the sections
+// interleave), at most `-t` lines (the newest kept). Any other `-v` exits 1, and a
+// <serial>.nouid file drops the uid column, as a device that ignored it does.
+func runLogcat(ctx context.Context, dir, serial string, rest []string, stdout, stderr io.Writer) int {
+	if code, done := scripted(ctx, dir, serial+".logcat", stderr); done {
+		return code
+	}
+	format, buffers, since, tail := parseLogcatArgs(rest)
+	if format != logcatFormat {
+		fmt.Fprintf(stderr, "fake adb: unsupported logcat format %q\n", format)
+		return 1
+	}
+	nouid := false
+	if _, err := os.Stat(filepath.Join(dir, serial+".nouid")); err == nil {
+		nouid = true
+	}
+	type entry struct{ buffer, line string }
+	var entries []entry
+	for _, sec := range readLogSections(dir, serial) {
+		if !containsString(buffers, sec.buffer) {
+			continue
+		}
+		for _, l := range sec.lines {
+			if since != "" && !epochAtLeast(l, since) {
+				continue
+			}
+			entries = append(entries, entry{sec.buffer, l})
+		}
+	}
+	// Real logcat merges the buffers in time order; a scenario's sections are grouped by
+	// buffer, so sort them the way a read of the device would arrive.
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, aok := lineEpoch(entries[i].line)
+		b, bok := lineEpoch(entries[j].line)
+		return aok && bok && a < b
+	})
+	if tail >= 0 && len(entries) > tail {
+		entries = entries[len(entries)-tail:]
+	}
+	cur := ""
+	for _, e := range entries {
+		if e.buffer != cur {
+			fmt.Fprintf(stdout, "--------- beginning of %s\n", e.buffer)
+			cur = e.buffer
+		}
+		if nouid {
+			fmt.Fprintln(stdout, stripUID(e.line))
+		} else {
+			fmt.Fprintln(stdout, e.line)
+		}
+	}
+	return 0
+}
+
+// logSection is one buffer's lines, in the order the log file holds them.
+type logSection struct {
+	buffer string
+	lines  []string
+}
+
+// readLogSections reads <serial>.log into its buffer sections.
+func readLogSections(dir, serial string) []logSection {
+	var out []logSection
+	cur := -1
+	for _, l := range rawLogLines(dirBytes(dir, serial+".log")) {
+		if m := beginningRE.FindStringSubmatch(l); m != nil {
+			out = append(out, logSection{buffer: m[1]})
+			cur = len(out) - 1
+			continue
+		}
+		if cur < 0 {
+			out = append(out, logSection{buffer: "main"})
+			cur = 0
+		}
+		out[cur].lines = append(out[cur].lines, l)
+	}
+	return out
+}
+
+var beginningRE = regexp.MustCompile(`^-+ beginning of ([a-z]+)$`)
+
+// rawLogLines splits raw log bytes into lines, dropping the trailing newline and any CR.
+func rawLogLines(b []byte) []string {
+	s := strings.TrimSuffix(string(b), "\n")
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSuffix(lines[i], "\r")
+	}
+	return lines
+}
+
+// parseLogcatArgs reads the logcat command's own arguments.
+func parseLogcatArgs(rest []string) (format string, buffers []string, since string, tail int) {
+	buffers = append([]string(nil), logcatBuffers...)
+	tail = -1
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "-v":
+			if i+1 < len(rest) {
+				i++
+				format = rest[i]
+			}
+		case "-b":
+			if i+1 < len(rest) {
+				i++
+				buffers = strings.Split(rest[i], ",")
+			}
+		case "-T":
+			if i+1 < len(rest) {
+				i++
+				since = rest[i]
+			}
+		case "-t":
+			if i+1 < len(rest) {
+				i++
+				tail, _ = strconv.Atoi(rest[i])
+			}
+		}
+	}
+	return format, buffers, since, tail
+}
+
+// lineEpoch is a log line's leading epoch, false when it has none (a marker).
+func lineEpoch(line string) (float64, bool) {
+	f := strings.Fields(line)
+	if len(f) == 0 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(f[0], 64)
+	return v, err == nil
+}
+
+// epochAtLeast reports whether line's leading epoch is at or after from.
+func epochAtLeast(line, from string) bool {
+	f := strings.Fields(line)
+	if len(f) == 0 {
+		return false
+	}
+	a, err1 := strconv.ParseFloat(f[0], 64)
+	b, err2 := strconv.ParseFloat(from, 64)
+	if err1 != nil || err2 != nil {
+		return true
+	}
+	return a >= b
+}
+
+// stripUID removes the uid column from a line.
+func stripUID(line string) string {
+	m := logUIDRE.FindStringSubmatch(line)
+	if m == nil {
+		return line
+	}
+	return m[1] + " " + m[3] + " " + m[4] + " " + m[5] + " " + m[6]
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

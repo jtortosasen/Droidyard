@@ -127,7 +127,8 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 // a capability exactly when its result has a tagged field. Of the shipped capabilities
 // that is device.uiTree (exactly nodes, foreground and display: the snapshot id,
 // truncated, hint and emptyReason are the daemon's), device.screenshot (its reference
-// field, R9) and artifact.read (its data); system.health and device.list report the
+// field, R9), device.logs (each line's tag and message and each crash's exception and
+// message) and artifact.read (its data); system.health and device.list report the
 // host's own state and the list of serials, not device text (R6).
 func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	doc, err := schema.Generate(registry(), "test")
@@ -136,7 +137,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "device.inputText": true, "artifact.read": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}
@@ -159,6 +160,25 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 				isTrue := v
 				if isTrue != (f == only) {
 					t.Errorf("%s.%s: marked untrusted = %v, want %v", name, f, isTrue, f == only)
+				}
+			}
+		}
+		if c.Name == "device.logs" {
+			// R3: a line's tag and message and a crash's exception and message are the
+			// device's text; the times, ids and priorities are the daemon's own reading.
+			for _, f := range []string{"tag", "message"} {
+				if v, _ := prop(t, out, "result", "lines", "[]", f)[capability.UntrustedKeyword].(bool); !v {
+					t.Errorf("device.logs lines[].%s: not marked untrusted", f)
+				}
+			}
+			for _, f := range []string{"exception", "message"} {
+				if v, _ := prop(t, out, "result", "crashes", "[]", f)[capability.UntrustedKeyword].(bool); !v {
+					t.Errorf("device.logs crashes[].%s: not marked untrusted", f)
+				}
+			}
+			for _, f := range []string{"time", "pid", "tid", "priority", "crash"} {
+				if v, _ := prop(t, out, "result", "lines", "[]", f)[capability.UntrustedKeyword].(bool); v {
+					t.Errorf("device.logs lines[].%s: marked untrusted, but it is the daemon's own", f)
 				}
 			}
 		}

@@ -1,10 +1,12 @@
 package device
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"sync"
 	"time"
@@ -87,6 +89,112 @@ func (a *ADB) Run(ctx context.Context, path string, timeout time.Duration, limit
 		return res, nil
 	}
 	return res, err
+}
+
+// maxLine is the largest stdout line RunLines hands to its callback: a logcat line is
+// bounded at 16 KiB (plan m1i D7) and the scanner is given room well past it, so a
+// valid line is never split and a runaway line is a scanner error, not a hang.
+const maxLine = 1 << 20
+
+// RunLines is Run for a stream consumed as it arrives: stdout is handed to onLine line
+// by line, without its newline, as each arrives, under the same timeout, with only the
+// client's pid killed on timeout or cancellation and the same WaitDelay. stderr is
+// capped at stderrLimit. A non-zero exit is not an error, as in Run; onLine's own error
+// ends the call, killing the client (plan m1i step 3 uses it for the bounded follow).
+// line is only valid during the callback.
+func (a *ADB) RunLines(ctx context.Context, path string, timeout time.Duration, stderrLimit int, onLine func(line []byte) error, args ...string) (Output, error) {
+	if a.exec != nil {
+		return a.runLinesExec(ctx, path, timeout, stderrLimit, onLine, args)
+	}
+	if a.start == nil {
+		return Output{}, ErrNoStarter
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = a.env
+	cmd.Cancel = func() error { return cmd.Process.Kill() }
+	cmd.WaitDelay = waitDelay
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return Output{}, fmt.Errorf("starting adb: %w", err)
+	}
+	errb := &capped{max: stderrLimit}
+	cmd.Stderr = errb
+	if err := a.start(cmd); err != nil {
+		return Output{}, fmt.Errorf("starting adb: %w", err)
+	}
+	sc := bufio.NewScanner(stdout)
+	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
+	var lineErr error
+	for sc.Scan() {
+		if e := onLine(sc.Bytes()); e != nil {
+			lineErr = e
+			cancel()
+			break
+		}
+	}
+	if lineErr != nil {
+		io.Copy(io.Discard, stdout) // unblock a client still writing to a full pipe
+	}
+	err = cmd.Wait()
+	res := Output{Stderr: errb.bytes(), Truncated: errb.cut, ExitCode: -1}
+	if cmd.ProcessState != nil {
+		res.ExitCode = cmd.ProcessState.ExitCode()
+	}
+	switch {
+	case lineErr != nil:
+		return res, lineErr
+	case ctx.Err() != nil:
+		res.ExitCode = -1
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return res, ErrTimeout
+		}
+		return res, ctx.Err()
+	case err == nil:
+		if serr := sc.Err(); serr != nil && !errors.Is(serr, bufio.ErrTooLong) {
+			return res, serr
+		}
+		return res, nil
+	case errors.Is(err, exec.ErrWaitDelay) && res.ExitCode == 0:
+		return res, nil
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return res, nil
+	}
+	return res, err
+}
+
+// runLinesExec is RunLines over an in-process Exec, which returns its whole output at
+// once: the lines are delivered in order and the timeout, cap and mapping are the
+// same as with a process.
+func (a *ADB) runLinesExec(ctx context.Context, path string, timeout time.Duration, stderrLimit int, onLine func([]byte) error, args []string) (Output, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return Output{}, fmt.Errorf("starting adb: %w", err)
+	}
+	so, se, code, err := a.exec(ctx, path, args)
+	res := Output{ExitCode: code}
+	res.Stderr, res.Truncated = capBytes(se, stderrLimit)
+	switch {
+	case ctx.Err() != nil:
+		res.ExitCode = -1
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return res, ErrTimeout
+		}
+		return res, ctx.Err()
+	case err != nil:
+		res.ExitCode = -1
+		return res, fmt.Errorf("starting adb: %w", err)
+	}
+	for _, l := range rawLines(so) {
+		if e := onLine([]byte(l)); e != nil {
+			return res, e
+		}
+	}
+	return res, nil
 }
 
 // runExec is Run over an in-process Exec: the same timeout, cap and error mapping, no
