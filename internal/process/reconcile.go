@@ -23,6 +23,9 @@ type Kind string
 const (
 	SharedSidecar    Kind = "shared-sidecar"
 	WorkspaceSidecar Kind = "workspace-sidecar"
+	// DeviceStream is a recorded process that streams a device's log for the life of one
+	// call (plan m1i D9): recorded like a sidecar, reaped by Reconcile, never supervised.
+	DeviceStream Kind = "device-stream"
 )
 
 // Record is what the daemon writes when it spawns a supervised process and removes

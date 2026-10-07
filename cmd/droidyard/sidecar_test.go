@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
@@ -35,6 +36,12 @@ const (
 	// 17 it "runs on" (plan m1g step 5).
 	gradleFakeEnv = "DROIDYARD_TEST_GRADLE_FAKE"
 	gradleJVMEnv  = "DROIDYARD_TEST_GRADLE_JVM"
+	// adbFakeEnv names a devicetest scenario directory: a re-executed daemon then runs
+	// this binary as the fake adb (TestMain's devicetest.Main), so a follow's client is a
+	// real process the supervisor can record and kill (plan m1i step 3). adbPortEnv is
+	// the adb server port its clients are given, one nothing listens on.
+	adbFakeEnv = "DROIDYARD_TEST_ADB_FAKE"
+	adbPortEnv = "DROIDYARD_TEST_ADB_PORT"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -58,6 +65,22 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(shutdownEnv)); err == nil {
 		shutdownTimeout = d
+	}
+	// A test may give the daemon a fake adb (plan m1i step 3): its clients are then this
+	// binary, which TestMain turns into the fake — as devicetest.Main, before the reexec
+	// branch, when DROIDYARD_FAKE_ADB_DIR is set — so a follow's client is a real process
+	// the supervisor records and, at the window's end, kills by pid. The daemon's whole
+	// environment is replaced, as TestMain's seal is, so no client inherits this machine's
+	// adb, its SDK or the shared server on 5037.
+	if dir := os.Getenv(adbFakeEnv); dir != "" {
+		exe, err := os.Executable()
+		if err != nil {
+			panic(err)
+		}
+		adbEnviron = func() []string {
+			return []string{"ADB=" + exe, devicetest.DirEnv + "=" + dir,
+				"ANDROID_ADB_SERVER_PORT=" + os.Getenv(adbPortEnv), "HOME=" + dir, "PATH="}
+		}
 	}
 	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar
 	// command runs the test binary again in the fake's mode, so reexec must not reach
