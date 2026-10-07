@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/policy"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
@@ -110,7 +111,25 @@ func startInProcessADB(t *testing.T, httpAddr string, extra func(reg *capability
 // (plan m1j step 4). Zero keeps the default.
 func startInProcessFull(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, tick time.Duration) *inProcess {
 	t.Helper()
+	return startInProcessConfig(t, httpAddr, extra, adb, tick, "")
+}
+
+// startInProcessConfig is startInProcessFull with a configuration file written into the
+// state root before the daemon reads it. The tool keys are read once, at daemon start
+// (ADR-0032 §3, §6; plan m1k D8), so a test that wants them set writes the file first;
+// an empty body writes no file, and the daemon starts with the configuration missing.
+func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, tick time.Duration, configBody string) *inProcess {
+	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
+	if configBody != "" {
+		dir := filepath.Join(p.state, "config")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, policy.FileName), []byte(configBody), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	st, err := store.New(p.state)
 	if err != nil {
 		t.Fatal(err)

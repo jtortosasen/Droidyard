@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 // versionTimeout bounds `adb version`; a variable so a test of a slow hook is quick.
@@ -35,6 +37,9 @@ type ADB struct {
 	// before any call, and read at each device check; nil is the emulators-only
 	// default.
 	policy Policy
+	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
+	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
+	toolKey policy.ToolKey
 
 	mu    sync.Mutex
 	cache *versions
@@ -87,6 +92,12 @@ func (a *ADB) SetStreamStarter(s StreamStarter) { a.stream = s }
 // every registry that predates the configuration file gets.
 func (a *ADB) SetPolicy(p Policy) { a.policy = p }
 
+// SetToolKey gives the ADB `tools.adb` as the daemon read it at start (ADR-0032 §3, §6;
+// plan m1k D8): the first candidate of every resolution. The value is a snapshot, so an
+// edit of the configuration file does not change it until a new daemon starts. Called
+// once, at wiring; an empty key is the same as never calling it.
+func (a *ADB) SetToolKey(key policy.ToolKey) { a.toolKey = key }
+
 // Exec is an in-process stand-in for starting an adb client, for tests whose subject
 // is not the process runner: it returns what the client would have written and its
 // exit code, and honours ctx as a killed client would. Run still owns the timeout, the
@@ -102,8 +113,9 @@ func NewADBWithExec(env []string, exec Exec) *ADB {
 }
 
 // Resolve finds adb again: a few stats, run on every availability check and device
-// call, so an adb installed or removed while the daemon runs is seen.
-func (a *ADB) Resolve() Resolution { return Resolve(a.env) }
+// call, so an adb installed or removed while the daemon runs is seen. The configured
+// `tools.adb` is fixed at start (ADR-0032 §6; plan m1k D8).
+func (a *ADB) Resolve() Resolution { return ResolveWith(a.env, a.toolKey) }
 
 // snapshots returns the snapshot store for a device, creating it on first use. Kept
 // snapshots are how a ref survives from the read that returned it to a later tree.
@@ -176,7 +188,7 @@ func (a *ADB) Check(ctx context.Context) Status {
 	st.Version, st.ServerVersion = v.client, v.server
 	if v.build != "" && v.server != "" && v.build != v.server {
 		st.Warnings = append(st.Warnings, fmt.Sprintf(
-			"the adb client %s (%s, from %s) differs from the running adb server's version %s: running it restarts the shared server, which can interrupt Android Studio and other tools. Set ADB to the adb the server was started from.",
+			"the adb client %s (%s, from %s) differs from the running adb server's version %s: running it restarts the shared server, which can interrupt Android Studio and other tools. Set `tools.adb` in the droidyard configuration (or ADB in the environment) to the adb the server was started from.",
 			v.client, res.Path, res.Source, v.server))
 	}
 	return st

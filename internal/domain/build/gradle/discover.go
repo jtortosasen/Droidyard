@@ -12,15 +12,19 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 // Where a JVM came from, in the order discovery tries them (gradle.md §Sidecar JVM
-// discovery; plan m1g D22 skips the configured path, which has no key yet).
+// discovery; ADR-0032 §3; plan m1k D8): the configured `gradle.sidecarJavaHome` first,
+// then JAVA_HOME.
 const (
-	SourceJavaHome     = "JAVA_HOME"
-	SourcePath         = "PATH"
-	SourceJavaHomeTool = "/usr/libexec/java_home"
-	SourceStudio       = "Android Studio JBR"
+	SourceSidecarJavaHome = "gradle.sidecarJavaHome"
+	SourceJavaHome        = "JAVA_HOME"
+	SourcePath            = "PATH"
+	SourceJavaHomeTool    = "/usr/libexec/java_home"
+	SourceStudio          = "Android Studio JBR"
 )
 
 // Rejected is a JVM candidate discovery looked at and did not use.
@@ -50,7 +54,7 @@ func (j JVM) NotFound() string {
 	if len(tried) == 0 {
 		return "no JVM 17 or newer was found"
 	}
-	return "no JVM 17 or newer was found. Tried: " + strings.Join(tried, "; ") + ". Set JAVA_HOME to a JDK 17 or newer."
+	return "no JVM 17 or newer was found. Tried: " + strings.Join(tried, "; ") + ". Set `gradle.sidecarJavaHome` in the droidyard configuration (or JAVA_HOME) to a JDK 17 or newer."
 }
 
 // Finder is where discovery looks and how it validates: the seams of the probes are
@@ -68,6 +72,10 @@ type Finder struct {
 	MacJavaHome func() (string, bool)
 	// StudioHomes lists Android Studio JBR homes; nil uses the real globs.
 	StudioHomes func() []string
+	// JavaHome is `gradle.sidecarJavaHome` as read at daemon start: the first candidate
+	// (ADR-0032 §3; gradle.md §Sidecar JVM discovery, step 1), or the file that could
+	// not be read, when it could not (plan m1k D8). Empty means the file set no key.
+	JavaHome policy.ToolKey
 }
 
 // Discover returns the first candidate that is a runnable JVM ≥ 17, validated by its
@@ -102,6 +110,21 @@ func Discover(f Finder) JVM {
 		}
 		res.Found, res.Home, res.Version, res.Source = true, home, version, source
 		return true
+	}
+
+	// The file's tool keys were not read at start: no key is used, the file is listed,
+	// and discovery goes on to JAVA_HOME and the rest (ADR-0032 §4; plan m1k D8).
+	if f.JavaHome.Invalid != "" {
+		reject(f.JavaHome.ConfigPath, SourceSidecarJavaHome, "the configuration file is invalid ("+f.JavaHome.Invalid+"); its tool keys were not read")
+	}
+
+	// The configured gradle.sidecarJavaHome is the first candidate (ADR-0032 §3;
+	// gradle.md §Sidecar JVM discovery, step 1). Validated like every candidate: a path
+	// that is not a runnable JVM ≥ 17 is rejected and the next is tried.
+	if f.JavaHome.Invalid == "" && f.JavaHome.Path != "" {
+		if win(f.JavaHome.Path, SourceSidecarJavaHome) {
+			return res
+		}
 	}
 
 	env := envMap(f.Env)

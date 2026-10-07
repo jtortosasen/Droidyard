@@ -226,6 +226,39 @@ type Startup struct {
 	State string
 	// Error is the failure when State is StateInvalid.
 	Error string
+	// Path is the configuration file, so a resolution that cannot use a key names the
+	// file it did not read (plan m1k D8).
+	Path string
+}
+
+// ToolKey is one tool key as the resolution that uses it reads it: `tools.adb`,
+// `tools.emulator` or `gradle.sidecarJavaHome`, read once at daemon start (ADR-0032 §3,
+// §6; plan m1k D8). Path is the configured candidate, empty when the file does not set
+// the key. When the file could not be used at all, Path is empty, ConfigPath names the
+// file and Invalid says why: no key takes effect, and the resolution lists the file as a
+// rejected candidate (ADR-0032 §4; D8).
+type ToolKey struct {
+	Path       string
+	ConfigPath string
+	Invalid    string
+}
+
+// ADBKey is `tools.adb` as device resolution reads it (plan m1k D8).
+func (s Startup) ADBKey() ToolKey { return s.toolKey(s.ADB) }
+
+// EmulatorKey is `tools.emulator` as emulator resolution reads it (plan m1k D8).
+func (s Startup) EmulatorKey() ToolKey { return s.toolKey(s.Emulator) }
+
+// JavaHomeKey is `gradle.sidecarJavaHome` as JVM discovery reads it (plan m1k D8).
+func (s Startup) JavaHomeKey() ToolKey { return s.toolKey(s.SidecarJavaHome) }
+
+// toolKey builds a ToolKey: the configured path when the file parsed, or the file and
+// the reason it did not, when it did not (ADR-0032 §4; plan m1k D8).
+func (s Startup) toolKey(path string) ToolKey {
+	if s.State == StateInvalid {
+		return ToolKey{ConfigPath: s.Path, Invalid: s.Error}
+	}
+	return ToolKey{Path: path, ConfigPath: s.Path}
 }
 
 // Startup returns the keys read once at daemon start.
@@ -236,21 +269,21 @@ func (p *Policy) Startup() Startup { return p.startup }
 // daemon still starts, and each capability the file affects says why.
 func (p *Policy) readStartup() {
 	if p.dirErr != nil {
-		p.startup = Startup{State: StateInvalid, Error: p.dirErr.Error()}
+		p.startup = Startup{State: StateInvalid, Error: p.dirErr.Error(), Path: p.path}
 		return
 	}
 	data, err := readConfigFile(p.path)
 	if errors.Is(err, fs.ErrNotExist) {
-		p.startup = Startup{State: StateMissing}
+		p.startup = Startup{State: StateMissing, Path: p.path}
 		return
 	}
 	if err != nil {
-		p.startup = Startup{State: StateInvalid, Error: err.Error()}
+		p.startup = Startup{State: StateInvalid, Error: err.Error(), Path: p.path}
 		return
 	}
 	doc, derr := decode(data)
 	if derr != nil {
-		p.startup = Startup{State: StateInvalid, Error: derr.Error()}
+		p.startup = Startup{State: StateInvalid, Error: derr.Error(), Path: p.path}
 		return
 	}
 	p.startup = Startup{
@@ -259,6 +292,7 @@ func (p *Policy) readStartup() {
 		SidecarJavaHome: doc.gradle.sidecarJavaHome,
 		AllowBelowFloor: doc.gradle.allowBelowFloor,
 		State:           StateOK,
+		Path:            p.path,
 	}
 }
 

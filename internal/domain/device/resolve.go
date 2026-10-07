@@ -11,13 +11,17 @@ import (
 	// (plan m1h D13 keeps m1e's TestResolveOrder unchanged, so the import moves out of
 	// the way, not the test helper).
 	sdkpkg "github.com/jtortosasen/droidyard/internal/domain/sdk"
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
-// Where adb came from, in the order Resolve tries them. The adb.path and sdk.root
-// configuration keys have no specification and are skipped (plan m1e, R5).
+// Where adb came from, in the order Resolve tries them (ADR-0032 §3; plan m1k D8). The
+// `tools.adb` key comes first, the reverse of adb-device.md's older ADB-then-key order:
+// the accepted ADR binds (R3). The adb.path and sdk.root configuration keys have no
+// specification and are skipped (plan m1e, R5).
 const (
-	SourceADBEnv = "ADB"
-	SourcePath   = "PATH"
+	SourceToolKey = "tools.adb"
+	SourceADBEnv  = "ADB"
+	SourcePath    = "PATH"
 )
 
 // The host SDK's sources, re-exported from internal/domain/sdk: host SDK discovery moved
@@ -45,15 +49,23 @@ type Resolution struct {
 	Warnings []string
 }
 
-// Resolve finds adb in adb-device.md §adb resolution and degradation's order: the
-// ADB variable, the host SDK's platform-tools/adb (sdk.md §Host SDK), adb on PATH. It
-// reads only env ("KEY=value" entries, as os.Environ gives them), never the process's
-// own environment, and touches nothing but the file system.
+// Resolve finds adb with no configured tool key: it is ResolveWith over an empty key,
+// the order every caller that predates the configuration file gets.
+func Resolve(env []string) Resolution { return ResolveWith(env, policy.ToolKey{}) }
+
+// ResolveWith finds adb in ADR-0032 §3's order: the `tools.adb` key, the ADB variable,
+// the host SDK's platform-tools/adb (sdk.md §Host SDK), adb on PATH. It reads only env
+// ("KEY=value" entries, as os.Environ gives them), never the process's own environment,
+// and touches nothing but the file system. key is `tools.adb` read at daemon start
+// (plan m1k D8); an empty key is the same as Resolve.
 //
-// An ADB that names no executable file fails closed: nothing is tried after it
-// (plan m1e, Q6), because falling through could pick an adb whose version differs from
-// the running server's and restart the shared server.
-func Resolve(env []string) Resolution {
+// A configured `tools.adb` that names no executable file, and an ADB that names none,
+// both fail closed: nothing is tried after them (plan m1e, Q6; plan m1k D8), because
+// falling through could pick an adb whose version differs from the running server's and
+// restart the shared server. When the configured key wins while ADB is set, ADB's path
+// is listed as rejected ("overridden by tools.adb"), so system.health shows the override
+// (R3).
+func ResolveWith(env []string, key policy.ToolKey) Resolution {
 	e := envMap(env)
 	host := sdkpkg.Host(env)
 	var res Resolution
@@ -67,6 +79,25 @@ func Resolve(env []string) Resolution {
 		return res
 	}
 
+	// The file's tool keys were not read at start: no key is used, the file is listed,
+	// and resolution falls through to ADB, the SDK and PATH (ADR-0032 §4; plan m1k D8).
+	if key.Invalid != "" {
+		reject(key.ConfigPath, SourceToolKey, "the configuration file is invalid ("+key.Invalid+"); its tool keys were not read")
+	}
+
+	// The configured tools.adb is the first candidate (ADR-0032 §3; R3). Not executable
+	// → fail closed, as ADB does; when it wins with ADB set, ADB is shown as overridden.
+	if key.Invalid == "" && key.Path != "" {
+		if reason := notExecutable(key.Path); reason != "" {
+			reject(key.Path, SourceToolKey, reason+"; tools.adb is set, so no other adb is tried")
+			return res
+		}
+		if v := e["ADB"]; v != "" {
+			reject(v, SourceADBEnv, "overridden by tools.adb")
+		}
+		return win(key.Path, SourceToolKey)
+	}
+
 	if v := e["ADB"]; v != "" {
 		if reason := notExecutable(v); reason != "" {
 			reject(v, SourceADBEnv, reason+"; ADB is set, so no other adb is tried")
@@ -76,7 +107,7 @@ func Resolve(env []string) Resolution {
 	}
 
 	// The host SDK, as sdk.Host found it (sdk.md §Host SDK); its platform-tools/adb is
-	// the second candidate. Its rejected candidates come before the adb on PATH.
+	// the third candidate. Its rejected candidates come before the adb on PATH.
 	res.Rejected = append(res.Rejected, host.Rejected...)
 	if host.Found {
 		adb := filepath.Join(host.Root, "platform-tools", "adb")
@@ -148,5 +179,5 @@ func (r Resolution) NotFound() string {
 	for _, c := range r.Rejected {
 		tried = append(tried, c.Candidate+" ("+c.Reason+")")
 	}
-	return "adb was not found: set ADB to the adb binary, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH. Tried: " + strings.Join(tried, "; ")
+	return "adb was not found: set `tools.adb` in the droidyard configuration to the adb binary, or ADB in the environment, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH. Tried: " + strings.Join(tried, "; ")
 }

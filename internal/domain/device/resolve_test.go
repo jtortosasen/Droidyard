@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 // touchADB makes an executable file at dir/platform-tools/adb (or dir/adb if bare).
@@ -180,5 +182,99 @@ func TestResolveNeverReadsTheProcessEnvironment(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	if got := Resolve(nil); got.Found {
 		t.Errorf("Resolve(nil) found %q from the process environment", got.Path)
+	}
+}
+
+// TestResolveConfiguredToolKeyWinsOverTheVariable pins ADR-0032 §3 and R3: `tools.adb`
+// is the first candidate, ahead of the ADB variable, and when it wins while ADB is set
+// the variable's path is listed as overridden, so system.health shows the override.
+// Seen failing with ADB before tools.adb.
+func TestResolveConfiguredToolKeyWinsOverTheVariable(t *testing.T) {
+	tmp := t.TempDir()
+	toolAdb := touch(t, filepath.Join(tmp, "configured", "adb"))
+	adbVar := touch(t, filepath.Join(tmp, "var", "adb"))
+	homeSDK := sdk(t, filepath.Join(tmp, "sdk"))
+	pathAdb := touch(t, filepath.Join(tmp, "bin", "adb"))
+	env := []string{"ADB=" + adbVar, "ANDROID_HOME=" + filepath.Dir(filepath.Dir(homeSDK)), "PATH=" + filepath.Dir(pathAdb)}
+
+	got := ResolveWith(env, policy.ToolKey{Path: toolAdb})
+	if !got.Found || got.Path != toolAdb || got.Source != SourceToolKey {
+		t.Fatalf("ResolveWith = %+v; want %q from %s", got, toolAdb, SourceToolKey)
+	}
+	var overridden bool
+	for _, r := range got.Rejected {
+		if r.Candidate == adbVar && r.Source == SourceADBEnv && strings.Contains(r.Reason, "overridden by tools.adb") {
+			overridden = true
+		}
+	}
+	if !overridden {
+		t.Errorf("rejected = %+v; want the ADB path listed as overridden by tools.adb", got.Rejected)
+	}
+
+	// Without ADB the key wins and nothing else was tried, so the rejection list is empty.
+	got = ResolveWith([]string{"PATH=" + filepath.Dir(pathAdb)}, policy.ToolKey{Path: toolAdb})
+	if !got.Found || got.Source != SourceToolKey || len(got.Rejected) != 0 {
+		t.Errorf("without ADB: %+v; want the key with an empty rejection list", got)
+	}
+}
+
+// TestResolveConfiguredToolKeyFailsClosed pins D8: a `tools.adb` that names no
+// executable file fails closed — nothing after it is tried, though a valid ADB, host SDK
+// and PATH adb all exist — and the reason names the key. Seen failing when the key falls
+// through.
+func TestResolveConfiguredToolKeyFailsClosed(t *testing.T) {
+	tmp := t.TempDir()
+	adbVar := touch(t, filepath.Join(tmp, "var", "adb"))
+	homeSDK := sdk(t, filepath.Join(tmp, "sdk"))
+	pathAdb := touch(t, filepath.Join(tmp, "bin", "adb"))
+	env := []string{"ADB=" + adbVar, "ANDROID_HOME=" + filepath.Dir(filepath.Dir(homeSDK)), "PATH=" + filepath.Dir(pathAdb)}
+	missing := filepath.Join(tmp, "nope", "adb")
+
+	got := ResolveWith(env, policy.ToolKey{Path: missing})
+	if got.Found || got.Path != "" {
+		t.Fatalf("ResolveWith = %+v; want not found (fail closed)", got)
+	}
+	if len(got.Rejected) != 1 || got.Rejected[0].Candidate != missing || got.Rejected[0].Source != SourceToolKey {
+		t.Fatalf("rejected = %+v; want exactly the missing tools.adb and nothing after it", got.Rejected)
+	}
+	if !strings.Contains(got.Rejected[0].Reason, "tools.adb is set") {
+		t.Errorf("reason = %q; want it to name the key", got.Rejected[0].Reason)
+	}
+	if !strings.Contains(got.NotFound(), "tools.adb") {
+		t.Errorf("NotFound = %q; want it to name the key", got.NotFound())
+	}
+}
+
+// TestResolveInvalidConfigurationNamesTheFile pins D8's invalid-file entry: with an
+// unusable configuration no key is used, the file is listed as rejected with the key's
+// source, and resolution falls through to a source that still works (ADR-0032 §4). Seen
+// failing when the entry is omitted.
+func TestResolveInvalidConfigurationNamesTheFile(t *testing.T) {
+	tmp := t.TempDir()
+	adbVar := touch(t, filepath.Join(tmp, "var", "adb"))
+	configPath := filepath.Join(tmp, "config.json")
+	key := policy.ToolKey{ConfigPath: configPath, Invalid: `tools.adb: "adb" is not an absolute path`}
+
+	got := ResolveWith([]string{"ADB=" + adbVar}, key)
+	if !got.Found || got.Path != adbVar || got.Source != SourceADBEnv {
+		t.Fatalf("ResolveWith = %+v; want the ADB fallback", got)
+	}
+	var named bool
+	for _, r := range got.Rejected {
+		if r.Candidate == configPath && r.Source == SourceToolKey && strings.Contains(r.Reason, "the configuration file is invalid") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("rejected = %+v; want the invalid file with source %s", got.Rejected, SourceToolKey)
+	}
+
+	// With nothing else to fall to, the file is still why adb was not found.
+	none := ResolveWith([]string{"PATH=" + tmp, "HOME=" + filepath.Join(tmp, "user")}, key)
+	if none.Found {
+		t.Fatalf("ResolveWith = %+v; want not found", none)
+	}
+	if !strings.Contains(none.NotFound(), configPath) {
+		t.Errorf("NotFound = %q; want it to name %s", none.NotFound(), configPath)
 	}
 }

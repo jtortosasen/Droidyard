@@ -15,6 +15,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 func TestMain(m *testing.M) {
@@ -339,6 +340,84 @@ func TestResolveOrderHostSDKThenADBLocationThenPATH(t *testing.T) {
 			t.Errorf("NotFound = %q", res.NotFound())
 		}
 	})
+}
+
+// TestResolvePrefersTheConfiguredLauncher pins ADR-0032 §3 and D8: the `tools.emulator`
+// key is the first launcher candidate, ahead of the host SDK; a key that is not
+// executable is rejected and the host SDK's launcher wins. Seen failing with the host
+// SDK before the key.
+func TestResolvePrefersTheConfiguredLauncher(t *testing.T) {
+	tmp := t.TempDir()
+	keyLauncher := filepath.Join(tmp, "configured", "emulator")
+	execFile(t, keyLauncher)
+	sdkRoot := t.TempDir()
+	execFile(t, filepath.Join(sdkRoot, "emulator", "emulator"))
+	env := []string{"ANDROID_HOME=" + sdkRoot, "HOME=" + t.TempDir()}
+	keys := Keys{Launcher: policy.ToolKey{Path: keyLauncher}}
+
+	res := ResolveWith(env, keys)
+	if !res.Found || res.Path != keyLauncher || res.Source != SourceToolKey {
+		t.Fatalf("ResolveWith = %+v; want %q from %s", res, keyLauncher, SourceToolKey)
+	}
+
+	// A key that names no file is rejected, and the host SDK's launcher still wins.
+	missing := filepath.Join(tmp, "nope", "emulator")
+	res = ResolveWith(env, Keys{Launcher: policy.ToolKey{Path: missing}})
+	if !res.Found || res.Source != SourceHostSDK {
+		t.Fatalf("ResolveWith = %+v; want the host SDK's launcher after the rejected key", res)
+	}
+	var rejected bool
+	for _, r := range res.Rejected {
+		if r.Candidate == missing && r.Source == SourceToolKey {
+			rejected = true
+		}
+	}
+	if !rejected {
+		t.Errorf("rejected = %+v; want the unusable key with source %s", res.Rejected, SourceToolKey)
+	}
+}
+
+// TestResolveDerivesTheLauncherFromTheConfiguredADB pins D8's derived row: with no
+// `tools.emulator` and no host SDK, the launcher derived from adb's location uses adb as
+// resolved, so the configured `tools.adb` under <sdk>/platform-tools names the launcher
+// beside it. Seen failing when the derived candidate ignores the configured adb.
+func TestResolveDerivesTheLauncherFromTheConfiguredADB(t *testing.T) {
+	tmp := t.TempDir()
+	adb := filepath.Join(tmp, "sdk", "platform-tools", "adb")
+	execFile(t, adb)
+	launcher := filepath.Join(tmp, "sdk", "emulator", "emulator")
+	execFile(t, launcher)
+	env := []string{"PATH=", "HOME=" + t.TempDir()}
+
+	res := ResolveWith(env, Keys{ADB: policy.ToolKey{Path: adb}})
+	if !res.Found || res.Path != launcher || res.Source != SourceADBLocation {
+		t.Fatalf("ResolveWith = %+v; want %q from %s", res, launcher, SourceADBLocation)
+	}
+}
+
+// TestResolveInvalidConfigurationNamesTheFile pins D8's invalid-file entry for the
+// launcher: with an unusable configuration no key is used and the file is listed as
+// rejected with `tools.emulator` as its source, whatever else wins.
+func TestResolveInvalidConfigurationNamesTheFile(t *testing.T) {
+	tmp := t.TempDir()
+	sdkRoot := t.TempDir()
+	execFile(t, filepath.Join(sdkRoot, "emulator", "emulator"))
+	configPath := filepath.Join(tmp, "config.json")
+	keys := Keys{Launcher: policy.ToolKey{ConfigPath: configPath, Invalid: "tools.emulator: not an absolute path"}}
+
+	res := ResolveWith([]string{"ANDROID_HOME=" + sdkRoot, "HOME=" + t.TempDir()}, keys)
+	if !res.Found || res.Source != SourceHostSDK {
+		t.Fatalf("ResolveWith = %+v; want the host SDK despite the bad file", res)
+	}
+	var named bool
+	for _, r := range res.Rejected {
+		if r.Candidate == configPath && r.Source == SourceToolKey && strings.Contains(r.Reason, "the configuration file is invalid") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("rejected = %+v; want the invalid file with source %s", res.Rejected, SourceToolKey)
+	}
 }
 
 // ---- AVD discovery -----------------------------------------------------------------

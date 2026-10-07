@@ -203,6 +203,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if st != nil {
 		problems = st.Problems
 	}
+	// The daemon's one policy: it decides trust, shell.exec and physical devices, reports
+	// the configuration file's state, and reads the tool keys once, here, so they take
+	// effect at this start and not before the next (ADR-0032 §3, §6; plan m1k D1, D8). A
+	// daemon that reads no configuration still starts: a bad file is reported, not fatal.
+	pol := policy.New(env)
+	startup := pol.Startup()
 	// Every adb client is started through the supervisor's locked spawner and given
 	// the daemon's whole environment (plan m1e, R8). Without a supervisor (caps,
 	// schema) adb can be resolved and reported but not run.
@@ -229,10 +235,13 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		adb = device.NewADB(adbEnviron(), spawn)
 		adb.SetStreamStarter(recorded)
 	}
+	// `tools.adb` is the first adb candidate, fixed at this start (ADR-0032 §3, §6;
+	// plan m1k D8).
+	adb.SetToolKey(startup.ADBKey())
 	// The one Gradle sidecar client (ADR-0019): it discovers the JVM in the daemon's
 	// environment, extracts the jars to the cache directory and supervises the shared
 	// sidecar lazily (plan m1g step 5). It holds no process until a call needs one.
-	gradleOpts := gradle.Options{Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch}
+	gradleOpts := gradle.Options{Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch, JavaHome: startup.JavaHomeKey()}
 	if sup != nil {
 		if cache, err := env.CacheDir(); err == nil {
 			gradleOpts.CacheDir = cache
@@ -255,11 +264,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// same locked spawner adb clients use, and boots detached under `emulator/<avd>.log`
 	// in the daemon's state root. It owns no device logic (emulator package doc).
 	emulatorClient := emulator.New(adbEnviron(), adb, spawn, stateRoot)
-	// The daemon's one policy: it decides trust, shell.exec and physical devices, and it
-	// reports the configuration file's state (ADR-0032; plan m1k D1). Every live check
-	// reads one size-and-mtime snapshot, so a hand edit or a `droidyard trust` takes
-	// effect without a restart; the tool keys are read once, at construction.
-	pol := policy.New(env)
+	// `tools.emulator` is the first launcher candidate and `tools.adb` the adb the
+	// launcher derived from adb's location uses, both fixed at this start (ADR-0032 §3,
+	// §6; plan m1k D8).
+	emulatorClient.SetToolKeys(emulator.Keys{Launcher: startup.EmulatorKey(), ADB: startup.ADBKey()})
 	policy.Register(reg, pol)
 	// The device policy seam (plan m1k D7): the ADB consults the one Policy for a
 	// physical device's admission, re-reading the configuration at each check, so a hand
