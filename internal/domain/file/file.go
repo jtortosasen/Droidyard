@@ -1,6 +1,6 @@
 // Package file registers the capabilities that read and write files in a workspace's
-// project root: file.list and file.read (this milestone), file.write and file.watch
-// (the next ones). Every caller-provided path is resolved to a name relative to the
+// project root: file.list, file.read and file.write (this milestone), file.watch
+// (the next one). Every caller-provided path is resolved to a name relative to the
 // root and every filesystem call goes through os.Root opened on that root, so no path
 // escapes it however it is spelled — an absolute path, "..", or a symlink (D2). The
 // package runs no trust check: file.* works on trusted and untrusted roots alike
@@ -16,7 +16,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
-// Version is the API version that introduces file.list and file.read (R1).
+// version is the API version that introduces file.list, file.read and file.write (R1).
 const version = "0.9.0"
 
 // Options configure the file capabilities.
@@ -31,7 +31,7 @@ type Options struct {
 	Env platform.Env
 }
 
-// Register adds file.list and file.read to the registry.
+// Register adds file.list, file.read and file.write to the registry.
 func Register(reg *capability.Registry, opts Options) {
 	reg.MustRegister(capability.Descriptor{
 		Name:  "file.list",
@@ -103,12 +103,49 @@ func Register(reg *capability.Registry, opts Options) {
 			return r.read(call.Params.(ReadParams))
 		},
 	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:  "file.write",
+		Kind:  capability.Command,
+		Scope: capability.Workspace,
+		Since: version,
+		// Repeating the call with the same arguments has no additional effect beyond the
+		// first write (mcp-tool-surface.md §Annotations); it is destructive, which is a
+		// command's default, so no override and no reason are needed.
+		Idempotent: true,
+		Description: "Writes a whole text file into the project, replacing any existing file atomically: a reader sees either the old file or the new one, never a partial write. " + writePathNote + " " +
+			"Missing parent directories are created. An existing file keeps its name on disk and its permission bits (setuid, setgid and sticky included; owner, ACLs and extended attributes are not kept); a new file is created 0644 before umask. Content is UTF-8, at most 512 KiB. " +
+			"A hard link to a replaced file keeps the old content, and a write under .git/ is allowed. " +
+			"An existing file without its owner-write bit is FILE_IO_FAILED; a directory, a FIFO, a socket, a device or a symlink where the file goes is FILE_WRONG_TYPE.",
+		Params: WriteParams{},
+		Result: WriteResult{},
+		// The codes the handler returns (D3, D6). It never returns FILE_NOT_FOUND: a
+		// missing target is created and any ENOENT during the write is FILE_IO_FAILED.
+		// WORKSPACE_NOT_OPEN comes from Start.
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrFileWrongType,
+			capability.ErrFileIOFailed, capability.ErrInvalidParams,
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.write(call.Params.(WriteParams))
+		},
+	})
 }
 
 // pathNote is the sentence both descriptions share: how the path is named and where
 // containment is decided (D2, D10).
 const pathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and treated the same. " +
 	"Every path stays inside the project root: an absolute path outside it, \"..\", a symlink (intermediate or final) that would leave it, and any symlink with an absolute target, even one pointing inside the root, fail FILE_OUTSIDE_ROOT."
+
+// writePathNote is file.write's path rule: as pathNote for the directories on the way,
+// but a symlink as the final component is never followed, wherever it points, so it is
+// FILE_WRONG_TYPE rather than FILE_OUTSIDE_ROOT (D6).
+const writePathNote = "The path is relative to the project root and slash-separated; an absolute path inside the project root is accepted and treated the same. " +
+	"An absolute path outside the root, \"..\", and an intermediate symlink that would leave the root or has an absolute target fail FILE_OUTSIDE_ROOT; a symlink as the final component is FILE_WRONG_TYPE wherever it points, and is never followed."
 
 // resolver builds the per-call resolver from the call's workspace, or fails when the
 // workspace is not open (which Start has already rejected; kept for a direct call).

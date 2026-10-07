@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -544,7 +546,7 @@ func TestListOneLevelSortedTyped(t *testing.T) {
 // never marked (which is why the level-4 fixture copy can be untrusted).
 func TestFileResultsAreUnmarked(t *testing.T) {
 	f := newFixture(t)
-	for _, name := range []string{"file.list", "file.read"} {
+	for _, name := range []string{"file.list", "file.read", "file.write"} {
 		d, ok := f.reg.Lookup(name)
 		if !ok {
 			t.Fatalf("%s is not registered", name)
@@ -591,4 +593,532 @@ func caseInsensitive(dir string) bool {
 	defer os.Remove(probe)
 	_, err := os.Stat(filepath.Join(dir, "CASEPROBE.TMP"))
 	return err == nil
+}
+
+// --- file.write (plan m1j step 2) ---
+
+func (f *fixture) writeCall(p WriteParams) (WriteResult, *capability.Error) {
+	f.t.Helper()
+	res, err := f.call("file.write", p)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	return res.(WriteResult), nil
+}
+
+// tempFilesUnder returns every *.droidyard-*.tmp file under root: a write must leave
+// none behind, on success or failure (D6).
+func tempFilesUnder(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() && strings.Contains(d.Name(), ".droidyard-") && strings.HasSuffix(d.Name(), ".tmp") {
+			out = append(out, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// probeMode is the mode a 0644 file gets on this volume, the umask applied.
+func probeMode(t *testing.T, dir string) fs.FileMode {
+	t.Helper()
+	p := filepath.Join(dir, "modeProbe.tmp")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(p)
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode().Perm()
+}
+
+// Decision (D6): a write creates the file and its missing parents inside the root, with
+// the exact bytes, mode 0644 before umask, created: true, and no temporary file left.
+func TestWriteCreatesWithParents(t *testing.T) {
+	f := newFixture(t)
+	want := probeMode(t, f.root)
+	res, cerr := f.writeCall(WriteParams{Path: "a/b/c.kt", Content: "package a\n"})
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if !res.Created || res.Path != "a/b/c.kt" || res.Size != int64(len("package a\n")) {
+		t.Fatalf("write result: %+v", res)
+	}
+	got, err := os.ReadFile(filepath.Join(f.root, "a", "b", "c.kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "package a\n" {
+		t.Errorf("bytes: %q", got)
+	}
+	fi, err := os.Stat(filepath.Join(f.root, "a", "b", "c.kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != want {
+		t.Errorf("new file mode is %v; want %v (0644 before umask)", fi.Mode().Perm(), want)
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Decision (D6): an overwrite replaces the content, is created: false, and keeps the
+// existing file's exact mode.
+func TestWriteOverwriteKeepsMode(t *testing.T) {
+	f := newFixture(t)
+	f.write("note.txt", "old")
+	if err := os.Chmod(filepath.Join(f.root, "note.txt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.writeCall(WriteParams{Path: "note.txt", Content: "new content"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Created || res.Path != "note.txt" {
+		t.Fatalf("write result: %+v", res)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "note.txt")); string(got) != "new content" {
+		t.Errorf("bytes: %q", got)
+	}
+	if fi, _ := os.Stat(filepath.Join(f.root, "note.txt")); fi.Mode().Perm() != 0o600 {
+		t.Errorf("the overwrite changed the mode to %v; want 0600", fi.Mode().Perm())
+	}
+	// The setgid bit is part of the mode kept, not only the permission bits.
+	sg := filepath.Join(f.root, "sg.sh")
+	f.write("sg.sh", "old")
+	if err := os.Chmod(sg, 0o750|os.ModeSetgid); err == nil {
+		if fi, _ := os.Stat(sg); fi.Mode()&os.ModeSetgid != 0 {
+			if _, err := f.writeCall(WriteParams{Path: "sg.sh", Content: "new"}); err != nil {
+				t.Fatal(err)
+			}
+			if fi, _ := os.Stat(sg); fi.Mode()&(os.ModePerm|os.ModeSetgid) != 0o750|os.ModeSetgid {
+				t.Errorf("the overwrite changed the mode to %v; want setgid 0750", fi.Mode())
+			}
+		}
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Decision (D6): a failure between the temporary file and the rename leaves the original
+// intact and no temporary file, and is FILE_IO_FAILED.
+func TestWriteSeamFailureLeavesOriginal(t *testing.T) {
+	f := newFixture(t)
+	f.write("keep.txt", "original")
+	writeSeam = func(string) error { return errors.New("seam") }
+	t.Cleanup(func() { writeSeam = nil })
+
+	_, err := f.writeCall(WriteParams{Path: "keep.txt", Content: "replacement"})
+	wantCode(t, err, capability.ErrFileIOFailed)
+	if err.Cause == "" {
+		t.Error("FILE_IO_FAILED must carry the OS error as its cause")
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "keep.txt")); string(got) != "original" {
+		t.Errorf("the failed write changed the file to %q", got)
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left after a failed write: %v", left)
+	}
+}
+
+// Decision (D6): an existing file without its owner-write bit and a read-only directory
+// are FILE_IO_FAILED, and neither changes. Skipped as root, where permissions do not
+// deny the write.
+func TestWriteRefusesReadOnly(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permissions do not deny the write")
+	}
+	f := newFixture(t)
+
+	// A 0444 file: the rename would defeat the write bit, so it is refused up front.
+	f.write("ro.txt", "read-only")
+	if err := os.Chmod(filepath.Join(f.root, "ro.txt"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.writeCall(WriteParams{Path: "ro.txt", Content: "nope"})
+	wantCode(t, err, capability.ErrFileIOFailed)
+	if err.Cause != "read-only file" {
+		t.Errorf("cause is %q; want \"read-only file\"", err.Cause)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "ro.txt")); string(got) != "read-only" {
+		t.Errorf("the refused write changed ro.txt to %q", got)
+	}
+
+	// A read-only directory: creating the temporary file fails.
+	if err := os.Mkdir(filepath.Join(f.root, "rodir"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(filepath.Join(f.root, "rodir"), 0o755)
+	_, err = f.writeCall(WriteParams{Path: "rodir/new.txt", Content: "nope"})
+	wantCode(t, err, capability.ErrFileIOFailed)
+	if _, serr := os.Stat(filepath.Join(f.root, "rodir", "new.txt")); serr == nil {
+		t.Error("the write created a file in a read-only directory")
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Decision (D6): a directory, a FIFO, a symlink (named relatively and by its absolute
+// path) and a parent that is a file are FILE_WRONG_TYPE, and nothing is changed.
+func TestWriteRefusesWrongTypes(t *testing.T) {
+	f := newFixture(t)
+	// A relative symlink to an inside file: the rename would replace the link, not the
+	// file, so a write to the link is refused (D6).
+	f.symlink("src/A.kt", "link")
+	before, _ := os.ReadFile(filepath.Join(f.root, "src", "A.kt"))
+
+	// The last spelling is the /var/… alias of the root: the lexical strip fails, so the
+	// directory is canonicalised with the final component left unresolved, and the link
+	// still reaches os.Root and is refused (D2, verifier B1 round 2). Canonicalising the
+	// absolute path whole would resolve the link and write through it.
+	// rel, esc and abs (the fixture's outside, /etc and absolute-target links) are final
+	// symlinks too: FILE_WRONG_TYPE, never followed (D6).
+	for _, p := range []string{"src", "link", filepath.Join(f.root, "link"), filepath.Join(f.base, "root", "link"), "rel", "esc", "abs"} {
+		_, err := f.writeCall(WriteParams{Path: p, Content: "x"})
+		wantCode(t, err, capability.ErrFileWrongType)
+	}
+	if fi, err := os.Lstat(filepath.Join(f.root, "link")); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+		t.Errorf("the refused write changed the link: %v, %v", fi, err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(f.root, "src", "A.kt")); !bytes.Equal(before, after) {
+		t.Error("the refused write changed the link's target")
+	}
+
+	// A parent that is a file.
+	f.write("src/file.txt", "f")
+	_, err := f.writeCall(WriteParams{Path: "src/file.txt/x.kt", Content: "x"})
+	wantCode(t, err, capability.ErrFileWrongType)
+	if err.Details["type"] != "regular file" {
+		t.Errorf("parent-file type is %v; want regular file", err.Details["type"])
+	}
+
+	// A FIFO is refused at once, not blocked on.
+	if err := syscall.Mkfifo(filepath.Join(f.root, "pipe"), 0o644); err != nil {
+		t.Skipf("mkfifo: %v", err)
+	}
+	done := make(chan *capability.Error, 1)
+	go func() {
+		_, err := f.writeCall(WriteParams{Path: "pipe", Content: "x"})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		wantCode(t, err, capability.ErrFileWrongType)
+	case <-time.After(1 * time.Second):
+		t.Fatal("writing a FIFO blocked; want FILE_WRONG_TYPE at once")
+	}
+}
+
+// Decision (D6): a dangling in-root parent link makes the write FILE_IO_FAILED, not
+// FILE_NOT_FOUND, and creates nothing.
+func TestWriteDanglingParentIsIOFailed(t *testing.T) {
+	f := newFixture(t)
+	f.symlink("nothere", "d")
+	_, err := f.writeCall(WriteParams{Path: "d/x.kt", Content: "x"})
+	wantCode(t, err, capability.ErrFileIOFailed)
+	if _, serr := os.Lstat(filepath.Join(f.root, "nothere")); serr == nil {
+		t.Error("the write created the dangling link's target")
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Decision (D6): a write replaces only the target's name; a hard-linked sibling keeps the
+// old content, and the result's path names the target.
+func TestWriteHardLinkKeepsOldContent(t *testing.T) {
+	f := newFixture(t)
+	if err := os.Link(filepath.Join(f.root, "src", "A.kt"), filepath.Join(f.root, "src", "0.kt")); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := os.ReadFile(filepath.Join(f.root, "src", "A.kt"))
+	res, err := f.writeCall(WriteParams{Path: "src/A.kt", Content: "replaced"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(res.Path, "A.kt") {
+		t.Errorf("result path %q does not end with A.kt", res.Path)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "src", "A.kt")); string(got) != "replaced" {
+		t.Errorf("A.kt is %q; want replaced", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "src", "0.kt")); !bytes.Equal(got, old) {
+		t.Errorf("the hard-linked 0.kt changed to %q; want the old bytes", got)
+	}
+
+	// Named by another case, the target is found by the fold-equal filter, not by the
+	// first entry sharing its inode: A.kt is replaced, 0.kt keeps its bytes.
+	// The first write gave A.kt a new inode, so the link is made again from it.
+	if !caseInsensitive(f.root) {
+		return
+	}
+	zero := filepath.Join(f.root, "src", "0.kt")
+	if err := os.Remove(zero); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(f.root, "src", "A.kt"), zero); err != nil {
+		t.Fatal(err)
+	}
+	old = []byte("replaced")
+	res, err = f.writeCall(WriteParams{Path: "src/a.kt", Content: "again"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Path != "src/A.kt" {
+		t.Errorf("a write of src/a.kt reported %q; want src/A.kt", res.Path)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "src", "A.kt")); string(got) != "again" {
+		t.Errorf("A.kt is %q; want again", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "src", "0.kt")); !bytes.Equal(got, old) {
+		t.Errorf("the hard-linked 0.kt changed to %q after the case-folded write; want the old bytes", got)
+	}
+}
+
+// Decision (D6, D2): a parent that is a symlink leaving the root, a relative "..", and an
+// absolute path outside are FILE_OUTSIDE_ROOT, and nothing outside the root is created
+// or changed.
+func TestWriteRefusesEscapes(t *testing.T) {
+	f := newFixture(t)
+	f.symlink("../outside", "out")
+	for _, p := range []string{
+		"out/new/x.kt",
+		"../x",
+		filepath.Join(f.base, "outside", "z.kt"),
+	} {
+		_, err := f.writeCall(WriteParams{Path: p, Content: "x"})
+		wantCode(t, err, capability.ErrFileOutsideRoot)
+	}
+	entries, err := os.ReadDir(filepath.Join(f.base, "outside"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if len(names) != 1 || names[0] != "secret" {
+		t.Errorf("the outside directory holds %v; want only [secret]", names)
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Decision (D6): content over 512 KiB is REQUEST_INVALID_PARAMS and writes nothing; the
+// limit itself is accepted.
+func TestWriteSizeLimit(t *testing.T) {
+	f := newFixture(t)
+	_, err := f.writeCall(WriteParams{Path: "big.txt", Content: strings.Repeat("x", maxWrite+1)})
+	wantCode(t, err, capability.ErrInvalidParams)
+	if _, serr := os.Lstat(filepath.Join(f.root, "big.txt")); serr == nil {
+		t.Error("the oversized write created a file")
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+
+	res, err := f.writeCall(WriteParams{Path: "at.txt", Content: strings.Repeat("y", maxWrite)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Size != int64(maxWrite) {
+		t.Errorf("the maximum-size write reports size %d; want %d", res.Size, maxWrite)
+	}
+}
+
+// Decision (D6, verifier B2): on a case-insensitive volume a write spelled with different
+// case replaces the file under its on-disk name, leaves no second name, and reports that
+// name. Skipped where the volume is case-sensitive.
+func TestWriteCaseInsensitiveKeepsOnDiskName(t *testing.T) {
+	f := newFixture(t)
+	if !caseInsensitive(f.root) {
+		t.Skip("the volume is case-sensitive")
+	}
+	res, err := f.writeCall(WriteParams{Path: "src/a.kt", Content: "lowercased"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(res.Path, "A.kt") {
+		t.Errorf("result path %q does not end with the on-disk A.kt", res.Path)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "src", "A.kt")); string(got) != "lowercased" {
+		t.Errorf("A.kt is %q; want the replaced content", got)
+	}
+	list, err := f.list(ListParams{Path: "src"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range list.Entries {
+		names = append(names, e.Name)
+	}
+	if len(names) != 1 || names[0] != "A.kt" {
+		t.Errorf("src lists %v; want only [A.kt]", names)
+	}
+}
+
+// Decision (D6, ADR-0021 §Format): a reader of a file being rewritten sees only the old
+// content or the new one, never a mix or an empty file.
+func TestWriteIsAtomicForReaders(t *testing.T) {
+	f := newFixture(t)
+	a := strings.Repeat("a", 10<<10)
+	b := strings.Repeat("b", 100<<10)
+	if err := os.WriteFile(filepath.Join(f.root, "atomic.txt"), []byte(a), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var failures []string
+	seen := map[string]bool{}
+
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for i := 0; i < 200; i++ {
+			content := a
+			if i%2 == 1 {
+				content = b
+			}
+			if _, err := f.writeCall(WriteParams{Path: "atomic.txt", Content: content}); err != nil {
+				mu.Lock()
+				failures = append(failures, err.Message)
+				mu.Unlock()
+				return
+			}
+		}
+	}()
+
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for {
+			select {
+			case <-writerDone:
+				return
+			default:
+			}
+			got, err := os.ReadFile(filepath.Join(f.root, "atomic.txt"))
+			if err != nil {
+				continue
+			}
+			mu.Lock()
+			switch string(got) {
+			case a, b:
+				seen[string(got)] = true
+			default:
+				failures = append(failures, fmt.Sprintf("a reader saw %d bytes, neither content", len(got)))
+			}
+			mu.Unlock()
+		}
+	}()
+
+	<-writerDone
+	<-readerDone
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(failures) > 0 {
+		t.Fatalf("non-atomic writes: %v", failures)
+	}
+	if !seen[a] && !seen[b] {
+		t.Skip("the reader loop observed no content; scheduling made the test vacuous")
+	}
+}
+
+// Decision (D6, R5): concurrent writers to one path end with one content intact and no
+// temporary file; each write is a single rename.
+func TestWriteConcurrentWriters(t *testing.T) {
+	f := newFixture(t)
+	contents := make([]string, 8)
+	for i := range contents {
+		contents[i] = strings.Repeat(string(rune('A'+i)), 20<<10)
+	}
+	errs := make(chan *capability.Error, len(contents))
+	var wg sync.WaitGroup
+	for i := range contents {
+		wg.Add(1)
+		go func(c string) {
+			defer wg.Done()
+			if _, err := f.writeCall(WriteParams{Path: "shared.txt", Content: c}); err != nil {
+				errs <- err
+			}
+		}(contents[i])
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("a concurrent write failed: %s", err.Message)
+	}
+
+	got, err := os.ReadFile(filepath.Join(f.root, "shared.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	intact := false
+	for _, c := range contents {
+		if string(got) == c {
+			intact = true
+			break
+		}
+	}
+	if !intact {
+		t.Errorf("the final file is %d bytes and matches no writer's content intact", len(got))
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Decision (R2, D6, mcp-tool-surface.md §Annotations): file.write is a command, so
+// readOnly is false and destructive defaults to true; it declares Idempotent, and it
+// needs no external tool, so openWorld is false. Its result carries no untrusted mark
+// (ADR-0015 §1).
+func TestWriteAnnotations(t *testing.T) {
+	f := newFixture(t)
+	d, ok := f.reg.Lookup("file.write")
+	if !ok {
+		t.Fatal("file.write is not registered")
+	}
+	a := d.ResolveAnnotations()
+	if a.ReadOnly {
+		t.Error("file.write must not be read-only")
+	}
+	if !a.Destructive {
+		t.Error("file.write must be destructive (a command's default)")
+	}
+	if !a.Idempotent {
+		t.Error("file.write must be idempotent")
+	}
+	if a.OpenWorld {
+		t.Error("file.write must not be open world")
+	}
+	if d.Untrusted() {
+		t.Error("file.write's result is project content, not untrusted (ADR-0015 §1)")
+	}
+}
+
+// Decision (R3, ADR-0015 §5): file.write runs with no trust check — Options has no trust
+// hook — so a write succeeds whatever the root's trust, with no mark on the result.
+func TestWriteWorksWithoutTrust(t *testing.T) {
+	f := newFixture(t)
+	res, err := f.writeCall(WriteParams{Path: "untrusted.txt", Content: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Path != "untrusted.txt" || !res.Created || res.Size != 2 {
+		t.Fatalf("write result: %+v", res)
+	}
 }
