@@ -212,9 +212,10 @@ func TestStartReportsALockedAVD(t *testing.T) {
 	mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrAVDLocked)
 }
 
-// Decision (plan m1i step 5, check; D14): a device that appears but never finishes booting
-// ends the call EMULATOR_BOOT_TIMEOUT naming it, at the bound. The mutation this fails: an
-// unbounded await.
+// Decision (plan m1i step 5, check; D14; plan m1m step 2, Q1 ¶2): a device that appears but
+// never finishes booting ends the call EMULATOR_BOOT_TIMEOUT naming it, at the bound, and
+// because its serial is resolved the launcher is left running — it is a device now, not
+// ours to signal. The mutations this fail: an unbounded await; `end` run after resolution.
 func TestStartTimesOutWhenTheSerialNeverBoots(t *testing.T) {
 	scaleBoot(t, 300*time.Millisecond, 20*time.Millisecond)
 	f := newFixture(t, map[string]string{"devices.out": listHead})
@@ -224,6 +225,9 @@ func TestStartTimesOutWhenTheSerialNeverBoots(t *testing.T) {
 	e := mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrBootTimeout)
 	if !strings.Contains(e.Message, "emulator-5556") {
 		t.Errorf("message = %q; want it to name the serial", e.Message)
+	}
+	if pid := f.launcherPid(t, serial); !alive(pid) {
+		t.Errorf("pid %d is gone; a resolved emulator is a device, not ours to signal", pid)
 	}
 }
 
@@ -270,8 +274,168 @@ func TestStartRefusesANameThatIsNotABareAVDName(t *testing.T) {
 	}
 }
 
-// Decision (plan m1i step 5, check; D15): cancelling a boot stops waiting and leaves the
-// emulator running — the launcher is not ours to kill.
+// Decision (plan m1i step 5, check; D15; plan m1m step 2, Q1 ¶1, ¶2): a launch whose serial
+// never appears is ended at the serial deadline — well before the boot bound — with
+// EMULATOR_BOOT_TIMEOUT whose cause names the launcher's pid and that it was stopped, and
+// whose nextStep names headless. `.launch.child` makes the launcher fork a child in its
+// group, so both pids must be gone. The mutations this fails: no `end` at all (both pids
+// survive, and the AVD stays held); the pid alone instead of the group (the child survives).
+func TestStartEndsItsLaunchWhenNoSerialAppears(t *testing.T) {
+	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
+	scaleSerial(t, 300*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	f.emuWrite(t, loadedAVD+".launch.delay", "100000\n") // never registers within the bound
+	f.emuWrite(t, loadedAVD+".launch.child", "")
+	f.emuWrite(t, loadedAVD+".launch.early", "WARNING | droidyard-test-marker: waiting on a dialog\n")
+
+	started := time.Now()
+	e := mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrBootTimeout)
+	if d := time.Since(started); d > 5*time.Second {
+		t.Errorf("the boot took %s; it should end at the serial deadline, not the 30 s boot bound", d)
+	}
+	l := f.awaitLaunch(t, loadedAVD)
+	if !strings.Contains(e.Cause, strconv.Itoa(l.pid)) {
+		t.Errorf("cause = %q; want it to name the launcher pid %d", e.Cause, l.pid)
+	}
+	if !strings.Contains(e.Cause, "was stopped") || strings.Contains(e.Cause, "could not be stopped") {
+		t.Errorf("cause = %q; want it to say the launch was stopped", e.Cause)
+	}
+	if !strings.Contains(e.Cause, "droidyard-test-marker") {
+		t.Errorf("cause = %q; want it to quote the launcher log's tail", e.Cause)
+	}
+	if !strings.Contains(e.NextStep, "headless") {
+		t.Errorf("nextStep = %q; want it to name headless", e.NextStep)
+	}
+	awaitDead(t, l.pid)
+	awaitDead(t, f.awaitChildPid(t, loadedAVD))
+}
+
+// Decision (plan m1m step 2, Q1 ¶1): the boundary is resolution, not the first listing — a
+// new serial the fake lists but whose `emu avd name` never answers is not this launch's, so
+// the boot ends at the serial deadline and the launch is stopped. The mutation this fails:
+// the boundary moved to the first new serial, which would adopt a serial it has not
+// confirmed.
+func TestStartEndsALaunchListedButNotResolved(t *testing.T) {
+	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
+	scaleSerial(t, 300*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead, serial + ".avd.hang": ""})
+	f.launcher(t, loadedAVD+"\n")
+
+	started := time.Now()
+	e := mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrBootTimeout)
+	if d := time.Since(started); d > 5*time.Second {
+		t.Errorf("the boot took %s; want it ended at the serial deadline", d)
+	}
+	l := f.awaitLaunch(t, loadedAVD)
+	if !strings.Contains(e.Cause, strconv.Itoa(l.pid)) {
+		t.Errorf("cause = %q; want it to name the launcher pid %d", e.Cause, l.pid)
+	}
+	awaitDead(t, l.pid)
+}
+
+// Decision (plan m1m step 2, Q1 ¶1): a cancel before the serial is resolved ends the launch.
+// The launcher ignores SIGTERM and writes `.ignoreterm.ready` once it does, so the cancel
+// reaches a process only the SIGKILL `end` sends after its grace can end: a dead pid proves
+// the escalation ran. The mutations this fails: no `end` on a cancel (the pid survives); and
+// `end` bounded by the call's cancelled context, which would return before the SIGKILL.
+func TestCancelBeforeTheSerialEndsTheLaunch(t *testing.T) {
+	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	f.emuWrite(t, loadedAVD+".launch.delay", "100000\n")
+	f.emuWrite(t, loadedAVD+".launch.ignoreterm", "")
+
+	id, err := f.ops.Start(context.Background(), capability.Request{
+		Capability: "emulator.start", Params: []byte(`{"avd":"` + loadedAVD + `"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := f.awaitLaunch(t, loadedAVD)
+	f.awaitFile(t, loadedAVD+".ignoreterm.ready")
+	if err := f.ops.Cancel(id); err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.ops.Wait(context.Background(), id, time.Now().Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.State != capability.StateCancelled {
+		t.Fatalf("state = %s (%+v); want cancelled", out.State, out.Error)
+	}
+	awaitDead(t, l.pid)
+}
+
+// Decision (plan m1m step 2, Q1 ¶1): the daemon's shutdown, which cancels the call's
+// context like a cancel, also ends a launch before its serial. The mutation this fails: no
+// `end` on shutdown, so the launch survives the daemon and holds the AVD.
+func TestShutdownBeforeTheSerialEndsTheLaunch(t *testing.T) {
+	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	f.emuWrite(t, loadedAVD+".launch.delay", "100000\n")
+
+	if _, err := f.ops.Start(context.Background(), capability.Request{
+		Capability: "emulator.start", Params: []byte(`{"avd":"` + loadedAVD + `"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	l := f.awaitLaunch(t, loadedAVD)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := f.ops.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	awaitDead(t, l.pid)
+}
+
+// Decision (plan m1m step 2, Q1 ¶1, ¶3): a wipe whose serial never appears is ended too, and
+// its nextStep names emulator.wipe — the wipe may be partial — never coldBoot, which is
+// emulator.start's remedy.
+func TestWipeEndsItsLaunchWhenNoSerialAppears(t *testing.T) {
+	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
+	scaleSerial(t, 300*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	f.emuWrite(t, loadedAVD+".launch.delay", "100000\n")
+
+	e := mustFail(t, f.invoke(t, "emulator.wipe", `{"avd":"`+loadedAVD+`"}`), ErrBootTimeout)
+	if !strings.Contains(e.NextStep, "emulator.wipe") {
+		t.Errorf("nextStep = %q; want it to name emulator.wipe", e.NextStep)
+	}
+	if strings.Contains(e.NextStep, "coldBoot") {
+		t.Errorf("nextStep = %q; a wipe's remedy is not coldBoot", e.NextStep)
+	}
+	l := f.awaitLaunch(t, loadedAVD)
+	awaitDead(t, l.pid)
+}
+
+// Decision (plan m1m step 2, Q1 ¶1): `end` waits until the target is empty, not only for
+// the launcher's reaper. The launcher forks a child that ignores SIGTERM (the parent still
+// exits on it), so after the parent is reaped the group is not empty and `end` must send
+// the SIGKILL its "not empty" answer earns; the child is dead only if it did. The mutations
+// this fails: waiting on the reaper's `done` alone (the child survives); no SIGKILL.
+func TestEndWaitsForTheWholeTarget(t *testing.T) {
+	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
+	// 2 s, not 300 ms: the re-executed child must have installed its SIGTERM handler before
+	// the deadline fires, or it dies of the SIGTERM and the mutations pass (close review N3).
+	scaleSerial(t, 2*time.Second)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	f.emuWrite(t, loadedAVD+".launch.delay", "100000\n")
+	f.emuWrite(t, loadedAVD+".launch.child", "")
+	f.emuWrite(t, loadedAVD+".launch.childignoreterm", "")
+
+	mustFail(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`), ErrBootTimeout)
+	l := f.awaitLaunch(t, loadedAVD)
+	child := f.awaitChildPid(t, loadedAVD)
+	awaitDead(t, l.pid)
+	awaitDead(t, child)
+}
+
+// Decision (plan m1i step 5, check; D15; plan m1m step 2, Q1 ¶2): cancelling a boot after
+// its serial is resolved stops waiting and leaves the emulator running — from the
+// resolution the emulator is a device, not ours to signal. The mutation this fails: `end`
+// run after resolution.
 func TestCancelDuringBootLeavesTheEmulatorRunning(t *testing.T) {
 	scaleBoot(t, 30*time.Second, 20*time.Millisecond)
 	f := newFixture(t, map[string]string{"devices.out": listHead})
@@ -283,7 +447,10 @@ func TestCancelDuringBootLeavesTheEmulatorRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pid := f.awaitTableSerial(t, "emulator-5556")
+	// A readiness poll proves the serial is resolved: the cancel that follows is after the
+	// boundary, so this is a device (Q1 ¶2).
+	pid := f.awaitTableSerial(t, serial)
+	f.awaitPolls(t, serial, 1)
 	if err := f.ops.Cancel(id); err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +462,7 @@ func TestCancelDuringBootLeavesTheEmulatorRunning(t *testing.T) {
 		t.Fatalf("state = %s (%+v); want cancelled", out.State, out.Error)
 	}
 	if !alive(pid) {
-		t.Error("the cancel killed the emulator; it is not ours to signal")
+		t.Error("the cancel ended a resolved emulator; it is a device now, not ours to signal")
 	}
 }
 

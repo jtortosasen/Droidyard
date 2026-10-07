@@ -102,7 +102,7 @@ Fixed by [ADR-0020](../adr/0020-operation-contract.md):
 | `operation_wait {operationId, timeoutMs?}` | `timeoutMs` defaults to the budget and is capped at it, so this call also returns before a client timeout. A finished operation is rendered exactly as the original tool's result would have been. `structuredContent` is the operation view. |
 | Cancellation | `operation_cancel {operationId}`. A `notifications/cancelled` on the **starting** call cancels the operation. On `operation_wait` it only abandons the wait. A disconnect never cancels. |
 | Progress | Sent during any wait when the client supplied a `progressToken`. A nicety, never relied on to keep a call alive. |
-| `emulator_start` cancelled | Stops waiting. The emulator keeps booting, because we do not own it ([emulator](../subsystems/emulator.md) §Timeouts). The tool description says so. |
+| `emulator_start` cancelled | Stops waiting. Once its serial is resolved the emulator keeps booting, because we do not own it; before that its launch is ended, so the AVD is free ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md), [emulator](../subsystems/emulator.md) §Timeouts). The tool description says so. |
 
 ## Descriptions
 

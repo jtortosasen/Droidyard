@@ -24,8 +24,19 @@
 //	                       make another emulator appear too
 //	<name>.launch.delay    milliseconds before it registers
 //	<name>.launch.out,.err what it prints to its log
+//	<name>.launch.early     what it prints before its delay (a stalled launch's log)
 //	<name>.launch.exit     if present, it exits at once with this status (the
 //	                       "launcher exited early" and "second instance" scenarios)
+//	<name>.launch.ignoreterm if present, the launcher ignores SIGTERM, so only a
+//	                       SIGKILL ends it (the cancel-before-the-serial scenario); it
+//	                       writes <name>.ignoreterm.ready once the ignore is in effect
+//	<name>.launch.child    if present, it forks a sleeping child in its own process
+//	                       group and records its pid as <name>.child.pid, so a test can
+//	                       see whether end ends the whole group, not only the launcher
+//	<name>.launch.childignoreterm  as .launch.child, but the child ignores SIGTERM while
+//	                       the launcher still exits on it, so only a SIGKILL told on
+//	                       "group not empty" ends the child; the child writes
+//	                       <name>.childignoreterm.ready once the ignore is in effect
 //	<name>.stop            if present, it exits as a kill would
 //
 // Any other invocation exits 9, so a test sees a launcher asked to do something the fake
@@ -36,9 +47,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -55,6 +69,18 @@ const TableEnv = "DROIDYARD_FAKE_EMULATOR_TABLE"
 
 // defaultSerial is the serial a boot uses when the scenario names none.
 const defaultSerial = "emulator-5556"
+
+// childArg and childIgnoreTermArg re-exec the binary as a sleeping child that shares the
+// launching process's group (plan m1m, step 2): a test proves `end` ends the whole group,
+// not only the launcher's reaper. The ignoreterm child ignores SIGTERM, so only a SIGKILL
+// ends it.
+const (
+	childArg           = "-fake-emulator-child"
+	childIgnoreTermArg = "-fake-emulator-child-ignoreterm"
+	// childReadyEnv is where the ignoreterm child writes that its SIGTERM handler is
+	// installed, so a test can cancel only once the ignore is really in effect.
+	childReadyEnv = "DROIDYARD_FAKE_EMULATOR_CHILD_READY"
+)
 
 // bootMaxLifetime bounds a boot that is never killed, so a test that forgets its cleanup
 // does not leave a process behind for ever.
@@ -110,6 +136,19 @@ func Calls(t *testing.T, dir string) []string {
 }
 
 func run(ctx context.Context, dir, table string, args []string, stdout, stderr *os.File) int {
+	// The forked child of a launcher with .launch.child: it shares the launcher's process
+	// group and sleeps until a signal ends it. It stays out of the call log.
+	if len(args) == 1 && (args[0] == childArg || args[0] == childIgnoreTermArg) {
+		if args[0] == childIgnoreTermArg {
+			signal.Ignore(syscall.SIGTERM)
+		}
+		if ready := os.Getenv(childReadyEnv); ready != "" {
+			os.WriteFile(ready, []byte("1"), 0o600)
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	if f, err := os.OpenFile(filepath.Join(dir, "launcher.calls.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
 		fmt.Fprintln(f, strings.Join(args, " "))
 		f.Close()
@@ -166,6 +205,18 @@ func boot(dir, table, name string, stdout, stderr *os.File, has func(string) boo
 		n, _ := strconv.Atoi(text(name+".launch.exit", "1"))
 		return n
 	}
+	if has(name + ".launch.ignoreterm") {
+		signal.Ignore(syscall.SIGTERM)
+		os.WriteFile(filepath.Join(dir, name+".ignoreterm.ready"), []byte("1"), 0o600)
+	}
+	// The child is forked before the delay, so it is in the group while the boot is still
+	// before its serial (plan m1m, step 2).
+	if has(name+".launch.child") || has(name+".launch.childignoreterm") {
+		forkChild(dir, name, has(name+".launch.childignoreterm"))
+	}
+	// What a hung launch has printed before it stalls (a real one logs its INFO lines at
+	// once), so a test can assert that a boot timeout quotes the log's tail (plan m1m).
+	cat(name+".launch.early", stdout)
 	if b, err := os.ReadFile(filepath.Join(dir, name+".launch.delay")); err == nil {
 		ms, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 		time.Sleep(time.Duration(ms) * time.Millisecond)
@@ -196,6 +247,32 @@ func boot(dir, table, name string, stdout, stderr *os.File, has func(string) boo
 		time.Sleep(10 * time.Millisecond)
 	}
 	return 0
+}
+
+// forkChild starts a sleeping child that stays in this launcher's process group — it
+// inherits the group the daemon gave the launcher with Setsid — and records its pid as
+// <name>.child.pid, so a test can tell whether `end` ends the whole group. When ignoreTerm
+// is set the child ignores SIGTERM, so only the SIGKILL a "group not empty" answer earns
+// ends it; the launcher itself still exits on SIGTERM (plan m1m, step 2).
+func forkChild(dir, name string, ignoreTerm bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	arg := childArg
+	if ignoreTerm {
+		arg = childIgnoreTermArg
+	}
+	cmd := exec.Command(exe, arg)
+	if ignoreTerm {
+		// The child writes this once its SIGTERM handler is in effect, so a test can act
+		// only then (a SIGTERM it would ignore is the point of the scenario).
+		cmd.Env = append(os.Environ(), childReadyEnv+"="+filepath.Join(dir, name+".childignoreterm.ready"))
+	}
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	os.WriteFile(filepath.Join(dir, name+".child.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
 }
 
 // bootsOf is how many times the fake has been invoked for -avd name, this one included.

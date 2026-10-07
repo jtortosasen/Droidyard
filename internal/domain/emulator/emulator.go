@@ -44,6 +44,18 @@ var (
 	// bootPollInterval is how often the device listing and `sys.boot_completed` are read
 	// while a boot waits (emulator.md §Boot sequence 5).
 	bootPollInterval = time.Second
+	// serialTimeout bounds the time from spawn to a serial this daemon resolves as the
+	// launch's own (ADR-0033 ¶3; plan m1m, Q1 ¶3): step 1 saw the slowest listing at 2.6 s,
+	// so 45 s is the working default. The earlier of it and the boot deadline bounds
+	// awaitSerial, and a boot that reaches it before resolving its serial is ended.
+	serialTimeout = 45 * time.Second
+	// endGrace is how long a launch's process group is given to empty after SIGTERM before
+	// SIGKILL follows; endKillGrace bounds the wait after SIGKILL. Together they hold `end`
+	// under 10 s, inside the daemon's 15 s shutdown bound (ADR-0033 ¶1; plan m1m, step 2).
+	endGrace     = 5 * time.Second
+	endKillGrace = 5 * time.Second
+	// endPollInterval is how often `end` reads the process group while it waits.
+	endPollInterval = 5 * time.Millisecond
 )
 
 // Emulator is the subsystem's handle: the daemon's environment, the adb subsystem it

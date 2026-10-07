@@ -25,7 +25,7 @@ is [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md). The `droidyard 
 | **Shared sidecar** | **Gradle TAPI sidecar** (JVM) | global (core) | one per core, serving every open root; idles out when no root is active |
 | **Workspace sidecar** | Kotlin LSP (JVM, post-MVP) | workspace | long-lived while the workspace is open |
 | **Per-operation** | `adb` client commands, `git`, `uiautomator`, `screenrecord`; a `shell.exec` command (recorded, kind `shell-command`) | operation | short, tied to an operation; a `shell.exec` command's whole process group is killed when its call ends |
-| **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core |
+| **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core once its serial is resolved; a launch the core started is ended if its boot fails before then ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)) |
 | **Tool-owned daemon** | Gradle daemon, Kotlin compile daemon | Gradle | spawned and detached by Gradle; never a child of ours |
 
 Note the last two rows: those processes are **not** children of the core. We
@@ -126,8 +126,10 @@ Kotlin LSP later — should stop after a configurable idle period and restart on
      requirement of its protocol: when the core's end of the pipe closes, the sidecar
      cancels in-flight TAPI work and exits. Tested like any other protocol rule.
   2. **Linux: `Pdeathsig: SIGTERM`** on every child **except the emulator launcher**,
-     which is deliberately unsupervised and must outlive the daemon
-     ([emulator](../subsystems/emulator.md) §Design rule), **and a `shell.exec`
+     which is deliberately unsupervised and must outlive the daemon once its serial is
+     resolved ([emulator](../subsystems/emulator.md) §Design rule; a launch still
+     without a serial is ended on the daemon's graceful shutdown, ADR-0033, and survives
+     only a killed daemon), **and a `shell.exec`
      command** (kind `shell-command`, milestone 1k D5): its leader must survive a killed
      daemon so the next one's reconcile can find its pid record and kill its whole group;
      while the daemon lives, the group is killed at every end of the call (exit, timeout,
