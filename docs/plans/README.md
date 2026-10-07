@@ -24,3 +24,4 @@ the output.
 | [m1j-files.md](m1j-files.md) | 1j — `file.*` | Done |
 | [m1k-policy-and-shell.md](m1k-policy-and-shell.md) | 1k — `policy.*`, `shell.exec` and the configuration file | Done |
 | [m1l-phase1-acceptance.md](m1l-phase1-acceptance.md) | 1l — the Phase 1 acceptance run | Done |
+| [m1m-emulator-robustness.md](m1m-emulator-robustness.md) | 1m — emulator boot robustness and the MCP-vs-shell comparison | Approved |

@@ -1,0 +1,213 @@
+# Plan: Milestone 1m — emulator boot robustness, then the MCP-vs-shell comparison
+
+- Status: Approved
+- Approval: Delegated, 2026-10-07, by the main session under the owner's standing instruction and the owner's goal ("igual de robusto, y rápido"): Q1 and Q2 accepted as drafted (Q1's ADR is written at step 2 from step 1's facts; Q2 is recorded in `mvp.md` at step 7); a diff-only check of round 2's answers; the owner can revert either.
+- Date: 2026-10-07
+- Milestone: not in `docs/README.md` (its **Next** row names Phase 2). Inserted by the owner, 2026-10-07, after the comparison pilot `~/Library/Caches/droidyard-dev/m1l/cmp-20261007-1303`: "Necesito que sea igual de robusto, sí. Y rápido. Arréglalo." (I need it just as robust, yes. And fast. Fix it.) As briefed by the main session: make `emulator.start` as robust and fast as an agent driving the SDK emulator by hand, then prove it with the comparison (the **Then** row's "MCP vs raw-shell comparison").
+- Phase: `docs/roadmap/mvp.md` §Definition of done (the comparison item), §Metrics, §How the comparison is run
+- Contract: `docs/subsystems/emulator.md` (§Design rule, §Boot sequence, §Detached launch, §Stop, §Wipe, §Failure modes, §Timeouts, §Open questions); `docs/architecture/process-lifecycle.md` §Kinds of processes, §Shutdown; `docs/interfaces/mcp-tool-surface.md` (the `emulator_start` cancelled row); ADR-0001 §Context; ADR-0020 §States; ADR-0021 §Pid records; plan m1i D12, D14, D15; plan m1l E1–E7, C3–C4, close B1; `docs/research/spike-s8-s9-emulator-and-logcat.md` G9–G12.
+
+**The owner should see:** Q1 (an emulator launch becomes droidyard's to kill until droidyard resolves its serial; this reverses "a cancelled boot leaves the emulator running" for that window only); Q2 (the comparison's threshold, which `mvp.md` says is fixed before the comparison runs); **N = 5 per arm without pilot sizing** (the main session's brief says "5 runs per arm"; `mvp.md` and the ratifications say the pilot sizes N, and one pilot pair cannot measure variance); **the shell arm is fenced only by its PATH, its prompt and OpenCode deny rules** (K7), not by a guard it cannot step around; D1 (the comparison's daemon is built without `droidyard_nodump`).
+
+## What happened
+
+From `cmp-20261007-1303` (`dy-attempt1.*`, `dy-attempt2.*`, `dy.*`, `sh.*`, `log`, `run.sh`): twice, a windowed `emulator.start {avd: droidyard_m1l}` launched a qemu that never opened its console or adb ports (two gRPC ports on `::1`, ~100 MB RSS, per the coordinator); the call ended `EMULATOR_BOOT_TIMEOUT` ("no new emulator serial appeared in adb devices within 3m0s") after 3 min of `operation_wait`; the qemu kept the AVD, so every later `emulator_start`/`emulator_wipe` of attempt 1, including the agent's `headless: true` and `coldBoot: true` retries, answered `EMULATOR_AVD_LOCKED` (nextStep "Call emulator.list … otherwise close the other instance first"), `emulator_stop` by serial `DEVICE_NOT_FOUND`, and the agent looped ~10 min. **The hang's cause was not observed**: `run.sh` runs `rm -rf state-cmp` before each attempt, so the hung launches' logs are gone. Hypotheses: a modal dialog after an unclean shutdown, under memory pressure (the clean run's log: "Software GL rendering … system memory pressure (Available Memory: 3506 MB, Required: 5120 MB)"); or the AVD deleted and recreated 75 s after `emu kill` while the old qemu may still have been exiting (`run.sh`). The clean run booted windowed ("Boot completed in 16672 ms"); its app later hit an ANR (`DEVICE_NOT_READY` "the clear command timed out", then `getprop` unanswered in 3 s, `screencap` timed out at 10 s). The shell arm booted with `-no-window` and hit neither.
+
+## Scope
+
+| Item (the brief, 2026-10-07, or `mvp.md`) | Here? | If not, where and why |
+| --- | --- | --- |
+| A serial-less launch droidyard started must not outlive a failed or cancelled boot; the error says so | yes | steps 2, 4 (Q1 ¶1) |
+| Detect a hung launch early, with a cause and a nextStep naming the remedy | yes | steps 2, 4 (Q1 ¶3). Watching the log for `FATAL`: no, a launcher that prints `FATAL` exits (S8 G10) and is already `EMULATOR_LAUNCH_FAILED` on the next poll |
+| A stale instance holding the AVD: a way out, never killing what droidyard did not launch | part | step 3: the lock error's nextStep. The holder's pid and "launched by this daemon": no (after Q1 this daemon's own launch cannot hold the AVD, and a foreign holder's pid needs a process scan); `emulator.stop {avd}`: no (Q1 alternative b) |
+| The dialog risk: a headless default or dialog-suppressing flags; windowed vs headless times | part | step 1 measures and evaluates; changing defaults is a follow-up decision (`emulator.md` §Open questions, "The default boot-flag set") |
+| ANR dialog reported by `device.*` | no | Not in this milestone |
+| Speed: what droidyard adds per device call | part | measured per capability in step 6; no optimisation without a measured hotspot |
+| DoD: the recorded comparison, MCP vs raw shell | yes | steps 5, 6 (Q2) |
+| DoD: idle footprint; browser golden path; `build.errors` on KGP ≥ 2.4; S2's other clients | no | later milestone; Phase 2; CI fixtures |
+
+## Starting point
+
+Code at `bbea7d4` (the 1l close): API `0.10.0`, 39 capabilities, 34 MCP tools. `internal/domain/emulator/`: `launch.go` (`spawn` with `Setsid`, log `<state>/emulator/<avd>.log`, the in-memory `launches` table keyed by AVD, `launchExited` mapping "Running multiple emulators" to `EMULATOR_AVD_LOCKED`), `boot.go` (`awaitSerial` returns a serial once it is listed **and** `emu avd name` names the AVD; it and `awaitReady` share one 180 s deadline; `noSerialAppeared` carries no pid or log tail), `start.go`, `wipe.go`, `stop.go` (`emu kill`, no signals). Fake launcher `emulatortest` (`.launch.delay`, `.launch.exit`, `.launch.err`; one process, default signal handling). `TestCancelDuringBootLeavesTheEmulatorRunning` cancels as soon as the fake lists its serial; nothing tests a launch whose serial never appears.
+
+Baseline on 2026-10-07 at `bbea7d4` (macOS): `go vet ./...` and `gofmt -l .` printed nothing; `go test ./...` ok in every package. With this plan untracked, `internal/doccheck`'s `TestPlansIndexMatchesFiles` fails until `docs/plans/README.md` has its row, which the main session adds in the plan's commit; the plan names no ADR that does not exist yet ("the Q1 ADR").
+
+## Run rules
+
+- K1. `B=~/Library/Caches/droidyard-dev/m1m`. The scratch AVD `droidyard_m1m` (`avdmanager create avd -n droidyard_m1m -k "system-images;android-31;google_apis;arm64-v8a" -d pixel_5`, `ANDROID_AVD_HOME=$B/avd`) is the only AVD booted, signalled, wiped or stopped. Deleted at step 7.
+- K2. **Nothing else online** (m1l E7): no step that boots or signals an emulator starts while `adb devices` lists any device (the owner's emulators and phones; the run waits, never stops them). At each run's end at most the scratch serial is listed; a device appearing mid-run voids the run.
+- K3. The 5037 server's pid matches before and after every run; host `adb` checks run with `ANDROID_ADB_SERVER_PORT` unset. Per run, before and after: the SDK stamp (m1l S3), `ls ~/.android/avd` and each owner AVD's `userdata-qemu.img*` mtime (m1l E3), and the pids of the owner's long-lived processes (the 5037 server, `opencode serve`), all unchanged. Nothing is built in `~/Documents/DopamineControl`; Gradle and Kotlin daemons are not stopped.
+- K4. **Signal only pids the run started**: recorded at spawn by the run, or a scratch-AVD qemu absent from the run's starting `pgrep -l qemu-system`; `kill <pid>`, never `pkill`/`killall`. A process started "by hand" in a new session uses `perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV'` (no `setsid` binary on this host).
+- K5. Every daemon: `DROIDYARD_STATE_DIR=$B/state-<run>` (never deleted between attempts: its emulator logs are evidence), `DROIDYARD_CONFIG_DIR` unset, `ADB=$B/bin/adb` (m1l's guard, renamed; `protected` = serials online at the run's start, empty under K2), `ANDROID_AVD_HOME=$B/avd`, `ANDROID_SERIAL=droidyard-m1m-none` (m1l E6). Steps 1–4 tagged `droidyard_nodump`; steps 5–6 per D1.
+- K6. OpenCode only as `opencode run --standalone --format json --print-logs --auto -m opencode-go/deepseek-v4.1-flash`, cwd the copy; no other `opencode` command runs inside a copy (m1l close B1). After each MCP-arm run no recorder (`rec.sh`, its `tee`) is alive, and its events show no OpenCode built-in tool executed, only droidyard tools and Code Mode `search`/`execute` (m1l G9, replacing C3's `debug agents`).
+- K7. **The shell arm's fence.** Its environment, in full: `env -u ANDROID_HOME -u ANDROID_SDK_ROOT`, `PATH=$B/kit/bin:/usr/bin:/bin:/usr/sbin:/sbin` (the kit's `adb` wrapper, an `emulator` symlink to the SDK's launcher, Gradle 8.13), `JAVA_HOME` the pilot's zulu-17, `ANDROID_AVD_HOME=$B/avd` (the prompt names it); `local.properties` carries `sdk.dir`. If step 5 (a)'s probe shows the launcher needs an SDK variable, `ANDROID_HOME` is restored and the deny rules alone fence the SDK's `adb` (recorded under Changes). The wrapper reads adb's own options up to the subcommand (stepping over the values of `-s`, `-t`, `-L`) and refuses `-a`, `-H`, `-P`, `-L`, `-s <protected serial>`, and the subcommands `kill-server`, `start-server`, `reconnect`, `disconnect`, `forward --remove-all`; everything after the subcommand passes (the pilot wrapper refused `shell am broadcast -a …`). It no longer refuses `tcpip`, `usb`, `root`, `unroot`, `reboot`: they act on the addressed device's adbd, which under K2 can only be the scratch emulator. The copy's `opencode.jsonc` denies bash patterns `*kill-server*`, `*start-server*`, `kill *`, `pkill *`, `killall *`, `*platform-tools/adb*`, `*/.android/avd*`; a denied command counts as a failed call. The wrapper logs the refused command and its caller (`ps -o command= -p $PPID`): the pilot's `refused.log` holds a `kill-server` no agent output contains, beside `am broadcast … multidisplay.START` lines the emulator itself issues, so only refusals whose caller is the agent's shell count as its failed calls.
+
+## Delegated decisions
+
+- D1. **The comparison's daemon is the release build** (no `droidyard_nodump`): the shell arm runs `uiautomator dump` freely, and the tagged daemon's `device_uiTree` failed "compiled with -tags droidyard_nodump" during the pilot's ANR. Safe under K2.
+- D2. **Prompts**: `cmp-20261007-1303/prompt-sh.txt` and `prompt-dy.txt` copied to `$B/kit/`, the AVD renamed `droidyard_m1m`, nothing else.
+- D3. **Metrics per run**, from OpenCode's JSON events (`tool` parts: name, status, `time.start/end`, output; `step_finish`: `tokens {input, output, reasoning, cache.read}`) and the MCP arm's wire: wall time (launch to exit); tool time (sum of tool durations); **calls = every tool part the agent issued**, in both arms (droidyard `tools/call` also reported, not used by Q2); failed calls, counted per tool part (a part is failed if it errored, was denied, any droidyard call inside it returned `isError: true`, or its shell command exited non-zero: step 5 fixes how the exit is read); retried calls (a part repeating the previous failed part's tool with the same or corrected arguments), reported beside failed calls as `mvp.md` records "failed/retried calls"; bytes read (sum of tool output lengths); tokens (sums); free memory at the run's start (`vm_stat`); the golden-step grades (D4). Per arm: median, min, max. Per droidyard capability and per shell command kind (`input`, `uiautomator dump`, `screencap`, `logcat`, `install`, gradle): median duration.
+- D4. **Golden-step grades**, per run, by the main session from the transcript and tool outputs, each 0/1: 1 `:app` and `:feature:golden` reported; 2 a successful `:app` debug build; 3 the error reported at `MainActivity.kt` line 35 (or the line written), column 9, naming `droidyardAcceptanceMissing`, then the copy equal to `g-fresh` (m1l's `diff` excludes) and a later build successful; 4 the scratch AVD booted and used; 5 the app installed and launched on it; 6 logs since launch, a screenshot and the UI hierarchy obtained; 7 all four interactions, each followed by a read showing the expected state (MCP: `expect.matched: true`; shell: a later read containing or lacking the text); 8 `java.lang.IllegalStateException` and "golden app crash" reported. A run is **complete** when all eight are 1.
+- D5. **Order and limits**: ABBA pairs, shell first: sh1 dy1 dy2 sh2 sh3 dy3 dy4 sh4 sh5 dy5 (the shell arm goes first in three pairs of five; free memory recorded per run), after one uncounted warm-up `:app` debug build in a scratch copy so sh1 does not alone pay a cold Gradle daemon. A run is capped at 30 min wall (`opencode` then killed under K4; its remaining steps score 0). A run is voided and repeated only for a fault outside both arms (K2 broken, the model API failing, the host rebooting), never for an agent's or droidyard's failure; every void is recorded.
+
+## Acceptance
+
+- [ ] A1. A boot whose serial droidyard has not resolved within the serial deadline (45 s, or step 1's value) fails `EMULATOR_BOOT_TIMEOUT` within the deadline plus 10 s; the launch's processes are gone; the cause names the pid, says it was stopped and quotes the log tail; the nextStep names `headless: true` (and `coldBoot: true` for `emulator.start`; for `emulator.wipe`, calling it again). Source: the brief; Q1 ¶1, ¶3. Proven by: step 2 (fake), step 4 (real).
+- [ ] A2. A cancel or a daemon shutdown before the serial is resolved ends the launch; a cancel or a boot timeout after it leaves the emulator running, as today. Source: Q1 ¶1–2. Proven by: steps 2, 4.
+- [ ] A3. After a launch droidyard ended while it held the AVD, the next `emulator.start` with the nextStep's remedy boots instead of `EMULATOR_AVD_LOCKED`. Source: the brief. Proven by: step 4.
+- [ ] A4. `EMULATOR_AVD_LOCKED`'s nextStep says the holder is not a device droidyard can address and what the caller can do; an instance droidyard did not launch is never signalled. Source: the brief; Q1 ¶4. Proven by: steps 3, 4.
+- [ ] A5. On this host: windowed, headless, cold and wiped boot times; when the AVD lock is taken relative to the first listing; the launch's process group and whether the windowed launcher execs into qemu; the response to `SIGTERM` before the console; whether the windowed hang reproduces; the candidate flags `emulator -help` documents. Source: the brief (the dialog risk, speed). Proven by: step 1.
+- [ ] A6. Five runs per arm under K1–K7 and D1–D5, per-run metrics and per-arm medians recorded, Q2 applied and the verdict stated. Source: `mvp.md` §Definition of done, §How the comparison is run; Q2. Proven by: steps 5, 6.
+- [ ] A7. The Q1 ADR accepted; the documents in its consequence list changed; `mvp.md`, `docs/README.md` and `verify-daemon` record the comparison. Source: `mvp.md` §Definition of done (last item). Proven by: steps 2, 7.
+
+## Steps
+
+### 1. Spike: what a launch does before its serial, on this host
+
+- Builds: no repository file. `$B/spike-<stamp>/`: timings, `ps` snapshots, logs, screenshots.
+- Implements: the brief (dialog risk, speed); the facts Q1 rests on. Needs neither Q1 nor Q2.
+- Run by: the main session, under K1–K5, with a tagged daemon at `bbea7d4` and by hand.
+- Check: each observation timestamped. (a) `emulator -help` and `-help-all` grepped for `report-console`, `no-window`, `qt-hide-window`, `skip-adb-auth`, `read-only`, `feature`, `crash`, `dialog`: each flag's text or its absence. (b) Two boots each through `droidyard call`, windowed, `headless`, `coldBoot`, and `emulator.wipe`, beside a 200 ms poll of `adb devices` and of `lsof` on `$B/avd/droidyard_m1m.avd/*.lock`: spawn → lock taken → first listing (offline) → `emu avd name` answers → `bootMs`; then `emulator.stop`. (c) `ps -A -o pid,ppid,pgid,sess,rss,command` before each launch (any `netsimd`, `crashpad_handler` and their groups), and during a windowed and a headless boot before and after the listing: the members of the launch's pgid, whether the launch's pid is the qemu (exec, as S8 G9 saw headless) or its parent, and whether any member is a process other emulators would share. At least one windowed observation starts with no `netsimd` running; if one cannot be had (a `netsimd` outside the run that K4 forbids ending), that half goes to Unverified and step 2 takes the pid branch. (d) A windowed launch sent `SIGTERM` (K4) after its lock is taken and before its listing: time to exit; then a windowed `emulator.start`: boots, `EMULATOR_AVD_LOCKED`, or no listing within 60 s. (e) Reproduction: a windowed boot to `device`, its qemu sent `SIGKILL` (K4), then a windowed `emulator.start`: if no listing within 60 s, record `screencapture`, `lsof -nP -a -p <pid> -i`, RSS and the log tail, then try `headless`, then each candidate flag from (a) that names a dialog or a crash prompt. **Decisive outcomes, recorded under Changes before Q1's ADR is written:** a spawn → listing in (b) over 15 s makes Q1's deadline 3× the slowest; a shared process in the group, or a group holding a qemu the pid is not, sets Q1 ¶1's signal target (both at once: step 2 is re-planned before code, with how the daemon finds the qemu); no window between lock and listing changes step 4's model (B4 of round 1); an AVD still held after (d)'s launch exited stops the plan and Q1 is redrafted.
+- Schema: no change.
+- Needs: the baseline; K2.
+- Not here: changing default flags (Scope); code.
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 2. Own the launch until its serial is resolved (Q1)
+
+- Builds: the main session first writes the Q1 ADR (next number, 0033) with step 1's facts (its row in `docs/adr/README.md`, the "32 ADRs" counts in `AGENTS.md` and `docs/README.md`), accepted before code. Then, by the implementer: `boot.go` (`serialTimeout` 45 s or step 1's value, a variable like m1i D14's constants; `awaitSerial` bounded by the earlier of it and the boot deadline, its `Devices` and `AvdName` probes bounded by that deadline too, as `awaitReady`'s are; on every return from `boot` before a serial is resolved the launch is ended, unless its target is already empty), `launch.go` (`(*launch).end`: `SIGTERM` to step 1's target; then it waits until the **target is empty** — for the group, `kill(-pgid, 0)` answering `ESRCH`; for the pid branch, the reaper's `done` and the qemu's pid gone — not on `done` alone, which only says the launcher was reaped; after a grace (5 s, a variable `scaleBoot` scales) `SIGKILL` to the target, then up to 5 s more; under a fresh context when the call's is cancelled; reports whether the target emptied; 10 s at most, inside the daemon's 15 s `shutdownTimeout`), `noSerialAppeared` per capability (pid, "stopped" or "could not be stopped", elapsed time, `logTail`; nextStep for `emulator.start`: retry with `headless: true`, a windowed emulator can wait on a dialog nobody sees, and `coldBoot: true` if the last instance did not shut down cleanly; for `emulator.wipe`: the wipe may be partial, call `emulator.wipe` again with `headless: true`), the `emulator.start`/`emulator.wipe` descriptions (the cancel sentences; the serial deadline), `emulatortest` (`.launch.child`: forks a sleeping child in its group; `.launch.childignoreterm`: that child ignores `SIGTERM` while the parent exits on it; `.launch.ignoreterm`: the parent ignores `SIGTERM`). Documents, by the main session in the same commit: the Q1 ADR's consequence list.
+- Implements: Q1 ¶1–¶4.
+- Run by: the implementer (`ds-implement.sh`); review: **Opus verifier** (process lifetime).
+- Check: new tests in `boot_test.go`, scaled with `scaleBoot`: `TestStartEndsItsLaunchWhenNoSerialAppears` (`.launch.delay` beyond the bound, `.launch.child`: `EMULATOR_BOOT_TIMEOUT` before the boot bound, both pids dead, cause naming the pid and "stopped", nextStep naming `headless`); `TestStartEndsALaunchListedButNotResolved` (the fake lists a serial whose `emu avd name` never answers: ended at the deadline, Q1 ¶1's boundary); `TestCancelBeforeTheSerialEndsTheLaunch` (with `.launch.ignoreterm`: dead after the grace, so `end` cannot have run under the cancelled context); `TestShutdownBeforeTheSerialEndsTheLaunch` (the fixture's operations shut down mid-boot: dead within the shutdown bound); `TestWipeEndsItsLaunchWhenNoSerialAppears` (nextStep names `emulator.wipe`, not `coldBoot`); `TestEndWaitsForTheWholeTarget` (`.launch.child` with `.launch.childignoreterm`: the child is dead after the call, which only a `SIGKILL` sent on "target not empty" achieves). Changed: `TestCancelDuringBootLeavesTheEmulatorRunning` cancels after one readiness poll (`awaitPolls(t, serial, 1)`), so the serial is resolved; it and `TestStartTimesOutWhenTheSerialNeverBoots` assert the pid alive after the call. Mutations that must fail: no `end` (the first four), `end` after resolution (the two kept tests), the pid instead of the group (the child assertions), waiting on `done` only (`TestEndWaitsForTheWholeTarget`), no `SIGKILL` (the cancel test), `end` under the cancelled context (the cancel test). If step 1 sets the pid branch, a fake shared process in the group must survive instead, and "the group instead of the pid" must fail.
+- Schema: description-only diff of `emulator.start` and `emulator.wipe`; no parameter, result field or code; API stays `0.10.0`.
+- Needs: step 1; Q1 accepted.
+- Not here: the lock error (step 3); a pid record (Q1 ¶4); `-report-console` (Q1 alternative c).
+- Rests on: step 1's signal target holds only this launch's processes and includes the qemu; an ended pre-serial launch frees the AVD (level 5: step 1 (c), (d), then step 4).
+- [ ] Done. Evidence:
+
+### 3. The locked-AVD and stuck-boot remedies
+
+- Builds: `launch.go` `launchExited`'s `EMULATOR_AVD_LOCKED` nextStep: "No emulator in adb devices answers as this AVD, so the instance holding it has no console Droidyard can address: it was started outside this daemon (by hand, another tool or an earlier daemon), or hung before its console opened. Droidyard does not stop processes it did not launch: close that emulator's window or end its process, then call emulator.start again, or boot another AVD." `bootTimedOut`'s nextStep names `emulator.stop {device: <serial>}`.
+- Implements: the brief (the way out); Q1 ¶4.
+- Run by: the implementer; review: the main session's diff review (error text only).
+- Check: `TestStartReportsALockedAVD` asserts the nextStep names no `emulator.list` remedy and says Droidyard does not stop it; `TestStartTimesOutWhenTheSerialNeverBoots` asserts the nextStep names `emulator.stop` and the serial. Both fail on today's texts.
+- Schema: no change.
+- Needs: step 2.
+- Not here: the holder's pid; `emulator.stop {avd}` (Scope).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 4. The fix on a real emulator
+
+- Builds: no repository file; `$B/l5-<stamp>/`.
+- Implements: A1–A4 at level 5; the `verify-daemon` m1m block drafted.
+- Run by: the main session, under K1–K5, a tagged daemon at step 3's commit.
+- Check: pgid membership read with step 1's `ps -A -o pid,pgid` filter. (a) **hung holding the AVD**: `droidyard call --detach emulator.start {avd: droidyard_m1m}` (windowed); its qemu `SIGSTOP`ped (K4) after `lsof` shows the lock held and before any listing, the lock recorded; the operation → `failed` `EMULATOR_BOOT_TIMEOUT` between the serial deadline and the deadline plus 10 s, cause naming that pid and "stopped"; that pid and its group gone; the nextStep's retry `emulator.start {headless: true}` → `adopted: false` (A3); `emulator.stop`; then one windowed retry recorded, not asserted (Q1's cost). (b) **Cancel before the serial**: as (a), `operation.cancel` at 5 s → `cancelled`, the pid gone within 10 s. (c) **Shutdown before the serial**: as (a), `droidyard stop` at 5 s → the pid gone. (d) **Cancel after resolution**: a windowed start, cancelled once `adb devices` shows the serial `device` → `cancelled`, the qemu alive and listed; then `emulator.stop`. (e) **Not ours**: by hand (K4's `perl` setsid), `emulator -avd droidyard_m1m -no-window`, `SIGSTOP`ped after its lock and before its listing; `emulator.start` → `EMULATOR_AVD_LOCKED` with step 3's nextStep; that pid still alive and stopped afterwards; then the main session `SIGKILL`s it. (f) K2–K4 at the end. If step 1 found no window between lock and listing, (a) and (e) stop at the listing instead and A3/A4 record what that model proves.
+- Schema: no change.
+- Needs: steps 2, 3.
+- Not here: an agent.
+- Rests on: `SIGSTOP` after the lock models a launch hung before its console for droidyard's purpose (no serial, the AVD held). It is not the dialog, and a stopped process ignores `SIGTERM`, so (a)–(c) exercise the `SIGKILL` path; step 1 (d) covers `SIGTERM` on a live one. Level 5 for what it models.
+- [ ] Done. Evidence:
+
+### 5. The comparison kit and one pilot pair
+
+- Builds: no repository file. `$B/kit/`: the prompts (D2); K7's wrapper and `opencode.jsonc`; `reset.sh` (K2's wait; a leftover scratch emulator stopped with `adb -s <serial> emu kill` and its qemu's exit awaited, else K4, **before** `avdmanager delete`; the AVD recreated; a fresh copy by `git archive <commit> samples/golden` plus `local.properties` (m1l S2); for the MCP arm a fresh state, `dy trust`, the copy's `opencode.jsonc` denying OpenCode's own tools (m1l C3) and starting the recorder (m1l C4); K3's snapshots); `run.sh <arm> <n>` (D5's cap; outputs in `$B/runs/<arm><n>/`); `metrics` (outside the repository: D3 from a run directory, as JSON and a table row).
+- Implements: `mvp.md` §How the comparison is run ("a pilot run comes first", "reset by script"); D1–D5, K7.
+- Run by: the main session.
+- Check: (a0) in K7's exact environment: `emulator -list-avds` prints only `droidyard_m1m`; one `opencode run --standalone --auto` in a scratch shell-arm copy asked to run `kill -0 1` shows a denied tool part (the deny rules hold under `--auto`); `gradle -v` names 8.13 and JVM 17. (a) the wrapper in dry run (`M1M_WRAP_DRYRUN=1`) passes `-s emulator-5554 shell am broadcast -a com.x -n y/.Z`, `shell input tap 1 2`, `exec-out screencap -p`, `install -r a.apk`, `logcat -d`, `emu kill`, `devices -l`, `forward tcp:1 tcp:2` and refuses `kill-server`, `-a devices`, `-P 5038 devices`, `-H h devices`, `reconnect offline`, `disconnect`, `forward --remove-all`. (b) One `sh` run then one `dy` run through `reset.sh` and `run.sh`: both reach exit or the cap with outputs in place; the `sh` pilot scores D4 grades 2 and 4 (it can build and boot; else the kit is fixed before step 6, never the comparison graded against a baseline the kit broke); the shell arm's tool list holds no droidyard tool; K6's MCP-arm assertions hold; K3 unchanged; `metrics` yields every D3 field for both, and how the shell's exit status is read is fixed under Changes. The pilot is not a measurement and is not read against Q2. A droidyard defect found here becomes a step before step 6 (m1l §Defects).
+- Schema: no change.
+- Needs: step 4; Q2 answered.
+- Not here: sizing N (the owner list).
+- Rests on: OpenCode v2.0.18's JSON events carry per-tool times and per-step tokens, as the pilot's `sh.out` did (level 4, (b)).
+- [ ] Done. Evidence:
+
+### 6. The comparison: five runs per arm
+
+- Builds: no repository file. `$B/runs/`, `$B/report.md`.
+- Implements: `mvp.md` §Definition of done (the comparison); Q2; the speed measurement.
+- Run by: the main session, under K1–K7 and D1–D5, at the commit step 5 ran.
+- Check: ten valid runs in D5's order (voids repeated and listed); per run D3's metrics and D4's grades; per arm the median, min and max of every D3 field and the count of complete runs; per capability and shell command kind, the median duration (a droidyard capability slower than its shell equivalent is named as a hotspot, not fixed here); Q2 applied in its order and the verdict stated with the spread. Every run ends K2–K4 clean and, for the MCP arm, nothing of droidyard's or the recorder's left after `droidyard stop`.
+- Schema: no change.
+- Needs: step 5.
+- Not here: another model or client; optimisation.
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 7. Close
+
+- Builds: `verify-daemon` (an m1m block: K1–K7 by reference, step 4's (a)–(e) as commands, the kit's paths); `mvp.md` (§Definition of done: the comparison ticked with the evidence path and verdict; §How the comparison is run: Q2's threshold and N = 5 as decided); `docs/README.md` (Where the work stands); `docs/plans/README.md`; `emulator.md` §To verify (step 1's facts) and §Open questions (the flag-set question with step 1's evidence); an Open questions section added to `ui-automation.md` (the ANR row). The scratch AVD deleted.
+- Implements: A7.
+- Run by: the main session; review: the Opus verifier over A1–A7 and the evidence.
+- Check: `go test ./internal/doccheck` green; `grep -rn -e "leaves the emulator running" -e "keeps booting" -e "must outlive the daemon" -e "behaves like a cancelled boot" -e "observed, not owned" -e "not ours to own" -e "we do not own it" -e "Unsupervised on purpose" -e "not ours to signal" docs internal/domain/emulator` shows only wording scoped to after the serial is resolved; the m1m block's commands are step 4's.
+- Schema: no change.
+- Needs: steps 1–6.
+- Not here: Phase 2 planning.
+- Rests on: —
+- [ ] Done. Evidence:
+
+## Not in this milestone
+
+- **ANR detection in `device.*`**: during the observed ANR `getprop` went unanswered for 3 s and `screencap` timed out at 10 s, so a structural report would not have reached the agent for most of the ~100 s. Recorded in a new Open questions section of `ui-automation.md` at step 7 (a dialog carrying `android:id/aerr_wait`/`aerr_close` could be named in a warning).
+- **Default boot flags or a headless default**: step 1's evidence goes to that decision; a default that hides the window is the owner's.
+- **`emulator.stop {avd}`, a foreign holder's pid, recognising an earlier daemon's launches** (for example by the qemu's working directory, the state root): Q1 alternatives b, d.
+- **A daemon dying inside the pre-serial window** leaves its launch running, as today (ADR-0021).
+- **Optimising per-call latency**: only after step 6 names a hotspot.
+- The idle footprint report, the browser golden path, KGP ≥ 2.4 `build.errors`, spike S2's other clients.
+
+## Design questions
+
+### Q1. Who owns an emulator launch before its serial is resolved, and when is it hung?
+
+- Blocks: steps 2–4, and step 6 (it measures the fixed product). The ADR is written after step 1, from its facts.
+- The documents say: `emulator.md` §Design rule ("boot it, don't own it"), §Detached launch ("Unsupervised on purpose"), §Stop ("We do not escalate to signals"), §Wipe ("cancelling after the spawn behaves like a cancelled boot … and the wipe has happened"), §Timeouts ("A cancelled boot leaves the emulator running (we do not own it)… intentional"), §Failure modes (no serial → `EMULATOR_BOOT_TIMEOUT` at the boot timeout), §Open questions (wedged versus slow); `process-lifecycle.md` (a device process is "not a child of the core"; §Shutdown layer 2: the launcher "must outlive the daemon"); `mcp-tool-surface.md` ("`emulator_start` cancelled | … keeps booting, because we do not own it"); ADR-0001 §Context; plan m1i D15. No ADR decides the rule; `emulator.md` (draft) and m1i D15 do. The brief asks for the reverse in the pre-serial window, so it is a decision.
+- Draft decision, a new ADR (next number) "An emulator launch is droidyard's until its serial is resolved":
+  1. From spawn until this daemon resolves the launch's serial (`emulator.md` §Boot sequence 4: a new serial listed whose `emu avd name` is the AVD), the launch is droidyard's: this daemon started it, in a session it created, and has handed no serial to anyone. If the boot ends before then (the serial deadline, the boot timeout, a cancel, the daemon's shutdown), droidyard ends it: `SIGTERM` to its process group (pgid = pid under `Setsid`), then `SIGKILL` if the group is not empty after 5 s; it waits until the group is empty, not only for the launcher's reaper. If step 1 finds a process in that group that other emulators share, the signal goes to the launch's pid and the qemu if that is a different process. A `-wipe-data` launch ended this way may leave the wipe partial; the error says to call `emulator.wipe` again.
+  2. From resolution it is a device and today's rule holds: only `emu kill`, no signals; a cancelled or timed-out boot leaves it running; it outlives the daemon.
+  3. **Serial deadline**: 45 s from spawn (working default, a constant like m1i D14's; S8 G11 listed a headless boot at 3 s; step 1 sets it if slower). Its failure is the existing `EMULATOR_BOOT_TIMEOUT` ("No serial appears within the timeout"): the cause names the pid, whether it was stopped and the log tail; the nextStep names the remedies per capability (A1). The 180 s boot timeout still bounds readiness.
+  4. Nothing else changes: no code, parameter or result field; no pid record (ADR-0021 still excludes emulators); an instance droidyard did not launch, or launched in an earlier daemon, is never signalled.
+  - Consequences: documents changed with it: `emulator.md` §Design rule, §Detached launch, §Stop, §Wipe, §Failure modes, §Timeouts, §Open questions; `process-lifecycle.md` §Kinds of processes (device process row) and §Shutdown layer 2; `mcp-tool-surface.md`'s `emulator_start` cancelled row; the `emulator.start`/`emulator.wipe` descriptions; ADR-0001 gains `- Amended: <date> — an emulator launch is the core's until its serial is resolved, and is ended if its boot fails before then (the new ADR, linked); a running emulator is still not ours.` Costs: a person who spends more than 45 s on a windowed dialog before the console opens loses the boot; a kill before the console may itself be the unclean shutdown a windowed relaunch reacts to (step 1 (d), (e) observe it), hence the nextStep's `headless`.
+  - Alternatives considered: (a) keep "never signal" and shorten the timeout: the hung launch keeps the AVD and every retry, headless included, is `EMULATOR_AVD_LOCKED`, as in attempt 1. (b) `emulator.stop {avd}` killing a serial-less instance by pid: a second name for one target (`capability-api.md` §One name for each target), and for an earlier daemon's instance a pid droidyard cannot prove it launched; with ¶1 this daemon's own never outlives its boot. Wins if serial-less instances of earlier daemons prove common. (c) `-report-console <socket>`: the console port without adb, at about the moment the serial is listed (S8 G11), for a listener per boot. Wins if adb's listing proves late or unreliable. (d) A pid record for pre-serial launches so crash recovery ends them: covers a daemon dying in the window, for an ADR-0021 change. Wins if that crash is observed. (e) `headless` by default: hides the window the owner may want; a contract change. (f) Retrying headless automatically: a behaviour the caller did not ask for. (g) The boundary at the serial's first listing: a listed, unresolved serial is not yet known to be this launch's, and the code resolves by `emu avd name`; the boundary would sit inside a poll interval.
+
+### Q2. The comparison's threshold
+
+- Blocks: step 5 (answered before the pilot, though the ratification allows after, so that no pilot number can bear on it).
+- The documents say: `mvp.md` §How the comparison is run: fixed "before the comparison runs, from the question 'is this difference worth building on', and never from the pilot's observed difference". No value.
+- Draft decision (recorded in `mvp.md` at step 7). With calls, failed calls and complete runs as D3 and D4 define them, over five runs per arm, applied in this order: (1) if the MCP arm is complete in fewer than 4 runs, or in fewer runs than the shell arm: **not supported**; (2) if its median failed calls exceed the shell arm's: **not supported**; (3) if its median calls exceed 75% of the shell arm's: **not supported**; (4) otherwise, of the 25 pairs (MCP run, shell run), if at least 20 have fewer MCP calls: **supported**, else **inconclusive**. Tokens, wall time and tool time are reported, not thresholded. Disclosure: the planner and the plan-reviewer saw the pre-fix `cmp-20261007-1303` counts (shell 44 tool parts; MCP 38 parts, 35 `tools/call`); the 75% comes from "a quarter fewer steps is worth building on" and is stricter than that pilot's ratio, not fitted to it.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| The hang was a windowed modal dialog after an unclean shutdown under memory pressure, or the AVD recreated under a still-exiting qemu | none: the fix is cause-agnostic | step 1 (e); `reset.sh` waits for the qemu's exit |
+| A serial is listed within 15 s of spawn in every mode (S8 G11: 3 s headless) | 2, 4 | step 1 (b) |
+| The launch's group holds only its own processes; the windowed pid is the qemu | 2, 4 | step 1 (c) |
+| The AVD lock is taken before the first listing, leaving a window to model a hung holder | 4 | step 1 (b) |
+| An ended pre-serial launch frees the AVD; a live one exits on `SIGTERM` within 5 s | 2, 4 | step 1 (d), step 4 (a) |
+| `SIGSTOP` models a hung launch for droidyard's purpose | 4 | stated as a limit in step 4 |
+| `opencode run --standalone` in a copy does not wake the owner's `opencode serve --service` (m1l tied the leak to `debug agents`) | 5, 6 | K6's per-run check |
+| OpenCode's JSON events keep per-tool times and per-step tokens | 5, 6 | step 5 (b) |
+| Five runs per arm separate the arms | 6 | step 6's spread; Q2's "inconclusive" |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise | B1: Q1's boundary ("first listed") and step 2's (resolved by `emu avd name`) differ; the kept cancel test and step 4's cancel-after case race inside the gap | Q1 ¶1: the boundary is resolution (§Boot sequence 4), alternative (g) records why; `TestStartEndsALaunchListedButNotResolved`; the kept test cancels after one readiness poll; step 4 (d) cancels at `device` |
+| 1 | revise | B2: consequences missed `mcp-tool-surface.md`, `process-lifecycle.md` §Shutdown, `emulator.md` §Wipe; a wipe's nextStep named `coldBoot` | all three listed; Q1 ¶1 says a wipe ended early may be partial; per-capability nextStep (A1) and `TestWipeEnds…` asserts no `coldBoot`; step 7's grep covers the four phrasings |
+| 1 | revise | B3: step 1 (c) could pass with a `netsimd` already running, and pid-alone could leave a supervised qemu | step 1 (c) snapshots before each launch, needs a windowed boot with no `netsimd`, records exec vs supervise; Q1 ¶1's fallback signals the pid and the qemu |
+| 1 | revise | B4: a `SIGSTOP` before the lock never shows the AVD held | step 1 (b) times the lock against the listing; step 4 (a), (e) stop after the lock and record it; else A3/A4 say what the model proves |
+| 1 | revise | B5: N = 5 departs from "the pilot sizes N" without saying so | on the owner list, citing the main session's brief |
+| 1 | revise | B6: Q2's count, a failure of (3), "overlap" and the order were undefined; Q2 could follow the pilot | calls = every tool part (D3); Q2 ordered (1)–(4) with a 20-of-25 pair rule; Q2 blocks step 5 |
+| 1 | revise | B7: K3/K4 unenforced on the shell arm; owner-AVD mtimes dropped; dropped wrapper refusals unexplained | K7 (no `ANDROID_HOME`, deny rules, denied = failed call, the refusals' rationale); K3 restores m1l E3's checks and adds owner process pids; on the owner list |
+| 2 | revise | B1: `end` waited on `done` (the launcher's reaper), so a supervised qemu surviving `SIGTERM` would never get `SIGKILL`, and the fakes could not tell | `end` waits until the target is empty (`kill(-pgid, 0)` → `ESRCH`) and escalates on that; `.launch.childignoreterm` and `TestEndWaitsForTheWholeTarget`; the mutation list fixed for both branches; Q1 ¶1 says so |
+| 2 | revise | B2: the plan failed four `internal/doccheck` tests (the index, an ADR number not yet written, the status and `- Check:` lines, a missing `ui-automation.md` section) | status line bare; "the Q1 ADR (next number)"; `- Check:` lines; "a new Open questions section"; the index row is the main session's, in the plan's commit |
+| 2 | revise | B3: K7 changed the shell arm's environment with nothing proving it can still build and boot, or that deny rules hold under `--auto` | K7 lists the full environment; step 5 (a0) probes `-list-avds`, a denied `kill -0 1` and Gradle; the `sh` pilot must score grades 2 and 4 |
+| 2 | — | N1 the qemu's discovery; N2 failed-call units, retried; N3 `awaitSerial` probes past the deadline, A1's hard numbers; N4 the grep; N5 the order's balance, cold Gradle; N6 step 3's nextStep; N7 the pilot's unexplained `kill-server`; N8 the fixed grace | N1 step 1: both cases at once re-plans step 2; N2 D3 per tool part, retried defined; N3 probes bounded, A1 and step 4 use "deadline + 10 s"; N4 five phrasings added; N5 stated, a warm-up build; N6 "answers as this AVD"; N7 the wrapper logs its caller (K7); N8 the grace scaled |
+| 1 | — | N1 plans index; N2 the ADR file and counts; N3 shutdown untested; N4 cancel test under default signals; N5 A3 via headless only; N6 no `setsid`; N7 `ps -g`; N8 order and memory; N9 C3 unreplaced; N10 step 3's unreachable detail and its "or"; N11 ADR after step 1; N12 size; N13 the 45 s cost | N1 noted for the plan's commit; N2, N11 step 2 writes the Q1 ADR after step 1; N3 a fake test and step 4 (c); N4 `.launch.ignoreterm`; N5 A3 says "with the nextStep's remedy", a windowed retry recorded; N6 K4's `perl`; N7 step 1's filter; N8 ABBA and `vm_stat` (D5, D3); N9 K6; N10 the details cut, nextStep kept; N12 trimmed; N13 in Q1's costs. The Unverified note on `reset.sh` taken |
+
+Two rounds ran; every blocking finding of both is answered in the plan text, so a further look is a diff-only check by the main session (`milestone-plan` §Writing one, item 7). The status stays `Blocked` only on Q1 and Q2; once they are answered it becomes `Reviewed`. `go test ./internal/doccheck` passes but for the plans index row, which the main session adds in the plan's commit: `| [m1m-emulator-robustness.md](m1m-emulator-robustness.md) | 1m — emulator boot robustness and the MCP-vs-shell comparison | Blocked |`.
+
+## Changes
+
+Changes after approval: date, what changed, why, and the ADR if the change touches the design.
