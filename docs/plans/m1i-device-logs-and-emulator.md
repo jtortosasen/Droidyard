@@ -126,7 +126,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: `followMs` (step 3); the `device.logcat` topic (D18); `device.backtrace` (post-MVP).
 - Rests on: an app's lines and its crash are attributed to it after its process died. Level 4.
 - Review: a new capability with untrusted fields: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 4bc8906, fix ad0abbe. (a) fake adb and the recordings; seen failing (main session) with the native uid check removed, the disconnection read from the log's stdout and a cut read parsed whole. (b) level 4, main session, the scratch API 31 emulator behind the adb guard: build, install and `device.launch` through the daemon (pid 5972), Crash tapped, `device.logs {device, applicationId}` → `filter {by: uid, uid: 10146}`, 43 lines from the launch, `crashes [{java.lang.IllegalStateException, droidyard fixture crash}]`, an ephemeral capture marked untrusted; the guard refused nothing. Review: Opus verifier, fix (B1 a logged "device offline" failed every read; B2 a forged native crash claimed under `by: uid`; B3 a cut read failed), fixed by the main session.
 
 ### 3. `device.logs`: the bounded follow
 
@@ -139,7 +139,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: a follow longer than 60 s, or ending on the first crash (no acceptance item needs either).
 - Rests on: no logcat child outlives its window or the daemon, and reconciliation's group kill spares the shared adb server, which holds only because real adb forks its server into a group of its own (m1e step 1, observed once, adb 36.0.0). Level 4; the forked-server fact at level 5 from m1e only.
 - Review: process lifetime: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 453af28. (a) fake adb, `SpawnRecorded`, reconciliation, a re-executed daemon's graceful stop and kill -9. (b) level 4, main session: `device.logs {followMs: 8000}` with Crash tapped at about 2 s → completed, 19 lines, the crash in `crashes`; during the window one `adb -s <scratch> logcat` client and one `device-stream` record; after it, no client and no record. Review: in progress at the time of this line (see Review).
 
 ### 4. `emulator.list` and `emulator.stop`
 
@@ -152,7 +152,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: the launch table that lets `stop` also wait for our launcher (step 5); `system.health` reporting the launcher (availability carries it).
 - Rests on: a stop kills only an emulator and returns only once it is gone. Level 4.
 - Review: new capabilities, one destructive: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 0c4fa1d and the review fix 165fdf3. (a) 16 tests over the stateful fakes; seen failing (implementer) with PATH before the host SDK, chatter kept as an AVD, stop returning early and stop running readiness. (b) level 4, main session: under the isolated home `emulator.list` → `droidyard_m1i` running on emulator-5556 with its config; a listing daemon without it → the six owner AVDs, `Pixel_9a` running; `emulator.stop` of the scratch serial → stopped; `emulator.stop {emulator-5554}` → the guard refused `emu kill`, `DEVICE_ADB_FAILED` in 4 s (after the fix below; 20 s timeout before), `Pixel_9a`'s qemu pid unchanged. Review: Opus verifier, fix (published errors the handlers cannot return; offline emulators ignored by wipe and adoption), fixed by the main session.
 
 ### 5. `emulator.start` and `emulator.wipe`
 
@@ -165,7 +165,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: `emulator.create`/`delete` (post-MVP); a wedged-versus-slow detector (`emulator.md` §Open questions: the timeout answers both); `device.state` events.
 - Rests on: an emulator we boot outlives the daemon, and a wipe touches only the AVD it names. Level 4.
 - Review: process lifetime and destructive capabilities: Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: f6dc97e, level-4 fix 5e8409d, review fix 165fdf3. (a) 17 tests incl. a re-executed daemon's stop mid-boot and after a boot; seen failing (implementer) with `Setpgid` instead of `Setsid`; (main session) with `device offline` read as gone, and with a failed `emu kill` ignored. (b) level 4, main session: `emulator.start` of the running scratch AVD → `adopted: true`; after a stop, `emulator.start {headless}` → a fresh boot, `bootMs` 9833 — at the first attempt it failed `DEVICE_DISCONNECTED` because adb's `device offline` during the boot read as gone (fixed); `emulator.wipe` → 22 s, a cold boot; `droidyard stop` left the scratch emulator running; the guard's `refused.log` held only the deliberate `emu kill` of `Pixel_9a`.
 
 ### 6. Level 5 through OpenCode, the recipe and the documents
 
@@ -244,4 +244,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-07, step 1 → steps 4–5 (D15): `emulator` execs into `qemu-system-aarch64-headless` (G9), so the launcher's pid is the emulator's; a second launch fails with the `Running multiple emulators with the same AVD` line (G10), an unknown AVD with the `ANDROID_AVD_HOME is defined but there is no file` line; `emu kill` ends it in about 2 s and works mid-boot (G12); `multiinstance.lock` outlives a kill without blocking the next boot; `-wipe-data` cold-boots (G13); headless boot about 21 s, 13 s wiped. Only `ANDROID_AVD_HOME` isolates the listing (G8).
 - 2026-10-07, step 2 review → D6 (Delegated): a native crash block is also attributed only when its lines carry the app's uid. Spike S9 G5 recorded the `DEBUG` lines of a native crash with the app's uid (crash_dump runs as the app), so D6's exemption ("written by tombstoned") and check (a)'s row "though its lines carry tombstoned's uid" rested on a premise the spike disproved; without the uid requirement any app could log a `>>> <pkg> <<<` header and have its lines reported as another app's crash.
 - 2026-10-07, step 2 review → D7, D10: an adb disconnection is read from adb's stderr only, never from the device log (stdout is the log, and a logged "device offline" is text); a read cut by the 32 MiB cap or the timeout drops its last partial line and returns `truncated` with a warning instead of failing; the capture reports how many lines it dropped.
+- 2026-10-07, steps 4–5 review and level 4 (Delegated): `emulator.start`/`wipe` publish only the codes they return (`DEVICE_ADB_NOT_FOUND`, `DEVICE_ADB_FAILED`, `DEVICE_DISCONNECTED` and their own; no preamble, no `OPERATION_QUEUE_TIMEOUT` on a long-running call), `emulator.stop` drops readiness and disconnection; an emulator listed offline counts as running for adoption and wipe; a failed `emu kill` whose serial stays listed is `DEVICE_ADB_FAILED` after 3 s; adb's `device offline` during a boot is not a disconnection. Known limits: AVDs with the same name in two homes are told apart only by name; `stop` waiting for the launcher's exit is untested (the fake exits with the kill).
 
