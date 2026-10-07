@@ -228,10 +228,6 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log})
 	device.Register(reg, adb, artifacts, history)
 	artifactcap.Register(reg, artifacts)
-	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
-	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
-	// missing SDK is answered with found: false (plan m1h, D11, D13).
-	sdk.Register(reg, adbEnviron())
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)
 	if sup != nil {
@@ -259,6 +255,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		}
 		return info.Root, true
 	})
+	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
+	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
+	// missing SDK is answered with found: false (plan m1h, D11, D13). sdk.requirements
+	// fetches the project model through the same client and carries the trust hook, so
+	// only a trusted root is answered (D12).
+	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorize})
 	project.Register(reg, gradleClient, authorize)
 	build.Register(reg, build.Options{Client: gradleClient, History: history, Authorize: authorize})
 	workspace.Register(reg, ws)

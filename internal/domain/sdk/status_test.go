@@ -52,7 +52,7 @@ func TestStatusWithSDK(t *testing.T) {
 // false (registry.go ResolveAnnotations).
 func TestStatusDescriptorIsAGlobalQueryWithNoRequirement(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg, nil)
+	Register(reg, Options{})
 	d, ok := reg.Lookup("sdk.status")
 	if !ok {
 		t.Fatal("sdk.status was not registered")
