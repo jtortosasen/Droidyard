@@ -20,6 +20,9 @@
   rewritten when their bytes differ from the binary's; under an explicit
   `DROIDYARD_STATE_DIR` the cache is `<state>/cache/` (one variable isolates a run).
   Milestone 1g plan D5, Delegated.
+- Amended: 2026-10-07 — the derived cache also holds the probe's jar and init script, in
+  `<cache>/gradle/probe-<digest>/`, written and checked by their bytes like the sidecar's
+  jars (milestone 1h D4, Delegated).
 
 ## Context
 

@@ -24,8 +24,10 @@ import (
 const ID = "gradle-sidecar"
 
 // ProtocolVersion is the protocol this core speaks; a sidecar that answers otherwise is
-// refused (gradle.md §Protocol).
-const ProtocolVersion = 1
+// refused (gradle.md §Protocol). Version 2 is the probe's: `project.model` carries
+// `probe`, and its reply carries `plugins`, per module `android` and the top-level
+// `probe` (plan m1h D7).
+const ProtocolVersion = 2
 
 // IdleTimeout is how long the sidecar may go unused before the supervisor stops it
 // (gradle.md §Lifecycle; plan m1g D7).
@@ -384,7 +386,9 @@ func (c *Client) fetch(ctx context.Context, r *root) (Model, error) {
 		}
 		r.setConn(conn, lease.Pid())
 	}
-	raw, err := c.call(ctx, lease, "project.model", map[string]any{"root": r.canonical})
+	// The probe is always asked for: it is the only source of Android facts, and the
+	// sidecar degrades to the generic model itself when it cannot run (plan m1h D5).
+	raw, err := c.call(ctx, lease, "project.model", map[string]any{"root": r.canonical, "probe": true})
 	if err != nil {
 		c.fail(r, err)
 		return Model{}, err
@@ -522,9 +526,15 @@ func (c *Client) launch(j JVM) (string, []string, []string, error) {
 	} else {
 		return c.opts.Launch(j, jars)
 	}
-	classpath := jars.Deps + string(filepath.ListSeparator) + jars.Class
+	// The probe jar joins the sidecar's classpath (D7): the sidecar holds the
+	// BuildAction's class and asks the daemon to load it, so it must travel with the
+	// sidecar. The init script's path comes with it, because only the cache knows where
+	// the probe's directory is.
+	classpath := jars.Deps + string(filepath.ListSeparator) + jars.Class +
+		string(filepath.ListSeparator) + jars.Probe
 	return filepath.Join(j.Home, "bin", "java"),
-		[]string{"-XX:+DisplayVMOutputToStderr", "-cp", classpath, sidecar.Class},
+		[]string{"-XX:+DisplayVMOutputToStderr", "-cp", classpath,
+			"-Ddroidyard.probe.init=" + jars.Init, sidecar.Class},
 		c.opts.Env, nil
 }
 

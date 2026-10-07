@@ -1,0 +1,20 @@
+// Droidyard's probe: the design's only init script (ADR-0023 §Decision 2).
+//
+// It is passed to the project.model BuildAction and to nothing else — never to a build
+// (ADR-0018 rule 4), which is why it carries no configuration of its own. The probe's jar
+// sits beside this script in the cache (plan m1h D4), so its location is resolved from
+// the script itself, not from a path baked into either file.
+//
+// The lifecycle line is the probe's one positive control (plan m1h D17): it appears when
+// the script runs. A build's console must never carry it.
+initscript {
+    dependencies {
+        classpath files(new File(initscript.sourceFile.parentFile, 'droidyard-probe.jar'))
+    }
+}
+
+apply plugin: droidyard.probe.ProbePlugin
+
+gradle.rootProject {
+    logger.lifecycle('droidyard-probe: applied')
+}

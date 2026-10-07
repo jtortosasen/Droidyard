@@ -6,6 +6,16 @@
   spike S3), the generic model is fetched as TAPI's `GradleProject` and
   `BuildEnvironment`, without the `BuildAction`; variants use §Decision 4's labelled
   task-name fallback (milestone 1g plan D25, Delegated).
+- Amended: 2026-10-07 — the probe landed (milestone 1h D5, D6, Delegated), ending the
+  2026-10-06 note: one `BuildAction` fetches `GradleProject` and each project's probe
+  model, each project isolated; a fetch that fails because of the probe (its frames or its
+  init script named in the failure) is retried once without it, reporting `probe:
+  failed`; a cancel or the project's own failure is never retried. The probe reads only
+  what has a consumer: AGP and KGP versions (AGP 9's built-in Kotlin included), and per
+  Android project the compile target, the effective build-tools, the SDK directory and
+  the variants from `onVariants`; `namespace`, `minSdk`, the module type and
+  `kotlinBuiltIn` wait for a consumer. Spike S3 (`docs/research/spike-s3-android-facts.md`)
+  observed every field on AGP 8.0.2, 8.13.2 and 9.4.1.
 - Relates to: [ADR-0017](0017-gradle-execution-strategy.md),
   [ADR-0018](0018-gradle-version-support-policy.md),
   [ADR-0022](0022-build-error-extraction.md)

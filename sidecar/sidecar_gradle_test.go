@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -60,16 +61,42 @@ type lineInfo struct {
 	isReply bool
 }
 
+// procOpts are the test-only launch properties startProcOpts adds (plan m1h step 2).
+type procOpts struct {
+	// testStdout adds -Ddroidyard.sidecar.testStdout (the 1g property).
+	testStdout bool
+	// probeArgs becomes -Ddroidyard.sidecar.testProbeArgs: extra Tooling API arguments for
+	// the probed fetch, which is how the probe's droidyard.probe.fail hook is reached.
+	probeArgs string
+	// probeInit becomes -Ddroidyard.sidecar.testProbeInit: another init script than the
+	// embedded one, so a broken one can be exercised.
+	probeInit string
+}
+
 // startProc launches the embedded jars on the embedded classpath, in a process group of
 // its own as the supervisor spawns the sidecar. With testStdout it passes
 // -Ddroidyard.sidecar.testStdout, which makes the sidecar write to System.out at start
 // and while serving a request.
 func startProc(t *testing.T, testStdout bool) *proc {
+	return startProcOpts(t, procOpts{testStdout: testStdout})
+}
+
+func startProcOpts(t *testing.T, o procOpts) *proc {
 	t.Helper()
 	java := filepath.Join(findJDK(), "bin", "java")
 	var args []string
-	if testStdout {
+	if o.testStdout {
 		args = append(args, "-Ddroidyard.sidecar.testStdout")
+	}
+	// The probe's init script path comes from the launch line, as the daemon passes it
+	// (D7); the test override replaces it, so a broken script can be exercised.
+	init := o.probeInit
+	if init == "" {
+		init = probeInit(t)
+	}
+	args = append(args, "-Ddroidyard.probe.init="+init)
+	if o.probeArgs != "" {
+		args = append(args, "-Ddroidyard.sidecar.testProbeArgs="+o.probeArgs)
 	}
 	args = append(args, "-cp", writeJars(t), Class)
 	cmd := exec.Command(java, args...)
@@ -104,20 +131,41 @@ func startProc(t *testing.T, testStdout bool) *proc {
 	return p
 }
 
-// writeJars writes the embedded jars out and returns their classpath. The test runs the
-// bytes the daemon will run, not a build tree.
+// writeJars writes the embedded jars out and returns their classpath, the probe jar
+// included as the daemon's launch line carries it (D7). The test runs the bytes the daemon
+// will run, not a build tree.
 func writeJars(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	deps := filepath.Join(dir, "gradle-sidecar-deps.jar")
 	classes := filepath.Join(dir, "gradle-sidecar.jar")
-	if err := os.WriteFile(deps, DepsJar(), 0o644); err != nil {
+	probe := filepath.Join(dir, "droidyard-probe.jar")
+	for path, data := range map[string][]byte{
+		deps:    DepsJar(),
+		classes: Jar(),
+		probe:   ProbeJar(),
+	} {
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return deps + string(os.PathListSeparator) + classes + string(os.PathListSeparator) + probe
+}
+
+// probeInit writes the embedded probe jar and init script beside each other, as the
+// daemon's cache directory has them (D4: the init script finds the jar beside itself), and
+// returns the script's path.
+func probeInit(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "droidyard-probe.jar"), ProbeJar(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(classes, Jar(), 0o644); err != nil {
+	script := filepath.Join(dir, "droidyard-probe.init.gradle")
+	if err := os.WriteFile(script, InitScript(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return deps + string(os.PathListSeparator) + classes
+	return script
 }
 
 func (p *proc) readStdout(r io.ReadCloser) {
@@ -345,18 +393,18 @@ func runBuild(t *testing.T, p *proc, root, buildID string, tasks ...string) map[
 
 // --- the tests -------------------------------------------------------------------------
 
-// Decision (gradle.md §Protocol, D19): the handshake carries protocol 1 and the pinned
-// Tooling API; connection.open reports Gradle 8.13 from the wrapper and the daemon's JVM
-// home; project.model lists the root and its one subproject with compileJava. ping and
-// shutdown answer too.
+// Decision (gradle.md §Protocol, D19; plan m1h D7): the handshake carries protocol 2 and
+// the pinned Tooling API; connection.open reports Gradle 8.13 from the wrapper and the
+// daemon's JVM home; project.model lists the root and its one subproject with compileJava
+// and, unprobed, answers probe.status skipped. ping and shutdown answer too.
 func TestGradleHandshakeAndProjectModel(t *testing.T) {
 	gradleTest(t)
 	p := startProc(t, false)
 	root := plainFixture(t)
 
 	hello := p.result(p.send("hello", nil), 60*time.Second)
-	if got := intOf(hello, "protocolVersion"); got != 1 {
-		t.Errorf("hello protocolVersion %d, want 1", got)
+	if got := intOf(hello, "protocolVersion"); got != 2 {
+		t.Errorf("hello protocolVersion %d, want 2", got)
 	}
 	if got := strOf(hello, "tapiVersion"); got != ToolingAPI {
 		t.Errorf("hello tapiVersion %q, want %q", got, ToolingAPI)
@@ -797,6 +845,512 @@ func TestGradleUnknownNotificationGetsNoResponse(t *testing.T) {
 		if e, isErr := n["error"]; isErr && n["id"] == nil {
 			t.Errorf("the sidecar answered the notification with an error: %v", e)
 		}
+	}
+}
+
+// --- the probe's real cells and cases (plan m1h step 2) ---------------------------------
+
+// cell is one Gradle/AGP/Kotlin row of the canary (plan m1h D3, step 1's table). The
+// fixture is rewritten per cell in a temporary copy, never in the repository.
+type cell struct {
+	name string
+	// gradle is the wrapper's distribution version; the AGP and Kotlin versions go into
+	// settings.gradle.
+	gradle string
+	agp    string
+	kgp    string
+	// kotlin keeps the org.jetbrains.kotlin.android lines; C2 drops them (AGP 9's
+	// built-in Kotlin).
+	kotlin bool
+	// libBuildTools is AGP's own default on :lib, where the fixture sets no
+	// buildToolsVersion. :app always sets 35.0.0 explicitly (step 1 G4).
+	libBuildTools string
+}
+
+var cells = []cell{
+	{name: "C1", gradle: "8.13", agp: "8.13.2", kgp: "2.0.21", kotlin: true, libBuildTools: "35.0.0"},
+	{name: "C2", gradle: "9.6.0", agp: "9.4.1", kgp: "2.2.10", kotlin: false, libBuildTools: "36.0.0"},
+	{name: "C4", gradle: "8.0.2", agp: "8.0.2", kgp: "2.0.21", kotlin: true, libBuildTools: "30.0.3"},
+}
+
+// flavouredFixture copies sidecar/testdata/flavoured into a temporary directory, adds a
+// local.properties naming the host SDK, and rewrites the wrapper's distribution and the
+// plugin versions for the cell (plan m1h D3; S8: the fixture is never built in place).
+func flavouredFixture(t *testing.T, c cell) string {
+	t.Helper()
+	sdk := hostSDK()
+	if sdk == "" {
+		t.Skip("level 5 only: no host Android SDK (set ANDROID_HOME)")
+	}
+	dst := t.TempDir()
+	if err := os.CopyFS(dst, os.DirFS("testdata/flavoured")); err != nil {
+		t.Fatalf("copying testdata/flavoured: %v", err)
+	}
+	writeFile(t, filepath.Join(dst, "local.properties"), "sdk.dir="+sdk+"\n")
+	writeFile(t, filepath.Join(dst, "gradle", "wrapper", "gradle-wrapper.properties"),
+		"distributionBase=GRADLE_USER_HOME\n"+
+			"distributionPath=wrapper/dists\n"+
+			"distributionUrl="+cellDistribution(t, c)+"\n"+
+			"zipStoreBase=GRADLE_USER_HOME\n"+
+			"zipStorePath=wrapper/dists\n")
+	settings := readFile(t, filepath.Join(dst, "settings.gradle"))
+	settings = strings.ReplaceAll(settings, "version '8.13.2'", "version '"+c.agp+"'")
+	if !c.kotlin {
+		settings = dropLines(settings, "org.jetbrains.kotlin.android")
+	}
+	writeFile(t, filepath.Join(dst, "settings.gradle"), settings)
+	if !c.kotlin {
+		for _, rel := range []string{"build.gradle", filepath.Join("lib", "build.gradle")} {
+			p := filepath.Join(dst, rel)
+			writeFile(t, p, dropLines(readFile(t, p), "org.jetbrains.kotlin.android"))
+		}
+	}
+	return dst
+}
+
+// cellDistribution is the wrapper URL for a cell: the published one for C1 and C2, and a
+// file:// URL to the zip build.sh fetched for C4 (m1h D3), so the floor runs whenever that
+// build cache exists.
+func cellDistribution(t *testing.T, c cell) string {
+	if c.name != "C4" {
+		return `https\://services.gradle.org/distributions/gradle-` + c.gradle + `-bin.zip`
+	}
+	zip := filepath.Join(buildCacheDir(), "gradle-"+c.gradle+"-bin.zip")
+	if _, err := os.Stat(zip); err != nil {
+		t.Skipf("level 5 only: the Gradle %s zip build.sh fetched is not in %s", c.gradle, buildCacheDir())
+	}
+	return `file\:` + zip
+}
+
+// buildCacheDir mirrors build.sh's cache: $BUILD_CACHE, else the XDG cache.
+func buildCacheDir() string {
+	if c := os.Getenv("BUILD_CACHE"); c != "" {
+		return c
+	}
+	if x := os.Getenv("XDG_CACHE_HOME"); x != "" {
+		return filepath.Join(x, "droidyard-sidecar-build")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "droidyard-sidecar-build")
+}
+
+// hostSDK finds the host's Android SDK, the one local.properties must name (step 1 G4).
+func hostSDK() string {
+	for _, k := range []string{"ANDROID_HOME", "ANDROID_SDK_ROOT"} {
+		if v := os.Getenv(k); v != "" && isDir(v) {
+			return v
+		}
+	}
+	home, _ := os.UserHomeDir()
+	for _, c := range []string{
+		filepath.Join(home, "Library/Android/sdk"),
+		filepath.Join(home, "Android/Sdk"),
+	} {
+		if isDir(c) {
+			return c
+		}
+	}
+	return ""
+}
+
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func writeFile(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// dropLines removes every line containing substr.
+func dropLines(text, substr string) string {
+	var kept []string
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.Contains(line, substr) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// probedModel fetches the fixture's model over one connection and returns the reply.
+func probedModel(t *testing.T, p *proc, root string, probe bool) map[string]any {
+	t.Helper()
+	return p.result(p.send("project.model", map[string]any{"root": root, "probe": probe}), 300*time.Second)
+}
+
+// projectTasks maps each project's path to its sorted task names, so a probed and an
+// unprobed fetch can be compared for the same modules and tasks.
+func projectTasks(model map[string]any) map[string]string {
+	out := map[string]string{}
+	for _, entry := range arrOf(model, "projects") {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		var names []string
+		for _, task := range arrOf(m, "tasks") {
+			if tm, ok := task.(map[string]any); ok {
+				names = append(names, strOf(tm, "name"))
+			}
+		}
+		sort.Strings(names)
+		out[strOf(m, "path")] = strings.Join(names, ",")
+	}
+	return out
+}
+
+func variantNames(android map[string]any) []string {
+	var out []string
+	for _, v := range arrOf(android, "variants") {
+		if vm, ok := v.(map[string]any); ok {
+			out = append(out, strOf(vm, "name"))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func variantByName(android map[string]any, name string) map[string]any {
+	for _, v := range arrOf(android, "variants") {
+		if vm, ok := v.(map[string]any); ok && strOf(vm, "name") == name {
+			return vm
+		}
+	}
+	return nil
+}
+
+func flavorLabels(variant map[string]any) string {
+	var out []string
+	for _, f := range arrOf(variant, "flavors") {
+		if fm, ok := f.(map[string]any); ok {
+			out = append(out, strOf(fm, "dimension")+":"+strOf(fm, "name"))
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+func notesOf(probe map[string]any) []string {
+	var out []string
+	for _, n := range arrOf(probe, "notes") {
+		if s, ok := n.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func anyNoteContains(notes []string, parts ...string) bool {
+	for _, n := range notes {
+		all := true
+		for _, p := range parts {
+			if !strings.Contains(n, p) {
+				all = false
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
+// Decision (plan m1h D5, D6, D7): a probed project.model is one BuildAction that reads the
+// fixture's Android facts — AGP and KGP build-wide, :app's eight variants with build type
+// and flavours in dimension order, :lib's debug and release, the compile target, the
+// effective build-tools and AGP's SDK directory — with probe.status ok, on C1, C2 and C4,
+// and the same modules and tasks as an unprobed fetch. Seen failing with the variants
+// dropped, with plugins absent and with a per-cell build-tools constant.
+func TestGradleProbeReadsTheFixturePerCell(t *testing.T) {
+	for _, c := range cells {
+		t.Run(c.name, func(t *testing.T) {
+			gradleTest(t)
+			root := flavouredFixture(t, c)
+			p := startProc(t, false)
+			openRoot(t, p, root)
+
+			model := probedModel(t, p, root, true)
+			plugins := objOf(model, "plugins")
+			if plugins == nil {
+				t.Fatalf("a probed reply has no plugins block: %v", model)
+			}
+			if got := strOf(plugins, "agp"); got != c.agp {
+				t.Errorf("plugins.agp = %q, want %q", got, c.agp)
+			}
+			if got := strOf(plugins, "kgp"); got != c.kgp {
+				t.Errorf("plugins.kgp = %q, want %q", got, c.kgp)
+			}
+			probe := objOf(model, "probe")
+			if got := strOf(probe, "status"); got != "ok" {
+				t.Errorf("probe.status = %q, want ok (notes: %v)", got, notesOf(probe))
+			}
+
+			projects := arrOf(model, "projects")
+			app := projectAt(projects, ":app")
+			if app == nil {
+				t.Fatalf("no :app: %v", projectPaths(projects))
+			}
+			appA := objOf(app, "android")
+			if appA == nil {
+				t.Fatal(":app has no android block")
+			}
+			if got := strOf(appA, "compileTarget"); got != "android-36" {
+				t.Errorf(":app compileTarget = %q, want android-36", got)
+			}
+			if got := strOf(appA, "buildTools"); got != "35.0.0" {
+				t.Errorf(":app buildTools = %q, want the explicit 35.0.0", got)
+			}
+			if got := strOf(appA, "sdkDir"); !samePath(got, hostSDK()) {
+				t.Errorf(":app sdkDir = %q, want the host SDK %q", got, hostSDK())
+			}
+			appBuildTypes := map[string]string{
+				"freeStagingDebug": "debug", "freeStagingRelease": "release",
+				"freeProdDebug": "debug", "freeProdRelease": "release",
+				"paidStagingDebug": "debug", "paidStagingRelease": "release",
+				"paidProdDebug": "debug", "paidProdRelease": "release",
+			}
+			appFlavors := map[string]string{
+				"freeStagingDebug": "tier:free,stage:staging", "freeStagingRelease": "tier:free,stage:staging",
+				"freeProdDebug": "tier:free,stage:prod", "freeProdRelease": "tier:free,stage:prod",
+				"paidStagingDebug": "tier:paid,stage:staging", "paidStagingRelease": "tier:paid,stage:staging",
+				"paidProdDebug": "tier:paid,stage:prod", "paidProdRelease": "tier:paid,stage:prod",
+			}
+			seen := map[string]bool{}
+			for _, v := range arrOf(appA, "variants") {
+				vm, _ := v.(map[string]any)
+				name := strOf(vm, "name")
+				want, ok := appBuildTypes[name]
+				if !ok {
+					t.Errorf(":app has an unexpected variant %q", name)
+					continue
+				}
+				seen[name] = true
+				if bt := strOf(vm, "buildType"); bt != want {
+					t.Errorf(":app %s buildType = %q, want %q", name, bt, want)
+				}
+				if fl := flavorLabels(vm); fl != appFlavors[name] {
+					t.Errorf(":app %s flavors = %q, want %q", name, fl, appFlavors[name])
+				}
+			}
+			for name := range appBuildTypes {
+				if !seen[name] {
+					t.Errorf(":app is missing variant %q (got %v)", name, variantNames(appA))
+				}
+			}
+
+			lib := projectAt(projects, ":lib")
+			if lib == nil {
+				t.Fatalf("no :lib: %v", projectPaths(projects))
+			}
+			libA := objOf(lib, "android")
+			if libA == nil {
+				t.Fatal(":lib has no android block")
+			}
+			if got := strOf(libA, "buildTools"); got != c.libBuildTools {
+				t.Errorf(":lib buildTools = %q, want AGP's default %q", got, c.libBuildTools)
+			}
+			if got := variantNames(libA); strings.Join(got, ",") != "debug,release" {
+				t.Errorf(":lib variants = %v, want debug and release", got)
+			}
+			t.Logf("%s: agp %s kgp %s status %s; :app %s build-tools %s, %d variants; :lib build-tools %s",
+				c.name, strOf(plugins, "agp"), strOf(plugins, "kgp"), strOf(probe, "status"),
+				strOf(appA, "compileTarget"), strOf(appA, "buildTools"), len(arrOf(appA, "variants")),
+				strOf(libA, "buildTools"))
+
+			// Same modules and tasks as an unprobed fetch of the same root.
+			unprobed := probedModel(t, p, root, false)
+			got, want := projectTasks(model), projectTasks(unprobed)
+			if len(got) != len(want) {
+				t.Fatalf("the probed fetch has %d modules, the unprobed %d: %v against %v", len(got), len(want), got, want)
+			}
+			for path, tasks := range want {
+				if got[path] != tasks {
+					t.Errorf("module %s: probed tasks %q, unprobed %q", path, got[path], tasks)
+				}
+			}
+		})
+	}
+}
+
+// Decision (plan m1h D5, D7): probe: false answers the generic model and probe.status
+// skipped, with no plugins and no per-project android. Seen failing when the probe runs
+// regardless of the flag.
+func TestGradleProbeSkippedWhenNotAsked(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	p := startProc(t, false)
+	openRoot(t, p, root)
+
+	model := probedModel(t, p, root, false)
+	if got := objOf(model, "plugins"); got != nil {
+		t.Errorf("an unprobed reply carries plugins: %v", got)
+	}
+	if probe := objOf(model, "probe"); strOf(probe, "status") != "skipped" {
+		t.Errorf("probe.status = %q, want skipped", strOf(probe, "status"))
+	}
+	for _, entry := range arrOf(model, "projects") {
+		if m, ok := entry.(map[string]any); ok && objOf(m, "android") != nil {
+			t.Errorf("an unprobed reply carries android for %s", strOf(m, "path"))
+		}
+	}
+}
+
+// Decision (plan m1h D6): a field whose own read fails is omitted and noted, and
+// probe.status is partial; the rest of the facts survive. Seen failing with one try
+// around all fields, where the broken field takes the variants with it.
+func TestGradleProbeFieldFailureIsPartial(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	p := startProcOpts(t, procOpts{probeArgs: "-Ddroidyard.probe.fail=compileTarget"})
+	openRoot(t, p, root)
+
+	model := probedModel(t, p, root, true)
+	probe := objOf(model, "probe")
+	if got := strOf(probe, "status"); got != "partial" {
+		t.Errorf("probe.status = %q, want partial", got)
+	}
+	if !anyNoteContains(notesOf(probe), ":app", "compileTarget") {
+		t.Errorf("no note names :app and compileTarget: %v", notesOf(probe))
+	}
+	app := projectAt(arrOf(model, "projects"), ":app")
+	appA := objOf(app, "android")
+	if appA == nil {
+		t.Fatal(":app lost its whole android block with one field failing")
+	}
+	if _, present := appA["compileTarget"]; present {
+		t.Errorf(":app compileTarget survived a failed read: %v", appA)
+	}
+	if got := strOf(appA, "buildTools"); got != "35.0.0" {
+		t.Errorf(":app buildTools = %q after a compileTarget failure, want 35.0.0", got)
+	}
+	if got := strOf(appA, "sdkDir"); !samePath(got, hostSDK()) {
+		t.Errorf(":app sdkDir = %q after a compileTarget failure, want the host SDK %q", got, hostSDK())
+	}
+	if got := variantNames(appA); len(got) != 8 {
+		t.Errorf(":app variants = %v after a compileTarget failure, want the eight", got)
+	}
+}
+
+// Decision (plan m1h D5, D17): a broken probe is retried once without it, one stderr line
+// is logged, and the generic model is answered with probe.status failed. Seen failing with
+// the retry removed (the broken script fails the call) and with the retry unconditional.
+func TestGradleProbeBrokenInitScriptRetriesOnce(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.init.gradle")
+	writeFile(t, bad, "this is not { valid gradle\n")
+	p := startProcOpts(t, procOpts{probeInit: bad})
+	openRoot(t, p, root)
+
+	model := probedModel(t, p, root, true)
+	probe := objOf(model, "probe")
+	if got := strOf(probe, "status"); got != "failed" {
+		t.Errorf("probe.status = %q, want failed (notes: %v)", got, notesOf(probe))
+	}
+	if objOf(model, "plugins") != nil {
+		t.Error("a failed probe reply carries plugins")
+	}
+	// D5: the retry's note is the first failure's message, not a placeholder of ours.
+	notes := notesOf(probe)
+	if len(notes) != 1 || notes[0] == "" || notes[0] == "the probe failed" {
+		t.Errorf("the failed probe's note is not the first failure's message: %v", notes)
+	}
+	if got := len(arrOf(model, "projects")); got != 3 {
+		t.Errorf("the retried fetch lists %d projects, want the root, :app and :lib", got)
+	}
+	if n := strings.Count(p.stderrText(), "retrying without it"); n != 1 {
+		t.Errorf("the stderr has %d retry lines, want exactly 1:\n%s", n, p.stderrText())
+	}
+}
+
+// Decision (plan m1h D5): a failure outside the fields' isolation (the probe's apply) is
+// attributed to the probe by its frame, retried once, and answered failed.
+func TestGradleProbeApplyFailureRetriesOnce(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	p := startProcOpts(t, procOpts{probeArgs: "-Ddroidyard.probe.fail=apply"})
+	openRoot(t, p, root)
+
+	model := probedModel(t, p, root, true)
+	if got := strOf(objOf(model, "probe"), "status"); got != "failed" {
+		t.Errorf("probe.status = %q, want failed", got)
+	}
+	if objOf(model, "plugins") != nil {
+		t.Error("a failed probe reply carries plugins")
+	}
+	if n := strings.Count(p.stderrText(), "retrying without it"); n != 1 {
+		t.Errorf("the stderr has %d retry lines, want exactly 1:\n%s", n, p.stderrText())
+	}
+}
+
+// Decision (plan m1h D5): the project's own configuration failure is not the probe's, so
+// the fetch fails PROJECT_MODEL_FAILED with the failure chain's messages and no retry.
+// Seen failing with the retry unconditional (the broken build script logs a retry).
+func TestGradleProbeDoesNotRetryTheProjectsOwnFailure(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	appBuild := filepath.Join(root, "app", "build.gradle")
+	writeFile(t, appBuild, readFile(t, appBuild)+"\ndef broken = (\n")
+	p := startProc(t, false)
+	openRoot(t, p, root)
+
+	resp := p.waitResponse(p.send("project.model", map[string]any{"root": root, "probe": true}), 300*time.Second)
+	errObj := objOf(resp, "error")
+	if errObj == nil {
+		t.Fatalf("a broken app/build.gradle did not fail the fetch: %v", resp)
+	}
+	if code := intOf(errObj, "code"); code != -32000 {
+		t.Errorf("error code %d, want -32000 (an application error)", code)
+	}
+	if got := strOf(errObj, "message"); got != "project.model failed" {
+		t.Errorf("error message %q, want project.model failed", got)
+	}
+	cause := strOf(objOf(errObj, "data"), "message")
+	if !strings.Contains(cause, "app/build.gradle") {
+		t.Errorf("the failure cause does not name app/build.gradle:\n%s", cause)
+	}
+	if n := strings.Count(p.stderrText(), "retrying without it"); n != 0 {
+		t.Errorf("the stderr has %d retry lines for the project's own failure, want none:\n%s", n, p.stderrText())
+	}
+}
+
+// Decision (plan m1h D17; ADR-0018 rule 4): the probe runs only in a model fetch, never in
+// a build. A probed fetch followed by a build of the same root leaves no probe marker in
+// the build's console. Seen failing with the init script added to build.run.
+func TestGradleProbeNeverReachesABuild(t *testing.T) {
+	gradleTest(t)
+	root := flavouredFixture(t, cells[0])
+	p := startProc(t, false)
+	openRoot(t, p, root)
+	if got := strOf(objOf(probedModel(t, p, root, true), "probe"), "status"); got != "ok" {
+		t.Fatalf("the probed fetch did not succeed: %q", got)
+	}
+	fin := runBuild(t, p, root, "b-probed", ":app:assembleFreeStagingDebug")
+	if got := strOf(objOf(fin, "params"), "outcome"); got != "success" {
+		t.Fatalf("the build after a probed fetch ended %q, want success: %v", got, fin)
+	}
+	for _, line := range p.outputLines("b-probed") {
+		if strings.Contains(line, "droidyard-probe") {
+			t.Errorf("the build's console carries the probe marker: %q", line)
+		}
+	}
+	// Not vacuous: the build really streamed a console, so "no marker in it" means
+	// something.
+	if len(p.outputLines("b-probed")) == 0 {
+		t.Error("the build streamed no console at all, so the absence of a marker proves nothing")
 	}
 }
 

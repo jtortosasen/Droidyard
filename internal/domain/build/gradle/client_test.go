@@ -202,12 +202,12 @@ func TestModelSpawnsOnceAndSharesOneProcessAcrossRoots(t *testing.T) {
 // another protocol is refused BUILD_SIDECAR_UNAVAILABLE and stopped, never used. Seen
 // failing with the version check removed.
 func TestProtocolVersionMismatchIsUnavailable(t *testing.T) {
-	c, sup, _ := newClient(t, gradletest.Config{ProtocolVersion: 2, Model: gradletest.MustModel(model(t))}, time.Minute)
+	c, sup, _ := newClient(t, gradletest.Config{ProtocolVersion: 1, Model: gradletest.MustModel(model(t))}, time.Minute)
 	_, _, err := c.Model(context.Background(), rootDir(t))
 	if got := codeOf(t, err); got != capability.ErrBuildSidecarUnavailable {
 		t.Fatalf("code = %s, want BUILD_SIDECAR_UNAVAILABLE: %v", got, err)
 	}
-	if !strings.Contains(err.Error(), "protocol version 2") {
+	if !strings.Contains(err.Error(), "protocol version 1") {
 		t.Errorf("the error does not name the sidecar's version: %v", err)
 	}
 	waitFor(t, "the sidecar to be stopped", func() bool { return sup.State(gradle.ID, process.Global) == process.Stopped })
@@ -476,6 +476,47 @@ func TestFingerprintCoversIncludedBuildLogicAndIgnoresNoise(t *testing.T) {
 	write("gradle/libs.versions.toml", "[versions]\napp = \"1\"\n")
 	if gradle.Fingerprint(root) == next {
 		t.Error("a version-catalog edit did not change the fingerprint")
+	}
+}
+
+// TestClientAlwaysAsksForTheProbe pins D7 and D25: `project.model` is always asked with
+// probe: true — the probe is the only source of the Android facts — and a reply carrying
+// plugins, a per-module android block and the probe object still parses into the generic
+// model the rest of the core uses. Seen failing when the request drops probe: true, and
+// when a probe field the model does not know breaks the parse.
+func TestClientAlwaysAsksForTheProbe(t *testing.T) {
+	cfg := gradletest.Config{
+		Model: gradletest.MustModel(model(t)),
+		Probe: &gradletest.Probe{
+			AGP: "8.13.2",
+			KGP: "2.0.21",
+			Android: map[string]gradletest.Android{
+				":app": {
+					CompileTarget: "android-36",
+					BuildTools:    "35.0.0",
+					SDKDir:        "/sdk",
+					Variants: []gradletest.Variant{
+						{Name: "debug", BuildType: "debug", Flavors: []gradletest.Flavor{{Dimension: "tier", Name: "free"}}},
+					},
+				},
+			},
+		},
+	}
+	c, _, ev := newClient(t, cfg, time.Minute)
+	m, _, err := c.Model(context.Background(), rootDir(t))
+	if err != nil {
+		t.Fatalf("a probed fetch failed: %v", err)
+	}
+	if n := count(events(t, ev), "probe true"); n != 1 {
+		t.Errorf("the client asked for %d probed fetches, want 1: %v", n, events(t, ev))
+	}
+	want := model(t)
+	if len(m.Projects) != len(want.Projects) {
+		t.Fatalf("the probed reply parsed to %d modules, want %d", len(m.Projects), len(want.Projects))
+	}
+	app, ok := m.Module(":app")
+	if !ok || len(app.Tasks) == 0 {
+		t.Errorf("the probed reply lost :app's tasks: %+v", app)
 	}
 }
 

@@ -1,5 +1,11 @@
 package droidyard.sidecar
 
+import droidyard.probe.AndroidModel
+import droidyard.probe.ProbeModel
+import droidyard.probeaction.ProbeAction
+import droidyard.probeaction.ProbeResult
+import droidyard.probeaction.ProjectFacts
+import org.gradle.tooling.Failure
 import org.gradle.tooling.GradleConnector
 import org.gradle.tooling.GradleConnectionException
 import org.gradle.tooling.LongRunningOperation
@@ -19,7 +25,36 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
 
 /** The protocol version core and sidecar agree on; a mismatch is refused by the core. */
-const val PROTOCOL_VERSION = 1
+const val PROTOCOL_VERSION = 2
+
+/**
+ * The launch argument naming the probe's init script (plan m1h D7): the daemon writes it
+ * into the cache and passes `-Ddroidyard.probe.init=<path>` on the sidecar's command line,
+ * so the init script and the jar beside it are the daemon's, never the project's.
+ */
+private const val PROBE_INIT_PROPERTY = "droidyard.probe.init"
+
+/**
+ * Test-only: extra Tooling API arguments for the probed fetch alone (plan m1h step 2, the
+ * 1g `testStdout` pattern). Only the opt-in tests launch the sidecar with it; in production
+ * it is unset, so it changes nothing.
+ */
+private const val TEST_PROBE_ARGS_PROPERTY = "droidyard.sidecar.testProbeArgs"
+
+/** Test-only: another init script, so a broken one can be exercised (plan m1h step 2). */
+private const val TEST_PROBE_INIT_PROPERTY = "droidyard.sidecar.testProbeInit"
+
+/**
+ * A frame in a class of this package makes a failure the probe's (plan m1h D5). The
+ * trailing dot is load-bearing: the `BuildAction` lives in `droidyard.probeaction`, which
+ * must never match, or every configuration failure — always under the action's frames —
+ * would be retried as the probe's.
+ */
+private const val PROBE_FRAME_PREFIX = "droidyard.probe."
+
+/** The failure chain's bounds (plan m1h D5; m1g D6's 8 KiB and count). */
+private const val MAX_CAUSE_CHARS = 8 * 1024
+private const val MAX_CAUSE_MESSAGES = 20
 
 /** The sidecar's own version, reported by `hello` (the core reports it in health). */
 const val SIDECAR_VERSION = "1.0.0"
@@ -262,34 +297,206 @@ class Session(private val proto: Protocol) {
     }
 
     /**
-     * `project.model` returns the generic TAPI model (`GradleProject`), not the probe
-     * (plan m1g D25): modules, tasks and directories, which is all `project.*` and
-     * `build.tasks` need before staging 3.
+     * `project.model` returns the generic TAPI model (`GradleProject`) and, with
+     * `probe: true`, the probe's facts from one `BuildAction` (plan m1g D25; m1h D5, D7).
+     * The reply keeps `projects[]` and adds `plugins`, per project `android?`, and
+     * `probe {status, notes[]}`.
+     *
+     * `probe: false` answers the generic model with `probe.status: skipped` and never runs
+     * the probe. A probed fetch that fails is retried once without the probe **only when
+     * the failure chain names the probe** (D5): the retry answers the generic model with
+     * `probe.status: failed`. The project's own configuration failure is not the probe's,
+     * so it fails the fetch with the chain's messages and no retry; a cancelled fetch is
+     * never retried.
      */
     private fun projectModel(request: Json): Json {
         val root = rootOf(request, "project.model")
+        val probe = request.optBool("probe") == true
         val cts = GradleConnector.newCancellationTokenSource()
         cancels.add(cts)
         try {
             synchronized(root.lock) {
-                val builder = root.connection.model(GradleProject::class.java)
-                    .withCancellationToken(cts.token())
-                applyRootOptions(builder, root.javaHome, root.env)
-                val project = builder.get()
-                val rootDir = File(root.path)
-                val projects = ArrayList<Json>()
-                collectProjects(rootDir, project, projects)
-                return obj("root" to str(root.path), "projects" to arr(projects))
+                return if (probe) {
+                    probedModel(root, cts)
+                } else {
+                    genericModel(root, cts, "skipped", emptyList())
+                }
             }
         } catch (e: GradleConnectionException) {
-            throw RpcException.application("project.model failed", e.message)
+            throw modelFailed(e)
         } finally {
             cancels.remove(cts)
             cts.cancel()
         }
     }
 
-    private fun collectProjects(rootDir: File, project: GradleProject, out: MutableList<Json>) {
+    /** The generic model with the probe's status and notes attached (m1h D7). */
+    private fun genericModel(
+        root: Root,
+        cts: CancellationTokenSource,
+        status: String,
+        notes: List<String>,
+    ): Json {
+        val projects = plainProjects(root, cts)
+        return obj(
+            "root" to str(root.path),
+            "projects" to arr(projects),
+            "probe" to obj(
+                "status" to str(status),
+                "notes" to arr(notes.map { str(it) }),
+            ),
+        )
+    }
+
+    /** One plain `GradleProject` fetch, in Gradle's project order. */
+    private fun plainProjects(root: Root, cts: CancellationTokenSource): ArrayList<Json> {
+        val builder = root.connection.model(GradleProject::class.java)
+            .withCancellationToken(cts.token())
+        applyRootOptions(builder, root.javaHome, root.env)
+        val project = builder.get()
+        val projects = ArrayList<Json>()
+        collectProjects(File(root.path), project, projects, null)
+        return projects
+    }
+
+    /**
+     * The probed fetch (D5): one `BuildAction` with the probe's init script, which returns
+     * the generic model and the probe's facts in the same configuration pass.
+     */
+    private fun probedModel(root: Root, cts: CancellationTokenSource): Json {
+        val init = probeInitPath()
+        val executer = root.connection.action(ProbeAction())
+        executer.withCancellationToken(cts.token())
+        executer.withArguments(probeArguments(init))
+        applyRootOptions(executer, root.javaHome, root.env)
+        val result: ProbeResult = try {
+            executer.run()
+        } catch (e: GradleConnectionException) {
+            // A cancelled fetch is never retried: nothing about it is the probe's fault.
+            if (cts.token().isCancellationRequested) throw modelFailed(e)
+            // Only a failure that names the probe is retried without it. The project's own
+            // configuration failure fails the fetch here, one pass, as before.
+            if (!probeIsToBlame(e, init)) throw modelFailed(e)
+            return failedProbeRetry(root, cts, e)
+        }
+        return probedReply(root, result)
+    }
+
+    /**
+     * The one retry without the probe (D5): a broken probe must not cost the generic model
+     * the sidecar always gave. One stderr line records it, so a test can tell a retry from
+     * a single pass; a second failure is the fetch's.
+     */
+    private fun failedProbeRetry(
+        root: Root,
+        cts: CancellationTokenSource,
+        failure: GradleConnectionException,
+    ): Json {
+        val first = firstFailureMessage(failure) ?: "the probe failed"
+        System.err.println(
+            "droidyard-sidecar: project.model: the probe failed, retrying without it: "
+                    + capUtf8(first.replace('\n', ' '), 512),
+        )
+        return genericModel(root, cts, "failed", listOf(first))
+    }
+
+    /** The probe's init script: the test override first, else the launch argument (D7). */
+    private fun probeInitPath(): String {
+        val override = System.getProperty(TEST_PROBE_INIT_PROPERTY)
+        if (!override.isNullOrEmpty()) return override
+        val path = System.getProperty(PROBE_INIT_PROPERTY)
+        if (path.isNullOrEmpty()) {
+            throw RpcException.application("the probe's init script path is missing (-D$PROBE_INIT_PROPERTY)")
+        }
+        return path
+    }
+
+    /** The probed fetch's arguments: the init script, plus the test hook's extra ones. */
+    private fun probeArguments(init: String): List<String> {
+        val args = ArrayList<String>()
+        args.add("--init-script")
+        args.add(init)
+        val extra = System.getProperty(TEST_PROBE_ARGS_PROPERTY)
+        if (!extra.isNullOrBlank()) {
+            for (arg in extra.split(' ')) if (arg.isNotEmpty()) args.add(arg)
+        }
+        return args
+    }
+
+    private fun probedReply(root: Root, result: ProbeResult): Json {
+        val facts = HashMap<String, ProbeModel?>()
+        for (factsOf in result.facts) facts[factsOf.path ?: ""] = factsOf.model
+
+        val notes = ArrayList<String>()
+        var degraded = false
+        result.notes?.forEach { note ->
+            if (!note.isNullOrBlank()) {
+                notes.add(note)
+                degraded = true
+            }
+        }
+        for (factsOf in result.facts) {
+            val model = factsOf.model ?: continue
+            model.notes?.forEach { note ->
+                if (!note.isNullOrBlank()) {
+                    notes.add(note)
+                    degraded = true
+                }
+            }
+            val android = model.android
+            // "Every field of every Android project was read" (D6): an Android project is
+            // one with an android block, and a null field is its read having failed.
+            if (android != null && (android.compileTarget == null || android.buildTools == null
+                        || android.sdkDir == null || android.variants == null)
+            ) {
+                degraded = true
+            }
+        }
+
+        // AGP and KGP are build-wide: the first project in path order that reports one; a
+        // different value elsewhere is a note (D6).
+        val ordered = result.facts.sortedBy { it.path ?: "" }
+        val agp = firstVersion(ordered) { it.model?.agp }
+        val kgp = firstVersion(ordered) { it.model?.kgp }
+        for (factsOf in ordered) {
+            val model = factsOf.model ?: continue
+            if (model.agp != null && model.agp != agp) {
+                notes.add("${factsOf.path}: agp: ${model.agp} (build-wide: $agp)")
+            }
+            if (model.kgp != null && model.kgp != kgp) {
+                notes.add("${factsOf.path}: kgp: ${model.kgp} (build-wide: $kgp)")
+            }
+        }
+
+        val projects = ArrayList<Json>()
+        collectProjects(File(root.path), result.root, projects, facts)
+
+        return obj(
+            "root" to str(root.path),
+            "projects" to arr(projects),
+            "plugins" to obj("agp" to str(agp), "kgp" to str(kgp)),
+            "probe" to obj(
+                "status" to str(if (degraded) "partial" else "ok"),
+                "notes" to arr(notes.map { str(it) }),
+            ),
+        )
+    }
+
+    /** The first project in path order that reports a build-wide version, else "unknown". */
+    private fun firstVersion(facts: List<ProjectFacts>, value: (ProjectFacts) -> String?): String {
+        for (factsOf in facts) {
+            val v = value(factsOf)
+            if (!v.isNullOrEmpty()) return v
+        }
+        return "unknown"
+    }
+
+    private fun collectProjects(
+        rootDir: File,
+        project: GradleProject,
+        out: MutableList<Json>,
+        facts: Map<String, ProbeModel?>?,
+    ) {
         val tasks = ArrayList<Json>()
         val set: Collection<GradleTask>? = project.tasks
         set?.forEach { t ->
@@ -309,6 +516,7 @@ class Session(private val proto: Protocol) {
             else -> relativeTo(rootDir, dir)
         }
         val buildDir = try { project.buildDirectory?.absolutePath } catch (e: Exception) { null }
+        val android = if (facts == null) null else androidJson(facts[project.path ?: ":"]?.android)
         out.add(
             obj(
                 "path" to str(project.path ?: ":"),
@@ -316,9 +524,113 @@ class Session(private val proto: Protocol) {
                 "dir" to str(dirText),
                 "buildDir" to buildDir?.let { str(it) },
                 "tasks" to arr(tasks),
+                "android" to android,
             )
         )
-        project.children?.forEach { child -> collectProjects(rootDir, child, out) }
+        project.children?.forEach { child -> collectProjects(rootDir, child, out, facts) }
+    }
+
+    /** An Android project's probe facts, or null for a project that is not Android (D7). */
+    private fun androidJson(android: AndroidModel?): Json? {
+        if (android == null) return null
+        val variants = android.variants?.map { v ->
+            obj(
+                "name" to str(v.name ?: ""),
+                "buildType" to str(v.buildType ?: ""),
+                "flavors" to arr(
+                    (v.flavors ?: emptyList()).map { flavor ->
+                        obj("dimension" to str(flavor.dimension ?: ""), "name" to str(flavor.name ?: ""))
+                    }
+                ),
+            )
+        }
+        return obj(
+            "compileTarget" to android.compileTarget?.let { str(it) },
+            "buildTools" to android.buildTools?.let { str(it) },
+            "sdkDir" to android.sdkDir?.let { str(it) },
+            "variants" to variants?.let { arr(it) },
+        )
+    }
+
+    /**
+     * A failed fetch's error (D5): `PROJECT_MODEL_FAILED` with the failure chain's
+     * messages as its cause, deduplicated, each cut at 8 KiB, at most 20, so the core's
+     * cause holds the nested Gradle and AGP text, not only the Tooling API's wrapper.
+     */
+    private fun modelFailed(e: Throwable): RpcException {
+        val cause = failureMessages(e).joinToString("\n")
+        return RpcException.application(
+            "project.model failed",
+            cause.ifEmpty { e.message ?: e.javaClass.simpleName },
+        )
+    }
+
+    /** Whether a failure is the probe's: a frame in its package, or a message naming it. */
+    private fun probeIsToBlame(e: Throwable, init: String): Boolean {
+        for (t in throwableChain(e)) {
+            for (frame in t.stackTrace) {
+                if (frame.className.startsWith(PROBE_FRAME_PREFIX)) return true
+            }
+            if (namesPath(t.message, init)) return true
+        }
+        if (e is GradleConnectionException) {
+            for (f in flattenFailures(e.failures)) {
+                if (namesPath(f.message, init) || namesPath(f.description, init)) return true
+            }
+        }
+        return false
+    }
+
+    private fun namesPath(message: String?, init: String): Boolean =
+        message != null && init.isNotEmpty() && message.contains(init)
+
+    /** The chain's messages, most specific first, deduplicated and bounded (D5). */
+    private fun failureMessages(e: Throwable): List<String> {
+        val seen = LinkedHashSet<String>()
+        if (e is GradleConnectionException) {
+            for (f in flattenFailures(e.failures)) {
+                addMessage(seen, f.message)
+                addMessage(seen, f.description)
+            }
+        }
+        for (t in throwableChain(e)) addMessage(seen, t.message)
+        return seen.toList().take(MAX_CAUSE_MESSAGES)
+    }
+
+    private fun firstFailureMessage(e: Throwable): String? = failureMessages(e).firstOrNull()
+
+    private fun addMessage(into: MutableSet<String>, message: String?) {
+        if (message.isNullOrBlank()) return
+        val cut = capUtf8(message.trim(), MAX_CAUSE_CHARS)
+        if (cut.isNotEmpty()) into.add(cut)
+    }
+
+    private fun throwableChain(e: Throwable): List<Throwable> {
+        val out = ArrayList<Throwable>()
+        var t: Throwable? = e
+        var guard = 0
+        while (t != null && guard < 32) {
+            out.add(t)
+            if (t.cause === t) break
+            t = t.cause
+            guard++
+        }
+        return out
+    }
+
+    private fun flattenFailures(failures: List<Failure>?): List<Failure> {
+        val out = ArrayList<Failure>()
+        walkFailures(failures, out)
+        return out
+    }
+
+    private fun walkFailures(failures: List<Failure>?, out: MutableList<Failure>) {
+        if (failures == null) return
+        for (f in failures) {
+            if (out.size >= 200) return
+            out.add(f)
+            walkFailures(f.causes, out)
+        }
     }
 
     private fun relativeTo(root: File, dir: File): String {
