@@ -44,12 +44,14 @@ func registerStart(reg *capability.Registry, e *Emulator) {
 		Description: "Boots one AVD and returns {device, avd, adopted} once its device reports sys.boot_completed 1. If the AVD is already running it is adopted: adopted is true, nothing is spawned, and the call still waits for readiness. Otherwise the launcher is started detached — a session and process group of its own, output to <state>/emulator/<avd>.log — and the serial it creates is found by difference and its `emu avd name`, then polled every second until boot completes, bounded at 180 s. The emulator is not ours to own: it outlives this daemon, and no pid record is kept. " +
 			"Boots are serialised: a second emulator.start or emulator.wipe runs behind the first as a queued operation, and once the first finishes it adopts the AVD. Cancelling a boot stops waiting and leaves the emulator running. A timeout is EMULATOR_BOOT_TIMEOUT. " +
 			"The AVD is looked up in emulator -list-avds first, so an AVD the launcher does not know is EMULATOR_AVD_NOT_FOUND; a launcher that refuses a second instance is EMULATOR_AVD_LOCKED, and one that exits before the device finished booting (the log tail carries why) EMULATOR_LAUNCH_FAILED. " +
-			"Fails with the preamble's errors, EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, REQUEST_INVALID_PARAMS for a name that is not a bare AVD name, and OPERATION_QUEUE_TIMEOUT behind another boot.",
+			"Fails with DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED, DEVICE_DISCONNECTED (an adopted device that left), EMULATOR_LAUNCHER_NOT_FOUND, EMULATOR_AVD_NOT_FOUND, EMULATOR_LAUNCH_FAILED, EMULATOR_AVD_LOCKED, EMULATOR_BOOT_TIMEOUT, and REQUEST_INVALID_PARAMS for a name that is not a bare AVD name; behind another boot it waits, queued.",
 		Params: StartParams{},
 		Result: StartResult{},
-		Errors: append(append([]capability.ErrorCode{}, device.PreambleErrors...),
+		// Only what the handler returns (close review B1): no preamble runs, and a
+		// long-running call has no queue bound (ADR-0020).
+		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrDisconnected,
 			ErrLauncherNotFound, ErrAVDNotFound, ErrLaunchFailed, ErrAVDLocked, ErrBootTimeout,
-			capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
+			capability.ErrInvalidParams},
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),

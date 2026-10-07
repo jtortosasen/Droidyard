@@ -36,11 +36,13 @@ func registerStop(reg *capability.Registry, e *Emulator) {
 		Description: "Stops one running emulator with `adb emu kill` and returns once its serial leaves adb devices, bounded at 20 s; a timeout is EMULATOR_STOP_TIMEOUT and we never escalate to signals, because the emulator is not ours. It holds the device's write lock, so it serialises with installs and other writes to that device and can end a stuck boot. " +
 			"Only emulator-<port> serials answer the console: anything else — a physical device, or an emulator reached over ip:port — is EMULATOR_NOT_AN_EMULATOR. The call runs the device preamble's policy check (a physical device is DEVICE_NOT_ALLOWED) but not its readiness check, so an emulator that is still booting or offline can be stopped. " +
 			"Stopping is not idempotent: a second call for an already-gone serial is DEVICE_NOT_FOUND. " +
-			"Fails with the preamble's errors (DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED, DEVICE_NOT_FOUND, DEVICE_NOT_ALLOWED, DEVICE_DISCONNECTED), EMULATOR_NOT_AN_EMULATOR, EMULATOR_STOP_TIMEOUT, and OPERATION_QUEUE_TIMEOUT behind another write to the same device.",
+			"Fails with DEVICE_ADB_NOT_FOUND, DEVICE_ADB_FAILED (including an emu kill adb refused while the serial stays listed), DEVICE_NOT_FOUND, DEVICE_NOT_ALLOWED, EMULATOR_NOT_AN_EMULATOR, EMULATOR_STOP_TIMEOUT, and OPERATION_QUEUE_TIMEOUT behind another write to the same device.",
 		Params: StopParams{},
 		Result: StopResult{},
-		Errors: append(append([]capability.ErrorCode{}, device.PreambleErrors...),
-			ErrNotAnEmulator, ErrStopTimeout, capability.ErrOperationQueueTimeout),
+		// The hook's codes without readiness (stop skips it) and without a disconnection
+		// it cannot return (review B1).
+		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrNotFound, device.ErrNotAllowed,
+			ErrNotAnEmulator, ErrStopTimeout, capability.ErrOperationQueueTimeout},
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(StopParams).Device; s != "" {
 				return device.WriteKey(s)
@@ -90,15 +92,15 @@ func (e *Emulator) stopSerial(ctx context.Context, serial string) error {
 	return e.stopSerialWith(ctx, path, serial)
 }
 
+// killFailedGrace is how long a stop waits for the serial to leave after `emu kill`
+// reported failure.
+var killFailedGrace = 3 * time.Second
+
 // stopSerialWith runs `adb -s <serial> emu kill` and waits, bounded, until the serial
 // leaves adb devices and — when this daemon launched the emulator — our launcher's Wait
 // returns (emulator.md §Stop; plan m1i, D12, D15). We never escalate to signals: the
 // emulator is not ours. One bound covers the kill and both waits, so the whole stop
 // cannot exceed stopTimeout.
-// killFailedGrace is how long a stop waits for the serial to leave after `emu kill`
-// reported failure.
-var killFailedGrace = 3 * time.Second
-
 func (e *Emulator) stopSerialWith(ctx context.Context, adbPath, serial string) error {
 	deadline := time.Now().Add(stopTimeout)
 	// A kill that reported failure may still have stopped it, and only the listing says,
