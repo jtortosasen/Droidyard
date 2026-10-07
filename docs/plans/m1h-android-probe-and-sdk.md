@@ -114,7 +114,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Not here: the core using the new fields (step 3); `sdk.*` (step 4); the CI canary (Not in this milestone).
 - Rests on: no probe failure fails the model fetch, and the probe never reaches a build. Level 4 (a real daemon, AGP 8 and 9).
 - Review: a contract change and code that runs in the user's Gradle daemon: Opus verifier. The main session writes the `Amended:` lines on ADR-0017 and ADR-0021 (D4) and ADR-0023 (D5, D6).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (implementer) `DROIDYARD_GRADLE_TESTS=1 go test ./sidecar` and the five seen-failing mutations (`--release 17`, retry removed, retry unconditional, the init script on `build.run`, one `try` around all fields). Main session, level 4, 2026-10-07: the same suite rerun, 23/23 pass: C1 `agp 8.13.2 kgp 2.0.21`, `:app` android-36, build-tools 35.0.0, 8 variants, `:lib` 35.0.0; C2 `agp 9.4.1 kgp 2.2.10`, `:lib` 36.0.0; C4 `agp 8.0.2 kgp 2.0.21`, `:lib` 30.0.3; `status ok` on each. S3 part 2, a real daemon at protocol 2 on the DC copy: `project.modules` 2.0 s cold (sidecar spawn and the probed fetch), 0.47 s cached, 0.9–1.0 s after a build-file edit (the CLI's own round trip is about 0.45 s), so the probed fetch costs about 0.5 s warm; the sidecar's launch line carries the probe jar and `-Ddroidyard.probe.init`; a `build.assemble` console holds no `droidyard-probe` line (D17). The implementer fixed G2 on Gradle 8.0.2 (`getKotlinPluginVersion` has a `Logger` overload; the parameter type now selects it). ADR-0017, 0021 and 0023 `Amended:`.
 
 ### 3. Exact variants and AGP/KGP in the core
 

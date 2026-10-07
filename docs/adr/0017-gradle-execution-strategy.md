@@ -15,6 +15,10 @@
   sidecar is Kotlin, JVM target 17, in `sidecar/`, built by `sidecar/build.sh` into two
   jars checked in and embedded in the Go binary with pinned SHA-256 digests (the
   ADR-0029 pattern), run from the cache directory; the Go build needs no JVM.
+- Amended: 2026-10-07 — staging 3 landed (milestone 1h D4, D7, Delegated): a third
+  embedded jar, the Android probe, compiled by `sidecar/build.sh` with `javac --release 8`
+  against Gradle 8.0.2's own API jars (pinned SHA-256), and its init script; the sidecar
+  speaks protocol 2 and passes the init script to the model fetch only.
 
 ## Context
 

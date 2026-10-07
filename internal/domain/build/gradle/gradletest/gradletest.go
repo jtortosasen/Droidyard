@@ -28,10 +28,10 @@ const (
 	ModeEnv = "DROIDYARD_FAKE_SIDECAR"
 )
 
-// Config is the fake's script. Zero values are sensible defaults: protocol 1, Gradle
+// Config is the fake's script. Zero values are sensible defaults: protocol 2, Gradle
 // 8.13, source wrapper.
 type Config struct {
-	// ProtocolVersion is hello's protocolVersion (default 1). Set it to another value
+	// ProtocolVersion is hello's protocolVersion (default 2). Set it to another value
 	// to exercise the core's version check.
 	ProtocolVersion int    `json:"protocolVersion"`
 	SidecarVersion  string `json:"sidecarVersion"`
@@ -50,6 +50,12 @@ type Config struct {
 
 	// Model is the project.model reply, verbatim.
 	Model json.RawMessage `json:"model"`
+
+	// Probe is the fake's script for a probed project.model (plan m1h D16): the reply's
+	// plugins and probe block and, per module path, its android facts. The fake injects
+	// them only when the request asked probe: true, as the real sidecar does; a probed
+	// request with no Probe script answers the generic model, no probe fields.
+	Probe *Probe `json:"probe,omitempty"`
 
 	// Build is the script for build.run: the notifications a build sends, its outcome
 	// and its failures. A nil Build answers build.run with an error, so a test can see
@@ -74,6 +80,40 @@ type Config struct {
 	// Events, when set, is a file the fake appends its lifecycle to: "started <pid>",
 	// "served <method>", "eof". A test reads it to see that stdin was closed.
 	Events string `json:"events"`
+}
+
+// Probe is the fake's probed project.model script (plan m1h D16): the plugins and probe
+// block the real sidecar replies with, and each Android module's facts, keyed by project
+// path. Status is ok (the default), partial, failed or skipped, so every mode the probe
+// can answer with is reachable from a test.
+type Probe struct {
+	Status  string             `json:"status,omitempty"`
+	Notes   []string           `json:"notes,omitempty"`
+	AGP     string             `json:"agp,omitempty"`
+	KGP     string             `json:"kgp,omitempty"`
+	Android map[string]Android `json:"android,omitempty"`
+}
+
+// Android is one module's probed facts (plan m1h D6, D7).
+type Android struct {
+	CompileTarget string    `json:"compileTarget,omitempty"`
+	BuildTools    string    `json:"buildTools,omitempty"`
+	SDKDir        string    `json:"sdkDir,omitempty"`
+	Variants      []Variant `json:"variants,omitempty"`
+}
+
+// Variant is one AGP variant: its name, its build type and its flavours in dimension
+// order (plan m1h D6).
+type Variant struct {
+	Name      string   `json:"name"`
+	BuildType string   `json:"buildType,omitempty"`
+	Flavors   []Flavor `json:"flavors,omitempty"`
+}
+
+// Flavor is one product flavour: the dimension it belongs to and its name.
+type Flavor struct {
+	Dimension string `json:"dimension,omitempty"`
+	Name      string `json:"name,omitempty"`
 }
 
 // Step is one notification a scripted build sends, in the order its Steps list them.
@@ -180,7 +220,7 @@ func WriteConfig(t interface{ TempDir() string }, cfg Config) string {
 
 func (c *Config) apply() {
 	if c.ProtocolVersion == 0 {
-		c.ProtocolVersion = 1
+		c.ProtocolVersion = 2
 	}
 	if c.SidecarVersion == "" {
 		c.SidecarVersion = "fake-1.0.0"
@@ -319,7 +359,12 @@ func (s *sidecar) serve(line string, held *int) {
 			s.writeError(req.ID, -32000, "project.model failed")
 			return
 		}
-		s.writeRawResult(req.ID, s.cfg.Model)
+		var pm struct {
+			Probe bool `json:"probe"`
+		}
+		_ = json.Unmarshal(req.Params, &pm)
+		event(s.cfg, "probe %v", pm.Probe)
+		s.projectModel(req.ID, pm.Probe)
 	case "build.run":
 		s.build(req.ID, req.Params)
 	case "build.cancel":
@@ -338,6 +383,61 @@ func (s *sidecar) serve(line string, held *int) {
 	default:
 		s.writeError(req.ID, -32601, "Method not found: "+req.Method)
 	}
+}
+
+// projectModel answers project.model with the configured Model plus, for a probed request,
+// the Probe script's plugins, probe block and per-module android facts (plan m1h D16),
+// matching the real sidecar's reply shape.
+func (s *sidecar) projectModel(id json.RawMessage, want bool) {
+	if !want {
+		var reply map[string]any
+		if err := json.Unmarshal(s.cfg.Model, &reply); err != nil {
+			s.writeRawResult(id, s.cfg.Model)
+			return
+		}
+		reply["probe"] = map[string]any{"status": "skipped", "notes": []string{}}
+		s.writeResult(id, reply)
+		return
+	}
+	if s.cfg.Probe == nil {
+		s.writeRawResult(id, s.cfg.Model)
+		return
+	}
+	var reply map[string]any
+	if err := json.Unmarshal(s.cfg.Model, &reply); err != nil {
+		s.writeRawResult(id, s.cfg.Model)
+		return
+	}
+	p := s.cfg.Probe
+	agp, kgp := p.AGP, p.KGP
+	if agp == "" {
+		agp = "unknown"
+	}
+	if kgp == "" {
+		kgp = "unknown"
+	}
+	status := p.Status
+	if status == "" {
+		status = "ok"
+	}
+	notes := p.Notes
+	if notes == nil {
+		notes = []string{}
+	}
+	reply["plugins"] = map[string]any{"agp": agp, "kgp": kgp}
+	reply["probe"] = map[string]any{"status": status, "notes": notes}
+	if projects, ok := reply["projects"].([]any); ok {
+		for _, entry := range projects {
+			module, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			if android, ok := p.Android[module["path"].(string)]; ok {
+				module["android"] = android
+			}
+		}
+	}
+	s.writeResult(id, reply)
 }
 
 // build answers build.run {accepted} and plays its script on a goroutine of its own, so
