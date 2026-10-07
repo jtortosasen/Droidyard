@@ -171,19 +171,26 @@ func TestRequirementsMatchesTheCompileTargetToAMinorVersionedPlatform(t *testing
 func TestProjectSDKFromLocalProperties(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		text string
-		root string // the expected project SDK root, computed from the project root
+		// text builds the line from a base directory that holds the SDK.
+		text func(base string) string
+		sdk  func(base, project string) string
 	}{
-		{"a relative path", "sdk.dir=../shared-sdk\n", ""}, // set below
-		{"an escaped colon", "sdk.dir=/opt/a\\:b/sdk\n", "/opt/a:b/sdk"},
+		{"a relative path", func(string) string { return "sdk.dir=../shared-sdk\n" },
+			func(_, project string) string { return filepath.Clean(filepath.Join(project, "../shared-sdk")) }},
+		{"an escaped colon", func(base string) string { return "sdk.dir=" + base + "/a\\:b/sdk\n" },
+			func(base, _ string) string { return base + "/a:b/sdk" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			project := t.TempDir()
-			want := tc.root
-			if want == "" {
-				want = filepath.Clean(filepath.Join(project, "../shared-sdk"))
+			base := t.TempDir()
+			project := filepath.Join(base, "project")
+			want := tc.sdk(base, project)
+			// The SDK must exist: a directory that does not is "not found" (review B1).
+			for _, d := range []string{project, want} {
+				if err := os.MkdirAll(d, 0o755); err != nil {
+					t.Fatal(err)
+				}
 			}
-			writeLocalProperties(t, project, tc.text)
+			writeLocalProperties(t, project, tc.text(base))
 
 			res := runRequirements(t, Options{}, androidModel("android-36", "35.0.0", ""), project)
 			if !res.ProjectSDK.Found || res.ProjectSDK.Source != SourceLocalProperties || res.ProjectSDK.Exact {
@@ -321,5 +328,24 @@ func TestRequirementsPartialProbeIsNotComplete(t *testing.T) {
 	r := runRequirements(t, Options{}, m, "/w")
 	if r.Source != SourceProbe || r.Complete {
 		t.Fatalf("a partial probe: source %q complete %v, want probe and incomplete", r.Source, r.Complete)
+	}
+}
+
+// Decision (spike S3 G4; step 4 review B1): AGP's placeholder for a missing SDK
+// (<project>/missingSdkDirectory) is not an SDK: the answer is "SDK location not found",
+// never an sdkmanager command installing into the project tree. Seen failing when the
+// probe's directory counted as found whether or not it existed.
+func TestRequirementsProbeDirectoryThatDoesNotExistIsNotFound(t *testing.T) {
+	root := t.TempDir()
+	m := androidModel("android-36", "35.0.0", filepath.Join(root, "missingSdkDirectory"))
+	r := runRequirements(t, Options{}, m, root)
+	if r.ProjectSDK.Found {
+		t.Errorf("projectSdk = %+v, want found false for a directory that does not exist", r.ProjectSDK)
+	}
+	if !anyNote(r.Notes, "SDK location not found") {
+		t.Errorf("no SDK-location note: %v", r.Notes)
+	}
+	if anyNote(r.Notes, "--sdk_root") {
+		t.Errorf("an sdkmanager command names a directory that does not exist: %v", r.Notes)
 	}
 }
