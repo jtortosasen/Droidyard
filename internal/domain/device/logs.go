@@ -426,8 +426,13 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	res.Filter = logFilterView(p.ApplicationID, byUID, uid, pidSet, appFiltered)
 
 	if len(matched) > 0 {
+		data, dropped := buildCapture(matched)
+		if dropped > 0 {
+			// D7: a capture cut at its cap says how much it left out (step 3 review 2).
+			res.Warnings = append(res.Warnings, fmt.Sprintf("the capture kept the newest lines within %d MiB: %d older lines are not in it", logsCaptureCap>>20, dropped))
+		}
 		ref, err := store.Put(artifact.Item{
-			Data: buildCapture(matched), MediaType: "text/plain", Untrusted: true, Producer: "device.logs",
+			Data: data, MediaType: "text/plain", Untrusted: true, Producer: "device.logs",
 		})
 		if err != nil {
 			return LogsResult{}, err
@@ -526,7 +531,8 @@ func followClockError(cause string) *capability.Error {
 // pid — never its group, which a forked adb server may share (m1e R8) — and its pid
 // recorded for its life through the recorded starter. The window's end is ErrTimeout
 // from the runner, and it is a normal end here, not a failure. It returns the raw lines
-// the window accumulated (bounded at logsReadCap, oldest dropped).
+// the window accumulated (bounded at logsReadCap: past it the newest are dropped, and the
+// result says so).
 func (a *ADB) followWindow(ctx context.Context, t *target, buffers []string, since time.Time, window time.Duration, warnings []string) ([]byte, bool, []string, error) {
 	if a.stream == nil {
 		return nil, false, warnings, capability.NewError(ErrLogsFailed, "the device log could not be followed").
@@ -538,8 +544,8 @@ func (a *ADB) followWindow(ctx context.Context, t *target, buffers []string, sin
 	truncated := false
 	out, runErr := a.RunLinesRecorded(ctx, t.adb, window, logsFollowStderrCap, func(line []byte) error {
 		// The window's lines are bounded like the snapshot's read (plan m1i D7): past the
-		// cap the oldest go first, since a follow's newest lines are what a caller wants,
-		// and the client keeps running to the window's end.
+		// cap the newest are dropped (the client keeps running to the window's end), and
+		// the warning below says so (step 3 review 1).
 		if buf.Len()+len(line)+1 > logsReadCap {
 			truncated = true
 			return nil
@@ -554,6 +560,13 @@ func (a *ADB) followWindow(ctx context.Context, t *target, buffers []string, sin
 	if line := disconnectedLine(t.serial, Output{Stderr: out.Stderr}); line != "" {
 		return nil, false, warnings, disconnected(t.serial, line)
 	}
+	if errors.Is(runErr, ErrLineTooLong) {
+		// A line no real logcat writes ended the stream early: what came before is kept
+		// and the result says it is short (step 3 review 3).
+		truncated = true
+		warnings = append(warnings, "the follow ended early on a line longer than 1 MiB: later lines are missing")
+		runErr = nil
+	}
 	switch {
 	case errors.Is(runErr, ErrStreamUnrecorded):
 		return nil, false, warnings, capability.NewError(ErrLogsFailed, "the device log could not be followed").
@@ -563,13 +576,13 @@ func (a *ADB) followWindow(ctx context.Context, t *target, buffers []string, sin
 		return nil, false, warnings, capability.NewError(ErrADBFailed, "adb could not be run").
 			WithCause("adb logcat (follow): " + runErr.Error()).
 			WithNextStep("Check that the adb binary is executable, then retry.")
-	case runErr == nil && out.ExitCode != 0:
+	case runErr == nil && out.ExitCode != 0 && !truncated:
 		// The client exited by itself before the window ended: a device-side logcat that
 		// failed. The window's own end (ErrTimeout) is a normal end, not this.
 		return nil, false, warnings, logsReadError(false, buffers, since, out.ExitCode)
 	}
 	if truncated {
-		warnings = append(warnings, fmt.Sprintf("the follow passed the %d MiB limit: the oldest lines are missing", logsReadCap>>20))
+		warnings = append(warnings, fmt.Sprintf("the follow passed the %d MiB limit: the newest lines are missing", logsReadCap>>20))
 	}
 	return buf.Bytes(), truncated, warnings, nil
 }
@@ -736,13 +749,15 @@ func logLineView(l logLine, crash bool) LogLine {
 
 // buildCapture joins the matching lines in logcat's own text, newest kept, at most
 // logsCaptureCap bytes (plan m1i D7).
-func buildCapture(lines []logLine) []byte {
+func buildCapture(lines []logLine) ([]byte, int) {
 	var parts []string
 	size := 0
+	dropped := 0
 	for i := len(lines) - 1; i >= 0; i-- {
 		raw := truncateUTF8(lines[i].raw, logsLineCap)
 		add := len(raw) + 1
 		if size+add > logsCaptureCap {
+			dropped = i + 1
 			break
 		}
 		parts = append(parts, raw)
@@ -754,7 +769,7 @@ func buildCapture(lines []logLine) []byte {
 		b.WriteString(parts[i])
 		b.WriteByte('\n')
 	}
-	return []byte(b.String())
+	return []byte(b.String()), dropped
 }
 
 // sortInts sorts n ascending; a tiny insertion sort, since a pid set is small.
