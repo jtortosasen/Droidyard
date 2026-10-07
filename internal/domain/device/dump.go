@@ -164,6 +164,9 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte,
 		if !allowDump {
 			return nil, nil, dumpFailed("the UI reader could not run and uiautomator dump is not used after an action, which would suspend the device's other accessibility services: " + reason)
 		}
+		// The fallback and its reason go to the daemon log (plan m1n step 2): a read
+		// that cost a dump is otherwise invisible to the runs that measure speed.
+		a.logReaderFallback(t.serial, "uiautomator dump", reason)
 		return a.readWithDump(ctx, t, start, reason)
 	}
 
@@ -186,17 +189,24 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte,
 	}
 	defer c.release()
 
-	doc, kind, line, reason := a.persistentRead(ctx, t, c, start, end)
+	doc, kind, line, reason, rf := a.persistentRead(ctx, t, c, start, end)
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
 	if kind == dumpVanished || kind == dumpUnreachable {
 		// A reader found gone, a wedged one, or one behind a lost forward is restarted
-		// once (ADR-0030; plan m1f step 7). restartReader reconciles the forward, kills
-		// an unreachable reader of our name by its pid, and starts once.
+		// once (ADR-0030; plan m1f step 7). The restart and its reason go to the daemon
+		// log (plan m1n step 2), so a run can tell why a read cost a start: Q2 ¶1's
+		// decision rests on distinguishing a timeout from an eof.
+		a.logReaderRestart(t.serial, rf, reason)
+		// restartReader reconciles the forward, kills an unreachable reader of our name
+		// by its pid, and starts once.
 		if ok, why := a.restartReader(ctx, t, c, end); ok {
-			doc, kind, line, reason = a.persistentRead(ctx, t, c, start, end)
+			doc, kind, line, reason, _ = a.persistentRead(ctx, t, c, start, end)
 		} else {
+			// The restart did not bring a reader up: its reason (a ping that went
+			// unanswered, most often) is logged as the restart's own reason.
+			a.logReaderRestart(t.serial, rfNone, why)
 			kind, reason = dumpOther, why+": "+reason
 		}
 		if cerr := ctx.Err(); cerr != nil {
@@ -215,6 +225,7 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte,
 	}
 
 	// The one-shot reader of ADR-0029, with the persistent reader's reason (D3).
+	a.logReaderFallback(t.serial, "the one-shot reader", reason)
 	doc, kind, line, reason2 := a.runReader(ctx, t, end)
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr

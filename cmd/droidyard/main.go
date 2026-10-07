@@ -238,6 +238,8 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// `tools.adb` is the first adb candidate, fixed at this start (ADR-0032 §3, §6;
 	// plan m1k D8).
 	adb.SetToolKey(startup.ADBKey())
+	// Reader restarts, fallbacks and slow warm reads go to daemon.log (plan m1n step 2).
+	adb.SetLog(log)
 	// The one Gradle sidecar client (ADR-0019): it discovers the JVM in the daemon's
 	// environment, extracts the jars to the cache directory and supervises the shared
 	// sidecar lazily (plan m1g step 5). It holds no process until a call needs one.

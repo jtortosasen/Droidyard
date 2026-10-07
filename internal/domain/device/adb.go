@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"regexp"
@@ -64,6 +65,13 @@ type ADB struct {
 	// is reused by other AVDs and images.
 	probeMu sync.Mutex
 	probes  map[string]columnProbe
+
+	// log is the daemon's log (daemon.log when the daemon is detached), where reader
+	// restarts, fallbacks and slow warm reads are recorded (plan m1n step 2). Nil, the
+	// zero value, logs nothing. logMu serialises writes so concurrent readers' lines
+	// never interleave.
+	log   io.Writer
+	logMu sync.Mutex
 }
 
 // columnProbe is what one check of logcat's uid column learned, valid while the
@@ -97,6 +105,24 @@ func (a *ADB) SetPolicy(p Policy) { a.policy = p }
 // edit of the configuration file does not change it until a new daemon starts. Called
 // once, at wiring; an empty key is the same as never calling it.
 func (a *ADB) SetToolKey(key policy.ToolKey) { a.toolKey = key }
+
+// SetLog gives the ADB the daemon's log (ADR-0021 §Layout; daemon.log when the daemon is
+// detached), where it records every UI reader restart and fallback with its reason and
+// every warm read that took a second or more (plan m1n step 2). It is called once, at
+// wiring, before any call. Nil logs nothing, so a registry that passes none is unchanged.
+func (a *ADB) SetLog(w io.Writer) { a.log = w }
+
+// logf appends one line to the daemon's log. The write is one string under logMu, so
+// concurrent readers' lines never interleave and a detached daemon's O_APPEND file keeps
+// them whole.
+func (a *ADB) logf(format string, args ...any) {
+	if a.log == nil {
+		return
+	}
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	fmt.Fprintf(a.log, "device: "+format+"\n", args...)
+}
 
 // Exec is an in-process stand-in for starting an adb client, for tests whose subject
 // is not the process runner: it returns what the client would have written and its

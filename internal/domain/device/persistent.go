@@ -47,6 +47,10 @@ var (
 	// its pid and started again once. Step 1 recorded that a stalled client delays a
 	// reader's next request up to 5 s, so such a reader is replaced here on purpose.
 	readerPingCheck = time.Second
+	// slowWarmRead is the duration above which a warm read is worth a daemon-log line
+	// (plan m1n step 2): a warm read is tens of milliseconds (plan m1f step 1), so a
+	// second means the reader or the device was slow.
+	slowWarmRead = time.Second
 	// readerNameRE is the only name any pidof or kill acts on (plan m1f step 7; E6):
 	// a name that does not match a reader's own shape is never sent to a device shell,
 	// so a hostile forward name cannot smuggle a command.
@@ -65,7 +69,74 @@ const (
 	// one-shot reader because the persistent reader could not run (plan m1f, D3). The
 	// persistent reader's reason follows it.
 	oneShotWarning = "The persistent UI reader could not run on this device, so the screen was read with the one-shot reader Droidyard runs for a single read. Persistent reader: "
+	// readerPingReason is why a start or restart gave up: the reader it started did not
+	// answer `ping` within readerPingCheck. It is the returned reason and, in the daemon
+	// log, the reason `ping failed` (plan m1n step 2).
+	readerPingReason = "the reader did not answer ping"
 )
+
+// readerFailure is why a warm read of the persistent reader failed, at the granularity
+// the daemon log records (plan m1n step 2): the three failures that restart a reader,
+// plus rfNone for a failure that is not a restart. It is stated by the read itself, not
+// parsed back out of its sentence.
+type readerFailure int
+
+const (
+	rfNone    readerFailure = iota
+	rfTimeout               // the warm read did not finish within warmReadTimeout
+	rfEOF                   // the connection ended before the reader wrote a document
+	rfRefused               // the forward did not answer the dial
+)
+
+// readerRestartReason is the short reason a restart or fallback is logged with (plan m1n
+// step 2): "timeout <ms>", "eof", "refused" or "ping failed". A failure that is none of
+// these keeps its own reason sentence.
+func readerRestartReason(rf readerFailure, reason string) string {
+	switch rf {
+	case rfTimeout:
+		return fmt.Sprintf("timeout %d", warmReadTimeout.Milliseconds())
+	case rfEOF:
+		return "eof"
+	case rfRefused:
+		return "refused"
+	}
+	if reason == readerPingReason {
+		return "ping failed"
+	}
+	return reason
+}
+
+// logReaderRestart records a reader restart and why (plan m1n step 2): the failure that
+// drove it, or a restart whose fresh reader did not answer ping.
+func (a *ADB) logReaderRestart(serial string, rf readerFailure, reason string) {
+	a.logf("%s: UI reader restart: %s", serial, oneLine(readerRestartReason(rf, reason)))
+}
+
+// logReaderFallback records a fallback to another reader with its reason (plan m1n step
+// 2), so a slow read that cost a start or a dump is not invisible.
+func (a *ADB) logReaderFallback(serial, stage, reason string) {
+	a.logf("%s: UI reader fallback to %s: %s", serial, stage, oneLine(reason))
+}
+
+// logWarmRead records a warm read that took at least slowWarmRead, with its duration
+// (plan m1n step 2): a warm read should be tens of milliseconds, so a slow one is the
+// signal the speed work starts from.
+func (a *ADB) logWarmRead(serial string, d time.Duration) {
+	if d >= slowWarmRead {
+		a.logf("%s: warm UI read took %s", serial, d.Round(time.Millisecond))
+	}
+}
+
+// oneLine folds a reason onto one line for the daemon log, so a reason that carries a
+// newline cannot make a log line look like two.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, s)
+}
 
 // readerClient is one device's persistent reader, owned by the ADB that created it.
 type readerClient struct {
@@ -224,28 +295,31 @@ func (c *readerClient) setStarted(port string) {
 }
 
 // persistentRead is the persistent reader's turn in read: ensure the reader is
-// reachable, then take one dump over its forward.
-func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time) (doc []byte, kind dumpKind, line, reason string) {
+// reachable, then take one dump over its forward. It also reports why a warm read
+// failed (rf), so the chain can log a restart with its reason without parsing the
+// sentence back out (plan m1n step 2).
+func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time) (doc []byte, kind dumpKind, line, reason string, rf readerFailure) {
 	if ok, why := a.ensureReader(parent, t, c, end); !ok {
-		return nil, dumpOther, "", why
+		return nil, dumpOther, "", why, rfNone
 	}
 	if cerr := parent.Err(); cerr != nil {
-		return nil, dumpOther, "", cerr.Error()
+		return nil, dumpOther, "", cerr.Error(), rfNone
 	}
 	port := c.portValue()
 	if port == "" {
-		return nil, dumpOther, "", "the reader's forward is gone"
+		return nil, dumpOther, "", "the reader's forward is gone", rfNone
 	}
 	deadline := time.Now().Add(warmReadTimeout)
 	if deadline.After(end) {
 		deadline = end
 	}
+	warmStart := time.Now()
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), warmReadTimeout)
 	if err != nil {
 		// The forward no longer answers: it may have been removed (a lost forward) or
 		// the reader may be gone. The chain restarts the reader once, which reconciles
 		// the forward (plan m1f step 7).
-		return nil, dumpUnreachable, "", "the reader's forward did not answer: " + err.Error()
+		return nil, dumpUnreachable, "", "the reader's forward did not answer: " + err.Error(), rfRefused
 	}
 	defer conn.Close()
 	// A read that is blocked on its connection deadline must still stop when the
@@ -255,9 +329,10 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	defer stop()
 	conn.SetDeadline(deadline)
 	if _, err := io.WriteString(conn, "dump\n"); err != nil {
-		return nil, dumpOther, "", "the reader's forward did not take the request"
+		return nil, dumpOther, "", "the reader's forward did not take the request", rfEOF
 	}
 	resp, truncated, readErr := readLimited(conn, dumpOutputCap)
+	a.logWarmRead(t.serial, time.Since(warmStart))
 	return classifyReader(resp, truncated, readErr)
 }
 
@@ -682,7 +757,7 @@ func (a *ADB) pingReader(ctx context.Context, c *readerClient, deadline time.Tim
 	if a.pingPort(ctx, port, deadline) {
 		return true, ""
 	}
-	return false, "the reader did not answer ping"
+	return false, readerPingReason
 }
 
 // pingPort asks the reader at a forwarded port to answer until deadline. It is the one
@@ -727,38 +802,38 @@ func (a *ADB) pingPort(ctx context.Context, port string, deadline time.Time) boo
 // times out is a wedged reader, and an empty answer is a reader that is gone (its
 // connection ended before a document): both are restarted once (plan m1f step 7). A
 // reader line is its own failure; a partial or missing document falls to the one-shot
-// reader.
-func classifyReader(resp []byte, truncated bool, readErr error) ([]byte, dumpKind, string, string) {
+// reader. The readerFailure names the two restart cases for the log (plan m1n step 2).
+func classifyReader(resp []byte, truncated bool, readErr error) ([]byte, dumpKind, string, string, readerFailure) {
 	if truncated {
-		return nil, dumpOther, "", "the reader printed more than the output limit"
+		return nil, dumpOther, "", "the reader printed more than the output limit", rfNone
 	}
 	if readErr != nil {
 		if ne, ok := readErr.(net.Error); ok && ne.Timeout() {
-			return nil, dumpUnreachable, "", "the reader did not finish within " + warmReadTimeout.String()
+			return nil, dumpUnreachable, "", "the reader did not finish within " + warmReadTimeout.String(), rfTimeout
 		}
 		if len(resp) == 0 {
-			return nil, dumpVanished, "", "reading the reader's answer failed: " + readErr.Error()
+			return nil, dumpVanished, "", "reading the reader's answer failed: " + readErr.Error(), rfEOF
 		}
 	}
 	if len(resp) == 0 {
-		return nil, dumpVanished, "", "the reader's connection ended before it wrote a document"
+		return nil, dumpVanished, "", "the reader's connection ended before it wrote a document", rfEOF
 	}
 	if bytes.Contains(resp, []byte("<hierarchy")) && bytes.Contains(resp, []byte("</hierarchy>")) {
-		return resp, dumpOK, "", ""
+		return resp, dumpOK, "", "", rfNone
 	}
 	line := strings.TrimSpace(string(resp))
 	if strings.HasPrefix(line, readerPrefix) {
 		if strings.Contains(strings.ToLower(line), "no active window") {
 			// The reader's own line is device text; the cause is the fixed sentence,
 			// as on the one-shot path (D3, R5).
-			return nil, dumpNoRoot, readerNoRootMessage, readerNoRootMessage
+			return nil, dumpNoRoot, readerNoRootMessage, readerNoRootMessage, rfNone
 		}
-		return nil, dumpOther, "", truncate(line, 200)
+		return nil, dumpOther, "", truncate(line, 200), rfNone
 	}
 	if bytes.Contains(resp, []byte("<hierarchy")) {
-		return nil, dumpOther, "", fmt.Sprintf("the reader sent an incomplete hierarchy (%d bytes)", len(resp))
+		return nil, dumpOther, "", fmt.Sprintf("the reader sent an incomplete hierarchy (%d bytes)", len(resp)), rfNone
 	}
-	return nil, dumpOther, "", "the reader answered no hierarchy"
+	return nil, dumpOther, "", "the reader answered no hierarchy", rfNone
 }
 
 // readLimited reads a connection to EOF, keeping at most limit bytes. truncated says the
