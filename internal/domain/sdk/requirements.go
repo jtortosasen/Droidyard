@@ -153,7 +153,12 @@ func Requirements(o Options, root string, model gradle.Model) RequirementsResult
 
 	if model.Probe.Read() {
 		out.Source = SourceProbe
-		out.Complete = true
+		// Under partial, a project whose read failed carries no Android facts and would be
+		// skipped below, so the check cannot claim to be complete (step 3 review B1).
+		out.Complete = model.Probe.Status == "ok"
+		if !out.Complete {
+			out.Notes = append(out.Notes, "the Android probe could not read every project (probe status: "+probeStatus(model.Probe)+"); a module it missed is not checked")
+		}
 		for _, m := range model.Projects {
 			if m.Android == nil {
 				continue
