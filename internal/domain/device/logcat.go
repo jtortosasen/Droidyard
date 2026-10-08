@@ -163,6 +163,42 @@ type crashSummary struct {
 	at        time.Time
 	exception string
 	message   string
+	frames    []string
+}
+
+// crashFramesMax bounds the crash frames a summary carries (ADR-0034 §2): the top of the
+// stack, not the whole tombstone.
+const crashFramesMax = 5
+
+// javaFramePrefix is the `\tat ` a Java stack frame's line begins with in the log.
+const javaFramePrefix = "\tat "
+
+// nativeFrameRE matches a native backtrace line, `      #00 pc 0000000000…`.
+var nativeFrameRE = regexp.MustCompile(`^#[0-9]+ `)
+
+// topFrames collects up to max of a block's stack frames: a Java block's `\tat …` lines,
+// a native block's `#NN pc …` lines, in the order the block holds them.
+func topFrames(block []logLine, native bool) []string {
+	var frames []string
+	for _, l := range block {
+		msg := l.message
+		if !native {
+			if !strings.HasPrefix(msg, javaFramePrefix) {
+				continue
+			}
+			msg = strings.TrimPrefix(msg, javaFramePrefix)
+		} else {
+			msg = strings.TrimSpace(msg)
+			if !nativeFrameRE.MatchString(msg) {
+				continue
+			}
+		}
+		frames = append(frames, msg)
+		if len(frames) == crashFramesMax {
+			break
+		}
+	}
+	return frames
 }
 
 // crashBlocks finds the crash blocks among the parsed lines. A block is a maximal run
@@ -241,6 +277,7 @@ func javaCrash(block []logLine, app string, uid int, byUID bool) (crashSummary, 
 	if process+1 < len(block) {
 		s.exception, s.message = splitColon(block[process+1].message)
 	}
+	s.frames = topFrames(block, false)
 	return s, true
 }
 
@@ -267,7 +304,7 @@ func nativeCrash(block []logLine, app string, uid int, byUID bool) (crashSummary
 		return crashSummary{}, false
 	}
 	ex, msg := splitComma(block[signal].message)
-	return crashSummary{pid: pid, at: block[header].at, exception: ex, message: msg}, true
+	return crashSummary{pid: pid, at: block[header].at, exception: ex, message: msg, frames: topFrames(block, true)}, true
 }
 
 // splitComma cuts a line at its first ", ": the native signal line names the signal

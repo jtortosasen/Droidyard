@@ -438,7 +438,9 @@ func servedPrefix(args []string) string {
 		return args[1] + ".ps"
 	case len(args) == 7 && args[2] == "shell" && args[3] == "input" && args[4] == "tap":
 		return args[1] + ".inputtap"
-	case len(args) == 5 && args[2] == "shell" && args[3] == "date" && args[4] == "+%s.%N":
+	case len(args) == 5 && args[2] == "shell" && args[3] == "date" && (args[4] == "+%s.%N" || args[4] == "+%s.%N%z"):
+		// `+%s.%N` is the launch/logs clock; `+%s.%N%z` also carries the device's zone, which
+		// the crash path needs to compare exit-info's device-local timestamps (plan m1n step 6).
 		return args[1] + ".date"
 	case len(args) == 11 && args[2] == "shell" && args[3] == "monkey" && args[4] == "--pct-syskeys" && args[5] == "0" && args[6] == "-p" && args[8] == "-c" && args[9] == "android.intent.category.LAUNCHER" && args[10] == "1":
 		return args[1] + ".monkey"
@@ -446,6 +448,10 @@ func servedPrefix(args []string) string {
 		return args[1] + ".sdk"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "window":
 		return args[1] + ".dumpsyswindow"
+	case len(args) == 7 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "activity" && args[5] == "exit-info":
+		// The crash path's fallback: the exit reason of the app's last process (plan m1n
+		// step 6, ADR-0034 §2).
+		return args[1] + ".exitinfo"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "window" && args[5] == "windows":
 		// The soft-keyboard guard's IME touchable region (plan m1n step 5, fix round L1).
 		return args[1] + ".dumpsyswindowwindows"

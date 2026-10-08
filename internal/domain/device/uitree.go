@@ -41,6 +41,9 @@ type Snapshot struct {
 	Truncated   bool      `json:"truncated,omitempty"`
 	Hint        string    `json:"hint,omitempty"`
 	EmptyReason string    `json:"emptyReason,omitempty"`
+	// SystemDialog is the system error dialog the tree shows, when it holds the dialog's
+	// buttons (ADR-0034 §3); its package is device-derived, its kind the daemon's.
+	SystemDialog *SystemDialog `json:"systemDialog,omitempty"`
 	// Warnings are adb's (client/server version mismatch), not the device's: untagged.
 	Warnings []string `json:"warnings,omitempty"`
 }
