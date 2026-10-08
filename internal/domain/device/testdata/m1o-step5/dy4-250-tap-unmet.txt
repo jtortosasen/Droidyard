@@ -1,0 +1,5 @@
+tapped n3 "View" #"submit" exact point 188,442 clickable in s-a3be67da
+expect matched=false afterMs=6016 polls=11 failedDumps=1
+unmet appears text="Hello, Ana"
+foreground "dev.droidyard.golden" same
+snapshot s-a3be67e4

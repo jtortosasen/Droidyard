@@ -178,6 +178,7 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 		Description:  "Taps one UI element once and verifies the effect in the same call: it resolves target with the device.uiTree selector, taps it, then polls the accessibility tree until every expect condition holds or timeoutMs elapses. An unmet expectation is a completed call (matched false, with candidates), not an error, and a resolution failure taps nothing. Never repeat it: a repeat taps again; an expect already true before the tap is reported in vacuous, and gone needs two reads.",
 		Params:       TapParams{},
 		Result:       TapResult{},
+		Text:         capability.TextOf(tapText),
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
 			ErrUIDumpFailed, ErrElementNotFound, ErrElementAmbiguous, ErrElementOffscreen, ErrElementDisabled, ErrStaleRef,
 			capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),

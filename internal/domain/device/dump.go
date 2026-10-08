@@ -85,6 +85,7 @@ func registerUITree(reg *capability.Registry, adb *ADB) {
 		Description:  "Returns the current UI as a compact accessibility tree: snapshot id, foreground package, and a flat list of nodes with ref, class, id, text, desc and bounds. within returns only the subtree of each matching node, the node included, which is how to narrow a tree that comes back truncated.",
 		Params:       UITreeParams{},
 		Result:       Snapshot{},
+		Text:         capability.TextOf(uiTreeText),
 		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(UITreeParams).Device; s != "" {

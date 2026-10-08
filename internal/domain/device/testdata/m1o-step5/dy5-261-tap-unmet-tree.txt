@@ -1,0 +1,21 @@
+tapped n3 "View" #"like_alpha" exact point 738,354 clickable in s-70dbd1ec
+expect matched=false afterMs=5571 polls=21 failedDumps=1
+unmet appears text="Likes: 1" within.id="likes_alpha"
+foreground "dev.droidyard.golden" same
+snapshot s-70dbd200 "dev.droidyard.golden" 1080x2340
+n0 "FrameLayout" #"content" [0,145,1080,2208]
+ n1 "TextView" #"greeting" "Hello, Ana" [44,189,257,255]
+ n2 "TextView" "Alpha" [44,321,603,387]
+ n3 "View" #"like_alpha" clickable [636,288,841,420]
+  n4 "TextView" "Like" [702,327,775,382]
+ n5 "TextView" #"likes_alpha" "Likes: 1" [874,321,1036,387]
+ n6 "TextView" "Beta" [44,486,603,552]
+ n7 "View" #"like_beta" clickable [636,453,841,585]
+  n8 "TextView" "Like" [702,492,775,547]
+ n9 "TextView" #"likes_beta" "Likes: 0" [874,486,1036,552]
+ n10 "TextView" "Gamma" [44,651,603,717]
+ n11 "View" #"like_gamma" clickable [636,618,841,750]
+  n12 "TextView" "Like" [702,657,775,712]
+ n13 "TextView" #"likes_gamma" "Likes: 0" [874,651,1036,717]
+ n14 "View" #"crash" clickable [44,783,277,915]
+  n15 "TextView" "Crash" [110,822,211,877]

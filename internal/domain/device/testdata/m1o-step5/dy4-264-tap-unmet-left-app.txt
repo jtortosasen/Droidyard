@@ -1,0 +1,5 @@
+tapped n14 "View" #"crash" exact point 160,849 clickable in s-a3be67f6
+expect matched=false afterMs=9541 polls=1
+unmet gone id="crash"
+foreground "dev.droidyard.golden" -> "com.google.android.apps.nexuslauncher"
+snapshot s-a3be67f7

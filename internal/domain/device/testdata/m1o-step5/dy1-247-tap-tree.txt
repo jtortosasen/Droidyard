@@ -1,0 +1,10 @@
+tapped n3 "View" #"submit" exact point 188,442 clickable in s-b79ccd4a
+expect matched=true afterMs=3401 polls=1
+foreground "dev.droidyard.golden" same
+snapshot s-b79ccd4b "dev.droidyard.golden" 1080x2340
+n0 "FrameLayout" #"content" [0,145,1080,2208]
+ n1 "EditText" #"name" clickable [44,189,1036,343]
+  n2 "TextView" "Name" [88,233,212,299]
+ n3 "TextView" #"nameError" "Name is required" [44,376,401,442]
+ n4 "View" #"submit" clickable [44,475,333,607]
+  n5 "TextView" "Continue" [110,514,267,569]

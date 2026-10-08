@@ -341,8 +341,28 @@ func TestMCPTranscript(t *testing.T) {
 	if call2.Result.IsError || len(call2.Result.StructuredContent) == 0 || len(call2.Result.Content) != 1 {
 		t.Fatalf("system_capabilities returned %+v; want structured content and one text block", call2.Result)
 	}
-	if text, _ := call2.Result.Content[0]["text"].(string); !reflect.DeepEqual(normalised(t, []byte(text)), normalised(t, call2.Result.StructuredContent)) {
-		t.Errorf("the text rendering %q is not the structured content", text)
+	// The text block is system.capabilities' declared rendering (ADR-0036 Decision 2): a
+	// version line, then one line per capability that structuredContent lists, in order and
+	// without the descriptions, which only structuredContent carries.
+	var caps struct {
+		Version      string
+		Capabilities []struct{ Name, Description string }
+	}
+	if err := json.Unmarshal(call2.Result.StructuredContent, &caps); err != nil || len(caps.Capabilities) == 0 {
+		t.Fatalf("structuredContent is not the capability list: %v, %s", err, call2.Result.StructuredContent)
+	}
+	text, _ := call2.Result.Content[0]["text"].(string)
+	lines := strings.Split(text, "\n")
+	if len(lines) != len(caps.Capabilities)+1 || lines[0] != "version "+caps.Version {
+		t.Fatalf("the text rendering has %d lines and opens %q; want a version line and %d capability lines", len(lines), lines[0], len(caps.Capabilities))
+	}
+	for i, c := range caps.Capabilities {
+		if !strings.HasPrefix(lines[i+1], c.Name+" ") {
+			t.Errorf("line %d of the rendering = %q; want it to start with %q", i+1, lines[i+1], c.Name)
+		}
+		if strings.Contains(text, c.Description) {
+			t.Errorf("the rendering carries the description of %s", c.Name)
+		}
 	}
 	cliEnv, code := p.call(t, "system.capabilities")
 	if code != 0 || !reflect.DeepEqual(normalised(t, cliEnv.Result), normalised(t, call2.Result.StructuredContent)) {
