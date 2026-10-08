@@ -17,11 +17,16 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/process/processtest"
 )
 
 func TestMain(m *testing.M) {
 	devicetest.Main()
 	emulatortest.Main()
+	processtest.Main()
+	// No test may probe this machine's emulator consoles (5554-5584); the probe's own tests
+	// give it a console of their own.
+	consolePorts = nil
 	os.Exit(m.Run())
 }
 

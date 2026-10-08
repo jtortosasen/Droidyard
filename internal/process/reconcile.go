@@ -4,6 +4,7 @@
 package process
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,7 +31,27 @@ const (
 	// recorded like a sidecar and reaped by Reconcile, but its own group is killed when
 	// the call ends, so nothing it left behind outlives it.
 	ShellCommand Kind = "shell-command"
+	// EmulatorLaunch is an emulator launcher recorded from its spawn until its serial is
+	// resolved (plan m1p Q1; ADR-0021's 2026-10-08 line). Unlike every other kind, a
+	// matching record is signalled only if the Judge says so.
+	EmulatorLaunch Kind = "emulator-launch"
 )
+
+// RecordsVersion is processes.json's schemaVersion: 2 since a record can name an emulator
+// launch (plan m1p Q1), so a daemon that reads only version 1 leaves the file alone
+// instead of reaping a launch it does not understand (ADR-0021 §Format). A version 1 file
+// reads as is.
+const RecordsVersion = 2
+
+// JudgeTimeout is the one deadline for all the adb work Reconcile does to judge its
+// emulator-launch records (plan m1p Q1 ¶2).
+const JudgeTimeout = 2 * time.Second
+
+// Judge decides whether an emulator-launch record whose pid and start time match may be
+// signalled. It returns true only on a positive answer; on any doubt it returns false
+// and the reason, which Reconcile logs. process imports no domain, so serve builds it.
+// ctx carries the one JudgeTimeout shared by every record.
+type Judge func(ctx context.Context, r Record) (signal bool, reason string)
 
 // Record is what the daemon writes when it spawns a supervised process and removes
 // when it reaps it (ADR-0021 §Pid records). StartTime is platform.StartTime's value,
@@ -43,6 +64,10 @@ type Record struct {
 	PGID      int      `json:"pgid"`
 	StartTime int64    `json:"startTime"`
 	Command   []string `json:"command"`
+	// AVD and AdbPort belong to an emulator-launch record: the AVD it boots and the adb
+	// server port its launcher registered with.
+	AVD     string `json:"avd,omitempty"`
+	AdbPort int    `json:"adbPort,omitempty"`
 }
 
 // Records is processes.json: {schemaVersion, processes: [...]} (plan m1c, R8).
@@ -69,15 +94,19 @@ const pollEvery = 20 * time.Millisecond
 // until it is gone, for at most KillGrace. Any other record is dropped, and a process
 // that is not ours is never signalled. Each action is logged.
 //
+// A record of kind EmulatorLaunch whose pid and start time match is signalled only if
+// judge returns true, all of them within one JudgeTimeout; otherwise (a nil judge, a doubt,
+// the deadline) it is dropped and nothing is signalled, with the reason logged.
+//
 // A newer processes.json is left untouched and recorded by the store (plan m1c, R10);
 // a corrupt one is moved aside by the store. Neither stops the daemon: Reconcile
 // returns an error only when the file could not be read or written.
-func Reconcile(st *store.Store, log io.Writer) error {
+func Reconcile(st *store.Store, log io.Writer, judge Judge) error {
 	logf := func(format string, args ...any) {
 		fmt.Fprintf(log, "droidyard: reconcile: "+format+"\n", args...)
 	}
 	var recs Records
-	switch out, err := st.Read(RecordsFile, store.Version, &recs); {
+	switch out, err := st.Read(RecordsFile, RecordsVersion, &recs); {
 	case errors.Is(err, store.ErrNewer):
 		logf("%s has a newer schemaVersion; left untouched, nothing reaped", RecordsFile)
 		return nil
@@ -91,6 +120,8 @@ func Reconcile(st *store.Store, log io.Writer) error {
 	}
 
 	var orphans []Record
+	jctx, jcancel := context.WithTimeout(context.Background(), JudgeTimeout)
+	defer jcancel()
 	for _, r := range recs.Processes {
 		name := describe(r)
 		if r.PID <= 0 || r.PGID <= 1 {
@@ -107,6 +138,15 @@ func Reconcile(st *store.Store, log io.Writer) error {
 			logf("%s: dropped, start time unreadable: %v", name, err)
 		case started != r.StartTime:
 			logf("%s: dropped, the pid is another process (start time %d, recorded %d)", name, started, r.StartTime)
+		case r.Kind == EmulatorLaunch:
+			if judge == nil {
+				logf("%s: dropped, no judge to prove the launch is not a device; nothing signalled", name)
+			} else if ok, reason := safeJudge(judge, jctx, r); !ok {
+				logf("%s: dropped, %s; nothing signalled", name, reason)
+			} else {
+				logf("%s: proven not to be a device: %s", name, reason)
+				orphans = append(orphans, r)
+			}
 		default:
 			orphans = append(orphans, r)
 		}
@@ -130,7 +170,7 @@ func Reconcile(st *store.Store, log io.Writer) error {
 		}
 	}
 
-	if err := st.Write(RecordsFile, Records{Processes: []Record{}}); err != nil {
+	if err := st.WriteVersion(RecordsFile, RecordsVersion, Records{Processes: []Record{}}); err != nil {
 		return fmt.Errorf("writing %s: %w", RecordsFile, err)
 	}
 	logf("%d records, %d orphans reaped, %d dropped", len(recs.Processes), len(orphans)-len(stuck), len(recs.Processes)-len(orphans))
@@ -179,4 +219,15 @@ func failed(err error) string {
 		return ""
 	}
 	return " failed: " + err.Error()
+}
+
+// safeJudge runs judge and treats a panic as doubt, so a bug in the judgment can never
+// become a signal, nor stop the daemon from starting.
+func safeJudge(judge Judge, ctx context.Context, r Record) (ok bool, reason string) {
+	defer func() {
+		if p := recover(); p != nil {
+			ok, reason = false, fmt.Sprintf("the judge panicked: %v", p)
+		}
+	}()
+	return judge(ctx, r)
 }

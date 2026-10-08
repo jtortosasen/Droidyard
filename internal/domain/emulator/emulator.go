@@ -77,6 +77,9 @@ type Emulator struct {
 	// next daemon's crash recovery (emulator.md §Detached launch; ADR-0021).
 	mu       sync.Mutex
 	launches map[string]*launch
+	// recorder writes and removes the pid record of a launch until its serial is
+	// resolved (plan m1p Q1); the zero value records nothing.
+	recorder LaunchRecorder
 }
 
 // New returns an Emulator over env, the environment the launcher inherits unchanged (so
@@ -87,6 +90,21 @@ func New(env []string, adb *device.ADB, starter device.Starter, stateRoot string
 	return &Emulator{env: append([]string(nil), env...), adb: adb, starter: starter, state: stateRoot,
 		launches: map[string]*launch{}}
 }
+
+// LaunchRecorder writes and removes the pid record that makes a launch without a serial
+// findable by the next daemon's crash recovery (plan m1p Q1; ADR-0021's 2026-10-08 line).
+// The daemon gives the supervisor's. Either function nil: no record is kept.
+type LaunchRecorder struct {
+	// Record writes the record of the launcher pid, which leads a group of its own, for the
+	// AVD and the adb server port it registers with. An error means no record is on disk.
+	Record func(avd string, adbPort, pid int, command []string) error
+	// Drop removes pid's record. An error means it may still be on disk.
+	Drop func(pid int) error
+}
+
+// SetLaunchRecorder gives the Emulator the recorder of launches. Called once, at wiring,
+// before any boot.
+func (e *Emulator) SetLaunchRecorder(r LaunchRecorder) { e.recorder = r }
 
 // SetToolKeys gives the Emulator `tools.emulator` and `tools.adb` as the daemon read
 // them at start (ADR-0032 §3, §6; plan m1k D8): the first launcher candidate and the

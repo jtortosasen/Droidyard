@@ -8,6 +8,8 @@
 - Amended: 2026-10-07 — an emulator launch is the core's until its serial is resolved, and
   is ended if its boot fails before then ([ADR-0033](0033-emulator-launch-owned-until-serial.md));
   a running emulator is still not ours.
+- Amended: 2026-10-08 — that pre-serial launch carries a pid record, so a killed daemon's
+  successor can end it ([ADR-0021](0021-persistence-format-and-location.md)'s 2026-10-08 line).
 
 ## Context
 

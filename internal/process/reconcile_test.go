@@ -30,12 +30,12 @@ func newStore(t *testing.T) *store.Store {
 func TestReconcileLeavesANewerFileUntouched(t *testing.T) {
 	st := newStore(t)
 	path := filepath.Join(st.Root(), RecordsFile)
-	newer := []byte(`{"schemaVersion":2,"processes":[{"id":"x","pid":1,"pgid":1}]}`)
+	newer := []byte(`{"schemaVersion":3,"processes":[{"id":"x","pid":1,"pgid":1}]}`)
 	if err := os.WriteFile(path, newer, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var log bytes.Buffer
-	if err := Reconcile(st, &log); err != nil {
+	if err := Reconcile(st, &log, nil); err != nil {
 		t.Fatalf("Reconcile = %v; a newer file must not stop the daemon", err)
 	}
 	if got, _ := os.ReadFile(path); !bytes.Equal(got, newer) {
@@ -57,7 +57,7 @@ func TestReconcileSurvivesACorruptFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	var log bytes.Buffer
-	if err := Reconcile(st, &log); err != nil {
+	if err := Reconcile(st, &log, nil); err != nil {
 		t.Fatal(err)
 	}
 	if p := st.Problems(); len(p) != 1 || p[0].Problem != store.ProblemCorrupt || p[0].MovedTo == "" {
@@ -82,14 +82,14 @@ func TestReconcileNeverSignalsGroupZeroOrOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	var log bytes.Buffer
-	if err := Reconcile(st, &log); err != nil {
+	if err := Reconcile(st, &log, nil); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(log.String(), "SIGTERM") || strings.Count(log.String(), "not a valid pid and process group") != 2 {
 		t.Errorf("log:\n%s", log.String())
 	}
 	var left Records
-	if out, err := st.Read(RecordsFile, store.Version, &left); out != store.Loaded || err != nil || len(left.Processes) != 0 {
+	if out, err := st.Read(RecordsFile, RecordsVersion, &left); out != store.Loaded || err != nil || len(left.Processes) != 0 {
 		t.Errorf("after reconciling: %v, %v, %+v", out, err, left)
 	}
 }
@@ -126,7 +126,7 @@ func TestReconcileSparesAChildInItsOwnGroup(t *testing.T) {
 	}
 
 	var log bytes.Buffer
-	if err := Reconcile(st, &log); err != nil {
+	if err := Reconcile(st, &log, nil); err != nil {
 		t.Fatal(err)
 	}
 	<-client.Done()
@@ -145,7 +145,7 @@ func TestReconcileSparesAChildInItsOwnGroup(t *testing.T) {
 // no file.
 func TestReconcileWithoutAFileWritesNothing(t *testing.T) {
 	st := newStore(t)
-	if err := Reconcile(st, &bytes.Buffer{}); err != nil {
+	if err := Reconcile(st, &bytes.Buffer{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(st.Root(), RecordsFile)); !errors.Is(err, os.ErrNotExist) {

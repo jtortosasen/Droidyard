@@ -270,6 +270,15 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// launcher derived from adb's location uses, both fixed at this start (ADR-0032 §3,
 	// §6; plan m1k D8).
 	emulatorClient.SetToolKeys(emulator.Keys{Launcher: startup.EmulatorKey(), ADB: startup.ADBKey()})
+	if sup != nil {
+		// A launch is pid-recorded from its spawn until its serial resolves, and a daemon
+		// that dies in between has the record judged by its successor's reconcile: the
+		// launch is ended only if adb proves it is not a device (plan m1p Q1).
+		emulatorClient.SetLaunchRecorder(emulator.LaunchRecorder{Record: sup.RecordLaunch, Drop: sup.DropLaunch})
+		sup.SetJudge(func(ctx context.Context, r proc.Record) (bool, string) {
+			return emulatorClient.JudgeLaunch(ctx, r.AVD, r.AdbPort)
+		})
+	}
 	policy.Register(reg, pol)
 	// The device policy seam (plan m1k D7): the ADB consults the one Policy for a
 	// physical device's admission, re-reading the configuration at each check, so a hand

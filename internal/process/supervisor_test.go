@@ -74,7 +74,7 @@ func events(path string) []string {
 func onDisk(t *testing.T, st *store.Store) []Record {
 	t.Helper()
 	var recs Records
-	if _, err := st.Read(RecordsFile, store.Version, &recs); err != nil {
+	if _, err := st.Read(RecordsFile, RecordsVersion, &recs); err != nil {
 		t.Fatal(err)
 	}
 	return recs.Processes
@@ -351,7 +351,7 @@ func TestNewerRecordsFileSpawnsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newer := []byte(`{"schemaVersion":2,"processes":[]}`)
+	newer := []byte(`{"schemaVersion":3,"processes":[]}`)
 	path := filepath.Join(st.Root(), RecordsFile)
 	os.WriteFile(path, newer, 0o600)
 	s := New(Options{Store: st})

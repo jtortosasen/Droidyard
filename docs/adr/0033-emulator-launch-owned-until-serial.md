@@ -10,6 +10,14 @@
   rápido. Arréglalo."; the owner can revert it.
 - Amended: 2026-10-07 (m1m close review) — Consequences' "at most 45 s" is the serial
   deadline; ending the launch adds up to 10 s (50.0 s observed for a stopped qemu).
+- Amended: 2026-10-08 (plan m1p Q1, Delegated) — clause 4's "no pid record" no longer
+  holds: the pre-serial window is recorded (ADR-0021's 2026-10-08 line), and a launch an
+  earlier daemon left without a serial is ended by the next daemon's reconcile when adb
+  proves it is not a device; any doubt leaves it running. The Consequences' limit (a
+  daemon dying in the window leaves the launch) narrows to that doubt. Clause 2's
+  "from resolution" now starts when that record is removed: if the removal fails, the
+  launch is ended as in clause 1 and no serial is returned, the one signal sent to an
+  instance whose serial was read.
 
 ## Context
 

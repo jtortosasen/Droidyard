@@ -128,7 +128,8 @@ zombies or tie the emulator to the daemon:
   status that detects "the launcher died before a device appeared". If the daemon exits
   first, the launcher is re-parented to init/launchd, which reaps it. No double fork is
   needed.
-- **Unsupervised on purpose** (after its serial resolves; before, see ADR-0033): no pid record (a record would get the emulator killed by
+- **Unsupervised on purpose** (after its serial resolves; before, see ADR-0033 and its pid
+  record of kind `emulator-launch`, removed before the serial is returned): no pid record (a record would get the emulator killed by
   the next daemon's crash recovery, and ADR-0021 excludes emulators), no Linux
   `Pdeathsig` — the one exception to [process-lifecycle](../architecture/process-lifecycle.md)'s
   "every child" rule — and no idle timeout. The working directory is the state root,
@@ -207,6 +208,8 @@ AVD` line).
 | No launcher found | `EMULATOR_LAUNCHER_NOT_FOUND` | Actionable error; other device capabilities unaffected |
 | AVD name unknown | `EMULATOR_AVD_NOT_FOUND` | Lists the available AVD names |
 | Launcher exits before the device finished booting | `EMULATOR_LAUNCH_FAILED` | Exit status (from `Wait`) and the log tail |
+| The launch's pid record could not be written at spawn | `EMULATOR_LAUNCH_FAILED` | The launch is ended before the serial wait; the cause says the record could not be written, why, and whether the launcher was stopped (plan m1p Q1) |
+| The pid record could not be removed when the serial resolved | `EMULATOR_LAUNCH_FAILED` | The launch is ended and no serial is returned; the cause says the record could not be removed, why, and whether the emulator was stopped (plan m1p Q1; [ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)) |
 | AVD held by another instance | `EMULATOR_AVD_LOCKED` | Names the lock; the holder has no console we can address, so the nextStep does not offer `emulator.list` and says we never stop what we did not launch — close that emulator's window or end its process, then start again |
 | No serial resolves within the 45 s serial deadline | `EMULATOR_BOOT_TIMEOUT` | The launch is ended (its group `SIGTERM`, then `SIGKILL`), so the AVD is free; the cause names the pid, whether it was stopped, the time waited and the log's tail; the nextStep names `headless: true` and `coldBoot: true` (a wipe: call it again) ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)) |
 | Device appears but never finishes booting | `EMULATOR_BOOT_TIMEOUT` | Reports the serial and how long we waited; it is a device, not ours to signal, so the nextStep names `emulator.stop {device: <serial>}` — the call its console answers — then a fresh `emulator.start` |

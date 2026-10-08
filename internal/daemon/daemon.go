@@ -139,7 +139,11 @@ func Start(opts Options) (*Daemon, error) {
 		return nil, err
 	}
 	// Unreadable records never stop the daemon: what could be reaped was.
-	if err := process.Reconcile(opts.Store, opts.Log); err != nil {
+	var judge process.Judge
+	if opts.Supervisor != nil {
+		judge = opts.Supervisor.Judge()
+	}
+	if err := process.Reconcile(opts.Store, opts.Log, judge); err != nil {
 		fmt.Fprintln(opts.Log, "droidyard: reconcile:", err)
 	}
 	// Only now may the supervisor spawn: before anything is spawned, the records are
