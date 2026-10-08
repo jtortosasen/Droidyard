@@ -40,6 +40,10 @@ type keyEntry struct {
 	path  []string
 	key   string
 	value json.RawMessage
+	// sole: uninstall removes the key only when nothing else is left beside it in its
+	// object (after init's array elements are gone). Cursor's empty deny list is one: every
+	// valid user cli.json has one, and removing it would make Cursor drop the file.
+	sole bool
 }
 
 // arrayEntry is the elements init appends to the array at path/key.
@@ -190,26 +194,6 @@ func uninstallJSON(old []byte, exists bool, s jsonSpec) edit {
 	}
 	var notes []string
 	changed := false
-	for _, k := range s.keys {
-		ch, err := root.editPath(k.path, false, true, func(leaf *object) (bool, error) {
-			name := label(k.path, k.key)
-			have, ok := leaf.vals[k.key]
-			switch {
-			case !ok:
-				return false, nil
-			case equalJSON(have, k.value):
-				leaf.del(k.key)
-				notes = append(notes, name+": removed")
-				return true, nil
-			}
-			notes = append(notes, name+": kept, differs from what init writes now")
-			return false, nil
-		})
-		if e, bad := nestedRefusal(err, s); bad {
-			return e
-		}
-		changed = changed || ch
-	}
 	for _, a := range s.arrays {
 		ch, err := root.editPath(a.path, false, true, func(leaf *object) (bool, error) {
 			raw, ok := leaf.vals[a.key]
@@ -237,6 +221,29 @@ func uninstallJSON(old []byte, exists bool, s jsonSpec) edit {
 			}
 			notes = append(notes, fmt.Sprintf("%s: removed %d element(s), the others are yours", label(a.path, a.key), removed))
 			return true, nil
+		})
+		if e, bad := nestedRefusal(err, s); bad {
+			return e
+		}
+		changed = changed || ch
+	}
+	for _, k := range s.keys {
+		ch, err := root.editPath(k.path, false, true, func(leaf *object) (bool, error) {
+			name := label(k.path, k.key)
+			have, ok := leaf.vals[k.key]
+			switch {
+			case !ok:
+				return false, nil
+			case k.sole && len(leaf.keys) > 1:
+				notes = append(notes, name+": kept, other keys are beside it")
+				return false, nil
+			case equalJSON(have, k.value):
+				leaf.del(k.key)
+				notes = append(notes, name+": removed")
+				return true, nil
+			}
+			notes = append(notes, name+": kept, differs from what init writes now")
+			return false, nil
 		})
 		if e, bad := nestedRefusal(err, s); bad {
 			return e

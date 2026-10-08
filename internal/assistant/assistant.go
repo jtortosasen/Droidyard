@@ -8,7 +8,10 @@
 // existing entry under droidyard's key is kept and reported, never replaced, and a file
 // that does not parse is refused and left as it is. --uninstall removes only what is
 // equal, after parsing, to what the same run would write now. Every write goes through
-// a temporary file and a rename, and no path may leave the project root.
+// a temporary file and a rename, and no path may leave the project root. Two things are
+// init's own and refreshed when they differ: the text between the droidyard marks and
+// the skill's files; a user's edits there are replaced (reported "updated"), while
+// --uninstall keeps a differing one.
 //
 // The package knows the clients' file formats and nothing about capabilities: the tool
 // names arrive in Options, already chosen by the caller from the registry.
@@ -229,8 +232,9 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		}
 		// cursor-agent 2026.10.01 refuses a project cli.json whose permissions lack a deny
 		// array ("permissions.deny: Required"), which would switch the whole file off; an
-		// existing deny list is the user's and is kept (plan m1o step 9).
-		spec.keys = append(spec.keys, keyEntry{path: []string{"permissions"}, key: "deny", value: rawJSON([]string{})})
+		// existing deny list is the user's and is kept, and uninstall removes the empty one only
+		// when it is all that is left of permissions (plan m1o step 9, close review B1).
+		spec.keys = append(spec.keys, keyEntry{path: []string{"permissions"}, key: "deny", value: rawJSON([]string{}), sole: true})
 		jobs = append(jobs, jsonJob(".cursor/cli.json", spec))
 	}
 	if has(o.Clients, Claude) {
