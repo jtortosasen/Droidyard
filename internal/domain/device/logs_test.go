@@ -878,3 +878,44 @@ func TestMaxLinesDefaultsTo50(t *testing.T) {
 		t.Errorf("maxLines 100 returned %d lines, want 100: an explicit value is honoured", r.Counts.Returned)
 	}
 }
+
+// Decision (the m1o step 5 fix round; a bug since m1i): when a read is truncated, the
+// inline lines are the newest maxLines, and each keeps the crash flag of its own line. The
+// flags were once read from the start of the matched set, so every returned line of a
+// truncated read carried the flag of an earlier one: the crash block's first lines went
+// unflagged and unrelated lines after it were flagged. The check names lines instead of
+// counting flags: at the default maxLines (50 of 208 matched) the relaunch's FATAL
+// EXCEPTION block is flagged, and the lines around it are not.
+func TestTruncatedReadKeepsEachLinesCrashFlag(t *testing.T) {
+	f := launchedLogsFixture(t, nil)
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","applicationId":"`+appID+`"}`))
+	if !r.Truncated || r.Counts.Matched <= r.Counts.Returned {
+		t.Fatalf("the read is not truncated (matched %d, returned %d): the test needs a cut", r.Counts.Matched, r.Counts.Returned)
+	}
+	flagged := func(tag, msgPrefix string) (crash, found bool) {
+		for _, l := range r.Lines {
+			if l.Tag == tag && strings.HasPrefix(l.Message, msgPrefix) {
+				return l.Crash, true
+			}
+		}
+		return false, false
+	}
+	for tag, msgs := range map[string][]string{
+		"AndroidRuntime": {"FATAL EXCEPTION: main", "Process: " + appID, "java.lang.IllegalStateException", "\tat dev.droidyard.flavoured.MainActivity", "\tat com.android.internal.os.ZygoteInit.main"},
+	} {
+		for _, m := range msgs {
+			if crash, found := flagged(tag, m); !found || !crash {
+				t.Errorf("%s line %q: found %v, crash flag %v; want a line of the crash block, flagged", tag, m, found, crash)
+			}
+		}
+	}
+	for _, c := range []struct{ tag, msg string }{
+		{"Process", "Sending signal. PID: 7157 SIG: 9"}, // after the block, not part of it
+		{"AndroidRuntime", "Shutting down VM"},          // before it
+		{"DroidyardFixture", "created " + appID},
+	} {
+		if crash, found := flagged(c.tag, c.msg); !found || crash {
+			t.Errorf("%s line %q: found %v, crash flag %v; want a line outside the crash block, not flagged", c.tag, c.msg, found, crash)
+		}
+	}
+}
