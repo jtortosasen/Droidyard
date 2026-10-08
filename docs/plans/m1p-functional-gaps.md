@@ -44,7 +44,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 
 - [ ] A1. (Deferred by the owner, 2026-10-08; see Changes.) On `android7` under the hatch: `project.modules`, `project.variants`, `build.tasks` and `build.assemble` (with `outputs[]` and an installable APK) complete with `profile: conservative`, `validation: unsupported`, and the probe's facts are returned; whatever cannot work fails with a typed error naming the Gradle version and the hatch, never a raw failure. Source: plan m1k A7; ADR-0018 rule 3. Proven by: step 1.
 - [x] A2. Through the daemon, against a real Gradle build: a cancel landing before `{accepted}` ends `cancelled` with no build record; one during the build ends `cancelled` with a record whose outcome is `cancelled`; no build of it is still running after either. Source: plan m1g A4. Proven by: step 2.
-- [ ] A3. After the scratch adb server on port 5199 is restarted, the next read recreates the reader's forward and succeeds; the 5037 server keeps its pid. Source: plan m1f A2; ADR-0030 §Decision. Proven by: step 3.
+- [x] A3. After the scratch adb server on port 5199 is restarted, the next read recreates the reader's forward and succeeds; the 5037 server keeps its pid. Source: plan m1f A2; ADR-0030 §Decision. Proven by: step 3.
 - [ ] A4. On `Pixel_9a` (API 36.1) the `logcat` layout with the uid column is recorded and `device.logs {applicationId}` keeps only that app's lines by uid. Source: plan m1i A1 (D5). Proven by: step 4.
 - [ ] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
 - [ ] A6. A launch is recorded in `processes.json` from spawn until its serial is resolved; a daemon killed in that window has its launch ended by the next daemon; a record whose AVD already answers as a listed serial, or whose adb query fails or times out, is dropped with nothing signalled. Source: Q1. Proven by: step 6.
@@ -88,7 +88,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: a restart of the 5037 server (never).
 - Rests on: two adb servers can each reach one emulator (level 5, this step).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: no repository change needed. Level 5 on `droidyard_m1p` (API 31) with a daemon on `ANDROID_ADB_SERVER_PORT=5199`: 5199 listed `emulator-5554` as `device` while 5037 ran and listed nothing; two warm `device.uiTree` reads, forward `tcp:62724 → localabstract:droidyard-reader-965cd045902a`, reader pid 6060; `adb -P 5199 kill-server` and `start-server` left no forward; the next `device.uiTree` succeeded in 0.9 s (log: `UI reader restart: refused`, then the forward recreated as `tcp:62822`), the reader still pid 6060; the read after it took 0.44 s. Cleanup: `emulator.stop`, 5199 killed; 5037's pid (19285) and `devices -l` identical before and after; the guard's `refused.log` empty.
 
 ### 4. `device.logs` on API 36.1
 
