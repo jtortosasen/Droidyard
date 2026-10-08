@@ -35,7 +35,7 @@ Read the code as well as the documents. The starting point is what `internal/` a
 
 ## Review
 
-When the draft is complete, launch `plan-reviewer` on the plan file. Answer every blocking finding by changing the plan or by citing the ADR or evidence that settles it, and record each in the plan's Review table. Launch it again after any change to order or scope: a reordered plan has new ordering problems. If two rounds still end blocked, stop and hand the disagreement to the owner instead of looping.
+When the draft is complete, launch `plan-reviewer` on the plan file. Answer every blocking finding by changing the plan or by citing the ADR or evidence that settles it, and record each in the plan's Review table. One round by default; a second only when the first returned blocking findings, and it checks only those (`milestone-plan` §Writing one, item 7). If the second still ends blocked, stop and hand the disagreement to the owner instead of looping.
 
 ## Report
 

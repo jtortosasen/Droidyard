@@ -25,7 +25,7 @@ matching phase in `docs/roadmap/mvp.md`. List the ADRs the work touches and read
 
 **Do not add scope.** If it is not in the milestone, or it is in `docs/roadmap/mvp.md` §Out of scope, it does not get built, however small. If you think something is missing, write an ADR proposing it and leave the code alone.
 
-**A deviation is a decision.** If implementation forces the code away from the design, record it in the same change: write a new ADR that supersedes the old one (an accepted ADR is not edited; the `Amended:` lines in older ADRs are historical). Never let code silently diverge from a document.
+**A deviation is a decision.** If implementation forces the code away from the design, stop and report it; the main session drafts the superseding ADR (`adr` skill) before code is built on it. An accepted ADR is not edited; the `Amended:` lines in older ADRs are historical. Never let code silently diverge from a document.
 
 ## Done means checked
 
