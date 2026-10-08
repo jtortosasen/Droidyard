@@ -46,7 +46,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - [x] A2. Through the daemon, against a real Gradle build: a cancel landing before `{accepted}` ends `cancelled` with no build record; one during the build ends `cancelled` with a record whose outcome is `cancelled`; no build of it is still running after either. Source: plan m1g A4. Proven by: step 2.
 - [x] A3. After the scratch adb server on port 5199 is restarted, the next read recreates the reader's forward and succeeds; the 5037 server keeps its pid. Source: plan m1f A2; ADR-0030 §Decision. Proven by: step 3.
 - [x] A4. On `Pixel_9a` (API 36.1) the `logcat` layout with the uid column is recorded and `device.logs {applicationId}` keeps only that app's lines by uid. Source: plan m1i A1 (D5). Proven by: step 4.
-- [ ] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
+- [x] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
 - [ ] A6. A launch is recorded in `processes.json` from spawn until its serial is resolved; a daemon killed in that window has its launch ended by the next daemon; a record whose AVD already answers as a listed serial, or whose adb query fails or times out, is dropped with nothing signalled. Source: Q1. Proven by: step 6.
 - [ ] A7. `shell.exec` runs in `cwd` with `env` applied, per D1. Source: brief H. Proven by: step 7.
 - [ ] A8. `policy.get` returns a `revision`; `policy.update {ifRevision}` with a stale one fails `POLICY_REVISION_CONFLICT` and writes nothing; without it, behaviour is unchanged. Source: plan m1k D3; Q2. Proven by: step 8.
@@ -112,7 +112,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: any action on the phone.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the owner's yes on 2026-10-08 (Changes). Under K4, a daemon in `/tmp/dyp5` behind the step's guard: with no configuration `device.list` returned `{devices: []}` and `device.uiTree {device: "R5CX62JXR3L"}` failed `DEVICE_NOT_ALLOWED` (cause `devices.allowPhysical is false`), the guard's log showing only `version` and `devices -l`; with a scratch `config.json` of `allowPhysical: true` and the serial allowlisted, `device.list` listed it with `kind: physical` (SM_A256B, Android 16, sdk 36), the one command addressed to it `shell getprop`. `refused.log` empty.
 
 ### 6. A pid record for a launch before its serial (Q1)
 
@@ -220,6 +220,8 @@ Two rounds ran (round 1: B1–B4; round 2: B1–B3, all in reconcile's adb query
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-08, owner: after being asked for the Samsung `R5CX62JXR3L` (step 5), the owner answered "te he conectado el device fisico" and connected it; taken as the yes K4 requires.
 
 - 2026-10-08, owner: Gradle 7.x support is not wanted for now; step 1 is dropped from this milestone and A1 stays open (the register's Gradle 7.x row says so). A first implementer run was stopped and its partial fixture discarded; nothing of it is in the tree.
 - 2026-10-08, step 2: the first level-4 run found that a closed and reopened workspace could not build again until the daemon restarted (`connection.open failed: root is already open`): `gradle.Client.Close` spoke to the sidecar only in state `ready`, and after any call it is `idle`, so the close never reached it. Fixed (`running` covers ready, busy and idle); the fake sidecar now refuses a second open of a root, as the real one does, which is what hid it. The same run showed `build.assemble` fetching the model outside D3's logged path; it now shares `projectModel` with `build.run`.
