@@ -51,7 +51,7 @@ func newToken() string {
 // daemonOptions wires the daemon: the registry's store, a handler per client kind, and
 // the UI's HTTP side on httpAddr with a token new at every start. The MCP adapter gets
 // the published schemas from here, so it never imports internal/schema
-// (docs/architecture/core-runtime.md §Adapter boundary), and reads operation progress
+// (docs/architecture/overview.md §Adapter boundary), and reads operation progress
 // from bus and resolves an image reference against artifacts.
 func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, artifacts *artifact.Store, afterOps func(context.Context), log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)

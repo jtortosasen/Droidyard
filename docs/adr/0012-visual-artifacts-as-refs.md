@@ -106,7 +106,7 @@ Adapters resolve references to bytes; the core owns the store:
 
 - **MCP** inlines a bounded, downscaled image next to the reference whenever a result
   carries an image artifact. Agents read everything else through `artifact_read`
-  ([mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Images and artifacts).
+  ([mcp-tool-surface](../interfaces/mcp.md) §Images and artifacts).
 - **HTTP** serves the same operation as raw bytes at `GET /v1/artifacts/{id}`, with
   `Range` for text
   ([http-websocket](../interfaces/http-websocket.md) §`GET /v1/artifacts/{id}`).
@@ -138,4 +138,4 @@ Adapters resolve references to bytes; the core owns the store:
   in favour of one `artifact.read`.
 - **MCP resources as the MVP read path.** Client support is uneven, and many clients
   expose resources to the user, not to the model. Deferred: they map onto the same
-  capability later ([mcp-features](../interfaces/mcp-features.md) §2).
+  capability later ([mcp-features](../interfaces/mcp.md) §2).

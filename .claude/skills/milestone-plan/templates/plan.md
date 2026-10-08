@@ -45,7 +45,7 @@ Empty unless the plan is `Blocked`.
 
 - Blocks: step <n>
 - The documents say: <citation, or "nothing">
-- Draft decision: <…>, as a new ADR | an amendment to ADR-00XX
+- Draft decision: <…>, as a new ADR | an ADR superseding ADR-00XX
 
 ## Unverified
 

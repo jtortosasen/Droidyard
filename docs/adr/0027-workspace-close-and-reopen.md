@@ -14,7 +14,7 @@ must fully close first". If `close` returns at `closing` and drains in the backg
 Phase 0's "no orphans after `workspace.close`" cannot be checked when it returns. If it
 waits without a bound, a handler that ignores cancellation holds a tool call past the
 client's timeout: `workspace.close` is not flagged long-running
-([`mcp-tool-surface.md`](../interfaces/mcp-tool-surface.md) §The MVP tool surface), so
+([`mcp-tool-surface.md`](../interfaces/mcp.md) §The MVP tool surface), so
 it stays under 60 s ([ADR-0020](0020-operation-contract.md) §Adapter projections).
 
 ## Decision

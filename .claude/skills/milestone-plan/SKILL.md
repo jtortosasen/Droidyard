@@ -10,7 +10,7 @@ A plan turns the one-sentence milestone in `docs/README.md` §Where the work sta
 ## Writing one
 
 1. **Pin the milestone.** Quote its sentence. Milestones (1, 1b, …) and roadmap phases (0, 1, 2) do not map one to one: milestone 1b is part of Phase 0, which also holds the supervisor, the workspace model and the HTTP skeleton. So list every deliverable and acceptance item of the phase in the Scope table, and mark each as in this milestone, in a named later one, or out of scope. That table is the scope boundary; it is the decision most often left implicit.
-2. **Collect the contract.** From `references/sources.md`, list every ADR section and document the milestone touches. Read them in full, including `Amended:` lines and Alternatives considered. For each §Open questions entry the milestone touches, cite the ADR that answers it, or make it a design question.
+2. **Collect the contract.** From `references/sources.md`, list every ADR section and document the milestone touches. Read them in full, following any `Supersedes:` chain to the ADR now in force, and Alternatives considered. For each open item the milestone touches (a row in `docs/roadmap/known-limits.md`), cite the ADR that answers it, or make it a design question.
 3. **Establish the starting point from the code.** Name the packages, descriptors and tests that exist, with paths. Run `go vet ./...` and `go test ./...` and record the result with the date.
 4. **State the milestone's acceptance.** Each item is observable and traced to a source: a phase acceptance item or an ADR clause. If only part of a phase item is reachable now, say which part.
 5. **Decompose into steps** (rules below), then fill in Not in this milestone and Unverified.
@@ -19,7 +19,7 @@ A plan turns the one-sentence milestone in `docs/README.md` §Where the work sta
 
 ## Light plan
 
-A milestone that changes no published contract (no schema, error code or capability semantics) and no security, concurrency or process-lifetime behaviour may use a light plan: the header, a Scope list, the steps (each with Builds, Check, Not here) and Acceptance; no Design questions, Unverified or Rests on unless one is real. If a change can be described in one sentence, it needs no plan at all: the main session does it with its check and commits.
+A milestone that changes no published contract (no schema, error code or capability semantics) and no security, concurrency or process-lifetime behaviour may use a light plan: the header, a Scope list, the steps (each with all six fields the plan test requires: Builds, Implements, Check, Schema, Needs, Not here; one line each) and Acceptance; no Design questions, Unverified or Rests on unless one is real. If a change can be described in one sentence, it needs no plan at all: the main session does it with its check and commits.
 
 ## What makes a step
 

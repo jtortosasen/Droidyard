@@ -47,7 +47,7 @@ func TestShippedRegistryIsThePublishedOne(t *testing.T) {
 
 // TestAdaptersImportOnlyTheCore: adapters translate; they may import capability, event
 // and artifact from this module, never domain/*, schema, daemon or platform
-// (docs/architecture/core-runtime.md §Adapter boundary; ADR-0025 §Consequences).
+// (docs/architecture/overview.md §Adapter boundary; ADR-0025 §Consequences).
 func TestAdaptersImportOnlyTheCore(t *testing.T) {
 	t.Parallel()
 	out, err := exec.Command("go", "list", "-deps", "../../adapters/...").Output()
@@ -76,7 +76,7 @@ func TestAdaptersImportOnlyTheCore(t *testing.T) {
 }
 
 // TestTheDaemonImportsNoAdapter: internal/daemon is given the HTTP handler and the
-// session handlers; it never imports an adapter (core-runtime.md §Adapter boundary;
+// session handlers; it never imports an adapter (overview.md §Adapter boundary;
 // plan m1d, step 4).
 func TestTheDaemonImportsNoAdapter(t *testing.T) {
 	t.Parallel()

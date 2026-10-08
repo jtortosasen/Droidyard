@@ -16,8 +16,8 @@ import (
 // is focused, and a tap inside it lands on a key, not on the target under it (plan m1n step
 // 5, fix round L1, seen at level 5 on API 31: after typing into one field the IME window's
 // touchable region was y 1512–2208, and the next call's tap at y 1579 typed a character into
-// the field it was meant to leave). ui-automation.md §Typing records the rule these helpers
-// implement.
+// the field it was meant to leave). The rule these helpers implement: ui-automation.md
+// §Typing.
 
 const (
 	// inputMethodReadBound bounds the `dumpsys input_method` read the guard makes, kept short

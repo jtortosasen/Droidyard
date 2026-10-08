@@ -93,7 +93,7 @@ func anyNote(notes []string, sub string) bool {
 	return false
 }
 
-// Decision (plan m1h D12, A6; sdk.md §Capabilities): when the project SDK has everything
+// Decision (plan m1h D12, A6; sdk.md §Project SDK): when the project SDK has everything
 // the probe's modules need, requirements is complete, lists nothing missing, and reports
 // the project SDK as AGP's own directory (source agp, exact), the same as the host SDK.
 // Seen failing when the host SDK is preferred over the probe's directory.
@@ -206,7 +206,7 @@ func TestProjectSDKFromLocalProperties(t *testing.T) {
 	}
 }
 
-// Decision (plan m1h D12; sdk.md §Project SDK, §Failure modes): with no probe directory
+// Decision (plan m1h D12; sdk.md §Project SDK): with no probe directory
 // and no local.properties, ANDROID_HOME (then ANDROID_SDK_ROOT) decides, source env and
 // inexact. Seen failing when the probe's directory is not preferred (the flip side).
 func TestProjectSDKFromEnvWhenNoProbeDirectory(t *testing.T) {
@@ -217,7 +217,7 @@ func TestProjectSDKFromEnvWhenNoProbeDirectory(t *testing.T) {
 	}
 }
 
-// Decision (plan m1h D12; sdk.md §Project SDK step 3, §Failure modes): nothing resolves
+// Decision (plan m1h D12; sdk.md §Project SDK step 3): nothing resolves
 // the project SDK, so found is false and a note names the "SDK location not found"
 // failure the build will hit; the requirements the probe read are still listed, and every
 // one is missing because there is no SDK to hold them.
@@ -278,7 +278,7 @@ func TestRequirementsProbeFailed(t *testing.T) {
 	}
 }
 
-// Decision (plan m1h D12, R2; capability-api.md §Classification): sdk.requirements is a
+// Decision (plan m1h D12, R2; the descriptor): sdk.requirements is a
 // read-only, idempotent, open-world workspace Query that runs a configuration pass
 // (long-running, [gradle]) and carries the trust hook, and its declared error codes are
 // the trust hook's plus the model fetch's.
