@@ -113,7 +113,7 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm), and the configuration file's state (config): its path, whether it parsed, and the state its tool keys were read in at startup.",
+		Description: "Reports whether the core is alive, its version, uptime and operations in flight, where adb and the JVM were found, any state file it could not use, and the configuration file's state.",
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -153,7 +153,7 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Lists every capability the core exposes, with its scope, statefulness, annotations and availability. This is the discovery entry point: it reports what is available rather than assuming a fixed surface.",
+		Description: "Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point.",
 		Params:      None{},
 		Result:      Capabilities{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {

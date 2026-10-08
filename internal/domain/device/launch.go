@@ -72,14 +72,9 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Scope:        capability.Global,
 		Since:        "0.5.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description: "Starts an application's launcher activity on the device with `monkey --pct-syskeys 0 -p <applicationId> -c android.intent.category.LAUNCHER 1`, and returns the device clock read just before as launchedAt (RFC 3339 UTC with milliseconds) and the process id observed after. " +
-			"pid is polled with `pidof <applicationId>` every 100 ms for up to 3 s; when no process is seen, pid is null and reason says so (typically a crash on start). " +
-			"The launch is recorded for the device, so a later device.logs of the same applicationId reads from this launch (its default since is \"launch\"). " +
-			"applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched, and never reaches a device shell. " +
-			"The whole call holds the device's write lock and runs at most 28 s. " +
-			"Fails with DEVICE_LAUNCH_FAILED when monkey reports no activities or exits non-zero, and with the device errors of a missing, unusable, unadmitted physical or vanished device.",
-		Params: LaunchParams{},
-		Result: LaunchResult{},
+		Description:  "Starts an application's launcher activity and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, typically a crash on start). A later device.logs of the same applicationId reads from this launch by default.",
+		Params:       LaunchParams{},
+		Result:       LaunchResult{},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
 			ErrLaunchFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {

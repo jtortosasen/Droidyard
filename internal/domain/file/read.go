@@ -12,7 +12,7 @@ import (
 // ReadParams is file.read's parameters.
 type ReadParams struct {
 	Path   string `json:"path" jsonschema:"required" jsonschema_description:"The file to read, relative to the project root. An absolute path inside the root is accepted."`
-	Offset *int64 `json:"offset,omitempty" jsonschema_description:"The byte offset to read from; negative counts back from the end, and a negative offset that lands mid-line starts at the next line."`
+	Offset *int64 `json:"offset,omitempty" jsonschema_description:"Byte offset to read from; negative counts back from the end."`
 	Limit  *int   `json:"limit,omitempty" jsonschema:"minimum=4,maximum=262144" jsonschema_description:"The most bytes to return, 4 to 262144. Absent means 16384. A read ends at the last complete line within it."`
 }
 

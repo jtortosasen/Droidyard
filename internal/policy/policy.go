@@ -453,35 +453,27 @@ type None struct{}
 // ADR-0032 §5).
 func Register(reg *capability.Registry, p *Policy) {
 	reg.MustRegister(capability.Descriptor{
-		Name:     "policy.get",
-		Kind:     capability.Query,
-		Scope:    capability.Global,
-		Audience: capability.AudienceHuman,
-		Since:    "0.10.0",
-		Description: "Returns the droidyard policy: the configuration file's path and whether it parsed (state missing, ok or invalid, with the parse error when invalid), its revision (pass it to policy.update as ifRevision), and the trust, devices and shell sections as written in the file, with their defaults when the file is missing or invalid. " +
-			"Policy is the user's to change — trusted roots, the physical-device allowlist and whether shell.exec is enabled — so it is answerable only to a human client: the core refuses this capability from an agent session. " +
-			"It never fails on a bad file, so the UI can show the problem.",
-		Params:  None{},
-		Result:  GetResult{},
-		Handler: func(context.Context, *capability.Call) (any, error) { return p.Get(), nil },
+		Name:        "policy.get",
+		Kind:        capability.Query,
+		Scope:       capability.Global,
+		Audience:    capability.AudienceHuman,
+		Since:       "0.10.0",
+		Description: "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices and shell sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
+		Params:      None{},
+		Result:      GetResult{},
+		Handler:     func(context.Context, *capability.Call) (any, error) { return p.Get(), nil },
 	})
 	reg.MustRegister(capability.Descriptor{
-		Name:       "policy.update",
-		Kind:       capability.Command,
-		Scope:      capability.Global,
-		Audience:   capability.AudienceHuman,
-		Since:      "0.10.0",
-		Idempotent: true,
-		Description: "Applies a JSON Merge Patch (RFC 7386) to the droidyard policy and writes the result, returning policy.get's shape after the write. " +
-			"The patch is restricted to the `trust`, `devices` and `shell` sections: each is written as a section object, or as `null` to remove the section and return it to its defaults; inside a section each known key is written as a value, or as `null` to remove the key (`trust.roots`, `trust.prefixes`, `devices.allowPhysical`, `devices.allowlist`, `shell.enabled`, `shell.roots`). " +
-			"Arrays are replaced whole, so to add a trusted root send the whole list. Any other key, at the top level or inside a section, is REQUEST_INVALID_PARAMS, not a silent no-op. " +
-			"Policy is the user's to change, so it is answerable only to a human client: the core refuses this capability from an agent session. " +
-			"It takes the exclusive lock on the configuration's lock file, re-reads the file under it (so a concurrent `droidyard trust` on another key is not lost), canonicalises the path entries the patch wrote, validates the whole result and writes atomically; unknown keys in the file, and every other section, are kept. " +
-			"A relative path is REQUEST_INVALID_PARAMS and the file is untouched; a file that does not parse or is of a newer version is POLICY_CONFIG_UNUSABLE and is left untouched. Tool keys are edited by hand, not here. A patch that changes nothing writes nothing. " +
-			"With `ifRevision` (the `revision` policy.get returned, or `absent`) the patch is applied only if the file is still the one that revision names, compared under the lock with the bytes just re-read; otherwise it is POLICY_REVISION_CONFLICT and nothing is written. Without it the patch applies to whatever the file holds.",
-		Params: UpdateParams{},
-		Result: GetResult{},
-		Errors: []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams, capability.ErrPolicyRevisionConflict},
+		Name:        "policy.update",
+		Kind:        capability.Command,
+		Scope:       capability.Global,
+		Audience:    capability.AudienceHuman,
+		Since:       "0.10.0",
+		Idempotent:  true,
+		Description: "Applies a JSON Merge Patch (RFC 7386) to the trust, devices and shell sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
+		Params:      UpdateParams{},
+		Result:      GetResult{},
+		Errors:      []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams, capability.ErrPolicyRevisionConflict},
 		Handler: func(_ context.Context, call *capability.Call) (any, error) {
 			patch, _ := call.Params.(UpdateParams)
 			res, err := p.Update(patch)
