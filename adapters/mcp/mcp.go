@@ -206,6 +206,15 @@ func (s *Server) SetBoundOpenHook(f func()) {
 	s.boundOpenHook.Store(&f)
 }
 
+// Exposed reports whether a capability is an MCP tool: a stateless one not reserved to
+// humans. A tool call has no channel to push into after it returns, so a stateful or
+// streaming capability is not a tool; agents wait on operations instead (mcp.md §What is
+// exposed). New and `droidyard init` (which allowlists the read-only tools) share it, so
+// the two cannot disagree on what is exposed.
+func Exposed(d capability.Descriptor) bool {
+	return d.Audience != capability.AudienceHuman && d.Statefulness == capability.Stateless
+}
+
 // New builds the tool list: every stateless capability not reserved to humans, named with its
 // dot replaced by an underscore, with the schemas given and all four annotation hints
 // set (ADR-0015 §6; docs/interfaces/mcp.md §Naming, §Annotations).
@@ -215,13 +224,7 @@ func New(reg *capability.Registry, ops *capability.Operations, schemas map[strin
 	}
 	s := &Server{version: version, ops: ops, log: log.New(logw, "droidyard mcp: ", log.LstdFlags), texts: map[string]*renderer{}}
 	for _, d := range reg.All() {
-		if d.Audience == capability.AudienceHuman {
-			continue
-		}
-		if d.Statefulness != capability.Stateless {
-			// A tool call has no channel to push into after it returns, so a
-			// stateful or streaming capability is not a tool; agents wait on
-			// operations instead (mcp.md §What is exposed).
+		if !Exposed(d) {
 			continue
 		}
 		sc, ok := schemas[d.Name]

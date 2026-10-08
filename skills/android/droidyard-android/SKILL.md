@@ -27,8 +27,9 @@ restart the shared adb server.
    `device_launch {device, applicationId}`.
 5. **Look**: `device_uiTree` (cheaper and exact) before `device_screenshot`;
    `device_logs {applicationId, since: "launch"}` for the app's log since that launch.
-6. **Act**: `device_tapElement` and `device_inputText` with a `target` selector and an
-   `expect` that says what must change, so one call acts and verifies.
+6. **Act**: `device_tapElement` on a `target` selector, `device_inputText` into a `target`
+   (or the focused field), each with an `expect` that says what must change, so one call
+   acts and verifies.
 
 ## Selectors
 
