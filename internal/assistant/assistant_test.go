@@ -451,7 +451,9 @@ func TestAllowlistAppendsOnlyWhatIsAbsent(t *testing.T) {
 func TestUsersOwnAllowSurvivesInitAndUninstall(t *testing.T) {
 	root := projectRoot(t)
 	// Not read-only, so init does not write it and --uninstall cannot mistake it for its own.
-	write(t, root, ".cursor/cli.json", `{"permissions": {"allow": ["Mcp(droidyard:build_assemble)", "Shell(ls)"]}}`)
+	// A valid Cursor cli.json has a deny array (cursor-agent refuses one without); a file
+	// that lacked it keeps the empty one init added, which makes it valid.
+	write(t, root, ".cursor/cli.json", `{"permissions": {"allow": ["Mcp(droidyard:build_assemble)", "Shell(ls)"], "deny": []}}`)
 	write(t, root, ".claude/settings.json", `{"model": "x", "permissions": {"allow": ["Bash(git status)", "mcp__droidyard__build_assemble"], "ask": ["Bash(rm:*)"]}}`)
 	before := snapshot(t, root)
 
@@ -486,7 +488,7 @@ func TestUninstallRestoresTheTree(t *testing.T) {
 		write(t, root, "AGENTS.md", "# Rules\n\nBe kind.")
 		write(t, root, "CLAUDE.md", "mine\n")
 		write(t, root, ".cursor/mcp.json", `{"mcpServers": {"other": {"command": "o"}}}`)
-		write(t, root, ".cursor/cli.json", `{"permissions": {"allow": ["Shell(ls)"], "deny": ["Shell(rm)"]}}`)
+		write(t, root, ".cursor/cli.json", `{"permissions": {"allow": ["Shell(ls)"], "deny": []}}`)
 		write(t, root, ".mcp.json", `{"mcpServers": {"theirs": {"command": "t"}}, "x": 1}`)
 		write(t, root, ".claude/settings.json", `{"permissions": {"allow": ["Bash(ls)"]}, "env": {"A": "b"}}`)
 		write(t, root, "opencode.json", `{"theme": "dark", "mcp": {"timeout": 5000, "servers": {"theirs": {"type": "remote", "url": "https://x"}}}}`)
