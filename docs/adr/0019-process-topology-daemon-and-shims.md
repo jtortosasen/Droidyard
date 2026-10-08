@@ -125,7 +125,7 @@ daemon per project root (`droidyard serve --root <path>`). See *Alternatives*.
   fills the `workspace` of every workspace-scoped call from it
   ([ADR-0020](0020-operation-contract.md)); agents never pass it. One MCP session works
   on one project; an agent that needs two configures two servers. MCP roots remain a
-  policy input only ([mcp-features](../interfaces/mcp-features.md) §5), never a binding
+  policy input only ([mcp-features](../interfaces/mcp.md) §5), never a binding
   source: binding must be deterministic and visible in the server config.
 - **The binding opens its root, once.** When the MCP session initializes, the adapter
   calls `workspace.open` on the bound root (no project code runs, and binding grants

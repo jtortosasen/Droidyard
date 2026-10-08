@@ -59,7 +59,7 @@ The first version of this ADR left four holes:
      result is tagged.
    - Each adapter signals the mark per result. MCP uses `_meta` plus a fixed header
      and quoted strings in the text rendering
-     ([mcp-tool-surface](../interfaces/mcp-tool-surface.md) §Untrusted data). HTTP
+     ([mcp-tool-surface](../interfaces/mcp.md) §Untrusted data). HTTP
      uses `meta.untrusted` in the response envelope, and the UI renders tagged fields
      inert ([http-websocket](../interfaces/http-websocket.md) §Security baseline).
    - An artifact inherits the mark of the capability that produced it.
@@ -90,7 +90,7 @@ The first version of this ADR left four holes:
    - An MCP binding never grants trust, whether it comes from `--root` or from the cwd.
      A server configuration can be written by the repository itself (`.mcp.json`).
    - MCP roots may **narrow** what is allowed and never widen it
-     ([mcp-features](../interfaces/mcp-features.md) §5).
+     ([mcp-features](../interfaces/mcp.md) §5).
 6. **Only humans change policy, and the trust boundary is the user account.**
    - Policy covers the device rules, trusted roots and `shell.exec`. It lives in the
      user configuration and changes without a restart, through human channels only:

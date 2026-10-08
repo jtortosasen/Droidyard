@@ -172,7 +172,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 		},
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
-			Reason:      "-r replaces the app and keeps its data (mcp-tool-surface.md §Annotations)",
+			Reason:      "-r replaces the app and keeps its data (mcp.md §Annotations)",
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InstallParams)

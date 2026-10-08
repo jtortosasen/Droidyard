@@ -90,7 +90,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		},
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
-			Reason:      "its effect belongs to the app, and the policy keeps agents on emulators by default (mcp-tool-surface.md §Annotations)",
+			Reason:      "its effect belongs to the app, and the policy keeps agents on emulators by default (mcp.md §Annotations)",
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LaunchParams)

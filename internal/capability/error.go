@@ -6,27 +6,58 @@ import "fmt"
 // never reused; new codes are added in a minor version and removed only in a major
 // one (docs/architecture/capability-api.md §Error model).
 //
-// Shape: <DOMAIN>_<REASON>, where DOMAIN is the capability domain that owns the
-// failure, or one of the reserved prefixes REQUEST, SESSION and DAEMON.
+// Shape: <DOMAIN>_<REASON>, SCREAMING_SNAKE, where DOMAIN is the capability domain that
+// owns the failure, which is not always the domain of the capability called
+// (device.install returns BUILD_OUTPUT_STALE), or one of the reserved prefixes REQUEST
+// (the envelope), SESSION (the connection) and DAEMON (the socket handshake). The list of
+// prefixes is closed: a new one is a schema change.
+//
+// Published codes: each descriptor lists the codes the capability itself may return, and
+// the golden file records them. A capability that projects another operation's outcome
+// (operation.wait) passes that operation's error through unchanged, so an unlisted code a
+// consumer sees there is the waited operation's. A code, once published, is never renamed
+// or given a new meaning; new codes may be added in a minor version, so consumers treat an
+// unknown code as a generic failure of the capability; a code is removed only in a major
+// version; the shape of a code's details evolves additively under the same rules. Codes
+// carry no version suffix of their own.
 type ErrorCode string
 
 // Reserved, cross-cutting codes every adapter may see.
 const (
-	ErrSessionRequired            ErrorCode = "SESSION_REQUIRED"
+	// ErrSessionRequired: a stateful or streaming capability was called on a connection
+	// that cannot carry its state and events: plain HTTP, a CLI call or an MCP session.
+	// Only the WebSocket can (ADR-0010).
+	ErrSessionRequired ErrorCode = "SESSION_REQUIRED"
+	// ErrRequestIdempotencyConflict: an idempotencyKey was reused with different params
+	// (ADR-0020 §Idempotency keys).
 	ErrRequestIdempotencyConflict ErrorCode = "REQUEST_IDEMPOTENCY_CONFLICT"
-	ErrDaemonVersionMismatch      ErrorCode = "DAEMON_VERSION_MISMATCH"
+	// ErrDaemonVersionMismatch is a handshake reply, not a capability error
+	// (ADR-0019).
+	ErrDaemonVersionMismatch ErrorCode = "DAEMON_VERSION_MISMATCH"
 
-	ErrWorkspaceNotOpen   ErrorCode = "WORKSPACE_NOT_OPEN"
+	// ErrWorkspaceNotOpen: a workspace-scoped call named a root or id that is not open;
+	// the core never opens a workspace implicitly. nextStep: workspace.open (ADR-0020
+	// §Scope and workspace addressing).
+	ErrWorkspaceNotOpen ErrorCode = "WORKSPACE_NOT_OPEN"
+	// ErrWorkspaceUntrusted: the workspace opened in restricted mode and the capability
+	// touches project code (ADR-0015 §5).
 	ErrWorkspaceUntrusted ErrorCode = "WORKSPACE_UNTRUSTED"
 	// ErrWorkspaceStateUnreadable: droidyard's own state for a workspace could not be
 	// read or written for a reason other than a corrupt file or a newer version
 	// (ADR-0026, amended 2026-10-03 second pass).
 	ErrWorkspaceStateUnreadable ErrorCode = "WORKSPACE_STATE_UNREADABLE"
 
-	ErrOperationNotFound     ErrorCode = "OPERATION_NOT_FOUND"
-	ErrOperationCancelled    ErrorCode = "OPERATION_CANCELLED"
+	// ErrOperationNotFound: operation.wait or operation.cancel named an id that never
+	// existed or is past retention.
+	ErrOperationNotFound ErrorCode = "OPERATION_NOT_FOUND"
+	// ErrOperationCancelled is the error of every cancelled operation.
+	ErrOperationCancelled ErrorCode = "OPERATION_CANCELLED"
+	// ErrOperationQueueTimeout: a call not flagged long-running stayed queued past the
+	// queue bound and never ran, so a retry is safe (ADR-0020 §Core primitives).
 	ErrOperationQueueTimeout ErrorCode = "OPERATION_QUEUE_TIMEOUT"
 
+	// ErrArtifactNotFound: the reference is unknown. ErrArtifactExpired: it is ephemeral
+	// and past its TTL, or its owning record is gone (ADR-0012).
 	ErrArtifactNotFound ErrorCode = "ARTIFACT_NOT_FOUND"
 	ErrArtifactExpired  ErrorCode = "ARTIFACT_EXPIRED"
 
@@ -39,6 +70,9 @@ const (
 	ErrFileWrongType   ErrorCode = "FILE_WRONG_TYPE"
 	ErrFileIOFailed    ErrorCode = "FILE_IO_FAILED"
 
+	// ErrPolicyShellDisabled: shell.exec is not enabled for the root. Its message warns
+	// that enabling it gives the agent the user's full reach, and its nextStep names
+	// shell.roots in the configuration file (ADR-0015 §7; ADR-0032).
 	ErrPolicyShellDisabled ErrorCode = "POLICY_SHELL_DISABLED"
 	// ErrPolicyConfigUnusable: policy.update could not read, parse or write the
 	// configuration file — it does not parse, is of a newer version, or the write
@@ -46,7 +80,8 @@ const (
 	// §5; plan m1k D3).
 	ErrPolicyConfigUnusable ErrorCode = "POLICY_CONFIG_UNUSABLE"
 	// ErrPolicyRevisionConflict: policy.update's ifRevision names a file that is no
-	// longer the one under the lock; nothing was written (ADR-0032 §5, Q2).
+	// longer the one under the lock; nothing was written. nextStep: call policy.get and apply
+	// the change again (ADR-0032 §5, Q2).
 	ErrPolicyRevisionConflict ErrorCode = "POLICY_REVISION_CONFLICT"
 	// ErrShellExecFailed: shell.exec's command could not be started, its project root is
 	// gone, or its pid record could not be written (the command had started and may have
@@ -72,6 +107,12 @@ const (
 	// finished build (gradle.md §Persistence; plan m1g D9).
 	ErrBuildNotFound ErrorCode = "BUILD_NOT_FOUND"
 
+	// The request codes. Start rejects a call with them, and creates no operation, for an
+	// unknown capability, parameters that fail strict decoding, a workspace-scoped call with
+	// no workspace, a global call that names one, and a human-audience capability called over
+	// MCP (ADR-0020 §Core primitives). REQUEST_INVALID_PARAMS is also a handler's code for a
+	// parameter it finds invalid while running, and AsError's fallback for an untyped error:
+	// then it ends a failed operation.
 	ErrCapabilityNotFound  ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"
 	ErrInvalidParams       ErrorCode = "REQUEST_INVALID_PARAMS"
 	ErrMissingWorkspace    ErrorCode = "REQUEST_MISSING_WORKSPACE"
@@ -79,9 +120,9 @@ const (
 	ErrNotAllowedHere      ErrorCode = "REQUEST_NOT_ALLOWED_HERE"
 )
 
-// Error is the one error shape: the envelope, MCP error results and CLI output all
-// render this. MCP gets no structured content on an error; the object goes in the
-// text block (ADR-0020 §Adapter projections).
+// Error is the one error shape: the envelope, MCP error results (isError: true) and CLI
+// output all render this. MCP gets no structured content on an error; the object goes in
+// the text block as JSON (ADR-0020 §Adapter projections).
 //
 // Cause never quotes device or app output: it is the tool, its exit status or the
 // decisive line of the tool's stderr, never device stdout (1e). Details may: candidates in a resolution error carry device

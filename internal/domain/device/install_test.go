@@ -273,7 +273,7 @@ func TestUninstallInvalidApplicationIDRejected(t *testing.T) {
 	}
 }
 
-// Decision (plan m1g R2, mcp-tool-surface.md §The MVP tool surface): the published
+// Decision (plan m1g R2, mcp.md §Annotations): the published
 // classification and annotations of the two capabilities, and the codes each lists.
 func TestInstallUninstallDescriptors(t *testing.T) {
 	reg := capability.NewRegistry()

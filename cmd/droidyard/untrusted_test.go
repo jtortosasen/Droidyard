@@ -144,7 +144,7 @@ func TestUntrustedMarkOnTheEnvelopes(t *testing.T) {
 // and its text opens with the one fixed line, then the compact JSON, which equals the
 // structuredContent byte for byte: the mark is per result, never inside the payload, and
 // the forged device text stays inside a JSON string, so no line of it can pass for ours
-// (mcp-tool-surface.md §Untrusted data, items 1 and 2; plan m1e, R6). system_health has
+// (mcp.md §Untrusted data, items 1 and 2; plan m1e, R6). system_health has
 // neither. operation_wait carries the waited operation's mark, and a call still running
 // has none, since it has no result yet.
 func TestUntrustedMarkOverMCP(t *testing.T) {
@@ -375,7 +375,7 @@ func TestUntrustedErrorMarkOnTheEnvelopes(t *testing.T) {
 // TestUntrustedErrorMarkOverMCP: an isError result for a failed call whose handler
 // marked it carries _meta {"droidyard/untrusted": true}, and its one text block is the
 // error JSON alone: no fixed first line, no structuredContent. operation_wait on it
-// does the same. The unmarked failure and system_health carry neither (mcp-tool-surface
+// does the same. The unmarked failure and system_health carry neither (mcp.md
 // §Untrusted data; plan m1f, step 3, D5).
 func TestUntrustedErrorMarkOverMCP(t *testing.T) {
 	t.Parallel()

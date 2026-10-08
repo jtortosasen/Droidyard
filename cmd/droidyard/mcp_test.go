@@ -218,7 +218,7 @@ func normalised(t *testing.T, raw []byte) any {
 
 // TestMCPTranscript drives a real `droidyard mcp` over the real socket and holds the
 // wire to the contract (ADR-0025 acceptance gate, criteria 1, 2 and 6;
-// docs/interfaces/mcp-tool-surface.md): the documented instructions; tools/list as the
+// docs/interfaces/mcp.md): the documented instructions; tools/list as the
 // golden file says, all four hints on every entry; results with structured content;
 // an error result with no structured content; a human-audience tool refused by the
 // library, since it is not registered; the same result as the CLI; and a shim that
@@ -272,7 +272,7 @@ func TestMCPTranscript(t *testing.T) {
 		if g["statefulness"] != "stateless" {
 			// A tool call has no channel to push into after it returns: a stateful or
 			// streaming capability, events.* among them, is published but not a tool
-			// (mcp-tool-surface.md §What is exposed).
+			// (mcp.md §What is exposed).
 			if ok {
 				t.Errorf("tools/list has %s, a %v capability", mcpadapter.ToolName(name), g["statefulness"])
 			}

@@ -28,7 +28,7 @@ const (
 )
 
 // Timeouts are constants: emulator.md §Timeouts calls the boot timeout configurable but
-// no configuration key exists (capability-api.md §Open questions), so none of them is
+// no configuration key exists (known-limits.md, configuration version 1 deferrals), so none of them is
 // (plan m1i, D14). Variables so a test injects a scale.
 var (
 	// listTimeout bounds `emulator -list-avds`.

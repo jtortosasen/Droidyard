@@ -277,7 +277,7 @@ func noisy(w, h int) *image.RGBA {
 	return img
 }
 
-// Decision (mcp-tool-surface.md §Images): the inline block is PNG while the PNG is at
+// Decision (mcp.md §Images): the inline block is PNG while the PNG is at
 // most 512 KiB and JPEG once it is over, in both cases at most the max edge, and the
 // edge is capped at 2048 whatever is asked for.
 func TestEncodeInlineJPEGFallbackThreshold(t *testing.T) {

@@ -107,7 +107,7 @@ func checkRegister(fsys fs.FS) []string {
 // 0.6 of that; each of its merge steps lowers the constant to what the step reached. The set is
 // every docs/**/*.md except docs/adr/, docs/plans/, docs/research/, docs/reviews/ and
 // the register, which grows with what is open.
-const liveBudget = 38774
+const liveBudget = 34216
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

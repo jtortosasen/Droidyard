@@ -19,7 +19,7 @@ The MCP adapter runs inside the daemon; `droidyard mcp` is a byte relay over the
 socket, and one shim connection is one MCP session
 ([ADR-0019](0019-process-topology-daemon-and-shims.md) §2, §Sessions). The projection is
 already fixed: tool names and schemas, annotations, server instructions, results and
-errors by [`mcp-tool-surface.md`](../interfaces/mcp-tool-surface.md); the bounded wait,
+errors by [`mcp-tool-surface.md`](../interfaces/mcp.md); the bounded wait,
 `operation_wait` and `operation_cancel` by
 [ADR-0020](0020-operation-contract.md) §Adapter projections; the schemas themselves are
 generated from the Go registry and published as a golden file
@@ -84,7 +84,7 @@ helpers.** Concretely:
   JSON is both the MCP stdio framing and the socket framing. (This replaced
   `NewStdioServer(...).Listen(...)`; see the 2026-10-03 `Amended:` line.)
 - `WithInstructions` carries the block of
-  [`mcp-tool-surface.md`](../interfaces/mcp-tool-surface.md) §Server instructions.
+  [`mcp-tool-surface.md`](../interfaces/mcp.md) §Server instructions.
 - Upgrades are deliberate: bumping the module runs the milestone's transcript tests
   first.
 

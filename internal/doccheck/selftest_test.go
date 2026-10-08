@@ -114,36 +114,6 @@ var capabilityFixture = tree{
 | ` + "`device` | `list`, `logs`" + ` | 1 |
 | ` + "`policy` | `get`" + ` (human-only) | 1 |
 `,
-	apiPath: `# Capability API
-
-## Naming and namespaces
-
-` + fence + `text
-system.health     workspace.open
-device.list       device.logs
-policy.get        (human-only)
-code.symbols      (post-MVP)
-` + fence + `
-
-## Classification of the MVP surface
-
-| Capability | Scope |
-| --- | --- |
-| ` + "`system.health`" + ` | G |
-| ` + "`workspace.open`" + ` | W |
-| ` + "`device.list`, `device.logs`" + ` (bounded) | G |
-| ` + "`policy.get`" + ` | G |
-
-## Initial domains
-
-| Domain | Kind |
-| --- | --- |
-| ` + "`workspace`" + ` | cmd |
-| ` + "`device`" + ` | query |
-| ` + "`system`" + ` | query |
-| ` + "`policy`" + ` | query |
-| ` + "`code`" + ` | query |
-`,
 	mcpPath: `# MCP
 
 ## What is exposed, and what is not
@@ -151,49 +121,16 @@ code.symbols      (post-MVP)
 | Not exposed | Why |
 | --- | --- |
 | ` + "`policy.get`" + ` | human |
-
-## The MVP tool surface
-
-| Tool | RO |
-| --- | --- |
-| ` + "`system_health`" + ` | ✓ |
-| ` + "`workspace_open`" + ` | |
-| ` + "`device_list`" + ` | ✓ |
-| ` + "`device_logs`" + ` | ✓ |
 `,
 }
 
 func TestCapabilityCheckCatchesDrift(t *testing.T) {
-	published := []string{"system.health"}
+	published := []string{"system.health", "policy.get"}
 	expectClean(t, checkCapabilityNames(capabilityFixture.fs(), published))
 
 	t.Run("published but not in the roadmap", func(t *testing.T) {
-		expect(t, checkCapabilityNames(capabilityFixture.fs(), []string{"system.health", "system.version"}),
+		expect(t, checkCapabilityNames(capabilityFixture.fs(), []string{"system.health", "policy.get", "system.version"}),
 			mvpPath, "`system.version`", "Add it to the `system` row")
-	})
-	t.Run("missing from the name list", func(t *testing.T) {
-		tr := capabilityFixture.with(t, apiPath, "device.list       device.logs", "device.list")
-		expect(t, checkCapabilityNames(tr.fs(), published), apiPath, "§Naming and namespaces", "`device.logs`", mvpPath)
-	})
-	t.Run("a post-MVP name in the surface", func(t *testing.T) {
-		tr := capabilityFixture.with(t, mvpPath, "`get` (human-only) | 1 |", "`get` (human-only) | 1 |\n| `code` | `symbols` | 1 |")
-		expect(t, checkCapabilityNames(tr.fs(), published), apiPath, "`code.symbols`", "(post-MVP)")
-	})
-	t.Run("missing classification", func(t *testing.T) {
-		tr := capabilityFixture.with(t, apiPath, "| `policy.get` | G |\n", "")
-		expect(t, checkCapabilityNames(tr.fs(), published), apiPath, "§Classification", "`policy.get`", "has no classification row")
-	})
-	t.Run("a tool with no capability", func(t *testing.T) {
-		tr := capabilityFixture.with(t, mcpPath, "| `device_logs` | ✓ |", "| `device_logs` | ✓ |\n| `device_logcat` | ✓ |")
-		expect(t, checkCapabilityNames(tr.fs(), published), mcpPath, "`device_logcat`", "`device.logcat`")
-	})
-	t.Run("a capability with no tool and no exclusion", func(t *testing.T) {
-		tr := capabilityFixture.with(t, mcpPath, "| `device_logs` | ✓ |\n", "")
-		expect(t, checkCapabilityNames(tr.fs(), published), mcpPath, "`device.logs`", "no tool row `device_logs`")
-	})
-	t.Run("an excluded capability that still has a tool", func(t *testing.T) {
-		tr := capabilityFixture.with(t, mcpPath, "| `device_logs` | ✓ |", "| `device_logs` | ✓ |\n| `policy_get` | ✓ |")
-		expect(t, checkCapabilityNames(tr.fs(), published), mcpPath, "`policy_get`", "not exposed")
 	})
 	t.Run("golden path names an unknown capability", func(t *testing.T) {
 		tr := capabilityFixture.with(t, mvpPath, "`device.list`, `device.logs` |", "`device.list`, `device.logcat` |")
@@ -207,13 +144,14 @@ func TestCapabilityCheckCatchesDrift(t *testing.T) {
 		tr := capabilityFixture.with(t, mvpPath, "`device`, `policy`", "`device`")
 		expect(t, checkCapabilityNames(tr.fs(), published), mvpPath, "**Capability domains**", "`policy`")
 	})
-	t.Run("initial domains", func(t *testing.T) {
-		tr := capabilityFixture.with(t, apiPath, "| `policy` | query |\n", "")
-		expect(t, checkCapabilityNames(tr.fs(), published), apiPath, "§Initial domains", "`policy`")
+	t.Run("a stale exclusion", func(t *testing.T) {
+		// The not-exposed list names a capability the registry no longer publishes.
+		tr := capabilityFixture.with(t, mcpPath, "| `policy.get` | human |", "| `policy.get` | human |\n| `policy.gone` | human |")
+		expect(t, checkCapabilityNames(tr.fs(), published), mcpPath, "`policy.gone`", "not exposed", "not published")
 	})
 	t.Run("renamed section", func(t *testing.T) {
-		tr := capabilityFixture.with(t, mcpPath, "## The MVP tool surface", "## Tools")
-		expect(t, checkCapabilityNames(tr.fs(), published), mcpPath, `"The MVP tool surface"`, "capabilities_test.go")
+		tr := capabilityFixture.with(t, mcpPath, "## What is exposed, and what is not", "## Exposure")
+		expect(t, checkCapabilityNames(tr.fs(), published), mcpPath, `"What is exposed, and what is not"`, "capabilities_test.go")
 	})
 }
 

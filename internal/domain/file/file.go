@@ -123,7 +123,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Scope: capability.Workspace,
 		Since: version,
 		// Repeating the call with the same arguments has no additional effect beyond the
-		// first write (mcp-tool-surface.md §Annotations); it is destructive, which is a
+		// first write (mcp.md §Annotations); it is destructive, which is a
 		// command's default, so no override and no reason are needed.
 		Idempotent: true,
 		Description: "Writes a whole text file into the project, replacing any existing file atomically: a reader sees either the old file or the new one, never a partial write. " + writePathNote + " " +
@@ -148,7 +148,7 @@ func Register(reg *capability.Registry, opts Options) {
 		},
 	})
 
-	// A watch creates a subscription, so it is a command, not a query (mcp-tool-surface.md
+	// A watch creates a subscription, so it is a command, not a query (mcp.md
 	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
 	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
 	// subscription) and, being a command, is destructive by default: the override and its

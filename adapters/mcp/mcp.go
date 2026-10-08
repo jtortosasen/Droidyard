@@ -1,6 +1,6 @@
 // Package mcp is the MCP adapter: each MCP session is served inside the daemon, over
 // the connection its `droidyard mcp` shim relays (ADR-0019 §2; ADR-0025). Tools are
-// the registry projected per docs/interfaces/mcp-tool-surface.md, through
+// the registry projected per docs/interfaces/mcp.md, through
 // mark3labs/mcp-go's raw schema API only. It translates; it adds no domain logic.
 package mcp
 
@@ -28,7 +28,7 @@ import (
 )
 
 // Instructions is sent in every initialize result: verbatim, the block of
-// docs/interfaces/mcp-tool-surface.md §Server instructions.
+// docs/interfaces/mcp.md §Server instructions.
 const Instructions = `- This server is bound to one project; tools act on it with no workspace argument.
 - Name the target device on every device call; never assume one. Emulators are the
   default; a physical device needs the user's permission first.
@@ -166,7 +166,7 @@ func (s *Server) SetBoundOpenHook(f func()) {
 
 // New builds the tool list: every stateless capability not reserved to humans, named with its
 // dot replaced by an underscore, with the schemas given and all four annotation hints
-// set (ADR-0015 §6; docs/interfaces/mcp-tool-surface.md §Naming, §Annotations).
+// set (ADR-0015 §6; docs/interfaces/mcp.md §Naming, §Annotations).
 func New(reg *capability.Registry, ops *capability.Operations, schemas map[string]Schema, version string, logw io.Writer) (*Server, error) {
 	if logw == nil {
 		logw = io.Discard
@@ -179,7 +179,7 @@ func New(reg *capability.Registry, ops *capability.Operations, schemas map[strin
 		if d.Statefulness != capability.Stateless {
 			// A tool call has no channel to push into after it returns, so a
 			// stateful or streaming capability is not a tool; agents wait on
-			// operations instead (mcp-tool-surface.md §What is exposed).
+			// operations instead (mcp.md §What is exposed).
 			continue
 		}
 		sc, ok := schemas[d.Name]
@@ -547,7 +547,7 @@ func (s *Server) request(ctx context.Context, d capability.Descriptor, args json
 // capped at it, so the call returns before a client's tool timeout. Its answer is the
 // operation view, rendered as the original tool's answer would be. A
 // notifications/cancelled for it abandons the wait and never touches the operation
-// (docs/interfaces/mcp-tool-surface.md §Long-running work).
+// (docs/interfaces/mcp.md §Long-running work).
 func (s *Server) operationWait(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 	args := capTimeout(req.Params.RawArguments, budgetOf(ctx))
 	var target struct {
@@ -665,7 +665,7 @@ type inlined struct {
 // inlineImage recognises a result that carries an image artifact (ADR-0012's
 // ArtifactRef: a droidyard://artifact/ `ref` and an image `mediaType`, which
 // device.screenshot and artifact.read share) and prepares its image block, or returns
-// nil. mcp-tool-surface.md §Images and artifacts: a longest edge of 1024 (an
+// nil. mcp.md §Images and artifacts: a longest edge of 1024 (an
 // artifact_read's maxEdge, capped at 2048), PNG, or JPEG at quality 85 above 512 KiB.
 // An artifact_read result already holds its bytes, as base64 `data`: they are taken out
 // of the structured content, which keeps the metadata only. Any other result is
@@ -740,7 +740,7 @@ func (s *Server) inlineImage(raw json.RawMessage, args json.RawMessage) *inlined
 	return im
 }
 
-// Untrusted data over MCP (docs/interfaces/mcp-tool-surface.md §Untrusted data, items
+// Untrusted data over MCP (docs/interfaces/mcp.md §Untrusted data, items
 // 1 and 2): _meta {"droidyard/untrusted": true} for hosts, and for the model one fixed
 // first line of text, then the compact JSON, whose strings are JSON-quoted and
 // escaped, so device text cannot forge lines of ours.
@@ -830,7 +830,7 @@ func errorResult(e *capability.Error) *mcpgo.CallToolResult {
 // Call.Untrusted carries. A marked error result gets _meta {"droidyard/untrusted":
 // true} for hosts; its text stays the error JSON alone, with no fixed first line and
 // no structured content, because an error is not the declared result and the success
-// path's line would claim it carries a result (mcp-tool-surface.md §Untrusted data;
+// path's line would claim it carries a result (mcp.md §Untrusted data;
 // plan m1f, D5).
 func errorResultOf(e *capability.Error, untrusted bool) *mcpgo.CallToolResult {
 	raw, _ := json.Marshal(e)
@@ -854,7 +854,7 @@ func progressTokenOf(req mcpgo.CallToolRequest) mcpgo.ProgressToken {
 
 // progress forwards one operation's progress to the client, as notifications/progress
 // for the call's token, while the call waits on it (ADR-0020 §Adapter projections;
-// docs/interfaces/mcp-features.md §7). Nil forwards nothing.
+// docs/interfaces/mcp.md §Features beyond tools). Nil forwards nothing.
 type progress struct {
 	s     *Server
 	ctx   context.Context // the call's: it names the session
