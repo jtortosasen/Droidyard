@@ -111,7 +111,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: 6.
 - Not here: no ADR text changed beyond D3's link paths; records untouched beyond the same.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: eight documents 22,200 → 13,634 words (target 13,300 missed by 334, see Changes); live corpus 34,216 → 25,650 (`liveBudget`, ≤ 0.6 × N). §Open questions and §To verify moved to register rows (17 Sources repointed, two rows extended, one added); the amended-only rules stated in `process-lifecycle.md`, `emulator.md`, `ui-automation.md`, `gradle.md`. Schema unchanged; Go outside doccheck comments only. Opus verifier: 26 removed statements sampled from the diff (7 from `gradle.md`), none lost.
 
 ## Acceptance
 
@@ -165,3 +165,4 @@ Counts: round 1, Important 6 ([plan] 2, [test] 3, [safety] 1), nits 11; round 2,
 - 2026-10-08, step 2: two timing tests flaked once each under a loaded full run (`internal/daemon` lock_test, `TestServeStartsThroughAProbe`); a register row.
 - 2026-10-08, step 5: `docs/vision/glossary.md` was trimmed too (its terms live in `overview.md`, `mvp.md` §Terms and the ADRs). Verifier B1: the build queue depth (4 per root, `BUILD_QUEUE_FULL`) had been lost with `core-runtime.md`; restored in the register's `BUILD_QUEUE_FULL` row.
 - 2026-10-08, step 6: Opus verifier (30 statements sampled, none lost): B1, `error.go`'s comment said every `REQUEST_*` code comes with no operation, false for `REQUEST_INVALID_PARAMS`; reworded. N1, `idempotencyKey` and `raw` are designed but not built: a register row. N2, the batching and provisioning rows regained their deferral reasons (text edits named here for step 7's register comparison, with the annotation-columns row reworded in step 6). Declared deviation accepted: non-comment Go edits outside doccheck were path strings in `adapters/mcp/mcp_test.go`, `Reason` literals (never published, `json:"-"`) and gofmt alignment in `error.go`; the schema is unchanged.
+- 2026-10-08, step 7: the step's files ended at 13,634 words against its 13,300 target (the implementer stopped rather than cut decisions; what remains in `gradle.md`, `ui-automation.md` and the two architecture documents is decisions, rejected alternatives and bounds). A6 holds on the corpus measure: 25,650 ≤ 0.6 × 42,775 = 25,665, because step 6 came in under its own target. Opus verifier (26 statements sampled, none lost; the amended-only rules of ADR-0020, 0021 and 0033 stated in their area documents): N2, problem summaries got a register row; Go comments citing renumbered `§Boot sequence` items and a removed failure mode repointed.

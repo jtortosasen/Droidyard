@@ -14,8 +14,8 @@ import (
 // launcherOutputCap bounds `emulator -list-avds`'s output; a listing is a few short lines.
 const launcherOutputCap = 64 << 10
 
-// AVDConfig is an AVD's configuration, as emulator.list reports it (emulator.md §AVD
-// definition, plan m1i D13). target comes from the AVD's entry, the rest from its
+// AVDConfig is an AVD's configuration, as emulator.list reports it (emulator.md
+// §Capabilities, plan m1i D13). target comes from the AVD's entry, the rest from its
 // config.ini; a field config.ini does not carry is absent, not empty-string.
 type AVDConfig struct {
 	Target        string `json:"target,omitempty" jsonschema_description:"The API level or codename the AVD targets, from its .ini entry."`

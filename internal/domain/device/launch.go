@@ -16,7 +16,7 @@ import (
 // observed after, or null with a reason when none is.
 
 // ErrLaunchFailed is monkey's "No activities found" or a non-zero exit
-// (adb-device.md §Failure modes; plan m1f, R7).
+// (plan m1f, R7).
 const ErrLaunchFailed capability.ErrorCode = "DEVICE_LAUNCH_FAILED"
 
 // The launch's bounds (plan m1f step 8): the device clock gets 3 s, the launch command
