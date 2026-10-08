@@ -111,10 +111,16 @@ func parseLogLine(s, buffer string, withUID bool) (logLine, bool) {
 		return logLine{}, false
 	}
 	// The tag ends at the first ": " (logcat left-justifies it and terminates it so).
+	// The API 36.1 image printed 4 lines in 37,930 with a valid header and no ": "
+	// (recorded 2026-10-08), such as "Tag[x]:message": the tag then ends at the first
+	// ":", and with no ":" at all the whole rest is the tag and the message is empty.
+	// Such a line is still a line; only a header that does not match is a format error.
 	rest := m[restIdx]
-	i := strings.Index(rest, ": ")
-	if i < 0 {
-		return logLine{}, false
+	tag, message := rest, ""
+	if i := strings.Index(rest, ": "); i >= 0 {
+		tag, message = rest[:i], rest[i+2:]
+	} else if i := strings.Index(rest, ":"); i >= 0 {
+		tag, message = rest[:i], rest[i+1:]
 	}
 	sec, err1 := strconv.ParseInt(m[1], 10, 64)
 	usec, err2 := strconv.ParseInt(m[2], 10, 64)
@@ -127,7 +133,7 @@ func parseLogLine(s, buffer string, withUID bool) (logLine, bool) {
 	l := logLine{
 		buffer: buffer, uid: -1, raw: s,
 		at: time.Unix(sec, usec*1000).UTC(), pid: pid, tid: tid, priority: prio,
-		tag: strings.TrimSpace(rest[:i]), message: rest[i+2:],
+		tag: strings.TrimSpace(tag), message: message,
 	}
 	if withUID {
 		l.uid = uidOf(m[3])
