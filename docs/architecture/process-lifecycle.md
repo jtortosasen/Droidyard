@@ -174,9 +174,11 @@ The stale socket is removed by the new lock holder
 ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)). Devices and resolved emulators
 are not reconciled here: they are re-adopted through `adb`. A record of kind
 `emulator-launch` (a launch whose serial never resolved) is signalled only on a positive
-answer from the recorded port's adb server within 2 s: it answers over its socket, its
-version matches, and every listed serial, offline included, names another AVD; any doubt
-drops the record and signals nothing (ADR-0021's 2026-10-08 line).
+answer within 2 s: the recorded port's adb server answers over its socket at the client's
+version, every listed serial but `usb:` devices, offline included, names another AVD, and
+every emulator console on 5554–5584 that accepts a connection names another AVD too; any
+doubt drops the record and signals nothing (ADR-0021's 2026-10-08 line). The clients it
+runs, `adb version` and `adb -s emulator-N emu avd name`, contact no server.
 
 ## Resource budget
 

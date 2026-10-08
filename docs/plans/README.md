@@ -27,4 +27,4 @@ the output.
 | [m1m-emulator-robustness.md](m1m-emulator-robustness.md) | 1m — emulator boot robustness and the MCP-vs-shell comparison | Done |
 | [m1n-daily-use-core.md](m1n-daily-use-core.md) | 1n — the daily-use core: crashes, ANRs, typing and speed | Done |
 | [m1o-tokens-and-harness.md](m1o-tokens-and-harness.md) | 1o — tokens, assistant integration, and the comparison with Cursor | Blocked |
-| [m1p-functional-gaps.md](m1p-functional-gaps.md) | 1p — the functional gaps of Phase 1, and three ideas from earlier plans | Approved |
+| [m1p-functional-gaps.md](m1p-functional-gaps.md) | 1p — the functional gaps of Phase 1, and three ideas from earlier plans | Done |

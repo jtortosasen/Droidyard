@@ -24,8 +24,8 @@ import (
 const cancelWait = 10 * time.Second
 
 // The phases a build cancel lands in, logged once per cancel so a level-5 run can tell
-// which path it took (plan m1p D3): the build had not begun (no console record, nothing
-// on the sidecar), the sidecar had not answered {accepted}, or the build was running.
+// which path it took (plan m1p D3): the build had not begun (no build record and nothing
+// on the sidecar; a console created before BeginBuild failed is left for the open's sweep), the sidecar had not answered {accepted}, or the build was running.
 const (
 	phaseBeginBuild     = "begin-build"
 	phaseBeforeAccepted = "before-accepted"
