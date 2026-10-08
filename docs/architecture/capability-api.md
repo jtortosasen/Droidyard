@@ -101,9 +101,8 @@ Codes carry no version suffix of their own.
 ### Idempotency
 
 Queries are idempotent by definition; commands declare it (descriptor `Idempotent`).
-Commands that accept an `idempotencyKey` (`AcceptsIdempotencyKey`) dedupe on `(workspace
-or global, capability, key)` within the retention window: a repeat returns the existing
-operation, and the same key with different params is `REQUEST_IDEMPOTENCY_CONFLICT`.
+An `idempotencyKey` deduping repeats is designed (ADR-0020 §Idempotency keys) but not built
+(the register).
 
 ## Scope: global vs workspace
 

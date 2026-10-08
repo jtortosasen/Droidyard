@@ -5,7 +5,7 @@ description: Use when a Droidyard design decision must be recorded or changed. T
 
 # Writing or superseding an ADR
 
-The format is in `docs/adr/README.md` §Format. Read two ADRs before you write one: ADR-0020, which has dense Alternatives, and ADR-0017, which corrects its own rationale after new evidence without hiding the original (its `Amended:` lines are historical: no ADR gets a new one).
+The format is in `docs/adr/README.md` §Format. Read two ADRs before you write one: ADR-0020, which has dense Alternatives, and ADR-0017, whose `Amended:` lines show what a superseding ADR now records instead (they are historical: no ADR gets a new one).
 
 ## When
 

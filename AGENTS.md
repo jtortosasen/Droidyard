@@ -10,7 +10,8 @@ the agent loop belongs to the external assistant.
 1. **`docs/README.md`** — the documentation map and §Where the work stands. Start here.
 2. **`docs/roadmap/mvp.md`** — what the first version is, its phases, its definition of
    done, its metric, and what is explicitly out of scope.
-3. **`docs/architecture/capability-api.md`** — the contract everything else hangs off.
+3. **`docs/architecture/capability-api.md`** — why the capability contract is shaped as it is
+   (the contract itself is the code and `schema/capabilities.json`).
 4. **`docs/adr/README.md`** — the decisions, all accepted. **Before proposing a change
    to something an ADR covers, read that ADR: it records what was rejected and why.**
    A rejected option with a recorded reason is not an invitation to re-propose it.
