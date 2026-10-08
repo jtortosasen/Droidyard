@@ -29,7 +29,7 @@ import (
 // file can change it (plan m1d, D3).
 const DefaultPort = 7317
 
-// MaxBody bounds a request body (http-websocket.md §POST /v1/call: 413 over 1 MiB).
+// MaxBody bounds a request body: a larger one is answered 413.
 const MaxBody = 1 << 20
 
 // CheckLoopback refuses a bind address whose host is not a loopback IP: LAN exposure
@@ -290,7 +290,7 @@ const artifactsPath = "/v1/artifacts/"
 type artifactRoute struct{ c *caller }
 
 // readParams is artifact.read's wire parameters, spelled here so that the adapter does
-// not import the domain package (core-runtime.md §Adapter boundary).
+// not import the domain package (overview.md §Adapter boundary).
 type readParams struct {
 	Ref     string      `json:"ref"`
 	MaxEdge *int        `json:"maxEdge,omitempty"`

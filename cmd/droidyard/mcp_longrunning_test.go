@@ -45,7 +45,7 @@ func decodeTool(t *testing.T, line []byte, id int) toolResult {
 }
 
 // TestMCPLongRunning holds long-running tools and operation_wait to their contract
-// (ADR-0020 §Adapter projections; docs/interfaces/mcp-tool-surface.md §Long-running work):
+// (ADR-0020 §Adapter projections; docs/interfaces/mcp.md §Long-running work):
 // the bounded wait, the operation view as structured content, operation_wait capped at the budget
 // and rendering a finished operation as the original tool would, errors without
 // structured content, and notifications/cancelled on operation_wait abandoning only

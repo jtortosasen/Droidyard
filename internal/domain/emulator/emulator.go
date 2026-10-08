@@ -28,7 +28,7 @@ const (
 )
 
 // Timeouts are constants: emulator.md §Timeouts calls the boot timeout configurable but
-// no configuration key exists (capability-api.md §Open questions), so none of them is
+// no configuration key exists (known-limits.md, configuration version 1 deferrals), so none of them is
 // (plan m1i, D14). Variables so a test injects a scale.
 var (
 	// listTimeout bounds `emulator -list-avds`.
@@ -42,7 +42,7 @@ var (
 	// an adoption's wait for the same readiness (emulator.md §Timeouts; plan m1i, D15).
 	bootTimeout = 180 * time.Second
 	// bootPollInterval is how often the device listing and `sys.boot_completed` are read
-	// while a boot waits (emulator.md §Boot sequence 5).
+	// while a boot waits (emulator.md §Boot sequence 3).
 	bootPollInterval = time.Second
 	// serialTimeout bounds the time from spawn to a serial this daemon resolves as the
 	// launch's own (ADR-0033 ¶3; plan m1m, Q1 ¶3): step 1 saw the slowest listing at 2.6 s,

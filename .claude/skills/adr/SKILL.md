@@ -1,18 +1,17 @@
 ---
 name: adr
-description: Use when a Droidyard design decision must be recorded or changed. That happens when a plan hits a question the documents do not decide, when implementation forces a deviation from an accepted ADR, or when new evidence challenges one. Covers when to write a new ADR and when to amend, the format and `Amended:` line, and how to write Alternatives considered so they are worth reading.
+description: Use when a Droidyard design decision must be recorded or changed. That happens when a plan hits a question the documents do not decide, when implementation forces a deviation from an accepted ADR, or when new evidence challenges one. Covers when to write a new ADR and when to supersede, the format and `Supersedes:` lines, and how to write Alternatives considered so they are worth reading.
 ---
 
-# Writing or amending an ADR
+# Writing or superseding an ADR
 
-The format is in `docs/adr/README.md` §Format. Read two ADRs before you write one: ADR-0020, which has dense Alternatives and a precise `Amended:` line, and ADR-0017, which corrects its own rationale after new evidence without hiding the original.
+The format is in `docs/adr/README.md` §Format. Read two ADRs before you write one: ADR-0020, which has dense Alternatives, and ADR-0017, whose `Amended:` lines show what a superseding ADR now records instead (they are historical: no ADR gets a new one).
 
 ## When
 
 - **Write an ADR** for a decision that could reasonably have gone another way and that code or other documents will depend on: a new capability or error-code prefix, a new third-party dependency that shapes a contract, a file format or path, a default a consumer observes. A private implementation detail that is cheap to change is not an ADR.
-- **Amend** when the decision stands but its details, scope or evidence change. Add an `Amended:` line in the header and edit the body.
-- **Supersede** when the decision itself is reversed. Write a new ADR with `Supersedes:`, set the old one to `Superseded by ADR-XXXX`, and keep the old file.
-- **Never rewrite silently.** Every substantive edit to an accepted ADR adds an `Amended:` line, one per pass (ADR-0017 has two).
+- **Supersede** when a decision changes, in whole or in part, including a change of details, scope or evidence. Write a new short ADR with `Supersedes: ADR-NNNN` (whole) or `Supersedes: ADR-NNNN §Section` (in part). The old file keeps its text and gains one header line (see Superseding one).
+- **Never edit an accepted ADR.** No new `Amended:` line and no rewritten body; the existing `Amended:` lines are history. The current rule lives in the code and the area document, which the new ADR's Consequences name.
 
 An agent writes `Status: Proposed`; only the owner accepts. A proposed ADR binds nothing, so no code is built on it until it is accepted.
 
@@ -24,11 +23,11 @@ An agent writes `Status: Proposed`; only the owner accepts. A proposed ADR binds
 4. **Consequences.** Include the costs, and list every document that must change to follow the decision. That list is a checklist for the same change, not a to-do for later.
 5. **Alternatives considered.** Each alternative is one someone would actually propose, including the one you expect to be asked about. For each, say what it is and the concrete way it fails ("breaks on ~60 s client timeouts, and a timeout cancels the build"). "More complex" is not a reason. Where it applies, add what would make the alternative win (ADR-0020 keeps MCP Tasks "when clients catch up"): that tells a future reader when to reopen the question and when not to.
 
-## Amending one
+## Superseding one
 
-- Header line: `- Amended: YYYY-MM-DD — <what changed, concretely>`, citing the evidence that forced it.
-- If the change reverses a claim someone may already have acted on, keep the old text visible with a dated correction, as ADR-0017 §Decision does. Otherwise edit in place.
-- Search `docs/` for every restatement of what changed, including the tables in `capability-api.md`, `mcp-tool-surface.md` and `roadmap/mvp.md`, and update them in the same change. A fix to one document that contradicts another is the failure the verifier finds most often.
+- New ADR: `Supersedes: ADR-NNNN` or `Supersedes: ADR-NNNN §Section`, with the evidence that forced the change and Alternatives considered, including why the old decision lost.
+- Old ADR, the only edit: whole supersession sets Status to `Superseded by ADR-XXXX` (the index's Status column shows it); partial supersession adds `- Superseded in part by: ADR-XXXX (§Section)` to the header. `internal/doccheck` checks the pointer both ways.
+- Update the code and the one area document that states the rule, in the same change. Do not hunt for duplicates of the rule: there should be none, and a duplicate that must stay is checked by `internal/doccheck`.
 
 ## From a plan
 

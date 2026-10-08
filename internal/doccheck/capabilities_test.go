@@ -10,26 +10,25 @@ import (
 	"testing"
 )
 
-// The places a capability name is written by hand. The registry is the source of
-// truth for what exists (ADR-0016), and schema/capabilities.json is its published
-// form: the golden-file test in internal/schema holds it to the registry that test
-// builds, and cmd/droidyard's test holds it to the registry the binary ships. The
-// roadmap table is the source of truth for what the MVP contains, and the other
-// documents restate the table.
+// The places a capability name is still written by hand. The registry is the source of
+// truth for what exists (ADR-0016), and schema/capabilities.json is its published form:
+// the golden-file test in internal/schema holds it to the registry that test builds, and
+// cmd/droidyard's test holds it to the registry the binary ships. The roadmap table is
+// the source of truth for what the MVP contains; the rest of mvp.md and the not-exposed
+// list of the MCP interface document restate names, and are checked against them. The
+// capability list, the classification table and the tool table are not documents any more:
+// the descriptors and the schema say all of it.
 const (
 	mvpPath    = "docs/roadmap/mvp.md"
-	apiPath    = "docs/architecture/capability-api.md"
-	mcpPath    = "docs/interfaces/mcp-tool-surface.md"
+	mcpPath    = "docs/interfaces/mcp.md"
 	schemaPath = "schema/capabilities.json"
 )
 
 // capabilityName is the registry's name rule (capability-api.md §Naming and
-// namespaces); toolName is its MCP spelling, one underscore in place of the dot.
+// namespaces).
 var (
 	capabilityName = regexp.MustCompile(`^[a-z]+\.[a-z][A-Za-z0-9]*$`)
-	toolName       = regexp.MustCompile(`^[a-z]+_[a-z][A-Za-z0-9]*$`)
 	verbName       = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
-	nameInText     = regexp.MustCompile(`\b[a-z]+\.[a-z][A-Za-z0-9]*\b`)
 )
 
 func publishedNames(fsys fs.FS) ([]string, error) {
@@ -228,135 +227,23 @@ func checkCapabilityNames(fsys fs.FS, published []string) []string {
 		}
 	}
 
-	// capability-api.md: the name list, the classification table and the domains.
-	api, err := readDoc(fsys, apiPath)
-	if err != nil {
-		return append(problems, err.Error())
-	}
-	postMVP := map[string]bool{}
-	if from, to, ok := findSection(api, "Naming and namespaces", &problems); ok {
-		listed := map[string]bool{}
-		fenced := false
-		for i := from; i < to; i++ {
-			if !api.inFence[i] {
-				continue
-			}
-			fenced = true
-			for _, n := range nameInText.FindAllString(api.lines[i], -1) {
-				if strings.Contains(api.lines[i], "post-MVP") {
-					postMVP[n] = true
-				} else {
-					listed[n] = true
-				}
-			}
-		}
-		if !fenced {
-			add("%s §Naming and namespaces: no fenced name list. The capability-name check reads it; if it moved, update internal/doccheck/capabilities_test.go", apiPath)
-		}
-		for _, n := range only(surface, listed) {
-			add("%s §Naming and namespaces: `%s` is in %s §MVP capability surface but not in the name list. Add it to the list, or remove it from the table", apiPath, n, mvpPath)
-		}
-		for _, n := range only(listed, surface) {
-			add("%s §Naming and namespaces: `%s` is in the name list but not in %s §MVP capability surface. Add it to the table, or mark its line (post-MVP), or remove it", apiPath, n, mvpPath)
-		}
-		for n := range postMVP {
-			if surface[n] {
-				add("%s §Naming and namespaces: `%s` is on a (post-MVP) line but is in %s §MVP capability surface. Change one of them", apiPath, n, mvpPath)
-			}
-		}
-	}
-	if from, to, ok := findSection(api, "Classification of the MVP surface", &problems); ok {
-		rows, lines := api.table(from, to)
-		classified := map[string]bool{}
-		for i, row := range rows {
-			for _, c := range codeSpans(row[0]) {
-				if !capabilityName.MatchString(c) {
-					continue
-				}
-				if classified[c] {
-					add("%s:%d: `%s` is classified twice in §Classification of the MVP surface. Keep one row", apiPath, lineNo(lines[i]), c)
-				}
-				classified[c] = true
-			}
-		}
-		for _, n := range only(surface, classified) {
-			add("%s §Classification of the MVP surface: `%s` is in %s §MVP capability surface but has no classification row. Add one", apiPath, n, mvpPath)
-		}
-		for _, n := range only(classified, surface) {
-			add("%s §Classification of the MVP surface: `%s` is classified but is not in %s §MVP capability surface. Add it to the table, or remove the row", apiPath, n, mvpPath)
-		}
-	}
-	if from, to, ok := findSection(api, "Initial domains", &problems); ok {
-		rows, lines := api.table(from, to)
-		listed := map[string]bool{}
-		for i, row := range rows {
-			spans := codeSpans(row[0])
-			if len(spans) != 1 {
-				add("%s:%d: the Domain cell %q of §Initial domains must be one domain in backticks", apiPath, lineNo(lines[i]), row[0])
-				continue
-			}
-			listed[spans[0]] = true
-		}
-		want := domains(surface)
-		for dm := range domains(postMVP) {
-			want[dm] = true
-		}
-		for _, dm := range only(want, listed) {
-			add("%s §Initial domains: domain `%s` has names in §Naming and namespaces or in %s §MVP capability surface, but no row here. Add the row", apiPath, dm, mvpPath)
-		}
-		for _, dm := range only(listed, want) {
-			add("%s §Initial domains: domain `%s` has a row here but no names in §Naming and namespaces or in %s §MVP capability surface. Remove the row, or add its names", apiPath, dm, mvpPath)
-		}
-	}
-
-	// mcp-tool-surface.md: every MVP capability is a tool, except the listed ones.
+	// mcp.md: every capability it lists as not exposed is a published capability, so a
+	// renamed or removed one cannot leave a stale exclusion behind.
 	mcp, err := readDoc(fsys, mcpPath)
 	if err != nil {
 		return append(problems, err.Error())
 	}
-	notExposed := map[string]bool{}
 	if from, to, ok := findSection(mcp, "What is exposed, and what is not", &problems); ok {
 		rows, lines := mcp.table(from, to)
+		if len(rows) == 0 {
+			add("%s §What is exposed, and what is not: no table of the capabilities that are not exposed. The capability-name check reads it", mcpPath)
+		}
 		for i, row := range rows {
 			for _, c := range codeSpans(row[0]) {
-				if !capabilityName.MatchString(c) {
-					continue
-				}
-				notExposed[c] = true
-				if !surface[c] {
-					add("%s:%d: `%s` is listed as not exposed but is not in %s §MVP capability surface. Correct the name, or add it to the table", mcpPath, lineNo(lines[i]), c, mvpPath)
+				if capabilityName.MatchString(c) && !pub[c] {
+					add("%s:%d: `%s` is listed as not exposed but is not published in %s. Correct the name, or remove the row", mcpPath, lineNo(lines[i]), c, schemaPath)
 				}
 			}
-		}
-	}
-	if from, to, ok := findSection(mcp, "The MVP tool surface", &problems); ok {
-		rows, lines := mcp.table(from, to)
-		tools := map[string]bool{}
-		for i, row := range rows {
-			spans := codeSpans(row[0])
-			if len(spans) != 1 || !toolName.MatchString(spans[0]) {
-				add("%s:%d: the Tool cell %q must be one MCP tool name in backticks, such as `device_list`", mcpPath, lineNo(lines[i]), row[0])
-				continue
-			}
-			n := strings.Replace(spans[0], "_", ".", 1)
-			if tools[n] {
-				add("%s:%d: `%s` has two rows in §The MVP tool surface. Keep one", mcpPath, lineNo(lines[i]), spans[0])
-			}
-			tools[n] = true
-			if notExposed[n] {
-				add("%s:%d: `%s` has a row in §The MVP tool surface but §What is exposed, and what is not says `%s` is not exposed. Change one of them", mcpPath, lineNo(lines[i]), spans[0], n)
-			}
-		}
-		for _, n := range only(surface, tools) {
-			if notExposed[n] {
-				continue
-			}
-			add("%s §The MVP tool surface: `%s` is in %s §MVP capability surface but has no tool row `%s`. Add the row, or list it under §What is exposed, and what is not with the reason",
-				mcpPath, n, mvpPath, strings.Replace(n, ".", "_", 1))
-		}
-		for _, n := range only(tools, surface) {
-			add("%s §The MVP tool surface: tool `%s` maps to `%s`, which is not in %s §MVP capability surface. Add it to the table, or remove the row",
-				mcpPath, strings.Replace(n, ".", "_", 1), n, mvpPath)
 		}
 	}
 	return problems

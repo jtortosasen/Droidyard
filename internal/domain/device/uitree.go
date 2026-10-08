@@ -15,7 +15,7 @@ import (
 )
 
 // The pure half of device.uiTree: a `uiautomator dump` XML in, the Snapshot of
-// ui-automation.md §The tree out, in the flat shape milestone 1e Q1 settles. No adb,
+// ui-automation.md §The tree (output), in the flat shape milestone 1e Q1 settles. No adb,
 // no capability registration; the handler (step 6) supplies the bytes and the id.
 
 // DefaultUITreeBytes is the byte cap on the encoded snapshot (plan m1e, step 6).

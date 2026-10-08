@@ -7,12 +7,12 @@ the agent loop belongs to the external assistant.
 
 ## Read these first, in this order
 
-1. **`docs/README.md`** — the documentation map, the status of every document, and
-   §Where the work stands. Start here.
+1. **`docs/README.md`** — the documentation map and §Where the work stands. Start here.
 2. **`docs/roadmap/mvp.md`** — what the first version is, its phases, its definition of
    done, its metric, and what is explicitly out of scope.
-3. **`docs/architecture/capability-api.md`** — the contract everything else hangs off.
-4. **`docs/adr/README.md`** — 35 decisions, all accepted. **Before proposing a change
+3. **`docs/architecture/capability-api.md`** — why the capability contract is shaped as it is
+   (the contract itself is the code and `schema/capabilities.json`).
+4. **`docs/adr/README.md`** — the decisions, all accepted. **Before proposing a change
    to something an ADR covers, read that ADR: it records what was rejected and why.**
    A rejected option with a recorded reason is not an invitation to re-propose it.
 5. **`docs/reviews/2026-09-29-pre-implementation-review.md`** and
@@ -61,8 +61,19 @@ skill says who does what.
 
 - **Documents and commit messages are in English.**
 - **Decisions go to ADRs.** One file per decision, numbered, with Context / Decision /
-  Consequences / Alternatives considered. Never bury a decision in prose. Never
-  silently rewrite an accepted ADR — add an `Amended:` line saying what changed.
+  Consequences / Alternatives considered. Never bury a decision in prose. An accepted
+  ADR is not edited again, and gets no new `Amended:` line (the existing ones are
+  history). A changed decision is a new short ADR with `Supersedes: ADR-NNNN` (whole)
+  or `Supersedes: ADR-NNNN §Section` (in part); the old file keeps its text and gains
+  one header line, `Superseded by ADR-XXXX` in Status or `- Superseded in part by:
+  ADR-XXXX (§Section)`. The current rule is then in the code and the area document.
+- **Records are frozen.** A plan with Status `Done`, every file in `docs/research/` and
+  `docs/reviews/`, and every ADR cite documents as they were. They are not edited or
+  reconciled at a close, and a dead `§` reference or `#fragment` in them is not a
+  defect; only a link path whose target a merge removed is repointed.
+- **Branch per milestone.** The main session creates `m<id>` from `main` at approval;
+  steps are committed there through the pre-commit hook; the close merges it with
+  `git merge --no-ff` and deletes the branch. The implementer never switches or merges.
 - **Verify what can be verified.** The house rule, learned the hard way: a claim that
   can be checked should be checked, and an assumption must be *labelled* as an
   assumption. `docs/research/spike-s1-error-formats.md` is the worked example — it
@@ -72,6 +83,19 @@ skill says who does what.
   says what the code cannot: why, what was rejected, what is open. One fact lives in one
   place and everything else links to it. A duplicate that must stay is generated or
   checked by `internal/doccheck`, never kept in step by hand.
+- **Where each fact lives.**
+  - The contract (parameters, fields, error codes and their meanings, versions, names):
+    code, descriptors, `schema/capabilities.json` and tests only.
+  - The current design of an area: its code and package doc comment, plus one document
+    per area for what code cannot say (why, how the pieces fit, what was rejected).
+  - Decision history: ADRs.
+  - Status: the plan and its row in `docs/plans/README.md`, plus one line in
+    `docs/README.md` §Where the work stands. The auto-memory holds a pointer, not status.
+  - Open items: `docs/roadmap/known-limits.md` only.
+  - Process: this file and the skills.
+- **Language and diagrams.** Documents and code are in English; the Spanish brainstorm
+  `android-agent-suite-boceto.md` is provenance only and superseded. Diagrams are ASCII
+  in fenced `text` blocks. One concern per file.
 - **Density over volume.** A tight document beats a thorough one. The corpus is already
   large; do not add to it without a reason.
 - **Do not overstate.** If the second spike has not run, the document says so.

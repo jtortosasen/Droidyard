@@ -126,7 +126,7 @@ func (e *Emulator) runningSerialOf(ctx context.Context, avd string) (string, err
 var errNoSerial = errors.New("no emulator serial appeared")
 
 // awaitSerial polls the device listing until a serial that was not there before the
-// spawn reports the requested AVD through `emu avd name` (emulator.md §Boot sequence 4),
+// spawn reports the requested AVD through `emu avd name` (emulator.md §Boot sequence 2),
 // the launcher exits, or the deadline passes. Reading the launch table on every poll is
 // what turns a launcher that died during a boot into EMULATOR_LAUNCH_FAILED at once
 // (plan m1i, D12, D15) instead of a boot timeout 180 s later. The deadline is the serial
@@ -177,7 +177,7 @@ func (e *Emulator) serialAppeared(ctx context.Context, avd string, before map[st
 }
 
 // awaitReady polls `sys.boot_completed` every bootPollInterval until it is 1
-// (emulator.md §Boot sequence 5), the launcher exits, the serial leaves, or the deadline
+// (emulator.md §Boot sequence 3), the launcher exits, the serial leaves, or the deadline
 // passes. It serves a fresh boot (l is our launcher) and an adoption (l is nil) alike:
 // both wait for readiness within the same bound (plan m1i, D15).
 func (e *Emulator) awaitReady(ctx context.Context, serial string, deadline time.Time, l *launch) error {

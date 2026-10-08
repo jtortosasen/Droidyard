@@ -201,7 +201,7 @@ func TestPluginVersionsUnknownWhenTheProbeFailedAndPersisted(t *testing.T) {
 	}
 }
 
-// Decision (plan m1h D10, A4; gradle.md §Version detection item 4): expectedSources is
+// Decision (plan m1h D10, A4; gradle.md §Version detection, item 4): expectedSources is
 // a pure function of the connection's problemLocations capability and the KGP version —
 // Kotlin is structured only with problemLocations and KGP ≥ 2.4, an unknown KGP is
 // below, and the other four tools are console. Seen failing with KGP ignored.

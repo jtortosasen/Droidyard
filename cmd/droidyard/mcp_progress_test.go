@@ -180,7 +180,7 @@ func wantProgress(t *testing.T, what string, got []int, want ...int) {
 // TestMCPProgress: a call that carries a progressToken receives its operation's
 // progress as notifications/progress while it waits, strictly increasing, the last
 // report included, all before its answer and none after; without a token none; each
-// session only its own (ADR-0020 §Adapter projections; mcp-features.md §7; plan m1d,
+// session only its own (ADR-0020 §Adapter projections; mcp.md §Features beyond tools; plan m1d,
 // step 3). Re-executed shims on an in-process daemon; run -count=20 under -race.
 func TestMCPProgress(t *testing.T) {
 	t.Parallel()

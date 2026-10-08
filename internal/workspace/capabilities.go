@@ -80,7 +80,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Result:      CloseResult{},
 		// Destructive by the command default, kept on purpose: it stops in-flight
 		// work, possibly work the UI or another agent started
-		// (docs/interfaces/mcp-tool-surface.md §The MVP tool surface).
+		// (docs/interfaces/mcp.md §Annotations).
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			// Not cancellable once begun (ADR-0027): ctx is not consulted.
 			return CloseResult{}, ws.Close(call.Workspace)

@@ -109,7 +109,7 @@ func (r *Registry) All() []Descriptor {
 // ResolvedAnnotations are the four hints an MCP client receives. Read-only and
 // idempotent are derived and cannot be overridden; destructive defaults to true for
 // commands, because MCP's own default for an unannotated tool is more permissive
-// than ours (docs/interfaces/mcp-tool-surface.md §Annotations).
+// than ours (docs/interfaces/mcp.md §Annotations).
 type ResolvedAnnotations struct {
 	ReadOnly    bool
 	Destructive bool

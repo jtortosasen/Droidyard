@@ -16,7 +16,7 @@ import (
 // observed after, or null with a reason when none is.
 
 // ErrLaunchFailed is monkey's "No activities found" or a non-zero exit
-// (adb-device.md §Failure modes; plan m1f, R7).
+// (plan m1f, R7).
 const ErrLaunchFailed capability.ErrorCode = "DEVICE_LAUNCH_FAILED"
 
 // The launch's bounds (plan m1f step 8): the device clock gets 3 s, the launch command
@@ -90,7 +90,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		},
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
-			Reason:      "its effect belongs to the app, and the policy keeps agents on emulators by default (mcp-tool-surface.md §Annotations)",
+			Reason:      "its effect belongs to the app, and the policy keeps agents on emulators by default (mcp.md §Annotations)",
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LaunchParams)

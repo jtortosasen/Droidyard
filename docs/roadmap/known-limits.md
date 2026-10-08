@@ -1,8 +1,10 @@
 # Known limits
 
 One register of what is open: limits the code has on purpose, claims not yet verified,
-work deferred, and questions the documents leave open. Each row cites the document that
-records it; that document stays authoritative, and the row is its index entry. Seeded at
+work deferred, and questions the documents leave open. This register is the only home of open
+items: documents do not keep their own open-question or to-verify sections. `Source` is
+provenance: the ADR, plan or research note that raised the item, or the area document
+when nothing else did. Seeded at
 milestone 1n's close from every plan's §Unverified, §Not in this milestone and in-part
 acceptance items, the ADRs' consequences, the documents' open questions and
 [`mvp.md`](mvp.md) §Out of scope; items closed before 1n are not listed. **Each
@@ -13,10 +15,6 @@ close an item.
 
 | Item | Kind | Area | Source | Recorded | Closed by |
 | --- | --- | --- | --- | --- | --- |
-| After the keyboard guard's BACK, a failed re-read, re-resolve or still-covered check returns an error saying nothing was changed, though a BACK was sent (and navigates back if the keyboard had already closed) | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
-| A system dialog that appears between an action's before read and its tap takes the tap (it could be "Close app"); the reader's `tap` does not check the active window | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
-| An app whose process name differs from its package reads as gone to `pidof <package>`: one busy read then ends the polling early (no false `appCrash`: the crash reads are bounded at the action) | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
-| The reader digest after step 5 (`965cd045…`) did not rerun gates G1 and G5 (launch and the serve loop are unchanged; G2, G3 were exercised in steps 7 and 9) | unverified | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | On KGP < 2.4 (today's typical project) Kotlin errors come only from the console extractor, whose formats are version-sensitive | limit | build | [ADR-0022 §Consequences](../adr/0022-build-error-extraction.md#consequences) | design | |
 | `build.errors` fields depend on the producer: KSP gives no column, AAPT2 a merged-resource path instead of the source file | limit | build | [ADR-0022 §Known open item: AAPT2 paths are not source paths](../adr/0022-build-error-extraction.md#known-open-item-aapt2-paths-are-not-source-paths) | design | |
 | The model cache's size-and-mtime fingerprint misses `~/.gradle/init.d` scripts, environment variables and remote plugin versions | limit | build | [m1g §Unverified](../plans/m1g-gradle-sidecar-and-build.md#unverified) | 1g | |
@@ -28,15 +26,16 @@ close an item.
 | Gradle below the floor, a missing wrapper (its ~150 MB download) and a call-time `UnsupportedMethodException` proven against a fake sidecar only | unverified | build | [m1g §Unverified](../plans/m1g-gradle-sidecar-and-build.md#unverified) | 1g | |
 | Sidecar memory (spike S4) and Gradle daemon reuse with the terminal and Android Studio (spike S5) not measured | unverified | build | [m1g §Unverified](../plans/m1g-gradle-sidecar-and-build.md#unverified) | 1g | |
 | Telling a probe failure from the project's own by the failure chain rests on two broken-script cases | unverified | build | [m1h §Unverified](../plans/m1h-android-probe-and-sdk.md#unverified) | 1h | |
+| Problem summaries (`event.build.problemSummary`, from the sidecar's protocol sketch) designed, not built: post-MVP | deferred | build | [m1g §Not in this milestone](../plans/m1g-gradle-sidecar-and-build.md#not-in-this-milestone) | 1g | |
 | `build.errors` on a KGP ≥ 2.4 fixture (Problems API records): the Definition of done item is open | deferred | build | [mvp §Definition of done](mvp.md#definition-of-done) | 1g | |
 | The CI version matrix (KGP and AGP axes, the probe canary on AGP floor and latest, pinned-version fixtures): no CI exists, results say `validation: untested` | deferred | build | [ADR-0018 §Consequences](../adr/0018-gradle-version-support-policy.md#consequences) | design | |
 | Extractor forms not recorded: kapt, older Kotlin, AGP SDK signatures other than the missing platform (`category: sdk.missing`) | deferred | build | [m1h §Not in this milestone](../plans/m1h-android-probe-and-sdk.md#not-in-this-milestone) | 1g | |
 | `build.test`, test events and instrumented tests (the reader's `UiAutomation` needs the test-run integration ADR-0030 defers) | deferred | build | [m1g §Not in this milestone](../plans/m1g-gradle-sidecar-and-build.md#not-in-this-milestone) | 1g | |
-| `BUILD_QUEUE_FULL` for a second concurrent client on one root | deferred | build | [m1g §Not in this milestone](../plans/m1g-gradle-sidecar-and-build.md#not-in-this-milestone) | 1g | |
+| `BUILD_QUEUE_FULL` for a second concurrent client on one root (design: a build queue deeper than 4 per root is rejected with it) | deferred | build | [m1g §Not in this milestone](../plans/m1g-gradle-sidecar-and-build.md#not-in-this-milestone) | 1g | |
 | Split APKs, App Bundles, dynamic features and instant apps: one unfiltered APK per variant | deferred | build | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
 | Probe fields without a consumer yet: `namespace`, `minSdk`, module type, `kotlinBuiltIn` | deferred | build | [m1h §Not in this milestone](../plans/m1h-android-probe-and-sdk.md#not-in-this-milestone) | 1h | |
-| A raw "arbitrary Gradle arguments" escape hatch (`build.run` `args`) | open question | build | [gradle.md §Open questions](../subsystems/gradle.md#open-questions) | design | |
-| Included (composite) builds in `project.model`; whether the probe survives Isolated Projects | open question | build | [gradle.md §Open questions](../subsystems/gradle.md#open-questions) | design | |
+| A raw "arbitrary Gradle arguments" escape hatch (`build.run` `args`) | open question | build | [gradle.md](../subsystems/gradle.md) | design | |
+| Included (composite) builds in `project.model`; whether the probe survives Isolated Projects | open question | build | [gradle.md](../subsystems/gradle.md) | design | |
 | CLI progress on stderr and `--follow`: a CLI call cannot subscribe to events | deferred | CLI | [m1d §Not in this milestone](../plans/m1d-http-websocket-and-events.md#not-in-this-milestone) | 1d | |
 | CLI `--device` and `ANDROID_SERIAL` for device calls | deferred | CLI | [m1i §Not in this milestone](../plans/m1i-device-logs-and-emulator.md#not-in-this-milestone) | 1e | |
 | Kotlin LSP and all code intelligence (`code.*`: definition, references, symbols, diagnostics) | deferred | code | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
@@ -50,7 +49,7 @@ close an item.
 | Waiting on the configuration's `flock` ignores the call's cancel | limit | configuration | [m1k §Changes](../plans/m1k-policy-and-shell.md#changes) | 1k | |
 | The adb, emulator and JVM resolutions' "Tried:" texts did not name each candidate's key and file | limit | configuration | [m1k §Acceptance](../plans/m1k-policy-and-shell.md#acceptance) (A2, N4) | 1k | 1n |
 | Size and mtime are taken to see every hand edit of the configuration; not tested on coarse-mtime file systems | unverified | configuration | [m1k §Unverified](../plans/m1k-policy-and-shell.md#unverified) | 1k | |
-| Configuration version 1 deferrals: HTTP port and bind address, environment source, timeouts (boot, stop, listing, workspace close), idle periods, build retention, `system.health`'s SDK block, an `sdk.root` key, a key to turn the probe off | deferred | configuration | [capability-api.md §Open questions](../architecture/capability-api.md#open-questions) | 1k | |
+| Configuration version 1 deferrals: HTTP port and bind address, environment source, timeouts (boot, stop, listing, workspace close), idle periods, build retention, `system.health`'s SDK block, an `sdk.root` key, a key to turn the probe off | deferred | configuration | [ADR-0032](../adr/0032-configuration-file-v1.md) | 1k | |
 | `shell.exec` stdin, streamed output, a concurrency cap | deferred | configuration | [m1k §Not in this milestone](../plans/m1k-policy-and-shell.md#not-in-this-milestone) | 1k | |
 | A `droidyard policy` subcommand; `droidyard trust` built on `policy.update`; array-merge semantics for policy lists | deferred | configuration | [m1p §Not in this milestone](../plans/m1p-functional-gaps.md#not-in-this-milestone) | 1k | |
 | Devices sharing a serial (`0123456789ABCDEF`) are admitted or refused together | limit | device | [m1k §Changes](../plans/m1k-policy-and-shell.md#changes) | 1k | |
@@ -62,12 +61,15 @@ close an item.
 | No full physical-device pass (reads, actions, install, logs on a phone); synthetic `offline`/`unauthorized` lines only | unverified | device | [m1k §Unverified](../plans/m1k-policy-and-shell.md#unverified) | 1e | |
 | `device.logs` on API 36.1: the uid column read as prose on `Pixel_9a`, not recorded | unverified | device | [m1i §Acceptance](../plans/m1i-device-logs-and-emulator.md#acceptance) (A1) | 1i | 1p (step 4, level 5) |
 | `device.logs` on API 36.1: `-T` (a `since`) and a follow not run on `Pixel_9a`. A line with no `: ` after its tag but a `: ` in its message is split at that one (tag `Tag[x]:Found`, message `3` for `Tag[x]:Found: 3`); uid filtering is unaffected | unverified | device | [m1p §Steps](../plans/m1p-functional-gaps.md#steps) (step 4) | 1p | |
-| Below API 31 not run: `logcat --uid`, the `Start proc` pid-history path (level 3 only), the native crash header, `pidof` below API 24 | unverified | device | [adb-device.md §To verify](../subsystems/adb-device.md#to-verify-spike-s9-plus-adb) | 1i | |
+| Below API 31 not run: `logcat --uid`, the `Start proc` pid-history path (level 3 only), the native crash header, `pidof` below API 24 | unverified | device | [adb-device.md](../subsystems/adb-device.md) | 1i | |
 | A follow beyond 60 s, or one that ends on a crash | deferred | device | [m1i §Not in this milestone](../plans/m1i-device-logs-and-emulator.md#not-in-this-milestone) | 1i | |
 | `device.backtrace`, `device.forceStop`, `device.processes` | deferred | device | [m1i §Not in this milestone](../plans/m1i-device-logs-and-emulator.md#not-in-this-milestone) | 1i | |
 | Wireless adb pairing | deferred | device | [m1k §Not in this milestone](../plans/m1k-policy-and-shell.md#not-in-this-milestone) | 1e | |
 | Multi-device concurrency: one device at a time, always named | deferred | device | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
-| A process per adb call: pooling short invocations, `track-devices` instead of `adb devices -l` per call (cut by 1n) | open question | device | [adb-device.md §Open questions](../subsystems/adb-device.md#open-questions) | design | |
+| A process per adb call: pooling short invocations, `track-devices` instead of `adb devices -l` per call (cut by 1n); how much more device state to cache and how to invalidate it | open question | device | [adb-device.md](../subsystems/adb-device.md) | design | |
+| After the keyboard guard's BACK, a failed re-read, re-resolve or still-covered check returns an error saying nothing was changed, though a BACK was sent (and navigates back if the keyboard had already closed) | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
+| A system dialog that appears between an action's before read and its tap takes the tap (it could be "Close app"); the reader's `tap` does not check the active window | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
+| An app whose process name differs from its package reads as gone to `pidof <package>`: one busy read then ends the polling early (no false `appCrash`: the crash reads are bounded at the action) | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | One `UiAutomation` per device: a user's instrumented test or another tool holding it conflicts with the reader, and the shell's `uiautomator dump` cannot run while the reader holds it | limit | device/UI | [ADR-0029 §Consequences](../adr/0029-ui-reader-dex.md#consequences) | 1e | |
 | The reader runs a hidden API (`UiAutomation`'s connection constructor) by reflection; an Android release can break it (the fallback warns) | limit | device/UI | [ADR-0029 §Consequences](../adr/0029-ui-reader-dex.md#consequences) | 1e | |
 | `set_text` is not typing: filters and watchers see the whole value once, no IME behaviour runs, per-key fields (OTP boxes) may truncate; `method: "keys"` types instead | limit | device/UI | [ADR-0035 §Decision](../adr/0035-reader-acts-fenced-by-peer-uid.md#decision) | 1n | |
@@ -83,6 +85,7 @@ close an item.
 | An ANR dialog over the app was not reported by `device.*` | limit | device/UI | [ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) | 1m | 1n |
 | `inputText` refused non-ASCII text unless ADBKeyboard was installed | limit | device/UI | [ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md) | 1f | 1n |
 | A fixed 300 ms settle after every tap, and a `getprop` on every targeted device call (`device.list` still reads each device's properties) | limit | device/UI | [m1n step 7](../plans/m1n-daily-use-core.md#7-the-cheap-speed-items) | 1f | 1n |
+| The reader digest after step 5 (`965cd045…`) did not rerun gates G1 and G5 (launch and the serve loop are unchanged; G2, G3 were exercised in steps 7 and 9) | unverified | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | Every API 36.1 device fact of 1n (crash window, dialog ids, `exit-info`, typing cost, peer uid, SELinux on an app's connect, `ACTION_SET_TEXT`): the 36.1 `ps16k` image cannot cold-boot without `hvf` on this host | unverified | device/UI | [m1n §Unverified](../plans/m1n-daily-use-core.md#unverified) | 1n | |
 | The keyboard guard's re-read after BACK does not wait for the keyboard to hide (an `adjustPan` race) | unverified | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | Qustodio (gate G4) undisturbed by a reader that acts: level 3 only (connect flags unchanged), not rerun | unverified | device/UI | [m1n §Unverified](../plans/m1n-daily-use-core.md#unverified) | 1n | |
@@ -90,10 +93,10 @@ close an item.
 | A forward lost to an adb server restart is recreated: level 4 only | unverified | device/UI | [m1f §Acceptance](../plans/m1f-device-actions.md#acceptance) (A2) | 1f | 1p (step 3, level 5) |
 | `DEVICE_ELEMENT_OFFSCREEN` on a real tree (synthetic trees only) | unverified | device/UI | [m1f §Unverified](../plans/m1f-device-actions.md#unverified) | 1f | |
 | Typing paths used only when the reader cannot run: `input text` under host load, ADBKeyboard (level 4), `input keycombination` below API 33 (level 3) | unverified | device/UI | [m1f §Acceptance](../plans/m1f-device-actions.md#acceptance) (A5) | 1f | |
-| Spike S6 not run: dump latency and idle failures on API 34–36 Compose, an infinite animation blocking idle, the timeouts and the 40 KB tree cap as working defaults | unverified | device/UI | [ui-automation.md §To verify](../subsystems/ui-automation.md#to-verify-spike-s6) | 1e | |
+| Spike S6 not run: dump latency and idle failures on API 34–36 Compose, an infinite animation blocking idle, whether `/dev/tty` works on all of them, that the dump's top-window package is `android` while a crash dialog shows (`foreground` relies on it), the timeouts and the 40 KB tree cap as working defaults | unverified | device/UI | [ui-automation.md](../subsystems/ui-automation.md) | 1e | |
 | A reader-side error poll (`getProcessesInErrorState`, a hidden API), if the adb crash reads prove late | deferred | device/UI | [m1n §Not in this milestone](../plans/m1n-daily-use-core.md#not-in-this-milestone) | 1n | |
 | OCR (the seam kept) | deferred | device/UI | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
-| Interactions in agent runs (taps 2.7–7.5 s in 1n's OpenCode run) are far slower than on a quiet emulator (0.15–0.46 s); attributed to app rendering on a just-booted emulator, not measured | open question | device/UI | [ui-automation.md §Open questions](../subsystems/ui-automation.md#open-questions) | 1m | |
+| Interactions in agent runs (taps 2.7–7.5 s in 1n's OpenCode run) are far slower than on a quiet emulator (0.15–0.46 s); attributed to app rendering on a just-booted emulator, not measured | open question | device/UI | [ui-automation.md](../subsystems/ui-automation.md) | 1m | |
 | A daemon that dies before a launch's serial resolves leaves the launch running, with no pid record | limit | emulator | [ADR-0033 §Consequences](../adr/0033-emulator-launch-owned-until-serial.md#consequences) | 1m | 1p (step 6: a pid record; ended when adb proves it is not a device) |
 | A pre-serial launch left by a killed daemon is still left running when reconcile doubts: a listed or probed console does not answer (a real hang whose console accepts connections without answering is not observed), a `host:port` serial is listed, the recorded port's server is down, slow or of another version | limit | emulator | [m1p §Changes](../plans/m1p-functional-gaps.md#changes) | 1p | |
 | A windowed emulator whose first dialog stays open over 45 s before its console opens loses that boot | limit | emulator | [ADR-0033 §Consequences](../adr/0033-emulator-launch-owned-until-serial.md#consequences) | 1m | |
@@ -101,12 +104,12 @@ close an item.
 | AVDs with one name in two homes are told apart by name only | limit | emulator | [m1i §Changes](../plans/m1i-device-logs-and-emulator.md#changes) | 1i | |
 | Ending a launch misses the qemu if a launcher forks it into a new group; a pid-reuse window before `end` (a `waitid(WNOWAIT)` reaper would close it) | limit | emulator | [m1m §Changes](../plans/m1m-emulator-robustness.md#changes) | 1m | |
 | The windowed-emulator hang (a qemu that never opened its console) was not reproduced; its cause is unknown | unverified | emulator | [m1m §Unverified](../plans/m1m-emulator-robustness.md#unverified) | 1m | |
-| Emulator facts rest on one version (36.6.11) and API 31 arm64: the exec into qemu, the second-instance text, the lock after `emu kill`; a wiped boot's ready time not measured; `stop` waiting for the launcher untested | unverified | emulator | [emulator.md §To verify](../subsystems/emulator.md#to-verify-spike-s8) | 1i | |
-| Where `ANDROID_EMULATOR_HOME` and `ANDROID_SDK_HOME` fall in the AVD search order | unverified | emulator | [emulator.md §To verify](../subsystems/emulator.md#to-verify-spike-s8) | design | |
+| Emulator facts rest on one version (36.6.11) and API 31 arm64: the exec into qemu, the second-instance text, the lock after `emu kill`; a wiped boot's ready time not measured; `stop` waiting for the launcher untested | unverified | emulator | [emulator.md](../subsystems/emulator.md) | 1i | |
+| Where `ANDROID_EMULATOR_HOME` and `ANDROID_SDK_HOME` fall in the AVD search order | unverified | emulator | [emulator.md](../subsystems/emulator.md) | design | |
 | `emulator.stop {avd}`, a foreign lock holder's pid, recognising an earlier daemon's launches | deferred | emulator | [m1m §Not in this milestone](../plans/m1m-emulator-robustness.md#not-in-this-milestone) | 1m | |
-| Default boot flags: `headless` by default, or `-crash-report-mode disabled` (a default that hides the window is the owner's call) | open question | emulator | [emulator.md §Open questions](../subsystems/emulator.md#open-questions) | 1m | |
-| Telling an emulator wedged after its serial resolved from a slow one; cheap readiness detection across API levels | open question | emulator | [emulator.md §Open questions](../subsystems/emulator.md#open-questions) | design | |
-| Reporting the emulator's own resource usage in `emulator.list` | open question | emulator | [emulator.md §Open questions](../subsystems/emulator.md#open-questions) | design | |
+| Default boot flags: `headless` by default, or `-crash-report-mode disabled` (a default that hides the window is the owner's call) | open question | emulator | [emulator.md](../subsystems/emulator.md) | 1m | |
+| Telling an emulator wedged after its serial resolved from a slow one; cheap readiness detection across API levels | open question | emulator | [emulator.md](../subsystems/emulator.md) | design | |
+| Reporting the emulator's own resource usage in `emulator.list` | open question | emulator | [emulator.md](../subsystems/emulator.md) | design | |
 | An absolute path spelled through an alias (`/var/…`) resolves intermediate links, so it reads an in-root file the root-relative spelling refuses (containment holds) | limit | files | [m1j §Changes](../plans/m1j-files.md#changes) | 1j | |
 | Watching the root itself never reports `pathGone` if the project directory is deleted; the watch polls until the workspace closes | limit | files | [m1j §Changes](../plans/m1j-files.md#changes) | 1j | |
 | A final file name over about 232 bytes fails `FILE_IO_FAILED` (the temporary name adds about 23) | limit | files | [m1j §Changes](../plans/m1j-files.md#changes) | 1j | |
@@ -114,28 +117,31 @@ close an item.
 | A crash between the temporary file and the rename leaves the temporary file; name preservation is not race-tolerant against another writer's rename | limit | files | [m1j §Unverified](../plans/m1j-files.md#unverified) | 1j | |
 | A close's forced cancel after the watch handler's last check leaves a subscription `stopped` until the session ends | limit | files | [m1j §Unverified](../plans/m1j-files.md#unverified) | 1j | |
 | The watch walk's cost on a nested tree (35 ms for 20 000 flat entries only); 512 KiB of source under 1 MiB after JSON escaping over HTTP | unverified | files | [m1j §Unverified](../plans/m1j-files.md#unverified) | 1j | |
-| Base64, recursive listing, globbing, search, a list cursor, delete, rename, mkdir, conditional writes, writes through symlinks | deferred | files | [files.md §Not here](../subsystems/files.md#not-here) | 1j | |
-| An OS notification watcher; a configurable interval, caps and exclusions; `since` and filters on `file.watch` | deferred | files | [files.md §Not here](../subsystems/files.md#not-here) | 1j | |
+| Base64, recursive listing, globbing, search, a list cursor, delete, rename, mkdir, conditional writes, writes through symlinks | deferred | files | [files.md](../subsystems/files.md) | 1j | |
+| An OS notification watcher; a configurable interval, caps and exclusions; `since` and filters on `file.watch` | deferred | files | [files.md](../subsystems/files.md) | 1j | |
 | Progress is lossy: `mcp-go` drops a notification when a session's 100-slot channel is full | limit | MCP/agents | [m1d §Unverified](../plans/m1d-http-websocket-and-events.md#unverified) | 1d | |
 | Cursor sends no `progressToken`, so it gets no progress notifications | limit | MCP/agents | [m1l §Changes](../plans/m1l-phase1-acceptance.md#changes) | 1l | |
 | Spike S2's remainder: Claude Code and Codex as clients, whether a timeout or interrupt sends `notifications/cancelled`, whether progress resets a client's timeout, a client older than `outputSchema` | unverified | MCP/agents | [m1l §Not in this milestone](../plans/m1l-phase1-acceptance.md#not-in-this-milestone) | 1b | |
 | Whether clients hide `_meta` from the model | unverified | MCP/agents | [m1e §Unverified](../plans/m1e-jvm-free-device-slice.md#unverified) | 1e | |
 | OpenCode keeps a stable tool list across a policy change within one process | unverified | MCP/agents | [m1k §Unverified](../plans/m1k-policy-and-shell.md#unverified) | 1k | |
+| Whether nested `oneOf`/`anyOf` in a tool's `inputSchema` is safe for the clients we target (spike S7, not run); top-level unions are already refused by a schema test | unverified | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
 | Skills, distribution and registries: binaries, an installer, `llms-install.md`, telemetry, `init` for Codex (one skill and `droidyard init` planned: 1o) | deferred | MCP/agents | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
 | A stop-time build check after edits (automatic builds after editing were rejected) | deferred | MCP/agents | [m1o §Not in this milestone](../plans/m1o-tokens-and-harness.md#not-in-this-milestone) | 1o | |
 | Dropping `outputSchema` from `tools/list`, `$ref` deduplication, `tools/list_changed`, tree diffs between reads | deferred | MCP/agents | [m1o §Not in this milestone](../plans/m1o-tokens-and-harness.md#not-in-this-milestone) | 1o | |
 | Level-5 runs of Claude Code and Codex hooks | deferred | MCP/agents | [m1o §Not in this milestone](../plans/m1o-tokens-and-harness.md#not-in-this-milestone) | 1o | |
 | MCP logging notifications, roots, resources and prompts | deferred | MCP/agents | [m1b §Not in this milestone](../plans/m1b-daemon-and-mcp-adapter.md#not-in-this-milestone) | 1b | |
-| A generated check of the annotation columns of `mcp-tool-surface.md`'s tool table | deferred | MCP/agents | [m1b §Not in this milestone](../plans/m1b-daemon-and-mcp-adapter.md#not-in-this-milestone) | 1b | |
-| Batching: several invocations in one round trip | deferred | MCP/agents | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
-| Elicitation: which clients support it and how they degrade; whether to adopt it by ADR | open question | MCP/agents | [mcp-features.md §Open questions](../interfaces/mcp-features.md#open-questions) | design | |
-| Whether prompts are worth shipping beside skills; when resources earn their surface | open question | MCP/agents | [mcp-features.md §Open questions](../interfaces/mcp-features.md#open-questions) | design | |
-| Whether provisioning (`sdk.install`, `emulator.create`) should be agent tools at all | open question | MCP/agents | [mcp-tool-surface.md §Open questions](../interfaces/mcp-tool-surface.md#open-questions) | design | |
-| A reduced tool surface for clients that struggle with long lists (planned: 1o, `--tools core`) | open question | MCP/agents | [mcp-tool-surface.md §Open questions](../interfaces/mcp-tool-surface.md#open-questions) | design | |
-| The image defaults (edge, format, size threshold) | open question | MCP/agents | [mcp-tool-surface.md §Open questions](../interfaces/mcp-tool-surface.md#open-questions) | design | |
-| Streamable-HTTP MCP on the listener, and its authentication (the bearer token or the MCP authorization flow) | open question | MCP/agents | [http-websocket.md §Open questions](../interfaces/http-websocket.md#open-questions) | design | |
+| A generated check of the annotation columns of the MCP tool table (the document that held it is gone) | deferred | MCP/agents | [m1b §Not in this milestone](../plans/m1b-daemon-and-mcp-adapter.md#not-in-this-milestone) | 1b | 1q |
+| Batching: several invocations in one round trip (deferred because it complicates annotations and error semantics) | deferred | MCP/agents | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
+| The envelope's `idempotencyKey` and `raw`: designed ([ADR-0020](../adr/0020-operation-contract.md) §Idempotency keys; `capability-api.md`) but not in `capability.RequestEnvelope` | deferred | MCP/agents | [m1q §Changes](../plans/m1q-one-source-of-truth.md#changes) | 1q | |
+| Elicitation: which clients support it and how they degrade; whether to adopt it by ADR | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
+| Whether prompts are worth shipping beside skills; when resources earn their surface | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
+| Whether provisioning (`sdk.install`, `emulator.create`) should be agent tools at all: it means licence acceptance and large downloads, and a human UI may be the right place for consent | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
+| A reduced tool surface for clients that struggle with long lists (planned: 1o, `--tools core`) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
+| The image defaults (edge, format, size threshold) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
+| Streamable-HTTP MCP on the listener, and its authentication (the bearer token or the MCP authorization flow) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
 | Linux not run: the `$XDG_RUNTIME_DIR` socket, `SO_PEERCRED`, `/proc` start times, `Pdeathsig`, `flock`, `os.Root`, `xdg-open`, emulator detach and headless boot; no Linux host or CI | unverified | platform | [m1c §Unverified](../plans/m1c-process-supervisor-and-workspace.md#unverified) | 1b | |
 | Windows | deferred | platform | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
+| A GitHub Actions workflow running build, vet, gofmt, `go test -race` and doccheck on every push is not set up; checks run locally through `.githooks/pre-commit` | deferred | platform | [m1q §Not in this milestone](../plans/m1q-one-source-of-truth.md#not-in-this-milestone) | 1q | |
 | On a trusted root an agent can run code as the user through the build (it edits build scripts with `file.write`), droidyard's configuration included | limit | policy/security | [ADR-0015](../adr/0015-untrusted-data-authorization.md) (second 2026-10-07 `Amended:` line) | 1k | |
 | A configured `tools.adb` bypasses a fence set through `ADB` (a guard script) | limit | policy/security | [adb-device.md §adb resolution and degradation](../subsystems/adb-device.md#adb-resolution-and-degradation) | 1k | |
 | Off USB a device reporting `product:sdk_gphone*` is classified an emulator and bypasses the physical-device policy | limit | policy/security | [m1k §Changes](../plans/m1k-policy-and-shell.md#changes) | 1k | |
@@ -157,16 +163,17 @@ close an item.
 | A forked adb server leaves the calling command's process group, so group kills spare it: observed once (adb 36.0.0) | unverified | process | [m1k §Unverified](../plans/m1k-policy-and-shell.md#unverified) | 1e | |
 | The `sun_path` fallback under other spellings of one root (a case-insensitive volume, a bind mount) | unverified | process | [m1b §Unverified](../plans/m1b-daemon-and-mcp-adapter.md#unverified) | 1b | |
 | `TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails` (`internal/process`) flaked once under load (2 s bound) | unverified | process | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
+| `internal/daemon` `lock_test.go:110` ("the reader read the lock only 3 times across 1000 rewrites: the test did not race") and `cmd/droidyard` `TestServeStartsThroughAProbe` ("lost the lock") flaked once each under a loaded full run, 2026-10-08 | unverified | process | [m1q §Changes](../plans/m1q-one-source-of-truth.md#changes) | 1q | |
 | Idle footprint per process (the core under 50 MB RSS, the Gradle sidecar stopped when idle): the Definition of done item is open | deferred | process | [mvp §Definition of done](mvp.md#definition-of-done) | 1b | |
 | `daemon.log` size rotation, launchd and systemd units, transparent shim reconnection | deferred | process | [m1b §Not in this milestone](../plans/m1b-daemon-and-mcp-adapter.md#not-in-this-milestone) | 1b | |
-| Idle-timeout defaults per sidecar, restart backoff and retry caps, whether the adb server is ever auto-stopped | open question | process | [process-lifecycle.md §Open questions](../architecture/process-lifecycle.md#open-questions) | design | |
-| Caching derived project state between restarts; multi-root workspaces | open question | process | [workspace-state.md §Open questions](../architecture/workspace-state.md#open-questions) | design | |
-| The four questions `core-runtime.md` keeps open (schema library, golden-file workflow, where the sidecar lives, package naming) are answered by the code since 1b–1g; the section is stale | open question | process | [core-runtime.md §Open questions](../architecture/core-runtime.md#open-questions--deliberately) | design | |
+| Idle-timeout defaults per sidecar, restart backoff and retry caps, whether the adb server is ever auto-stopped | open question | process | [process-lifecycle.md](../architecture/process-lifecycle.md) | design | |
+| Caching derived project state between restarts; multi-root workspaces | open question | process | [workspace-state.md](../architecture/workspace-state.md) | design | |
+| The four questions the core-runtime document kept open (schema library, golden-file workflow, where the sidecar lives, package naming) were answered by the code since 1b–1g; the section was stale | open question | process | [overview.md](../architecture/overview.md) | design | 1q (the document merged into overview.md; the questions are not carried over) |
 | Add-on compile targets (`Google Inc.:Google APIs:23`) are not matched; a package with only `source.properties` is not listed as installed | limit | SDK | [m1h §Changes](../plans/m1h-android-probe-and-sdk.md#changes) | 1h | |
-| `ANDROID_HOME` and `ANDROID_SDK_ROOT` disagreeing not run | unverified | SDK | [sdk.md §To verify](../subsystems/sdk.md#to-verify) | 1h | |
+| `ANDROID_HOME` and `ANDROID_SDK_ROOT` disagreeing not run | unverified | SDK | [sdk.md](../subsystems/sdk.md) | 1h | |
 | SDK provisioning and AVD creation: `sdk.packages`, `sdk.install`, `sdk.licenses`, `emulator.create`, `emulator.delete` | deferred | SDK | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
-| How an agent accepts SDK licences (elicitation, or an explicit capability call) | open question | SDK | [sdk.md §Open questions](../subsystems/sdk.md#open-questions) | design | |
-| `sdkmanager --list` surfaced verbatim or modelled, for `sdk.packages` | open question | SDK | [sdk.md §Open questions](../subsystems/sdk.md#open-questions) | design | |
+| How an agent accepts SDK licences (elicitation, or an explicit capability call) | open question | SDK | [sdk.md](../subsystems/sdk.md) | design | |
+| `sdkmanager --list` surfaced verbatim or modelled, for `sdk.packages` | open question | SDK | [sdk.md](../subsystems/sdk.md) | design | |
 | A browser that resolves `localhost` to `::1` first reaching the `127.0.0.1`-only listener | unverified | web UI | [m1d §Unverified](../plans/m1d-http-websocket-and-events.md#unverified) | 1d | |
 | The browser golden path (Phase 2): the Definition of done item is open | deferred | web UI | [mvp §Definition of done](mvp.md#definition-of-done) | 1l | |
 | Live screen streaming to the UI (stills only) | deferred | web UI | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |

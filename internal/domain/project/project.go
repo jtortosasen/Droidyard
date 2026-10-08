@@ -100,7 +100,7 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 		Kind:  capability.Query,
 		Scope: capability.Workspace,
 		// A cold call runs a configuration pass, so it may outlive an adapter's wait
-		// budget (capability-api.md §Core capabilities).
+		// budget (capability-api.md §Operations and cancellation).
 		LongRunning:  true,
 		Since:        "0.6.0",
 		Availability: []capability.Requirement{capability.RequiresGradle},

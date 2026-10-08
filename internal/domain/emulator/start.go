@@ -55,7 +55,7 @@ func registerStart(reg *capability.Registry, e *Emulator) {
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
-			Reason:      "it adopts a running AVD and joins a boot already in flight (capability-api.md §Classification of the MVP surface)",
+			Reason:      "it adopts a running AVD and joins a boot already in flight, so a repeat changes nothing",
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return e.start(ctx, call)
