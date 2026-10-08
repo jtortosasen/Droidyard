@@ -80,6 +80,10 @@ type FakeReader struct {
 	// acts is every acting request (tap, keys, settext) the reader received, in order,
 	// with its newline only: a test asserts the client's encoding (ADR-0035 §1).
 	acts []string
+	// actStarts is when the reader received each acting request, in order, so a test can
+	// measure the delay between an action and the read that follows it (D2: no fixed
+	// settle means the first read starts almost at once).
+	actStarts []time.Time
 	// actAnswers scripts the answer to forthcoming acting requests, in order, the last
 	// one repeating; see SetActAnswers.
 	actAnswers []string
@@ -187,6 +191,14 @@ func (r *FakeReader) Acts() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.acts...)
+}
+
+// ActStarts is when the reader received each acting request, in order, so a test can
+// measure the delay between an action and the read that follows it (D2).
+func (r *FakeReader) ActStarts() []time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]time.Time(nil), r.actStarts...)
 }
 
 // Quits, Pings and Dumps are the requests the reader answered.
@@ -304,6 +316,7 @@ func isActingRequest(request string) bool {
 func (r *FakeReader) handleAct(conn net.Conn, line string) {
 	r.mu.Lock()
 	r.acts = append(r.acts, strings.TrimRight(line, "\n"))
+	r.actStarts = append(r.actStarts, time.Now())
 	answer := readerPrefix + " done"
 	if len(r.actAnswers) > 0 {
 		i := r.actNext

@@ -156,17 +156,25 @@ contains) covers the MVP's cases, such as a counter reading "Likes: 1".
    display point ([ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md)) — and
    `input tap x y` in display pixels when it cannot, or when the reader denied the request
    before executing it. A tap the reader took but never answered is never repeated: the
-   call goes on to the settle and poll with a warning that the tap may have landed, since
+   call goes on to the read and poll with a warning that the tap may have landed, since
    a second tap could land twice.
-3. **Settle**: wait 300 ms, a constant (plan m1f D10).
-4. **Poll**: read again and again — each read starts at least 250 ms after the previous
-   one started; a warm read takes tens of milliseconds, a fallback read 1–2 s — until every condition holds or
-   `timeoutMs` elapses (default 5 s, maximum 20 s). The first read after the tap runs to
-   the call's running limit, not to `timeoutMs`, so a slow fallback read is still observed;
-   `timeoutMs` bounds the polls after it.
-5. **Return.** With no `expect`: one read after the settle, for `foreground` and the
+3. **Poll**: read right after the tap and again and again — each read starts at least
+   250 ms after the previous one started; a warm read takes tens of milliseconds, a
+   fallback read 1–2 s — until every condition holds or `timeoutMs` elapses (default 5 s,
+   maximum 20 s). The first read after the tap runs to the call's running limit, not to
+   `timeoutMs`, so a slow fallback read is still observed; `timeoutMs` bounds the polls
+   after it.
+4. **Return.** With no `expect`: one read after the tap, for `foreground` and the
    optional tree, then return; the result omits `expect` rather than reporting a `matched`
    it never checked.
+
+There is **no fixed settle** after the tap (plan m1n D2, superseding m1f D10's 300 ms
+constant): the first read starts at once, and its settle is the persistent reader's own
+idle wait — it answers once the screen has been quiet for its default idle time (`100 ms`
+quiet, `500 ms` max). Each poll after the first asks the reader for a shorter bound
+(`100/200`), so a screen that never goes quiet does not make every poll pay the full
+default wait. Only the reader has this idle wait; a poll that falls back to the one-shot
+reader or `uiautomator dump` starts as soon as that read is issued.
 
 Between the before read and the tap, the call checks the **soft keyboard**. When the before
 tree shows a focused editable node, `dumpsys input_method` reports `mInputShown=true`, and the
@@ -296,7 +304,8 @@ silently mistyped**: without the IME the call fails and says what to install, an
 keyboard cannot map it — before anything is tapped or typed. With a
 `target`, the node is tapped once to focus it and, on the reader path, the call then waits
 until that node reports `focused` — a Compose field renders a frame later — before
-delivering; the non-reader path waits the fixed settle instead. The focusing tap takes the
+delivering; the non-reader path delivers right after the tap, with no fixed settle (plan
+m1n D2). The focusing tap takes the
 same soft-keyboard guard as `tapElement` (hide with BACK, re-read, re-resolve), so a field
 that sits under the keyboard is focused and typed into rather than the key above it, and a
 target the keyboard still covers after BACK fails `DEVICE_ELEMENT_OFFSCREEN` naming typing.

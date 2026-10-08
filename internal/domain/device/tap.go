@@ -25,14 +25,20 @@ var (
 	actionBeforePhase = 14 * time.Second
 	// actionTapTimeout bounds one `input tap` command.
 	actionTapTimeout = 2 * time.Second
-	// actionSettle is the wait after the action, before the first poll (D10, 300 ms).
-	actionSettle = 300 * time.Millisecond
 	// actionPollInterval is the least time between two poll reads, start to start.
 	actionPollInterval = 250 * time.Millisecond
 	// actionRunningBound bounds the whole call from the hook's start (D13, 37 s). The
 	// phases are below it by construction; it is the hard cap for a hung device.
 	actionRunningBound = 37 * time.Second
 )
+
+// pollIdle is the persistent reader's own idle wait for the polls after an action's first
+// read (D2; ui-automation.md §Sequence and timing). There is no fixed settle any more: the
+// first read follows the action at once and the reader's own idle wait — the default
+// 100/500 of a plain `dump` — is the settle. Each later poll asks for a shorter one
+// (`dump idle 100 200`), so a screen that never goes quiet does not delay every poll by the
+// full default wait. A var, not a literal in the call, so its address can be taken.
+var pollIdle = readerIdle{quiet: 100, max: 200}
 
 const (
 	// defaultTapTimeoutMs and maxTapTimeoutMs are the poll window (ui-automation.md
@@ -169,7 +175,7 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 		Scope:        capability.Global,
 		Since:        "0.5.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description: "Taps one UI element and verifies the effect in the same call: it resolves target, taps once at the centre of the node's visible bounds through the persistent UI reader, waits 300 ms, then polls the accessibility tree until every expect condition holds or timeoutMs elapses. " +
+		Description: "Taps one UI element and verifies the effect in the same call: it resolves target, taps once at the centre of the node's visible bounds through the persistent UI reader, then polls the accessibility tree until every expect condition holds or timeoutMs elapses — the first read starts at once, its settle being the reader's own idle wait, not a fixed delay. " +
 			"Without a reader that can run, and when the reader denies the request before executing anything, the tap is one `input tap x y` command instead. A tap the reader took but never answered is never repeated, through either path: the call goes on to verify it with a warning that it may have landed. " +
 			"When the before tree shows a focused editable field and the soft keyboard's touchable region covers the tap point, the keyboard is hidden with BACK and the target is re-resolved against a fresh read before the tap, so the tap lands on the field rather than on a key; the result then carries a warning saying the keyboard was hidden, and the call fails DEVICE_ELEMENT_OFFSCREEN naming the keyboard if the target is still covered. A tree that reports no focused editable field, or a keyboard region that cannot be read, behaves as the call did before this rule. " +
 			"target uses the device.uiTree selector vocabulary (id, text, desc, class, within, index, or ref with snapshot); a resolution failure taps nothing. expect is at most 5 conditions (appears, gone, foreground); all must hold, gone over two consecutive successful reads, and a condition already true before the tap is reported in vacuous rather than refused. " +
@@ -343,10 +349,9 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 		warnings = append(warnings, w)
 	}
 
-	// Settle (D10), then poll. A settle the deadline cut still returns a result, so a
+	// No fixed settle (D2): the first read starts right after the tap and the reader's own
+	// idle wait is the settle. A first read the deadline cuts still returns a result, so a
 	// retry is never invited.
-	sleepCtx(actx, actionSettle)
-
 	vr := a.verifyAfter(actx, t, actionStart, &before, pinned, vacuous, timeout, false)
 	// A cancellation that arrives after the tap has landed ends the call completed: the
 	// tap happened, so the result carries it and, when expect was given, says the effect
@@ -766,14 +771,14 @@ func (a *ADB) verifyAfter(ctx context.Context, t *target, actionStart time.Time,
 		if polls > 0 {
 			rctx, readCancel = context.WithDeadline(ctx, deadline)
 		}
-		var doc []byte
-		var w []string
-		var err error
-		if allowDump {
-			doc, w, err = a.read(rctx, t)
-		} else {
-			doc, w, err = a.readNoDump(rctx, t)
+		// The first read keeps the reader's default idle wait — the settle that replaces the
+		// old fixed one (D2) — and each later poll asks for the shorter pollIdle, so a screen
+		// that never goes quiet does not delay every poll by the full default.
+		var idle *readerIdle
+		if polls > 0 {
+			idle = &pollIdle
 		}
+		doc, w, err := a.readChain(rctx, t, allowDump, idle)
 		readCancel()
 		polls++
 		warnings = append(warnings, w...)

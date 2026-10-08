@@ -84,6 +84,9 @@ func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, err
 	// without its port) that would reach a device under another name, past the policy
 	// (m1k §Changes, step 5 B1).
 	if t.dev == nil {
+		// The serial is not listed: its transport is gone (or never was), so its cache
+		// entry — boot state, SDK — is stale and dropped (D3).
+		a.forgetDevice(serial)
 		return nil, a.notFound(t)
 	}
 	if t.dev.Kind != KindEmulator {
@@ -157,6 +160,11 @@ func (a *ADB) ready(ctx context.Context, t *target) error {
 			WithDetails(map[string]any{"state": t.dev.State}).
 			WithNextStep(fix)
 	}
+	// A device already known to have finished booting on this transport skips the
+	// getprop (D3/A9): boot completion cannot un-happen while the transport is the same.
+	if a.cachedBootCompleted(t.serial, t.dev.TransportID) {
+		return nil
+	}
 	out, err := a.Run(ctx, t.adb, bootTimeout, 256, "-s", t.serial, "shell", "getprop", "sys.boot_completed")
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
@@ -180,6 +188,8 @@ func (a *ADB) ready(ctx context.Context, t *target) error {
 		return disconnected(t.serial, line)
 	}
 	if out.ExitCode == 0 && strings.TrimSpace(string(out.Stdout)) == "1" {
+		// Cache the answer, so the next call on this transport issues no getprop (D3).
+		a.rememberBootCompleted(t.serial, t.dev.TransportID)
 		return nil
 	}
 	cause := "sys.boot_completed is " + fmt.Sprintf("%q", strings.TrimSpace(string(out.Stdout)))

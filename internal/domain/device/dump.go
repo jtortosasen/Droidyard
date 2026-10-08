@@ -157,7 +157,7 @@ func (a *ADB) uiTree(ctx context.Context, t *target, within *AncestorSelector) (
 // gone is DEVICE_DISCONNECTED either way; the caller's own cancellation is returned as
 // it is.
 func (a *ADB) read(ctx context.Context, t *target) ([]byte, []string, error) {
-	return a.readChain(ctx, t, true)
+	return a.readChain(ctx, t, true, nil)
 }
 
 // readNoDump is read without the `uiautomator dump` stage: the persistent reader and
@@ -165,11 +165,15 @@ func (a *ADB) read(ctx context.Context, t *target) ([]byte, []string, error) {
 // device's accessibility services on every poll, so a poll that both readers fail is a
 // failed read, not a dump.
 func (a *ADB) readNoDump(ctx context.Context, t *target) ([]byte, []string, error) {
-	return a.readChain(ctx, t, false)
+	return a.readChain(ctx, t, false, nil)
 }
 
-// readChain is read with the dump stage allowed or not.
-func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte, []string, error) {
+// readChain is read with the dump stage allowed or not. idle, when non-nil, is the
+// reader's idle bound for this read (D2): the polls after an action's first read pass
+// the shorter pollIdle, so a screen that never goes quiet does not delay each poll by the
+// reader's default wait. A nil idle is a plain `dump`, which is the first read's own
+// settle and every standalone read.
+func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *readerIdle) ([]byte, []string, error) {
 	start := time.Now()
 	end := start.Add(dumpDeadline)
 	// The read's own end is clamped to the caller's deadline when that is earlier
@@ -211,7 +215,7 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte,
 	}
 	defer c.release()
 
-	doc, kind, line, reason, _, rf := a.persistentRead(ctx, t, c, start, end)
+	doc, kind, line, reason, _, rf := a.persistentRead(ctx, t, c, start, end, idle)
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
@@ -235,7 +239,7 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool) ([]byte,
 		// restartReader reconciles the forward, kills an unreachable reader of our name
 		// by its pid, and starts once.
 		if ok, why := a.restartReader(ctx, t, c, end); ok {
-			doc, kind, line, reason, _, _ = a.persistentRead(ctx, t, c, start, end)
+			doc, kind, line, reason, _, _ = a.persistentRead(ctx, t, c, start, end, idle)
 		} else {
 			// The restart did not bring a reader up: its reason (a ping that went
 			// unanswered, most often) is logged as the restart's own reason.

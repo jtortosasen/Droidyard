@@ -151,7 +151,7 @@ Baseline on 2026-10-07 at `3abf127` with the four research notes untracked: `go 
 - Needs: step 6.
 - Not here: `track-devices` instead of `devices -l` per call (speed note R3, optional; kept as is).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-08. DeepSeek implementer; main session's diff review, one change: the D3 cache is skipped when adb reports no transport id (a reused serial would otherwise match). Tests: `TestNoFixedSettleAfterTheTap`, `TestWarmCallIssuesNoGetprop`, `TestTransportChangeDropsTheCache`, `TestNotFoundDropsTheCache`; step 6's 13 crash tests pass under the new timing; seen failing (implementer) with the 300 ms settle restored and the cache keyed by serial alone. Schema: `device.tapElement`'s description only (`device.inputText`'s had no settle sentence). Level 5, API 31, golden list: 10 `tapElement {id: like_alpha, expect: [appears "Likes: n"]}` through the CLI, median 0.38 s (0.36–0.41), matched 10/10, the first `afterMs` 280 with 2 polls (m1m's median `tapElement` was 5.5 s).
 
 ### 8. Error texts agents can act on
 

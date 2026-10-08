@@ -482,7 +482,10 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 				}
 				return r, nil
 			}
-		} else if !sleepCtx(bctx, actionSettle) {
+		} else if bctx.Err() != nil {
+			// No fixed settle on the non-reader path either (D2; A9): the delivery that follows
+			// (the input command or ADBKeyboard) starts right after the tap. The budget can still
+			// have run out during the tap itself, which keeps this error.
 			if errors.Is(ctx.Err(), context.Canceled) {
 				return nil, ctx.Err()
 			}
@@ -1063,14 +1066,27 @@ func (a *ADB) submit(runCtx, ctx context.Context, t *target) string {
 // so a failure is an error, not a partial result. runCtx is the call's running bound,
 // which bounds the wait after a clear command's host-side timeout (plan m1m close, round 2).
 func (a *ADB) clearField(runCtx, ctx context.Context, t *target, nodeText string) error {
-	out, err := a.runShell(ctx, t, bootTimeout, 1<<10, "shell", "getprop", "ro.build.version.sdk")
-	if err != nil {
-		if errors.Is(err, context.Canceled) || provablyNeverRan(err) {
-			return err
-		}
-		return clearFailed("the device API level " + describeInputFailure(err))
+	// The device API level is an invariant of the transport, so it is cached per (serial,
+	// transport id) after the first read (D3/A9): a warm clear issues no getprop. A value
+	// the device did not give is used but not cached, so the next clear probes again.
+	transport := ""
+	if t.dev != nil {
+		transport = t.dev.TransportID
 	}
-	sdk, _ := strconv.Atoi(strings.TrimSpace(string(out.Stdout)))
+	sdk, known := a.cachedSDK(t.serial, transport)
+	if !known {
+		out, err := a.runShell(ctx, t, bootTimeout, 1<<10, "shell", "getprop", "ro.build.version.sdk")
+		if err != nil {
+			if errors.Is(err, context.Canceled) || provablyNeverRan(err) {
+				return err
+			}
+			return clearFailed("the device API level " + describeInputFailure(err))
+		}
+		if n, aerr := strconv.Atoi(strings.TrimSpace(string(out.Stdout))); aerr == nil {
+			sdk = n
+			a.rememberSDK(t.serial, transport, sdk)
+		}
+	}
 	if sdk >= 33 {
 		// API 33+: select all, then delete (D9).
 		if err := a.clearCommand(runCtx, ctx, t, "keycombination", "113", "29"); err != nil {
