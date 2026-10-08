@@ -35,7 +35,7 @@ process tree (an emulator launch is ours only until its serial resolves, ADR-003
 **One TAPI sidecar for all roots.** The sidecar protocol already passes `root` on every
 call, and each extra JVM costs hundreds of megabytes for nothing: per-root isolation
 comes from the core serialising TAPI work per root
-([core-runtime](core-runtime.md) §Concurrency), not from separate processes. Closing a
+([overview](overview.md) §Concurrency), not from separate processes. Closing a
 workspace closes that root's connection (`connection.close`), not the sidecar. The
 cost: a sidecar crash fails in-flight operations on every root. The choice is
 reversible without a protocol change — spawning one sidecar per root speaks the same

@@ -196,7 +196,7 @@ var (
 func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *file.Watchers) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
-	// The daemon's one event bus (core-runtime.md §Events).
+	// The daemon's one event bus (overview.md §Events).
 	bus := event.New(event.Options{})
 	ops.UsePublisher(bus)
 	var problems system.StateProblems

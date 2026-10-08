@@ -122,7 +122,7 @@ type Workspaces interface {
 	Admit(target string, record func(id string)) bool
 }
 
-// Publisher puts an event on the daemon's bus (core-runtime.md §Events). The event
+// Publisher puts an event on the daemon's bus (overview.md §Events). The event
 // layer implements it; capability does not import it, so whatever publishes (the
 // workspace registry, the store) is given one. Publish never blocks on a subscriber.
 type Publisher interface {
@@ -133,7 +133,7 @@ type Publisher interface {
 }
 
 // Progress is published on operation.progress, type progress, with the operation id,
-// the operation's workspace and a Progress payload (core-runtime.md §Invocation:
+// the operation's workspace and a Progress payload (overview.md §Events:
 // "Progress goes to the event bus, tagged with the operation id"; plan m1d, D4).
 const (
 	ProgressTopic = "operation.progress"

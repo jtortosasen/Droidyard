@@ -109,7 +109,7 @@ decision recorded as an amendment to this ADR; no fallback is pre-authorised her
   possible.
 - The adapter stays inside `adapters/` and imports `capability`, `event` and
   `artifact` only, never `domain/*`
-  ([core-runtime](../architecture/core-runtime.md) §Adapter boundary).
+  ([core-runtime](../architecture/overview.md) §Adapter boundary).
 - Documents changed with this decision: `docs/README.md` §Where the work stands (the
   blocker sentence). The milestone 1b plan is revised separately by the planner.
 

@@ -51,7 +51,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: —.
 - Not here: no doccheck code (steps 2, 3); no document merge (5–7); no ADR text changed (D2 freezes them).
-- [x] Done. Evidence: AGENTS.md (where each fact lives, the ADR rule, records frozen, branch per milestone), `docs/adr/README.md` §Format, the `adr`, `milestone-plan` (and template, sources), `milestone-workflow` skills and the implementer, verifier, plan-reviewer agents aligned; `docs/README.md` §Conventions points to AGENTS.md; the register intro and its CI row. grep checks: no `Amended:` instruction left outside history mentions; `Superseded in part by` and `merge --no-ff` present. doccheck and `go test ./...` green. ADR sample: see Changes.
+- [x] Done. Evidence: AGENTS.md (where each fact lives, the ADR rule, records frozen, branch per milestone), `docs/adr/README.md` §Format, the `adr`, `milestone-plan` (and template, sources), `milestone-workflow` skills and the implementer, verifier, plan-reviewer agents aligned; `docs/README.md`'s conventions paragraph points to AGENTS.md; the register intro and its CI row. grep checks: no `Amended:` instruction left outside history mentions; `Superseded in part by` and `merge --no-ff` present. doccheck and `go test ./...` green. ADR sample: see Changes.
 
 ### 2. doccheck: frozen files, the register, the corpus budget
 
@@ -91,7 +91,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: 2, 3.
 - Not here: interfaces and `capability-api.md` (6); subsystems, `process-lifecycle.md`, `workspace-state.md` (7).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: README (328 words: the map by directory, one status line), `vision.md` (principles folded in, numbers kept), `overview.md` (absorbs `core-runtime.md`), `mvp.md` (status narrative cut), glossary trimmed; `principles.md`, `scope.md`, `core-runtime.md` removed. The step's files 10,188 → 6,194 words (≤ 6,200); live corpus 42,775 → 38,773 (`liveBudget`). Schema unchanged; Go diff comments only; the grep backstop prints only frozen files and this plan; frozen ADR-0015/0025 got path-only edits. Opus verifier: 18 removed statements sampled from the diff, one lost (B1, the queue depth, restored); D9's list in the commit.
 
 ### 6. Merge B: the capability API and the interfaces
 
@@ -163,3 +163,4 @@ Counts: round 1, Important 6 ([plan] 2, [test] 3, [safety] 1), nits 11; round 2,
 
 - 2026-10-08, step 1 (main session's sample of ADR-0019, 0020, 0021): D2's premise holds only in part: several `Amended:` lines carry a rule the body does not (e.g. ADR-0021's 2026-10-08 reconcile judge, ADR-0020's 2026-10-06 device-change rule). They stay in the files as history, so nothing is lost, but the current rule of each must live in its area document: step 7 keeps every such rule (the verifier's sample includes them).
 - 2026-10-08, step 2: two timing tests flaked once each under a loaded full run (`internal/daemon` lock_test, `TestServeStartsThroughAProbe`); a register row.
+- 2026-10-08, step 5: `docs/vision/glossary.md` was trimmed too (its terms live in `overview.md`, `mvp.md` §Terms and the ADRs). Verifier B1: the build queue depth (4 per root, `BUILD_QUEUE_FULL`) had been lost with `core-runtime.md`; restored in the register's `BUILD_QUEUE_FULL` row.

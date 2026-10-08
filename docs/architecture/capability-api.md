@@ -99,8 +99,7 @@ JSON Schema is **generated** from them and committed as a golden file
         (runtime, Phase 0)          (Phase 2, ADR-0008)
 ```
 
-The descriptor fields are listed in [core-runtime](core-runtime.md) §The capability
-registry.
+The descriptor fields are listed in `internal/capability/descriptor.go`.
 
 ## Invocation model
 

@@ -100,7 +100,7 @@ The first version of this ADR left four holes:
      and the core rejects them from an MCP session by the session's client kind. This
      is enforcement, not just omission from the list.
    - This is the one deliberate exception to "every capability reaches both consumers"
-     ([principles](../vision/principles.md) #1): the agent must not be able to
+     ([principles](../vision/vision.md) #1): the agent must not be able to
      authorize itself.
    - **Residual risk.** A process running as the same user can connect to the socket
      or read the HTTP token. That includes an agent's own shell, which could run
@@ -127,7 +127,7 @@ The first version of this ADR left four holes:
   nextStep is the exact `droidyard trust <root>` command. Elicitation is deliberately not a
   mitigation, for the reason given in *Alternatives*.
 - Descriptors gain an `Audience` (`all | human`), and `Untrusted` becomes derived
-  ([core-runtime](../architecture/core-runtime.md) §The capability registry).
+  ([core-runtime](../architecture/overview.md) §The capability registry).
 
 ## Alternatives considered
 

@@ -538,7 +538,7 @@ func (a admitAs) Admit(target string, record func(id string)) bool {
 // TestProgressIsPublished: a report through Call.Progress is kept on the operation and
 // published, before Progress returns, on operation.progress with type progress, the
 // operation id, the operation's workspace id ("" for a global one) and the payload
-// {done, total?, message?} (core-runtime.md §Invocation; plan m1d, D4).
+// {done, total?, message?} (overview.md §Events; plan m1d, D4).
 func TestProgressIsPublished(t *testing.T) {
 	reg := NewRegistry()
 	pub := &recordingPublisher{}

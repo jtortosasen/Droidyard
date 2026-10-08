@@ -92,7 +92,7 @@ var readErrors = []capability.ErrorCode{
 }
 
 // resource is the scheduler key every build of a workspace holds (R5,
-// core-runtime.md §Concurrency): one build per workspace at a time, and a model fetch
+// overview.md §Concurrency): one build per workspace at a time, and a model fetch
 // answered from the cache while one runs.
 func resource(call *capability.Call) string { return "gradle.root:" + call.Workspace }
 
