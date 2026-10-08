@@ -1,6 +1,7 @@
 # ADR-0014: Agent distribution model
 
 - Status: Accepted
+- Superseded in part by: ADR-0037 (§Decision)
 - Date: 2026-09-27
 
 ## Context
