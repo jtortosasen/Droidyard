@@ -320,12 +320,22 @@ func (c *readerClient) setStarted(port string) {
 	c.mu.Unlock()
 }
 
+// readerIdle is the reader's own idle bound for one read (D2): how long the reader waits
+// for the screen to go quiet (quiet, the reader's idle quiet time in ms) before giving up
+// and returning what it has (max, the reader's idle max in ms). It is the `dump idle
+// <quietMs> <maxMs>` option; a nil idle is a plain `dump`, the reader's defaults.
+type readerIdle struct {
+	quiet int
+	max   int
+}
+
 // persistentRead is the persistent reader's turn in read: ensure the reader is
 // reachable, then take one dump over its forward. It also reports why a warm read
 // failed (rf), so the chain can log a restart with its reason without parsing the
 // sentence back out (plan m1n step 2), and the app's package (busyPkg) of a `busy`
-// answer (ADR-0034 §1).
-func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
+// answer (ADR-0034 §1). idle, when non-nil, asks for the shorter poll bound of D2; a nil
+// idle sends a plain `dump`.
+func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time, idle *readerIdle) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if ok, why := a.ensureReader(parent, t, c, end); !ok {
 		return nil, dumpOther, "", why, "", rfNone
 	}
@@ -355,7 +365,13 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	stop := context.AfterFunc(parent, func() { conn.Close() })
 	defer stop()
 	conn.SetDeadline(deadline)
-	if _, err := io.WriteString(conn, "dump\n"); err != nil {
+	// A plain `dump` is the reader's default idle wait (100/500); the polls after an
+	// action's first read ask for the shorter pollIdle (D2).
+	request := "dump\n"
+	if idle != nil {
+		request = fmt.Sprintf("dump idle %d %d\n", idle.quiet, idle.max)
+	}
+	if _, err := io.WriteString(conn, request); err != nil {
 		return nil, dumpOther, "", "the reader's forward did not take the request", "", rfEOF
 	}
 	resp, truncated, readErr := readLimited(conn, dumpOutputCap)

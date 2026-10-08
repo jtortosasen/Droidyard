@@ -54,9 +54,9 @@ func resolutionTree() string {
 // must not reserve the real 2 s.
 func quickAct(t *testing.T) {
 	t.Helper()
-	before, tap, settle, poll, bound, reserve := actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve
-	actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve =
-		2*time.Second, 200*time.Millisecond, 5*time.Millisecond, 5*time.Millisecond, 5*time.Second, 50*time.Millisecond
+	before, tap, poll, bound, reserve := actionBeforePhase, actionTapTimeout, actionPollInterval, actionRunningBound, cleanupReserve
+	actionBeforePhase, actionTapTimeout, actionPollInterval, actionRunningBound, cleanupReserve =
+		2*time.Second, 200*time.Millisecond, 5*time.Millisecond, 5*time.Second, 50*time.Millisecond
 	// device.inputText shares the act-then-verify bounds and adds its own (plan m1f
 	// step 9): the clear/typing/submit budget and the ADBKeyboard check.
 	typeBound, methodBound, cmdBound := inputTypeBound, inputMethodTimeout, inputCommandTimeout
@@ -69,7 +69,7 @@ func quickAct(t *testing.T) {
 	actBase, actPerChar, actMargin := readerActBoundBase, readerActBoundPerChar, readerActMargin
 	readerActBoundBase, readerActBoundPerChar, readerActMargin = 100*time.Millisecond, 10*time.Millisecond, 50*time.Millisecond
 	t.Cleanup(func() {
-		actionBeforePhase, actionTapTimeout, actionSettle, actionPollInterval, actionRunningBound, cleanupReserve = before, tap, settle, poll, bound, reserve
+		actionBeforePhase, actionTapTimeout, actionPollInterval, actionRunningBound, cleanupReserve = before, tap, poll, bound, reserve
 		inputTypeBound, inputMethodTimeout, inputCommandTimeout = typeBound, methodBound, cmdBound
 		inputProbeInterval = probeInterval
 		readerActBoundBase, readerActBoundPerChar, readerActMargin = actBase, actPerChar, actMargin
@@ -277,9 +277,9 @@ func TestTapElementBeforePhaseIsClockedFromTheHook(t *testing.T) {
 	oldPhase, oldBound := actionBeforePhase, actionRunningBound
 	actionBeforePhase, actionRunningBound = 400*time.Millisecond, 3*time.Second
 	defer func() { actionBeforePhase, actionRunningBound = oldPhase, oldBound }()
-	oldTap, oldSettle := actionTapTimeout, actionSettle
-	actionTapTimeout, actionSettle = 200*time.Millisecond, 5*time.Millisecond
-	defer func() { actionTapTimeout, actionSettle = oldTap, oldSettle }()
+	oldTap := actionTapTimeout
+	actionTapTimeout = 200 * time.Millisecond
+	defer func() { actionTapTimeout = oldTap }()
 
 	// The hook spends 200 ms in `devices -l`; the reader and the dump never answer, so
 	// the read is the stage the phase cuts. A clock started at handler entry would give
@@ -731,9 +731,6 @@ func TestTapElementRunningBoundDuringTheTapWarns(t *testing.T) {
 		defer func() {
 			actionRunningBound, actionBeforePhase, actionTapTimeout, cleanupReserve = oldBound, oldPhase, oldTap, oldReserve
 		}()
-		oldSettle := actionSettle
-		actionSettle = 5 * time.Millisecond
-		defer func() { actionSettle = oldSettle }()
 
 		r := devicetest.StartReader(t, tappable(tapLike("Like")))
 		t.Cleanup(r.Close)
@@ -855,9 +852,6 @@ func TestTapElementHangingReadsStayWithinTheRunningBound(t *testing.T) {
 	oldBound, oldPhase, oldReserve := actionRunningBound, actionBeforePhase, cleanupReserve
 	actionRunningBound, actionBeforePhase, cleanupReserve = time.Second, 800*time.Millisecond, 500*time.Millisecond
 	defer func() { actionRunningBound, actionBeforePhase, cleanupReserve = oldBound, oldPhase, oldReserve }()
-	oldSettle := actionSettle
-	actionSettle = 5 * time.Millisecond
-	defer func() { actionSettle = oldSettle }()
 
 	doc := tappable(tapLike("Like"))
 	f := newUIFixture(t, map[string]string{
@@ -886,11 +880,11 @@ func TestTapElementHangingReadsStayWithinTheRunningBound(t *testing.T) {
 // Decision (plan m1f step 6, check a; R2): poll reads start at least 250 ms apart (the
 // real interval). Seen failing with the interval removed (back-to-back reads).
 func TestTapElementPollReadsAreSpacedByTheInterval(t *testing.T) {
-	oldPhase, oldBound, oldSettle, oldTap, oldReserve := actionBeforePhase, actionRunningBound, actionSettle, actionTapTimeout, cleanupReserve
-	actionBeforePhase, actionRunningBound, actionSettle, actionTapTimeout, cleanupReserve =
-		2*time.Second, 5*time.Second, 5*time.Millisecond, 200*time.Millisecond, 50*time.Millisecond
+	oldPhase, oldBound, oldTap, oldReserve := actionBeforePhase, actionRunningBound, actionTapTimeout, cleanupReserve
+	actionBeforePhase, actionRunningBound, actionTapTimeout, cleanupReserve =
+		2*time.Second, 5*time.Second, 200*time.Millisecond, 50*time.Millisecond
 	defer func() {
-		actionBeforePhase, actionRunningBound, actionSettle, actionTapTimeout, cleanupReserve = oldPhase, oldBound, oldSettle, oldTap, oldReserve
+		actionBeforePhase, actionRunningBound, actionTapTimeout, cleanupReserve = oldPhase, oldBound, oldTap, oldReserve
 	}()
 
 	doc := tappable(tapLike("Like"))
@@ -1022,5 +1016,42 @@ func TestTapElementDescriptorAndMark(t *testing.T) {
 	f := newUIFixture(t, withPersistentReader(t, nil, doc))
 	if out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`); !out.Untrusted {
 		t.Error("a tapElement result is not marked untrusted")
+	}
+}
+
+// Decision (plan m1n step 7 D2; ui-automation.md §Sequence and timing; A9): there is no
+// fixed settle after the tap any more — the reader's own idle wait is the settle, so the
+// first read starts at once. The fake records the tap's receipt and each read's start, so
+// the gap between the tap and the first read after it is measured directly: it must be
+// within 50 ms (a fixed 300 ms settle would make it ≥ 300 ms). Seen failing with the
+// 300 ms constant restored.
+func TestNoFixedSettleAfterTheTap(t *testing.T) {
+	quickAct(t)
+	before := tappable(tapLike("Like"), tapLikes("Likes: 0"))
+	after := tappable(tapLike("Like"), tapLikes("Likes: 1"))
+	files, r := withPersistentReaderR(t, nil, before, after)
+	f := newUIFixture(t, files)
+	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"Likes: 1"}}]}`)
+	mustTap(t, out)
+
+	acts := r.ActStarts()
+	if len(acts) == 0 {
+		t.Fatal("the reader received no tap: the tap did not go through it")
+	}
+	tap := acts[0]
+	// The before read precedes the tap; the first read at or after the tap's instant is the
+	// one that verifies it.
+	var first time.Time
+	for _, d := range r.DumpStarts() {
+		if !d.Before(tap) {
+			first = d
+			break
+		}
+	}
+	if first.IsZero() {
+		t.Fatalf("no read started after the tap (dumps %v, tap %v)", r.DumpStarts(), tap)
+	}
+	if gap := first.Sub(tap); gap > 50*time.Millisecond {
+		t.Errorf("the first read started %v after the tap; want within 50 ms (D2: the reader's own idle wait is the settle, not a fixed delay)", gap)
 	}
 }

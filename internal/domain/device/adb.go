@@ -66,6 +66,13 @@ type ADB struct {
 	probeMu sync.Mutex
 	probes  map[string]columnProbe
 
+	// devMu guards devs, the per-device cache of the invariants D3 keeps: that the device
+	// finished booting and its SDK level. Keyed by serial and transport id, as probes is,
+	// because an emulator serial is reused by other AVDs and images; a call that fails
+	// DEVICE_NOT_FOUND drops the serial's entry.
+	devMu sync.Mutex
+	devs  map[string]*deviceCache
+
 	// log is the daemon's log (daemon.log when the daemon is detached), where reader
 	// restarts, fallbacks and slow warm reads are recorded (plan m1n step 2). Nil, the
 	// zero value, logs nothing. logMu serialises writes so concurrent readers' lines
@@ -74,11 +81,96 @@ type ADB struct {
 	logMu sync.Mutex
 }
 
+// deviceCache is what a device call learned about invariants that hold while the
+// device's transport id is unchanged (D3): it has finished booting (sys.boot_completed
+// is 1), and its SDK level (ro.build.version.sdk). transport is the id it was learned
+// on; a different one is a stale entry, and DEVICE_NOT_FOUND drops the serial's entry.
+type deviceCache struct {
+	transport     string
+	bootCompleted bool
+	sdk           int
+	sdkKnown      bool
+}
+
 // columnProbe is what one check of logcat's uid column learned, valid while the
 // device's transport id is unchanged.
 type columnProbe struct {
 	transport string
 	supported bool
+}
+
+// cacheEntryLocked returns the serial's cache entry for transport, creating a fresh one
+// when there is none or the stored transport changed — a serial reused by another AVD or
+// image (D3, as m1i D5 keys the uid probe). Callers hold devMu.
+func (a *ADB) cacheEntryLocked(serial, transport string) *deviceCache {
+	if a.devs == nil {
+		a.devs = map[string]*deviceCache{}
+	}
+	c := a.devs[serial]
+	if c == nil || c.transport != transport {
+		c = &deviceCache{transport: transport}
+		a.devs[serial] = c
+	}
+	return c
+}
+
+// cachedBootCompleted reports whether the device is already known to have finished
+// booting, for this serial and transport (D3). A true answer lets ready skip its
+// sys.boot_completed getprop.
+func (a *ADB) cachedBootCompleted(serial, transport string) bool {
+	if transport == "" {
+		return false // no transport id to key on: never cache (a reused serial would match)
+	}
+	a.devMu.Lock()
+	defer a.devMu.Unlock()
+	c := a.devs[serial]
+	return c != nil && c.transport == transport && c.bootCompleted
+}
+
+// rememberBootCompleted records that the device finished booting, for this serial and
+// transport (D3), so a later call on the same transport skips the getprop.
+func (a *ADB) rememberBootCompleted(serial, transport string) {
+	if transport == "" {
+		return
+	}
+	a.devMu.Lock()
+	a.cacheEntryLocked(serial, transport).bootCompleted = true
+	a.devMu.Unlock()
+}
+
+// cachedSDK returns the device's SDK level when it is already known for this serial and
+// transport (D3).
+func (a *ADB) cachedSDK(serial, transport string) (int, bool) {
+	if transport == "" {
+		return 0, false
+	}
+	a.devMu.Lock()
+	defer a.devMu.Unlock()
+	c := a.devs[serial]
+	if c != nil && c.transport == transport && c.sdkKnown {
+		return c.sdk, true
+	}
+	return 0, false
+}
+
+// rememberSDK records the device's SDK level, for this serial and transport (D3).
+func (a *ADB) rememberSDK(serial, transport string, sdk int) {
+	if transport == "" {
+		return
+	}
+	a.devMu.Lock()
+	e := a.cacheEntryLocked(serial, transport)
+	e.sdk = sdk
+	e.sdkKnown = true
+	a.devMu.Unlock()
+}
+
+// forgetDevice drops the serial's cache entry, so the next call probes again (D3: an
+// entry is dropped when a call fails DEVICE_NOT_FOUND).
+func (a *ADB) forgetDevice(serial string) {
+	a.devMu.Lock()
+	delete(a.devs, serial)
+	a.devMu.Unlock()
 }
 
 // NewADB returns an ADB over env, the environment every adb client is given whole
