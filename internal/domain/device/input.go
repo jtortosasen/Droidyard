@@ -623,6 +623,7 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 	}
 	var afterTree *Snapshot
 	var afterFG *Foreground
+	lastBusy := false
 	if len(p.Expect) > 0 {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// A cancellation after typing is not an error: the text is typed (fully or in
@@ -633,7 +634,7 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 			vr := a.verifyAfter(actx, t, actionStart, before, pinned, vacuous, timeout, false)
 			warnings = append(warnings, vr.Warnings...)
 			res.Expect = vr.Expect
-			afterTree, afterFG = vr.Tree, vr.Foreground
+			afterTree, afterFG, lastBusy = vr.Tree, vr.Foreground, vr.LastBusy
 		}
 	}
 	// The later reads name a system dialog too (ADR-0034 §3); the before read's wins, as
@@ -649,7 +650,7 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 	// applies and the process check alone decides. Never for the system ui's own window or
 	// when the call acted on a system dialog.
 	app := before.Foreground
-	if crashApplies(app, beforeDialog, afterFG) && (crashDialogFor(res.SystemDialog, app) || a.appPIDof(actx, t, app) == 0) {
+	if crashApplies(app, beforeDialog, afterFG) && (crashDialogFor(res.SystemDialog, app) || lastBusy || a.appPIDof(actx, t, app) == 0) {
 		res.AppCrash = a.appCrashReason(actx, t, app, crashBound)
 	}
 	res.Warnings = dedupWarnings(warnings)

@@ -377,7 +377,7 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 	// step 6): the crash buffer since the tap, else exit-info. Paid only on that path, and
 	// never for the system ui's own window or when the call acted on a system dialog.
 	var appCrash *AppCrash
-	if crashApplies(before.Foreground, beforeDialog, vr.Foreground) && (crashDialogFor(systemDialog, before.Foreground) || a.appPIDof(actx, t, before.Foreground) == 0) {
+	if crashApplies(before.Foreground, beforeDialog, vr.Foreground) && (crashDialogFor(systemDialog, before.Foreground) || vr.LastBusy || a.appPIDof(actx, t, before.Foreground) == 0) {
 		appCrash = a.appCrashReason(actx, t, before.Foreground, actionStart)
 	}
 
@@ -749,6 +749,11 @@ type verifyResult struct {
 	Tree       *Snapshot
 	Foreground *Foreground
 	Warnings   []string
+	// LastBusy says the last read after the action was the busy answer (ADR-0034 §1): the
+	// app did not answer, which is reason enough to look for its crash even while its
+	// process lives — the "keeps stopping" dialog holds a crashed process alive, and a busy
+	// read cannot show the dialog (level 5, plan m1n step 9).
+	LastBusy bool
 }
 
 // verifyAfter polls reads after an action until every condition holds or the window
@@ -768,6 +773,7 @@ func (a *ADB) verifyAfter(ctx context.Context, t *target, actionStart time.Time,
 	var warnings []string
 	polls, failed := 0, 0
 	matched := len(pinned) == 0
+	lastBusy := false
 
 	for polls == 0 || (!matched && time.Now().Before(deadline)) {
 		if !lastStart.IsZero() {
@@ -793,11 +799,19 @@ func (a *ADB) verifyAfter(ctx context.Context, t *target, actionStart time.Time,
 		readCancel()
 		polls++
 		warnings = append(warnings, w...)
+		lastBusy = err != nil && isAppBusy(err)
 		if err != nil {
 			failed++
 			resetStreaks(streaks)
 			if ctx.Err() != nil {
 				break // the running bound or the caller ended: no observation will come
+			}
+			// A busy read whose app's process is gone is a crash, not a slow screen: polling
+			// on would only meet more busy answers until timeoutMs (level 5, plan m1n step 9:
+			// a crashing tap took 5.4 s). Stop, so the caller's crash path reports it now.
+			if isAppBusy(err) && before != nil && before.Foreground != "" && before.Foreground != androidPackage &&
+				a.appPIDof(ctx, t, before.Foreground) == 0 {
+				break
 			}
 			continue
 		}
@@ -863,7 +877,7 @@ func (a *ADB) verifyAfter(ctx context.Context, t *target, actionStart time.Time,
 		// (plan m1f step 6, fix round).
 		warnings = append(warnings, noObservationWarning)
 	}
-	return verifyResult{Expect: verdict, Tree: last, Foreground: fg, Warnings: dedupWarnings(warnings)}
+	return verifyResult{Expect: verdict, Tree: last, Foreground: fg, Warnings: dedupWarnings(warnings), LastBusy: lastBusy}
 }
 
 func resetStreaks(streaks []int) {
