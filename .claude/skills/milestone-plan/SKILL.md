@@ -15,7 +15,11 @@ A plan turns the one-sentence milestone in `docs/README.md` §Where the work sta
 4. **State the milestone's acceptance.** Each item is observable and traced to a source: a phase acceptance item or an ADR clause. If only part of a phase item is reachable now, say which part.
 5. **Decompose into steps** (rules below), then fill in Not in this milestone and Unverified.
 6. **Design questions stop the plan.** If any step needs a decision no document makes, write it under Design questions with a draft decision, set the status to `Blocked`, and hand it back. Do not write the steps that depend on it as if it were settled.
-7. **Review.** `plan-reviewer` attacks the plan; each finding and its resolution goes in the Review table. At most two rounds: after the second, every blocking finding answered in the plan is enough, and a third look, if any, is a diff-only check by the main session. The status becomes `Reviewed` then, and `Approved` when the owner (or the main session under the owner's standing instruction) says so.
+7. **Review.** `plan-reviewer` attacks the plan; each finding and its resolution goes in the Review table. One round by default; a second only when the first returned blocking findings, and it checks only those. After that, every blocking finding answered in the plan is enough. The status becomes `Reviewed` then, and `Approved` when the owner (or the main session under the owner's standing instruction) says so.
+
+## Light plan
+
+A milestone that changes no published contract (no schema, error code or capability semantics) and no security, concurrency or process-lifetime behaviour may use a light plan: the header, a Scope list, the steps (each with Builds, Check, Not here) and Acceptance; no Design questions, Unverified or Rests on unless one is real. If a change can be described in one sentence, it needs no plan at all: the main session does it with its check and commits.
 
 ## What makes a step
 
@@ -27,6 +31,7 @@ A plan turns the one-sentence milestone in `docs/README.md` §Where the work sta
 - **The fact it rests on, when there is one.** Where the step's safety rests on a single fact, name it under `Rests on` with the level its proof needs (`prove-change` §Grade what you proved), and aim the Check at that fact. When the Check cannot reach that level, for example a fake where only a real process settles it, put the gap in Unverified now rather than discovering it at the tick.
 - **Its own "not here".** Where a reader would reasonably expect something the step does not do, say so and cite why (for example: no idle exit for the daemon, owner decision in `docs/reviews/2026-09-29-ratifications.md`).
 - **Sized for one sitting.** If a milestone needs more than about ten steps, propose a split instead. This is a working heuristic, not a rule.
+- **A self-contained brief.** The step is what the implementer receives (`plan-step.sh`): it names the files and functions to touch, the behaviour, the tests with what each asserts and how it is seen failing, and the limits (no adb, no schema change). A step the main session would have to rewrite into a brief is not finished.
 - **Short.** Aim for about 25 KB. A step says what to build, what proves it and which clause it implements, and cites documents instead of restating them; the Review table keeps one line per finding.
 
 ## Following one

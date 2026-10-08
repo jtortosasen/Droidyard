@@ -46,8 +46,8 @@ skill says who does what.
   session through the Agent tool (`subagent_type: implementer`, `model: sonnet`), in the
   background, one plan step per run, in the main tree (`isolation: "worktree"` only for
   parallel steps). **The main session sets each run's reasoning effort** (owner,
-  2026-10-08): `medium` by default, `high` for a step the Opus verifier reviews (contract,
-  security, untrusted text, concurrency, process lifetime). A review's fix round goes to the
+  2026-10-08): the model's default, `high` for a step the Opus verifier reviews (contract,
+  security, untrusted text, concurrency, process lifetime) or one that under-delivered. A review's fix round goes to the
   same agent (SendMessage). Limits: the `implementer-run.md` rules in its prompt (no
   verifier or other agent, no staging or committing, no adb, emulator or device). The main
   session reviews the diff and commits. `ds-implement.sh` (DeepSeek through OpenCode Go;
@@ -67,6 +67,11 @@ skill says who does what.
   can be checked should be checked, and an assumption must be *labelled* as an
   assumption. `docs/research/spike-s1-error-formats.md` is the worked example — it
   states plainly what it observed and what it did not.
+- **The code is the documentation** (owner, 2026-10-08). What the code, its descriptors,
+  `schema/capabilities.json` and its tests say is not restated in prose; a document
+  says what the code cannot: why, what was rejected, what is open. One fact lives in one
+  place and everything else links to it. A duplicate that must stay is generated or
+  checked by `internal/doccheck`, never kept in step by hand.
 - **Density over volume.** A tight document beats a thorough one. The corpus is already
   large; do not add to it without a reason.
 - **Do not overstate.** If the second spike has not run, the document says so.

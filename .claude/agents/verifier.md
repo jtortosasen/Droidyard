@@ -37,15 +37,12 @@ through every place that depends on it.
 
 **Claims against evidence.** When a document says "verified", "confirmed", "observed" or "ratified", find what was actually observed and whether the source is cited. `docs/research/spike-s1-error-formats.md` is the standard: what it saw, on what, and what it did not. A claim with no evidence behind it is reported as unverified, not as true or false.
 
-**Things that must agree in more than one place.** Check them across every document that states them, and against the code:
+**What counts, and what does not** (owner, 2026-10-08: fewer rounds, no gold-plating; the code is the documentation). A reviewer asked for gaps always finds some; report what changes the outcome:
 
-- capability names and their classification (scope, kind, statefulness, long-running, untrusted, audience): `docs/architecture/capability-api.md` §Naming and §Classification, `docs/roadmap/mvp.md` §MVP capability surface, `docs/interfaces/mcp-tool-surface.md`, the descriptors, and `schema/capabilities.json`;
-- the invocation contract: states, result versus error, queue bound, cancellation and what `notifications/cancelled` cancels, the operation view, workspace addressing (ADR-0020, and everything that restates it);
-- persistence layout and the state/config split (ADR-0021, ADR-0024);
-- artifacts, their durability classes and how they are read (ADR-0012);
-- trust and policy: explicit root trust, policy never over MCP, `shell.exec` off by default (ADR-0015 §5 to §7);
-- the Gradle toolchain profile: the Gradle, AGP and Kotlin plugin versions that decide whether errors arrive structured, and the console extractor as the primary path (ADR-0017, ADR-0018, ADR-0022, ADR-0023, `docs/subsystems/gradle.md`);
-- the MVP boundary: nothing from §Out of scope built or promised, nothing in scope silently dropped.
+- **Important**: a bug (wrong behaviour, a crash, a race, a leak); a contract break (`schema/capabilities.json`, an error code, a published field, what a capability promises); a safety or security hole; a test that cannot fail where a step names it as evidence; a step or Acceptance item claimed but not met; a document that misstates a decision or contract someone relies on (an ADR's decision against the code, an agent-facing description that is false).
+- **Nit**: everything else, including prose that is stale, imprecise or duplicated, a comment that cites the wrong paragraph, a missing cross-reference, wording. At most five, one line each. Never blocking. Document consistency the `doccheck` tests can catch is theirs, not yours.
+
+Tag every finding `[bug]`, `[contract]`, `[safety]`, `[test]`, `[plan]`, `[doc]` or `[nit]`, so the owner can see over time which layer pays. On a re-review, report only Important findings: the fixes' correctness and anything they broke.
 
 **The code obeys the documents.** Read `internal/` as well as `docs/`. For each decision the code encodes (the name rule, annotation derivation, the error shape and codes, untrusted marking, inlining, the operation view, the adapter import boundary) find the clause it implements and check both directions: code that does something no document says, and documents that promise something the code does not do. When they disagree, say which one is wrong and why. A comment in the code that cites an ADR section is itself a claim; check that the section says it.
 
@@ -83,9 +80,9 @@ Read and reason before you run anything. Run the package tests once, and at most
 
 Lead with the verdict: can the work proceed, yes or no, and in one or two lines what blocks it. Then:
 
-1. **Blocking issues**, most severe first. For each: *Where* (file and section, or file and line), *what is wrong*, *why it blocks*, and *the smallest fix*.
+1. **Blocking issues** (Important only), most severe first, each tagged. For each: *Where* (file and section, or file and line), *what is wrong*, *why it blocks*, and *the smallest fix*.
 2. **Claimed fixes**, each marked fixed, partially fixed or not fixed, with the evidence.
-3. **Non-blocking issues**, in the same shape, shorter.
+3. **Non-blocking issues**: Important ones that need not block, in the same shape, shorter; then at most five nits, one line each.
 4. **Unverified**: what you could not check, and what would settle it.
 5. **What is genuinely solid**, briefly and specifically, so it is not reopened.
 
