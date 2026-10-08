@@ -15,7 +15,7 @@ import (
 // Version is the API version reported by system.capabilities. It is the one semantic
 // version of the capability API, not a per-capability one
 // (docs/architecture/capability-api.md §Discovery and versioning).
-const Version = "0.12.0"
+const Version = "0.13.0"
 
 var started = time.Now()
 
@@ -70,6 +70,32 @@ type Capabilities struct {
 	Capabilities []CapabilityInfo `json:"capabilities"`
 }
 
+// capabilitiesText is the rendering of system.capabilities (ADR-0036 Decision 2): the
+// version, then one line per capability, <name> <kind> <scope> [stateful|streaming]
+// [long] [human] [unavailable "<reason>"]. The descriptions are in the structured content
+// only; an agent has them in the tool list already.
+func capabilitiesText(c Capabilities) string {
+	var t capability.Text
+	t.W("version", c.Version).Nl()
+	for _, i := range c.Capabilities {
+		t.W(i.Name, i.Kind, i.Scope)
+		if i.Statefulness != "stateless" {
+			t.W(i.Statefulness)
+		}
+		if i.LongRunning {
+			t.W("long")
+		}
+		if i.Audience != "all" {
+			t.W(i.Audience)
+		}
+		if !i.Available {
+			t.W("unavailable").Q(i.Unavailable)
+		}
+		t.Nl()
+	}
+	return t.String()
+}
+
 // None is the empty parameter object, for capabilities that take no arguments.
 type None struct{}
 
@@ -113,7 +139,7 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Reports whether the core is alive, its version, how long it has been running, how many operations are in flight, any state file it could not use (stateProblems: corrupt files moved aside, or files of a newer version left untouched), where adb was found, its version and any warning (adb), the JVM the Gradle sidecar runs on: where it was found and its version, or every candidate that was rejected (jvm), and the configuration file's state (config): its path, whether it parsed, and the state its tool keys were read in at startup.",
+		Description: "Reports whether the core is alive, its version, uptime and operations in flight, where adb and the JVM were found, any state file it could not use, and the configuration file's state.",
 		Params:      None{},
 		Result:      Health{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -153,9 +179,10 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.1.0", // the version that introduced it, pinned
-		Description: "Lists every capability the core exposes, with its scope, statefulness, annotations and availability. This is the discovery entry point: it reports what is available rather than assuming a fixed surface.",
+		Description: "Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point.",
 		Params:      None{},
 		Result:      Capabilities{},
+		Text:        capability.TextOf(capabilitiesText),
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			out := Capabilities{Version: Version}
 			for _, d := range reg.All() {

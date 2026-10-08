@@ -1,0 +1,1 @@
+{"snapshot":"s-70dbd1de","foreground":"dev.droidyard.golden","display":{"width":1080,"height":2340,"rotation":0},"nodes":[{"ref":"n1","class":"EditText","id":"name","text":"A","bounds":[44,189,1036,343],"flags":["clickable","focused"],"children":["n2"]},{"ref":"n2","class":"TextView","text":"Name","bounds":[88,211,183,255]}]}

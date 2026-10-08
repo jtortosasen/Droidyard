@@ -1,0 +1,4 @@
+typed characters=0 method=input_text
+tapped n1 "EditText" #"name" exact point 540,266 clickable in s-b79ccd4c
+expect matched=true afterMs=13369 polls=2
+warning "0 character(s) were typed for certain before the input command timed out; the command that failed may have typed part of its text, and the rest was not sent. Read the field before retrying: device.inputText would type the text again."

@@ -28,16 +28,13 @@ type StatusResult struct {
 // daemon's environment.
 func registerStatus(reg *capability.Registry, env []string) {
 	reg.MustRegister(capability.Descriptor{
-		Name:  "sdk.status",
-		Kind:  capability.Query,
-		Scope: capability.Global,
-		Since: "0.7.0",
-		Description: "Reports the host SDK: its root and where it was found (source), every candidate rejected before it with why, and what is installed, read from the SDK's own package.xml files: platforms, build-tools, platform-tools, cmdline-tools and system images, each as its package id and version. " +
-			"No JVM and no sdkmanager are involved, and it is read fresh on every call. " +
-			"With no SDK it reports found: false, every candidate rejected, and the variable that would fix it (ANDROID_HOME). " +
-			"Warnings report an ANDROID_HOME/ANDROID_SDK_ROOT inconsistency and any package.xml that was malformed or too large and skipped; at most 2000 package.xml files are read.",
-		Params: None{},
-		Result: StatusResult{},
+		Name:        "sdk.status",
+		Kind:        capability.Query,
+		Scope:       capability.Global,
+		Since:       "0.7.0",
+		Description: "Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, cmdline-tools, system images), read fresh from package.xml files without a JVM.",
+		Params:      None{},
+		Result:      StatusResult{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return Status(env), nil
 		},

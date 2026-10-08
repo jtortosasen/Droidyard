@@ -169,6 +169,7 @@ type crashSummary struct {
 	at        time.Time
 	exception string
 	message   string
+	causes    []string
 	frames    []string
 }
 
@@ -176,16 +177,48 @@ type crashSummary struct {
 // stack, not the whole tombstone.
 const crashFramesMax = 5
 
+// crashCausesMax bounds the "Caused by" chain a summary carries, as crashFramesMax bounds
+// the frames: a chain is device text, and a pathological one must not grow the result.
+const crashCausesMax = 5
+
+// causedByPrefix begins the log line of an exception's cause, after the stack frames.
+const causedByPrefix = "Caused by: "
+
 // javaFramePrefix is the `\tat ` a Java stack frame's line begins with in the log.
 const javaFramePrefix = "\tat "
 
 // nativeFrameRE matches a native backtrace line, `      #00 pc 0000000000…`.
 var nativeFrameRE = regexp.MustCompile(`^#[0-9]+ `)
 
-// topFrames collects up to max of a block's stack frames: a Java block's `\tat …` lines,
-// a native block's `#NN pc …` lines, in the order the block holds them.
+// platformClassPrefixes are the class-name prefixes of code that is not the app's: the
+// JDK, Kotlin, the Android framework and its libraries. A frame whose class is under none
+// of them is the app's (or a third-party library's it ships), which is what a crash read
+// is for. The applicationId is no test: it differs from the code package (flavours,
+// applicationIdSuffix), so a frame is the app's by exclusion.
+var platformClassPrefixes = []string{
+	"java.", "javax.", "jdk.", "sun.", "kotlin.", "kotlinx.", "android.", "androidx.",
+	"com.android.", "dalvik.", "libcore.", "com.google.android.", "org.json.",
+	"org.xmlpull.", "org.apache.http.",
+}
+
+// isAppFrame reports whether a Java frame, `pkg.Class.method(File.kt:12)`, is outside every
+// platform prefix.
+func isAppFrame(frame string) bool {
+	for _, p := range platformClassPrefixes {
+		if strings.HasPrefix(frame, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// topFrames collects up to crashFramesMax of a block's stack frames. A Java block's are
+// every `\tat …` line, the top exception's and its causes', without the `at`: the app's
+// own frames first in stack order, then the top of the stack fills what is left (so the
+// throw site stays when the app has fewer than five). A native block's are its first
+// `#NN pc …` lines, in order. appCrash and the crashes[] entries share it.
 func topFrames(block []logLine, native bool) []string {
-	var frames []string
+	var all []string
 	for _, l := range block {
 		msg := l.message
 		if !native {
@@ -199,12 +232,47 @@ func topFrames(block []logLine, native bool) []string {
 				continue
 			}
 		}
-		frames = append(frames, msg)
+		all = append(all, msg)
+	}
+	if native {
+		return all[:min(len(all), crashFramesMax)]
+	}
+	var frames []string
+	taken := make([]bool, len(all))
+	for i, f := range all {
 		if len(frames) == crashFramesMax {
 			break
 		}
+		if isAppFrame(f) {
+			frames = append(frames, f)
+			taken[i] = true
+		}
+	}
+	for i, f := range all {
+		if len(frames) == crashFramesMax {
+			break
+		}
+		if !taken[i] {
+			frames = append(frames, f)
+		}
 	}
 	return frames
+}
+
+// causeChain collects up to crashCausesMax "Caused by: " lines of a Java block in order,
+// each without its prefix: the exception class and message as logcat printed them.
+func causeChain(block []logLine) []string {
+	var causes []string
+	for _, l := range block {
+		if !strings.HasPrefix(l.message, causedByPrefix) {
+			continue
+		}
+		causes = append(causes, strings.TrimPrefix(l.message, causedByPrefix))
+		if len(causes) == crashCausesMax {
+			break
+		}
+	}
+	return causes
 }
 
 // crashBlocks finds the crash blocks among the parsed lines. A block is a maximal run
@@ -283,6 +351,7 @@ func javaCrash(block []logLine, app string, uid int, byUID bool) (crashSummary, 
 	if process+1 < len(block) {
 		s.exception, s.message = splitColon(block[process+1].message)
 	}
+	s.causes = causeChain(block)
 	s.frames = topFrames(block, false)
 	return s, true
 }

@@ -185,6 +185,69 @@ func markUntrusted(t goreflect.Type, s *jsonschema.Schema, seen map[visit]bool) 
 	return nil
 }
 
+// bareRepeats strips the property descriptions from every copy of an object type after
+// its first, in field order, within one tool's input (ADR-0036 Decision 1): the selector
+// is inlined three times in device.tapElement and device.inputText, and describing each
+// copy costs every session the same words again. The first copy keeps its descriptions;
+// the property that holds a later copy keeps its own, which says what that copy is for.
+// The walk is over the Go type and its inlined schema together, like markUntrusted, so a
+// type is recognised by identity and not by what its schema happens to look like.
+func bareRepeats(t goreflect.Type, s *jsonschema.Schema, seen map[goreflect.Type]bool, bare bool) {
+	if t == nil || s == nil {
+		return
+	}
+	switch t.Kind() {
+	case goreflect.Pointer:
+		bareRepeats(t.Elem(), s, seen, bare)
+	case goreflect.Slice, goreflect.Array:
+		bareRepeats(t.Elem(), s.Items, seen, bare)
+	case goreflect.Map:
+		bareRepeats(t.Elem(), s.AdditionalProperties, seen, bare)
+	case goreflect.Struct:
+		if seen[t] {
+			bare = true
+		}
+		seen[t] = true
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			name, omitted := capability.JSONName(f)
+			if (!f.IsExported() && !f.Anonymous) || omitted {
+				continue
+			}
+			if name == "" { // an embedded struct is flattened into this one
+				bareRepeats(f.Type, s, seen, bare)
+				continue
+			}
+			if s.Properties == nil {
+				continue
+			}
+			prop, ok := s.Properties.Get(name)
+			if !ok || prop == nil {
+				continue
+			}
+			if bare {
+				prop.Description = ""
+			}
+			bareRepeats(f.Type, prop, seen, bare)
+		}
+	}
+}
+
+// reflectInput is reflect for a tool's input: the same inlined schema, with a repeated
+// object described once.
+func reflectInput(v any) (json.RawMessage, error) {
+	sch, err := inlined(v)
+	if err != nil {
+		return nil, err
+	}
+	bareRepeats(goreflect.TypeOf(v), sch, map[goreflect.Type]bool{}, false)
+	raw, err := json.Marshal(sch)
+	if err != nil {
+		return nil, fmt.Errorf("reflecting %T: %w", v, err)
+	}
+	return raw, nil
+}
+
 // operationView is the output of a long-running capability: the operation view, with
 // the capability's own result schema, inlined, as its result
 // (ADR-0020 §Adapter projections). operation.wait keeps the view's open object, since
@@ -211,7 +274,7 @@ func Generate(reg *capability.Registry, version string) (*Document, error) {
 	doc := &Document{Version: version}
 
 	for _, d := range reg.All() {
-		input, err := reflect(d.Params)
+		input, err := reflectInput(d.Params)
 		if err != nil {
 			return nil, fmt.Errorf("capability %s: %w", d.Name, err)
 		}

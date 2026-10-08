@@ -53,11 +53,10 @@ func registerList(reg *capability.Registry, e *Emulator) {
 		Scope:        capability.Global,
 		Since:        "0.8.0",
 		Availability: []capability.Requirement{capability.RequiresEmulator, capability.RequiresADB},
-		Description: "Lists every AVD the emulator launcher knows, each with its configuration (target, abi, deviceProfile, displayName) when it can be read, and running {device} when it is booted. Names come from the launcher's -list-avds; a name whose .ini cannot be located keeps its place with configUnavailable set, never dropped. It reports AVDs, not devices: what is available to boot versus what is running, in one answer. No paths appear in the result. " +
-			"Fails with EMULATOR_LAUNCHER_NOT_FOUND when no launcher is found, EMULATOR_LAUNCH_FAILED when the launcher cannot list AVDs, DEVICE_ADB_NOT_FOUND when adb cannot be found and DEVICE_ADB_FAILED when the device listing fails.",
-		Params: struct{}{},
-		Result: ListResult{},
-		Errors: []capability.ErrorCode{ErrLauncherNotFound, ErrLaunchFailed, device.ErrADBNotFound, device.ErrADBFailed},
+		Description:  "Lists every AVD the emulator launcher knows, with its configuration and, when it is running, its device serial. Use it to pick the avd for emulator.start.",
+		Params:       struct{}{},
+		Result:       ListResult{},
+		Errors:       []capability.ErrorCode{ErrLauncherNotFound, ErrLaunchFailed, device.ErrADBNotFound, device.ErrADBFailed},
 		Handler: func(ctx context.Context, _ *capability.Call) (any, error) {
 			return e.list(ctx)
 		},

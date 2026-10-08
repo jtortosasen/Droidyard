@@ -87,9 +87,8 @@ trips, fewer tokens, no image interpretation.
 - **Live screen streaming** to the UI. The device panel refreshes stills; streaming is
   a stretch goal inside phase 2.
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
-- **Skills, distribution and registries**
-  ([ADR-0011](../adr/0011-skills-agent-skills-standard.md),
-  [ADR-0014](../adr/0014-agent-distribution-model.md)).
+- **Distribution**: binaries ([ADR-0014](../adr/0014-agent-distribution-model.md));
+  the skill and `init` are in ([ADR-0037](../adr/0037-assistant-integration-by-init.md)).
 - **Windows** ([ADR-0002](../adr/0002-unix-first.md)).
 - **SDK provisioning and AVD creation.** `sdk.packages`, `sdk.install`, `sdk.licenses`,
   `emulator.create` and `emulator.delete` are post-MVP: the golden path needs only an
@@ -275,8 +274,8 @@ last and may slip.
 - [ ] Idle footprint reported **per process** (see Metrics), with the core under 50 MB
       RSS and the Gradle sidecar stopped when idle.
 - [x] A recorded comparison of agent steps, tokens and failures, our MCP vs raw shell,
-      on the golden path: **supported** by the threshold below (m1m, 2026-10-07;
-      [m1m plan](../plans/m1m-emulator-robustness.md)).
+      on the golden path: **supported** by the threshold below
+      ([m1m](../plans/m1m-emulator-robustness.md); [m1o](../plans/m1o-tokens-and-harness.md), Cursor).
 - [ ] Every deviation from the design recorded as an ADR.
 
 ## Metrics

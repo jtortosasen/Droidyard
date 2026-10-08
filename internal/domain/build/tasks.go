@@ -68,13 +68,7 @@ func registerTasks(reg *capability.Registry, client Client, authorize Authorize)
 			capability.ErrProjectModelFailed,
 			capability.ErrInvalidParams,
 		},
-		Description: "Lists the tasks that exist in the project, filtered in the core from the cached project model (it never runs Gradle's `tasks` task). " +
-			"Filter by module (its Gradle project path), by group (exactly as Gradle reports it) and by a case-insensitive substring of the task name; hidden tasks (Gradle's public = false) are left out unless includeHidden is true. " +
-			"The result carries each task's module, full path, name, group and description, in the model's order. " +
-			"These are the tasks that exist, not the tasks a build ran. " +
-			"A module argument that names no project is REQUEST_INVALID_PARAMS. " +
-			"Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). The answer shares project.modules' model, its cache and its staleness: stale is true when a build holds the root and the build files changed since the model was fetched. " +
-			"Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED as project.modules does.",
+		Description: "Lists the tasks that exist in the project, filtered by module, group or a name substring, from the cached project model (it never runs Gradle). Hidden tasks are left out unless includeHidden is true.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(TasksParams)
 			model, stale, err := client.Model(ctx, call.Authorized.(string))

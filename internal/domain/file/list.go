@@ -23,7 +23,7 @@ const (
 
 // ListParams is file.list's parameters.
 type ListParams struct {
-	Path  string `json:"path,omitempty" jsonschema_description:"The directory to list, relative to the project root; \".\" or absent is the root. An absolute path inside the root is accepted."`
+	Path  string `json:"path,omitempty" jsonschema_description:"Directory to list, relative to the project root; \".\" or absent is the root."`
 	Limit *int   `json:"limit,omitempty" jsonschema:"minimum=1,maximum=2000" jsonschema_description:"The most entries to return, 1 to 2000. Absent means 500."`
 }
 

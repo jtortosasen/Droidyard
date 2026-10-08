@@ -33,7 +33,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Idempotent:  true,
 		RawTarget:   true,
 		Since:       since,
-		Description: "Opens the workspace for a project root, or returns its state if it is already open, so sessions share it. Opening reads droidyard's own state for the root and runs no project code. Workspace tools need an open workspace; an MCP session opens its bound root when it starts, so call this only to reopen it after a close.",
+		Description: "Opens the workspace for a project root, or returns its state if it is already open. An MCP session opens its bound root itself, so call this only to reopen it after a close.",
 		Params:      None{},
 		Result:      Info{},
 		Errors:      []capability.ErrorCode{ErrRootInvalid, ErrStateNewer, ErrStateUnreadable},
@@ -75,7 +75,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Idempotent:  true,
 		RawTarget:   true,
 		Since:       since,
-		Description: "Closes the workspace for every session: cancels its running operations, waits for them for up to 10 s, stops its processes, and returns once it is closed. Closing a workspace that is not open does nothing.",
+		Description: "Closes the workspace for every session: cancels its running operations, waits up to 10 s for them, and stops its processes. Closing a workspace that is not open does nothing.",
 		Params:      None{},
 		Result:      CloseResult{},
 		// Destructive by the command default, kept on purpose: it stops in-flight

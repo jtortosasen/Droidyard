@@ -50,7 +50,7 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 		Scope:        capability.Global,
 		Since:        "0.4.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Lists the connected emulators and the physical devices the configuration admits, with their serial (the value of every device argument), state (device, offline, unauthorized, recovery, sideload, unknown), kind and, best effort, model, product, Android version, API level and AVD name. A physical device is listed only when `devices.allowPhysical` is true and its exact serial is in `devices.allowlist`, read from the configuration at the call; otherwise it is hidden. Fails with DEVICE_ADB_NOT_FOUND when adb cannot be found and DEVICE_ADB_FAILED when adb fails on the host.",
+		Description:  "Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model details. A physical device appears only when devices.allowPhysical is true and its serial is allowlisted.",
 		Params:       struct{}{},
 		Result:       ListResult{},
 		Errors:       []capability.ErrorCode{ErrADBNotFound, ErrADBFailed},

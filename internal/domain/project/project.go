@@ -86,13 +86,6 @@ var baseErrors = []capability.ErrorCode{
 	capability.ErrProjectModelFailed,
 }
 
-// Models is the description project.modules and project.variants share: what the model
-// is, where it comes from and what its staleness means.
-const modelNote = "The answer comes from one Gradle configuration pass, cached per (root, build-files fingerprint) and consulted without a pass when a build holds the root. " +
-	"When a build holds the root and the fingerprint changed since the model was fetched, the result is the cached one and stale is true. " +
-	"Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. " +
-	"Fails with BUILD_SIDECAR_UNAVAILABLE when no JVM 17 or newer was found or the sidecar could not start, BUILD_SIDECAR_CRASHED when it died or broke its protocol, BUILD_GRADLE_UNSUPPORTED when the project's Gradle is below the 8.0 floor, and PROJECT_MODEL_FAILED when the configuration pass failed."
-
 // Register adds project.modules and project.variants to the registry.
 func Register(reg *capability.Registry, client Client, authorize Authorize) {
 	reg.MustRegister(capability.Descriptor{
@@ -108,7 +101,7 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 		Params:       None{},
 		Result:       ModulesResult{},
 		Errors:       baseErrors,
-		Description:  "Lists the Gradle projects of the workspace's root: every project including the root \":\" and the container projects, with the Gradle project path, the name and the directory relative to the root. " + modelNote,
+		Description:  "Lists the Gradle projects of the workspace's root (the root and container projects included) with path, name and directory, from one cached configuration pass. stale is true when a build holds the root and the build files changed since.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			model, stale, err := client.Model(ctx, root(call))
 			if err != nil {
@@ -133,11 +126,7 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 		Params:       VariantsParams{},
 		Result:       VariantsResult{},
 		Errors:       append(append([]capability.ErrorCode{}, baseErrors...), capability.ErrInvalidParams),
-		Description: "Reports the build variants of each module (or of one, with module), as { module, variants[], source, exact, details? } per module. " +
-			"The Android probe reads them exactly from AGP's public Variant API: source is probe, exact is true, and details carries each variant's build type and its product flavours in dimension order. " +
-			"Without the probe (or for a project the probe could not read) they come from task names: the X with both assemble<X> and package<X> among the module's tasks, minus names ending AndroidTest, UnitTest or TestFixtures, so source is task-names and exact is false (ADR-0023 §Decision 4). " +
-			"A module that has no variants — the root project, a non-Android project, or a library the task-name fallback cannot see — reports an empty list. " +
-			"A module argument that names no project is REQUEST_INVALID_PARAMS. " + modelNote,
+		Description:  "Reports the build variants of each module, or of one with module: source probe is exact, source task-names is inferred from the task names and exact is false. A module with no variants reports an empty list, and stale means what it does for project.modules.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(VariantsParams)
 			model, stale, err := client.Model(ctx, root(call))

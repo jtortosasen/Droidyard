@@ -1,6 +1,8 @@
 # ADR-0019: Process topology — one daemon, attached by stdio and CLI shims
 
 - Status: Accepted
+- Superseded in part by: ADR-0036 (§Processes)
+- Superseded in part by: ADR-0037 (§Processes)
 - Date: 2026-09-29
 - Amended: 2026-09-29. What changed: the complete subcommand list (`ui`, `trust`); the
   MCP session opens its bound root at start (verification pass); and an explicit
