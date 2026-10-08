@@ -51,7 +51,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: —.
 - Not here: no doccheck code (steps 2, 3); no document merge (5–7); no ADR text changed (D2 freezes them).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: AGENTS.md (where each fact lives, the ADR rule, records frozen, branch per milestone), `docs/adr/README.md` §Format, the `adr`, `milestone-plan` (and template, sources), `milestone-workflow` skills and the implementer, verifier, plan-reviewer agents aligned; `docs/README.md` §Conventions points to AGENTS.md; the register intro and its CI row. grep checks: no `Amended:` instruction left outside history mentions; `Superseded in part by` and `merge --no-ff` present. doccheck and `go test ./...` green. ADR sample: see Changes.
 
 ### 2. doccheck: frozen files, the register, the corpus budget
 
@@ -81,7 +81,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: —. Touches no file steps 2 and 3 touch; it may run beside them in its own worktree (`milestone-workflow` §Rules between the steps, Parallel steps).
 - Not here: no level-5 run; the recipe is cut, not changed or re-executed. A later milestone that needs an old block takes it from f939153.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `.claude/skills/verify-daemon/SKILL.md` 469 → 200 lines: Launch, Doctor, Drive (generic: CLI/MCP, parity, a killed shim, auto-start, a killed daemon, HTTP, workspaces, OpenCode and Cursor clients, the emulator rules with 5037 and the guard), Evidence, Cleanup kept; every per-milestone block removed, recoverable with `git show f939153:.claude/skills/verify-daemon/SKILL.md` (named in its header). Not rerun: four textual edits to the recipe (an `OPTIONS` call dropped, the Cursor command inlined, the scrubbed launch's capabilities check and socket wait dropped).
 
 ### 5. Merge A: README, vision, architecture overview, roadmap status
 
@@ -160,3 +160,5 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 Counts: round 1, Important 6 ([plan] 2, [test] 3, [safety] 1), nits 11; round 2, Important 1 ([test]).
 
 ## Changes
+
+- 2026-10-08, step 1 (main session's sample of ADR-0019, 0020, 0021): D2's premise holds only in part: several `Amended:` lines carry a rule the body does not (e.g. ADR-0021's 2026-10-08 reconcile judge, ADR-0020's 2026-10-06 device-change rule). They stay in the files as history, so nothing is lost, but the current rule of each must live in its area document: step 7 keeps every such rule (the verifier's sample includes them).
