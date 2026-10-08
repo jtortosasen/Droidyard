@@ -298,6 +298,12 @@ func TestLinkChecksCatchDrift(t *testing.T) {
 		tr := linkFixture.with(t, "docs/a.md", "and §Error model,", "and §Errors,")
 		expect(t, checkSectionRefs(tr.fs()), "docs/a.md:9", "§Errors", "docs/b.md")
 	})
+	t.Run("a new citation ends a chain", func(t *testing.T) {
+		tr := linkFixture.with(t, "docs/a.md", "ADR-0001 §Decision, and", "ADR-0001 §Decision and `docs/b.md` §Naming and namespaces, and")
+		expectClean(t, checkSectionRefs(tr.fs()))
+		tr = linkFixture.with(t, "docs/a.md", "ADR-0001 §Decision, and", "ADR-0001 §Decision and `docs/b.md` §Nope, and")
+		expect(t, checkSectionRefs(tr.fs()), "docs/a.md:9", "§Nope", "docs/b.md")
+	})
 	t.Run("a numbered clause", func(t *testing.T) {
 		tr := linkFixture.with(t, "docs/a.md", "[A](a.md) §2", "[A](a.md) §3")
 		expect(t, checkSectionRefs(tr.fs()), "docs/a.md:10", "§3")

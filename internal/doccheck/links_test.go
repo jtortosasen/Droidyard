@@ -258,6 +258,11 @@ func refText(text string, i int) (string, int) {
 				return b.String(), i
 			}
 		}
+		// another citation starts here, so the sections after it are its own, not
+		// this chain's (two ADRs cited in one sentence)
+		if loc := refAnchorRE.FindStringIndex(text[i:]); loc != nil && loc[0] == 0 {
+			return b.String(), i
+		}
 		c := text[i]
 		switch c {
 		case ')', ']', ',', ';', '|', ':', '"', '(', '*':
