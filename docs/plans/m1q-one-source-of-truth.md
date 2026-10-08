@@ -61,7 +61,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: 1 (the register intro and its CI row).
 - Not here: the duplicate checks of step 3; no frozen file is edited.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `isFrozen` (Done plans, research, reviews, ADRs exempt from `§` and `#fragment` checks); bare `name.md §X` citations and citations of missing files checked, in Markdown and Go comments; `TestRegisterIsWellFormed` (columns, closed Kind/Area sets, Source links, Recorded/Closed by cells, Area-then-Kind order; rows sorted once, the set of rows unchanged); `TestLiveCorpusWithinBudget` (live set 42,775 words, the budget for steps 5–7 about 25,665). Self-tests `TestFrozenFilesAreExempt`, `TestRegisterCheckCatchesDrift`, `TestCorpusBudgetCatchesGrowth`; each check seen failing under its reversal. Broken bare citations found: 6 (5 Go comments reworded, comment-only; 1 a checker artifact), under the 50 threshold.
 
 ### 3. doccheck: the duplicates that stay
 
@@ -162,3 +162,4 @@ Counts: round 1, Important 6 ([plan] 2, [test] 3, [safety] 1), nits 11; round 2,
 ## Changes
 
 - 2026-10-08, step 1 (main session's sample of ADR-0019, 0020, 0021): D2's premise holds only in part: several `Amended:` lines carry a rule the body does not (e.g. ADR-0021's 2026-10-08 reconcile judge, ADR-0020's 2026-10-06 device-change rule). They stay in the files as history, so nothing is lost, but the current rule of each must live in its area document: step 7 keeps every such rule (the verifier's sample includes them).
+- 2026-10-08, step 2: two timing tests flaked once each under a loaded full run (`internal/daemon` lock_test, `TestServeStartsThroughAProbe`); a register row.

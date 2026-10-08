@@ -9,5 +9,5 @@ package process
 // Pdeathsig would kill only the leader; Reconcile keys on a live leader, so it would
 // drop the record and leave the rest of the group running. Sidecars and device streams
 // keep it: their leader dying with the daemon is what layer 2 of
-// process-lifecycle.md §Shutdown wants.
+// process-lifecycle.md §Shutdown, cancellation and no-orphans wants.
 func deathSignal(kind Kind) bool { return kind != ShellCommand }
