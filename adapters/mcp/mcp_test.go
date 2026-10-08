@@ -26,16 +26,16 @@ import (
 )
 
 // TestInstructionsAreTheDocumentedBlock: the initialize instructions are the block of
-// docs/interfaces/mcp-tool-surface.md §Server instructions, verbatim (ADR-0025
+// docs/interfaces/mcp.md §Server instructions, verbatim (ADR-0025
 // criterion 6; the transcript test checks the wire).
 func TestInstructionsAreTheDocumentedBlock(t *testing.T) {
-	doc, err := os.ReadFile("../../docs/interfaces/mcp-tool-surface.md")
+	doc, err := os.ReadFile("../../docs/interfaces/mcp.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, section, ok := strings.Cut(string(doc), "\n## Server instructions\n")
 	if !ok {
-		t.Fatal("docs/interfaces/mcp-tool-surface.md has no §Server instructions")
+		t.Fatal("docs/interfaces/mcp.md has no §Server instructions")
 	}
 	_, block, ok := strings.Cut(section, "```text\n")
 	if !ok {
@@ -144,7 +144,7 @@ func TestNothingIsWrittenOnceTheSessionIsGone(t *testing.T) {
 
 // TestMarkedTextHasNoLineOfItsOwnAfterTheFixedLine: a result field that is already JSON
 // (json.RawMessage, capability.Object) is emitted as given, and a newline in it must not
-// become a line of text after the untrusted line (mcp-tool-surface.md §Untrusted data,
+// become a line of text after the untrusted line (mcp.md §Untrusted data,
 // item 2). The marked text is the fixed line, one newline, and one line of compact JSON.
 func TestMarkedTextHasNoLineOfItsOwnAfterTheFixedLine(t *testing.T) {
 	type res struct {

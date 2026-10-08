@@ -263,10 +263,10 @@ func sessionOf(call *capability.Call) (*Session, error) {
 }
 
 // Register adds events.subscribe and events.unsubscribe. Neither is an MCP tool: the
-// adapter lists stateless capabilities only (mcp-tool-surface.md §What is exposed).
+// adapter lists stateless capabilities only (mcp.md §What is exposed).
 func Register(reg *capability.Registry) {
 	// A subscription is state the call creates, so this is a command, not a query
-	// (mcp-tool-surface.md §Annotations: "a query that writes is a Kind bug").
+	// (mcp.md §Annotations: "a query that writes is a Kind bug").
 	notDestructive := false
 	reg.MustRegister(capability.Descriptor{
 		Name:         CapSubscribe,

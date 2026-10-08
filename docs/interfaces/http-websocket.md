@@ -80,96 +80,63 @@ not against the user's own processes.
 
 ## Endpoints
 
-| Method and path | Maps to | Token |
-| --- | --- | --- |
-| `GET /`, `GET /assets/*` | the embedded UI bundle | no |
-| `POST /v1/call` | one request envelope → one response envelope | yes |
-| `GET /v1/artifacts/{id}` | `artifact.read`, as raw bytes | yes |
-| `GET /v1/ws` | a WebSocket session: calls and events | first frame |
-
-HTTP requests identify their adapter as `ui`. That identity is what lets human-only
-capabilities through ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
+The routes and their shapes are `adapters/httpapi`: the embedded UI bundle (no token),
+`POST /v1/call`, `GET /v1/artifacts/{id}` and `GET /v1/ws`. HTTP requests identify their
+adapter as `ui`, and that identity is what lets human-only capabilities through
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
 
 ### `POST /v1/call`
 
 - The body is the request envelope
-  ([capability-api](../architecture/capability-api.md) §Request envelope).
-  `workspace` comes from the UI's own selection. `waitMs` bounds the wait
-  ([ADR-0020](../adr/0020-operation-contract.md)). For long-running capabilities the
-  UI passes a short `waitMs` and follows progress over the WebSocket.
+  ([capability-api](../architecture/capability-api.md) §Request envelope). `workspace`
+  comes from the UI's own selection. `waitMs` bounds the wait
+  ([ADR-0020](../adr/0020-operation-contract.md)); for long-running capabilities the UI
+  passes a short `waitMs` and follows progress over the WebSocket.
 - The reply is **`200` with a response envelope**, even for rejections and failed
-  operations. Consumers branch on `error.code`, never on the HTTP status.
-- A result that carries device- or app-derived data has `meta.untrusted: true`. The UI
+  operations. Consumers branch on `error.code`, never on the HTTP status. Other statuses
+  come only from the baseline and from transport problems (malformed JSON, token, Host or
+  Origin, body size, content type).
+- A result that carries device- or app-derived data has `meta.untrusted: true`, and the UI
   finds out which fields to render inert from the schema's `x-droidyard-untrusted` marks
-  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1).
-  A failed call whose handler marked it carries `meta.untrusted: true` too; the UI
-  renders that error's `details` inert as a whole.
-- Other statuses come only from the baseline and from transport problems: `400`
-  (malformed JSON), `401` (token), `403` (Host or Origin), `413` (body over 1 MiB) and
-  `415` (content type).
-- A plain HTTP request has no session. Stateful and streaming capabilities
-  (`events.*`, `file.watch`) are rejected with `SESSION_REQUIRED`
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1). A failed call whose
+  handler marked it carries `meta.untrusted: true` too; the UI renders that error's
+  `details` inert as a whole.
+- A plain HTTP request has no session. Stateful and streaming capabilities (`events.*`,
+  `file.watch`) are rejected with `SESSION_REQUIRED`
   ([ADR-0010](../adr/0010-capability-statefulness.md)); use the WebSocket.
 
 ### `GET /v1/ws`
 
-One connection is one **session** (ADR-0019). Frames are JSON text messages:
+One connection is one **session** ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
+Frames are JSON text messages: the `{"auth": …}` frame first, then request envelopes as
+on `/v1/call`; back come response envelopes (matched by `id`) and `{"subscriptionId",
+"event"}` for the session's subscriptions. An event that matches two subscriptions is sent
+once under each. A subscription's first frame, replayed `since` events included, is written
+only after a response carrying its `subscriptionId` has been written on this session (the
+subscribe's own, or a later `operation.wait` when the subscribe answered `running`), so a
+client never sees an id before the answer that gives it.
 
-- client → server: `{"auth": …}` first, then request envelopes, the same as
-  `/v1/call`. A frame over 1 MiB (4 KiB before `auth`) closes the connection with
-  1009; a non-text frame closes with 4401 as the first frame and with 1003 after it;
-- server → client: response envelopes (matched by `id`), and `{"subscriptionId":
-  "<id>", "event": <event envelope>}` for the session's subscriptions. An event that
-  matches two subscriptions is sent once under each. A subscription's first frame,
-  replayed `since` events included, is written only after a response carrying its
-  `subscriptionId` has been written on this session (the subscribe's own, or a later
-  `operation.wait` when the subscribe answered `running`), so a client never sees an
-  id before the answer that gives it (milestone 1d, D5).
-
-Subscriptions (`events.subscribe`, `file.watch`) belong to the session and end with
-it. After a reconnect, the UI resumes with `since`
-([capability-api](../architecture/capability-api.md) §Subscriptions) — except a
-`file.watch`, whose `file.changes` topic takes no `since` and never enters the replay
-ring, so after a reconnect the client watches again and re-lists (milestone 1j, D8).
-The per-session
-send buffer is bounded: a queue of 1024 events per subscription (working default),
-so a busy subscription never costs a quiet one its events. When it overflows, the
-dropped events are replaced by an
-`events.gap` marker and never lost silently. The server pings every 30 s and closes the
-connection after two missed pongs.
+Subscriptions belong to the session and end with it. After a reconnect the UI resumes
+with `since`, except a `file.watch`, which watches again and re-lists
+([capability-api](../architecture/capability-api.md) §Subscriptions). A subscriber that
+overflows gets an `events.gap` marker and never loses events silently. Frame limits, the
+close codes and the keepalive are in `adapters/httpapi/ws.go`.
 
 ### `GET /v1/artifacts/{id}`
 
 - `{id}` is the last segment of the artifact reference (`droidyard://artifact/<id>`). The
   UI builds this path from nothing else.
-- The route has the same semantics and authorization as `artifact.read`, and it is
-  recorded as that operation. Only the encoding differs: raw bytes instead of JSON.
-- **Text** (with the first text artifact; 1e serves images only) supports
-  `Range: bytes=…`, with the same byte offsets as `artifact.read`.
-  An artifact that is still growing (a running build's console) returns the bytes
+- The route has the same semantics and authorization as `artifact.read` and is recorded as
+  that operation. Only the encoding differs: raw bytes instead of JSON. A binary route
+  cannot return a `200` envelope, so this is the one place where the status carries
+  meaning (`404`, `410` for `ARTIFACT_EXPIRED`, `400`, `500`).
+- A text artifact that is still growing (a running build's console) will return the bytes
   written so far and a growing marker header, named in ADR-0024's identifier table when
-  growing artifacts land. To follow it live, subscribe to
-  the `build.output` topic instead of polling.
-- **Images** accept `?maxEdge=<px>` and `?region=x,y,w,h` (normalised 0..1). The
-  default is the original size.
+  growing artifacts land; to follow it live, subscribe to the `build.output` topic instead
+  of polling. Images accept `?maxEdge=` and `?region=`.
 - An artifact produced by an untrusted capability (a screenshot) is served with
   `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1; ADR-0024).
-- **Errors**: `404` with the typed error as the JSON body (`ARTIFACT_NOT_FOUND`), or
-  `410` for `ARTIFACT_EXPIRED` ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)),
-  or `400` (`REQUEST_INVALID_PARAMS`) for a malformed or unknown query parameter, or
-  `500` for a failure of ours. `HEAD` is served too.
-  A binary route cannot return a `200` envelope, so this is the one place where the
-  status carries meaning.
-- The UI fetches with the `Authorization` header and displays the result through
-  `blob:` URLs. An `<img src>` pointing at the API cannot carry the header, and a
-  cookie is ruled out by rule 5.
-
-## Open questions
-
-- **LAN and tablet access**: TLS, authentication beyond a per-launch token, and pairing
-  a device. The baseline is deliberately loopback-only.
-- **Streamable-HTTP MCP** on the same listener. It must apply rules 1–3, as the MCP
-  specification itself requires Origin validation for that transport. Its
-  authentication is still to decide: the bearer token passed through the client
-  configuration, or the MCP authorization flow.
+- The UI fetches with the `Authorization` header and displays the result through `blob:`
+  URLs. An `<img src>` pointing at the API cannot carry the header, and a cookie is ruled
+  out by rule 5.

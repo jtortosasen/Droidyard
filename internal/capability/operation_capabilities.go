@@ -65,7 +65,7 @@ func (o *Operations) RegisterCapabilities() {
 		Errors:      []ErrorCode{ErrOperationNotFound},
 		// Destructive by the command default, kept on purpose: it stops in-flight
 		// work, possibly work the UI or another agent started
-		// (docs/interfaces/mcp-tool-surface.md §Annotations).
+		// (docs/interfaces/mcp.md §Annotations).
 		Handler: func(ctx context.Context, call *Call) (any, error) {
 			return CancelResult{}, o.Cancel(call.Params.(CancelParams).OperationID)
 		},

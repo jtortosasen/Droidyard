@@ -5,10 +5,10 @@ Read the whole ADR, not only the section named. Every area also has the owner de
 | Area | Documents |
 | --- | --- |
 | Every milestone | `docs/README.md` §Where the work stands · `docs/roadmap/mvp.md` (the phase, §Out of scope, §Definition of done) · `docs/architecture/capability-api.md` · `docs/architecture/overview.md` §Adapter boundary · ADR-0003, ADR-0016 |
-| Descriptors, schema, golden file | ADR-0016 · ADR-0010 (statefulness) · ADR-0015 §1 (untrusted derived from tags) · `capability-api.md` §Naming, §Classification, §Adding a capability · `internal/capability/`, `internal/schema/` |
+| Descriptors, schema, golden file | ADR-0016 · ADR-0010 (statefulness) · ADR-0015 §1 (untrusted derived from tags) · `capability-api.md` §Naming and namespaces · `internal/capability/`, `internal/schema/` |
 | Invocation, operations, errors | ADR-0020 · `capability-api.md` §Invocation model, §Error model, §Idempotency · `overview.md` §Events, §Concurrency |
 | Daemon, socket, shims, sessions | ADR-0019 · ADR-0021 §Location, §Layout, §Locking · ADR-0024 (binary, subcommands, paths, env overrides) · ADR-0010 (what a session is) |
-| MCP adapter | `docs/interfaces/mcp-tool-surface.md` · `docs/interfaces/mcp-features.md` · ADR-0020 §Adapter projections · ADR-0015 §6 (policy never over MCP) |
+| MCP adapter | `docs/interfaces/mcp.md` · ADR-0020 §Adapter projections · ADR-0015 §6 (policy never over MCP) |
 | HTTP / WebSocket | `docs/interfaces/http-websocket.md` §Security baseline · ADR-0006 |
 | Workspaces and trust | `docs/architecture/workspace-state.md` · ADR-0015 §5 · ADR-0020 §Scope and workspace addressing · ADR-0021 |
 | Processes and supervision | `docs/architecture/process-lifecycle.md` · ADR-0001 (process ownership) · ADR-0021 §Pid records |
@@ -21,7 +21,6 @@ Read the whole ADR, not only the section named. Every area also has the owner de
 
 ## Open questions that can block a plan
 
-Most architecture, interface and subsystem documents end in §Open questions. Check the ones in your area before writing steps. Two are known to sit on the critical path:
+Open items live in `docs/roadmap/known-limits.md`, not in the documents. Check the rows of your area before writing steps. One is known to sit on the critical path:
 
-- `capability-api.md` §Open questions: the config file (policy, trusted roots, `shell.exec`, JVM discovery, timeouts) has no specification, and "the format is needed before Phase 1".
 - ADR-0022 §Known open item: AAPT2 merged-resource paths must be settled before `build.errors` is implemented.

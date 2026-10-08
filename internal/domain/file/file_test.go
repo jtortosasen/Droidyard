@@ -1101,7 +1101,7 @@ func TestWriteConcurrentWriters(t *testing.T) {
 	}
 }
 
-// Decision (R2, D6, mcp-tool-surface.md §Annotations): file.write is a command, so
+// Decision (R2, D6, mcp.md §Annotations): file.write is a command, so
 // readOnly is false and destructive defaults to true; it declares Idempotent, and it
 // needs no external tool, so openWorld is false. Its result carries no untrusted mark
 // (ADR-0015 §1).

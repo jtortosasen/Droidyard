@@ -120,7 +120,7 @@ accumulation anywhere.
 
 ## Capabilities
 
-Scope per [capability-api](../architecture/capability-api.md) §Classification. Every
+Scope per the descriptors (`schema/capabilities.json`). Every
 row except `device.list` takes `device`.
 
 | Capability | Phase | Scope | Params and behaviour |

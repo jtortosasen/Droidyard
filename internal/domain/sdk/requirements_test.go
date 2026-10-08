@@ -278,7 +278,7 @@ func TestRequirementsProbeFailed(t *testing.T) {
 	}
 }
 
-// Decision (plan m1h D12, R2; capability-api.md §Classification): sdk.requirements is a
+// Decision (plan m1h D12, R2; the descriptor): sdk.requirements is a
 // read-only, idempotent, open-world workspace Query that runs a configuration pass
 // (long-running, [gradle]) and carries the trust hook, and its declared error codes are
 // the trust hook's plus the model fetch's.

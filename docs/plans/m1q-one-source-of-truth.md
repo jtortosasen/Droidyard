@@ -101,7 +101,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change. Descriptions are 1o's; `error.go` changes are comments only.
 - Needs: 5 (the merged overview it links to).
 - Not here: no description text, no `error.go` code; the MCP tool list is not regenerated into a document (`droidyard mcp` serves it).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `capability-api.md` cut to the why (4,278 → 2,044 words); `interfaces/mcp.md` replaces `mcp-tool-surface.md` and `mcp-features.md` (4,577 → 2,509); `http-websocket.md` §Endpoints cut (1,528 → 1,252); cross-cutting code meanings as comments in `internal/capability/error.go`; `capabilities_test.go` reduced (self-test still catches a published name missing from `mvp.md`). Step's files 10,383 → 5,805 (≤ 6,250); live corpus 38,774 → 34,200 (`liveBudget`). Schema unchanged; grep backstop clean outside frozen files. Opus verifier: 30 removed statements sampled from the diff, none lost; B1 fixed (Changes).
 
 ### 7. Merge C: subsystems and the remaining architecture
 
@@ -164,3 +164,4 @@ Counts: round 1, Important 6 ([plan] 2, [test] 3, [safety] 1), nits 11; round 2,
 - 2026-10-08, step 1 (main session's sample of ADR-0019, 0020, 0021): D2's premise holds only in part: several `Amended:` lines carry a rule the body does not (e.g. ADR-0021's 2026-10-08 reconcile judge, ADR-0020's 2026-10-06 device-change rule). They stay in the files as history, so nothing is lost, but the current rule of each must live in its area document: step 7 keeps every such rule (the verifier's sample includes them).
 - 2026-10-08, step 2: two timing tests flaked once each under a loaded full run (`internal/daemon` lock_test, `TestServeStartsThroughAProbe`); a register row.
 - 2026-10-08, step 5: `docs/vision/glossary.md` was trimmed too (its terms live in `overview.md`, `mvp.md` §Terms and the ADRs). Verifier B1: the build queue depth (4 per root, `BUILD_QUEUE_FULL`) had been lost with `core-runtime.md`; restored in the register's `BUILD_QUEUE_FULL` row.
+- 2026-10-08, step 6: Opus verifier (30 statements sampled, none lost): B1, `error.go`'s comment said every `REQUEST_*` code comes with no operation, false for `REQUEST_INVALID_PARAMS`; reworded. N1, `idempotencyKey` and `raw` are designed but not built: a register row. N2, the batching and provisioning rows regained their deferral reasons (text edits named here for step 7's register comparison, with the annotation-columns row reworded in step 6). Declared deviation accepted: non-comment Go edits outside doccheck were path strings in `adapters/mcp/mcp_test.go`, `Reason` literals (never published, `json:"-"`) and gofmt alignment in `error.go`; the schema is unchanged.

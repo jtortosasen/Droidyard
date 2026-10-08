@@ -183,7 +183,7 @@ Cheap to confirm on a machine with the SDK and JDK 17, before the fallback is re
 - How to present licence acceptance to an *agent* consumer — a human UI can show a
   dialog; an agent needs an explicit, auditable step. Candidate answer: **elicitation**
   when the client supports it, with an explicit capability call as the fallback (see
-  [`interfaces/mcp-features.md`](../interfaces/mcp-features.md)).
+  [`interfaces/mcp.md`](../interfaces/mcp.md) §Features beyond tools).
 - Whether to surface `sdkmanager --list` output verbatim or model it, for `sdk.packages`
   (the output is a formatted table, and parsing it is version-sensitive). What is
   *installed* is already answered by `package.xml`.

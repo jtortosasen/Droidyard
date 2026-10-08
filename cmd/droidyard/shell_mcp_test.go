@@ -15,7 +15,7 @@ import (
 // POLICY_SHELL_DISABLED, the nextStep naming the configuration file; with the shell
 // enabled for the bound root and the root trusted, it runs, and its result carries
 // _meta {"droidyard/untrusted": true} and opens with the one fixed line, since a command
-// prints whatever it likes (ADR-0015 §1; mcp-tool-surface.md §Untrusted data).
+// prints whatever it likes (ADR-0015 §1; mcp.md §Untrusted data).
 func TestShellExecOverMCP(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)

@@ -25,7 +25,7 @@ func Decodes() int64 { return decodes.Load() }
 // and size W, H (artifact.read's `region`, ADR-0012 §Reading artifacts).
 type Region struct{ X, Y, W, H float64 }
 
-// Inline delivery defaults for the MCP adapter (mcp-tool-surface.md §Images and
+// Inline delivery defaults for the MCP adapter (mcp.md §Images and
 // artifacts): the longest edge, its hard cap, the PNG size above which JPEG is used,
 // and the JPEG quality.
 const (
