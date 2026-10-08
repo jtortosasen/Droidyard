@@ -65,6 +65,7 @@ edits made before this rule and are not added to.
 | [0033](0033-emulator-launch-owned-until-serial.md) | An emulator launch is droidyard's until its serial is resolved | Accepted |
 | [0034](0034-device-calls-report-busy-crash-dialog.md) | Device calls report a busy app, an app crash and a system dialog | Accepted |
 | [0035](0035-reader-acts-fenced-by-peer-uid.md) | The reader acts: taps, keys and set-text, fenced by its peer's uid | Accepted |
+| [0036](0036-agent-surface-token-budget.md) | The agent surface's token budget | Accepted |
 
 ## Open decisions (not yet ADRs)
 

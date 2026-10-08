@@ -1,6 +1,7 @@
 # ADR-0020: Invocation contract — Start, Wait, Cancel, and explicit scope
 
 - Status: Accepted
+- Superseded in part by: ADR-0036 (§Adapter projections)
 - Date: 2026-09-29
 - Amended: 2026-09-29. What changed: `cancelled` carries an error, not a result; the
   queue bound for short calls; `WORKSPACE_NOT_OPEN`; the MCP operation view and
