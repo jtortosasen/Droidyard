@@ -15,6 +15,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/artifacts"
+	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/process"
@@ -129,8 +130,9 @@ func newHarness(t *testing.T) *harness {
 		Recorded: func(cmd *exec.Cmd, kind string) (Recorded, error) {
 			return sup.SpawnRecorded(cmd, process.Kind(kind))
 		},
-		Env:       os.Environ(),
-		Artifacts: arts,
+		ResolveDir: func(root, path string) (string, error) { return file.ResolveDir(h.env, root, path) },
+		Env:        os.Environ(),
+		Artifacts:  arts,
 	})
 	artifacts.Register(reg, arts)
 	ops.RegisterCapabilities()
@@ -738,4 +740,108 @@ func TestRunReplacesInvalidUTF8(t *testing.T) {
 	if res.Stdout != "\uFFFDok" {
 		t.Errorf("stdout = %q; want %q", res.Stdout, "\uFFFDok")
 	}
+}
+
+// --- cwd and env (plan m1p D1) ---------------------------------------------------
+
+// invokeP runs shell.exec with full parameters.
+func (h *harness) invokeP(t *testing.T, p Params) capability.Outcome {
+	t.Helper()
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.ops.Invoke(context.Background(), capability.Request{
+		Capability: "shell.exec", Workspace: testWS, Params: raw,
+	})
+	if err != nil {
+		t.Fatalf("shell.exec: %v", err)
+	}
+	return out
+}
+
+// TestCwdRunsInAnInnerDirectoryAndRefusesEscapes decides that cwd is a root-relative
+// directory resolved with the file resolver's rules: an inner directory is the working
+// directory; "..", a symlink that leaves the root, a missing path and a regular file are
+// REQUEST_INVALID_PARAMS naming cwd (not a FILE_* code) and nothing is spawned. A
+// symlink that stays inside the root is followed.
+func TestCwdRunsInAnInnerDirectoryAndRefusesEscapes(t *testing.T) {
+	h := newHarness(t)
+	h.enable(t)
+	if err := os.Mkdir(filepath.Join(h.root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.root, "plain"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := h.env.Canonical(t.TempDir())
+	if err := os.Symlink(outside, filepath.Join(h.root, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("app", filepath.Join(h.root, "inner")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, cwd := range []string{"app", "inner"} {
+		res := mustResult(t, h.invokeP(t, Params{Command: "pwd", Cwd: cwd}))
+		if got := strings.TrimSpace(res.Stdout); got != filepath.Join(h.root, "app") {
+			t.Errorf("cwd %q: pwd = %q, want %q", cwd, got, filepath.Join(h.root, "app"))
+		}
+	}
+	for _, cwd := range []string{"../x", "..", "leak", "leak/sub", "missing", "plain", outside} {
+		out := h.invokeP(t, Params{Command: "touch marker; touch " + outside + "/marker", Cwd: cwd})
+		e := mustFail(t, out, capability.ErrInvalidParams)
+		if !strings.Contains(e.Message, "cwd") {
+			t.Errorf("cwd %q: message %q does not name cwd", cwd, e.Message)
+		}
+		h.noMarker(t)
+		if _, err := os.Stat(filepath.Join(outside, "marker")); err == nil {
+			t.Fatalf("cwd %q: the command ran", cwd)
+		}
+	}
+}
+
+// TestEnvIsAppliedOverTheDaemonsAndBounded decides that env is set over the daemon's
+// environment (a name already there is replaced, the rest stay) and that a bad name, a
+// NUL in a value, 65 entries and more than 32 KiB are REQUEST_INVALID_PARAMS naming env
+// before anything runs.
+func TestEnvIsAppliedOverTheDaemonsAndBounded(t *testing.T) {
+	t.Setenv("DROIDYARD_TEST_KEEP", "kept")
+	t.Setenv("DROIDYARD_TEST_OVER", "old")
+	h := newHarness(t) // captures os.Environ() as the daemon's environment
+	h.enable(t)
+	res := mustResult(t, h.invokeP(t, Params{
+		Command: `echo "$FOO|$DROIDYARD_TEST_OVER|$DROIDYARD_TEST_KEEP"`,
+		Env:     map[string]string{"FOO": "bar", "DROIDYARD_TEST_OVER": "new"},
+	}))
+	if got := strings.TrimSpace(res.Stdout); got != "bar|new|kept" {
+		t.Errorf("env = %q, want bar|new|kept", got)
+	}
+
+	many := map[string]string{}
+	for i := 0; i < 65; i++ {
+		many["V"+strconv.Itoa(i)] = "x"
+	}
+	for name, env := range map[string]map[string]string{
+		"bad name":     {"1A": "x"},
+		"dash in name": {"A-B": "x"},
+		"empty name":   {"": "x"},
+		"NUL in value": {"A": "x\x00y"},
+		"65 entries":   many,
+		"over 32 KiB":  {"BIG": strings.Repeat("x", envMaxBytes)},
+	} {
+		out := h.invokeP(t, Params{Command: "touch marker", Env: env})
+		e := mustFail(t, out, capability.ErrInvalidParams)
+		if !strings.Contains(e.Message, "env") {
+			t.Errorf("%s: message %q does not name env", name, e.Message)
+		}
+		h.noMarker(t)
+	}
+	// 64 entries and exactly the byte bound are accepted.
+	ok := map[string]string{}
+	for i := 0; i < 64; i++ {
+		ok["V"+strconv.Itoa(i)] = "x"
+	}
+	mustResult(t, h.invokeP(t, Params{Command: "true", Env: ok}))
+	mustResult(t, h.invokeP(t, Params{Command: "true", Env: map[string]string{"B": strings.Repeat("x", envMaxBytes-1)}}))
 }

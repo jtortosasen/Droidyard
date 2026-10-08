@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,9 @@ const (
 	// process.ShellCommand's value). It is spelled here so this package imports no
 	// process; a test asserts the two agree.
 	shellCommandKind = "shell-command"
+
+	envMaxEntries = 64
+	envMaxBytes   = 32 << 10
 
 	commandMaxBytes  = 8192
 	timeoutMinMs     = 1000
@@ -59,7 +63,49 @@ func validate(p Params) *capability.Error {
 	case p.TimeoutMs != 0 && (p.TimeoutMs < timeoutMinMs || p.TimeoutMs > timeoutMaxMs):
 		return capability.Errorf(capability.ErrInvalidParams, "timeoutMs must be between %d and %d, got %d", timeoutMinMs, timeoutMaxMs, p.TimeoutMs)
 	}
+	return validateEnv(p.Env)
+}
+
+// validateEnv checks env: valid names, values without NUL, at most envMaxEntries entries
+// and envMaxBytes of names plus values (plan m1p D1).
+func validateEnv(env map[string]string) *capability.Error {
+	if len(env) > envMaxEntries {
+		return capability.Errorf(capability.ErrInvalidParams, "env has %d entries; the most is %d", len(env), envMaxEntries)
+	}
+	total := 0
+	for k, v := range env {
+		if !envName.MatchString(k) {
+			return capability.Errorf(capability.ErrInvalidParams, "env name %q must match [A-Za-z_][A-Za-z0-9_]*", k)
+		}
+		if strings.ContainsRune(v, '\x00') {
+			return capability.Errorf(capability.ErrInvalidParams, "env value of %q contains a NUL byte", k)
+		}
+		total += len(k) + len(v)
+	}
+	if total > envMaxBytes {
+		return capability.Errorf(capability.ErrInvalidParams, "env is %d bytes (names and values); the most is %d", total, envMaxBytes)
+	}
 	return nil
+}
+
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// mergeEnv applies env over base: an entry of base with a given name is replaced.
+func mergeEnv(base []string, env map[string]string) []string {
+	if len(env) == 0 {
+		return base
+	}
+	out := make([]string, 0, len(base)+len(env))
+	for _, kv := range base {
+		name, _, _ := strings.Cut(kv, "=")
+		if _, over := env[name]; !over {
+			out = append(out, kv)
+		}
+	}
+	for k, v := range env {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 // timeout is the effective timeout: the parameter, or 60000 ms when it is absent.
@@ -82,7 +128,7 @@ func run(ctx context.Context, opts Options, root string, p Params) (Result, erro
 	stdout, stderr := newCapture(), newCapture()
 	cmd := exec.Command("/bin/sh", "-c", p.Command)
 	cmd.Dir = root
-	cmd.Env = opts.Env
+	cmd.Env = mergeEnv(opts.Env, p.Env)
 	// Stdin nil is the null device (exec's default): a command that reads stdin sees EOF.
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.WaitDelay = waitDelay

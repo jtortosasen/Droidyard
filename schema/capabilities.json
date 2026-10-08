@@ -1,5 +1,5 @@
 {
-  "version": "0.11.0",
+  "version": "0.12.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -6863,6 +6863,17 @@
             "maximum": 600000,
             "minimum": 1000,
             "description": "How long the command may run, 1000 to 600000 milliseconds. Absent means 60000. A command still running at the timeout is killed and the result is completed with timedOut true and its partial output."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "The working directory, a path relative to the project root; it must be an existing directory inside the root once symlinks are resolved. Absent means the root. This is not a fence: the command can still reach anything the user can."
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "description": "Environment variables set over the daemon's own, at most 64 entries and 32 KiB in all; names match [A-Za-z_][A-Za-z0-9_]*, values have no NUL byte. This is not a fence: the shell already has the user's reach."
           }
         },
         "additionalProperties": false,
