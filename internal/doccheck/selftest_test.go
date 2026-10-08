@@ -470,3 +470,169 @@ func TestPlanChecksCatchDrift(t *testing.T) {
 		expect(t, checkPlansIndex(tr.fs()), plansIndex+":7", `"Approved"`, "Status: Done")
 	})
 }
+
+// frozenFixture holds the same drift, made by ref (given the prefix that reaches
+// docs/ from the file: "" or "../"), in every kind of file isFrozen knows, and in the
+// two kinds it does not: a plan that is not Done, and a live document.
+func frozenFixture(ref func(up string) string) tree {
+	plan := func(status string) string {
+		return "# Plan: x\n\n- Status: " + status + "\n- Date: 2026-10-08\n\n## Steps\n\n" + ref("../") + "\n"
+	}
+	return tree{
+		"docs/b.md":              "# B\n\n## Real section\n",
+		"docs/plans/done.md":     plan("Done"),
+		"docs/plans/approved.md": plan("Approved"),
+		"docs/research/note.md":  "# Note\n\n" + ref("../") + "\n",
+		"docs/reviews/review.md": "# Review\n\n" + ref("../") + "\n",
+		"docs/adr/0001-first.md": "# ADR-0001: First\n\n- Status: Accepted\n\n" + ref("../") + "\n",
+		"docs/live.md":           "# Live\n\n" + ref("") + "\n",
+	}
+}
+
+// TestFrozenFilesAreExempt shows the decision of D3 and what it does not exempt: the
+// same dead section reference and dead #fragment link pass in a Done plan, a research
+// note, a review and an ADR, and fail in an Approved plan and in a live document.
+func TestFrozenFilesAreExempt(t *testing.T) {
+	frozen := []string{"docs/plans/done.md", "docs/research/note.md", "docs/reviews/review.md", "docs/adr/0001-first.md"}
+	live := []string{"docs/plans/approved.md", "docs/live.md"}
+
+	cases := []struct {
+		name  string
+		ref   func(up string) string
+		check func(tree) []string
+		say   string
+	}{
+		{"section reference", func(up string) string { return "See [b](" + up + "b.md) §Nothing at all." }, func(tr tree) []string { return checkSectionRefs(tr.fs()) }, "§Nothing at all"},
+		{"fragment link", func(up string) string { return "See [b](" + up + "b.md#nothing)." }, func(tr tree) []string { return checkLinks(tr.fs()) }, "#nothing"},
+	}
+	for _, c := range cases {
+		problems := c.check(frozenFixture(c.ref))
+		for _, f := range frozen {
+			for _, p := range problems {
+				if strings.HasPrefix(p, f+":") {
+					t.Errorf("%s: the frozen file %s was reported: %s", c.name, f, p)
+				}
+			}
+		}
+		for _, f := range live {
+			expect(t, problems, f, c.say)
+		}
+	}
+
+	adrFile := "docs/adr/0001-first.md"
+	adrOnly := tree{adrFile: "# ADR-0001: First\n\n- Status: Accepted\n"}
+	t.Run("a bare dead section in a Go comment fails", func(t *testing.T) {
+		tr := adrOnly.with(t, "docs/b.md", "", "# B\n\n## Real section\n")
+		tr = tr.with(t, "internal/x/x.go", "", "package x\n\n// Cites docs/b.md §Nothing at all, and b.md §Real section.\n")
+		got := checkSectionRefs(tr.fs())
+		expect(t, got, "internal/x/x.go:3", "§Nothing at all")
+		if len(got) != 1 {
+			t.Errorf("only the dead section should be reported, got %v", got)
+		}
+	})
+	t.Run("a bare name resolved by its unique base name", func(t *testing.T) {
+		tr := adrOnly.with(t, "docs/sub/only.md", "", "# Only\n\n## Real section\n")
+		tr = tr.with(t, "internal/x/x.go", "", "package x\n\n// Cites only.md §Real section, and only.md §Gone section.\n")
+		got := checkSectionRefs(tr.fs())
+		expect(t, got, "internal/x/x.go:3", "§Gone section", "docs/sub/only.md")
+		if len(got) != 1 {
+			t.Errorf("only the dead section should be reported, got %v", got)
+		}
+	})
+	t.Run("a citation of a file that does not exist fails", func(t *testing.T) {
+		tr := adrOnly.with(t, "internal/x/gone.go", "", "package x\n\n// Cites gone.md §Anything.\n")
+		expect(t, checkSectionRefs(tr.fs()), "internal/x/gone.go:3", `"gone.md"`, "no file")
+	})
+	t.Run("a path to a file that does not exist fails", func(t *testing.T) {
+		tr := adrOnly.with(t, "internal/x/path.go", "", "package x\n\n// Cites docs/missing/gone.md §Anything.\n")
+		expect(t, checkSectionRefs(tr.fs()), "internal/x/path.go:3", "docs/missing/gone.md")
+	})
+	t.Run("an ambiguous bare name is not guessed", func(t *testing.T) {
+		tr := adrOnly.with(t, "docs/b.md", "", "# B\n\n## Real section\n")
+		tr = tr.with(t, "docs/other/b.md", "", "# Other B\n\n## Different\n")
+		tr = tr.with(t, "internal/x/x.go", "", "package x\n\n// Cites b.md §Whatever.\n")
+		expectClean(t, checkSectionRefs(tr.fs()))
+	})
+	t.Run("a citation wrapped over two comment lines", func(t *testing.T) {
+		tr := adrOnly.with(t, "docs/only.md", "", "# Only\n\n## Real section name\n")
+		tr = tr.with(t, "internal/x/x.go", "", "package x\n\n// Cites only.md §Real section\n// name for its rule.\n")
+		expectClean(t, checkSectionRefs(tr.fs()))
+	})
+}
+
+var registerFixture = tree{registerPath: `# Known limits
+
+Intro.
+
+| Item | Kind | Area | Source | Recorded | Closed by |
+| --- | --- | --- | --- | --- | --- |
+| One | limit | build | [x](x.md) | 1n | |
+| Two | deferred | build | [x](x.md) | design | 1p (step 2) |
+| Three | open question | CLI | [x](x.md) | 1d | |
+| Four | limit | device | [x](x.md) | 1e | |
+| Five | limit | device/UI | [x](x.md) | 1e | |
+| Six | limit | web UI | [x](x.md) | 1e | |
+`}
+
+func TestRegisterCheckCatchesDrift(t *testing.T) {
+	expectClean(t, checkRegister(registerFixture.fs()))
+
+	t.Run("a fifth Kind", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| One | limit |", "| One | risk |")
+		expect(t, checkRegister(tr.fs()), registerPath+":7", `Kind "risk"`)
+	})
+	t.Run("an unknown Area", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| Six | limit | web UI |", "| Six | limit | desktop |")
+		expect(t, checkRegister(tr.fs()), registerPath+":12", `Area "desktop"`)
+	})
+	t.Run("no Source link", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| One | limit | build | [x](x.md) |", "| One | limit | build | x.md |")
+		expect(t, checkRegister(tr.fs()), registerPath+":7", "Source", "no link")
+	})
+	t.Run("out of order by Area", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| Four | limit | device |", "| Four | limit | build |")
+		tr = tr.with(t, registerPath, "| Five | limit | device/UI |", "| Five | limit | CLI |")
+		expect(t, checkRegister(tr.fs()), registerPath+":10", "sorts later")
+	})
+	t.Run("out of order by Kind", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| One | limit | build |", "| One | deferred | build |")
+		tr = tr.with(t, registerPath, "| Two | deferred | build |", "| Two | limit | build |")
+		expect(t, checkRegister(tr.fs()), registerPath+":8", "sorts later")
+	})
+	t.Run("Recorded", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| [x](x.md) | 1n |", "| [x](x.md) | last week |")
+		expect(t, checkRegister(tr.fs()), registerPath+":7", `Recorded "last week"`)
+	})
+	t.Run("Closed by", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| 1p (step 2) |", "| fixed |")
+		expect(t, checkRegister(tr.fs()), registerPath+":8", `Closed by "fixed"`)
+	})
+	t.Run("a missing cell", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| One | limit | build | [x](x.md) | 1n | |", "| One | limit | build | [x](x.md) | 1n |")
+		expect(t, checkRegister(tr.fs()), registerPath+":7", "5 cells")
+	})
+	t.Run("the columns", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| Item | Kind | Area |", "| Item | Kind | Where |")
+		expect(t, checkRegister(tr.fs()), registerPath+":5", "columns")
+	})
+}
+
+func TestCorpusBudgetCatchesGrowth(t *testing.T) {
+	tr := tree{
+		"docs/a.md":                "# A\n\none two three\n",   // 5 words
+		"docs/adr/0001-x.md":       "many many many many many", // not live
+		"docs/plans/p.md":          "many many many many many", // not live
+		"docs/research/r.md":       "many many many many many", // not live
+		"docs/reviews/r.md":        "many many many many many", // not live
+		registerPath:               "many many many many many", // not live
+		"AGENTS.md":                "many many many many many", // outside docs/
+		"docs/vision/new-place.md": "four more words here",     // counted wherever it sits
+	}
+	n, problems := checkCorpusBudget(tr.fs(), 9)
+	if n != 9 {
+		t.Errorf("counted %d words; the live set holds 9 (a file moved to a new place still counts)", n)
+	}
+	expectClean(t, problems)
+	_, problems = checkCorpusBudget(tr.fs(), 8)
+	expect(t, problems, "9 words", "budget is 8", "Cut 1 words")
+}

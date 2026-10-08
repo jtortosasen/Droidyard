@@ -24,8 +24,8 @@ var (
 
 	// A section reference is "§Title" or "§N" right after something that names a
 	// file: a link, "ADR-NNNN", a path in backticks, or a bare path with a directory,
-	// as Go comments write it.
-	refAnchorRE  = regexp.MustCompile(`(\[[^\]]*\]\(([^)\s]+)\)|ADR-(\d{4})|` + "`([^`\\s]+\\.md)`" + `|((?:[\w.-]+/)+[\w.-]+\.md))[ \t]*§`)
+	// as Go comments write it, or a bare file name.
+	refAnchorRE  = regexp.MustCompile(`(\[[^\]]*\]\(([^)\s]+)\)|ADR-(\d{4})|` + "`([^`\\s]+\\.md)`" + `|((?:[\w.-]+/)*[\w.-]+\.md))[ \t]*§`)
 	adrMention   = regexp.MustCompile(`\bADR-(\d{4})\b`)
 	numberedRef  = regexp.MustCompile(`^\d+(?:\.\d+)*`)
 	boldLabel    = regexp.MustCompile(`^\s*(?:[-*+]\s+|\d+\.\s+)?\*\*(.+?)\*\*`)
@@ -53,8 +53,11 @@ func TestRelativeLinksResolve(t *testing.T) {
 // cannot tell a right section from a wrong one that exists: that stays with the
 // verifier.
 //
-// docs/reviews/ is skipped: those are closed records whose citations describe the
-// documents as they were when the review ran.
+// A cited .md that resolves to no file is reported too, in any form (a bare name
+// written as a file name alone, a path, a backticked path), unless the name is ambiguous
+// (several files share the base name).
+//
+// Frozen files (isFrozen) are skipped: they cite documents as they were.
 func TestSectionReferencesResolve(t *testing.T) {
 	report(t, checkSectionRefs(repo()))
 }
@@ -68,6 +71,27 @@ func TestADRMentionsExist(t *testing.T) {
 // maskCode blanks inline code spans, so a link written as code is not read as a link.
 func maskCode(l string) string {
 	return codeSpanRE.ReplaceAllStringFunc(l, func(s string) string { return strings.Repeat(" ", len(s)) })
+}
+
+// isFrozen reports whether a file is a record or history: a plan whose Status is
+// Done, anything under docs/research/ or docs/reviews/, and an ADR. Frozen files are
+// not edited after the fact, so their section references and #fragment links, which
+// describe documents as they were, are not checked (AGENTS.md §Where each fact lives).
+func isFrozen(fsys fs.FS, p string) bool {
+	switch {
+	case strings.HasPrefix(p, "docs/research/"), strings.HasPrefix(p, "docs/reviews/"):
+		return true
+	case path.Dir(p) == adrDir:
+		return adrFile.MatchString(path.Base(p))
+	case path.Dir(p) == plansDir && path.Base(p) != "README.md" && strings.HasSuffix(p, ".md"):
+		d, err := readDoc(fsys, p)
+		if err != nil {
+			return false
+		}
+		st := headerField(d, "Status")
+		return len(st) == 1 && st[0] == "Done"
+	}
+	return false
 }
 
 func checkLinks(fsys fs.FS) []string {
@@ -93,6 +117,7 @@ func checkLinks(fsys fs.FS) []string {
 		if d == nil {
 			continue
 		}
+		frozen := isFrozen(fsys, f)
 		for i, l := range d.lines {
 			if d.inFence[i] {
 				continue
@@ -127,7 +152,7 @@ func checkLinks(fsys fs.FS) []string {
 					}
 					dest = p
 				}
-				if frag == "" || !strings.HasSuffix(dest, ".md") {
+				if frag == "" || frozen || !strings.HasSuffix(dest, ".md") {
 					continue
 				}
 				td := load(dest)
@@ -235,7 +260,7 @@ func refText(text string, i int) (string, int) {
 		}
 		c := text[i]
 		switch c {
-		case ')', ',', ';', '|', ':', '"', '(', '*':
+		case ')', ']', ',', ';', '|', ':', '"', '(', '*':
 			return b.String(), i
 		case '.':
 			if i+1 == len(text) || text[i+1] == ' ' || text[i+1] == '\n' {
@@ -317,7 +342,7 @@ func checkSectionRefs(fsys fs.FS) []string {
 
 	var problems []string
 	for _, f := range append(mdFiles, srcs...) {
-		if strings.HasPrefix(f, "docs/reviews/") {
+		if isFrozen(fsys, f) {
 			continue
 		}
 		d, err := readDoc(fsys, f)
@@ -327,7 +352,7 @@ func checkSectionRefs(fsys fs.FS) []string {
 		}
 		text := strings.Join(proseLines(f, d), "\n")
 		for _, m := range refAnchorRE.FindAllStringSubmatchIndex(text, -1) {
-			var dest string
+			var dest, named string // named: a .md cited by name that must exist
 			switch {
 			case m[4] >= 0: // a link
 				link := text[m[4]:m[5]]
@@ -346,13 +371,30 @@ func checkSectionRefs(fsys fs.FS) []string {
 					dest = adrDir + "/" + files[0]
 				}
 			case m[8] >= 0: // `path.md`
-				dest, _ = resolveFileRef(fsys, f, text[m[8]:m[9]], byBase)
-			case m[10] >= 0: // path/to/file.md
-				dest, _ = resolveFileRef(fsys, f, text[m[10]:m[11]], byBase)
+				named = text[m[8]:m[9]]
+				if strings.ContainsAny(named, "…<>") {
+					continue
+				}
+				dest, _ = resolveFileRef(fsys, f, named, byBase)
+			case m[10] >= 0: // path/to/file.md, or a bare name
+				named = text[m[10]:m[11]]
+				// inside a code span that goes on after the name (a pattern that
+				// shows the form of a citation), or a placeholder: not a citation
+				if (m[10] > 0 && text[m[10]-1] == '`') || strings.ContainsAny(named, "…<>") {
+					continue
+				}
+				dest, _ = resolveFileRef(fsys, f, named, byBase)
 			}
 			if dest == "" {
-				// A missing file is the link check's and the ADR-mention check's
-				// finding; a path that does not resolve uniquely is not checked.
+				// A missing link target is the link check's finding and a missing
+				// ADR the mention check's. A file cited by name that exists nowhere
+				// is reported here; a bare name shared by several files is ambiguous
+				// and not checked.
+				if named != "" && len(byBase[path.Base(named)]) == 0 {
+					line := strings.Count(text[:m[0]], "\n")
+					problems = append(problems, fmt.Sprintf("%s:%d: %s §…: no file %q exists. Cite the file that holds the section, or drop the citation",
+						f, lineNo(line), clip(strings.TrimSpace(text[m[0]:m[1]]), 60), named))
+				}
 				continue
 			}
 			t := targetFor(dest)
@@ -417,7 +459,7 @@ func proseLines(f string, d *doc) []string {
 		start := fset.Position(pos).Line - 1
 		for k, l := range strings.Split(lit, "\n") {
 			if start+k < len(out) {
-				out[start+k] = l
+				out[start+k] = commentText(l)
 			}
 		}
 	}
@@ -463,4 +505,14 @@ func checkADRMentions(fsys fs.FS) []string {
 		}
 	}
 	return problems
+}
+
+// commentText drops a Go comment line's marker, so that a citation that wraps onto
+// the next comment line reads as one run of words.
+func commentText(l string) string {
+	t := strings.TrimLeft(l, " \t")
+	if strings.HasPrefix(t, "//") {
+		return strings.TrimPrefix(t[2:], " ")
+	}
+	return l
 }
