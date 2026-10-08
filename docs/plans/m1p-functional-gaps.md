@@ -42,8 +42,8 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 
 ## Acceptance
 
-- [ ] A1. On `android7` under the hatch: `project.modules`, `project.variants`, `build.tasks` and `build.assemble` (with `outputs[]` and an installable APK) complete with `profile: conservative`, `validation: unsupported`, and the probe's facts are returned; whatever cannot work fails with a typed error naming the Gradle version and the hatch, never a raw failure. Source: plan m1k A7; ADR-0018 rule 3. Proven by: step 1.
-- [ ] A2. Through the daemon, against a real Gradle build: a cancel landing before `{accepted}` ends `cancelled` with no build record; one during the build ends `cancelled` with a record whose outcome is `cancelled`; no build of it is still running after either. Source: plan m1g A4. Proven by: step 2.
+- [ ] A1. (Deferred by the owner, 2026-10-08; see Changes.) On `android7` under the hatch: `project.modules`, `project.variants`, `build.tasks` and `build.assemble` (with `outputs[]` and an installable APK) complete with `profile: conservative`, `validation: unsupported`, and the probe's facts are returned; whatever cannot work fails with a typed error naming the Gradle version and the hatch, never a raw failure. Source: plan m1k A7; ADR-0018 rule 3. Proven by: step 1.
+- [x] A2. Through the daemon, against a real Gradle build: a cancel landing before `{accepted}` ends `cancelled` with no build record; one during the build ends `cancelled` with a record whose outcome is `cancelled`; no build of it is still running after either. Source: plan m1g A4. Proven by: step 2.
 - [ ] A3. After the scratch adb server on port 5199 is restarted, the next read recreates the reader's forward and succeeds; the 5037 server keeps its pid. Source: plan m1f A2; ADR-0030 §Decision. Proven by: step 3.
 - [ ] A4. On `Pixel_9a` (API 36.1) the `logcat` layout with the uid column is recorded and `device.logs {applicationId}` keeps only that app's lines by uid. Source: plan m1i A1 (D5). Proven by: step 4.
 - [ ] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
@@ -76,7 +76,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: cancelling a `build.run` with arbitrary tasks (the same path).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestCancelPhaseIsLogged` (before-accepted, running, begin-build for `build.run` and `build.assemble`; seen failing by swapped labels and by the unlogged assemble path) and `TestCloseReachesAnIdleSidecarSoTheRootReopens` (seen failing on the old check). Level 4 on the golden copy, a built daemon in `/tmp/dyp2`: four cancels right after `workspace.close` and reopen, four at 200 ms and four at 2 s after a source edit: nine ended `cancelled` (seven `begin-build`, one `before-accepted`, one `running`), three finished before their 2 s cancel; the `running` one has a record with outcome `cancelled`, the `before-accepted` one left a console without a record that the next open swept; `build.lastResult` names the following completed build; that build completed.
 
 ### 3. The reader's forward after an adb server restart
 
@@ -220,3 +220,6 @@ Two rounds ran (round 1: B1–B4; round 2: B1–B3, all in reconcile's adb query
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-08, owner: Gradle 7.x support is not wanted for now; step 1 is dropped from this milestone and A1 stays open (the register's Gradle 7.x row says so). A first implementer run was stopped and its partial fixture discarded; nothing of it is in the tree.
+- 2026-10-08, step 2: the first level-4 run found that a closed and reopened workspace could not build again until the daemon restarted (`connection.open failed: root is already open`): `gradle.Client.Close` spoke to the sidecar only in state `ready`, and after any call it is `idle`, so the close never reached it. Fixed (`running` covers ready, busy and idle); the fake sidecar now refuses a second open of a root, as the real one does, which is what hid it. The same run showed `build.assemble` fetching the model outside D3's logged path; it now shares `projectModel` with `build.run`.

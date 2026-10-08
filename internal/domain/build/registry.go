@@ -342,6 +342,15 @@ func (r *Registry) Sweep(wsid string) {
 	}
 }
 
+// logCancel writes the one line that says which phase a build cancel landed in. Nil-safe:
+// a schema-only registry logs nothing.
+func (r *Registry) logCancel(buildID, phase string) {
+	if r == nil || r.log == nil {
+		return
+	}
+	fmt.Fprintf(r.log, "droidyard: build %s: cancel landed %s\n", buildID, phase)
+}
+
 // hasRecord reports whether the record file for a build exists. A record is written
 // before its index entry, so a build that finished while this sweep ran has a record
 // the index does not name yet — and its console, which no index entry claims, is still

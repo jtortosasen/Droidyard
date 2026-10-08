@@ -340,6 +340,12 @@ func (s *sidecar) serve(line string, held *int) {
 	case "ping":
 		s.writeResult(req.ID, map[string]any{})
 	case "connection.open":
+		// The real sidecar refuses a root it already holds open (Session.kt
+		// openConnection); a fake that did not hid a close that never reached it.
+		if s.isOpen(rp.Root) {
+			s.writeError(req.ID, -32000, "root is already open: "+rp.Root)
+			return
+		}
 		s.setOpen(rp.Root, true)
 		s.writeResult(req.ID, map[string]any{
 			"gradleVersion":  s.cfg.GradleVersion,

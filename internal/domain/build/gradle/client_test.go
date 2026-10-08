@@ -183,6 +183,34 @@ func codeOf(t *testing.T, err error) capability.ErrorCode {
 
 // TestModelSpawnsOnceAndSharesOneProcessAcrossRoots pins ADR-0019: one sidecar per
 // daemon serves every root, so the second root makes no second process.
+// Decision (gradle.md §Protocol; plan m1p step 2's level-4 run): a closing workspace
+// closes its root's connection on the sidecar whenever the sidecar runs, idle included,
+// so the root can be opened again. Before the fix Close spoke only to a "ready" sidecar;
+// after any call it is "idle", so the close never reached it and every later open
+// failed "root is already open" until the daemon restarted. Seen failing on that code.
+func TestCloseReachesAnIdleSidecarSoTheRootReopens(t *testing.T) {
+	c, sup, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
+	ctx := context.Background()
+	root := rootDir(t)
+	if _, _, err := c.Model(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	if st := sup.State(gradle.ID, process.Global); st != process.Idle {
+		t.Fatalf("after a model call the sidecar is %q; this test needs it idle", st)
+	}
+	c.Close(ctx, root)
+	closed := false
+	for _, e := range events(t, ev) {
+		closed = closed || e == "served connection.close"
+	}
+	if !closed {
+		t.Fatalf("Close did not reach the idle sidecar; events: %q", events(t, ev))
+	}
+	if _, _, err := c.Model(ctx, root); err != nil {
+		t.Fatalf("the root does not reopen after a close: %v", err)
+	}
+}
+
 func TestModelSpawnsOnceAndSharesOneProcessAcrossRoots(t *testing.T) {
 	c, sup, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
 	ctx := context.Background()

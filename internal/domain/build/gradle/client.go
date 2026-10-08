@@ -296,8 +296,9 @@ func (c *Client) Close(ctx context.Context, canonical string) {
 	}
 	defer r.unlock()
 	// A sidecar that is not running has no connection to close: never start one for
-	// this (step 5 review B1).
-	if c.opts.Supervisor == nil || c.opts.Supervisor.State(ID, process.Global) != process.Ready ||
+	// this (step 5 review B1). Running is ready, busy or idle: after any call the sidecar
+	// is idle, and a close that skipped it left the root open there (plan m1p step 2).
+	if c.opts.Supervisor == nil || !running(c.opts.Supervisor.State(ID, process.Global)) ||
 		!r.isOpen(c.opts.Supervisor.Pid(ID, process.Global)) {
 		r.clearConn()
 		return
@@ -309,6 +310,11 @@ func (c *Client) Close(ctx context.Context, canonical string) {
 	defer lease.Release()
 	_, _ = c.call(ctx, lease, "connection.close", map[string]any{"root": canonical})
 	r.clearConn()
+}
+
+// running reports whether a supervised process state is one with a live process.
+func running(s process.State) bool {
+	return s == process.Ready || s == process.Busy || s == process.Idle
 }
 
 func (c *Client) root(canonical string) *root {

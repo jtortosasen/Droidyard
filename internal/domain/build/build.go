@@ -23,6 +23,15 @@ import (
 // operation ends cancelled whatever the handler returns).
 const cancelWait = 10 * time.Second
 
+// The phases a build cancel lands in, logged once per cancel so a level-5 run can tell
+// which path it took (plan m1p D3): the build had not begun (no console record, nothing
+// on the sidecar), the sidecar had not answered {accepted}, or the build was running.
+const (
+	phaseBeginBuild     = "begin-build"
+	phaseBeforeAccepted = "before-accepted"
+	phaseRunning        = "running"
+)
+
 // taskPattern is R6: what a build.run task may look like. It accepts a bare name and a
 // full path, and no leading "-", so nothing an agent sends is read as a Gradle option.
 var taskPattern = regexp.MustCompile(`^:?[A-Za-z0-9_][A-Za-z0-9_:.-]*$`)
@@ -140,8 +149,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 			"Everything build.run says of the record, the console, cancel and persistence applies here too.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(AssembleParams)
-			root := call.Authorized.(string)
-			model, _, err := o.Client.Model(ctx, root)
+			model, err := projectModel(ctx, call, o)
 			if err != nil {
 				return nil, err
 			}
@@ -210,12 +218,21 @@ func registerBuilds(reg *capability.Registry, o Options) {
 // fetched first (the output search needs the modules' build directories, and a model
 // fetch during the build would queue behind it), then the build runs.
 func dispatch(ctx context.Context, call *capability.Call, o Options, req Request) (any, error) {
-	root := call.Authorized.(string)
-	model, _, err := o.Client.Model(ctx, root)
+	model, err := projectModel(ctx, call, o)
 	if err != nil {
 		return nil, err
 	}
 	return dispatchModel(ctx, call, o, req, model)
+}
+
+// projectModel is a build's first step, the project model of the call's root; a cancel
+// that ends it is logged as landing before the build began (plan m1p D3).
+func projectModel(ctx context.Context, call *capability.Call, o Options) (gradle.Model, error) {
+	model, _, err := o.Client.Model(ctx, call.Authorized.(string))
+	if err != nil && ctx.Err() != nil {
+		o.History.logCancel(call.OperationID, phaseBeginBuild)
+	}
+	return model, err
 }
 
 func dispatchModel(ctx context.Context, call *capability.Call, o Options, req Request, model gradle.Model) (any, error) {
@@ -248,6 +265,9 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 
 	br, err := client.BeginBuild(ctx, root)
 	if err != nil {
+		if ctx.Err() != nil {
+			r.logCancel(buildID, phaseBeginBuild)
+		}
 		return Result{}, err
 	}
 	defer br.Close()
@@ -265,6 +285,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	started := r.now()
 	if err := br.Run(ctx, buildID, req.Tasks, sink); err != nil {
 		if ctx.Err() != nil {
+			r.logCancel(buildID, phaseBeforeAccepted)
 			// Cancelled before the sidecar answered {accepted}: the build.run may still
 			// be queued there, so send the cancel anyway; the sidecar keeps a cancel for
 			// a build it has not started, and that build then starts cancelled (step 7
@@ -285,6 +306,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		return Result{}, br.Crash()
 	}
 	if cancelled {
+		r.logCancel(buildID, phaseRunning)
 		// The operation was cancelled: ask the sidecar to cancel the build and give it
 		// a bounded moment to end it, so the record can say what had finished. The
 		// operation ends cancelled whatever the build reports, because its ctx is

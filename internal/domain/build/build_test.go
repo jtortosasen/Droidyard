@@ -38,6 +38,26 @@ func (l testLog) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// captureLog is the build registry's log, kept so a test can read what the daemon logged.
+type captureLog struct {
+	t  *testing.T
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *captureLog) Write(p []byte) (int, error) {
+	l.t.Log(strings.TrimSpace(string(p)))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *captureLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // recorder is the daemon's bus, as far as these tests need it: it keeps every
 // operation.progress payload, so a test can assert what the build reported (D21).
 type recorder struct {
@@ -75,6 +95,7 @@ type buildFixture struct {
 	ops     *capability.Operations
 	pub     *recorder
 	client  *gradle.Client
+	log     *captureLog
 }
 
 // admitWS admits testWS and nothing else, the way the workspace registry admits an open
@@ -118,7 +139,8 @@ func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor po
 	if err != nil {
 		t.Fatal(err)
 	}
-	history := NewRegistry(RegistryOptions{Store: st, Artifacts: arts, Log: testLog{t}})
+	capLog := &captureLog{t: t}
+	history := NewRegistry(RegistryOptions{Store: st, Artifacts: arts, Log: capLog})
 
 	procStore, err := store.New(filepath.Join(state, "proc"))
 	if err != nil {
@@ -149,7 +171,7 @@ func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor po
 		},
 	})
 	ops.RegisterCapabilities()
-	return &buildFixture{t: t, state: state, root: root, st: st, arts: arts, history: history, ops: ops, pub: pub, client: client}
+	return &buildFixture{t: t, state: state, root: root, st: st, arts: arts, history: history, ops: ops, pub: pub, client: client, log: capLog}
 }
 
 // testModel is the project model the fake serves: one :app module with the two tasks a
@@ -974,5 +996,107 @@ func TestBuildErrorsRefusesABuildIDThatIsNotAnOperationID(t *testing.T) {
 		if out.Error == nil || out.Error.Code != capability.ErrBuildNotFound {
 			t.Errorf("%q: %+v, want BUILD_NOT_FOUND", id, out.Error)
 		}
+	}
+}
+
+// Decision (plan m1p D3, ADR-0020): the daemon logs, once per cancel, the phase the cancel
+// landed in, so a level-5 run can tell which path it took. begin-build: the build had not
+// got the root's lock and the sidecar; before-accepted: build.run sent, {accepted} not
+// answered; running: the build ran. Seen failing when two labels were swapped.
+func TestCancelPhaseIsLogged(t *testing.T) {
+	phaseLines := func(f *buildFixture, id string) []string {
+		var out []string
+		for _, l := range strings.Split(f.log.String(), "\n") {
+			if strings.Contains(l, "build "+id+":") && strings.Contains(l, "cancel landed") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	want := func(t *testing.T, f *buildFixture, id, phase string) {
+		t.Helper()
+		// The operation ends cancelled as soon as its context is, possibly before the
+		// handler has logged: wait for the line.
+		deadline := time.Now().Add(10 * time.Second)
+		for len(phaseLines(f, id)) == 0 && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		got := phaseLines(f, id)
+		line := "droidyard: build " + id + ": cancel landed " + phase
+		if len(got) != 1 || got[0] != line {
+			t.Fatalf("cancel log lines for %s are %q, want exactly %q", id, got, line)
+		}
+	}
+
+	t.Run("before-accepted", func(t *testing.T) {
+		evPath := filepath.Join(t.TempDir(), "events")
+		f := newFixture(t, gradletest.Config{Events: evPath, Build: &gradletest.Build{AcceptDelayMs: 1500, WaitForCancel: true}})
+		id := f.start(t, "build.run", `{"tasks":[":app:assembleDebug"]}`)
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			data, _ := os.ReadFile(evPath)
+			if strings.Contains(string(data), "served build.run") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("build.run never reached the fake")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err := f.ops.Cancel(id); err != nil {
+			t.Fatal(err)
+		}
+		if out := f.wait(t, id); out.State != capability.StateCancelled {
+			t.Fatalf("operation ended %s, want cancelled", out.State)
+		}
+		want(t, f, id, "before-accepted")
+	})
+
+	t.Run("running", func(t *testing.T) {
+		f := newFixture(t, gradletest.Config{Build: &gradletest.Build{
+			WaitForCancel: true,
+			Steps:         []gradletest.Step{{Kind: "progress", Counts: &gradle.TaskSummary{}, ActiveTask: ":app:compileDebugKotlin"}},
+		}})
+		id := f.start(t, "build.run", `{"tasks":[":app:assembleDebug"]}`)
+		waitForProgress(t, f)
+		if err := f.ops.Cancel(id); err != nil {
+			t.Fatal(err)
+		}
+		if out := f.wait(t, id); out.State != capability.StateCancelled {
+			t.Fatalf("operation ended %s, want cancelled", out.State)
+		}
+		want(t, f, id, "running")
+	})
+
+	// build.assemble fetches the model itself, before dispatching: the same phase.
+	for _, c := range []struct{ capability, params string }{
+		{"build.run", `{"tasks":[":app:assembleDebug"]}`},
+		{"build.assemble", `{"module":":app","variant":"debug"}`},
+	} {
+		t.Run("begin-build/"+c.capability, func(t *testing.T) {
+			// A cold sidecar whose connection never opens: the build is still fetching the
+			// project model, so it has not begun when the cancel arrives.
+			evPath := filepath.Join(t.TempDir(), "events")
+			f := newFixture(t, gradletest.Config{Events: evPath, HoldOn: "connection.open", Build: &gradletest.Build{WaitForCancel: true}})
+			id := f.start(t, c.capability, c.params)
+			deadline := time.Now().Add(20 * time.Second)
+			for {
+				data, _ := os.ReadFile(evPath)
+				if strings.Contains(string(data), "served connection.open") {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("connection.open never reached the fake")
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if err := f.ops.Cancel(id); err != nil {
+				t.Fatal(err)
+			}
+			if out := f.wait(t, id); out.State != capability.StateCancelled {
+				t.Fatalf("operation ended %s, want cancelled", out.State)
+			}
+			want(t, f, id, "begin-build")
+		})
 	}
 }
