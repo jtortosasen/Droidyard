@@ -2,13 +2,16 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
+	"github.com/jtortosasen/droidyard/internal/schema"
 )
 
 // device.logs' snapshot (plan m1i step 2, check (a)): the fake over step 1's recordings,
@@ -603,5 +606,275 @@ func TestLogsAppNotInstalledAttributesNothing(t *testing.T) {
 	}
 	if !warned {
 		t.Errorf("warnings = %v, want one saying the app is not installed", r.Warnings)
+	}
+}
+
+// goldenCrashLog is the fake's <serial>.log holding dy3's recorded golden-app crash
+// (testdata/logcat/golden-crash-dy3.txt) in the crash buffer.
+func goldenCrashLog(t *testing.T) string {
+	t.Helper()
+	return string(recording(t, "golden-crash-dy3.txt"))
+}
+
+// Decision (plan m1o step 4; ADR-0036 Decision 3): a crashes[] entry carries the crash's
+// top stack frames, the app's own first, next to the headline fields, which keep their
+// values. dy3's recorded golden crash is the ground truth: the app's frame
+// GoldenListScreen.kt:62 is the first of at most five, and exception and message are what
+// they were before the fields existed.
+func TestCrashEntryCarriesCausesAndFrames(t *testing.T) {
+	f := logsFixture(t, map[string]string{
+		uiSerial + ".log":    goldenCrashLog(t),
+		uiSerial + ".pm.out": "package:dev.droidyard.golden uid:10146\n",
+	})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","applicationId":"dev.droidyard.golden"}`))
+	if len(r.Crashes) != 1 {
+		t.Fatalf("%d crashes, want dy3's one: %+v", len(r.Crashes), r.Crashes)
+	}
+	c := r.Crashes[0]
+	if c.PID != 2934 || c.Exception != "java.lang.IllegalStateException" || c.Message != "golden app crash" || c.Time != "2026-10-07T14:35:43.706519Z" {
+		t.Errorf("the headline fields changed: %+v", c)
+	}
+	if len(c.Frames) != crashFramesMax {
+		t.Fatalf("%d frames, want %d: %q", len(c.Frames), crashFramesMax, c.Frames)
+	}
+	if !strings.Contains(c.Frames[0], "GoldenListScreen.kt:62") || !strings.HasPrefix(c.Frames[0], "dev.droidyard.golden.") {
+		t.Errorf("frames[0] = %q, want the app's GoldenListScreen.kt:62 frame first", c.Frames[0])
+	}
+	for _, fr := range c.Frames {
+		if strings.HasPrefix(fr, "\tat ") || strings.HasPrefix(fr, "at ") {
+			t.Errorf("frame %q keeps the log's \"at\" prefix", fr)
+		}
+	}
+	if len(c.Causes) != 0 {
+		t.Errorf("causes = %q, want none: dy3's block has no Caused by line", c.Causes)
+	}
+}
+
+// Decision (plan m1o step 4): causes is the block's "Caused by:" chain in order, each the
+// exception class and message as logcat printed them without the prefix; a "... N more"
+// elision and a "Suppressed:" line are not causes; and the chain is bounded like frames.
+// The block is constructed (no recording has a Caused by), in the format of the recorded
+// ones.
+func TestCrashEntryCausesAreTheCausedByChain(t *testing.T) {
+	line := func(msg string) string {
+		return "         1791337500.000000 10146  4000  4000 E AndroidRuntime: " + msg
+	}
+	block := []string{
+		"--------- beginning of crash",
+		line("FATAL EXCEPTION: main"),
+		line("Process: " + appID + ", PID: 4000"),
+		line("java.lang.RuntimeException: Unable to start activity"),
+		line("\tat android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3449)"),
+		line("Caused by: java.lang.IllegalStateException: no network"),
+		line("\tat dev.droidyard.flavoured.Repo.load(Repo.kt:12)"),
+		line("\t... 11 more"),
+		line("\tSuppressed: java.lang.Exception: ignored"),
+		line("Caused by: java.io.IOException: disk full"),
+	}
+	for i := 0; i < 6; i++ {
+		block = append(block, line(fmt.Sprintf("Caused by: e%d.Cause: n%d", i, i)))
+	}
+	f := logsFixture(t, map[string]string{
+		uiSerial + ".log":    strings.Join(block, "\n") + "\n",
+		uiSerial + ".pm.out": "package:" + appID + " uid:10146\n",
+	})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","applicationId":"`+appID+`"}`))
+	if len(r.Crashes) != 1 {
+		t.Fatalf("%d crashes, want one: %+v", len(r.Crashes), r.Crashes)
+	}
+	c := r.Crashes[0]
+	if c.Exception != "java.lang.RuntimeException" || c.Message != "Unable to start activity" {
+		t.Errorf("the headline fields changed: %+v", c)
+	}
+	want := []string{
+		"java.lang.IllegalStateException: no network",
+		"java.io.IOException: disk full",
+		"e0.Cause: n0", "e1.Cause: n1", "e2.Cause: n2",
+	}
+	if !slices.Equal(c.Causes, want) {
+		t.Errorf("causes = %q, want the first %d of the chain, in order, without the prefix: %q", c.Causes, crashCausesMax, want)
+	}
+	// Frames are every "at" line of the block, whichever exception it belongs to, the
+	// app's own first and the top of the stack after it. appID's suffix is not the code
+	// package (dev.droidyard.flavoured), so a frame is the app's by exclusion of platform
+	// prefixes, not by the applicationId.
+	wantFrames := []string{
+		"dev.droidyard.flavoured.Repo.load(Repo.kt:12)",
+		"android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3449)",
+	}
+	if !slices.Equal(c.Frames, wantFrames) {
+		t.Errorf("frames = %q, want %q", c.Frames, wantFrames)
+	}
+}
+
+// Decision (plan m1o step 4, fix round B1): the onCreate shape. The top exception holds
+// seven framework frames and the app's own sit only under "Caused by:"; frames lead with
+// the app's two, in stack order, and fill the other three from the top of the stack, so the
+// entry carries an app location instead of five framework lines. A platform class is the
+// app's frame never, and a library the app ships (not a platform prefix) is. Seen failing
+// with the old extractor (the first five "at" lines).
+func TestCrashEntryFramesLeadWithTheAppsOwn(t *testing.T) {
+	line := func(msg string) string {
+		return "         1791337500.000000 10146  4000  4000 E AndroidRuntime: " + msg
+	}
+	block := []string{
+		"--------- beginning of crash",
+		line("FATAL EXCEPTION: main"),
+		line("Process: " + appID + ", PID: 4000"),
+		line("java.lang.RuntimeException: Unable to start activity ComponentInfo{x/y}"),
+		line("\tat android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3449)"),
+		line("\tat android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3601)"),
+		line("\tat android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:85)"),
+		line("\tat android.app.ActivityThread$H.handleMessage(ActivityThread.java:2066)"),
+		line("\tat android.os.Handler.dispatchMessage(Handler.java:106)"),
+		line("\tat android.os.Looper.loop(Looper.java:223)"),
+		line("\tat com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1003)"),
+		line("Caused by: java.lang.IllegalStateException: no network"),
+		line("\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)"),
+		line("\tat dev.droidyard.flavoured.Repo.load(Repo.kt:12)"),
+		line("\tat com.squareup.okhttp3.RealCall.execute(RealCall.kt:30)"),
+		line("\tat dev.droidyard.flavoured.MainActivity.onCreate(MainActivity.kt:30)"),
+	}
+	f := logsFixture(t, map[string]string{
+		uiSerial + ".log":    strings.Join(block, "\n") + "\n",
+		uiSerial + ".pm.out": "package:" + appID + " uid:10146\n",
+	})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","applicationId":"`+appID+`"}`))
+	if len(r.Crashes) != 1 {
+		t.Fatalf("%d crashes, want one: %+v", len(r.Crashes), r.Crashes)
+	}
+	want := []string{
+		"dev.droidyard.flavoured.Repo.load(Repo.kt:12)",
+		"com.squareup.okhttp3.RealCall.execute(RealCall.kt:30)",
+		"dev.droidyard.flavoured.MainActivity.onCreate(MainActivity.kt:30)",
+		"android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3449)",
+		"android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3601)",
+	}
+	if got := r.Crashes[0].Frames; !slices.Equal(got, want) {
+		t.Errorf("frames = %q, want %q", got, want)
+	}
+}
+
+// Decision (plan m1o step 4, fix round nit): only a line that begins with "Caused by: " is
+// a cause. A "Caused by:" nested under a "Suppressed:" exception is printed indented
+// (tab-prefixed) and belongs to the suppressed one; a substring match would take it for
+// the crash's own cause. Seen failing with strings.Contains in place of HasPrefix.
+func TestCrashEntryCauseIndentedUnderSuppressedIsNotACause(t *testing.T) {
+	line := func(msg string) string {
+		return "         1791337500.000000 10146  4000  4000 E AndroidRuntime: " + msg
+	}
+	block := []string{
+		"--------- beginning of crash",
+		line("FATAL EXCEPTION: main"),
+		line("Process: " + appID + ", PID: 4000"),
+		line("java.lang.IllegalStateException: top"),
+		line("\tat dev.droidyard.flavoured.Repo.load(Repo.kt:12)"),
+		line("\tSuppressed: java.lang.Exception: ignored"),
+		line("\t\tat dev.droidyard.flavoured.Cleanup.run(Cleanup.kt:5)"),
+		line("\tCaused by: java.lang.Exception: the suppressed one's cause"),
+		line("Caused by: java.io.IOException: the crash's own cause"),
+	}
+	f := logsFixture(t, map[string]string{
+		uiSerial + ".log":    strings.Join(block, "\n") + "\n",
+		uiSerial + ".pm.out": "package:" + appID + " uid:10146\n",
+	})
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","applicationId":"`+appID+`"}`))
+	if len(r.Crashes) != 1 {
+		t.Fatalf("%d crashes, want one: %+v", len(r.Crashes), r.Crashes)
+	}
+	c := r.Crashes[0]
+	if want := []string{"java.io.IOException: the crash's own cause"}; !slices.Equal(c.Causes, want) {
+		t.Errorf("causes = %q, want %q", c.Causes, want)
+	}
+	// The suppressed exception's own frame is indented twice, and is no frame of the crash.
+	if want := []string{"dev.droidyard.flavoured.Repo.load(Repo.kt:12)"}; !slices.Equal(c.Frames, want) {
+		t.Errorf("frames = %q, want %q", c.Frames, want)
+	}
+}
+
+// Decision (ADR-0036 Decision 3): the change is additive. The two new fields are optional
+// and omitted when empty, so an entry without them is the pre-0.13 entry byte for byte;
+// and both are device text, tagged untrusted in the published schema (ADR-0015 §1).
+func TestCrashEntryFieldsAreAdditiveAndUntrusted(t *testing.T) {
+	b, err := json.Marshal(Crash{PID: 1, Time: "t", Exception: "e", Message: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(b), `{"pid":1,"time":"t","exception":"e","message":"m"}`; got != want {
+		t.Errorf("an entry without causes and frames marshals to %s, want %s", got, want)
+	}
+
+	reg := capability.NewRegistry()
+	Register(reg, NewADB(nil, nil), testStore(t), nil)
+	doc, err := schema.Generate(reg, "0.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range doc.Capabilities {
+		if c.Name != "device.logs" {
+			continue
+		}
+		var out any
+		if err := json.Unmarshal(c.Output, &out); err != nil {
+			t.Fatal(err)
+		}
+		props := findProperties(out, "crashes")
+		if props == nil {
+			t.Fatal("no crashes[] item schema in device.logs's output")
+		}
+		for _, name := range []string{"causes", "frames"} {
+			p, _ := props[name].(map[string]any)
+			if p == nil || p["x-droidyard-untrusted"] != true {
+				t.Errorf("crashes[].%s = %v, want a property tagged x-droidyard-untrusted", name, props[name])
+			}
+		}
+		for _, name := range []string{"pid", "time", "exception", "message"} {
+			if props[name] == nil {
+				t.Errorf("crashes[].%s is gone: the change must keep every existing field", name)
+			}
+		}
+		return
+	}
+	t.Fatal("device.logs is not registered")
+}
+
+// findProperties returns the item schema's properties of the array property named name,
+// wherever it sits in the schema tree.
+func findProperties(v any, name string) map[string]any {
+	switch t := v.(type) {
+	case map[string]any:
+		if p, ok := t[name].(map[string]any); ok {
+			if items, ok := p["items"].(map[string]any); ok {
+				if props, ok := items["properties"].(map[string]any); ok {
+					return props
+				}
+			}
+		}
+		for _, x := range t {
+			if r := findProperties(x, name); r != nil {
+				return r
+			}
+		}
+	case []any:
+		for _, x := range t {
+			if r := findProperties(x, name); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+// Decision (plan m1o step 4; ADR-0036 Decision 3): maxLines defaults to 50, not 100, and
+// an explicit value is still honoured up to 1000. The recorded log holds 218 lines.
+func TestMaxLinesDefaultsTo50(t *testing.T) {
+	f := logsFixture(t, nil)
+	r := mustLogs(t, f.logsCall(t, `{"device":"emulator-5554"}`))
+	if r.Counts.Matched != 218 || r.Counts.Returned != 50 || len(r.Lines) != 50 || !r.Truncated {
+		t.Errorf("without maxLines: matched %d returned %d lines %d truncated %v, want 218 matched and the newest 50", r.Counts.Matched, r.Counts.Returned, len(r.Lines), r.Truncated)
+	}
+	r = mustLogs(t, f.logsCall(t, `{"device":"emulator-5554","maxLines":100}`))
+	if r.Counts.Returned != 100 {
+		t.Errorf("maxLines 100 returned %d lines, want 100: an explicit value is honoured", r.Counts.Returned)
 	}
 }

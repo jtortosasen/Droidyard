@@ -15,3 +15,12 @@ printed, network and account lines left out. The PLUGIN_NETWORK_FETCHER_ACTIONS 
 one of four in 37,930 that carry no ": " after the tag; before 1p every device.logs read
 on this image failed DEVICE_LOGS_FAILED on it. Uid 10153 is com.google.android.apps.messaging
 (pm list packages -U).
+
+golden-crash-dy3.txt: the golden sample's crash (dev.droidyard.golden, uid 10146, pid 2934;
+IllegalStateException "golden app crash" at GoldenListScreen.kt:62), taken 2026-10-07 14:35Z
+by the main session's m1m measurement run dy3 on its scratch emulator (API 31), from the
+device.logs reply the run recorded (runs/dy3/wire.s2c.jsonl, id 21, minPriority error): the
+reply's 68 crash lines, each rendered back into the daemon's `threadtime,epoch,usec,uid`
+form under a crash-buffer marker, message text and times unchanged. The raw logcat was not
+kept, so this is the daemon's own parse printed back, not adb's bytes. The block has no
+"Caused by" line, only a trailing "Suppressed:" one.
