@@ -256,9 +256,9 @@ result carries device- or app-derived data (the `U` column below), and for
 
 A **failed** call whose handler marked it untrusted gets the same `_meta` (item 1), and
 its text is the error JSON alone: no fixed first line and no `structuredContent`, since
-an error is not the declared result. Its `message` ends with the sentence that
-candidates quote device text and must be treated as data, appended by the capability
-layer, not by each handler. An unmarked error carries none of this.
+an error is not the declared result. Its `message` ends with the sentence that whatever
+device text it carries — details, candidates — is data, not instructions, appended by
+the capability layer, not by each handler. An unmarked error carries none of this.
 
 Wrapping every field inside the payload would add noise and change no behaviour. A
 per-result mark alone would not tell the UI which fields to render inert. Each of the

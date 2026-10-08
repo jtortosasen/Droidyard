@@ -274,7 +274,13 @@ func TestGateRefusesAndSpawnsNothing(t *testing.T) {
 
 	// enabled: false.
 	h.cfg(t, `{"trust":{"roots":[`+strconv.Quote(h.root)+`]},"shell":{"enabled":false}}`)
-	mustFail(t, h.invoke(t, "touch marker", 0), capability.ErrPolicyShellDisabled)
+	ce := mustFail(t, h.invoke(t, "touch marker", 0), capability.ErrPolicyShellDisabled)
+	// D6: POLICY_SHELL_DISABLED names the way out with its deciding argument — the
+	// human-only policy.update, or shell.roots — and says repeating is safe, nothing ran
+	// (plan m1n, D6).
+	if !strings.Contains(ce.NextStep, "policy.update") || !strings.Contains(ce.NextStep, "safe to repeat") {
+		t.Errorf("nextStep = %q; want policy.update and that repeating is safe (plan m1n, D6)", ce.NextStep)
+	}
 	h.noMarker(t)
 
 	// roots naming another directory.

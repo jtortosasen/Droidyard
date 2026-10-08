@@ -220,6 +220,11 @@ func TestStartReportsALockedAVD(t *testing.T) {
 	if !strings.Contains(e.NextStep, "does not stop processes it did not launch") {
 		t.Errorf("nextStep = %q; want it to say Droidyard does not stop what it did not launch", e.NextStep)
 	}
+	// D6: the nextStep says whether repeating is safe. Nothing was launched, so it is once
+	// the holding instance is gone (plan m1n, D6).
+	if !strings.Contains(e.NextStep, "safe to repeat") {
+		t.Errorf("nextStep = %q; want it to say the call is safe to repeat (plan m1n, D6)", e.NextStep)
+	}
 }
 
 // Decision (plan m1i step 5, check; D14; plan m1m steps 2 and 3, Q1 ¶2): a device that
@@ -240,6 +245,11 @@ func TestStartTimesOutWhenTheSerialNeverBoots(t *testing.T) {
 	}
 	if !strings.Contains(e.NextStep, "emulator.stop") || !strings.Contains(e.NextStep, serial) {
 		t.Errorf("nextStep = %q; want it to name emulator.stop with %s", e.NextStep, serial)
+	}
+	// D6: with the serial resolved the same AVD is still running, so the nextStep says
+	// repeating is not safe until that instance is stopped (plan m1n, D6).
+	if !strings.Contains(e.NextStep, "do not repeat") {
+		t.Errorf("nextStep = %q; want it to say not to repeat the call (plan m1n, D6)", e.NextStep)
 	}
 	if pid := f.launcherPid(t, serial); !alive(pid) {
 		t.Errorf("pid %d is gone; a resolved emulator is a device, not ours to signal", pid)

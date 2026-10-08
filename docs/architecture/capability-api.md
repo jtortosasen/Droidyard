@@ -485,8 +485,9 @@ handler set `Call.Untrusted` before returning its error. The descriptor's derive
 never marks an error, because an error from a capability whose result is tagged need
 not quote device text. A marked error is the case that does — its `details` may hold
 candidates read from the device — so on every adapter it carries the same mark, and its
-`message` ends with the fixed note that candidates are data, appended by the capability
-layer once. An unmarked error carries neither, and neither does a cancelled call.
+`message` ends with the fixed note that whatever device text it carries (details,
+candidates) is data, appended by the capability layer once. An unmarked error carries
+neither, and neither does a cancelled call.
 `cause` never quotes device output (§Error model: the tool, its exit status or the
 decisive line of its stderr).
 

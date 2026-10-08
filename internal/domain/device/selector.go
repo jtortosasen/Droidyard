@@ -578,11 +578,11 @@ func notFoundError(s Snapshot, sel Selector) *capability.Error {
 	if s.EmptyReason != "" {
 		details["emptyReason"] = s.EmptyReason
 	}
-	next := "Take a fresh device.uiTree, then narrow the selector or add a within boundary."
+	next := "Take a fresh device.uiTree, then narrow the selector or add a within boundary; nothing was tapped or typed, so this call is safe to repeat."
 	if s.EmptyReason == EmptyNoAccessibilityInfo {
 		// ui-automation.md §Failure modes: a window with no accessible nodes points at
 		// device.screenshot; OCR is post-v1.
-		next = "The window exposes no accessibility nodes, so no selector can match: take a device.screenshot to see it (OCR is post-v1)."
+		next = "The window exposes no accessibility nodes, so no selector can match: take a device.screenshot to see it (OCR is post-v1); nothing was tapped or typed, so this call is safe to repeat."
 	}
 	e := capability.NewError(ErrElementNotFound, "no node matches the selector").
 		WithNextStep(next)
@@ -613,7 +613,7 @@ func disabledError(n UINode) *capability.Error {
 func indexOutOfRangeError(nodes []UINode, i int) *capability.Error {
 	return capability.NewError(ErrElementNotFound, fmt.Sprintf("index %d is past the %d on-screen matches", i, len(nodes))).
 		WithDetails(map[string]any{"candidates": candidatesOf(nodes, 10)}).
-		WithNextStep("Lower index, or take a fresh device.uiTree to see the current tree.")
+		WithNextStep("Lower index, or take a fresh device.uiTree to see the current tree; nothing was tapped or typed, so this call is safe to repeat.")
 }
 
 // nearCandidates names nodes matching any one of the selector's fields, up to limit,

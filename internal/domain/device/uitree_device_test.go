@@ -444,6 +444,11 @@ func TestUITreePreamble(t *testing.T) {
 			if online, _ := ce.Details["online"].([]string); !slices.Equal(online, []string{uiSerial}) {
 				t.Errorf("details %+v, want online [%s]", ce.Details, uiSerial)
 			}
+			// D6: DEVICE_NOT_FOUND names the capability to call (device.list) and says
+			// repeating is safe — the device was never touched (plan m1n, D6).
+			if !strings.Contains(ce.NextStep, "device.list") || !strings.Contains(ce.NextStep, "safe to repeat") {
+				t.Errorf("nextStep = %q; want device.list and that repeating is safe (plan m1n, D6)", ce.NextStep)
+			}
 		}},
 		{"no emulator at all", map[string]string{"devices.out": listHead}, uiSerial, ErrNotFound, func(t *testing.T, ce *capability.Error, _ []string) {
 			if online, ok := ce.Details["online"].([]string); !ok || len(online) != 0 {
@@ -453,6 +458,11 @@ func TestUITreePreamble(t *testing.T) {
 		{"unauthorized", map[string]string{"devices.out": uiList("emulator-5554 unauthorized transport_id:1\n")}, uiSerial, ErrNotReady, func(t *testing.T, ce *capability.Error, _ []string) {
 			if !strings.Contains(ce.Message, "unauthorized") || ce.Details["state"] != "unauthorized" {
 				t.Errorf("error %+v does not name the state", ce)
+			}
+			// D6: DEVICE_NOT_READY says whether repeating is safe; a device in a state the
+			// caller cannot fix was untouched, so it is (plan m1n, D6).
+			if !strings.Contains(ce.NextStep, "safe to repeat") {
+				t.Errorf("nextStep = %q; want it to say the call is safe to repeat (plan m1n, D6)", ce.NextStep)
 			}
 		}},
 		{"physical", map[string]string{"devices.out": uiList(phoneLine, "R58M12ABCDE device usb:1-1.2 product:raven model:Pixel_6_Pro transport_id:3\n")}, "R58M12ABCDE", ErrNotAllowed, func(t *testing.T, _ *capability.Error, calls []string) {

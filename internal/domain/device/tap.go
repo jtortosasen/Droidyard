@@ -533,7 +533,18 @@ func (ac *actor) setText(ctx context.Context, replace bool, text string) (reader
 func actingBusyError(what string) *capability.Error {
 	return capability.NewError(ErrNotReady, "the reader was still acting on an earlier request, so nothing was "+what).
 		WithCause("the reader's single acting thread was busy").
-		WithNextStep("Read the field or screen before acting again: an earlier effect may still be pending.")
+		WithNextStep("Read the field or screen before acting again: an earlier effect may still be pending, so do not repeat this call until a read shows the device has settled.")
+}
+
+// actVerb is the infinitive of what ("typed"/"tapped") for a refusal's cause sentence:
+// "the reader refused to type: no field had focus" reads, where "the reader refused the
+// typed because no field had focus" did not (plan m1n step 8, main-session note). what is
+// always one of those two.
+func actVerb(what string) string {
+	if what == "tapped" {
+		return "tap"
+	}
+	return "type"
 }
 
 // actRefusedError is the failure of an acting request the reader refused before executing
@@ -560,8 +571,8 @@ func actRefusedError(act readerAct, what string) *capability.Error {
 			WithNextStep("Send a shorter request; retrying the same call cannot help. Nothing was " + what + ".")
 	}
 	return capability.NewError(ErrNotReady, "the reader refused the request before executing it, so nothing was "+what).
-		WithCause("the reader refused the " + what + " because " + refusalPhrase(act.refusal) + ".").
-		WithNextStep("Read the field or screen, then retry: nothing was " + what + ".")
+		WithCause("the reader refused to " + actVerb(what) + ": " + refusalPhrase(act.refusal) + ".").
+		WithNextStep("Read the field or screen, then retry: nothing was " + what + ", so this call is safe to repeat.")
 }
 
 // tapAt taps once at a display point (ADR-0035 §3; plan m1n step 5): through the persistent

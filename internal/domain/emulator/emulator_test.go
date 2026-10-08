@@ -433,6 +433,14 @@ func TestResolveOrderHostSDKThenADBLocationThenPATH(t *testing.T) {
 		if !strings.Contains(res.NotFound(), "not found") {
 			t.Errorf("NotFound = %q", res.NotFound())
 		}
+		// Every candidate names its source (plan m1n, A10): the per-OS default SDK and
+		// PATH, the two sources this environment has. Seen failing when an entry read only
+		// the path.
+		for _, want := range []string{"[SDK (per-OS default)]", "[PATH]"} {
+			if !strings.Contains(res.NotFound(), want) {
+				t.Errorf("NotFound = %q; want the source named as %s (plan m1n, A10)", res.NotFound(), want)
+			}
+		}
 	})
 }
 
@@ -511,6 +519,16 @@ func TestResolveInvalidConfigurationNamesTheFile(t *testing.T) {
 	}
 	if !named {
 		t.Errorf("rejected = %+v; want the invalid file with source %s", res.Rejected, SourceToolKey)
+	}
+
+	// With nothing else to fall to, the "Tried:" list names the file the key came from
+	// (plan m1n, A10): `tools.emulator in <config path>`.
+	none := ResolveWith([]string{"PATH=", "HOME=" + t.TempDir()}, keys)
+	if none.Found {
+		t.Fatalf("ResolveWith = %+v; want not found", none)
+	}
+	if want := "[" + SourceToolKey + " in " + configPath + "]"; !strings.Contains(none.NotFound(), want) {
+		t.Errorf("NotFound = %q; want the source named as %s (plan m1n, A10)", none.NotFound(), want)
 	}
 }
 

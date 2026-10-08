@@ -195,7 +195,7 @@ func notFound(auth *device.Authorized) *capability.Error {
 	}
 	return capability.NewError(device.ErrNotFound, "no device "+auth.Serial+" is connected").
 		WithDetails(map[string]any{"online": online}).
-		WithNextStep("Call device.list for the serials that are connected.")
+		WithNextStep("Call device.list for the serials that are connected; nothing on the device was changed, so this call is safe to repeat.")
 }
 
 // notAnEmulator is EMULATOR_NOT_AN_EMULATOR for a serial the console cannot answer, before

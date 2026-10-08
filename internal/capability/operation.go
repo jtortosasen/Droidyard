@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -625,10 +627,192 @@ func (o *Operations) prepare(req Request) (Descriptor, any, error) {
 	}
 	params, err := decodeParams(d.Params, req.Params)
 	if err != nil {
-		return Descriptor{}, nil, NewError(ErrInvalidParams, "the parameters do not match the capability's input schema").
-			WithCause(err.Error())
+		return Descriptor{}, nil, invalidParamsError(d, err)
 	}
 	return d, params, nil
+}
+
+// invalidParamsError turns a strict-decode failure into REQUEST_INVALID_PARAMS that names
+// the field and the shape the schema expects (plan m1n step 8, main-session notes 3 and
+// 4): a caller that sends a string where an object belongs, or an unknown field such as a
+// workspace passed as a parameter, reads what to send instead of Go's decoder text alone.
+// Everything else — a missing required field, a value that fails its pattern, trailing
+// data — keeps the code and the decoder's own words as the cause.
+func invalidParamsError(d Descriptor, err error) *Error {
+	if field := unknownField(err); field != "" {
+		return Errorf(ErrInvalidParams, "%s has no parameter %q", d.Name, field).
+			WithCause(err.Error()).
+			WithNextStep(unknownParamHint(d, field))
+	}
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ute) {
+		name := jsonFieldName(d.Params, ute.Field)
+		shape := jsonShape(ute.Type)
+		return Errorf(ErrInvalidParams, "parameter %q of %s must be %s, not %s", name, d.Name, shape, jsonTypeWord(ute.Value)).
+			WithCause(err.Error()).
+			WithNextStep("send " + strconv.Quote(name) + " as " + shape)
+	}
+	return NewError(ErrInvalidParams, "the parameters do not match the capability's input schema").
+		WithCause(err.Error())
+}
+
+// unknownField is the field a json "unknown field" decode error names, "" when err is not
+// that kind of error.
+func unknownField(err error) string {
+	const prefix = "json: unknown field "
+	s := err.Error()
+	if !strings.HasPrefix(s, prefix) {
+		return ""
+	}
+	name, uerr := strconv.Unquote(strings.TrimSpace(strings.TrimPrefix(s, prefix)))
+	if uerr != nil {
+		return ""
+	}
+	return name
+}
+
+// unknownParamHint tells a caller what to send instead of the unknown field: the
+// parameters the capability takes, or — for one that takes none — where the value
+// belongs. workspace.open is the case that prompted it: its workspace is named by the
+// request's workspace field, not by a parameter (plan m1n step 8, main-session note 4).
+func unknownParamHint(d Descriptor, field string) string {
+	if names := paramNames(d.Params); len(names) > 0 {
+		return "remove " + strconv.Quote(field) + ", or pass one of " + d.Name + "'s parameters: " + strings.Join(names, ", ")
+	}
+	hint := "remove " + strconv.Quote(field) + ": " + d.Name + " takes no parameters"
+	if d.Scope == Workspace {
+		hint += ", and the workspace is named by the request's workspace field (the CLI's --workspace), not by a parameter"
+	}
+	return hint + "."
+}
+
+// jsonTypeWord names a JSON value's type as Go's json decoder reports it, in prose.
+func jsonTypeWord(v string) string {
+	switch v {
+	case "string":
+		return "a string"
+	case "number":
+		return "a number"
+	case "bool":
+		return "a boolean"
+	case "object":
+		return "an object"
+	case "array":
+		return "an array"
+	}
+	return v
+}
+
+// jsonShape names the JSON shape a parameter must have, read from the Go type the schema
+// is generated from, so REQUEST_INVALID_PARAMS can say what to send (plan m1n step 8,
+// note 3). A struct is an object listing its fields, an optional one (json `omitempty`)
+// suffixed "?".
+func jsonShape(t reflect.Type) string {
+	if t == nil {
+		return "the schema's type"
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		var names []string
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if f.PkgPath != "" {
+				continue // unexported, so not in the schema
+			}
+			name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if name == "-" {
+				continue
+			}
+			if name == "" {
+				name = f.Name
+			}
+			if strings.Contains(opts, "omitempty") {
+				name += "?"
+			}
+			names = append(names, name)
+		}
+		if len(names) == 0 {
+			return "an empty object"
+		}
+		return "an object {" + strings.Join(names, ", ") + "}"
+	case reflect.Slice, reflect.Array:
+		return "an array"
+	case reflect.Map:
+		return "an object"
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "a boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64:
+		return "a number"
+	case reflect.Interface:
+		return "a value"
+	}
+	return "the schema's type"
+}
+
+// jsonFieldName maps the Go field path a json.UnmarshalTypeError reports to the JSON name
+// the caller wrote, for a top-level field whose tag differs from its Go name.
+func jsonFieldName(proto any, path string) string {
+	seg := path
+	if i := strings.IndexByte(seg, '.'); i >= 0 {
+		seg = seg[:i]
+	}
+	t := reflect.TypeOf(proto)
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil || t.Kind() != reflect.Struct {
+		return seg
+	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.Name != seg {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			name = f.Name
+		}
+		return name
+	}
+	return seg
+}
+
+// paramNames lists the JSON names of proto's fields, in declaration order: the parameters
+// the capability takes, for a hint that names them.
+func paramNames(proto any) []string {
+	t := reflect.TypeOf(proto)
+	if t == nil {
+		return nil
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	var names []string
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		names = append(names, name)
+	}
+	return names
 }
 
 // noSession reports whether s carries no session: nil, or an interface holding a nil

@@ -491,7 +491,7 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 			}
 			return nil, capability.NewError(ErrNotReady, "the focusing tap did not finish inside the 14 s before-phase budget; nothing was typed").
 				WithCause("the before phase overran after the tap").
-				WithNextStep("Retry device.inputText; nothing was typed.")
+				WithNextStep("Retry device.inputText; nothing was typed, so this call is safe to repeat.")
 		}
 	}
 	if crashBound.IsZero() {
@@ -677,7 +677,7 @@ func (a *ADB) chooseDelivery(ctx context.Context, t *target, text string) (strin
 		// text itself.
 		return "", capability.NewError(ErrNotReady, "the selected input method could not be checked, so the text cannot be delivered").
 			WithCause("the default_input_method check " + describeInputFailure(err)).
-			WithNextStep("Retry device.inputText; nothing was typed.")
+			WithNextStep("Retry device.inputText; nothing was typed, so this call is safe to repeat.")
 	}
 	if strings.TrimSpace(string(out.Stdout)) != adbKeyboardIME {
 		return "", textNotDeliverable("the text is not printable ASCII and " + adbKeyboardIME + " is not the selected input method")
@@ -1190,7 +1190,7 @@ func textNotDeliverable(cause string) *capability.Error {
 func clearFailed(cause string) *capability.Error {
 	return capability.NewError(ErrNotReady, "the field could not be cleared, so nothing was typed").
 		WithCause(cause).
-		WithNextStep("Retry device.inputText; nothing was typed.")
+		WithNextStep("Retry device.inputText; nothing was typed, so this call is safe to repeat.")
 }
 
 // clearStillRunning is the pre-typing clear failure when the clear command's device-side
@@ -1200,7 +1200,7 @@ func clearFailed(cause string) *capability.Error {
 func clearStillRunning(cause string) *capability.Error {
 	return capability.NewError(ErrNotReady, "the field could not be cleared, so nothing was typed").
 		WithCause(cause).
-		WithNextStep("Wait, then read the target field until two reads agree before retrying device.inputText: the device's clear command may still be deleting text, so an immediate retry could meet old deletions still arriving.")
+		WithNextStep("Wait, then read the target field until two reads agree before retrying device.inputText: the device's clear command may still be deleting text, so an immediate retry could meet old deletions still arriving, and until the reads agree do not repeat this call.")
 }
 
 // provablyNeverRan reports whether an input command provably did not run: adb could not

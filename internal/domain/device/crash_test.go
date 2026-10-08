@@ -594,6 +594,11 @@ func TestTargetBehindADialogIsRefusedBeforeTheTap(t *testing.T) {
 	if !ok || sd == nil || sd.Kind != "anr" || sd.Package != crashPackage {
 		t.Errorf("details.systemDialog = %#v, want anr for %s", ce.Details["systemDialog"], crashPackage)
 	}
+	// D6: DEVICE_NOT_READY's dialog variant names the capability to call (device.tapElement)
+	// and says repeating is safe — nothing was tapped or typed (plan m1n, D6).
+	if !strings.Contains(ce.NextStep, "device.tapElement") || !strings.Contains(ce.NextStep, "safe to repeat") {
+		t.Errorf("nextStep = %q; want device.tapElement and that repeating is safe (plan m1n, D6)", ce.NextStep)
+	}
 	if strings.Contains(ce.Cause, crashPackage) {
 		t.Errorf("cause %q quotes the device-derived package; it belongs in details", ce.Cause)
 	}

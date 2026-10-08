@@ -42,19 +42,42 @@ type JVM struct {
 	Version  string     `json:"version,omitempty"`
 	Source   string     `json:"source,omitempty"`
 	Rejected []Rejected `json:"rejected" jsonschema:"required"`
+
+	// configPath is the configuration file the `gradle.sidecarJavaHome` key was read
+	// from, named in the "Tried:" text beside the key (plan m1k D8; plan m1n A10). Empty
+	// when no file was read; never published.
+	configPath string
 }
 
 // NotFound explains, for a person or an agent, that no JVM ≥ 17 was found, where it was
-// looked for and what to set.
+// looked for and what to set. Each candidate names its source, the configured key naming
+// the file it came from (plan m1k D8; plan m1n A10).
 func (j JVM) NotFound() string {
 	tried := make([]string, 0, len(j.Rejected))
 	for _, c := range j.Rejected {
-		tried = append(tried, c.Candidate+" ("+c.Reason+")")
+		tried = append(tried, c.Candidate+" ["+j.sourceName(c.Source)+"] ("+c.Reason+")")
 	}
 	if len(tried) == 0 {
 		return "no JVM 17 or newer was found"
 	}
 	return "no JVM 17 or newer was found. Tried: " + strings.Join(tried, "; ") + ". Set `gradle.sidecarJavaHome` in the droidyard configuration (or JAVA_HOME) to a JDK 17 or newer."
+}
+
+// sourceName spells a rejected candidate's source for the human "Tried:" text (plan m1k
+// D8; plan m1n A10); the structured Source keeps its constant.
+func (j JVM) sourceName(src string) string {
+	switch src {
+	case SourceSidecarJavaHome:
+		if j.configPath != "" {
+			return SourceSidecarJavaHome + " in " + j.configPath
+		}
+		return SourceSidecarJavaHome
+	case SourceJavaHome:
+		return "$JAVA_HOME"
+	case SourcePath:
+		return "PATH"
+	}
+	return src
 }
 
 // Finder is where discovery looks and how it validates: the seams of the probes are
@@ -98,7 +121,7 @@ func Discover(f Finder) JVM {
 	if f.StudioHomes == nil {
 		f.StudioHomes = studioHomes
 	}
-	res := JVM{Rejected: []Rejected{}}
+	res := JVM{Rejected: []Rejected{}, configPath: f.JavaHome.ConfigPath}
 	reject := func(candidate, source, reason string) {
 		res.Rejected = append(res.Rejected, Rejected{Candidate: candidate, Source: source, Reason: reason})
 	}

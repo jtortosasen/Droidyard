@@ -120,8 +120,14 @@ func TestRelativeEntriesFailClosed(t *testing.T) {
 			t.Errorf("%s: (%v, %v); want false and an error naming the relative entry", body, got, err)
 		}
 	}
-	if got, want := policy.UntrustedError("/w/it's").NextStep, "ask the user to run `droidyard trust '/w/it'\\''s'`"; got != want {
-		t.Errorf("nextStep = %q; want %q", got, want)
+	next := policy.UntrustedError("/w/it's").NextStep
+	if want := "`droidyard trust '/w/it'\\''s'`"; !strings.Contains(next, want) {
+		t.Errorf("nextStep = %q; want the trust command %s with the root shell-quoted", next, want)
+	}
+	// D6: a nextStep says whether repeating the failed call is safe. Trusting the root
+	// changes nothing on disk, so this one is safe to repeat (plan m1n, D6).
+	if !strings.Contains(next, "safe to repeat") {
+		t.Errorf("nextStep = %q; want it to say the call is safe to repeat (plan m1n, D6)", next)
 	}
 }
 
@@ -348,7 +354,7 @@ func TestAuthorizeFailsBeforeTheHandler(t *testing.T) {
 	if !ok || untrusted.Code != capability.ErrWorkspaceUntrusted {
 		t.Fatalf("err = %v; want WORKSPACE_UNTRUSTED", err)
 	}
-	if untrusted.NextStep != "ask the user to run `droidyard trust '/wanted'`" {
+	if untrusted.NextStep != "ask the user to run `droidyard trust '/wanted'`; nothing ran, so this call is safe to repeat once the root is trusted." {
 		t.Errorf("nextStep = %q; want the exact trust command", untrusted.NextStep)
 	}
 
