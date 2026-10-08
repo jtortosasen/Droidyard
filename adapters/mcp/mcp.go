@@ -28,7 +28,7 @@ import (
 )
 
 // Instructions is sent in every initialize result: verbatim, the block of
-// docs/interfaces/mcp.md §Server instructions.
+// docs/interfaces/mcp.md §Server instructions (a core session adds CoreNote).
 const Instructions = `- This server is bound to one project; tools act on it with no workspace argument.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
@@ -52,6 +52,34 @@ const Instructions = `- This server is bound to one project; tools act on it wit
   blindly.
 - Policy (devices, shell, trusted projects) is changed by the user, not through this
   server. Errors say what to ask for.`
+
+// Profiles name the tool sets a session can list (ADR-0036 Decision 4). ProfileAll,
+// the default, is every tool; ProfileCore is CoreTools.
+const (
+	ProfileAll  = "all"
+	ProfileCore = "core"
+)
+
+// CoreTools is the core profile's tool list (plan m1o D3): the golden path's tools, the
+// reopen ADR-0020 allows, and the tools a core tool's nextStep sends the agent to
+// (TestCoreNextStepsNameCoreTools, in cmd/droidyard, finds them).
+var CoreTools = []string{
+	"workspace_open", "workspace_describe", "project_modules", "project_variants",
+	"build_assemble", "build_run", "build_errors", "build_lastResult",
+	"file_list", "file_read", "file_write",
+	"emulator_list", "emulator_start", "emulator_stop",
+	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
+	"device_inputText", "device_logs", "device_screenshot",
+	"operation_wait", "operation_cancel", "artifact_read",
+}
+
+// CoreNote is appended to the instructions of a core session, so the agent knows the
+// list is cut and who can widen it.
+const CoreNote = `
+- This session lists the core tools only; the user can start droidyard mcp --tools all for the rest.`
+
+// ValidProfile reports whether name is a profile the shim and the daemon accept.
+func ValidProfile(name string) bool { return name == ProfileAll || name == ProfileCore }
 
 // DefaultBudget is how long a long-running tool, and operation_wait, waits before
 // answering with the operation still running (ADR-0020 §Adapter projections;
@@ -231,9 +259,25 @@ func ToolName(capabilityName string) string {
 // is the session's binding, the hello's root (ADR-0019 §Sessions): Serve opens it
 // before it reads the first MCP message, and every workspace-scoped tool call names
 // it. Empty: no binding, and workspace tools get REQUEST_MISSING_WORKSPACE.
-func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget time.Duration, root string) error {
+func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget time.Duration, root, profile string) error {
 	if budget <= 0 {
 		budget = DefaultBudget
+	}
+	if profile == "" {
+		profile = ProfileAll
+	}
+	if !ValidProfile(profile) {
+		return fmt.Errorf("unknown tools profile %q", profile)
+	}
+	instructions := Instructions
+	inProfile := func(string) bool { return true }
+	if profile == ProfileCore {
+		instructions += CoreNote
+		core := map[string]bool{}
+		for _, n := range CoreTools {
+			core[n] = true
+		}
+		inProfile = func(name string) bool { return core[name] }
 	}
 	s.openBound(ctx, root)
 	// One mcp-go server per connection, and on it one session of the connection's
@@ -242,11 +286,21 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 	// amended 2026-10-03).
 	srv := server.NewMCPServer("droidyard", s.version,
 		server.WithToolCapabilities(false),
-		server.WithInstructions(Instructions),
+		server.WithInstructions(instructions),
 	)
-	srv.AddTools(s.tools...)
+	// A tool outside the profile is never added, so a call to it gets the answer
+	// for a name that does not exist: MCP's "tool not found".
+	for _, t := range s.tools {
+		if inProfile(t.Tool.Name) {
+			srv.AddTools(t)
+		}
+	}
 	s.extraMu.Lock()
-	srv.AddTools(s.extra...)
+	for _, t := range s.extra {
+		if inProfile(t.Tool.Name) {
+			srv.AddTools(t)
+		}
+	}
 	s.extraMu.Unlock()
 
 	sess := server.NewInProcessSession(sessionIDOf(ctx), nil)

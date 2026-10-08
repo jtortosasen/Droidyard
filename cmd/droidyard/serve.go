@@ -82,7 +82,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
 				budget := time.Duration(s.Hello.WaitMs) * time.Millisecond
-				if err := mcpServer.Serve(mcpadapter.WithSessionID(ctx, s.ID), s.Reader, s.Conn, budget, s.Hello.Root); err != nil {
+				if err := mcpServer.Serve(mcpadapter.WithSessionID(ctx, s.ID), s.Reader, s.Conn, budget, s.Hello.Root, s.Hello.Tools); err != nil {
 					fmt.Fprintf(log, "droidyard: MCP session %s ended: %v\n", s.ID, err)
 				}
 			},

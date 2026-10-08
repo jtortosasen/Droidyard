@@ -56,7 +56,7 @@ Expected: `main` at the 1q merge (`cc0c27b`, the branch base): API `0.12.0`, 39 
 - [x] A3. The server instructions (≤ 2,000 characters) carry the shared manual (selectors, the untrusted rule, never repeat an action call, the golden order, droidyard tools for adb and Gradle actions, tools are called directly) and equal `mcp.md` §Server instructions. Source: Q1 ¶1. Proven by: step 3.
 - [x] A4. `device.logs`'s `crashes[]` entries gain `causes` and up to five app `frames`, keeping every existing field; `maxLines` defaults to 50; the change is additive. Source: Q1 ¶3. Proven by: step 4.
 - [x] A5. Over MCP, `device_uiTree`, the action results (with `returnTree`), `device_logs` (crash blocks as one entry each, not their lines), `system_capabilities` (names, flags and availability) and the build results render as compact text, through `operation_wait` too; `structuredContent` is the full result; every untrusted-tagged string is JSON-quoted and the untrusted first line holds; on the m1m recordings tree and log text is at least 50 % smaller. Source: Q1 ¶2; ADR-0015 §1. Proven by: step 5.
-- [ ] A6. `droidyard mcp --tools core` lists D3's 22 tools; without the flag every tool is listed. Source: Q1 ¶4. Proven by: step 6.
+- [x] A6. `droidyard mcp --tools core` lists D3's 22 tools; without the flag every tool is listed. Source: Q1 ¶4. Proven by: step 6.
 - [ ] A7. Dropped 2026-10-08 (§Changes: step 2 counted no redirectable command; ADR-0037 adopts no hook). Proven by: step 7 (not built).
 - [ ] A8. `droidyard init` writes D5's files, is idempotent, keeps the user's content and existing entries, refuses unparseable files and `opencode.jsonc`, and `--uninstall` restores the tree. Source: Q2 ¶2. Proven by: step 8.
 - [ ] A9. In Cursor (`cursor-agent -p`) a project set up by `init` alone reaches droidyard, the `AGENTS.md` block and the instructions reach the agent, and a read-only droidyard tool runs under `init`'s allowlist alone while a non-read-only one does not; in OpenCode a project set up by `init` reaches droidyard. Source: brief E. Proven by: step 9.
@@ -134,7 +134,7 @@ Expected: `main` at the 1q merge (`cc0c27b`, the branch base): API `0.12.0`, 39 
 - Needs: step 3.
 - Not here: per-project tool switches (harness note §5); measuring the profile in a run (no arm uses it).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 3–4, 2026-10-09. `droidyard mcp --tools core|all`; the hello's optional `tools` (sent only for `core`, so the default hello is unchanged); `CoreTools` in `adapters/mcp` is the one list: D3's 22 plus `project_variants`, `build_run` and `emulator_stop`, which a core tool's nextStep names (`TestCoreNextStepsNameCoreTools`, with a reasoned list of names no core tool can return). Tests over a real shim: `TestCoreProfileListsTheGoldenPath` (25 tools; a call outside answers like an unknown name, -32602 "tool not found"), `TestDefaultListsEverything` (34, instructions unchanged), `TestUnknownProfileIsRefusedBeforeConnecting` (exit 2, no dial); seen failing with the filter removed and with `emulator_stop` dropped. Core `tools/list` without `outputSchema` 24,687 B (all: 30,415 B). The register's reduced-surface row closed.
 
 ### 7. `droidyard hook` (Q2 ¶3)
 

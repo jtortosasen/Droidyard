@@ -136,7 +136,7 @@ close an item.
 | Elicitation: which clients support it and how they degrade; whether to adopt it by ADR | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
 | Whether prompts are worth shipping beside skills; when resources earn their surface | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
 | Whether provisioning (`sdk.install`, `emulator.create`) should be agent tools at all: it means licence acceptance and large downloads, and a human UI may be the right place for consent | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
-| A reduced tool surface for clients that struggle with long lists (planned: 1o, `--tools core`) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
+| A reduced tool surface for clients that struggle with long lists (`droidyard mcp --tools core`) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | 1o |
 | The image defaults (edge, format, size threshold) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
 | Streamable-HTTP MCP on the listener, and its authentication (the bearer token or the MCP authorization flow) | open question | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
 | Linux not run: the `$XDG_RUNTIME_DIR` socket, `SO_PEERCRED`, `/proc` start times, `Pdeathsig`, `flock`, `os.Root`, `xdg-open`, emulator detach and headless boot; no Linux host or CI | unverified | platform | [m1c §Unverified](../plans/m1c-process-supervisor-and-workspace.md#unverified) | 1b | |
