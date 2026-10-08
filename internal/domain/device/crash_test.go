@@ -932,3 +932,46 @@ func TestCrashDialogForTheAppReadsTheCrashThoughItsProcessLives(t *testing.T) {
 		t.Errorf("%d crash-buffer reads, want one although pidof found the process (%q)", n, f.calls(t))
 	}
 }
+
+// Decision (A2, A3; plan m1n step 9): a busy read after the action whose app's process is
+// gone ends the polling at once — the app crashed, and more polls would only meet busy
+// answers until timeoutMs — and the crash is reported. Seen failing with the early stop
+// removed (the call polled on and expect.polls exceeded one).
+func TestBusyReadOfADeadAppStopsPolling(t *testing.T) {
+	quickAct(t)
+	files := map[string]string{
+		uiSerial + ".log":      crashLog(t),
+		uiSerial + ".date.out": crashClock + "\n",
+	}
+	f := newUIFixture(t, withReadOnlyReader(t, files, formappDoc(), busyDoc))
+	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"},"expect":[{"appears":{"text":"never"}}],"timeoutMs":3000}`)
+	r := mustTap(t, out)
+	if r.AppCrash == nil {
+		t.Fatalf("no appCrash: %+v", r)
+	}
+	if r.Expect == nil || r.Expect.Polls != 1 {
+		t.Errorf("expect = %+v, want one poll: a busy read of a dead app ends the polling", r.Expect)
+	}
+}
+
+// Decision (A3; plan m1n step 9): a busy last read is reason enough to read the crash buffer
+// even while the app's process lives — the "keeps stopping" dialog holds a crashed process
+// alive and a busy read cannot show the dialog (level 5: a second crash reported nothing).
+// Seen failing with LastBusy ignored (pidof found the process; no crash read).
+func TestBusyLastReadLooksForTheCrashThoughTheProcessLives(t *testing.T) {
+	quickAct(t)
+	files := map[string]string{
+		uiSerial + ".log":          crashLog(t),
+		uiSerial + ".date.out":     crashClock + "\n",
+		uiSerial + ".apppidof.out": "7000\n",
+	}
+	f := newUIFixture(t, withReadOnlyReader(t, files, formappDoc(), busyDoc))
+	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`)
+	r := mustTap(t, out)
+	if r.AppCrash == nil {
+		t.Fatalf("no appCrash: %+v (calls %q)", r, f.calls(t))
+	}
+	if n := countPrefix(f.calls(t), crashLogcatHead+"crash"); n != 1 {
+		t.Errorf("%d crash-buffer reads, want one", n)
+	}
+}

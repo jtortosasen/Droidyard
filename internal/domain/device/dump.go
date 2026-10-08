@@ -421,12 +421,22 @@ func dumpBusy(cause string) *capability.Error {
 // parsed there is no package, and the failed call carries nothing from the device.
 func (a *ADB) appBusyError(ctx context.Context, t *target) *capability.Error {
 	e := capability.NewError(ErrUIDumpFailed, "the device's UI could not be read").
-		WithCause("the foreground app did not answer accessibility queries").
+		WithCause(appBusyCause).
 		WithNextStep("Retry device.uiTree in a few seconds: the foreground app is busy and did not answer, and the reader is still running; nothing on the device was changed.")
 	if pkg := a.focusedPackage(ctx, t); pkg != "" {
 		e = e.WithDetails(map[string]any{"package": pkg})
 	}
 	return e
+}
+
+// appBusyCause is the busy read's fixed cause (ADR-0034 §1); isAppBusy recognises the
+// failure by it, with or without a package in Details.
+const appBusyCause = "the foreground app did not answer accessibility queries"
+
+// isAppBusy reports whether err is the busy read's failure (ADR-0034 §1).
+func isAppBusy(err error) bool {
+	e := capability.AsError(err)
+	return e != nil && e.Code == ErrUIDumpFailed && e.Cause == appBusyCause
 }
 
 // busyFocusBound bounds the focus read of the busy path: one `dumpsys window`, kept short
