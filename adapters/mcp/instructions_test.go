@@ -19,6 +19,10 @@ func TestInstructionsStayWithinTheirBudget(t *testing.T) {
 	if n := utf8.RuneCountInString(Instructions); n > maxInstructions {
 		t.Errorf("the instructions are %d characters; the budget is %d", n, maxInstructions)
 	}
+	// The core profile sends the instructions plus its note (ADR-0036 Decision 4).
+	if n := utf8.RuneCountInString(Instructions + CoreNote); n > maxInstructions {
+		t.Errorf("the core profile's instructions are %d characters; the budget is %d", n, maxInstructions)
+	}
 }
 
 // TestInstructionsCarryTheManual: one assertion per point the descriptions no longer
@@ -87,9 +91,14 @@ func TestInstructionsNameRealTools(t *testing.T) {
 	for _, c := range doc.Capabilities {
 		known[ToolName(c.Name)] = true
 	}
-	tokens := regexp.MustCompile(`\b[a-z]+_[A-Za-z]+\b`).FindAllString(Instructions, -1)
+	tokens := regexp.MustCompile(`\b[a-z]+_[A-Za-z]+\b`).FindAllString(Instructions+CoreNote, -1)
 	if len(tokens) < 10 {
 		t.Fatalf("found only %d tool names in the instructions: %v", len(tokens), tokens)
+	}
+	for _, name := range CoreTools {
+		if !known[name] {
+			t.Errorf("the core profile lists %s, which is not a published tool", name)
+		}
 	}
 	for _, tok := range tokens {
 		if !known[tok] {

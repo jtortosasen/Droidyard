@@ -58,9 +58,9 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `policy.get`, `policy.update` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). The core also rejects them from an MCP session: this is enforcement, not just omission. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
-tool is stateless, so a client restart or a second window loses nothing. A large tool
-list degrades client behaviour and every tool costs context tokens even when unused; the
-exclusions above are principled, none is made just to save tokens.
+tool is stateless, so a client restart or a second window loses nothing. The exclusions
+above are principled; `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and
+answers other calls "tool not found". `all` stays the default: stable prompt caches.
 
 ## Long-running work: the bounded wait
 

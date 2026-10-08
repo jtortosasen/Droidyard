@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/adapters/cli"
+	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -180,7 +181,7 @@ func call(args []string) int {
 // stderr (ADR-0019 §Lifetime). It starts a daemon if none answers, unless
 // --no-autostart.
 func mcpShim(args []string) int {
-	const usage = "usage: droidyard mcp [--root <path>] [--wait <duration>] [--no-autostart]"
+	const usage = "usage: droidyard mcp [--root <path>] [--wait <duration>] [--tools core|all] [--no-autostart]"
 	hello := daemon.Hello{Client: capability.ClientMCP}
 	autostart := true
 	explicitRoot := ""
@@ -216,6 +217,21 @@ func mcpShim(args []string) int {
 				return 2
 			}
 			hello.WaitMs = d.Milliseconds()
+		case a == "--tools" || strings.HasPrefix(a, "--tools="):
+			v, ok := strings.CutPrefix(a, "--tools=")
+			if !ok && i+1 < len(args) {
+				i++
+				v = args[i]
+			}
+			// Refused here, before any connection: a typo must not start a session
+			// that lists the wrong tools (ADR-0036 Decision 4).
+			if !mcpadapter.ValidProfile(v) {
+				fmt.Fprintf(os.Stderr, "droidyard mcp: --tools needs core or all, not %q\n%s\n", v, usage)
+				return 2
+			}
+			if v == mcpadapter.ProfileCore {
+				hello.Tools = v
+			}
 		default:
 			fmt.Fprintf(os.Stderr, "droidyard mcp: unexpected argument %q\n%s\n", a, usage)
 			return 2

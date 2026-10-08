@@ -56,10 +56,11 @@ Commands:
              Ctrl-C cancels the operation; --detach prints its id and returns.
              call and mcp start a daemon when none answers, unless --no-autostart.
   mcp        Attach an MCP stdio session to the daemon:
-             droidyard mcp [--root <path>] [--wait <duration>] [--no-autostart]
+             droidyard mcp [--root <path>] [--wait <duration>] [--tools core|all] [--no-autostart]
              The session is bound to --root, else to the project root of the
              current directory, and opens it when it starts.
              --wait bounds how long a long-running tool waits (default 20s).
+             --tools core lists the golden path's tools only (default all).
   status     Report on the running daemon: its socket, and the web UI's address
              and tokenised URL.
   stop       Stop the running daemon.
