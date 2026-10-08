@@ -649,7 +649,7 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 	// applies and the process check alone decides. Never for the system ui's own window or
 	// when the call acted on a system dialog.
 	app := before.Foreground
-	if crashApplies(app, beforeDialog, afterFG) && a.appPIDof(actx, t, app) == 0 {
+	if crashApplies(app, beforeDialog, afterFG) && (crashDialogFor(res.SystemDialog, app) || a.appPIDof(actx, t, app) == 0) {
 		res.AppCrash = a.appCrashReason(actx, t, app, crashBound)
 	}
 	res.Warnings = dedupWarnings(warnings)
