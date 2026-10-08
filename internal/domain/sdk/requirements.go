@@ -10,7 +10,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 )
 
-// sdk.requirements (plan m1h D12; sdk.md §Project SDK, §Capabilities): what each Android
+// sdk.requirements (plan m1h D12; sdk.md §Project SDK, §Why this exists): what each Android
 // module's build needs of the SDK, compared against the SDK that build would use. The
 // project's needs come from the probe (gradle.md §SDK requirements (build side)); the
 // project SDK is the directory AGP itself resolved, or AGP's order emulated from

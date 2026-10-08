@@ -100,7 +100,7 @@ func (a *ADB) ADBPath(again string) (string, error) {
 // serial is no longer there (the device disconnected mid-wait, which is
 // DEVICE_DISCONNECTED); err is set when adb could not be run at all, which a readiness
 // poll treats as "not yet", never as an error. It is the readiness signal of a boot and
-// of an adoption (emulator.md §Boot sequence 5; plan m1i, D15).
+// of an adoption (emulator.md §Boot sequence 3; plan m1i, D15).
 func (a *ADB) BootCompleted(ctx context.Context, serial string) (value string, gone bool, err error) {
 	res := a.Resolve()
 	if !res.Found {
