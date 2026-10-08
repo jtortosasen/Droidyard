@@ -84,7 +84,7 @@ close an item.
 | The keyboard guard's re-read after BACK does not wait for the keyboard to hide (an `adjustPan` race) | unverified | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | Qustodio (gate G4) undisturbed by a reader that acts: level 3 only (connect flags unchanged), not rerun | unverified | device/UI | [m1n §Unverified](../plans/m1n-daily-use-core.md#unverified) | 1n | |
 | The reader's 30-minute idle exit releases `UiAutomation`: 60 s observed, 30 minutes not | unverified | device/UI | [m1f §Acceptance](../plans/m1f-device-actions.md#acceptance) (A2) | 1f | |
-| A forward lost to an adb server restart is recreated: level 4 only (planned: 1p) | unverified | device/UI | [m1f §Acceptance](../plans/m1f-device-actions.md#acceptance) (A2) | 1f | |
+| A forward lost to an adb server restart is recreated: level 4 only | unverified | device/UI | [m1f §Acceptance](../plans/m1f-device-actions.md#acceptance) (A2) | 1f | 1p (step 3, level 5) |
 | `DEVICE_ELEMENT_OFFSCREEN` on a real tree (synthetic trees only) | unverified | device/UI | [m1f §Unverified](../plans/m1f-device-actions.md#unverified) | 1f | |
 | Typing paths used only when the reader cannot run: `input text` under host load, ADBKeyboard (level 4), `input keycombination` below API 33 (level 3) | unverified | device/UI | [m1f §Acceptance](../plans/m1f-device-actions.md#acceptance) (A5) | 1f | |
 | Spike S6 not run: dump latency and idle failures on API 34–36 Compose, an infinite animation blocking idle, the timeouts and the 40 KB tree cap as working defaults | unverified | device/UI | [ui-automation.md §To verify](../subsystems/ui-automation.md#to-verify-spike-s6) | 1e | |
