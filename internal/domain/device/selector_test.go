@@ -372,6 +372,11 @@ func TestNotFoundAndStaleRefCandidates(t *testing.T) {
 	if want := []string{"n1", "n2"}; !equalStrings(refs, want) {
 		t.Errorf("near candidates %v, want the literal %v", refs, want)
 	}
+	// D6: the nextStep names the capability to call and says whether repeating is safe. A
+	// selection changes nothing on the device, so this one is (plan m1n, D6).
+	if !strings.Contains(e.NextStep, "device.uiTree") || !strings.Contains(e.NextStep, "safe to repeat") {
+		t.Errorf("nextStep = %q; want device.uiTree and that repeating is safe (plan m1n, D6)", e.NextStep)
+	}
 
 	// An empty tree names its emptyReason in details.
 	empty := Snapshot{ID: "s-2", EmptyReason: EmptyNoAccessibilityInfo, Nodes: []UINode{}}

@@ -130,6 +130,13 @@ func TestDiscoverRejectsOlderAndBrokenCandidates(t *testing.T) {
 	if n := got.NotFound(); !strings.Contains(n, "17") || !strings.Contains(n, "JAVA_HOME") {
 		t.Errorf("NotFound() = %q, want the floor and what to set", n)
 	}
+	// Each candidate in the "Tried:" list names its source (plan m1n, A10): the JAVA_HOME
+	// variable and PATH. Seen failing when an entry read only the path and the reason.
+	for _, want := range []string{"[$JAVA_HOME]", "[PATH]"} {
+		if !strings.Contains(got.NotFound(), want) {
+			t.Errorf("NotFound() = %q; want the source named as %s (plan m1n, A10)", got.NotFound(), want)
+		}
+	}
 }
 
 // TestDiscoverPrefersTheConfiguredJavaHome pins ADR-0032 §3 and D8: `gradle.sidecarJavaHome`
@@ -193,6 +200,21 @@ func TestDiscoverInvalidConfigurationNamesTheFile(t *testing.T) {
 	}
 	if !named {
 		t.Errorf("rejected = %+v; want the invalid file with source %s", got.Rejected, gradle.SourceSidecarJavaHome)
+	}
+
+	// With no JVM to fall to, the "Tried:" list names the file the key came from (plan
+	// m1n, A10): `gradle.sidecarJavaHome in <config path>`.
+	none := gradle.Discover(gradle.Finder{
+		GOOS:        "linux",
+		Env:         []string{"PATH="},
+		StudioHomes: func() []string { return nil },
+		JavaHome:    policy.ToolKey{ConfigPath: configPath, Invalid: "gradle.sidecarJavaHome: not an absolute path"},
+	})
+	if none.Found {
+		t.Fatalf("Discover = %+v; want not found", none)
+	}
+	if want := "[" + gradle.SourceSidecarJavaHome + " in " + configPath + "]"; !strings.Contains(none.NotFound(), want) {
+		t.Errorf("NotFound() = %q; want the source named as %s (plan m1n, A10)", none.NotFound(), want)
 	}
 }
 

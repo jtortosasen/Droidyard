@@ -454,7 +454,7 @@ func (a *ADB) crashFromExitInfo(ctx context.Context, t *target, app string, asOf
 func systemDialogRefusal(sd *SystemDialog) *capability.Error {
 	return capability.NewError(ErrNotReady, "a system dialog is over the screen, so nothing was tapped or typed").
 		WithCause("the " + sd.Kind + " dialog is showing and the target is not inside it").
-		WithNextStep("Act inside the dialog instead: tap its buttons through device.tapElement (a crash dialog has \"app info\" and \"close\", an ANR \"wait\" and \"close\"), or wait for it to clear and read again. Droidyard never dismisses the dialog itself; nothing was tapped or typed.").
+		WithNextStep("Act inside the dialog instead: tap its buttons through device.tapElement (a crash dialog has \"app info\" and \"close\", an ANR \"wait\" and \"close\"), or wait for it to clear and read again. Droidyard never dismisses the dialog itself; nothing was tapped or typed, so this call is safe to repeat.").
 		WithDetails(map[string]any{"state": "systemDialog", "systemDialog": sd})
 }
 

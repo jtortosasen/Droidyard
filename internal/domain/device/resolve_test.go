@@ -170,6 +170,40 @@ func TestResolveWithNothingListsEveryCandidate(t *testing.T) {
 	}
 }
 
+// TestNotFoundNamesEachCandidatesSource pins plan m1n A10: the "Tried:" text says where
+// each candidate came from — the configuration file that set `tools.adb`, the `$ADB`
+// variable, the SDK, PATH — not only the path. Seen failing when every entry read the raw
+// source constant. It is what DEVICE_ADB_NOT_FOUND carries as its cause.
+func TestNotFoundNamesEachCandidatesSource(t *testing.T) {
+	tmp := t.TempDir()
+
+	// The tool key and the variable: a `tools.adb` file that does not parse names the file,
+	// and a non-executable ADB names the variable; ADB fails closed, so it comes last.
+	configPath := filepath.Join(tmp, "config.json")
+	adbVar := filepath.Join(tmp, "var", "adb")
+	key := policy.ToolKey{ConfigPath: configPath, Invalid: `tools.adb: "adb" is not an absolute path`}
+	got := ResolveWith([]string{"ADB=" + adbVar, "PATH=" + filepath.Join(tmp, "empty")}, key)
+	if got.Found {
+		t.Fatalf("found %q with a broken config and a missing ADB", got.Path)
+	}
+	for _, want := range []string{"[" + SourceToolKey + " in " + configPath + "]", "[$ADB]"} {
+		if !strings.Contains(got.NotFound(), want) {
+			t.Errorf("NotFound = %q; want the source named as %s (plan m1n, A10)", got.NotFound(), want)
+		}
+	}
+
+	// The SDK and PATH, with no key and no ADB.
+	plain := Resolve([]string{"ANDROID_HOME=" + filepath.Join(tmp, "home"), "HOME=" + filepath.Join(tmp, "user"), "PATH=" + filepath.Join(tmp, "empty")})
+	if plain.Found {
+		t.Fatalf("found %q with nothing installed", plain.Path)
+	}
+	for _, want := range []string{"[SDK (ANDROID_HOME)]", "[PATH]"} {
+		if !strings.Contains(plain.NotFound(), want) {
+			t.Errorf("NotFound = %q; want the source named as %s (plan m1n, A10)", plain.NotFound(), want)
+		}
+	}
+}
+
 // TestResolveNeverReadsTheProcessEnvironment pins the explicit-environment rule: a
 // real ANDROID_HOME and PATH in the process change nothing, so no test can find this
 // machine's adb.
@@ -229,8 +263,9 @@ func TestResolveConfiguredToolKeyFailsClosed(t *testing.T) {
 	pathAdb := touch(t, filepath.Join(tmp, "bin", "adb"))
 	env := []string{"ADB=" + adbVar, "ANDROID_HOME=" + filepath.Dir(filepath.Dir(homeSDK)), "PATH=" + filepath.Dir(pathAdb)}
 	missing := filepath.Join(tmp, "nope", "adb")
+	configPath := filepath.Join(tmp, "config.json")
 
-	got := ResolveWith(env, policy.ToolKey{Path: missing})
+	got := ResolveWith(env, policy.ToolKey{ConfigPath: configPath, Path: missing})
 	if got.Found || got.Path != "" {
 		t.Fatalf("ResolveWith = %+v; want not found (fail closed)", got)
 	}
@@ -240,8 +275,8 @@ func TestResolveConfiguredToolKeyFailsClosed(t *testing.T) {
 	if !strings.Contains(got.Rejected[0].Reason, "tools.adb is set") {
 		t.Errorf("reason = %q; want it to name the key", got.Rejected[0].Reason)
 	}
-	if !strings.Contains(got.NotFound(), "tools.adb") {
-		t.Errorf("NotFound = %q; want it to name the key", got.NotFound())
+	if want := "[" + SourceToolKey + " in " + configPath + "]"; !strings.Contains(got.NotFound(), want) {
+		t.Errorf("NotFound = %q; want it to name the source as %s (plan m1n, A10)", got.NotFound(), want)
 	}
 }
 

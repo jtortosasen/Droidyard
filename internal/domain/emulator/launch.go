@@ -286,7 +286,7 @@ func launchExited(l *launch, during string) *capability.Error {
 		}
 		return capability.NewError(ErrAVDLocked, "the AVD "+l.avd+" is held by another instance").
 			WithCause(cause).
-			WithNextStep("No emulator in adb devices answers as this AVD, so the instance holding it has no console Droidyard can address: it was started outside this daemon (by hand, another tool or an earlier daemon), or hung before its console opened. Droidyard does not stop processes it did not launch: close that emulator's window or end its process, then call emulator.start again, or boot another AVD.")
+			WithNextStep("No emulator in adb devices answers as this AVD, so the instance holding it has no console Droidyard can address: it was started outside this daemon (by hand, another tool or an earlier daemon), or hung before its console opened. Droidyard does not stop processes it did not launch: close that emulator's window or end its process, then call emulator.start again, or boot another AVD. Nothing was launched, so this call is safe to repeat once that instance is gone.")
 	}
 	status, _ := l.exitStatus()
 	cause := fmt.Sprintf("the emulator launcher %s (exit status %d)", during, status)

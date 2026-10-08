@@ -40,6 +40,11 @@ type Resolution struct {
 	Source   string
 	Rejected []Rejected
 	Warnings []string
+
+	// configPath is the configuration file the `tools.emulator` key was read from, named
+	// in the "Tried:" text beside the key (plan m1k D8; plan m1n A10). Empty when no file
+	// was read; never published.
+	configPath string
 }
 
 // Resolve finds the launcher with no configured tool keys: it is ResolveWith over empty
@@ -63,6 +68,7 @@ func ResolveWith(env []string, keys Keys) Resolution {
 	// copies sdk.Host's onto its own (resolve.go), so appending both would duplicate them.
 	res.Warnings = append([]string{}, adb.Warnings...)
 	res.Rejected = []Rejected{}
+	res.configPath = keys.Launcher.ConfigPath
 	seen := map[string]bool{}
 	reject := func(cand, src, reason string) {
 		if cand == "" || seen[cand] {
@@ -178,12 +184,40 @@ func envMap(env []string) map[string]string {
 }
 
 // NotFound explains, for a person or an agent, that the launcher was not found, what was
-// tried and what to set. It is the one text system.capabilities' unavailableReason and a
-// call's EMULATOR_LAUNCHER_NOT_FOUND both carry.
+// tried and what to set. Each candidate names its source, the configured key naming the
+// file it came from (plan m1k D8; plan m1n A10). It is the one text system.capabilities'
+// unavailableReason and a call's EMULATOR_LAUNCHER_NOT_FOUND both carry.
 func (r Resolution) NotFound() string {
 	tried := make([]string, 0, len(r.Rejected))
 	for _, c := range r.Rejected {
-		tried = append(tried, c.Candidate+" ("+c.Reason+")")
+		tried = append(tried, c.Candidate+" ["+r.sourceName(c.Source)+"] ("+c.Reason+")")
 	}
 	return "the emulator launcher was not found: set `tools.emulator` in the droidyard configuration to the launcher, or ANDROID_HOME to an Android SDK with emulator/emulator, or put emulator on PATH. Tried: " + strings.Join(tried, "; ")
+}
+
+// sourceName spells a rejected candidate's source for the human "Tried:" text (plan m1k
+// D8; plan m1n A10); the structured Source keeps its constant.
+func (r Resolution) sourceName(src string) string {
+	switch src {
+	case SourceToolKey:
+		if r.configPath != "" {
+			return SourceToolKey + " in " + r.configPath
+		}
+		return SourceToolKey
+	case SourceHostSDK:
+		return "SDK (host SDK)"
+	case SourceADBLocation:
+		return "SDK (derived from adb's location)"
+	case SourcePath:
+		return "PATH"
+	case sdk.SourceAndroidHome:
+		return "SDK (ANDROID_HOME)"
+	case sdk.SourceSDKRoot:
+		return "SDK (ANDROID_SDK_ROOT)"
+	case sdk.SourceSDKFromPath:
+		return "SDK (derived from adb on PATH)"
+	case sdk.SourceSDKDefault:
+		return "SDK (per-OS default)"
+	}
+	return src
 }

@@ -288,9 +288,9 @@ func noSerialAppeared(capabilityName, avd string, pid int, stopped bool, elapsed
 	}
 	err := capability.NewError(ErrBootTimeout, "no emulator for "+avd+" appeared").WithCause(cause)
 	if capabilityName == "emulator.wipe" {
-		return err.WithNextStep("The wipe may be partial: call emulator.wipe again, with headless: true if a windowed emulator may be waiting on a dialog nobody sees.")
+		return err.WithNextStep("The wipe may be partial: call emulator.wipe again, with headless: true if a windowed emulator may be waiting on a dialog nobody sees. Wiping again is safe to repeat once no instance of the AVD is left running.")
 	}
-	return err.WithNextStep("Retry with headless: true — a windowed emulator can wait on a dialog nobody sees — and with coldBoot: true if its last instance did not shut down cleanly.")
+	return err.WithNextStep("Retry with headless: true — a windowed emulator can wait on a dialog nobody sees — and with coldBoot: true if its last instance did not shut down cleanly. This call is safe to repeat once no instance of the AVD is left running.")
 }
 
 // bootTimedOut is EMULATOR_BOOT_TIMEOUT for a device that appeared but never finished
@@ -300,7 +300,7 @@ func noSerialAppeared(capabilityName, avd string, pid int, stopped bool, elapsed
 func bootTimedOut(serial string) *capability.Error {
 	return capability.NewError(ErrBootTimeout, "the emulator "+serial+" did not finish booting").
 		WithCause("sys.boot_completed was not 1 after " + bootTimeout.String()).
-		WithNextStep("The device is not ours to signal: call emulator.stop {device: \"" + serial + "\"} to end the wedged emulator, then start it again.")
+		WithNextStep("The device is not ours to signal: call emulator.stop {device: \"" + serial + "\"} to end the wedged emulator, then start it again. Until that instance is stopped, do not repeat this call: the same AVD is still running.")
 }
 
 // disconnectedDuringBoot is DEVICE_DISCONNECTED for an adopted serial that left while the

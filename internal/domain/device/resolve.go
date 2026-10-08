@@ -47,6 +47,12 @@ type Resolution struct {
 	Source   string
 	Rejected []Rejected
 	Warnings []string
+
+	// configPath is the configuration file the tool key was read from. NotFound names it
+	// beside the key, so a "Tried:" list says which file set `tools.adb` (plan m1k D8;
+	// plan m1n A10). It is empty when no file was read, and is never published: only the
+	// human "Tried:" text uses it.
+	configPath string
 }
 
 // Resolve finds adb with no configured tool key: it is ResolveWith over an empty key,
@@ -71,6 +77,7 @@ func ResolveWith(env []string, key policy.ToolKey) Resolution {
 	var res Resolution
 	res.Warnings = append([]string{}, host.Warnings...)
 	res.Rejected = []Rejected{}
+	res.configPath = key.ConfigPath
 	reject := func(cand, src, reason string) {
 		res.Rejected = append(res.Rejected, Rejected{Candidate: cand, Source: src, Reason: reason})
 	}
@@ -172,12 +179,41 @@ func envMap(env []string) map[string]string {
 }
 
 // NotFound explains, for a person or an agent, that adb was not found, what was tried
-// and what to set. It is the one text system.capabilities' reason and a device call's
-// DEVICE_ADB_NOT_FOUND both carry.
+// and what to set. Each tried candidate names its source, so the reader knows which
+// key, variable or directory named it; the configured key names the file it came from
+// (plan m1k D8; plan m1n A10). It is the one text system.capabilities' reason and a
+// device call's DEVICE_ADB_NOT_FOUND both carry.
 func (r Resolution) NotFound() string {
 	tried := make([]string, 0, len(r.Rejected))
 	for _, c := range r.Rejected {
-		tried = append(tried, c.Candidate+" ("+c.Reason+")")
+		tried = append(tried, c.Candidate+" ["+r.sourceName(c.Source)+"] ("+c.Reason+")")
 	}
 	return "adb was not found: set `tools.adb` in the droidyard configuration to the adb binary, or ADB in the environment, or ANDROID_HOME to an Android SDK with platform-tools/adb, or put adb on PATH. Tried: " + strings.Join(tried, "; ")
+}
+
+// sourceName spells a rejected candidate's source for the human "Tried:" text (plan m1k
+// D8; plan m1n A10). The structured Source field keeps its constant — the same value
+// system.health shows — and only this rendering adds the configuration file, the `$`
+// sigil of an environment variable and the SDK's own name.
+func (r Resolution) sourceName(src string) string {
+	switch src {
+	case SourceToolKey:
+		if r.configPath != "" {
+			return SourceToolKey + " in " + r.configPath
+		}
+		return SourceToolKey
+	case SourceADBEnv:
+		return "$ADB"
+	case SourcePath:
+		return "PATH"
+	case SourceAndroidHome:
+		return "SDK (ANDROID_HOME)"
+	case SourceSDKRoot:
+		return "SDK (ANDROID_SDK_ROOT)"
+	case SourceSDKFromPath:
+		return "SDK (derived from adb on PATH)"
+	case SourceSDKDefault:
+		return "SDK (per-OS default)"
+	}
+	return src
 }

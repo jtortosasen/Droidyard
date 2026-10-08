@@ -469,7 +469,7 @@ type RootOf func(call *capability.Call) (string, bool)
 // (ADR-0015 §5; plan m1g D3). Its text is a decision, asserted by the tests.
 func UntrustedError(root string) *capability.Error {
 	return capability.Errorf(capability.ErrWorkspaceUntrusted, "the project root %q is not trusted, so its code will not run", root).
-		WithNextStep("ask the user to run `droidyard trust '" + strings.ReplaceAll(root, "'", `'\''`) + "'`")
+		WithNextStep("ask the user to run `droidyard trust '" + strings.ReplaceAll(root, "'", `'\''`) + "'`; nothing ran, so this call is safe to repeat once the root is trusted.")
 }
 
 // shellDisabled is the fixed failure of shell.exec on a root the policy does not admit
@@ -480,7 +480,7 @@ func UntrustedError(root string) *capability.Error {
 // when the file is the problem (plan m1k D4, D6; ADR-0032 Q1).
 func (p *Policy) shellDisabled(root, cause string) *capability.Error {
 	e := capability.Errorf(capability.ErrPolicyShellDisabled, "shell.exec is not enabled for the project root %q; enabling it lets an agent run any command as you, with your full rights over this machine, droidyard's own configuration and trust included", root).
-		WithNextStep("ask the user to enable shell.exec for this project (`shell.roots` in " + p.path + "), or use a modelled capability")
+		WithNextStep("ask the user to enable shell.exec for this project (`shell.roots` in " + p.path + ", or the human-only policy.update), or use a modelled capability; nothing ran, so this call is safe to repeat once it is enabled")
 	if cause != "" {
 		e = e.WithCause(cause)
 	}
@@ -496,7 +496,7 @@ func configurationError(path string, err error) *capability.Error {
 	}
 	return capability.Errorf(capability.ErrWorkspaceUntrusted, "the configuration file %s could not be read, so nothing is trusted", path).
 		WithCause(path + ": " + err.Error()).
-		WithNextStep("fix or remove " + path)
+		WithNextStep("fix or remove " + path + "; nothing ran, so this call is safe to repeat once the file is usable")
 }
 
 // trustedBy is the trust rule: an exact entry, or a prefix at a path-component

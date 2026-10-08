@@ -1482,6 +1482,24 @@ func TestRefusedMalformedIsNotRetryAdvice(t *testing.T) {
 	}
 }
 
+// Decision (plan m1n step 8, main-session note 2): a refusal the reader named, that no other
+// method answers, is DEVICE_NOT_READY whose cause reads as a sentence — "the reader refused
+// to type: no field had focus." — not "the reader refused the typed because …", and whose
+// nextStep says repeating is safe, since nothing was typed. Seen failing with the
+// ungrammatical phrasing.
+func TestNamedRefusalReadsAsASentence(t *testing.T) {
+	quickAct(t)
+	f, _ := readerForm(t, "droidyard-reader: done", "droidyard-reader: refused no-focus")
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	ce := mustFail(t, out, ErrNotReady)
+	if !strings.Contains(ce.Cause, "the reader refused to type: no field had focus") {
+		t.Errorf("cause = %q; want it to read as a sentence naming the refusal", ce.Cause)
+	}
+	if !strings.Contains(ce.NextStep, "safe to repeat") {
+		t.Errorf("nextStep = %q; want it to say the call is safe to repeat", ce.NextStep)
+	}
+}
+
 // Decision (plan m1n step 5, fix round N7): a keys text whose reader bound cannot fit the
 // call's remaining typing slot is refused REQUEST_INVALID_PARAMS before the tap, rather than
 // sent and cut as an unanswered request that may have applied. Seen failing with the keys
@@ -1761,7 +1779,12 @@ func TestBusyActingThreadFailsBeforeActing(t *testing.T) {
 		quickAct(t)
 		f, r := readerForm(t, "droidyard-reader: busy")
 		out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
-		mustFail(t, out, ErrNotReady)
+		ce := mustFail(t, out, ErrNotReady)
+		// D6: DEVICE_NOT_READY's pending-action variant must say repeating is *not* safe —
+		// an earlier effect may still be in flight (plan m1n, D6).
+		if !strings.Contains(ce.NextStep, "do not repeat") {
+			t.Errorf("nextStep = %q; want it to say not to repeat the call (plan m1n, D6)", ce.NextStep)
+		}
 		noInputCommand(t, f.calls(t))
 		want := []string{"tap 100 100"}
 		if got := r.Acts(); !slices.Equal(got, want) {

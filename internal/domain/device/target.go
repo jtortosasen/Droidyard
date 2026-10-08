@@ -112,7 +112,7 @@ func (a *ADB) notFound(t *target) error {
 	}
 	return capability.NewError(ErrNotFound, "no device "+t.serial+" is connected").
 		WithDetails(map[string]any{"online": online}).
-		WithNextStep("Call device.list for the serials that are connected.")
+		WithNextStep("Call device.list for the serials that are connected; nothing on the device was changed, so this call is safe to repeat.")
 }
 
 // admitted consults the policy seam for a physical serial (ADR-0015 §4; ADR-0032 §2;
@@ -156,6 +156,7 @@ func (a *ADB) ready(ctx context.Context, t *target) error {
 		if fix == "" {
 			fix = "Call device.list until its state is device, then retry."
 		}
+		fix += " Nothing on the device was changed, so this call is safe to repeat."
 		return capability.NewError(ErrNotReady, "the device "+t.serial+" is "+t.dev.State).
 			WithDetails(map[string]any{"state": t.dev.State}).
 			WithNextStep(fix)
@@ -182,7 +183,7 @@ func (a *ADB) ready(ctx context.Context, t *target) error {
 		return capability.NewError(ErrNotReady, "the device "+t.serial+" is not answering").
 			WithCause("adb shell getprop sys.boot_completed " + what).
 			WithDetails(map[string]any{"state": "unresponsive"}).
-			WithNextStep("Retry in a few seconds; if it persists, restart the device.")
+			WithNextStep("Retry in a few seconds; if it persists, restart the device. Nothing on the device was changed, so this call is safe to repeat.")
 	}
 	if line := disconnectedLine(t.serial, out); line != "" {
 		return disconnected(t.serial, line)
@@ -202,7 +203,7 @@ func (a *ADB) ready(ctx context.Context, t *target) error {
 	return capability.NewError(ErrNotReady, "the device "+t.serial+" is still booting").
 		WithCause(cause).
 		WithDetails(map[string]any{"state": "booting"}).
-		WithNextStep("Wait until sys.boot_completed is 1 (a few seconds to a minute after boot), then retry.")
+		WithNextStep("Wait until sys.boot_completed is 1 (a few seconds to a minute after boot), then retry. Nothing on the device was changed, so this call is safe to repeat.")
 }
 
 func disconnected(serial, line string) *capability.Error {

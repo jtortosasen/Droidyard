@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,6 +32,17 @@ func (c *fakeClock) advance(d time.Duration) {
 
 type blockParams struct {
 	Label string `json:"label,omitempty"`
+}
+
+// installLikeParams mirrors device.install's shape: a required nested object. It is how
+// TestInvalidParamsNamesTheFieldAndShape makes the decoder report a type error on an
+// object-valued field.
+type installLikeParams struct {
+	Build struct {
+		BuildID string `json:"buildId,omitempty"`
+		Module  string `json:"module"`
+		Variant string `json:"variant"`
+	} `json:"build"`
 }
 
 // fixture is a store with test-only capabilities, never shipped:
@@ -162,6 +174,58 @@ func TestStartRejectsWithATypedErrorAndNoOperation(t *testing.T) {
 				t.Errorf("a rejected call ran its handler %d time(s)", n)
 			}
 		})
+	}
+}
+
+// TestInvalidParamsNamesTheFieldAndShape pins plan m1n step 8 (main-session notes 3 and
+// 4): REQUEST_INVALID_PARAMS for a wrong type or an unknown field names the field and the
+// shape the schema expects, so an agent reads what to send. Seen failing with Go's bare
+// "json: cannot unmarshal ..." text and a nextStep that said nothing.
+func TestInvalidParamsNamesTheFieldAndShape(t *testing.T) {
+	reg := NewRegistry()
+	reg.MustRegister(Descriptor{
+		Name: "test.install", Kind: Command, Scope: Global, Description: "takes a build ref.",
+		Params: installLikeParams{}, Result: result{},
+		Handler: func(context.Context, *Call) (any, error) { return result{}, nil },
+	})
+	// An empty params struct in a workspace scope: a value like the workspace belongs in
+	// the request, not in a parameter (note 4, the workspace.open case).
+	reg.MustRegister(Descriptor{
+		Name: "test.open", Kind: Command, Scope: Workspace, Description: "opens a workspace.",
+		Params: struct{}{}, Result: result{},
+		Handler: func(context.Context, *Call) (any, error) { return result{}, nil },
+	})
+	ops := NewOperations(reg)
+	ops.RegisterCapabilities()
+
+	// A string where an object belongs: the message and the nextStep name the field and
+	// its shape (note 3).
+	_, err := ops.Start(context.Background(), Request{
+		Capability: "test.install", Params: json.RawMessage(`{"build":"op-1"}`),
+	})
+	ce := AsError(err)
+	if ce.Code != ErrInvalidParams {
+		t.Fatalf("code = %s; want %s", ce.Code, ErrInvalidParams)
+	}
+	if !strings.Contains(ce.Message, "build") || !strings.Contains(ce.Message, "{buildId?, module, variant}") {
+		t.Errorf("message = %q; want it to name build and its shape", ce.Message)
+	}
+	if !strings.Contains(ce.NextStep, `"build"`) || !strings.Contains(ce.NextStep, "{buildId?, module, variant}") {
+		t.Errorf("nextStep = %q; want it to say what shape build takes", ce.NextStep)
+	}
+
+	// An unknown field, in a capability that takes none: the nextStep says where the value
+	// belongs — the request's workspace field, the CLI's --workspace (note 4).
+	_, err = ops.Start(context.Background(), Request{
+		Capability: "test.open", Workspace: "/w", Params: json.RawMessage(`{"root":"/w"}`),
+	})
+	ce = AsError(err)
+	if ce.Code != ErrInvalidParams {
+		t.Fatalf("code = %s; want %s", ce.Code, ErrInvalidParams)
+	}
+	if !strings.Contains(ce.NextStep, `"root"`) || !strings.Contains(ce.NextStep, "takes no parameters") ||
+		!strings.Contains(ce.NextStep, "--workspace") {
+		t.Errorf("nextStep = %q; want it to name root and say the workspace is not a parameter", ce.NextStep)
 	}
 }
 
