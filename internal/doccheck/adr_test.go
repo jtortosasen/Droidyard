@@ -48,6 +48,7 @@ func TestADRIndexMatchesFiles(t *testing.T) {
 // re-propose it" holds only if the reason is recorded.
 func TestADRsAreWellFormed(t *testing.T) {
 	report(t, checkADRFormat(repo()))
+	report(t, checkAmendedFrozen(repo(), amendedFrozen))
 }
 
 // adrFiles returns the ADR files by number, and a problem for any markdown file in
@@ -264,7 +265,7 @@ func checkADRFormat(fsys fs.FS) []string {
 			}
 		}
 	}
-	return problems
+	return append(problems, checkSupersession(fsys)...)
 }
 
 func isDate(s string, whole bool) bool {

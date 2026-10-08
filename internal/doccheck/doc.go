@@ -4,7 +4,9 @@
 // format, relative links and the section references that follow them (a file named
 // by link, path, bare name or ADR number; a cited .md that does not exist is a
 // finding), the mechanical rules of the milestone plan template, the shape and order
-// of the register of open items, and the size of the live documentation.
+// of the register of open items, the size of the live documentation, the facts that
+// documents must repeat (error codes against the constants, no restated counts or API
+// version) and the ADR policy (supersession pointers both ways, no new Amended lines).
 //
 // Frozen files (isFrozen: a plan with Status Done, docs/research/, docs/reviews/,
 // the ADRs) cite documents as they were, so their section references and #fragment

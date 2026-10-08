@@ -251,7 +251,7 @@ var adrFixture = tree{
 | [0001](0001-first.md) | First | Accepted |
 | [0002](0002-second.md) | Second | Superseded by ADR-0001 |
 `,
-	"docs/adr/0001-first.md":  adr("0001", "First", "Accepted", "- **Other.** Fails because."),
+	"docs/adr/0001-first.md":  strings.Replace(adr("0001", "First", "Accepted", "- **Other.** Fails because."), "- Amended:", "- Supersedes: ADR-0002\n- Amended:", 1),
 	"docs/adr/0002-second.md": adr("0002", "Second", "Superseded by ADR-0001", "- **Other.** Fails because."),
 }
 
@@ -285,7 +285,7 @@ func TestADRChecksCatchDrift(t *testing.T) {
 	})
 	t.Run("placeholder alternatives", func(t *testing.T) {
 		tr := adrFixture.with(t, "docs/adr/0001-first.md", "- **Other.** Fails because.", "TBD.")
-		expect(t, checkADRFormat(tr.fs()), "docs/adr/0001-first.md:19", "Alternatives considered", "placeholder")
+		expect(t, checkADRFormat(tr.fs()), "docs/adr/0001-first.md:20", "Alternatives considered", "placeholder")
 	})
 	t.Run("unknown status", func(t *testing.T) {
 		tr := adrFixture.with(t, "docs/adr/0001-first.md", "- Status: Accepted", "- Status: Approved")
@@ -310,7 +310,7 @@ func TestADRChecksCatchDrift(t *testing.T) {
 }
 
 var linkFixture = tree{
-	"docs/adr/0001-first.md": adrFixture["docs/adr/0001-first.md"],
+	"docs/adr/0001-first.md": adr("0001", "First", "Accepted", "- **Other.** Fails because."),
 	"docs/a.md": `# A
 
 ## Scope and workspace addressing
