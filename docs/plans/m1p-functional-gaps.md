@@ -48,7 +48,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - [x] A4. On `Pixel_9a` (API 36.1) the `logcat` layout with the uid column is recorded and `device.logs {applicationId}` keeps only that app's lines by uid. Source: plan m1i A1 (D5). Proven by: step 4.
 - [x] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
 - [ ] A6. A launch is recorded in `processes.json` from spawn until its serial is resolved; a daemon killed in that window has its launch ended by the next daemon; a record whose AVD already answers as a listed serial, or whose adb query fails or times out, is dropped with nothing signalled. Source: Q1. Proven by: step 6.
-- [ ] A7. `shell.exec` runs in `cwd` with `env` applied, per D1. Source: brief H. Proven by: step 7.
+- [x] A7. `shell.exec` runs in `cwd` with `env` applied, per D1. Source: brief H. Proven by: step 7.
 - [ ] A8. `policy.get` returns a `revision`; `policy.update {ifRevision}` with a stale one fails `POLICY_REVISION_CONFLICT` and writes nothing; without it, behaviour is unchanged. Source: plan m1k D3; Q2. Proven by: step 8.
 - [ ] A9. The register, `docs/README.md` and the plans index updated; the earlier plans' in-part items annotated with where they closed. Source: brief I. Proven by: step 9.
 
@@ -136,7 +136,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: a per-call `PATH` search for the command itself (it is `sh -c`).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestCwdRunsInAnInnerDirectoryAndRefusesEscapes` (`pwd` in `cwd: "app"` and through an in-root symlink; `../x`, `..`, a symlink leaving the root, a path under it, a missing path, a file and an absolute outside path each `REQUEST_INVALID_PARAMS` naming `cwd`, no marker written) and `TestEnvIsAppliedOverTheDaemonsAndBounded` (applied over the daemon's, same name replaced; bad and empty names, NUL, 65 entries, over 32 KiB refused naming `env`; 64 entries and the byte bound accepted). Seen failing with `file.ResolveDir` reduced to a join (the `../x` row) and, by the main session, with its `os.Root` and `stripRoot` checks removed (the `leak` symlink row completed); with `validateEnv` skipped; with `mergeEnv` skipped. Schema: `shell.exec` gains `cwd` and `env`; API 0.12.0 (shared with step 8).
 
 ### 8. A revision token on `policy.update` (Q2)
 

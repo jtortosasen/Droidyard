@@ -6,7 +6,7 @@
 // shell policy first — `shell.enabled`, or the canonical root under a `shell.roots`
 // entry — then the trust check every project-code capability shares (D4), so an
 // untrusted root never reaches the command. The command runs as `/bin/sh -c` in the
-// canonical root, with the daemon's environment and stdin the null device, recorded so
+// canonical root (or its cwd inside it), with the daemon's environment plus env and stdin the null device, recorded so
 // a daemon that dies leaves it findable; its process group is killed at every end, so
 // nothing it left behind outlives the call (D5). Each stream is returned as its last
 // 16 KiB inline, marked untrusted, with the first 4 MiB kept as an ephemeral artifact
@@ -30,8 +30,10 @@ const version = "0.10.0"
 
 // Params are shell.exec's parameters (D5).
 type Params struct {
-	Command   string `json:"command" jsonschema:"required" jsonschema_description:"The command line, run with /bin/sh -c in the project's root. One to 8192 bytes, with no NUL byte."`
-	TimeoutMs int    `json:"timeoutMs,omitempty" jsonschema:"minimum=1000,maximum=600000" jsonschema_description:"How long the command may run, 1000 to 600000 milliseconds. Absent means 60000. A command still running at the timeout is killed and the result is completed with timedOut true and its partial output."`
+	Command   string            `json:"command" jsonschema:"required" jsonschema_description:"The command line, run with /bin/sh -c in the project's root. One to 8192 bytes, with no NUL byte."`
+	TimeoutMs int               `json:"timeoutMs,omitempty" jsonschema:"minimum=1000,maximum=600000" jsonschema_description:"How long the command may run, 1000 to 600000 milliseconds. Absent means 60000. A command still running at the timeout is killed and the result is completed with timedOut true and its partial output."`
+	Cwd       string            `json:"cwd,omitempty" jsonschema_description:"The working directory, a path relative to the project root; it must be an existing directory inside the root once symlinks are resolved. Absent means the root. This is not a fence: the command can still reach anything the user can."`
+	Env       map[string]string `json:"env,omitempty" jsonschema_description:"Environment variables set over the daemon's own, at most 64 entries and 32 KiB in all; names match [A-Za-z_][A-Za-z0-9_]*, values have no NUL byte. This is not a fence: the shell already has the user's reach."`
 }
 
 // Result is shell.exec's result (D6). A non-zero exit and a timeout are completed
@@ -79,6 +81,9 @@ type Options struct {
 	Authorize func(ctx context.Context, call *capability.Call) (any, error)
 	// Recorded starts the shell recorded. Nil (the golden registry) refuses to run.
 	Recorded Starter
+	// ResolveDir resolves a cwd to the absolute canonical directory it names, inside the
+	// root (file.ResolveDir, wired by the daemon). Nil refuses a call that names a cwd.
+	ResolveDir func(root, path string) (string, error)
 	// Env is the daemon's whole environment for the command.
 	Env []string
 	// Artifacts keeps a stream over the inline bound. Nil keeps the inline tail only.
@@ -153,7 +158,19 @@ func (o Options) handle(ctx context.Context, call *capability.Call) (any, error)
 	if root == "" || o.Recorded == nil {
 		return nil, capability.NewError(capability.ErrShellExecFailed, "the shell is not configured")
 	}
-	res, err := run(ctx, o, root, p)
+	dir := root
+	if p.Cwd != "" {
+		if o.ResolveDir == nil {
+			return nil, capability.NewError(capability.ErrShellExecFailed, "the shell is not configured to resolve cwd")
+		}
+		d, err := o.ResolveDir(root, p.Cwd)
+		if err != nil {
+			return nil, capability.Errorf(capability.ErrInvalidParams, "cwd: %v", err).
+				WithNextStep("pass cwd as a directory path relative to the project root, or omit it")
+		}
+		dir = d
+	}
+	res, err := run(ctx, o, dir, p)
 	if err != nil {
 		return nil, err
 	}

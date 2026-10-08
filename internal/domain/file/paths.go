@@ -2,6 +2,7 @@ package file
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -199,4 +200,48 @@ func entryType(m fs.FileMode) string {
 	default:
 		return "other"
 	}
+}
+
+// ResolveDir resolves path, relative to the canonical root, to the absolute canonical
+// directory it names: the same rules as every file.* path (D2: lexical containment, then
+// an os.Root open so no symlink leaves the root), and the target must be a directory.
+// "" and "." are the root. It exists for shell.exec's cwd (plan m1p D1); the error is
+// descriptive and carries no FILE_* code, since the caller maps it to its own.
+func ResolveDir(env platform.Env, root, path string) (string, error) {
+	r := &resolver{root: root, env: env}
+	rel, cerr := r.resolve(path, false)
+	if cerr != nil {
+		return "", errors.New(cerr.Message)
+	}
+	rt, cerr := r.openRoot()
+	if cerr != nil {
+		return "", errors.New(cerr.Message)
+	}
+	defer rt.Close()
+	d, err := rt.Open(rel)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("%q does not exist", path)
+		}
+		if isEscape(err) {
+			return "", fmt.Errorf("%q leaves the project root", path)
+		}
+		return "", fmt.Errorf("%q cannot be opened: %v", path, err)
+	}
+	defer d.Close()
+	fi, err := d.Stat()
+	if err != nil {
+		return "", fmt.Errorf("%q cannot be examined: %v", path, err)
+	}
+	if !fi.IsDir() {
+		return "", fmt.Errorf("%q is a %s, not a directory", path, typeName(fi.Mode()))
+	}
+	abs, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", fmt.Errorf("%q cannot be resolved: %v", path, err)
+	}
+	if _, ok := stripRoot(root, abs); !ok {
+		return "", fmt.Errorf("%q leaves the project root", path)
+	}
+	return abs, nil
 }

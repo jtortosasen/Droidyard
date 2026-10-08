@@ -360,9 +360,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		},
 		ShellAllowed: pol.ShellAllowed,
 		Authorize:    authorize,
-		Recorded:     shellStarter(sup),
-		Env:          os.Environ(),
-		Artifacts:    artifacts,
+		ResolveDir: func(root, path string) (string, error) {
+			return file.ResolveDir(env, root, path)
+		},
+		Recorded:  shellStarter(sup),
+		Env:       os.Environ(),
+		Artifacts: artifacts,
 	})
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
