@@ -1,8 +1,10 @@
 # Known limits
 
 One register of what is open: limits the code has on purpose, claims not yet verified,
-work deferred, and questions the documents leave open. Each row cites the document that
-records it; that document stays authoritative, and the row is its index entry. Seeded at
+work deferred, and questions the documents leave open. This register is the only home of open
+items: documents do not keep their own open-question or to-verify sections. `Source` is
+provenance: the ADR, plan or research note that raised the item, or the area document
+when nothing else did. Seeded at
 milestone 1n's close from every plan's §Unverified, §Not in this milestone and in-part
 acceptance items, the ADRs' consequences, the documents' open questions and
 [`mvp.md`](mvp.md) §Out of scope; items closed before 1n are not listed. **Each
@@ -136,6 +138,7 @@ close an item.
 | Streamable-HTTP MCP on the listener, and its authentication (the bearer token or the MCP authorization flow) | open question | MCP/agents | [http-websocket.md §Open questions](../interfaces/http-websocket.md#open-questions) | design | |
 | Linux not run: the `$XDG_RUNTIME_DIR` socket, `SO_PEERCRED`, `/proc` start times, `Pdeathsig`, `flock`, `os.Root`, `xdg-open`, emulator detach and headless boot; no Linux host or CI | unverified | platform | [m1c §Unverified](../plans/m1c-process-supervisor-and-workspace.md#unverified) | 1b | |
 | Windows | deferred | platform | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
+| A GitHub Actions workflow running build, vet, gofmt, `go test -race` and doccheck on every push is not set up; checks run locally through `.githooks/pre-commit` | deferred | platform | [m1q §Not in this milestone](../plans/m1q-one-source-of-truth.md#not-in-this-milestone) | 1q | |
 | On a trusted root an agent can run code as the user through the build (it edits build scripts with `file.write`), droidyard's configuration included | limit | policy/security | [ADR-0015](../adr/0015-untrusted-data-authorization.md) (second 2026-10-07 `Amended:` line) | 1k | |
 | A configured `tools.adb` bypasses a fence set through `ADB` (a guard script) | limit | policy/security | [adb-device.md §adb resolution and degradation](../subsystems/adb-device.md#adb-resolution-and-degradation) | 1k | |
 | Off USB a device reporting `product:sdk_gphone*` is classified an emulator and bypasses the physical-device policy | limit | policy/security | [m1k §Changes](../plans/m1k-policy-and-shell.md#changes) | 1k | |

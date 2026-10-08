@@ -110,28 +110,8 @@ Agent guidance for this repository lives in [`../AGENTS.md`](../AGENTS.md).
 
 ## Conventions
 
-### Documents
-
-- One concern per file. Prefer small, focused documents over one large one.
-- Every architectural claim that could reasonably be decided differently should
-  live in an **ADR**, not buried in prose.
-- Use ASCII diagrams in fenced `text` blocks so they survive any renderer.
-
-### Architecture Decision Records
-
-Decisions live in [`adr/`](adr/README.md), numbered sequentially
-(`NNNN-short-title.md`). Each ADR has a **Status**:
-
-- `Proposed` — under discussion, not yet binding.
-- `Accepted` — binding; code and docs should conform to it.
-- `Superseded by ADR-XXXX` — replaced; keep the file for history.
-- `Deprecated` — no longer recommended, no replacement yet.
-
-### Language
-
-Project documentation and code are written in **English**. The original
-brainstorm (`android-agent-suite-boceto.md`, Spanish) is retained at the repo
-root for provenance only and is **superseded** by these documents.
+Where each fact lives, how ADRs are written and changed, which files are frozen
+records, and the language rule are in [`../AGENTS.md`](../AGENTS.md) §Conventions.
 
 ---
 

@@ -11,7 +11,7 @@ Read the whole ADR, not only the section named. Every area also has the owner de
 | MCP adapter | `docs/interfaces/mcp-tool-surface.md` · `docs/interfaces/mcp-features.md` · ADR-0020 §Adapter projections · ADR-0015 §6 (policy never over MCP) |
 | HTTP / WebSocket | `docs/interfaces/http-websocket.md` §Security baseline · ADR-0006 |
 | Workspaces and trust | `docs/architecture/workspace-state.md` · ADR-0015 §5 · ADR-0020 §Scope and workspace addressing · ADR-0021 |
-| Processes and supervision | `docs/architecture/process-lifecycle.md` · ADR-0001 (process ownership, amended) · ADR-0021 §Pid records |
+| Processes and supervision | `docs/architecture/process-lifecycle.md` · ADR-0001 (process ownership) · ADR-0021 §Pid records |
 | Events | `capability-api.md` §Events and subscriptions |
 | Artifacts | ADR-0012 §Durability classes, §Reading artifacts |
 | Devices and UI automation | `docs/subsystems/adb-device.md` · `docs/subsystems/ui-automation.md` · ADR-0005, ADR-0012, ADR-0015 |

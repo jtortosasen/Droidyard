@@ -11,8 +11,8 @@ buried in prose.
 
 - Status: Proposed | Accepted | Superseded by ADR-XXXX | Deprecated
 - Date: YYYY-MM-DD
-- Amended: YYYY-MM-DD        (substantive edits after acceptance)
-- Supersedes: <optional>
+- Supersedes: <optional>: ADR-NNNN (whole) or ADR-NNNN §Section (in part)
+- Superseded in part by: <optional>: ADR-XXXX (§Section)   (header only; whole supersession shows in Status)
 - Relates to: <optional>
 
 ## Context
@@ -20,6 +20,11 @@ buried in prose.
 ## Consequences
 ## Alternatives considered
 ```
+
+An accepted ADR is not edited again (`AGENTS.md` §Conventions). A changed decision is a
+new ADR that supersedes the old one in whole or in part, and the old file gains only its
+one header line. The `Amended:` lines that older ADRs carry are historical: they record
+edits made before this rule and are not added to.
 
 ## Index
 
