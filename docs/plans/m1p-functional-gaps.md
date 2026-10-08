@@ -45,7 +45,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - [ ] A1. (Deferred by the owner, 2026-10-08; see Changes.) On `android7` under the hatch: `project.modules`, `project.variants`, `build.tasks` and `build.assemble` (with `outputs[]` and an installable APK) complete with `profile: conservative`, `validation: unsupported`, and the probe's facts are returned; whatever cannot work fails with a typed error naming the Gradle version and the hatch, never a raw failure. Source: plan m1k A7; ADR-0018 rule 3. Proven by: step 1.
 - [x] A2. Through the daemon, against a real Gradle build: a cancel landing before `{accepted}` ends `cancelled` with no build record; one during the build ends `cancelled` with a record whose outcome is `cancelled`; no build of it is still running after either. Source: plan m1g A4. Proven by: step 2.
 - [x] A3. After the scratch adb server on port 5199 is restarted, the next read recreates the reader's forward and succeeds; the 5037 server keeps its pid. Source: plan m1f A2; ADR-0030 §Decision. Proven by: step 3.
-- [ ] A4. On `Pixel_9a` (API 36.1) the `logcat` layout with the uid column is recorded and `device.logs {applicationId}` keeps only that app's lines by uid. Source: plan m1i A1 (D5). Proven by: step 4.
+- [x] A4. On `Pixel_9a` (API 36.1) the `logcat` layout with the uid column is recorded and `device.logs {applicationId}` keeps only that app's lines by uid. Source: plan m1i A1 (D5). Proven by: step 4.
 - [ ] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
 - [ ] A6. A launch is recorded in `processes.json` from spawn until its serial is resolved; a daemon killed in that window has its launch ended by the next daemon; a record whose AVD already answers as a listed serial, or whose adb query fails or times out, is dropped with nothing signalled. Source: Q1. Proven by: step 6.
 - [ ] A7. `shell.exec` runs in `cwd` with `env` applied, per D1. Source: brief H. Proven by: step 7.
@@ -100,7 +100,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: crashing an app on `Pixel_9a` (K3).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: under K3 (Pixel_9a started here with `-no-snapshot-save -no-window`, stopped with `emu kill`; the guard variant logged 28 invocations, `refused.log` empty; 5037's pid 19285 unchanged). The first `device.logs {applicationId}` failed `DEVICE_LOGS_FAILED` (format): 4 lines in 37,930 carry no `: ` after the tag. Fixed in `parseLogLine` (the tag ends at the first `:` then; no `:` at all, the whole rest); `TestLogcatAPI36LineWithoutColonSpace` over the recording, seen failing with the fallback removed and with the uid column forced off. Rerun: `device.logs {applicationId: com.google.android.apps.messaging}` completed, `filter.by: uid`, `uid: 10153` (`pm list packages -U`), 100 lines, every one matched in a raw dump to uid 10153. G1/G7 rows added to the S8/S9 note.
 
 ### 5. Physical devices hidden by default
 

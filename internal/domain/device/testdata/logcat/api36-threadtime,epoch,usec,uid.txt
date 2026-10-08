@@ -1,0 +1,14 @@
+--------- beginning of main
+         1791451072.089074  root   244   244 I vold    : Vold 3.0 (the awakening) firing up
+         1791451072.089215  root   244   244 D vold    : Detected support for: ext4 f2fs vfat
+         1791451087.221422 10190  1094  1151 D InputMonitorCompat: Input event receiver for monitor (minus-one-disp0) created
+         1791451087.233653 10153  2032  2179 I Bugle   : DatabaseHelperBasic.doInitializationTraced
+         1791451087.268715 10153  2032  2179 I Bugle   : DatabaseHelperBasic: sqlite version is 3.50.4
+         1791451087.295525 10153  2032  2205 I Bugle   : Initializing EmojiCompat
+         1791451087.305081 10190  1094  1463 I HWUI    : Davey! duration=1644ms; Flags=0, FrameTimelineVsyncId=1732, IntendedVsync=19235816941, Vsync=20752483547, InputEventId=0, HandleInputStart=20755693634, AnimationStart=20755693967, PerformTraversalsStart=20755754217, DrawStart=20875831300, FrameDeadline=19319150271, FrameStartTime=20755234009, FrameInterval=16666666, WorkloadTarget=16666666, SyncQueued=20876258425, SyncStart=20898593884, IssueDrawCommandsStart=20898725425, SwapBuffers=20899161384, FrameCompleted=20902704842, DequeueBufferDuration=1666, QueueBufferDuration=93875, GpuCompleted=20902704842, SwapBuffersCompleted=20899721467, DisplayPresentTime=0, CommandSubmissionCompleted=20899161384, 
+         1791451076.290114 10193   960  1208 I PluginActionManager[com.android.systemui.action.FALSING_PLUGIN]: Found 0 plugins
+         1791451085.541383 10190  1094  1153 I PluginActionManager[com.android.systemui.action.PLUGIN_NETWORK_FETCHER_ACTIONS]:Found 0 plugins
+--------- beginning of system
+         1791451087.284978  1000   708   736 I AppServiceConnection: Connected: com.google.android.apps.messaging/com.google.android.ims.binding.SystemBindingService u0
+         1791451087.308356  1000   708  1936 W ActivityManager: Slow operation: 76ms so far, now at finishAttachApplicationInner: after mServices.attachApplicationLocked
+         1791451087.308681  1000   708  1936 W ActivityManager: Slow operation: 76ms so far, now at finishAttachApplicationInner: after dispatching broadcasts

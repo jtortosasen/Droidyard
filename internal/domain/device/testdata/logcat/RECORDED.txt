@@ -6,3 +6,12 @@ droidyard_m1i (system-images;android-31;google_apis;arm64-v8a, emulator 36.6.11,
 Commands: adb -s <scratch> logcat -d -b <buffers> -v <format>; pm list packages -U <pkg>;
 date +%s.%N. Trimmed to the fixture's uid, its Start proc line and Zygote's exit line.
 Nothing here comes from the owner's emulator.
+
+api36-threadtime,epoch,usec,uid.txt: recorded 2026-10-08 by the main session (milestone 1p
+step 4) on the owner's Pixel_9a (system-images android-36.1 google_apis ps16k arm64,
+booted from its snapshot with -no-snapshot-save, read only): adb -s <it> logcat -d
+-v threadtime,epoch,usec,uid -t 50 and -b main,system,crash. Fourteen lines kept as
+printed, network and account lines left out. The PLUGIN_NETWORK_FETCHER_ACTIONS line is
+one of four in 37,930 that carry no ": " after the tag; before 1p every device.logs read
+on this image failed DEVICE_LOGS_FAILED on it. Uid 10153 is com.google.android.apps.messaging
+(pm list packages -U).

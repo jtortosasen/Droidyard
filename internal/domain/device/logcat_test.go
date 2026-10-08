@@ -200,3 +200,61 @@ func TestEpochFormAndMicroseconds(t *testing.T) {
 		t.Errorf("rfcMicro of the zero time = %q, want \"\"", got)
 	}
 }
+
+// Decision (plan m1p step 4): a line with a valid header but no ": " after the tag is
+// still a line, not a format error, so one such line does not fail the whole read; a
+// header that does not match stays a format error. The recording is API 36.1's
+// (Pixel_9a, 2026-10-08); uid 10153 is com.google.android.apps.messaging.
+func TestLogcatAPI36LineWithoutColonSpace(t *testing.T) {
+	p := parseLogLines(recording(t, "api36-threadtime,epoch,usec,uid.txt"), true)
+	if p.format {
+		t.Fatal("the API 36.1 recording is reported as a format error")
+	}
+	var buffers []string
+	var app, root int
+	var fetcher, falsing *logLine
+	for i, l := range p.lines {
+		if len(buffers) == 0 || buffers[len(buffers)-1] != l.buffer {
+			buffers = append(buffers, l.buffer)
+		}
+		if l.uid == 10153 {
+			app++
+		}
+		if l.uid == -1 {
+			root++
+		}
+		switch {
+		case strings.HasPrefix(l.tag, "PluginActionManager[") && strings.HasSuffix(l.tag, "PLUGIN_NETWORK_FETCHER_ACTIONS]"):
+			fetcher = &p.lines[i]
+		case l.tag == "PluginActionManager[com.android.systemui.action.FALSING_PLUGIN]":
+			falsing = &p.lines[i]
+		}
+	}
+	if len(buffers) != 2 || buffers[0] != "main" || buffers[1] != "system" {
+		t.Errorf("buffers = %v, want [main system]", buffers)
+	}
+	if app != 3 {
+		t.Errorf("uid 10153 lines = %d, want 3", app)
+	}
+	if root != 2 {
+		t.Errorf("root lines (uid -1) = %d, want 2", root)
+	}
+	if fetcher == nil {
+		t.Fatal("the line without \": \" was dropped or mis-tagged")
+	}
+	if fetcher.tag != "PluginActionManager[com.android.systemui.action.PLUGIN_NETWORK_FETCHER_ACTIONS]" || fetcher.message != "Found 0 plugins" {
+		t.Errorf("tag/message = %q/%q", fetcher.tag, fetcher.message)
+	}
+	if falsing == nil || falsing.message != "Found 0 plugins" {
+		t.Errorf("the sibling line with \": \" changed: %+v", falsing)
+	}
+	// No ":" at all: the whole rest is the tag.
+	q := parseLogLines([]byte("         1791451087.233653 10153  2032  2179 I Bare\n"), true)
+	if q.format || len(q.lines) != 1 || q.lines[0].tag != "Bare" || q.lines[0].message != "" {
+		t.Errorf("bare tag line: %+v", q)
+	}
+	// The uid column's position changed (not asked for): the same bytes are a format error.
+	if r := parseLogLines(recording(t, "api36-threadtime,epoch,usec,uid.txt"), false); !r.format {
+		t.Error("the uid recording parsed without the uid column")
+	}
+}

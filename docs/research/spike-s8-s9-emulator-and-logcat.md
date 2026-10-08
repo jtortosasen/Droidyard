@@ -26,6 +26,8 @@ is readable after the process died (G4).
 | G5 native crash | `run-as <pkg> kill -SEGV <pid>`: `libc: Fatal signal 11 …` and `DEBUG: pid: …, name: …  >>> <pkg> <<<` / `signal 11 (SIGSEGV)` lines, uid 10146 (crash_dump runs as the app), in the crash buffer; `Zygote: Process <pid> exited due to signal 11` (uid root). Whether an app uid can write to the crash buffer: **not settled** — API 31's `log` has no `-b`, and liblog was not tried |
 | G6 | `pidof`, `date +%s.%N` as on 1f; `logcat -v nonsense` exits 0 with no stderr and falls back to a default format, so an invalid format is not detectable by exit status; killing the host-side `adb logcat` client ends the device's `logcat` process within 2 s; a 5 s follow of an idle app after launch showed **no** line of its uid |
 | G7 | `logcat -g`: main, system, crash, kernel 2 MiB rings each; a whole `-b all -d` read of 5.9 MB took 0.53 s |
+| G1 on API 36.1 (`Pixel_9a`, ps16k, 2026-10-08, plan m1p step 4) | the same layout and numeric uid column (`root` for root's lines); 4 lines in 37,930 of `-b main,system,crash` print no `: ` after the tag (`PluginActionManager[…PLUGIN_NETWORK_FETCHER_ACTIONS]:Found 0 plugins`, while a sibling prints `…]: Found 0 plugins`), which failed every `device.logs` read there until 1p; cause not known. Recording: `testdata/logcat/api36-threadtime,epoch,usec,uid.txt` |
+| G7 on API 36.1 | `logcat -g`: main, system, crash, kernel 2 MiB rings each, as on API 31 |
 
 ## The emulator (S8)
 
