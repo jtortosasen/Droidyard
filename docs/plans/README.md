@@ -26,6 +26,6 @@ the output.
 | [m1l-phase1-acceptance.md](m1l-phase1-acceptance.md) | 1l — the Phase 1 acceptance run | Done |
 | [m1m-emulator-robustness.md](m1m-emulator-robustness.md) | 1m — emulator boot robustness and the MCP-vs-shell comparison | Done |
 | [m1n-daily-use-core.md](m1n-daily-use-core.md) | 1n — the daily-use core: crashes, ANRs, typing and speed | Done |
-| [m1o-tokens-and-harness.md](m1o-tokens-and-harness.md) | 1o — tokens, assistant integration, and the comparison with Cursor | Approved |
+| [m1o-tokens-and-harness.md](m1o-tokens-and-harness.md) | 1o — tokens, assistant integration, and the comparison with Cursor | Done |
 | [m1p-functional-gaps.md](m1p-functional-gaps.md) | 1p — the functional gaps of Phase 1, and three ideas from earlier plans | Done |
 | [m1q-one-source-of-truth.md](m1q-one-source-of-truth.md) | 1q — one source of truth, fewer documents | Done |
