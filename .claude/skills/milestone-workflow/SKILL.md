@@ -14,7 +14,7 @@ One milestone at a time, and no code before an approved plan. The plan file is t
 | 3 | Approve | the owner, or the main session under the owner's standing instruction to apply the recommended option | status `Approved` | the Scope table, step list, Not in this milestone and Unverified are settled; a delegated approval says so in the plan header |
 | 4 | Implement | DeepSeek run as Claude Code (`ds-implement.sh`), one step per run; the Claude `implementer` (Sonnet) is the fallback | code, left uncommitted; the main session ticks each step with its evidence and commits | every step and every Acceptance item ticked |
 | 5 | Verify | per step, at the depth §Verification by risk sets; once more at close, over the whole milestone | a verdict | no blocking findings after the last fix round |
-| 6 | Close | the session that ran the workflow | plan status `Done`; its row in `docs/plans/README.md` updated to match; `docs/README.md` §Where the work stands updated; new or amended ADRs indexed in `docs/adr/README.md` | the next milestone is named in §Where the work stands, and `go test ./...` passes with the plans index in step |
+| 6 | Close | the session that ran the workflow | plan status `Done`; its row in `docs/plans/README.md` updated to match; `docs/README.md` §Where the work stands updated; new or amended ADRs indexed in `docs/adr/README.md`; `docs/roadmap/known-limits.md` updated (new open items added, closed ones marked with this milestone) | the next milestone is named in §Where the work stands, and `go test ./...` passes with the plans index in step |
 
 ## Rules between the steps
 
