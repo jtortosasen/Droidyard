@@ -51,11 +51,18 @@ func (e *Emulator) boot(ctx context.Context, capability, path, avd string, flags
 	if err != nil {
 		// The serial was never resolved: end the launch (ADR-0033 ¶1) before reporting, so
 		// the caller learns whether it was stopped. end is a no-op if the group is empty.
-		stopped := l.end()
+		stopped := e.endLaunch(l)
 		if errors.Is(err, errNoSerial) {
 			return "", noSerialAppeared(capability, avd, l.pid, stopped, time.Since(spawned), logTail(l.logPath))
 		}
 		return "", err
+	}
+	// The serial is resolved: the emulator is a device from here and its pid record goes
+	// first, so no daemon that dies after this point lets its successor reach a device
+	// (plan m1p Q1 ¶1). If the record cannot be removed the launch is ended, and no serial
+	// is handed out.
+	if err := e.dropRecord(l); err != nil {
+		return "", launchNotReleased(avd, err, l.end())
 	}
 	l.setSerial(serial)
 	if err := e.awaitReady(ctx, serial, deadline, l); err != nil {

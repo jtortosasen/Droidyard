@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
+	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
@@ -107,8 +108,17 @@ func installTestSeams() {
 		}
 		adbDir := os.Getenv(emulatorADBEnv)
 		adbExec = devicetest.Exec(adbDir)
+		// The daemon's reconcile probes emulator consoles 5554-5584; a test must not depend
+		// on what runs on this machine.
+		emulator.SetConsolePortsForTest(nil)
 		env := append(emulatortest.EnvFor(exe, dir, bin, home),
 			"ADB="+exe, emulatortest.TableEnv+"="+adbDir)
+		// A test that gives the daemon an adb server of its own (a fake on a loopback port)
+		// names the port; without one the launch is recorded for the default 5037, which no
+		// test of a second daemon may leave for reconcile to read (plan m1p step 6).
+		if port := os.Getenv(adbPortEnv); port != "" {
+			env = append(env, "ANDROID_ADB_SERVER_PORT="+port)
+		}
 		adbEnviron = func() []string { return env }
 	}
 	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar

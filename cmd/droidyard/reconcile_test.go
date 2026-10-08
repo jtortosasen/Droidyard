@@ -119,7 +119,7 @@ func TestServeReapsOrphansBeforeItAnswers(t *testing.T) {
 	}
 
 	var left proc.Records
-	if out, err := st.Read(proc.RecordsFile, store.Version, &left); out != store.Loaded || err != nil || left.Processes == nil || len(left.Processes) != 0 {
+	if out, err := st.Read(proc.RecordsFile, proc.RecordsVersion, &left); out != store.Loaded || err != nil || left.Processes == nil || len(left.Processes) != 0 {
 		t.Errorf("processes.json after reconciling: %v, %v, %+v; want an empty list", out, err, left)
 	}
 

@@ -23,6 +23,15 @@
 - Amended: 2026-10-07 — the derived cache also holds the probe's jar and init script, in
   `<cache>/gradle/probe-<digest>/`, written and checked by their bytes like the sidecar's
   jars (milestone 1h D4, Delegated).
+- Amended: 2026-10-08 — §Pid records: an emulator launch is recorded as kind
+  `emulator-launch`, with its AVD and adb server port, from spawn until its serial is
+  resolved (removed before the serial is returned; a failed removal ends the launch and
+  fails the boot). Reconcile signals such a record's group only on a positive answer from
+  the recorded port's adb server, read over its socket within one 2 s deadline: it answers,
+  its version matches, and every listed serial, offline included, names another AVD on
+  `emu avd name`. Any doubt drops the record and signals nothing. "Before spawning
+  anything" now allows that one bounded read, only when such a record exists. A resolved
+  emulator is still never recorded. Plan m1p Q1, Delegated.
 
 ## Context
 
@@ -127,7 +136,8 @@ On start, before spawning anything, the daemon reconciles every record:
 
 Start time comes from `/proc/<pid>/stat` (field 22) on Linux and
 `sysctl kern.proc.pid` (`p_starttime`) on macOS. Devices and emulators are not
-recorded: they are not our children and are re-adopted through `adb`.
+recorded: they are not our children and are re-adopted through `adb` (except a launch
+without a serial yet; amended 2026-10-08).
 
 ### Locking
 

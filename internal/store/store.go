@@ -19,8 +19,8 @@ import (
 )
 
 // Version is the schemaVersion Write stamps. Every file starts at version 1, so there
-// are no migrations yet; the first file to reach version 2 brings its migration and a
-// per-file version with it.
+// are no migrations yet. A file that moves ahead of the others (processes.json, version 2:
+// plan m1p step 6) is written with WriteVersion and read with its own current version.
 const Version = 1
 
 // ErrNewer is returned when a file carries a schemaVersion above the one this binary
@@ -175,11 +175,19 @@ func (s *Store) Read(name string, current int, v any) (Outcome, error) {
 // the old file or the new one, never a mix (ADR-0021 §Format). A file of a newer
 // version, whether Read met it or it is found now, is never overwritten: ErrNewer.
 func (s *Store) Write(name string, v any) error {
+	return s.WriteVersion(name, Version, v)
+}
+
+// WriteVersion is Write for a file whose schemaVersion is version, not Version: the file
+// that moved ahead of the others, so a daemon that reads an older version leaves it alone
+// (ADR-0021 §Format). A file already on disk with a version above version is never
+// overwritten.
+func (s *Store) WriteVersion(name string, version int, v any) error {
 	path, name, err := s.path(name)
 	if err != nil {
 		return err
 	}
-	data, err := encode(v)
+	data, err := encode(version, v)
 	if err != nil {
 		return fmt.Errorf("store: encoding %q: %w", name, err)
 	}
@@ -190,7 +198,7 @@ func (s *Store) Write(name string, v any) error {
 		return ErrNewer
 	}
 	if existing, err := os.ReadFile(path); err == nil {
-		if version, ok := schemaVersion(existing); ok && version > Version {
+		if onDisk, ok := schemaVersion(existing); ok && onDisk > version {
 			s.recordNewer(name)
 			return ErrNewer
 		}
@@ -277,7 +285,7 @@ func schemaVersion(data []byte) (int, bool) {
 
 // encode renders v as an indented JSON object whose first member is schemaVersion,
 // so a file reads the same with cat and with jq.
-func encode(v any) ([]byte, error) {
+func encode(version int, v any) ([]byte, error) {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
@@ -290,7 +298,7 @@ func encode(v any) ([]byte, error) {
 		return nil, errors.New("schemaVersion is the store's to write")
 	}
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, `{"schemaVersion":%d`, Version)
+	fmt.Fprintf(&buf, `{"schemaVersion":%d`, version)
 	if inner := bytes.TrimSpace(body[1 : len(body)-1]); len(inner) > 0 {
 		buf.WriteByte(',')
 		buf.Write(inner)

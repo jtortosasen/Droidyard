@@ -145,6 +145,7 @@ type Supervisor struct {
 	// newer version, or unreadable. Empty once loaded.
 	refuse  string
 	records []Record
+	judge   Judge
 }
 
 type spawnRequest struct {
@@ -191,13 +192,29 @@ func New(opts Options) *Supervisor {
 	return s
 }
 
+// SetJudge gives the supervisor the Judge the daemon's reconcile uses for emulator-launch
+// records (plan m1p Q1). Called once, at wiring, before the daemon starts; process imports
+// no domain, so serve builds it.
+func (s *Supervisor) SetJudge(j Judge) {
+	s.mu.Lock()
+	s.judge = j
+	s.mu.Unlock()
+}
+
+// Judge is the Judge SetJudge gave, nil when none was.
+func (s *Supervisor) Judge() Judge {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.judge
+}
+
 // Load reads processes.json and lets Use spawn. Records it finds are kept, never
 // overwritten unread. One of a newer version, or one that cannot be read, keeps every
 // spawn refused (plan m1c, R10): a process the daemon cannot record could outlive it
 // unseen.
 func (s *Supervisor) Load() error {
 	var recs Records
-	out, err := s.st.Read(RecordsFile, store.Version, &recs)
+	out, err := s.st.Read(RecordsFile, RecordsVersion, &recs)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
@@ -928,7 +945,7 @@ func (s *Supervisor) addRecord(r Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	recs := append(append([]Record(nil), s.records...), r)
-	if err := s.st.Write(RecordsFile, Records{Processes: recs}); err != nil {
+	if err := s.st.WriteVersion(RecordsFile, RecordsVersion, Records{Processes: recs}); err != nil {
 		return err
 	}
 	s.records = recs
@@ -936,6 +953,14 @@ func (s *Supervisor) addRecord(r Record) error {
 }
 
 func (s *Supervisor) removeRecord(pid int) {
+	if err := s.dropRecord(pid); err != nil {
+		s.logf("removing the record of pid %d: %v", pid, err)
+	}
+}
+
+// dropRecord removes the record of pid and reports a failed write. The in-memory list
+// drops it either way, as removeRecord always has.
+func (s *Supervisor) dropRecord(pid int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	recs := []Record{}
@@ -944,10 +969,57 @@ func (s *Supervisor) removeRecord(pid int) {
 			recs = append(recs, r)
 		}
 	}
-	if err := s.st.Write(RecordsFile, Records{Processes: recs}); err != nil {
-		s.logf("removing the record of pid %d: %v", pid, err)
-	}
+	err := s.st.WriteVersion(RecordsFile, RecordsVersion, Records{Processes: recs})
 	s.records = recs
+	return err
+}
+
+// RecordLaunch writes the pid record of an emulator launcher the caller started itself
+// (detached, in a session of its own, so its group is its pid): kind EmulatorLaunch, with
+// its AVD and the adb server port it registers with (plan m1p Q1). It does not spawn. An
+// error means the record is not on disk and the caller must end the launch. A process that
+// has already exited has no start time to record and nothing to find later: it is not
+// recorded, and RecordLaunch returns nil.
+func (s *Supervisor) RecordLaunch(avd string, adbPort, pid int, command []string) error {
+	s.mu.Lock()
+	closed, refuse := s.closed, s.refuse
+	s.mu.Unlock()
+	switch {
+	case closed:
+		return ErrClosed
+	case refuse != "":
+		return fmt.Errorf("%w: %s", ErrUnrecordable, refuse)
+	}
+	started, err := platform.StartTime(pid)
+	switch {
+	case errors.Is(err, platform.ErrNoProcess):
+		return nil
+	case err != nil:
+		return fmt.Errorf("%w: start time of pid %d: %v", ErrUnrecordable, pid, err)
+	}
+	rec := Record{ID: string(EmulatorLaunch), Kind: EmulatorLaunch, PID: pid, PGID: pid, StartTime: started,
+		Command: append([]string(nil), command...), AVD: avd, AdbPort: adbPort}
+	if err := s.addRecord(rec); err != nil {
+		return fmt.Errorf("%w: %v", ErrUnrecordable, err)
+	}
+	return nil
+}
+
+// DropLaunch removes the record RecordLaunch wrote for pid and reports a failed write
+// (the caller decides what an unremovable record means). No record of pid is a success.
+func (s *Supervisor) DropLaunch(pid int) error {
+	s.mu.Lock()
+	found := false
+	for _, r := range s.records {
+		if r.PID == pid && r.Kind == EmulatorLaunch {
+			found = true
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		return nil
+	}
+	return s.dropRecord(pid)
 }
 
 // sink is a log sink: the last max lines of a process's output.

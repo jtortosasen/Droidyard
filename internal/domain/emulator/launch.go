@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,9 +29,10 @@ const (
 )
 
 // launch is one launcher we started (plan m1i, D15): its pid and log, and the goroutine
-// that reaps it. It lives in the in-memory table only — no pid record — because the
-// emulator must outlive the daemon once its serial is resolved (emulator.md §Detached
-// launch); before that the launch is ours and ended if its boot fails (ADR-0033).
+// that reaps it. It lives in the in-memory table, and its pid record lasts only until its
+// serial is resolved, because the emulator must outlive the daemon from then on
+// (emulator.md §Detached launch); before that the launch is ours and ended if its boot
+// fails (ADR-0033), by the next daemon too if this one dies (plan m1p Q1).
 type launch struct {
 	avd     string
 	pid     int
@@ -85,8 +87,10 @@ func (l *launch) getSerial() string {
 // group emptied. It takes no context: it must run even when the call's context is already
 // cancelled (a cancel or the daemon's shutdown), and its own two graces bound it, so it
 // cannot outlast the daemon's shutdown bound. A launch whose group is already empty is a
-// no-op. It is never called once a serial is resolved: a resolved emulator is a device and
-// is not ours to signal (ADR-0033 ¶2).
+// no-op. It is not called once a serial has been handed out: a resolved emulator is a
+// device and is not ours to signal (ADR-0033 ¶2). The one call after resolution is boot's,
+// when the record's removal fails right after it, before any serial is returned
+// (ADR-0033's 2026-10-08 line).
 func (l *launch) end() bool {
 	if l == nil || groupGone(l.pid) {
 		return true
@@ -139,9 +143,10 @@ func logPath(root, avd string) (string, bool) {
 // spawn starts the launcher detached (emulator.md §Detached launch; plan m1i, D15):
 // exec.Cmd with SysProcAttr{Setsid: true}, stdin from /dev/null, stdout and stderr to
 // the AVD's log truncated now, the working directory the state root, the daemon's
-// environment. It never goes through the supervisor: no pid record, no Pdeathsig — the
+// environment. It never goes through the supervisor: no Pdeathsig — the
 // one exception to process-lifecycle.md's "every child" rule, because the emulator is
-// not ours. One goroutine calls Wait, so the launcher is reaped while the daemon lives
+// not ours. Its pid record is written separately, through the LaunchRecorder, and lasts
+// only until the serial resolves. One goroutine calls Wait, so the launcher is reaped while the daemon lives
 // and its exit status is available to the boot loop and to `stop`.
 func (e *Emulator) spawn(path, avd string, flags []string) (*launch, error) {
 	log, ok := logPath(e.state, avd)
@@ -182,7 +187,61 @@ func (e *Emulator) spawn(path, avd string, flags []string) (*launch, error) {
 		l.mu.Unlock()
 		close(l.done)
 	}()
+	// The record is written at spawn: a launch no record names cannot be found by the next
+	// daemon if this one dies before the serial (plan m1p Q1 ¶1). A launch that cannot be
+	// recorded is ended, as a stream that cannot be recorded is not started.
+	if e.recorder.Record != nil {
+		if err := e.recorder.Record(avd, adbServerPort(e.env), l.pid, cmd.Args); err != nil {
+			stopped := l.end()
+			e.mu.Lock()
+			if e.launches[avd] == l {
+				delete(e.launches, avd)
+			}
+			e.mu.Unlock()
+			if stopped {
+				_ = e.dropRecord(l)
+			}
+			return nil, launchNotRecorded(avd, err, stopped)
+		}
+	}
 	return l, nil
+}
+
+// dropRecord removes the launch's pid record; nil when no recorder is set.
+func (e *Emulator) dropRecord(l *launch) error {
+	if e.recorder.Drop == nil {
+		return nil
+	}
+	return e.recorder.Drop(l.pid)
+}
+
+// endLaunch ends a launch whose serial was not resolved (launch.end) and, once its group
+// is empty, removes its pid record. A group that could not be emptied keeps its record, so
+// the next daemon's reconcile can try again. A record that cannot be removed from an empty
+// group is harmless: its pid is gone at the next start.
+func (e *Emulator) endLaunch(l *launch) bool {
+	stopped := l.end()
+	if stopped {
+		_ = e.dropRecord(l)
+	}
+	return stopped
+}
+
+// adbServerPort is the adb server port a launcher started with env registers with:
+// ANDROID_ADB_SERVER_PORT, else adb's default 5037; 0 when the variable is not a port, so
+// crash recovery proves nothing from it.
+func adbServerPort(env []string) int {
+	port := "5037"
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "ANDROID_ADB_SERVER_PORT="); ok && v != "" {
+			port = v
+		}
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return 0
+	}
+	return n
 }
 
 // launchFor is the launcher we started for avd, nil when the table has none.
@@ -322,6 +381,31 @@ func invalidAVDName(avd string) *capability.Error {
 func launchNotStarted(avd string, err error) *capability.Error {
 	return capability.NewError(ErrLaunchFailed, "the emulator could not be started").
 		WithCause(avd + ": " + err.Error()).
+		WithNextStep("Check that the state directory is writable, then retry.")
+}
+
+// launchNotRecorded is EMULATOR_LAUNCH_FAILED for a launcher whose pid record could not be
+// written: the launch was ended, because a daemon that dies now could not find it.
+func launchNotRecorded(avd string, err error, stopped bool) *capability.Error {
+	fate := "the launcher was stopped"
+	if !stopped {
+		fate = "the launcher could not be stopped; end its process by hand"
+	}
+	return capability.NewError(ErrLaunchFailed, "the emulator could not be started").
+		WithCause(avd + ": its pid record could not be written (" + err.Error() + "); " + fate).
+		WithNextStep("Check that the state directory is writable, then retry. Nothing is left running unless the cause says otherwise.")
+}
+
+// launchNotReleased is EMULATOR_LAUNCH_FAILED for a launch whose serial resolved but whose
+// pid record could not be removed: the launch was ended and no serial was handed out,
+// because a daemon that died now would let its successor end a running device.
+func launchNotReleased(avd string, err error, stopped bool) *capability.Error {
+	fate := "the emulator was stopped"
+	if !stopped {
+		fate = "the emulator could not be stopped; end its process by hand"
+	}
+	return capability.NewError(ErrLaunchFailed, "the emulator could not be started").
+		WithCause(avd + ": its pid record could not be removed (" + err.Error() + "); " + fate).
 		WithNextStep("Check that the state directory is writable, then retry.")
 }
 
