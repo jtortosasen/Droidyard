@@ -71,7 +71,7 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 - Schema: no change.
 - Needs: 2 (`isFrozen`, the live set).
 - Not here: no generator: every remaining duplicate is small enough to check, and a check needs no `-update` workflow. The index does not show partial supersession (the header does).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestErrorCodesInDocsExist` (59 codes from `ErrorCode` constants; live set, register, AGENTS.md, `.claude`; `plannedCodes` holds `BUILD_QUEUE_FULL`), `TestNoRestatedCounts` (counts of ADRs, decisions, capabilities, MCP tools and `API x.y.z` banned in the live set and AGENTS.md), `checkSupersession` (pointers both ways, whole and in part), `checkAmendedFrozen` (today's `Amended:` count per ADR frozen; any added line fails). Self-tests `TestSupersessionAndAmendedCatchDrift`, `TestErrorCodeCheckCatchesDrift`, `TestRestatedCountsCatchDrift`; drift seeded in the real tree (a misspelt code, "39 capabilities" in AGENTS.md, an extra `Amended:` line, a one-sided `Superseded by`) failed and was reverted. `docs/README.md`'s restated counts removed (they live in the schema).
 
 ### 4. `verify-daemon` slimmed
 
