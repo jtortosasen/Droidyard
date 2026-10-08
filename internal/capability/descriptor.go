@@ -239,6 +239,15 @@ type Descriptor struct {
 	// Not published: it shapes what operation.wait returns later, never the schema.
 	Slim func(result any) any
 
+	// Text, when set, renders a completed result as compact text (ADR-0036 Decision 2;
+	// mcp.md §Results). The MCP adapter sends it as the text block, for the tool and for
+	// operation.wait, and the structured content stays the full result. "" means no
+	// rendering for this value: the adapter falls back to the result's compact JSON. A
+	// renderer builds its text with Text, which quotes every string it is given that is
+	// not a safe word, and writes no string from a field tagged untrusted any other way.
+	// Not published.
+	Text func(result any) string
+
 	// untrusted is derived by Register from the tags on Result's fields, never
 	// written by hand (ADR-0015 §1).
 	untrusted bool

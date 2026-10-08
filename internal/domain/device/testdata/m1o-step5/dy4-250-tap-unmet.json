@@ -1,0 +1,1 @@
+{"tapped":{"ref":"n3","snapshot":"s-a3be67da","matchedBy":"exact","class":"View","id":"submit","point":[188,442],"clickable":true},"expect":{"matched":false,"afterMs":6016,"polls":11,"failedDumps":1,"unmet":[{"condition":{"appears":{"text":"Hello, Ana"}}}]},"foreground":{"before":"dev.droidyard.golden","after":"dev.droidyard.golden"},"snapshot":"s-a3be67e4"}

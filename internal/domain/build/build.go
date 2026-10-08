@@ -108,6 +108,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Resource:     resource,
 		Params:       RunParams{},
 		Result:       Result{},
+		Text:         capability.TextOf(resultText),
 		Errors:       buildErrors,
 		Description:  "Runs 1 to 20 Gradle tasks and returns the finished build's compact record; a failed build is a completed result with outcome failed, never an error. Read a failure with build.errors, the console with artifact.read, and cancel with operation.cancel.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -134,6 +135,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		},
 		Params:      AssembleParams{},
 		Result:      Result{},
+		Text:        capability.TextOf(resultText),
 		Errors:      buildErrors,
 		Description: "Assembles one module's variant with Gradle and returns the build record, as build.run does. module and variant must come from project.modules and project.variants.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -181,6 +183,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Authorize:   o.Authorize,
 		Params:      struct{}{},
 		Result:      Result{},
+		Text:        capability.TextOf(resultText),
 		Errors:      readErrors,
 		Description: "Returns the newest finished build of the workspace in build.run's shape, without running anything. It survives a daemon restart.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {

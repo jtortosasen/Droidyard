@@ -1,0 +1,1 @@
+{"tapped":{"ref":"n14","snapshot":"s-a3be67f6","matchedBy":"exact","class":"View","id":"crash","point":[160,849],"clickable":true},"expect":{"matched":false,"afterMs":9541,"polls":1,"failedDumps":0,"unmet":[{"condition":{"gone":{"id":"crash"}}}]},"foreground":{"before":"dev.droidyard.golden","after":"com.google.android.apps.nexuslauncher"},"snapshot":"s-a3be67f7"}

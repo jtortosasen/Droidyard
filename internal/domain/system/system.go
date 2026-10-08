@@ -70,6 +70,32 @@ type Capabilities struct {
 	Capabilities []CapabilityInfo `json:"capabilities"`
 }
 
+// capabilitiesText is the rendering of system.capabilities (ADR-0036 Decision 2): the
+// version, then one line per capability, <name> <kind> <scope> [stateful|streaming]
+// [long] [human] [unavailable "<reason>"]. The descriptions are in the structured content
+// only; an agent has them in the tool list already.
+func capabilitiesText(c Capabilities) string {
+	var t capability.Text
+	t.W("version", c.Version).Nl()
+	for _, i := range c.Capabilities {
+		t.W(i.Name, i.Kind, i.Scope)
+		if i.Statefulness != "stateless" {
+			t.W(i.Statefulness)
+		}
+		if i.LongRunning {
+			t.W("long")
+		}
+		if i.Audience != "all" {
+			t.W(i.Audience)
+		}
+		if !i.Available {
+			t.W("unavailable").Q(i.Unavailable)
+		}
+		t.Nl()
+	}
+	return t.String()
+}
+
 // None is the empty parameter object, for capabilities that take no arguments.
 type None struct{}
 
@@ -156,6 +182,7 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 		Description: "Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point.",
 		Params:      None{},
 		Result:      Capabilities{},
+		Text:        capability.TextOf(capabilitiesText),
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			out := Capabilities{Version: Version}
 			for _, d := range reg.All() {

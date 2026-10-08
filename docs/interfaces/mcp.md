@@ -157,13 +157,15 @@ test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 ## Results: structured plus a readable rendering
 
 Each tool returns **structured content** on success (the object matching the advertised
-`outputSchema`; error results carry none) and a **compact text rendering**, bounded with
-an explicit truncation hint when cut. The text is what the model actually reads. Clients
-that ignore `outputSchema` still get readable text; clients that use it get a typed
-contract.
+`outputSchema`; error results carry none) and a **text block**: the capability's declared
+compact rendering where it has one (the UI tree, action results, logs,
+`system_capabilities`, build results; `operation_wait` renders as its tool does), else the
+result's compact JSON. The model reads the text block, not the structured content
+(observed for OpenCode and Cursor), so the rendering is where tokens are saved; the
+structured content stays the full result, for typed clients and the UI
+([ADR-0036](../adr/0036-agent-surface-token-budget.md) Decision 2).
 
-**Errors versus failures** is a distinction worth being strict about, because conflating
-them is how agents learn to retry the wrong things:
+**Errors versus failures**, kept strict so agents do not retry the wrong things:
 
 - A call that **could not be performed** (no device, adb missing, bad parameter, policy
   denial) is an MCP tool error: `isError: true`, no `structuredContent`, the error object
@@ -195,11 +197,9 @@ them is how agents learn to retry the wrong things:
 - `--image-max-edge` (a sizing flag) and `--no-inline-images` (for clients that reject image
   content) are **not built**: OpenCode
   accepted image blocks, and they land with an ADR superseding ADR-0019 §7 in part if a
-  client refuses them. MCP has no capability flag to detect this. Observed in m1l (OpenCode v2.0.18 and
+  client refuses them. Observed in m1l (OpenCode v2.0.18 and
   `cursor-agent` 2026.10.01): each was sent the screenshot's image block and neither
-  refused it; whether the model used it rather than the UI tree is not shown. The same
-  runs showed OpenCode sending a `progressToken` on every `tools/call` and Cursor on
-  none.
+  refused it; whether the model used it rather than the UI tree is not shown.
 
 ## Untrusted data
 
@@ -222,9 +222,8 @@ A **failed** call whose handler marked it untrusted gets the same `_meta`, and i
 the error JSON alone: no fixed first line and no `structuredContent`, since an error is
 not the declared result
 ([capability-api](../architecture/capability-api.md) §Untrusted outputs are marked).
-Wrapping every field inside the payload would add noise and change no behaviour, and a
-per-result mark alone would not tell the UI which fields to render inert; each of the two
-levels is used where it is cheap.
+Wrapping each field in the payload would add noise, and the per-result mark alone would
+not tell the UI which fields to render inert; each level is used where it is cheap.
 
 ## Features beyond tools
 

@@ -156,8 +156,8 @@ func TestMarkedTextHasNoLineOfItsOwnAfterTheFixedLine(t *testing.T) {
 		return r.Content[0].(mcpgo.TextContent).Text
 	}
 	for name, r := range map[string]*mcpgo.CallToolResult{
-		"resultOf": resultOf(v, true),
-		"viewOf":   viewOf(capability.Outcome{OperationID: "o", Capability: "c", State: capability.StateCompleted, Result: v, Untrusted: true}),
+		"resultOf": resultOf(v, true, nil),
+		"viewOf":   viewOf(capability.Outcome{OperationID: "o", Capability: "c", State: capability.StateCompleted, Result: v, Untrusted: true}, nil),
 	} {
 		if r.IsError || r.Meta == nil {
 			t.Fatalf("%s: not a marked result: %+v", name, r)
@@ -169,17 +169,19 @@ func TestMarkedTextHasNoLineOfItsOwnAfterTheFixedLine(t *testing.T) {
 	}
 }
 
-// TestMarkUntrustedRefusesAMultiLineText: markUntrusted itself compacts the text it is
-// given and refuses one that still holds a raw line break, whatever produced it, so the
-// guarantee does not rest on encoding/json compacting RawMessage on the way in.
-func TestMarkUntrustedRefusesAMultiLineText(t *testing.T) {
-	r := markUntrusted(&mcpgo.CallToolResult{}, "{\n\"a\":\n1}")
-	if r.IsError || r.Content[0].(mcpgo.TextContent).Text != untrustedFirstLine+"\n"+`{"a":1}` {
-		t.Errorf("whitespace newlines were not compacted: %+v", r)
+// TestJSONTextRefusesAMultiLineUntrustedText: for an untrusted result's compact JSON,
+// jsonText compacts the text and refuses one that still holds a raw line break, whatever
+// produced it, so the one-line guarantee does not rest on encoding/json compacting
+// RawMessage on the way in. A rendering is checked by the renderer instead
+// (TestRenderedTextIsCheckedBeforeItIsSent).
+func TestJSONTextRefusesAMultiLineUntrustedText(t *testing.T) {
+	got, err := jsonText([]byte("{\n\"a\":\n1}"), true)
+	if err != nil || got != `{"a":1}` {
+		t.Errorf("whitespace newlines were not compacted: %q, %v", got, err)
 	}
 	// A newline inside a string is not valid JSON, so it cannot be compacted away.
-	if r := markUntrusted(&mcpgo.CallToolResult{}, "{\"a\":\"x\ny\"}"); !r.IsError {
-		t.Errorf("a text with a raw newline inside a string was marked: %+v", r)
+	if _, err := jsonText([]byte("{\"a\":\"x\ny\"}"), true); err == nil {
+		t.Errorf("a text with a raw newline inside a string was accepted")
 	}
 }
 

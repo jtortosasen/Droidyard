@@ -212,6 +212,7 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 		Description:  "Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a capture artifact holding the full matched set. Filter by applicationId, since, tags, minPriority and contains; the filters run on the host.",
 		Params:       LogsParams{},
 		Result:       LogsResult{},
+		Text:         capability.TextOf(logsText),
 		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrLogsFailed, capability.ErrInvalidParams),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LogsParams)
