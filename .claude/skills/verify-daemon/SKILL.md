@@ -414,6 +414,21 @@ adb -s emulator-5554 shell input tap <freeze>; adb -s emulator-5554 shell input 
 
 - Expect the m1n plan's steps 2–9 evidence. `uiautomator dump` cannot run while the persistent reader holds the device's one `UiAutomation`: send the reader `quit` first. A `keys` request costs about 70 ms a character; a client socket timeout under that cuts it and leaves the acting thread busy. `formapp`'s probe activity stays on top of its task: `am force-stop dev.droidyard.formapp` before relaunching the form. The API 36.1 `ps16k` image does not cold-boot here (no `hvf`).
 
+**1p The forward after an adb restart; a pre-serial launch's pid record** (milestone 1p; K1–K2: scratch AVD `droidyard_m1p` (API 31) under `B=~/Library/Caches/droidyard-dev/m1p`, the guard as `ADB`, 5037 listing nothing, nothing on 5199).
+
+```sh
+export ANDROID_ADB_SERVER_PORT=5199 ANDROID_AVD_HOME=$B/avd    # the daemon's first call starts the 5199 server
+"$DY" call emulator.start --params '{"avd":"droidyard_m1p","headless":true}'; "$DY" call device.uiTree --params '{"device":"emulator-5554"}'
+adb -P 5199 kill-server; adb -P 5199 start-server; adb -P 5199 wait-for-device
+"$DY" call device.uiTree --params '{"device":"emulator-5554"}'     # ok; log "UI reader restart: refused"; forward --list shows a new tcp port, same reader pid
+# step 6 (a): detach emulator.start, SIGSTOP the qemu after the AVD lock (1m recipe), `kill -9` the daemon, start a new serve:
+#   log "proven not to be a device", SIGTERM then SIGKILL to the group, processes.json empty
+# step 6 (b)/(c): over a booted instance write {"schemaVersion":2,"processes":[{"kind":"emulator-launch","pid":Q,"pgid":Q,"startTime":<platform.StartTime(Q)>,"avd":"droidyard_m1p","adbPort":5199,...}]}
+#   and start a new serve: "a device, not a launch" (b); after kill-server, wait until nothing listens, then "no adb server proved" (c); the qemu alive either way
+```
+
+- Expect the m1p plan's steps 3 and 6 evidence. Stop every earlier `serve` of the same state first: a new one that loses the lock exits, and the calls reach the old one. `kill-server` takes a moment: wait until nothing listens before (c), or the judge reads a dying server (a timeout, still doubt). `platform.StartTime` is read by a test overlay printing it for `$PID`.
+
 ## Evidence
 
 Everything stays under `$E`. For each named step, `run` keeps the command line, stdout, stderr and exit code; each MCP session keeps `<name>.sent`, `<name>.out`, `<name>.err` and `<name>.exit`. Keep `serve.out`, `<state>/daemon.log` once a daemon was auto-started, the wire files of a real-client run, and the snapshots. This build logs no operation records; which surface returns them (`docs/architecture/overview.md`, the capability trace) is an open owner question, not decided by milestone 1b. The report quotes the decisive line and gives `$R`. On a plan step it is level 5 evidence (`prove-change`).

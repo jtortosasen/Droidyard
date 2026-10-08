@@ -29,6 +29,8 @@
 
 ## Starting point
 
+> 2026-10-08: m1p closed first (API 0.12.0, `shell.exec` gains `cwd` and `env`, `policy.*` a revision): this plan's API move is 0.12.0 → 0.13.0, and its `tools/list` baselines must be retaken at 1p's close.
+
 Expected: the code at `m1n-daily-use-core.md`'s close (API `0.11.0`, 39 capabilities, 34 tools); the four commands recorded at step 1. Measured at `3abf127` (tokens note §1): `tools/list` is 130,942 B, of which `outputSchema` 70,111, descriptions 33,588, `inputSchema` 20,918; 60.5 KB without `outputSchema`; 31 of 34 descriptions exceed two sentences; the selector object is inlined three times in `device_inputText` and `device_tapElement`. `adapters/mcp/mcp.go`: `Instructions` is `mcp-tool-surface.md` §Server instructions verbatim; a result's text is the untrusted first line (when marked) plus the compact JSON result, and `markUntrusted` checks it is one line (`mcp.go:755-763`), the only central guard on untrusted text. `cmd/droidyard`: `serve`, `mcp`, `call`, `ui`, `trust`, `status`, `stop` (ADR-0019 §3's complete set). No `skills/` directory. The kit (`~/Library/Caches/droidyard-dev/m1m/kit/`) runs OpenCode only: K7's fence is a PATH and `opencode.jsonc` deny rules, its binary `$K/dy` reached through `rec.sh` with `DROIDYARD_STATE_DIR` and `--no-autostart`, and `metrics.py` keys arms by two characters. m1l ran Cursor headless (`m1l-phase1-acceptance.md` C1, C2, C5).
 
 ## Run rules

@@ -181,8 +181,6 @@ func codeOf(t *testing.T, err error) capability.ErrorCode {
 	return e.Code
 }
 
-// TestModelSpawnsOnceAndSharesOneProcessAcrossRoots pins ADR-0019: one sidecar per
-// daemon serves every root, so the second root makes no second process.
 // Decision (gradle.md §Protocol; plan m1p step 2's level-4 run): a closing workspace
 // closes its root's connection on the sidecar whenever the sidecar runs, idle included,
 // so the root can be opened again. Before the fix Close spoke only to a "ready" sidecar;
@@ -211,6 +209,8 @@ func TestCloseReachesAnIdleSidecarSoTheRootReopens(t *testing.T) {
 	}
 }
 
+// TestModelSpawnsOnceAndSharesOneProcessAcrossRoots pins ADR-0019: one sidecar per
+// daemon serves every root, so the second root makes no second process.
 func TestModelSpawnsOnceAndSharesOneProcessAcrossRoots(t *testing.T) {
 	c, sup, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
 	ctx := context.Background()

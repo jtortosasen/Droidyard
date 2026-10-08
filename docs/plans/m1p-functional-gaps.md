@@ -1,6 +1,6 @@
 # Plan: Milestone 1p — the functional gaps of Phase 1, and three ideas from earlier plans
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-07, Delegated (owner's standing instruction to apply the recommended option): Q1 and Q2 accepted as drafted; their `Amended:` lines are written by the main session before steps 6 and 8. The owner can revert either.
 - Date: 2026-10-07
 - Milestone: not in `docs/README.md`. The owner's brief of 2026-10-07 (see `m1n-daily-use-core.md`'s header), items G (the functional gaps among the "in part" acceptance items, project functionality only) and H (a pid record for a pre-serial emulator launch, `shell.exec` with `cwd` and `env`, a revision token on `policy.update`). It depends on neither `m1n-daily-use-core.md` nor `m1o-tokens-and-harness.md` except for the register (`docs/roadmap/known-limits.md`, written at m1n's close), and runs after them in the brief's order.
@@ -50,7 +50,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - [x] A6. A launch is recorded in `processes.json` from spawn until its serial is resolved; a daemon killed in that window has its launch ended by the next daemon; a record whose AVD already answers as a listed serial, or whose adb query fails or times out, is dropped with nothing signalled. Source: Q1. Proven by: step 6.
 - [x] A7. `shell.exec` runs in `cwd` with `env` applied, per D1. Source: brief H. Proven by: step 7.
 - [x] A8. `policy.get` returns a `revision`; `policy.update {ifRevision}` with a stale one fails `POLICY_REVISION_CONFLICT` and writes nothing; without it, behaviour is unchanged. Source: plan m1k D3; Q2. Proven by: step 8.
-- [ ] A9. The register, `docs/README.md` and the plans index updated; the earlier plans' in-part items annotated with where they closed. Source: brief I. Proven by: step 9.
+- [x] A9. The register, `docs/README.md` and the plans index updated; the earlier plans' in-part items annotated with where they closed. Source: brief I. Proven by: step 9.
 
 ## Steps
 
@@ -100,7 +100,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: crashing an app on `Pixel_9a` (K3).
 - Rests on: —
-- [x] Done. Evidence: under K3 (Pixel_9a started here with `-no-snapshot-save -no-window`, stopped with `emu kill`; the guard variant logged 28 invocations, `refused.log` empty; 5037's pid 19285 unchanged). The first `device.logs {applicationId}` failed `DEVICE_LOGS_FAILED` (format): 4 lines in 37,930 carry no `: ` after the tag. Fixed in `parseLogLine` (the tag ends at the first `:` then; no `:` at all, the whole rest); `TestLogcatAPI36LineWithoutColonSpace` over the recording, seen failing with the fallback removed and with the uid column forced off. Rerun: `device.logs {applicationId: com.google.android.apps.messaging}` completed, `filter.by: uid`, `uid: 10153` (`pm list packages -U`), 100 lines, every one matched in a raw dump to uid 10153. G1/G7 rows added to the S8/S9 note.
+- [x] Done. Evidence: Level 5. under K3 (Pixel_9a started here with `-no-snapshot-save -no-window`, stopped with `emu kill`; the guard variant logged 28 invocations, `refused.log` empty; 5037's pid 19285 unchanged). The first `device.logs {applicationId}` failed `DEVICE_LOGS_FAILED` (format): 4 lines in 37,930 carry no `: ` after the tag. Fixed in `parseLogLine` (the tag ends at the first `:` then; no `:` at all, the whole rest); `TestLogcatAPI36LineWithoutColonSpace` over the recording, seen failing with the fallback removed and with the uid column forced off. Rerun: `device.logs {applicationId: com.google.android.apps.messaging}` completed, `filter.by: uid`, `uid: 10153` (`pm list packages -U`), 100 lines, every one matched in a raw dump to uid 10153. G1/G7 rows added to the S8/S9 note.
 
 ### 5. Physical devices hidden by default
 
@@ -112,7 +112,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: any action on the phone.
 - Rests on: —
-- [x] Done. Evidence: the owner's yes on 2026-10-08 (Changes). Under K4, a daemon in `/tmp/dyp5` behind the step's guard: with no configuration `device.list` returned `{devices: []}` and `device.uiTree {device: "R5CX62JXR3L"}` failed `DEVICE_NOT_ALLOWED` (cause `devices.allowPhysical is false`), the guard's log showing only `version` and `devices -l`; with a scratch `config.json` of `allowPhysical: true` and the serial allowlisted, `device.list` listed it with `kind: physical` (SM_A256B, Android 16, sdk 36), the one command addressed to it `shell getprop`. `refused.log` empty.
+- [x] Done. Evidence: Level 5. the owner's yes on 2026-10-08 (Changes). Under K4, a daemon in `/tmp/dyp5` behind the step's guard: with no configuration `device.list` returned `{devices: []}` and `device.uiTree {device: "R5CX62JXR3L"}` failed `DEVICE_NOT_ALLOWED` (cause `devices.allowPhysical is false`), the guard's log showing only `version` and `devices -l`; with a scratch `config.json` of `allowPhysical: true` and the serial allowlisted, `device.list` listed it with `kind: physical` (SM_A256B, Android 16, sdk 36), the one command addressed to it `shell getprop`. `refused.log` empty.
 
 ### 6. A pid record for a launch before its serial (Q1)
 
@@ -136,7 +136,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: nothing in this plan.
 - Not here: a per-call `PATH` search for the command itself (it is `sh -c`).
 - Rests on: —
-- [x] Done. Evidence: `TestCwdRunsInAnInnerDirectoryAndRefusesEscapes` (`pwd` in `cwd: "app"` and through an in-root symlink; `../x`, `..`, a symlink leaving the root, a path under it, a missing path, a file and an absolute outside path each `REQUEST_INVALID_PARAMS` naming `cwd`, no marker written) and `TestEnvIsAppliedOverTheDaemonsAndBounded` (applied over the daemon's, same name replaced; bad and empty names, NUL, 65 entries, over 32 KiB refused naming `env`; 64 entries and the byte bound accepted). Seen failing with `file.ResolveDir` reduced to a join (the `../x` row) and, by the main session, with its `os.Root` and `stripRoot` checks removed (the `leak` symlink row completed); with `validateEnv` skipped; with `mergeEnv` skipped. Schema: `shell.exec` gains `cwd` and `env`; API 0.12.0 (shared with step 8).
+- [x] Done. Evidence: Level 3 (unit tests running real `/bin/sh` in temporary roots). `TestCwdRunsInAnInnerDirectoryAndRefusesEscapes` (`pwd` in `cwd: "app"` and through an in-root symlink; `../x`, `..`, a symlink leaving the root, a path under it, a missing path, a file and an absolute outside path each `REQUEST_INVALID_PARAMS` naming `cwd`, no marker written) and `TestEnvIsAppliedOverTheDaemonsAndBounded` (applied over the daemon's, same name replaced; bad and empty names, NUL, 65 entries, over 32 KiB refused naming `env`; 64 entries and the byte bound accepted). Seen failing with `file.ResolveDir` reduced to a join (the `../x` row) and, by the main session, with its `os.Root` and `stripRoot` checks removed (the `leak` symlink row completed); with `validateEnv` skipped; with `mergeEnv` skipped. Schema: `shell.exec` gains `cwd` and `env`; API 0.12.0 (shared with step 8).
 
 ### 8. A revision token on `policy.update` (Q2)
 
@@ -148,7 +148,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: Q2 accepted.
 - Not here: `droidyard trust` sending a revision (it re-reads under the lock already).
 - Rests on: —
-- [x] Done. Evidence: `internal/policy/revision_test.go`: the six tests of the Check plus `TestConflictDropsAStaleSnapshot`, `TestNullIfRevisionIsRefused`, `TestEmptyIfRevisionConflicts`. Seen failing with the comparison moved before the lock (the lock-held test, which now waits on a seam before `lockExclusive`, no sleep) and with the revision hashed from a fresh read (the seam test); the review-round tests each with their mutation. Opus verifier: proceed, N1–N5 fixed in a round (the sleep, the cached snapshot after a conflict, `ifRevision: null` refused rather than disabling the check, the empty token, the texts); N6 (a hand edit inside the update's critical section is still overwritten) to the register at the close. Schema: `revision` on both results, `ifRevision`, `POLICY_REVISION_CONFLICT`; API 0.12.0.
+- [x] Done. Evidence: Level 3 (unit tests over real files and the real flock). `internal/policy/revision_test.go`: the six tests of the Check plus `TestConflictDropsAStaleSnapshot`, `TestNullIfRevisionIsRefused`, `TestEmptyIfRevisionConflicts`. Seen failing with the comparison moved before the lock (the lock-held test, which now waits on a seam before `lockExclusive`, no sleep) and with the revision hashed from a fresh read (the seam test); the review-round tests each with their mutation. Opus verifier: proceed, N1–N5 fixed in a round (the sleep, the cached snapshot after a conflict, `ifRevision: null` refused rather than disabling the check, the empty token, the texts); N6 (a hand edit inside the update's critical section is still overwritten) to the register at the close. Schema: `revision` on both results, `ifRevision`, `POLICY_REVISION_CONFLICT`; API 0.12.0.
 
 ### 9. Close
 
@@ -160,7 +160,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: steps 1–8.
 - Not here: Phase 2 planning.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the register's rows for m1g A4, m1i A1 (uid column), m1e A3 (hiding), m1f A2, m1k D3 and ADR-0033's pre-serial limit marked closed by 1p, the `shell.exec` `cwd`/`env` deferral removed, four new rows (36.1 `-T` and follow; reconcile's doubt cases; processes.json v2 against an older binary; a hand edit inside `policy.update`'s critical section), the Gradle 7.x row deferred by the owner; dated §Changes lines in m1e, m1f, m1g, m1i, m1k; `docs/README.md`, the plans index, `verify-daemon`'s 1p block; `droidyard_m1p` deleted, the SDK stamp unchanged. `go test ./internal/doccheck` and `go test -count=1 ./...` green. A1 stays unticked (deferred by the owner).
 
 ## Not in this milestone
 
@@ -222,6 +222,8 @@ Two rounds ran (round 1: B1–B4; round 2: B1–B3, all in reconcile's adb query
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-08, owner: after being asked for the Samsung `R5CX62JXR3L` (step 5), the owner answered "te he conectado el device fisico" and connected it; taken as the yes K4 requires.
+- 2026-10-08: the level-4 and level-5 runs' scripts and outputs (steps 2, 3, 5, 6, first written under `/tmp/dyp2`–`dyp6`) are kept under `$B/evidence/`; step 4's under `$B/s4/`.
+- 2026-10-08: 1p ran before 1o, from m1n's close (`7de719e`), not from m1o's as its header and Starting point say; it published API 0.12.0, so 1o's own minor bump moves to 0.13.0 and its `tools/list` baselines predate `shell.exec`'s `cwd`/`env` (m1o's Starting point notes it).
 - 2026-10-08, step 6 (Opus verifier, fix first: B1 and N1–N9): B1, ADR-0033's clause 2 contradicted the code (a failed record removal ends an instance whose serial was read): its 2026-10-08 line extended. N3, an empty listing from a server started moments earlier was proof: the judge also asks every listening emulator console (5554–5584) for its AVD before signalling. N2, a listed `usb:` device was doubt, so an attached phone disabled the recovery: skipped. N5 (no AVD), N6 (an empty port variable is 5037), N9 (a panicking judge is doubt), N4 and N7 (comments, `emulator.md` §Failure modes) fixed. N8 accepted: the judge reaches `Reconcile` through `Supervisor.SetJudge`, wired in `main.go`'s `registry()`, not through `serve.go`; `process` still imports no domain package. N1 to the register: processes.json is written at schemaVersion 2, so an older binary's daemon then refuses every supervised spawn until the file is removed. Observed by the main session: with `ANDROID_ADB_SERVER_PORT` on a free port, `adb version` and `adb -s emulator-5999 emu avd name` started no server.
 
 - 2026-10-08, owner: Gradle 7.x support is not wanted for now; step 1 is dropped from this milestone and A1 stays open (the register's Gradle 7.x row says so). A first implementer run was stopped and its partial fixture discarded; nothing of it is in the tree.

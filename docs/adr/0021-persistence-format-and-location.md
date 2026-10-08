@@ -28,9 +28,13 @@
   resolved (removed before the serial is returned; a failed removal ends the launch and
   fails the boot). Reconcile signals such a record's group only on a positive answer from
   the recorded port's adb server, read over its socket within one 2 s deadline: it answers,
-  its version matches, and every listed serial, offline included, names another AVD on
-  `emu avd name`. Any doubt drops the record and signals nothing. "Before spawning
-  anything" now allows that one bounded read, only when such a record exists. A resolved
+  its version matches, every listed serial but `usb:` devices, offline included, names
+  another AVD on `emu avd name`, and every emulator console on 5554–5584 that accepts a
+  connection names another AVD too (a server started moments earlier may not have scanned
+  its emulators). Any doubt drops the record and signals nothing. "Before spawning
+  anything" now allows, only when such a record exists and within that 2 s deadline, the
+  socket reads plus `adb version` and `adb -s emulator-N emu avd name` clients, which
+  contact no server (step 6 review, N2 and N3). A resolved
   emulator is still never recorded. Plan m1p Q1, Delegated.
 
 ## Context

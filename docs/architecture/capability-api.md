@@ -407,7 +407,8 @@ Where raw output is genuinely useful, a capability accepts `"raw": true` and add
 `shell.exec` is the general escape hatch for anything not yet modelled. It is a
 capability like any other and must be **explicitly enabled** by policy: `shell.enabled`
 everywhere or `shell.roots` per project ([ADR-0032](../adr/0032-configuration-file-v1.md)),
-on a trusted root. It runs `/bin/sh -c` in the root as the user, so once enabled the agent
+on a trusted root. It runs `/bin/sh -c` in the root, or in `cwd` inside it, as the user,
+with `env` set over the daemon's environment (milestone 1p), so once enabled the agent
 has the user's full reach, droidyard's configuration and trust included (ADR-0032 and
 ADR-0015 §6 `Amended:`; a trusted root's builds already run code the agent can write).
 The command's whole process group is killed when the call ends (exit, `timeoutMs`,

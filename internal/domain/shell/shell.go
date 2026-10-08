@@ -30,7 +30,7 @@ const version = "0.10.0"
 
 // Params are shell.exec's parameters (D5).
 type Params struct {
-	Command   string            `json:"command" jsonschema:"required" jsonschema_description:"The command line, run with /bin/sh -c in the project's root. One to 8192 bytes, with no NUL byte."`
+	Command   string            `json:"command" jsonschema:"required" jsonschema_description:"The command line, run with /bin/sh -c in the project's root or in cwd. One to 8192 bytes, with no NUL byte."`
 	TimeoutMs int               `json:"timeoutMs,omitempty" jsonschema:"minimum=1000,maximum=600000" jsonschema_description:"How long the command may run, 1000 to 600000 milliseconds. Absent means 60000. A command still running at the timeout is killed and the result is completed with timedOut true and its partial output."`
 	Cwd       string            `json:"cwd,omitempty" jsonschema_description:"The working directory, a path relative to the project root; it must be an existing directory inside the root once symlinks are resolved. Absent means the root. This is not a fence: the command can still reach anything the user can."`
 	Env       map[string]string `json:"env,omitempty" jsonschema_description:"Environment variables set over the daemon's own, at most 64 entries and 32 KiB in all; names match [A-Za-z_][A-Za-z0-9_]*, values have no NUL byte. This is not a fence: the shell already has the user's reach."`
@@ -100,7 +100,7 @@ func Register(reg *capability.Registry, opts Options) {
 		LongRunning: true,
 		Idempotent:  false,
 		Since:       version,
-		Description: "Runs a shell command on this machine as the user, with `/bin/sh -c` and the project root as its working directory. " +
+		Description: "Runs a shell command on this machine as the user, with `/bin/sh -c` in the project root, or in cwd inside it, with env set over the daemon's environment. " +
 			"It is off unless the user enables it, for one project's root or everywhere: when it is not enabled the call fails POLICY_SHELL_DISABLED, whose next step names the configuration file. " +
 			"It runs with the user's full rights, so it can reach anything the user can — this machine, the user's files, and droidyard's own configuration and trust: never use it to change droidyard's configuration or a root's trust, and prefer a modelled capability wherever one exists. " +
 			"When the call ends — the command exits, timeoutMs passes, the workspace is closed or the operation is cancelled — the command's background processes are killed with it, except a process that detaches into its own process group or session, such as Gradle's daemon. " +
