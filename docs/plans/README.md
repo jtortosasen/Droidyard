@@ -25,6 +25,6 @@ the output.
 | [m1k-policy-and-shell.md](m1k-policy-and-shell.md) | 1k — `policy.*`, `shell.exec` and the configuration file | Done |
 | [m1l-phase1-acceptance.md](m1l-phase1-acceptance.md) | 1l — the Phase 1 acceptance run | Done |
 | [m1m-emulator-robustness.md](m1m-emulator-robustness.md) | 1m — emulator boot robustness and the MCP-vs-shell comparison | Done |
-| [m1n-daily-use-core.md](m1n-daily-use-core.md) | 1n — the daily-use core: crashes, ANRs, typing and speed | Approved |
+| [m1n-daily-use-core.md](m1n-daily-use-core.md) | 1n — the daily-use core: crashes, ANRs, typing and speed | Done |
 | [m1o-tokens-and-harness.md](m1o-tokens-and-harness.md) | 1o — tokens, assistant integration, and the comparison with Cursor | Blocked |
 | [m1p-functional-gaps.md](m1p-functional-gaps.md) | 1p — the functional gaps of Phase 1, and three ideas from earlier plans | Approved |

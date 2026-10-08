@@ -13,6 +13,10 @@ close an item.
 
 | Item | Kind | Area | Source | Recorded | Closed by |
 | --- | --- | --- | --- | --- | --- |
+| After the keyboard guard's BACK, a failed re-read, re-resolve or still-covered check returns an error saying nothing was changed, though a BACK was sent (and navigates back if the keyboard had already closed) | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
+| A system dialog that appears between an action's before read and its tap takes the tap (it could be "Close app"); the reader's `tap` does not check the active window | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
+| An app whose process name differs from its package reads as gone to `pidof <package>`: one busy read then ends the polling early (no false `appCrash`: the crash reads are bounded at the action) | limit | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
+| The reader digest after step 5 (`965cd045…`) did not rerun gates G1 and G5 (launch and the serve loop are unchanged; G2, G3 were exercised in steps 7 and 9) | unverified | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | On KGP < 2.4 (today's typical project) Kotlin errors come only from the console extractor, whose formats are version-sensitive | limit | build | [ADR-0022 §Consequences](../adr/0022-build-error-extraction.md#consequences) | design | |
 | `build.errors` fields depend on the producer: KSP gives no column, AAPT2 a merged-resource path instead of the source file | limit | build | [ADR-0022 §Known open item: AAPT2 paths are not source paths](../adr/0022-build-error-extraction.md#known-open-item-aapt2-paths-are-not-source-paths) | design | |
 | The model cache's size-and-mtime fingerprint misses `~/.gradle/init.d` scripts, environment variables and remote plugin versions | limit | build | [m1g §Unverified](../plans/m1g-gradle-sidecar-and-build.md#unverified) | 1g | |
@@ -75,7 +79,7 @@ close an item.
 | The reader died or was restarted around an app crash, costing the next read up to 8.7 s, unreported | limit | device/UI | [ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) | 1m | 1n |
 | An ANR dialog over the app was not reported by `device.*` | limit | device/UI | [ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) | 1m | 1n |
 | `inputText` refused non-ASCII text unless ADBKeyboard was installed | limit | device/UI | [ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md) | 1f | 1n |
-| A fixed 300 ms settle after every tap, and a `getprop` on every device call | limit | device/UI | [m1n step 7](../plans/m1n-daily-use-core.md#7-the-cheap-speed-items) | 1f | 1n |
+| A fixed 300 ms settle after every tap, and a `getprop` on every targeted device call (`device.list` still reads each device's properties) | limit | device/UI | [m1n step 7](../plans/m1n-daily-use-core.md#7-the-cheap-speed-items) | 1f | 1n |
 | Every API 36.1 device fact of 1n (crash window, dialog ids, `exit-info`, typing cost, peer uid, SELinux on an app's connect, `ACTION_SET_TEXT`): the 36.1 `ps16k` image cannot cold-boot without `hvf` on this host | unverified | device/UI | [m1n §Unverified](../plans/m1n-daily-use-core.md#unverified) | 1n | |
 | The keyboard guard's re-read after BACK does not wait for the keyboard to hide (an `adjustPan` race) | unverified | device/UI | [m1n §Changes](../plans/m1n-daily-use-core.md#changes) | 1n | |
 | Qustodio (gate G4) undisturbed by a reader that acts: level 3 only (connect flags unchanged), not rerun | unverified | device/UI | [m1n §Unverified](../plans/m1n-daily-use-core.md#unverified) | 1n | |

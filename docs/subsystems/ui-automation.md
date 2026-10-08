@@ -290,7 +290,7 @@ before anything is tapped or typed, never by guesswork:
 
 | Text | Path | On failure |
 | --- | --- | --- |
-| Any | `set_text` on the focused field — `replace` when `clear` is set, `insert` at the selection otherwise | a refused `ACTION_SET_TEXT` is retried as `keys` when the text is printable ASCII |
+| Any | `set_text` on the focused field — `replace` when `clear` is set, `insert` at the selection otherwise | a refused `ACTION_SET_TEXT` is retried as `keys` when the text is printable ASCII (with `clear`, the field is first cleared with the input command, since keys only append); other text is `DEVICE_TEXT_NOT_DELIVERABLE` |
 | Printable ASCII, when `method: "keys"` is asked, or on a password field without `clear` | `keys` — the reader's virtual keyboard | — |
 | No reader, or the request denied before it executed: printable ASCII (space..~) | `input text`, single-quoted for the device shell, with spaces as `%s` and a literal `%s` split across two invocations | — |
 | No reader, or the request denied, and the text is non-ASCII | ADBKeyboard's `ADB_INPUT_B64` broadcast, when that IME is installed and selected | `DEVICE_TEXT_NOT_DELIVERABLE`, naming ADBKeyboard |
