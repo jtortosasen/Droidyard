@@ -1,4 +1,4 @@
-// Package event is the daemon's event bus (docs/architecture/core-runtime.md §Events;
+// Package event is the daemon's event bus (docs/architecture/overview.md §Events;
 // capability-api.md §Events and subscriptions): one sequence per daemon epoch, a
 // bounded replay ring, and a bounded queue per subscription whose losses are reported
 // as an events.gap marker, never silently. Delivery is synchronous: once Publish has

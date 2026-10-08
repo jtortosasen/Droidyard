@@ -290,7 +290,7 @@ const artifactsPath = "/v1/artifacts/"
 type artifactRoute struct{ c *caller }
 
 // readParams is artifact.read's wire parameters, spelled here so that the adapter does
-// not import the domain package (core-runtime.md §Adapter boundary).
+// not import the domain package (overview.md §Adapter boundary).
 type readParams struct {
 	Ref     string      `json:"ref"`
 	MaxEdge *int        `json:"maxEdge,omitempty"`

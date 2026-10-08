@@ -7,8 +7,7 @@ the agent loop belongs to the external assistant.
 
 ## Read these first, in this order
 
-1. **`docs/README.md`** — the documentation map, the status of every document, and
-   §Where the work stands. Start here.
+1. **`docs/README.md`** — the documentation map and §Where the work stands. Start here.
 2. **`docs/roadmap/mvp.md`** — what the first version is, its phases, its definition of
    done, its metric, and what is explicitly out of scope.
 3. **`docs/architecture/capability-api.md`** — the contract everything else hangs off.

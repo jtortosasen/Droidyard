@@ -17,7 +17,7 @@ matching phase in `docs/roadmap/mvp.md`. List the ADRs the work touches and read
 
 ## Rules the code must keep
 
-**The registry is the only source of truth.** A capability exists only when a domain package registers it explicitly. Adapters translate; they never define capabilities, add domain logic, or import `domain/*` (`docs/architecture/core-runtime.md` §Adapter boundary). Anything that would make the published contract ambiguous is rejected in `Register`, so a bad descriptor is a startup failure. A descriptor that cannot produce a clean schema (a `$ref`, `$defs`, a top-level union, a non-object) is a bug to catch at registration or in the schema tests, never at the first MCP call.
+**The registry is the only source of truth.** A capability exists only when a domain package registers it explicitly. Adapters translate; they never define capabilities, add domain logic, or import `domain/*` (`docs/architecture/overview.md` §Adapter boundary). Anything that would make the published contract ambiguous is rejected in `Register`, so a bad descriptor is a startup failure. A descriptor that cannot produce a clean schema (a `$ref`, `$defs`, a top-level union, a non-object) is a bug to catch at registration or in the schema tests, never at the first MCP call.
 
 **`schema/capabilities.json` is the published API.** Run `go test ./internal/schema -update` only when you intend to change what consumers see, and say so in your report. Then read the diff of that file line by line. Every changed line must follow from your change; an unexplained line is a bug in your change, not noise. Error codes are part of the contract: never rename or repurpose one, add new ones deliberately, and list every code a handler can return in its descriptor.
 

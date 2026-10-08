@@ -4,9 +4,9 @@ Read the whole ADR, not only the section named. Every area also has the owner de
 
 | Area | Documents |
 | --- | --- |
-| Every milestone | `docs/README.md` §Where the work stands · `docs/roadmap/mvp.md` (the phase, §Out of scope, §Definition of done) · `docs/architecture/capability-api.md` · `docs/architecture/core-runtime.md` §Package layout, §Adapter boundary, §What comes first · ADR-0003, ADR-0016 |
+| Every milestone | `docs/README.md` §Where the work stands · `docs/roadmap/mvp.md` (the phase, §Out of scope, §Definition of done) · `docs/architecture/capability-api.md` · `docs/architecture/overview.md` §Adapter boundary · ADR-0003, ADR-0016 |
 | Descriptors, schema, golden file | ADR-0016 · ADR-0010 (statefulness) · ADR-0015 §1 (untrusted derived from tags) · `capability-api.md` §Naming, §Classification, §Adding a capability · `internal/capability/`, `internal/schema/` |
-| Invocation, operations, errors | ADR-0020 · `capability-api.md` §Invocation model, §Error model, §Idempotency · `core-runtime.md` §Invocation, §Concurrency |
+| Invocation, operations, errors | ADR-0020 · `capability-api.md` §Invocation model, §Error model, §Idempotency · `overview.md` §Events, §Concurrency |
 | Daemon, socket, shims, sessions | ADR-0019 · ADR-0021 §Location, §Layout, §Locking · ADR-0024 (binary, subcommands, paths, env overrides) · ADR-0010 (what a session is) |
 | MCP adapter | `docs/interfaces/mcp-tool-surface.md` · `docs/interfaces/mcp-features.md` · ADR-0020 §Adapter projections · ADR-0015 §6 (policy never over MCP) |
 | HTTP / WebSocket | `docs/interfaces/http-websocket.md` §Security baseline · ADR-0006 |

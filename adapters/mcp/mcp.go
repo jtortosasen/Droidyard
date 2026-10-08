@@ -84,7 +84,7 @@ type Server struct {
 func (s *Server) UseBus(b *event.Bus) { s.bus = b }
 
 // UseArtifacts gives the adapter the core's artifact store, which it resolves an image
-// reference in a result against (docs/architecture/core-runtime.md §Adapter boundary:
+// reference in a result against (docs/architecture/overview.md §Adapter boundary:
 // adapters resolve references to bytes, the core owns the store). Without one, a
 // result's image is not inlined.
 func (s *Server) UseArtifacts(a *artifact.Store) { s.store = a }
@@ -150,7 +150,7 @@ func sessionIDOf(ctx context.Context) string {
 }
 
 // openCapability is the call that opens a session's bound root. Adapters name
-// capabilities, never import their domains (core-runtime.md §Adapter boundary).
+// capabilities, never import their domains (overview.md §Adapter boundary).
 const openCapability = "workspace.open"
 
 // SetBoundOpenHook makes every later session run f before it opens its bound root.

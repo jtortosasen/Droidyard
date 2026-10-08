@@ -197,7 +197,7 @@ type Descriptor struct {
 	// call, so acquisition cannot deadlock. Calls on one key run one at a time, in the
 	// order they were started; a call behind another is queued and names it in
 	// blockedBy (ADR-0020 §Core primitives). The scheduler takes the lock, not the
-	// handler (core-runtime.md §Concurrency). A domain may also serialise short device
+	// handler (overview.md §Concurrency). A domain may also serialise short device
 	// I/O inside one bounded read with a lock of its own (the UI reader's per-device
 	// lock, plan m1f R2): the scheduler's key is per call, while such a lock is per
 	// read and is waited inside the read's own deadline, not a second Resource key.

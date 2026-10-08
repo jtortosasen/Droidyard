@@ -75,7 +75,7 @@ type Options struct {
 	// Nil discards.
 	Log io.Writer
 	// HTTP is the UI's listener; nil serves none. Built outside the daemon, so the
-	// daemon imports no adapter (core-runtime.md §Adapter boundary).
+	// daemon imports no adapter (overview.md §Adapter boundary).
 	HTTP *HTTP
 }
 

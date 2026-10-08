@@ -146,7 +146,7 @@ never inside the project tree.
   ([capability-api.md](capability-api.md) §Events).
 - Queries may run concurrently. Commands that need an exclusive resource (a build
   root, a device) wait for it as `queued` operations rather than holding a
-  workspace-wide lock ([core-runtime](core-runtime.md) §Concurrency).
+  workspace-wide lock ([overview](overview.md) §Concurrency).
 
 ## Devices are not workspace-owned
 
