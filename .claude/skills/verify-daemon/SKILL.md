@@ -401,6 +401,19 @@ until [ -e $B/avd/droidyard_m1m.avd/hardware-qemu.ini.lock ] && Q=$(pgrep -f "qe
 
 - Expect the times and verdicts of the m1m plan's steps 4 and 6. `reset.sh` waits until `adb devices` is empty (K2) and stops and awaits a leftover scratch qemu before deleting the AVD; the shell arm's `adb` is `$B/kit/bin/adb`, which refuses only adb's own server- and host-level options.
 
+**1n The reader acts; crashes, ANRs and Unicode typing** (milestone 1n; its K1–K3 apply: scratch AVD `droidyard_m1n` (API 31) under `B=~/Library/Caches/droidyard-dev/m1n`, the guard as `ADB`, `DROIDYARD_STATE_DIR=$B/state-<step>`, `ANDROID_SERIAL=droidyard-m1n-none`; the samples' `golden` copy and `formapp.apk` built by `internal/domain/device/formapp/build.sh`).
+
+```sh
+"$DY" call device.inputText --params '{"device":"emulator-5554","target":{"id":"name"},"text":"ñandú café 🦩 東京","clear":true}'   # method set_text, characters 15
+"$DY" call device.tapElement --params '{"device":"emulator-5554","target":{"text":"Crash"}}'      # golden list: appCrash IllegalStateException, frames from GoldenListScreen.kt
+adb -s emulator-5554 shell input tap <freeze>; adb -s emulator-5554 shell input tap <another>   # formapp: an ANR needs pending input
+"$DY" call device.uiTree --params '{"device":"emulator-5554"}'                                  # systemDialog {kind: anr, package}; a tap elsewhere: DEVICE_NOT_READY
+# raw reader requests: P=$(adb -s emulator-5554 forward --list | grep droidyard-reader | awk '{print $2}' | cut -d: -f2)
+#   printf 'ping\n' | nc -w 2 127.0.0.1 $P ; acting verbs: tap <x> <y>, keys <b64>, settext <replace|insert> <b64>
+```
+
+- Expect the m1n plan's steps 2–9 evidence. `uiautomator dump` cannot run while the persistent reader holds the device's one `UiAutomation`: send the reader `quit` first. A `keys` request costs about 70 ms a character; a client socket timeout under that cuts it and leaves the acting thread busy. `formapp`'s probe activity stays on top of its task: `am force-stop dev.droidyard.formapp` before relaunching the form. The API 36.1 `ps16k` image does not cold-boot here (no `hvf`).
+
 ## Evidence
 
 Everything stays under `$E`. For each named step, `run` keeps the command line, stdout, stderr and exit code; each MCP session keeps `<name>.sent`, `<name>.out`, `<name>.err` and `<name>.exit`. Keep `serve.out`, `<state>/daemon.log` once a daemon was auto-started, the wire files of a real-client run, and the snapshots. This build logs no operation records; which surface returns them (`docs/architecture/overview.md`, the capability trace) is an open owner question, not decided by milestone 1b. The report quotes the decisive line and gives `$R`. On a plan step it is level 5 evidence (`prove-change`).
