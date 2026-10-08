@@ -154,8 +154,10 @@ func notesOf(c Change) string { return strings.Join(c.Notes, " | ") }
 func TestInitWritesEachClientsFiles(t *testing.T) {
 	skill := "---\nname: droidyard-android\n---\nbody\n"
 	tools := "| tool |\n"
+	// deny: Cursor's CLI refuses a project cli.json without a deny array (m1o step 9).
 	cursorAllow := `{
   "permissions": {
+    "deny": [],
     "allow": [
       "Mcp(droidyard:device_list)",
       "Mcp(droidyard:device_uiTree)"
@@ -484,7 +486,7 @@ func TestUninstallRestoresTheTree(t *testing.T) {
 		write(t, root, "AGENTS.md", "# Rules\n\nBe kind.")
 		write(t, root, "CLAUDE.md", "mine\n")
 		write(t, root, ".cursor/mcp.json", `{"mcpServers": {"other": {"command": "o"}}}`)
-		write(t, root, ".cursor/cli.json", `{"permissions": {"allow": ["Shell(ls)"], "deny": []}}`)
+		write(t, root, ".cursor/cli.json", `{"permissions": {"allow": ["Shell(ls)"], "deny": ["Shell(rm)"]}}`)
 		write(t, root, ".mcp.json", `{"mcpServers": {"theirs": {"command": "t"}}, "x": 1}`)
 		write(t, root, ".claude/settings.json", `{"permissions": {"allow": ["Bash(ls)"]}, "env": {"A": "b"}}`)
 		write(t, root, "opencode.json", `{"theme": "dark", "mcp": {"timeout": 5000, "servers": {"theirs": {"type": "remote", "url": "https://x"}}}}`)
