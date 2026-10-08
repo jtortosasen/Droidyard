@@ -41,20 +41,20 @@ skill says who does what.
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
   §Verification by risk): the Opus verifier for contract, security and concurrency
   changes and at a milestone's close; the main session's diff review otherwise.
-- **Implementer: DeepSeek, run as Claude Code** (owner's choice, 2026-10-04, to spare
-  the Claude subscription's quota): `.claude/skills/milestone-workflow/ds-implement.sh
-  <dir> <brief> <out>` runs `claude -p --agent implementer` with every request sent to
-  OpenCode Go's Anthropic-format endpoint as `deepseek-v4.1-flash` (the OpenCode Go
-  subscription pays; the key is `$OPENCODE_GO_API_KEY` or
-  `~/.config/droidyard-dev/opencode-go.key`, mode 600, never in the repository). One
-  plan step per run, in the main tree (a worktree only for parallel steps); progress and
-  the final report in `<out>`. Limits: the `implement` profile of
-  `.claude/hooks/guard-bash.sh` (no staging, committing or discarding in any spelling,
-  no `adb` or emulator, no `rm -rf`) and no subagents. The main session reviews the diff
-  and commits. The Claude `implementer` on Sonnet is the fallback for a step DeepSeek
-  fails twice.
+- **Implementer: the Claude `implementer` on Sonnet** (owner's choice, 2026-10-08, after
+  milestone 1p ran on it; replaces DeepSeek, the choice of 2026-10-04): launched by the main
+  session through the Agent tool (`subagent_type: implementer`, `model: sonnet`), in the
+  background, one plan step per run, in the main tree (`isolation: "worktree"` only for
+  parallel steps). **The main session sets each run's reasoning effort** (owner,
+  2026-10-08): `medium` by default, `high` for a step the Opus verifier reviews (contract,
+  security, untrusted text, concurrency, process lifetime). A review's fix round goes to the
+  same agent (SendMessage). Limits: the `implementer-run.md` rules in its prompt (no
+  verifier or other agent, no staging or committing, no adb, emulator or device). The main
+  session reviews the diff and commits. `ds-implement.sh` (DeepSeek through OpenCode Go;
+  effort `high` unless `CLAUDE_CODE_EFFORT_LEVEL` says otherwise) stays usable when the
+  owner asks to spare the Claude quota.
 - **`planner`, `plan-reviewer`, `verifier`** (Opus).
-- **DeepSeek only writes code.** It implements; it does not review, verify or plan
+- **The implementer only writes code.** It implements; it does not review, verify or plan
   (owner, 2026-10-06). Every check is Opus's.
 
 ## Conventions
