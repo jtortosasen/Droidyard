@@ -182,7 +182,7 @@ Expected: `main` at the 1q merge (`cc0c27b`, the branch base): API `0.12.0`, 39 
 - Needs: step 9.
 - Not here: another model or client.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5, 2026-10-09, `$B/runs/*a1..a5`, `$B/kit-after/dy` at `f230f72`, the same rotation and warm-up; `dys-cu` copies set up by `init --client cursor` (its entry pointed at the recorder, its block, skill and allowlist kept); `sh-cua1` ran last, after the others, because a step 1 probe held its name (renamed `probe-*`). No void; K2–K4 notes empty. Medians before → after (calls; failed; total input tokens, uncached plus cache-read; tool-result bytes; wall s): `sh-cu` 54 → 60; 6 → 5; 1,146 k → 1,235 k (+8 %, the drift control); 215 → 194 kB; 238 → 263. `dy-cu` 21 → 22; 0 → 0; 752 k → 582 k (−23 %); 146 → 85 kB (−42 %); 152 → 170. `dys-cu` 31 → 24 (−23 %); 0 → 0; 806 k → 604 k (−25 %); 161 → 102 kB (−37 %); 151 → 130. `dy-oc` 24 → 23; 0 → 0; 696 k → 462 k (−34 %); 36 → 15 kB (−59 %); 129 → 97; `execute`/`search` 2 → 1. `tools/list` on the wire 142,483 → 106,834 B. Grades: every run complete but `dy-oca5` (an `expect` on "Hello, Ana" unmet after a failed read; its next tap acted on the list screen) and `sh-cua4` (no read shows "Likes: 1"); the `within` misuse: 1 run before, 0 after (all five `dy-oc` runs put `likes_alpha` in the condition itself). Cursor's verdicts after: `dy-cu` supported (5/5, failed 0 vs 5, calls 37 % of the shell's, 25/25 pairs), `dys-cu` supported (5/5, 0 vs 5, 40 %, 25/25). `dys-cu` redirectable shell commands: 0 before, 0 after. Reported, not thresholded; `dy-oc`'s gain has no drift control of its own. Wall time: before ran beside steps 3–6's builds (Changes).
 
 ### 11. Close
 
