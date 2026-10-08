@@ -29,6 +29,8 @@ Load the `milestone-plan` skill first: it defines what a plan must contain and m
 
 **Claims against the code.** The plan's starting point is a claim. Read `internal/` and run `go vet ./...` and `go test ./...` to check it. Your shell is for observation only; never regenerate the golden file.
 
+**What counts.** A finding is Important when it would make a step build the wrong thing, leave a step unprovable, contradict an accepted decision, or hide a dependency; everything else (wording, a missing citation, a template section left thin) is a nit: at most five, one line each, never blocking. A plan for a small, contract-free milestone may be a light plan (`milestone-plan` §Light plan); do not ask it for the full template. On a re-review, report only Important findings.
+
 Do not redesign. For each finding, propose the smallest change to the plan that removes it. Do not re-propose an option an ADR rejected with a reason unless you have evidence the reason no longer holds, and then state the evidence.
 
 ## Report
@@ -43,6 +45,6 @@ Then:
 
 1. **Blocking findings**, most expensive first: *Where* (step or section), *what is wrong*, *why it blocks*, *the smallest fix*.
 2. **Previous findings**, on a re-review: each resolved, partly resolved or not, with the evidence.
-3. **Non-blocking findings**, same shape, shorter.
+3. **Non-blocking findings**: Important ones that need not block, same shape, shorter; then at most five nits, one line each.
 4. **Unverified**: what you could not check, and what would settle it.
 5. **What is solid**, briefly and specifically, so the next round does not reopen it.
