@@ -1,6 +1,6 @@
 # Plan: Milestone 1q — one source of truth, fewer documents
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-08, Delegated (owner: "procede con todo esto"; CI dropped by the owner). The owner can revert any Delegated choice.
 - Date: 2026-10-08
 - Milestone: "how we work: one source of truth, fewer documents" (owner, 2026-10-08: "simplificar y unificar documentos … el código debe de ser la documentación"; brief from the main session). Not yet named in `docs/README.md` §Where the work stands; it runs before 1o, which changes descriptions and the schema and should land on the new structure.
@@ -115,15 +115,15 @@ Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...
 
 ## Acceptance
 
-- [ ] A1. `AGENTS.md` says where each kind of fact lives, and the skills and agents agree with it: none instructs adding an `Amended:` line, reconciling a record, or restating contract. Source: brief item 1. Proven by: step 1.
-- [ ] A2. A changed decision is a new ADR that supersedes the old in whole or in part, both ends checked; an added `Amended:` line fails `go test`; no ADR text changes beyond a repointed link path. Source: brief item 2. Proven by: steps 1, 3.
-- [ ] A3. Done plans, research notes and reviews are records, and ADRs are frozen: exempt from section and fragment checks and from reviewers' consistency scope, still linkable, and the close does not write into records. Source: brief item 4. Proven by: steps 1, 2.
-- [ ] A4. Every duplicate that stays is checked by `go test ./internal/doccheck`: the ADR index and supersession links, the register's table, error codes named in documents, no restated counts or API versions, relative links and anchors, ADR and `§` references from Go comments. Source: brief item 5. Proven by: steps 2, 3.
-- [ ] A5. `verify-daemon` holds the generic recipe in at most 200 lines. Source: brief item 6. Proven by: step 4.
-- [ ] A6. The live set is at most 60 % of its step-2 count (42,884 by `wc -w`, target about 25,700), held by `TestLiveCorpusWithinBudget`, and each merge's verifier sample, drawn from the diff, found no decision lost. Source: brief item 3. Proven by: steps 5, 6, 7.
+- [x] A1. `AGENTS.md` says where each kind of fact lives, and the skills and agents agree with it: none instructs adding an `Amended:` line, reconciling a record, or restating contract. Source: brief item 1. Proven by: step 1.
+- [x] A2. A changed decision is a new ADR that supersedes the old in whole or in part, both ends checked; an added `Amended:` line fails `go test`; no ADR text changes beyond a repointed link path. Source: brief item 2. Proven by: steps 1, 3.
+- [x] A3. Done plans, research notes and reviews are records, and ADRs are frozen: exempt from section and fragment checks and from reviewers' consistency scope, still linkable, and the close does not write into records. Source: brief item 4. Proven by: steps 1, 2.
+- [x] A4. Every duplicate that stays is checked by `go test ./internal/doccheck`: the ADR index and supersession links, the register's table, error codes named in documents, no restated counts or API versions, relative links and anchors, ADR and `§` references from Go comments. Source: brief item 5. Proven by: steps 2, 3.
+- [x] A5. `verify-daemon` holds the generic recipe in at most 200 lines. Source: brief item 6. Proven by: step 4.
+- [x] A6. The live set is at most 60 % of its step-2 count (42,884 by `wc -w`, target about 25,700), held by `TestLiveCorpusWithinBudget`, and each merge's verifier sample, drawn from the diff, found no decision lost. Source: brief item 3. Proven by: steps 5, 6, 7.
 - [ ] A7. The branch-per-milestone rule is in `milestone-workflow`, and 1q lands as one `--no-ff` merge of branch `m1q`: at the close `git log --merges -1 --format=%P main` shows two parents, the second `m1q`'s head. Source: brief item 7 (CI removed by the owner). Proven by: step 1 (the rule), and the close (the merge).
-- [ ] A8. The register answers "what is open": checked, every row from before 1q present (1p's included), the deferred CI row added, open questions folded in. Source: brief item 8. Proven by: steps 1, 2, 7.
-- [ ] A9. No behaviour or published-contract change: `git diff --exit-code main -- schema/` exits 0, and outside `internal/doccheck` only Go comments changed. Source: brief §Constraints. Proven by: steps 5, 6, 7.
+- [x] A8. The register answers "what is open": checked, every row from before 1q present (1p's included), the deferred CI row added, open questions folded in. Source: brief item 8. Proven by: steps 1, 2, 7.
+- [x] A9. No behaviour or published-contract change: `git diff --exit-code main -- schema/` exits 0, and outside `internal/doccheck` only Go comments changed. Source: brief §Constraints. Proven by: steps 5, 6, 7.
 
 ## Not in this milestone
 
