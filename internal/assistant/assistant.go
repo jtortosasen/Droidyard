@@ -227,6 +227,10 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		// cursor-agent 2026.10.01 refuses a project cli.json whose permissions lack a deny
+		// array ("permissions.deny: Required"), which would switch the whole file off; an
+		// existing deny list is the user's and is kept (plan m1o step 9).
+		spec.keys = append(spec.keys, keyEntry{path: []string{"permissions"}, key: "deny", value: rawJSON([]string{})})
 		jobs = append(jobs, jsonJob(".cursor/cli.json", spec))
 	}
 	if has(o.Clients, Claude) {
