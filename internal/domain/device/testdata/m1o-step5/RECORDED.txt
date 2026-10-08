@@ -1,0 +1,33 @@
+Results of the m1m golden-path runs, for plan m1o step 5 (the compact text renderings).
+Copied from the structured content of the MCP replies the comparison kit recorded on
+2026-10-07 (outside the repository, ~/Library/Caches/droidyard-dev/m1m/runs/): the result
+itself (for a long-running tool, the `result` of the operation view), as compact JSON,
+unedited. Recorded before m1o step 4, so a log's crash entries carry no causes or frames.
+
+The `crash` flags on the log lines of dy1-253 and dy4-265 are SHIFTED by a bug in
+device.logs that predates this milestone (fixed in the m1o step 5 fix round): on a cut read
+(matched > maxLines) each returned line carried the flag of the line at the same index from
+the start of the matched set, not its own. The fixtures keep the flags as recorded; the
+recording holds only the returned lines, so they cannot be recomputed honestly. Their
+golden texts therefore fold the lines the shifted flags name (dy1-253: the first 30 lines
+of the crash block stay as lines; dy4-265: "Sending signal. PID: 6189 SIG: 9" is folded).
+Rendering over a read the fixed pipeline produces is held by
+TestAReadFromThePipelineRendersItsCrashAsItsEntry, not by these.
+
+  dy1-246-uitree.json       dy1 line 246: device.uiTree of the golden app's form (7 nodes).
+  dy3-249-uitree.json       dy3 line 249: its list screen (18 nodes).
+  dy5-248-uitree.json       dy5 line 248: a two-node tree with the keyboard focused.
+  dy1-247-tap-tree.json     dy1 line 247: device.tapElement with returnTree.
+  dy4-250-tap-unmet.json    dy4 line 250: a tap whose expect did not hold (unmet).
+  dy4-264-tap-unmet-left-app.json
+                            dy4 line 264: the crash tap: the foreground left the app.
+  dy5-261-tap-unmet-tree.json
+                            dy5 line 261: unmet, with returnTree.
+  dy1-248-type-warning.json dy1 line 248: device.inputText with a partial-typing warning.
+  dy1-253-logs-crash.json   dy1 line 253: device.logs with the app's crash block (100 lines).
+  dy1-244-logs.json         dy1 line 244: device.logs of a launch: two 850-byte lines.
+  dy4-265-logs-crash.json   dy4 line 265: device.logs with the crash block (60 lines).
+
+The .txt files are the renderings the tests expect (go test ./internal/domain/device
+-run TestRenderingsAreTheGoldenText -update rewrites them; read the diff). Personal data:
+none; the packages are the fixture app's and Android's.

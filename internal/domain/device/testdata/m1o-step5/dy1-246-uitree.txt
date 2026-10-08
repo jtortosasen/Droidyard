@@ -1,0 +1,6 @@
+snapshot s-b79ccd49 "dev.droidyard.golden" 1080x2340
+n0 "FrameLayout" #"content" [0,145,1080,2208]
+ n1 "EditText" #"name" clickable [44,189,1036,343]
+  n2 "TextView" "Name" [88,233,212,299]
+ n3 "View" #"submit" clickable [44,376,333,508]
+  n4 "TextView" "Continue" [110,415,267,470]

@@ -2,7 +2,8 @@
 //
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
 // daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it, and
-// `trust` writes the user configuration directly, with no daemon involved.
+// `trust` writes the user configuration directly, with no daemon involved, and so does
+// `init`, which writes the assistant integration into a project (ADR-0037).
 package main
 
 import (
@@ -56,10 +57,11 @@ Commands:
              Ctrl-C cancels the operation; --detach prints its id and returns.
              call and mcp start a daemon when none answers, unless --no-autostart.
   mcp        Attach an MCP stdio session to the daemon:
-             droidyard mcp [--root <path>] [--wait <duration>] [--no-autostart]
+             droidyard mcp [--root <path>] [--wait <duration>] [--tools core|all] [--no-autostart]
              The session is bound to --root, else to the project root of the
              current directory, and opens it when it starts.
              --wait bounds how long a long-running tool waits (default 20s).
+             --tools core lists the golden path's tools only (default all).
   status     Report on the running daemon: its socket, and the web UI's address
              and tokenised URL.
   stop       Stop the running daemon.
@@ -69,6 +71,15 @@ Commands:
   trust      Grant a project root trust, so capabilities that run its code may:
              droidyard trust <root>
              It writes the user configuration; no daemon is involved or started.
+  init       Set a project up for coding assistants (optional; every tool works without it):
+             droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
+             Writes an AGENTS.md (CLAUDE.md for claude) block, the droidyard-android skill,
+             and per client the MCP server entry and an allowlist of the read-only tools,
+             naming this binary by its absolute path. It merges into existing files, keeps
+             an existing droidyard entry, and refuses a file it cannot parse. --uninstall
+             removes what init would write; --dry-run prints the changes and writes none.
+             The root is --root, else the project root of the current directory.
+             No daemon is involved or started.
 `
 
 func main() {
@@ -105,6 +116,8 @@ func main() {
 		os.Exit(ui(os.Args[2:]))
 	case "trust":
 		os.Exit(trust(os.Args[2:]))
+	case "init":
+		os.Exit(initCmd(os.Args[2:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

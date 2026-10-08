@@ -106,8 +106,12 @@ func checkRegister(fsys fs.FS) []string {
 // with strings.Fields). Milestone 1q fixed the measure at 42,775 words and aims for
 // 0.6 of that; each of its merge steps lowers the constant to what the step reached. The set is
 // every docs/**/*.md except docs/adr/, docs/plans/, docs/research/, docs/reviews/ and
-// the register, which grows with what is open.
-const liveBudget = 25650
+// the register, which grows with what is open. Raised by 105 words (25,650 to 25,755) in
+// milestone 1o step 3: the manual that left 31 tool descriptions (selectors, the golden
+// order, never repeat an action, the shell and wrapper rules) is now the server
+// instructions block in docs/interfaces/mcp.md, which `adapters/mcp` must equal verbatim
+// and cannot be kept shorter than the points it carries (ADR-0036 Decision 1).
+const liveBudget = 25755
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

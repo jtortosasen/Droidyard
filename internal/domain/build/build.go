@@ -108,16 +108,9 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Resource:     resource,
 		Params:       RunParams{},
 		Result:       Result{},
+		Text:         capability.TextOf(resultText),
 		Errors:       buildErrors,
-		Description: "Runs Gradle tasks and returns the finished build's compact record. " +
-			"tasks are 1 to 20 Gradle task names or paths, each checked against the pattern Gradle accepts before anything is started; whether a task exists is Gradle's own answer, and an unknown one is a failed build, not a rejected call (build.tasks lists what exists). " +
-			"The build's id is its operation id, so a cancel is operation.cancel on the id this call returned and the record says cancelled. " +
-			"A failed build is a completed operation whose outcome is failed: read its errors with build.errors and its whole console with artifact.read {ref: consoleRef}. " +
-			"The record reports the AGP and KGP versions the probe read (\"unknown\" when the probe did not read them) and expectedSources, the primary error source expected per tool. " +
-			"The result is also persisted, and build.lastResult returns it after a restart. " +
-			"The console is not readable until the build has finished. " +
-			"Only a trusted root is answered (WORKSPACE_UNTRUSTED otherwise). " +
-			"Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED, REQUEST_INVALID_PARAMS for a tasks list that is empty, too long or not task-shaped, and WORKSPACE_STATE_UNREADABLE when the record could not be written.",
+		Description:  "Runs 1 to 20 Gradle tasks and returns the finished build's compact record; a failed build is a completed result with outcome failed, never an error. Read a failure with build.errors, the console with artifact.read, and cancel with operation.cancel.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(RunParams)
 			if err := checkTasks(p.Tasks); err != nil {
@@ -140,13 +133,11 @@ func registerBuilds(reg *capability.Registry, o Options) {
 			Destructive: boolPtr(false),
 			Reason:      "it assembles a variant of a module, replacing only its own, rebuildable outputs",
 		},
-		Params: AssembleParams{},
-		Result: Result{},
-		Errors: buildErrors,
-		Description: "Assembles one module's variant by running Gradle's <module>:assemble<Variant> task, and returns that build's compact record. " +
-			"module and variant are validated against project.modules and project.variants before anything runs; an unknown module or variant is REQUEST_INVALID_PARAMS listing the candidates. " +
-			"Idempotent: assembling a variant that is already built replaces only that variant's own outputs. " +
-			"Everything build.run says of the record, the console, cancel and persistence applies here too.",
+		Params:      AssembleParams{},
+		Result:      Result{},
+		Text:        capability.TextOf(resultText),
+		Errors:      buildErrors,
+		Description: "Assembles one module's variant with Gradle and returns the build record, as build.run does. module and variant must come from project.modules and project.variants.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(AssembleParams)
 			model, err := projectModel(ctx, call, o)
@@ -171,36 +162,30 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		},
 	})
 	reg.MustRegister(capability.Descriptor{
-		Name:      "build.errors",
-		Kind:      capability.Query,
-		Scope:     capability.Workspace,
-		Since:     "0.6.0",
-		Authorize: o.Authorize,
-		Params:    ErrorsParams{},
-		Result:    ErrorsResult{},
-		Errors:    readErrors,
-		Description: "Returns one finished build's merged errors: severity, tool, merge source, file, line, column, message, and for a problem Gradle structured its id, solutions and documentation link. " +
-			"buildId absent means the newest finished build of the workspace — the one build.lastResult names. " +
-			"Errors keep the first 200 and warnings the first 50, in emission order; truncated counts what the caps dropped. " +
-			"includeWarnings adds the warnings, off by default. " +
-			"When the build failed and no source recognised an error, unrecognised is true and the result carries the root failure messages and the last 4 KiB of the console, labelled as the tail — the only raw console text a result carries. " +
-			"A workspace with no finished build, or an unknown buildId, is BUILD_NOT_FOUND.",
+		Name:        "build.errors",
+		Kind:        capability.Query,
+		Scope:       capability.Workspace,
+		Since:       "0.6.0",
+		Authorize:   o.Authorize,
+		Params:      ErrorsParams{},
+		Result:      ErrorsResult{},
+		Errors:      readErrors,
+		Description: "Returns a finished build's merged errors (severity, file, line, message, problem id), and its warnings on request; buildId absent means the newest build. Read it after a failed build instead of the console.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return errorsFor(o.History, call)
 		},
 	})
 	reg.MustRegister(capability.Descriptor{
-		Name:      "build.lastResult",
-		Kind:      capability.Query,
-		Scope:     capability.Workspace,
-		Since:     "0.6.0",
-		Authorize: o.Authorize,
-		Params:    struct{}{},
-		Result:    Result{},
-		Errors:    readErrors,
-		Description: "Returns the newest finished build of the workspace, in the shape build.run and build.assemble return (agp, kgp and expectedSources included), without running anything. " +
-			"It is read from the state root, so it survives a daemon restart, and consoleRef stays readable with artifact.read as long as the record is retained (the last 50 builds or 7 days). " +
-			"A workspace that has finished no build is BUILD_NOT_FOUND.",
+		Name:        "build.lastResult",
+		Kind:        capability.Query,
+		Scope:       capability.Workspace,
+		Since:       "0.6.0",
+		Authorize:   o.Authorize,
+		Params:      struct{}{},
+		Result:      Result{},
+		Text:        capability.TextOf(resultText),
+		Errors:      readErrors,
+		Description: "Returns the newest finished build of the workspace in build.run's shape, without running anything. It survives a daemon restart.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			if !o.History.configured() {
 				return nil, noState()

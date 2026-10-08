@@ -1,0 +1,6 @@
+build op-6faae378c7c9dffc success 5984ms :app:assembleDebug
+gradle 8.13 agp 8.13.2 kgp 2.0.21
+tasks executed=58 upToDate=11 noSource=7 skipped=3
+output :app debug dev.droidyard.golden versionCode=1 versionName="1.0"
+ app-debug.apk 8840413B
+console droidyard://artifact/d.golden-4d045208f890.op-6faae378c7c9dffc

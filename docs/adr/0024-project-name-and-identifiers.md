@@ -1,6 +1,7 @@
 # ADR-0024: Project name and identifiers
 
 - Status: Accepted
+- Superseded in part by: ADR-0037 (§Decision)
 - Date: 2026-09-29
 - Amended: 2026-09-29 — the name was revised from `AioDevAndroid` to `Droidyard`
   before any code existed. See §Revision.

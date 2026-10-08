@@ -1,0 +1,7 @@
+build op-c7d5cafe52322710 failed 781ms :app:assembleDebug
+gradle 8.13 agp 8.13.2 kgp 2.0.21
+tasks upToDate=60 noSource=6 skipped=3 failed=1
+failed :app:compileDebugKotlin "Execution failed for task ':app:compileDebugKotlin'."
+errors=1 extraction=console
+error kotlin app/src/main/kotlin/dev/droidyard/golden/MainActivity.kt:35:9 "Unresolved reference 'droidyardAcceptanceMissing'."
+console droidyard://artifact/d.golden-4d045208f890.op-c7d5cafe52322710

@@ -38,7 +38,7 @@ type Selector struct {
 	Text     string            `json:"text,omitempty" jsonschema_description:"Text: exact first, then case-insensitive contains."`
 	Desc     string            `json:"desc,omitempty" jsonschema_description:"Content description: exact first, then case-insensitive contains."`
 	Class    string            `json:"class,omitempty" jsonschema_description:"Short class name, e.g. Button; exact."`
-	Within   *AncestorSelector `json:"within,omitempty" jsonschema_description:"Restrict the target to nodes with a matching ancestor."`
+	Within   *AncestorSelector `json:"within,omitempty" jsonschema_description:"Only nodes inside a node matching these fields exactly; that node itself is excluded."`
 	Index    *int              `json:"index,omitempty" jsonschema:"minimum=0" jsonschema_description:"0-based document-order position, to pick one of several matches."`
 	Ref      string            `json:"ref,omitempty" jsonschema_description:"A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."`
 	Snapshot string            `json:"snapshot,omitempty" jsonschema_description:"The snapshot the ref came from."`

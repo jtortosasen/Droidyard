@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -306,6 +307,56 @@ func epochSeconds(t *testing.T, s string) float64 {
 }
 
 // --- crash reporting (ADR-0034 §2) ------------------------------------------------------
+
+// Decision (plan m1o step 4, fix round B1): appCrash shares the crashes[] entries' frame
+// extractor, so a crash read in the onCreate shape (a RuntimeException wrapped around the
+// app's own failure, the app's frames only under "Caused by:" past more than five framework
+// frames) leads with the app's frames and fills from the top of the stack. Seen failing
+// with the old extractor, which took the first five "at" lines: all framework.
+func TestAppCrashFramesLeadWithTheAppsOwn(t *testing.T) {
+	quickAct(t)
+	var b strings.Builder
+	for _, m := range []string{
+		"FATAL EXCEPTION: main",
+		"Process: " + crashPackage + ", PID: 7100",
+		"java.lang.RuntimeException: Unable to start activity ComponentInfo{x/y}",
+		"\tat android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3449)",
+		"\tat android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3601)",
+		"\tat android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:85)",
+		"\tat android.app.ActivityThread$H.handleMessage(ActivityThread.java:2066)",
+		"\tat android.os.Handler.dispatchMessage(Handler.java:106)",
+		"\tat android.os.Looper.loop(Looper.java:223)",
+		"\tat android.app.ActivityThread.main(ActivityThread.java:7656)",
+		"Caused by: java.lang.IllegalStateException: no network",
+		"\tat " + crashPackage + ".Repo.load(Repo.kt:12)",
+		"\tat " + crashPackage + ".MainActivity.onCreate(MainActivity.kt:30)",
+		"\tat android.app.Activity.performCreate(Activity.java:8000)",
+	} {
+		fmt.Fprintf(&b, "         %s %d  %d  %d E AndroidRuntime: %s\n", crashEpoch, 10100, 7100, 7100, m)
+	}
+	// The newest block of the crash buffer is the one reported: this one goes last in it.
+	const eventsMarker = "--------- beginning of events\n"
+	log := strings.Replace(crashLog(t), eventsMarker, b.String()+eventsMarker, 1)
+	files := map[string]string{
+		uiSerial + ".log":      log,
+		uiSerial + ".date.out": crashClock + "\n",
+	}
+	f := newUIFixture(t, withReadOnlyReader(t, files, formappDoc(), launcherDoc()))
+	r := mustTap(t, f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`))
+	if r.AppCrash == nil || r.AppCrash.PID != 7100 {
+		t.Fatalf("appCrash = %+v, want the newest block, pid 7100", r.AppCrash)
+	}
+	want := []string{
+		crashPackage + ".Repo.load(Repo.kt:12)",
+		crashPackage + ".MainActivity.onCreate(MainActivity.kt:30)",
+		"android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3449)",
+		"android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3601)",
+		"android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:85)",
+	}
+	if !slices.Equal(r.AppCrash.Frames, want) {
+		t.Errorf("frames = %q, want the app's two first, then the top of the stack: %q", r.AppCrash.Frames, want)
+	}
+}
 
 // Decision (A3; ADR-0034 §2; plan m1n step 6): a tap whose after read leaves the app and
 // whose process is gone carries appCrash from the crash buffer, filtered by the package,

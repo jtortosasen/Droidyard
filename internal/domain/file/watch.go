@@ -75,7 +75,7 @@ var watchWalkHook func()
 
 // WatchParams is file.watch's parameters (D7).
 type WatchParams struct {
-	Path string `json:"path,omitempty" jsonschema_description:"The directory to watch, relative to the project root; \".\" or absent is the root. An absolute path inside the root is accepted."`
+	Path string `json:"path,omitempty" jsonschema_description:"Directory to watch, relative to the project root; \".\" or absent is the root."`
 }
 
 // WatchResult is file.watch's result (D7).

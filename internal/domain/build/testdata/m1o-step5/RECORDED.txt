@@ -1,0 +1,11 @@
+Build results of the m1m golden-path runs, for plan m1o step 5 (the compact text
+renderings). Copied from the structured content of the MCP replies the comparison kit
+recorded on 2026-10-07 (outside the repository, ~/Library/Caches/droidyard-dev/m1m/runs/):
+the `result` of the operation view, as compact JSON, unedited.
+
+  dy1-84-build-ok.json      dy1/wire.s2c.jsonl line 84: build.run of :app:assembleDebug, success.
+  dy1-158-build-failed.json dy1/wire.s2c.jsonl line 158: the same task, failed: outcome failed,
+                            one Kotlin error from the console extractor.
+
+The .txt files are the renderings the tests expect (go test ./internal/domain/build
+-update-text rewrites them; read the diff).

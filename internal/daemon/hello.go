@@ -27,6 +27,9 @@ type Hello struct {
 	// WaitMs is an MCP session's wait budget, from `droidyard mcp --wait`
 	// (ADR-0020 §Adapter projections). Zero means the default.
 	WaitMs int64 `json:"waitMs,omitempty"`
+	// Tools is an MCP session's tool profile, from `droidyard mcp --tools core`
+	// (ADR-0036 Decision 4). Empty means every tool.
+	Tools string `json:"tools,omitempty"`
 }
 
 type helloLine struct {
