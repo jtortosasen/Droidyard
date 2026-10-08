@@ -274,7 +274,7 @@ func Register(reg *capability.Registry) {
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
 		Since:        introduced,
-		Description:  "Subscribes the calling session to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. The events then arrive on the session, each naming the subscription, in seq order. With since {epoch, seq}, events after that point are replayed first; if they are no longer held, or the epoch is another daemon's, delivery starts with an events.gap marker and the caller must resync through queries. Only a WebSocket session can subscribe.",
+		Description:  "Subscribes the calling WebSocket session to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. With since {epoch, seq} missed events are replayed first, or an events.gap marker says to resync through queries.",
 		Params:       SubscribeParams{},
 		Result:       SubscribeResult{},
 		Annotations: capability.Annotations{
@@ -313,7 +313,7 @@ func Register(reg *capability.Registry) {
 		Statefulness: capability.Stateful,
 		Idempotent:   true,
 		Since:        introduced,
-		Description:  "Ends one of the calling session's subscriptions. An id that is unknown, already ended or another session's is not an error: nothing happens.",
+		Description:  "Ends one of the calling session's subscriptions; an unknown, ended or foreign id does nothing.",
 		Params:       UnsubscribeParams{},
 		Result:       UnsubscribeResult{},
 		Annotations: capability.Annotations{

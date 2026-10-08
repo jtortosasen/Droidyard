@@ -26,7 +26,7 @@ var writeSeam func(temp string) error
 
 // WriteParams is file.write's parameters.
 type WriteParams struct {
-	Path    string `json:"path" jsonschema:"required" jsonschema_description:"The file to write, relative to the project root. An absolute path inside the root is accepted; missing parent directories are created."`
+	Path    string `json:"path" jsonschema:"required" jsonschema_description:"File to write, relative to the project root; missing parent directories are created."`
 	Content string `json:"content" jsonschema:"required" jsonschema_description:"The file's new content, UTF-8, at most 524288 bytes. The whole file is replaced."`
 }
 

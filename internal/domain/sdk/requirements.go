@@ -105,13 +105,7 @@ func registerRequirements(reg *capability.Registry, o Options) {
 		Params:       None{},
 		Result:       RequirementsResult{},
 		Errors:       requirementErrors,
-		Description: "Reports what this project's build requires of the SDK, compared against the SDK that build would use, without changing anything. " +
-			"For each Android module the Android probe read, required lists platforms;<compile target> and build-tools;<version> and whether the project SDK has each; missing lists the package ids it lacks, and a note names `sdkmanager --sdk_root=<projectSdk.root> \"<package>\"` for each. " +
-			"A compile target android-N is satisfied by an installed platforms;android-N or platforms;android-N.0. " +
-			"projectSdk is the directory AGP resolved (source agp, exact), else local.properties sdk.dir (relative to the root, Java properties escapes; source local.properties), else ANDROID_HOME or ANDROID_SDK_ROOT (source env); sameAsHost says whether it is the host SDK, canonicalised. With none, projectSdk.found is false and a note names the \"SDK location not found\" failure the build will hit. " +
-			"source is probe when the probe read the project's facts and failure-signatures otherwise (complete false, required empty, and a note), so an incomplete answer is never presented as a complete one. " +
-			"Only a trusted root is answered: an untrusted one fails WORKSPACE_UNTRUSTED before any Gradle code runs. " +
-			"Fails with BUILD_SIDECAR_UNAVAILABLE, BUILD_SIDECAR_CRASHED, BUILD_GRADLE_UNSUPPORTED and PROJECT_MODEL_FAILED as project.modules does.",
+		Description:  "Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and the sdkmanager command for each, without changing anything. When source is failure-signatures nothing could be checked and complete is false.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			root := call.Authorized.(string)
 			model, stale, err := o.Client.Model(ctx, root)

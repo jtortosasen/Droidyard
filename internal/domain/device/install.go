@@ -72,7 +72,7 @@ type BuildResolver interface {
 // BuildRef is device.install's build reference (gradle.md §Build outputs "Install
 // reference").
 type BuildRef struct {
-	BuildID string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"Which build's output to install. Absent resolves the newest finished build of the workspace with an output for module and variant."`
+	BuildID string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"The build to install; absent means the newest finished build with an output for module and variant."`
 	Module  string `json:"module" jsonschema:"required,pattern=^(:[A-Za-z0-9_.-]+)+$" jsonschema_description:"The Gradle project path of the module whose output to install, e.g. \":app\", matching project.modules."`
 	Variant string `json:"variant" jsonschema:"required,pattern=^[a-z][A-Za-z0-9]*$" jsonschema_description:"The variant whose APK to install, e.g. \"debug\", matching project.variants."`
 }
@@ -159,11 +159,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 		Params:       InstallParams{},
 		Result:       InstallResult{},
 		Errors:       installErrors,
-		Description: "Installs a build's output on the device with `adb -s <serial> install -r <apk>`, and returns the record's applicationId and versionCode and the APK's file name. " +
-			"The build reference is resolved from the build registry, never from a build script or manifest: buildId names one build, and absent means the newest finished build of the workspace with an output for module and variant. " +
-			"module and variant are checked against project.modules' and project.variants' shape before anything runs, and the resolution requires exactly one unfiltered APK whose file still matches the build's size and mtime. " +
-			"`install -r` replaces the app and keeps its data, so the call is not destructive; it is not idempotent. " +
-			"Fails with BUILD_OUTPUT_NOT_FOUND when no build produced the output, BUILD_OUTPUT_STALE when the file is gone or changed, BUILD_OUTPUT_UNSUPPORTED when the output is not one unfiltered APK, BUILD_NOT_FOUND for an unknown buildId, and DEVICE_INSTALL_FAILED when adb rejects the install (detected even on exit 0, with the INSTALL_FAILED_* reason as the cause), besides the device errors of a missing, unusable, unadmitted physical or vanished device.",
+		Description:  "Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. buildId absent means the newest finished build with an output for module and variant.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(InstallParams).Device; s != "" {
 				return writeKey(s)
@@ -215,12 +211,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 		Params:       UninstallParams{},
 		Result:       UninstallResult{},
 		Errors:       uninstallErrors,
-		Description: "Uninstalls an application from the device, and reports whether it removed one. " +
-			"It runs `adb -s <serial> shell pm path <applicationId>` first: when the package is not there, the call completes with uninstalled false and reason \"notInstalled\", touching nothing. " +
-			"Otherwise it runs `adb -s <serial> uninstall <applicationId>`; \"Success\" is uninstalled true, and a \"Failure […]\" is DEVICE_UNINSTALL_FAILED with the bracketed token as the cause. " +
-			"Uninstalling removes the app's data, so the call is destructive, and it is not idempotent. " +
-			"applicationId must be a package name: anything else is rejected with REQUEST_INVALID_PARAMS before the device is touched. " +
-			"Besides DEVICE_UNINSTALL_FAILED, it fails with the device errors of a missing, unusable, unadmitted physical or vanished device.",
+		Description:  "Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. It removes the app's data.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(UninstallParams).Device; s != "" {
 				return writeKey(s)

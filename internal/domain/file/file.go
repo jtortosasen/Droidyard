@@ -47,16 +47,13 @@ type Options struct {
 // Register adds file.list, file.read and file.write to the registry.
 func Register(reg *capability.Registry, opts Options) {
 	reg.MustRegister(capability.Descriptor{
-		Name:  "file.list",
-		Kind:  capability.Query,
-		Scope: capability.Workspace,
-		Since: version,
-		Description: "Lists one level of a directory in the project, never recursively. " + pathNote + " " +
-			"Each entry carries name, type (file, dir, symlink or other), size and modification time; a symlink is reported, never followed. " +
-			"Entries are sorted by name; up to limit (1 to 2000, default 500) are returned, and when more exist truncated is true and the hint names how to narrow (a directory holding more than 20000 entries yields a sorted subset). " +
-			"A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing directory is FILE_NOT_FOUND; a file where a directory is needed is FILE_WRONG_TYPE.",
-		Params: ListParams{},
-		Result: ListResult{},
+		Name:        "file.list",
+		Kind:        capability.Query,
+		Scope:       capability.Workspace,
+		Since:       version,
+		Description: "Lists one level of a directory in the project, never recursively, with name, type, size and modification time per entry. The path is relative to the project root; a path that leaves it, or a symlink that would, is FILE_OUTSIDE_ROOT.",
+		Params:      ListParams{},
+		Result:      ListResult{},
 		// The codes the handler returns (D3). WORKSPACE_NOT_OPEN comes from Start.
 		Errors: []capability.ErrorCode{
 			capability.ErrFileNotFound, capability.ErrFileOutsideRoot,
@@ -84,16 +81,13 @@ func Register(reg *capability.Registry, opts Options) {
 	})
 
 	reg.MustRegister(capability.Descriptor{
-		Name:  "file.read",
-		Kind:  capability.Query,
-		Scope: capability.Workspace,
-		Since: version,
-		Description: "Reads a byte range of a text file in the project, paging exactly as artifact.read does. " + pathNote + " " +
-			"Returns path, size, modTime, offset, nextOffset, text and truncated: text ends at the last complete line within limit (default 16384 bytes, maximum 262144), a negative offset counts back from the end and a negative offset that lands mid-line starts at the next line, and an offset at or past the end is empty text. " +
-			"A page holding a NUL byte or invalid UTF-8 is binary: binary is true and text is omitted, while size, offset and nextOffset are kept so a caller can page past it. " +
-			"A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing file is FILE_NOT_FOUND; a directory, FIFO, socket or device is FILE_WRONG_TYPE.",
-		Params: ReadParams{},
-		Result: ReadResult{},
+		Name:        "file.read",
+		Kind:        capability.Query,
+		Scope:       capability.Workspace,
+		Since:       version,
+		Description: "Reads a byte range of a text file in the project, paging as artifact.read does: text ends at a complete line, nextOffset continues, a negative offset reads from the end. A binary file reports binary and no text, and a path outside the project root is FILE_OUTSIDE_ROOT.",
+		Params:      ReadParams{},
+		Result:      ReadResult{},
 		Errors: []capability.ErrorCode{
 			capability.ErrFileNotFound, capability.ErrFileOutsideRoot,
 			capability.ErrFileWrongType, capability.ErrFileIOFailed,
@@ -125,13 +119,10 @@ func Register(reg *capability.Registry, opts Options) {
 		// Repeating the call with the same arguments has no additional effect beyond the
 		// first write (mcp.md §Annotations); it is destructive, which is a
 		// command's default, so no override and no reason are needed.
-		Idempotent: true,
-		Description: "Writes a whole text file into the project, replacing any existing file atomically: a reader sees either the old file or the new one, never a partial write. " + writePathNote + " " +
-			"Missing parent directories are created. An existing file keeps its name on disk and its permission bits (setuid, setgid and sticky included; owner, ACLs and extended attributes are not kept); a new file is created 0644 before umask. Content is UTF-8, at most 512 KiB. " +
-			"A hard link to a replaced file keeps the old content, and a write under .git/ is allowed. " +
-			"An existing file without its owner-write bit is FILE_IO_FAILED; a directory, a FIFO, a socket, a device or a symlink where the file goes is FILE_WRONG_TYPE.",
-		Params: WriteParams{},
-		Result: WriteResult{},
+		Idempotent:  true,
+		Description: "Writes a whole UTF-8 text file (at most 512 KiB) into the project, atomically replacing any existing file and creating missing parent directories. The path is relative to the project root; a path that leaves it, or a symlink as the final component, is refused.",
+		Params:      WriteParams{},
+		Result:      WriteResult{},
 		// The codes the handler returns (D3, D6). It never returns FILE_NOT_FOUND: a
 		// missing target is created and any ENOENT during the write is FILE_IO_FAILED.
 		// WORKSPACE_NOT_OPEN comes from Start.
@@ -160,13 +151,9 @@ func Register(reg *capability.Registry, opts Options) {
 		Scope:        capability.Workspace,
 		Statefulness: capability.Streaming,
 		Since:        version,
-		Description: "Watches a directory in the project and reports what changes under it, WebSocket-only. " + watchPathNote + " " +
-			"The result carries subscriptionId and the events then arrive on the calling session, on topic file.changes, each naming this subscription and this call's operation: type changes with {path, changes [{path, kind: created | modified | deleted, type}], truncated} (at most 1000 changes per event) and, once and last, type stopped {path, reason}: workspaceClosed when the workspace closes, pathGone when the watched directory is gone (its entries reported deleted first), unreadable when it can no longer be read. " +
-			"The watch polls: the directory is walked at the call, then once a second, and a change is an entry's type, size or modification time differing. " +
-			"Each walk records at most 20000 entries (watched, truncated), and a truncated tick reports no deletions; a subdirectory that cannot be read keeps its last known entries; excluded are .git/, .gradle/, .idea/, .kotlin/, .cxx/, a build/ directory beside a build.gradle or build.gradle.kts, and file.write's temporary files. " +
-			"A path outside the project root is FILE_OUTSIDE_ROOT and is never read; a missing directory is FILE_NOT_FOUND; a file where a directory is needed is FILE_WRONG_TYPE.",
-		Params: WatchParams{},
-		Result: WatchResult{},
+		Description:  "Watches a directory in the project (WebSocket sessions only) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
+		Params:       WatchParams{},
+		Result:       WatchResult{},
 		// The codes the handler returns (D3, D7). WORKSPACE_NOT_OPEN and SESSION_REQUIRED
 		// come from Start.
 		Errors: []capability.ErrorCode{
@@ -184,21 +171,16 @@ func Register(reg *capability.Registry, opts Options) {
 	})
 }
 
-// pathNote is the sentence both descriptions share: how the path is named and where
-// containment is decided (D2, D10).
-const pathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and resolved to the same name (a /var-style alias of the root resolves intermediate links on the way). " +
-	"Every path stays inside the project root: an absolute path outside it, \"..\", a symlink (intermediate or final) that would leave it, and any symlink with an absolute target, even one pointing inside the root, fail FILE_OUTSIDE_ROOT."
-
-// watchPathNote is file.watch's path rule: as pathNote, but the path must name a
-// directory and the walk reports a symlink without descending it (D7).
-const watchPathNote = "The path is relative to the project root and slash-separated; \".\" or an empty path is the root; an absolute path inside the project root is accepted and resolved to the same name (a /var-style alias of the root resolves intermediate links on the way). " +
-	"Every path stays inside the project root: an absolute path outside it, \"..\", and any symlink (intermediate or final) that would leave it fail FILE_OUTSIDE_ROOT. The walk records a symlink as a symlink but never descends into it."
-
-// writePathNote is file.write's path rule: as pathNote for the directories on the way,
-// but a symlink as the final component is never followed, wherever it points, so it is
-// FILE_WRONG_TYPE rather than FILE_OUTSIDE_ROOT (D6).
-const writePathNote = "The path is relative to the project root and slash-separated; an absolute path inside the project root is accepted and resolved to the same name (a /var-style alias of the root resolves intermediate links on the way). " +
-	"An absolute path outside the root, \"..\", and an intermediate symlink that would leave the root or has an absolute target fail FILE_OUTSIDE_ROOT; a symlink as the final component is FILE_WRONG_TYPE wherever it points, and is never followed."
+// The path rules, which the tool descriptions no longer repeat (ADR-0036 Decision 1):
+// a path is relative to the project root and slash-separated, "." or an empty path is the
+// root, and an absolute path inside the root is accepted and resolved to the same name
+// (a /var-style alias of the root resolves intermediate links on the way). Every path
+// stays inside the root: an absolute path outside it, "..", a symlink (intermediate or
+// final) that would leave it, and any symlink with an absolute target, even one pointing
+// inside the root, fail FILE_OUTSIDE_ROOT. file.watch records a symlink as a symlink and
+// never descends into it (D7). file.write never follows a symlink that is the final
+// component, wherever it points, so that is FILE_WRONG_TYPE rather than
+// FILE_OUTSIDE_ROOT (D6).
 
 // resolver builds the per-call resolver from the call's workspace, or fails when the
 // workspace is not open (which Start has already rejected; kept for a direct call).

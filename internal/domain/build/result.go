@@ -14,18 +14,18 @@ import (
 
 // RunParams is build.run's parameters.
 type RunParams struct {
-	Tasks []string `json:"tasks" jsonschema:"required,minItems=1,maxItems=20" jsonschema_description:"The Gradle tasks to run, 1 to 20, each a task path such as \":app:assembleDebug\" or a name such as \"assembleDebug\". Validated against the pattern Gradle accepts before anything is started; build.tasks lists what exists."`
+	Tasks []string `json:"tasks" jsonschema:"required,minItems=1,maxItems=20" jsonschema_description:"Gradle tasks to run, 1 to 20: paths (\":app:assembleDebug\") or names; build.tasks lists what exists."`
 }
 
 // AssembleParams is build.assemble's parameters.
 type AssembleParams struct {
-	Module  string `json:"module" jsonschema:"required,pattern=^(:[A-Za-z0-9_.-]+)+$" jsonschema_description:"The Gradle project path of the module to assemble, e.g. \":app\". Must be one of project.modules' paths; an unknown one is REQUEST_INVALID_PARAMS listing them."`
-	Variant string `json:"variant" jsonschema:"required,pattern=^[a-z][A-Za-z0-9]*$" jsonschema_description:"The variant to assemble, e.g. \"debug\". Must be one of that module's project.variants; an unknown one is REQUEST_INVALID_PARAMS listing them."`
+	Module  string `json:"module" jsonschema:"required,pattern=^(:[A-Za-z0-9_.-]+)+$" jsonschema_description:"Gradle project path of the module, such as \":app\"; one of project.modules' paths."`
+	Variant string `json:"variant" jsonschema:"required,pattern=^[a-z][A-Za-z0-9]*$" jsonschema_description:"The variant to assemble, such as \"debug\"; one of that module's project.variants."`
 }
 
 // ErrorsParams is build.errors' parameters.
 type ErrorsParams struct {
-	BuildID         string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"Which build's merged errors to return. Absent returns the newest finished build of the workspace (the one build.lastResult names)."`
+	BuildID         string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"The build whose errors to return; absent means the newest finished build."`
 	IncludeWarnings bool   `json:"includeWarnings,omitempty" jsonschema_description:"Also return the merged warnings. Off by default: up to 50 warning records an agent asking for its errors rarely needs."`
 }
 

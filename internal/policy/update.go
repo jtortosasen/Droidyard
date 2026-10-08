@@ -33,7 +33,7 @@ type UpdateParams struct {
 	Trust      *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
 	Devices    *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
 	Shell      *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
-	IfRevision *string       `json:"ifRevision,omitempty" jsonschema_description:"The revision policy.get returned (or absent when it reported no file). When given, the update is applied only if the file still has that revision, compared under the lock; otherwise POLICY_REVISION_CONFLICT and nothing is written. Omit it to patch whatever the file holds."`
+	IfRevision *string       `json:"ifRevision,omitempty" jsonschema_description:"The revision policy.get returned; the patch applies only if the file still has it, else POLICY_REVISION_CONFLICT."`
 
 	// raw is the patch as the caller wrote it, kept so a section or key written as null
 	// is distinguishable from one not written (RFC 7386). Set by UnmarshalJSON.
