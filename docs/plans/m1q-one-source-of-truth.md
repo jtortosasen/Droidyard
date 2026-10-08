@@ -1,0 +1,162 @@
+# Plan: Milestone 1q — one source of truth, fewer documents
+
+- Status: Approved
+- Approved: 2026-10-08, Delegated (owner: "procede con todo esto"; CI dropped by the owner). The owner can revert any Delegated choice.
+- Date: 2026-10-08
+- Milestone: "how we work: one source of truth, fewer documents" (owner, 2026-10-08: "simplificar y unificar documentos … el código debe de ser la documentación"; brief from the main session). Not yet named in `docs/README.md` §Where the work stands; it runs before 1o, which changes descriptions and the schema and should land on the new structure.
+- Phase: none. A process milestone between Phase 1 and Phase 2; it changes how the project is documented and checked, not what droidyard does.
+- Contract: `AGENTS.md` §Conventions ("The code is the documentation", commit f939153); `.claude/skills/milestone-workflow/SKILL.md` (its Close row); `docs/adr/README.md` §Format; `internal/doccheck/doc.go`.
+- Plan kind: light (`milestone-plan` §Light plan): no schema, error-code, capability, security, concurrency or process-lifetime change. Steps keep all six template fields because `TestPlansFollowTheTemplate` requires them (step 1 aligns the skill's text with the test).
+
+## Scope
+
+In:
+
+- One fact, one place: a map of where each kind of fact lives, in `AGENTS.md`, with the `adr`, `milestone-plan`, `milestone-workflow`, `prove-change` skills and the agents agreeing (step 1).
+- The ADR policy that replaces `Amended:` lines, enforced by doccheck (steps 1, 3).
+- Records frozen: Done plans, research notes, reviews; ADRs frozen as history (steps 1, 2).
+- Every duplicate that stays is checked (steps 2, 3).
+- `verify-daemon` slimmed to the generic recipe (step 4).
+- The live documents merged and cut by at least 40 % of their words, with no decision lost (steps 5, 6, 7).
+- A branch per milestone, merged at its close (step 1). This milestone runs on branch `m1q`, created by the main session at approval.
+- The register kept as the answer to "what is open", 1p's rows intact (steps 1, 2, 7).
+
+Out: see §Not in this milestone. CI is out (owner, 2026-10-08: "Del CI olvidémonos ahora").
+
+## Delegated choices
+
+Taken under the owner's standing instruction to apply the recommended option; each can be reverted on its own.
+
+- D1. **Where each fact lives** (step 1). The contract (parameters, fields, error codes and their meanings, versions, names) lives in code, descriptors, `schema/capabilities.json` and tests only. The current design of an area lives in its code and package doc comment, and in one document per area for what code cannot say (why, how the pieces fit, what was rejected). Decision history lives in ADRs. Status lives in the plan and its row in `docs/plans/README.md`, plus one line in the documentation map's status section; the auto-memory holds a pointer, not status. Open items live in `docs/roadmap/known-limits.md` only. Process lives in `AGENTS.md` and the skills. Written as a short §Where each fact lives in `AGENTS.md`; the conventions section of `docs/README.md` moves there (one place).
+- D2. **ADR policy** (steps 1, 3). An accepted ADR is not edited again: no new `Amended:` lines. A changed decision is a new short ADR with `Supersedes: ADR-NNNN` (whole) or `Supersedes: ADR-NNNN §Section` (in part); the old file keeps its text and gains one header line, `Superseded by ADR-XXXX` in Status (whole, which the index's Status column shows) or `- Superseded in part by: ADR-XXXX (§Section)` (in part, header only). The current rule is then in the code and the area document. History is never lost: the old text stays, and the pointer is checked both ways. Recommended because it costs nothing now: folding today's 24 amended ADRs (about 70 `Amended:` lines) into area documents is a large rewrite with the highest decision-loss risk of anything here, and the bodies were edited in place with each amendment (`adr` skill §Amending one), so they state the rule as of today (sampled in step 1). Rejected: keep amending (the 1p close's only blocker was an amendment line out of step with the code); fold everything now (cost and risk above).
+- D3. **Frozen files** (steps 1, 2). Records are a plan with Status `Done`, every file in `docs/research/` and every file in `docs/reviews/`: not edited at a close, not reconciled, outside reviewers' consistency scope. ADRs are frozen by D2. Both are exempt from doccheck's section-reference and `#fragment` checks (today only `docs/reviews/` is exempt from the first, and nothing from the second): they cite documents as they were. Their plain file links stay checked; where a merge removes a file a frozen document links to (ADR-0012, 0015, 0019, 0025, 0027 link to `mcp-tool-surface.md`, `mcp-features.md` or `core-runtime.md`), that link path is repointed and nothing else is edited. Frozen files stay where they are, so every link to them keeps working; a header line or a folder move was rejected (37 records touched, and a move breaks the register's links).
+- D4. **The register** (steps 1, 2, 7). It becomes the one home of open items: its intro says so and drops "that document stays authoritative"; documents drop their §Open questions and §To verify sections into rows. `Source` is provenance: the ADR, plan or research note that raised the item, or the area document (no anchor) when nothing else did. Kept as a checked Markdown table (smaller than a generator plus a data file): six columns; `Kind` from {limit, unverified, deferred, open question} in that order; `Area` from a closed set in case-insensitive alphabetical order (build, CLI, code, configuration, device, device/UI, emulator, files, MCP/agents, platform, policy/security, process, SDK, web UI); `Recorded` a milestone or `design`; `Closed by` empty or starting with a milestone; a link in `Source`; rows ordered by Area then Kind as its intro claims (today they are not: step 2 sorts them once, text unchanged).
+- D5. **Measuring the corpus** (steps 2, 5–7). The live set is every `docs/**/*.md` except `docs/adr/`, `docs/plans/`, `docs/research/`, `docs/reviews/` and `docs/roadmap/known-limits.md` (defined by exclusion, so text moved to a new file is still counted): 42,884 words by `wc -w` on 2026-10-08. The register is outside it (it grows with what is open). A doccheck test counts the set with `strings.Fields` and fails above a budget constant; step 2 records its own count N, the target is 0.6 × N (about 25,700), and each merge step lowers the constant to what it reached. Per-step targets, so a shortfall shows early: step 5's files from 10,302 to at most 6,200 words, step 6's from 10,386 to at most 6,250, step 7's from 22,196 to at most 13,300.
+- D6. **Merge targets** (steps 5, 6). `vision.md` absorbs `principles.md`; `scope.md` goes (its lists restate `mvp.md` §Scope; anything only it says moves there). `architecture/overview.md` absorbs `core-runtime.md` minus what restates code (package layout, registry, invocation) or ADR-0016/0020, and minus its stale open questions (the register row on the four questions `core-runtime.md` keeps open, closed by 1q). `interfaces/mcp.md` replaces `mcp-tool-surface.md` and `mcp-features.md`. The cross-cutting error-code table in `capability-api.md` goes; each code's meaning is a doc comment on its constant in `internal/capability/error.go` (most already are). The capability name list and classification table in `capability-api.md` and the tool table in `mcp-tool-surface.md` go: the descriptors and the schema say all of it. `mvp.md` §MVP capability surface stays: it is the MVP's scope, not the registry's (it lists `git.*`), and it stays checked against the schema. `docs/README.md` keeps a `## Where the work stands` heading holding its one status line, so the many citations of it stay valid.
+- D7. **`verify-daemon`** (step 4). Per-milestone blocks are deleted, not moved into Done plans (that would write into records); the skill names the commit that last held them (`git show f939153:.claude/skills/verify-daemon/SKILL.md`). Kept: Launch, Doctor, one generic Drive recipe per kind (CLI call, real MCP client with OpenCode and Cursor, emulator, killed daemon), Evidence, Cleanup, Keeping it true.
+- D8. **Branch per milestone** (step 1). At approval the main session creates `m<id>` from `main`; steps commit there through the pre-commit hook; the close merges it with `git merge --no-ff` (one merge commit per milestone) and deletes the branch. The implementer never switches or merges.
+- D9. **Disposition of removed text** (steps 5–7). The implementer lists, per removed or merged section, where its content now lives (a code path, a test, the schema, an ADR §, a document §, a register row) or why it was obsolete, in the step's report; the main session puts it in the commit message body. The verifier draws its sample from the removed lines of `git diff main -- docs/`, not from the list, and looks each up in the list and at the place it names; a removed statement with no entry is itself a finding. The list is not added to the corpus.
+
+## Starting point
+
+Baseline on 2026-10-08, `main` at f939153: `go vet ./...` silent, `go test ./...` all `ok`. No `.github/`. `internal/doccheck` (2,118 lines) tests relative links and anchors, `§` references after a file name in markdown and Go comments, ADR mentions in markdown and Go, the ADR index and format, the plan template and index, and capability names across `mvp.md`, `capability-api.md` and `mcp-tool-surface.md` (`capabilities_test.go`), each with a self-test that sees it fail (`selftest_test.go`). Go comments cite documents by section about 400 times (`gradle.md` 125, `ui-automation.md` 62, `emulator.md` 47, `adb-device.md` 31, `process-lifecycle.md` 27, `capability-api.md` 27, `sdk.md` 22, `mcp-tool-surface.md` 18, `core-runtime.md` 11); ADRs about 40 times into the live set. `.claude/skills/verify-daemon/SKILL.md` is 469 lines. The register has 160 rows. `BUILD_QUEUE_FULL` is named (register, `core-runtime.md`) but deferred and not a constant.
+
+## Steps
+
+### 1. The rules: where each fact lives, ADRs, records, branches
+
+- Builds: `AGENTS.md` (§Where each fact lives per D1; the ADR bullet per D2 replacing "Never silently rewrite an accepted ADR — add an `Amended:` line"; the records rule per D3; drop "35 decisions"); `docs/README.md` (its conventions section removed, pointing to `AGENTS.md`); `docs/adr/README.md` §Format (the `Superseded in part by:` line; `Amended:` marked historical); `.claude/skills/adr/SKILL.md` (§When and §Amending one rewritten to D2; its "search `docs/` for every restatement" instruction removed); `.claude/skills/milestone-workflow/SKILL.md` (Close and Documents rules name records as untouched; D8's branch rule; the `Amended:` mention under Delegated decisions); `.claude/skills/milestone-plan/SKILL.md` (Light plan lists all six step fields, one line each; §Writing one item 2: follow `Supersedes:` chains instead of `Amended:` lines, and open items are register rows); `.claude/skills/milestone-plan/templates/plan.md` and `references/sources.md` where they say `Amended`; `.claude/skills/prove-change/SKILL.md` if it restates; `.claude/agents/verifier.md`, `plan-reviewer.md` (frozen files outside consistency scope; read `Supersedes:` chains), `implementer.md` (a deviation is a new ADR per D2); `planner.md` needs no change. `docs/roadmap/known-limits.md` intro (D4) and one new row: the GitHub Actions workflow (build, vet, gofmt, `test -race`, doccheck), deferred, Area `platform`, Source this plan §Not in this milestone, Recorded `1q`. This plan's own D1 line, if a citation in it breaks.
+- Implements: D1, D2, D3, D4 (intro), D8.
+- Check: `grep -rn -e 'Amended:' -e 'restatement' AGENTS.md .claude/` prints only lines that call `Amended:` historical (no instruction to add one); `grep -n 'Superseded in part by' .claude/skills/adr/SKILL.md docs/adr/README.md` matches both; `grep -n 'merge --no-ff' .claude/skills/milestone-workflow/SKILL.md` matches; `go test ./internal/doccheck` passes. The main session samples ADR-0019, 0020 and 0021: each `Amended:` line's change is in the body (D2's premise); a miss goes to Unverified and to step 7's area document.
+- Schema: no change.
+- Needs: —.
+- Not here: no doccheck code (steps 2, 3); no document merge (5–7); no ADR text changed (D2 freezes them).
+- [ ] Done. Evidence:
+
+### 2. doccheck: frozen files, the register, the corpus budget
+
+- Builds: `internal/doccheck`: `isFrozen(path)` (a plan whose Status is `Done`, `docs/research/`, `docs/reviews/`, `docs/adr/NNNN-*.md`) used by `checkSectionRefs` and by the `#fragment` part of `checkLinks`, replacing the `docs/reviews/` special case; `checkSectionRefs` extended to match a bare `name.md §X` (as most Go comments write it, about 350 today, none checked), resolved by unique basename through `resolveFileRef`, and to report a cited `.md` in any form that resolves to no file instead of skipping it (frozen files exempt); every bare citation already broken today fixed here, comments only; `checkRegister` (D4) as `TestRegisterIsWellFormed`; `TestLiveCorpusWithinBudget` (D5) with `liveBudget` set to the count N it measures, logged with `-v`. Self-tests in `selftest_test.go`: the same dead `§X` and the same dead `#frag` link pass in a `Status: Done` plan, a research note, a review and an ADR, and fail in a `Status: Approved` plan and in a live document; a bare dead `name.md §X` in a Go comment fails; a citation of a file that does not exist fails; a row with a fifth Kind, an unknown Area, no Source link, or out of order fails; one word over budget fails. `docs/roadmap/known-limits.md` rows sorted per D4, no row text changed. `internal/doccheck/doc.go` names the new invariants.
+- Implements: D3, D4, D5.
+- Check: `go test ./internal/doccheck -run 'Register|Budget|Drift' -v` shows the new tests and self-tests `PASS` and logs N; the extended `TestSectionReferencesResolve` passes after the comment fixes, and the step's report gives how many bare citations it found broken (if more than about 50, the main session splits their fixes into a step of their own under Changes); `git show main:docs/roadmap/known-limits.md | grep '^| ' | sort` against `grep '^| ' docs/roadmap/known-limits.md | sort` differs only by the CI row of step 1.
+- Schema: no change.
+- Needs: 1 (the register intro and its CI row).
+- Not here: the duplicate checks of step 3; no frozen file is edited.
+- [ ] Done. Evidence:
+
+### 3. doccheck: the duplicates that stay
+
+- Builds: `internal/doccheck`: (a) `TestErrorCodesInDocsExist`: every token in the live set, the register, `AGENTS.md` and `.claude/` that starts with a code prefix (the prefixes of the `ErrorCode = "…"` constants in non-test Go files under `internal/`) is one of those constants or in `plannedCodes`, an explicit set holding `BUILD_QUEUE_FULL` with a comment citing its register row; (b) `TestNoRestatedCounts`: the live set and `AGENTS.md` contain no `\b\d+ (ADRs|decisions|capabilities|MCP tools)\b` and no `\bAPI \d+\.\d+\.\d+\b` (the schema and the ADR index hold those); today's occurrences in `docs/README.md` removed here; (c) `checkADRFormat` and `checkADRIndex` extended: `Supersedes:` and `Superseded by` / `Superseded in part by:` point at each other, and a frozen map of each ADR's `Amended:` line count (today's) fails on any added line, whatever its date, with a message naming D2. A self-test for each.
+- Implements: D1 (duplicates checked), D2 (enforced).
+- Check: `go test ./internal/doccheck -run 'ErrorCodes|RestatedCounts|ADR' -v` passes, and each self-test shows its check catching drift: a misspelt code in a document, "39 capabilities", an extra `Amended:` line with an old date, a one-sided `Supersedes:`.
+- Schema: no change.
+- Needs: 2 (`isFrozen`, the live set).
+- Not here: no generator: every remaining duplicate is small enough to check, and a check needs no `-update` workflow. The index does not show partial supersession (the header does).
+- [ ] Done. Evidence:
+
+### 4. `verify-daemon` slimmed
+
+- Builds: `.claude/skills/verify-daemon/SKILL.md` per D7; any reference elsewhere to a removed block (`grep -rn 'verify-daemon' .claude docs/plans/m1o-tokens-and-harness.md`) repointed to the generic recipe.
+- Implements: D7.
+- Check: `wc -l .claude/skills/verify-daemon/SKILL.md` prints at most 200; `grep -n -e 'm1[a-z]' -e '1[a-z] step' .claude/skills/verify-daemon/SKILL.md` prints only the pointer to f939153; `go test ./internal/doccheck` passes.
+- Schema: no change.
+- Needs: —. Touches no file steps 2 and 3 touch; it may run beside them in its own worktree (`milestone-workflow` §Rules between the steps, Parallel steps).
+- Not here: no level-5 run; the recipe is cut, not changed or re-executed. A later milestone that needs an old block takes it from f939153.
+- [ ] Done. Evidence:
+
+### 5. Merge A: README, vision, architecture overview, roadmap status
+
+- Builds: `docs/README.md` reduced to the map (by directory, not per file, so no per-file status column) and `## Where the work stands` with one status line naming the next milestone and pointing to `docs/plans/README.md`; `docs/vision/` per D6 (`principles.md` into `vision.md`, `scope.md` removed); `docs/architecture/overview.md` absorbing `core-runtime.md` per D6, `core-runtime.md` removed; `docs/roadmap/mvp.md` cut of status narrative (status lives in plans) and of the superseded DopamineControl text beyond one line. Every live link, `§` reference and Go comment citing a removed file or section repointed or dropped (doccheck lists them); frozen files' link paths per D3; `.claude/skills/milestone-plan/references/sources.md` updated; the register row on `core-runtime.md`'s open questions closed by 1q; `liveBudget` lowered. Disposition per D9.
+- Implements: D1, D5, D6, D9.
+- Check: `wc -w` of the step's files (README, vision, overview, mvp) at most 6,200 (D5); `go test ./internal/doccheck -run TestLiveCorpusWithinBudget -v` logs the new count and the constant equals it; `go test ./...` passes; `git diff --exit-code main -- schema/` exits 0; `git diff -U0 main -- '*.go' ':!internal/doccheck' | grep '^[-+][^-+]' | grep -v '^[-+][[:space:]]*//'` prints nothing (only comments changed in Go); `grep -rn -e core-runtime.md -e principles.md -e vision/scope.md AGENTS.md .claude internal cmd docs` prints only lines in frozen files and in this plan (a backstop to step 2's check). Opus verifier: at least ten removed statements sampled per D9.
+- Schema: no change.
+- Needs: 2, 3.
+- Not here: interfaces and `capability-api.md` (6); subsystems, `process-lifecycle.md`, `workspace-state.md` (7).
+- [ ] Done. Evidence:
+
+### 6. Merge B: the capability API and the interfaces
+
+- Builds: `docs/architecture/capability-api.md` cut per D6 (the name list, the classification table, the cross-cutting code table, envelope field tables that restate `internal/capability`), keeping why: naming rules, the error model's versioning rules, scope, events, conventions; meanings of the cross-cutting codes as doc comments in `internal/capability/error.go` where missing; `docs/interfaces/mcp.md` from `mcp-tool-surface.md` and `mcp-features.md` (tool table and restated annotations cut; the why of naming, the bounded wait, results, images, untrusted data, features adopted and rejected kept), the two files removed; `docs/interfaces/http-websocket.md` cut of restated endpoint shapes. `internal/doccheck/capabilities_test.go` reduced to what still exists: published names within `mvp.md` §MVP capability surface, §In scope domains, §The golden path and Phase 1 names, and `mcp.md`'s not-exposed list checked against the schema's names (`mcpPath` updated); its self-tests adjusted. The live plan `docs/plans/m1o-tokens-and-harness.md` repointed (it is not a record). Register: the row "A generated check of the annotation columns of `mcp-tool-surface.md`'s tool table" closed by 1q (the table is gone); the MCP-features open questions as rows; Sources into the removed files repointed per D4. `liveBudget` lowered. Disposition per D9.
+- Implements: D1, D5, D6, D9.
+- Check: `wc -w` of the step's files at most 6,250 (D5); otherwise as step 5 (budget, `go test ./...`, schema diff empty, only Go comments changed outside `internal/doccheck`); `grep -rn -e mcp-tool-surface.md -e mcp-features.md AGENTS.md .claude internal cmd docs` prints only lines in frozen files and in this plan; `go test ./internal/doccheck -run 'Capability' -v` passes and its self-test still catches a published name missing from `mvp.md`. Opus verifier: at least fifteen removed statements sampled per D9, weighted to error codes and MCP behaviour. The implementer runs at `high` effort here and in step 7 (the steps where losing a decision is the risk).
+- Schema: no change. Descriptions are 1o's; `error.go` changes are comments only.
+- Needs: 5 (the merged overview it links to).
+- Not here: no description text, no `error.go` code; the MCP tool list is not regenerated into a document (`droidyard mcp` serves it).
+- [ ] Done. Evidence:
+
+### 7. Merge C: subsystems and the remaining architecture
+
+- Builds: `docs/subsystems/*.md`, `docs/architecture/process-lifecycle.md`, `docs/architecture/workspace-state.md`: restated contract cut (parameters, fields, error lists, defaults the code holds), §Open questions and §To verify moved into register rows (an existing row's Source repointed per D4; a new row where none exists), headings that Go comments cite kept where their content stays so comment churn stays low; every broken comment reference repointed or dropped; any rule step 1's ADR sample found missing from its ADR body stated in the area document. `liveBudget` set to at most 0.6 × N. Disposition per D9.
+- Implements: D1, D4, D5, D9.
+- Check: `wc -w` of the step's files at most 13,300 (D5); `go test ./internal/doccheck -run TestLiveCorpusWithinBudget -v` logs at most 0.6 × N; the sorted `^| ` lines of the register at `main` and now (as in step 2) differ only by added rows and by changed `Closed by` or `Source` cells, each named in the step's report; as step 5 for `go test ./...`, the schema and Go. Opus verifier: at least fifteen removed statements sampled per D9, five from `gradle.md`.
+- Schema: no change.
+- Needs: 6.
+- Not here: no ADR text changed beyond D3's link paths; records untouched beyond the same.
+- [ ] Done. Evidence:
+
+## Acceptance
+
+- [ ] A1. `AGENTS.md` says where each kind of fact lives, and the skills and agents agree with it: none instructs adding an `Amended:` line, reconciling a record, or restating contract. Source: brief item 1. Proven by: step 1.
+- [ ] A2. A changed decision is a new ADR that supersedes the old in whole or in part, both ends checked; an added `Amended:` line fails `go test`; no ADR text changes beyond a repointed link path. Source: brief item 2. Proven by: steps 1, 3.
+- [ ] A3. Done plans, research notes and reviews are records, and ADRs are frozen: exempt from section and fragment checks and from reviewers' consistency scope, still linkable, and the close does not write into records. Source: brief item 4. Proven by: steps 1, 2.
+- [ ] A4. Every duplicate that stays is checked by `go test ./internal/doccheck`: the ADR index and supersession links, the register's table, error codes named in documents, no restated counts or API versions, relative links and anchors, ADR and `§` references from Go comments. Source: brief item 5. Proven by: steps 2, 3.
+- [ ] A5. `verify-daemon` holds the generic recipe in at most 200 lines. Source: brief item 6. Proven by: step 4.
+- [ ] A6. The live set is at most 60 % of its step-2 count (42,884 by `wc -w`, target about 25,700), held by `TestLiveCorpusWithinBudget`, and each merge's verifier sample, drawn from the diff, found no decision lost. Source: brief item 3. Proven by: steps 5, 6, 7.
+- [ ] A7. The branch-per-milestone rule is in `milestone-workflow`, and 1q lands as one `--no-ff` merge of branch `m1q`: at the close `git log --merges -1 --format=%P main` shows two parents, the second `m1q`'s head. Source: brief item 7 (CI removed by the owner). Proven by: step 1 (the rule), and the close (the merge).
+- [ ] A8. The register answers "what is open": checked, every row from before 1q present (1p's included), the deferred CI row added, open questions folded in. Source: brief item 8. Proven by: steps 1, 2, 7.
+- [ ] A9. No behaviour or published-contract change: `git diff --exit-code main -- schema/` exits 0, and outside `internal/doccheck` only Go comments changed. Source: brief §Constraints. Proven by: steps 5, 6, 7.
+
+## Not in this milestone
+
+- The GitHub Actions workflow and watching it go green: deferred by the owner (2026-10-08); a register row (step 1). The "tests that skip in CI" concern goes with it: locally, the reader and formapp tests skip without build-tools 37.0.0 and `javac` and say "level 2 only", which is unchanged.
+- Folding today's amended ADRs into area documents: not needed under D2; their bodies state the rule as of today (sampled in step 1).
+- Generating any document from code (error-code table, tool table, register): every remaining duplicate is checked instead (step 3).
+- Capability descriptions and `schema/capabilities.json`: milestone 1o.
+- Research notes, reviews, Done plans and ADRs: frozen (D2, D3), apart from repointing a link path whose target a merge removes.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| The subsystems can lose about 40 % of their words without losing a decision; if not, A6 stays unticked with the shortfall recorded rather than decisions cut | 7 | step 5's per-step target shows early whether the method reaches 40 %; step 7's count and its verifier sample |
+| Each amended ADR's body states its current rule (D2's premise) | 1, 7 | the three-ADR sample in step 1; a miss is stated in the area document in step 7 |
+| How many of the ~350 bare Go citations are already broken (sets step 2's size) | 2 | step 2's first run of the extended check |
+| "No decision lost" is shown by a sample of removed statements, not exhaustively | 5, 6, 7 | the D9 disposition lists in the commit messages, which the owner can audit |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise | [plan][contract] Merges break ADRs' links and `§` refs, but the plan forbade ADR edits | D3: ADRs frozen, exempt from `§`/fragment checks like records; only link paths repointed; step 1, 7 Not here and A2 reworded |
+| 1 | revise | [test] Step 3(a) fails on `BUILD_QUEUE_FULL` (deferred, not a constant) | `plannedCodes` set citing its register row |
+| 1 | revise | [test] Step 2's `isRecord` reversal could not show the new exemptions failing | the self-test is the Check: the same dead `§` and `#frag` pass in each frozen kind, fail in an Approved plan and a live document |
+| 1 | revise | [test] Equal insertions and deletions do not prove the register rows intact | sorted `^| ` lines at `main` and now compared (steps 2, 7) |
+| 1 | revise | [safety] The decision-loss sample came from the implementer's own list | D9: sample from the diff's removed lines; an unlisted removal is a finding |
+| 1 | revise | [plan] The plan cites sections its steps remove (README conventions, §Where the work stands) | D1 reworded; D6 and step 5 keep `## Where the work stands` |
+| 1 | nit-level, adopted | [test] date-based `Amended:` check; [test] live set by directory list; [plan] evidence late; [plan] step 6 vs D6 not-exposed list; [doc] skill item 2, template, planner; [test] A7 at close; [test] schema check; [plan] register Source; Area order; index partial supersession; memory; step 4 worktree | frozen `Amended:` count map; live set by exclusion, target 0.6 × N; per-step word targets; not-exposed list checked against the schema; step 1 Builds extended; A7 proven at the close by `git log --merges`; `git diff --exit-code main -- schema/`; D4 Source rule and Area order; partial supersession in header only (stated); D1 memory pointer; step 4 in a worktree |
+
+| 2 | approve with changes | round-1 findings 1–6 resolved | — |
+| 2 | approve with changes | [test] doccheck skips bare `name.md §X` citations (~350 in Go) and citations of deleted files, so steps 5–7 and A4 rested on a check that does not exist (missed in round 1) | step 2 extends `checkSectionRefs` (bare names by basename; a missing file reported), with self-tests and today's broken ones fixed; grep backstops in steps 5 and 6; Unverified row on the count |
+
+Counts: round 1, Important 6 ([plan] 2, [test] 3, [safety] 1), nits 11; round 2, Important 1 ([test]).
+
+## Changes
