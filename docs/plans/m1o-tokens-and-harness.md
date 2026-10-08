@@ -74,7 +74,7 @@ Expected: `main` at the 1q merge (`cc0c27b`, the branch base): API `0.12.0`, 39 
 - Needs: — (m1n, 1p and 1q are `Done`).
 - Not here: the measurement (step 2).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5, 2026-10-08, `$B/runs/` (pre: `cursor-agent` 2026.10.01-e373342 and `opencode` 2.0.18 copied to `$B/clients/` and run from there; the four commands green at `cc0c27b`). (a0) held with Changes' deviation: `command -v adb` = `$B/kit/bin/adb`, `emulator -list-avds` = `droidyard_m1o` only, `adb kill-server` refused by the wrapper (5037 pid 19285 unchanged), the SDK adb by path, `./adb`, `ls ~/.android/avd`, `kill -0 1`, `killall` denied; `ANDROID_HOME` comes back from the login profile. (a) Cursor `-p` runs project hooks; the deny's `user_message` reaches the model, `agent_message` does not; `sessionStart` context reaches it; no `DROIDYARD_STATE_DIR` in the hook env. OpenCode's v2 plugin throw reaches the model. (b) text block only; `getMcpTools` 80,301 B without `outputSchema`; tokens in `result.usage`. (c) pilots: `sh-cu` (p2) 211 s, 51 calls; `dy-cu` 159 s, 21 calls, droidyard only; `dys-cu` 164 s, 22 calls, no shell command; `dy-oc` 101 s, 21 calls; each finished the task; K2 and K4 notes empty.
 
 ### 2. The before-measurement
 
