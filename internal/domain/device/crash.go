@@ -249,6 +249,15 @@ func crashApplies(app string, beforeDialog *SystemDialog, after *Foreground) boo
 	return a == "" || a != app
 }
 
+// crashDialogFor reports whether a read after the action shows the system's crash dialog
+// for app ("<app> keeps stopping"). While that dialog waits for an answer the crashed
+// process is still alive — its crash handler blocks on the dialog — so `pidof` finds it, and
+// the dialog is then the proof of the crash (level 5, plan m1n step 9: a second crash within
+// a minute showed the dialog and reported no appCrash).
+func crashDialogFor(sd *SystemDialog, app string) bool {
+	return sd != nil && sd.Kind == systemDialogCrash && sd.Package == app
+}
+
 // foregroundAfter is the after read's foreground package, "" when no read observed the
 // screen (or the verification never ran).
 func foregroundAfter(fg *Foreground) string {

@@ -906,3 +906,29 @@ func containsWarning(warnings []string, want string) bool {
 	}
 	return false
 }
+
+// Decision (A3; ADR-0034 §2; plan m1n step 9): a crash that raises the system's "keeps
+// stopping" dialog leaves the app's process alive while the dialog waits — its crash
+// handler blocks on it — so `pidof` finds it; the dialog naming the app is then the proof,
+// and the crash buffer is read anyway. Seen failing at level 5 (a second crash within a
+// minute reported the dialog and no appCrash) and here with crashDialogFor removed.
+func TestCrashDialogForTheAppReadsTheCrashThoughItsProcessLives(t *testing.T) {
+	quickAct(t)
+	before := string(synthDump(0, fmt.Sprintf(
+		`<node class="android.widget.FrameLayout" package=%q bounds="[0,0][1080,2340]"><node class="android.widget.Button" package=%q resource-id=%q text="Like" bounds="[100,100][300,200]" clickable="true"></node></node>`,
+		recordingCrashPackage, recordingCrashPackage, recordingCrashPackage+":id/like")))
+	files := map[string]string{
+		uiSerial + ".log":          crashLog(t),
+		uiSerial + ".date.out":     crashClock + "\n",
+		uiSerial + ".apppidof.out": "7000\n", // alive: the dialog holds its crash handler
+	}
+	f := newUIFixture(t, withReadOnlyReader(t, files, before, crashDialogDump()))
+	out := f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`)
+	r := mustTap(t, out)
+	if r.SystemDialog == nil || r.SystemDialog.Kind != "crash" || r.SystemDialog.Package != recordingCrashPackage {
+		t.Fatalf("systemDialog = %+v, want the crash dialog naming %s", r.SystemDialog, recordingCrashPackage)
+	}
+	if n := countPrefix(f.calls(t), crashLogcatHead+"crash"); n != 1 {
+		t.Errorf("%d crash-buffer reads, want one although pidof found the process (%q)", n, f.calls(t))
+	}
+}

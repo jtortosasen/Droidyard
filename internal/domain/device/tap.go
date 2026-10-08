@@ -377,7 +377,7 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 	// step 6): the crash buffer since the tap, else exit-info. Paid only on that path, and
 	// never for the system ui's own window or when the call acted on a system dialog.
 	var appCrash *AppCrash
-	if crashApplies(before.Foreground, beforeDialog, vr.Foreground) && a.appPIDof(actx, t, before.Foreground) == 0 {
+	if crashApplies(before.Foreground, beforeDialog, vr.Foreground) && (crashDialogFor(systemDialog, before.Foreground) || a.appPIDof(actx, t, before.Foreground) == 0) {
 		appCrash = a.appCrashReason(actx, t, before.Foreground, actionStart)
 	}
 
