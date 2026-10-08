@@ -1,6 +1,6 @@
 # Plan: Milestone 1o — tokens, assistant integration, and the comparison with Cursor
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-08, Delegated: the main session took Q1's and Q2's draft decisions under the owner's standing instruction; the owner may revert either.
 - Date: 2026-10-07; revised 2026-10-08 for 1p and 1q
 - Milestone: not in `docs/README.md`. The owner's brief of 2026-10-07 (see `m1n-daily-use-core.md`'s header), items D (tokens) and E (harness integration, Cursor first, then OpenCode), with "a Cursor arm added to the m1m comparison kit and the comparison rerun after D and E, to measure the gains rather than estimate them". `m1n-daily-use-core.md` (A, B, C, F, I, J) and `m1p-functional-gaps.md` (G, H) are `Done`; the rerun measures the device path they leave.
@@ -60,7 +60,7 @@ Expected: `main` at the 1q merge (`cc0c27b`, the branch base): API `0.12.0`, 39 
 - [ ] A7. Dropped 2026-10-08 (§Changes: step 2 counted no redirectable command; ADR-0037 adopts no hook). Proven by: step 7 (not built).
 - [x] A8. `droidyard init` writes D5's files, is idempotent, keeps the user's content and existing entries, refuses unparseable files and `opencode.jsonc`, and `--uninstall` restores the tree. Source: Q2 ¶2. Proven by: step 8.
 - [x] A9. In Cursor (`cursor-agent -p`) a project set up by `init` alone reaches droidyard, the `AGENTS.md` block and the instructions reach the agent, and a read-only droidyard tool runs under `init`'s allowlist alone while a non-read-only one does not; in OpenCode a project set up by `init` reaches droidyard. Source: brief E. Proven by: step 9.
-- [ ] A10. The after-measurement recorded; gains, drift and Cursor's verdicts per D1; `mvp.md`, `mcp.md`, `docs/README.md` and the register updated. Source: brief E; `mvp.md` §Definition of done. Proven by: step 10, step 11.
+- [x] A10. The after-measurement recorded; gains, drift and Cursor's verdicts per D1; `mvp.md`, `mcp.md`, `docs/README.md` and the register updated. Source: brief E; `mvp.md` §Definition of done. Proven by: step 10, step 11.
 
 ## Steps
 
@@ -194,7 +194,7 @@ Expected: `main` at the 1q merge (`cc0c27b`, the branch base): API `0.12.0`, 39 
 - Needs: steps 1–10.
 - Not here: Phase 2 planning.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-09. The close commit on `m1o`: this plan `Done`, its index row, `docs/README.md` §Where the work stands, ADR-0036 and ADR-0037 indexed, the register's rows added and closed, `mvp.md`'s comparison line. `go test ./...` green. Opus close verifier: revise (B1: an empty `deny` lost on uninstall; B2: step 8's evidence missing), fixed in `c8adc50`, approve. Findings per layer: step verifiers 3 blocking (step 4 [plan], step 5 [bug], step 8 [contract]) and 9 Important non-blocking; level-5 runs 1 [bug] (Cursor's `deny`) and the kit's departures in Changes; close verifier 2 blocking ([bug], [plan]), 1 Important, 5 nits. The merge into `main` is this milestone's last item: its merge commit is the evidence.
 
 ## Not in this milestone
 
