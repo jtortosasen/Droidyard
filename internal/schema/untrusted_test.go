@@ -187,7 +187,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 			// R4: tapped, foreground, tree and expect.unmet quote device text, and so can
 			// warnings (a moved tap point names the covering node, D22); the daemon's
 			// expect bookkeeping does not.
-			for _, f := range []string{"tapped", "foreground", "tree", "expect", "warnings"} {
+			for _, f := range []string{"tapped", "foreground", "tree", "appCrash", "systemDialog", "expect", "warnings"} {
 				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
 				if want := f == "tapped" || f == "foreground" || f == "tree" || f == "warnings"; v != want {
 					t.Errorf("device.tapElement.%s: marked untrusted = %v, want %v", f, v, want)
@@ -203,7 +203,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 		if c.Name == "device.inputText" {
 			// R4: tapped and expect.unmet quote device text, and so can warnings (D22);
 			// the bookkeeping does not.
-			for _, f := range []string{"typed", "characters", "method", "tapped", "expect", "warnings"} {
+			for _, f := range []string{"typed", "characters", "method", "tapped", "appCrash", "systemDialog", "expect", "warnings"} {
 				v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
 				if want := f == "tapped" || f == "warnings"; v != want {
 					t.Errorf("device.inputText.%s: marked untrusted = %v, want %v", f, v, want)
@@ -219,7 +219,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 		if c.Name != "device.uiTree" {
 			continue
 		}
-		for _, f := range []string{"nodes", "foreground", "display", "snapshot", "truncated", "hint", "emptyReason"} {
+		for _, f := range []string{"nodes", "foreground", "display", "systemDialog", "snapshot", "truncated", "hint", "emptyReason"} {
 			v, _ := prop(t, out, f)[capability.UntrustedKeyword].(bool)
 			isTrue := v
 			if want := f == "nodes" || f == "foreground" || f == "display"; isTrue != want {
@@ -230,6 +230,59 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	raw, _ := json.Marshal(untrustedFixture(t, false))
 	if !bytes.Contains(raw, []byte(capability.UntrustedKeyword)) {
 		t.Errorf("a result with tagged fields publishes no %s", capability.UntrustedKeyword)
+	}
+}
+
+// TestCrashFieldsAreUntrusted: the crash and dialog fields (ADR-0034 §2–4) carry the
+// keyword exactly where the text is device-derived. An appCrash's package, exception,
+// message, frames and reason, and a systemDialog's package, are marked on device.tapElement
+// and device.inputText, and a systemDialog's package on device.uiTree; an appCrash's pid,
+// time and source and a systemDialog's kind are the daemon's own reading and carry none.
+// Seen failing with any mark dropped and with the keyword added to pid, time, source or kind.
+func TestCrashFieldsAreUntrusted(t *testing.T) {
+	doc, err := schema.Generate(registry(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := func(name string) map[string]any {
+		for _, c := range doc.Capabilities {
+			if c.Name != name {
+				continue
+			}
+			var out map[string]any
+			if err := json.Unmarshal(c.Output, &out); err != nil {
+				t.Fatal(err)
+			}
+			return out
+		}
+		t.Fatalf("%s is not in the schema", name)
+		return nil
+	}
+	tagged := func(out map[string]any, obj, field string) bool {
+		v, _ := prop(t, out, obj, field)[capability.UntrustedKeyword].(bool)
+		return v
+	}
+	for _, name := range []string{"device.tapElement", "device.inputText"} {
+		out := output(name)
+		for _, f := range []string{"package", "exception", "message", "frames", "reason"} {
+			if !tagged(out, "appCrash", f) {
+				t.Errorf("%s.appCrash.%s: not marked untrusted", name, f)
+			}
+		}
+		for _, f := range []string{"pid", "time", "source"} {
+			if tagged(out, "appCrash", f) {
+				t.Errorf("%s.appCrash.%s: marked untrusted, but it is the daemon's own", name, f)
+			}
+		}
+	}
+	for _, name := range []string{"device.tapElement", "device.inputText", "device.uiTree"} {
+		out := output(name)
+		if !tagged(out, "systemDialog", "package") {
+			t.Errorf("%s.systemDialog.package: not marked untrusted", name)
+		}
+		if tagged(out, "systemDialog", "kind") {
+			t.Errorf("%s.systemDialog.kind: marked untrusted, but it is the daemon's own", name)
+		}
 	}
 }
 

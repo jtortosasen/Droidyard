@@ -1,0 +1,35 @@
+Device fixtures for milestone 1n, step 6 (the crash and system-dialog reporting, ADR-0034
+§2-4). Recorded by the orchestrating session's level-5 run on 2026-10-07/08 on API 31
+(emulator-5554, wm size 1052x1446), copied here verbatim except the trims noted below.
+Never edited after recording.
+
+Sources (the two fixture apps are dev.droidyard.golden and dev.droidyard.formapp):
+  m1n-step2-crashbuf.txt            `adb -s emulator-5554 logcat -d -b crash` after a
+                                    `device.tapElement` on the golden app; trimmed to the
+                                    runs shown. Every line is the uiautomator shell tool's
+                                    own AndroidRuntime crash (pid 8895), NOT the fixture
+                                    app's: the app's block had already rolled out of the
+                                    ring buffer. It is why the crash read must filter by
+                                    pid/package: a shell-tool crash is not the app's.
+  m1n-step2-exitinfo-formapp.txt    `adb -s emulator-5554 shell dumpsys activity exit-info
+                                    dev.droidyard.formapp` after an ANR was triggered on
+                                    the form app: one ApplicationExitInfo, `reason=6 (ANR)`,
+                                    timestamp=2026-10-07 21:12:06.039.
+  m1n-step2-exitinfo-golden.txt     the same for dev.droidyard.golden: two exits,
+                                    `reason=4 (APP CRASH(EXCEPTION))`.
+  m1n-step2-events.txt              `adb -s emulator-5554 logcat -d -b events` for the
+                                    window of the run: the am_crash lines for golden and the
+                                    am_anr line for formapp the dialog's package comes from.
+  m1n-step2-dialog-uitree.json      a `device.uiTree` result (not a raw dump) taken while
+                                    the "Form App isn't responding" dialog was up: the
+                                    foreground is `android` and the tree is the dialog's
+                                    (ids aerr_close, aerr_wait, alertTitle).
+
+The log recordings are `logcat -v threadtime` lines (`MM-DD HH:MM:SS.mmm  pid  tid P tag:
+msg`), the hand-readable form; the daemon reads `threadtime,epoch,usec,uid`. The tests read
+these files and render each line into the daemon's format (crash_test.go step2Log), keeping
+the recorded tag, pid, tid, priority and message, so the real recorded content runs through
+the real parser.
+
+Personal data: none. The recordings name only the fixture packages, Android framework
+classes, and the emulator's own pids.

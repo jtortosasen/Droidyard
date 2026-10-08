@@ -91,8 +91,13 @@ without `device` fails schema validation at `Start`, before any operation exists
 | Not permitted by policy | `DEVICE_NOT_ALLOWED` | Decided at the re-check just before the handler, after one `devices -l`, so the operation fails; `Start` does no adb I/O ([ADR-0015](../adr/0015-untrusted-data-authorization.md); [ADR-0020](../adr/0020-operation-contract.md), amended 2026-10-04) |
 
 `DEVICE_NOT_READY` carries `details.state`: adb's own state (`offline`, `unauthorized`,
-`recovery`, `sideload`, `unknown`), or `booting` when `sys.boot_completed` is not `1`, or
-`unresponsive` when the device does not answer it (milestone 1e).
+`recovery`, `sideload`, `unknown`), `booting` when `sys.boot_completed` is not `1`,
+`unresponsive` when the device does not answer it (milestone 1e), or `systemDialog` when a
+device action's target is not inside the system error dialog over the screen — the dialog
+itself is then in `details.systemDialog` and the failed call is marked untrusted
+([ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) §3; `ui-automation.md`
+§Result). A dialog is not a device-readiness fault, but it is the same refusal — nothing
+acted — so it shares the code.
 
 Convenience belongs to adapters, and each one still sends `device` explicitly:
 

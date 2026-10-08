@@ -198,7 +198,9 @@ non-long-running call ([ADR-0020](../adr/0020-operation-contract.md)).
               "unmet": [], "vacuous": [] },
   "foreground": { "before": "com.example.sample", "after": "com.example.sample" },
   "snapshot": "s-9f8e7d6c",
-  "tree": null
+  "tree": null,
+  "appCrash": null,
+  "systemDialog": null
 }
 ```
 
@@ -223,6 +225,30 @@ non-long-running call ([ADR-0020](../adr/0020-operation-contract.md)).
   retry that taps twice.
 - `returnTree: true` adds the last snapshot, saving a `uiTree` call at the cost of
   tokens.
+- **A vanished app is named, not guessed at** ([ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) §2). When the
+  action's aftermath leaves the app's process gone — `foreground.after` differs from
+  `foreground.before`, or no read observed the foreground at all, and `pidof` the app is
+  empty — `appCrash` carries what `logcat -b crash` since the action began named (its
+  `exception`, `message` and up to five `frames`), or, with no block, the newest
+  `dumpsys activity exit-info` reason that is a crash or an ANR (`4`, `5` or `6`) and is
+  timestamped at or after the action. `source` says which. A crash is read then and there,
+  and never for the system ui's own `android` window: it is never read on a call whose
+  foreground held, so a normal tap pays nothing for this. An `inputText` without `expect`
+  has no after read, so the process check alone decides: it pays one `pidof`, and the crash
+  read only when that says the app is gone.
+- **A system dialog over the screen is named** (ADR-0034 §3). When a read's tree holds the
+  system error dialog's buttons — `aerr_close`/`aerr_wait` for an ANR,
+  `aerr_close`/`aerr_app_info` for a crash — **and the tree's foreground is the system ui's
+  `android`, not an app**, the result's `systemDialog` carries `kind` (`anr` or `crash`) and,
+  from one `logcat -b events` read bounded to a couple of seconds, the app's `package` (the
+  newest event of the tree's own kind). It appears on `uiTree`, `tapElement` and `inputText`
+  results. A target **inside** the dialog is acted on as usual; a target the dialog hides —
+  one that does not resolve at all, never an ambiguous, disabled or off-screen one, whose own
+  error is returned — and any `inputText` without a target fails `DEVICE_NOT_READY` before
+  anything is tapped or typed, with `details.state` `"systemDialog"` and the dialog in
+  `details`, and the failed call marked untrusted. The package is device text, so it appears
+  in `details`, never in the error's prose. An action on the dialog is not the app's action:
+  it never triggers the crash path. Droidyard never dismisses the dialog itself.
 
 ### Concurrency
 
@@ -244,6 +270,11 @@ device.inputText {device, text, target?, clear?, submit?, method?, expect?, time
   which a per-key field such as an OTP box needs.
 - `expect?` — the same assertion vocabulary, sequencing and timing as `tapElement`.
 - `timeoutMs?` — the poll window for `expect` (default 5000, maximum 20000).
+
+**A before read always runs**, even with no `target` and no `expect` (plan m1n step 6). It
+is what sees a system dialog before anything is typed — the refusal below has to see it
+before the text goes in — and it is the tree a dialog is named from. So an `inputText`
+without a target is not free of reads; it pays one read and, at the end, one `pidof`.
 
 **Delivery** goes through the persistent UI reader when it can run
 ([ADR-0035](../adr/0035-reader-acts-fenced-by-peer-uid.md)), and the path is chosen
@@ -269,11 +300,15 @@ delivering; the non-reader path waits the fixed settle instead. The focusing tap
 same soft-keyboard guard as `tapElement` (hide with BACK, re-read, re-resolve), so a field
 that sits under the keyboard is focused and typed into rather than the key above it, and a
 target the keyboard still covers after BACK fails `DEVICE_ELEMENT_OFFSCREEN` naming typing.
-When the focusing tap was taken by the reader but the field never reported focus, the call
-ends **completed** with a warning that nothing was typed.
+When the focusing tap was issued — the reader answered it or not — and the field never
+reported focus, the call ends **completed** with a warning that nothing was typed, and a
+crash the tap caused is diagnosed like `tapElement`'s; an error there would invite a retry
+that taps twice.
 
-**Result**: `{typed, characters, method: "set_text" | "keys" | "input_text" | "adbkeyboard", tapped?, expect?, warnings?}`.
-`tapped` is the focused node when `target` was given. `expect` is the `tapElement`
+**Result**: `{typed, characters, method: "set_text" | "keys" | "input_text" | "adbkeyboard", tapped?, expect?, appCrash?, systemDialog?, warnings?}`.
+`tapped` is the focused node when `target` was given. `appCrash` and `systemDialog` are the
+`tapElement` ones ([ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) §2–3): a
+crash the typing left behind, and the system error dialog a read's tree showed. `expect` is the `tapElement`
 verification object and appears only when `expect` was given: its `matched` is the
 `matched` of this call, and an already-true condition is `vacuous`. `characters` is what
 the field **read back**, not what was sent: the reader reads back the whole field, so an
@@ -305,7 +340,10 @@ text, a `method: "keys"` text that is not printable ASCII, or a text over the re
 request-line cap), `REQUEST_INVALID_PARAMS` (a `keys` text the call's typing slot cannot
 cover, before it is sent), and `DEVICE_NOT_READY` when the reader's acting thread was busy,
 when the reader refused an acting request it could not parse (the daemon's request, not the
-call's; retrying the same call cannot help), or when the focusing tap did not take. (A tap request over the reader's length cap is also `DEVICE_NOT_READY`. A set-text or keys
+call's; retrying the same call cannot help), when the focusing tap did not take, or when the
+screen shows a system dialog and the call is not aimed inside it — a target behind it, or any
+call without a target — with `details.state` `"systemDialog"` and the dialog in `details`
+(nothing typed; [ADR-0034](../adr/0034-device-calls-report-busy-crash-dialog.md) §3). (A tap request over the reader's length cap is also `DEVICE_NOT_READY`. A set-text or keys
 request over it means the text itself is too long to deliver, so `inputText` reports that
 refusal as `DEVICE_TEXT_NOT_DELIVERABLE` above.)
 
@@ -356,9 +394,12 @@ these rules and the same `expect` vocabulary.
 | Expectation unmet | — (completed) | `matched: false` with `unmet` |
 | Reader's acting thread busy with an earlier request | `DEVICE_NOT_READY` | Nothing acted; a pending effect may still be applying (ADR-0035 §3) |
 | An acted request the reader took but never answered (timeout, EOF, bound passed) | — (completed) | A warning that it may have applied; nothing retyped, no other method tried (ADR-0020's 2026-10-06 line) |
-| `inputText`: the focusing tap the reader took but never answered and the field never reported focus | — (completed) | A warning that the tap may have landed; nothing typed |
+| `inputText`: the focusing tap was issued but the field never reported focus | — (completed) | A warning that nothing was typed; an `appCrash` when the tap left the app's process gone |
 | `inputText`: the focusing tap overran the before phase, the input-method check failed, or the field could not be cleared | `DEVICE_NOT_READY` | Nothing typed; retry |
 | Cancelled once the tap or a typing command was issued | — (completed) | A warning that the effect may have landed; `expect.reason: cancelled` (D21) |
+| A system dialog over the screen, and the target is not inside it (or an `inputText` without a target) | `DEVICE_NOT_READY` | `details.state: "systemDialog"` and the dialog in `details`; nothing tapped or typed; the failed call marked untrusted (ADR-0034 §3) |
+| An action leaves the app's process gone | — (completed) | `appCrash` names the crash (crash buffer, else `exit-info`); a completed result, never a retry (ADR-0034 §2) |
+| A read's tree shows the system error dialog | — (completed) | `systemDialog` names its `kind` and package (ADR-0034 §3) |
 
 ## To verify (spike S6)
 
@@ -380,15 +421,20 @@ these rules and the same `expect` vocabulary.
 
 ## Open questions
 
-- **An ANR over the app.** In the m1l comparison pilot (`m1l/cmp-20261007-1303`) the app showed "isn't responding"
+- **An ANR over the app — closed (ADR-0034 §3).** In the m1l comparison pilot (`m1l/cmp-20261007-1303`) the app showed "isn't responding"
   while typing on a memory-pressed emulator; the device then stopped answering adb for
   seconds (`getprop` unanswered in 3 s, `screencap` timing out at 10 s), so a structured
   report of the dialog would not have reached the agent either. The agent recovered by
-  tapping "Wait". Whether `device.*` should name a system dialog over the app is open.
-- **The persistent reader after an app crash.** In m1m's monitored run the reader process
+  tapping "Wait". `device.*` now names the dialog (`systemDialog {kind, package?}`, its
+  package from one bounded `logcat -b events` read), refuses a target outside it with
+  `DEVICE_NOT_READY` before anything acts — marked untrusted, since the dialog and its
+  package are device text — and lets the agent act *inside* it.
+- **The persistent reader after an app crash — closed (ADR-0034 §2).** In m1m's monitored run the reader process
   died around the app's crash and was restarted for the next read, which made that tap
-  take 8.7 s; a restart is not reported (by design, warnings are for fallbacks). Whether a
-  crash should be reported, or the restart made cheaper, is open.
+  take 8.7 s; a restart is not reported (by design, warnings are for fallbacks). The crash
+  is now reported instead: an action that leaves the app's process gone carries `appCrash`,
+  from the crash buffer since the action began (else `dumpsys activity exit-info`), and the
+  restart stays unreported.
 - **Verified interactions in agent runs** took 1.5–6 s for taps and up to 13 s for inputs
   across the m1m comparison, against 0.4–1.7 s on a quiet emulator. In the monitored run
   (dy6) the reader kept its pid through every interaction and the emulator had 300–450 MB
