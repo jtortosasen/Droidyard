@@ -212,6 +212,7 @@ Codes carry no version suffix of their own.
 | `ARTIFACT_NOT_FOUND` / `ARTIFACT_EXPIRED` | The reference is unknown, or ephemeral and past its TTL ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)) |
 | `POLICY_SHELL_DISABLED` | `shell.exec` is not enabled for the root; its message warns that enabling it gives the agent the user's full reach, and its nextStep names `shell.roots` in the file ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §7, [ADR-0032](../adr/0032-configuration-file-v1.md)) |
 | `POLICY_CONFIG_UNUSABLE` | `policy.update` met a configuration file it cannot change: invalid, of a newer version, or unwritable; the file is left as it was ([ADR-0032](../adr/0032-configuration-file-v1.md) §4, §5) |
+| `POLICY_REVISION_CONFLICT` | `policy.update` carried an `ifRevision` that is no longer the file's revision, compared under the lock; nothing was written; nextStep: call `policy.get` and apply the change again ([ADR-0032](../adr/0032-configuration-file-v1.md) §5) |
 | `SHELL_EXEC_FAILED` | `shell.exec`'s command could not start, its root was gone, or its pid record could not be written (its group is then killed); a non-zero exit or a timeout is a completed result, not this error |
 
 `DAEMON_VERSION_MISMATCH` is a handshake reply, not a capability error

@@ -45,6 +45,9 @@ const (
 	// failed (the OS error is the cause). The file is left untouched (ADR-0032 §4,
 	// §5; plan m1k D3).
 	ErrPolicyConfigUnusable ErrorCode = "POLICY_CONFIG_UNUSABLE"
+	// ErrPolicyRevisionConflict: policy.update's ifRevision names a file that is no
+	// longer the one under the lock; nothing was written (ADR-0032 §5, Q2).
+	ErrPolicyRevisionConflict ErrorCode = "POLICY_REVISION_CONFLICT"
 	// ErrShellExecFailed: shell.exec's command could not be started, its project root is
 	// gone, or its pid record could not be written (the command had started and may have
 	// had effects; its group is killed). A non-zero exit or a timeout is not this: they

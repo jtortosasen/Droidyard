@@ -2,6 +2,7 @@ package policy
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,9 +30,10 @@ import (
 // so the handler can tell a section or key written as null from one not written at all
 // (RFC 7386 needs the difference: absent is no change, null removes).
 type UpdateParams struct {
-	Trust   *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
-	Devices *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
-	Shell   *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
+	Trust      *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
+	Devices    *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
+	Shell      *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
+	IfRevision *string       `json:"ifRevision,omitempty" jsonschema_description:"The revision policy.get returned (or absent when it reported no file). When given, the update is applied only if the file still has that revision, compared under the lock; otherwise POLICY_REVISION_CONFLICT and nothing is written. Omit it to patch whatever the file holds."`
 
 	// raw is the patch as the caller wrote it, kept so a section or key written as null
 	// is distinguishable from one not written (RFC 7386). Set by UnmarshalJSON.
@@ -89,6 +91,14 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 		"shell":   {"enabled", "roots"},
 	}
 	for k, v := range raw {
+		if k == "ifRevision" {
+			// Not a section: the optimistic check, typed by the strict decode. An explicit
+			// null would silently turn the check off, so it is refused.
+			if isNull(v) {
+				return errors.New("ifRevision must be a string: omit it to patch without the check")
+			}
+			continue
+		}
 		keys, ok := allowed[k]
 		if !ok {
 			return fmt.Errorf("unknown key %q: a patch names trust, devices or shell, exactly", k)
@@ -106,7 +116,7 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
-	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Shell: w.Shell, raw: raw}
+	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Shell: w.Shell, IfRevision: w.IfRevision, raw: raw}
 	return nil
 }
 
@@ -152,6 +162,19 @@ func SetUpdateSeam(f func()) {
 	updateSeam.Store(&f)
 }
 
+// lockSeam, when non-nil, runs in policy.update just before it takes the lock, so a test
+// can know the call is about to wait for it. For tests only; SetLockSeam sets and clears.
+var lockSeam atomic.Pointer[func()]
+
+// SetLockSeam installs the lock seam, or clears it with nil. For tests only.
+func SetLockSeam(f func()) {
+	if f == nil {
+		lockSeam.Store(nil)
+		return
+	}
+	lockSeam.Store(&f)
+}
+
 // Update applies patch to the policy and writes the result, returning the policy in
 // policy.get's shape after the write (ADR-0032 §5; plan m1k D3). It takes the exclusive
 // flock on <config dir>/config.json.lock, re-reads the file under it, applies RFC 7386
@@ -167,13 +190,21 @@ func (p *Policy) Update(patch UpdateParams) (GetResult, *capability.Error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return GetResult{}, configUnusable(p.path, err)
 	}
+	if seam := lockSeam.Load(); seam != nil {
+		(*seam)()
+	}
 	lock, err := lockExclusive(filepath.Join(dir, LockName))
 	if err != nil {
 		return GetResult{}, configUnusable(p.path, err)
 	}
 	defer lock.Close()
+	// Whatever the cache holds may predate a write made while this call waited: drop it,
+	// so the Get that follows (a conflict's nextStep, a no-op's result) reads fresh bytes.
+	p.mu.Lock()
+	p.cached = nil
+	p.mu.Unlock()
 
-	top, cerr := p.readTop()
+	top, cerr := p.readTop(patch.IfRevision)
 	if cerr != nil {
 		return GetResult{}, cerr
 	}
@@ -186,6 +217,9 @@ func (p *Policy) Update(patch UpdateParams) (GetResult, *capability.Error) {
 		merged[k] = v
 	}
 	for k, v := range patch.raw {
+		if k == "ifRevision" {
+			continue
+		}
 		if isNull(v) {
 			delete(merged, k) // a null section is removed: its defaults apply
 			continue
@@ -227,16 +261,32 @@ func (p *Policy) Update(patch UpdateParams) (GetResult, *capability.Error) {
 	return p.Get(), nil
 }
 
-// readTop reads the configuration file as the top-level object map, validating it with
-// D1's rules first. A missing file is an empty object; an invalid or newer one is
+// readTop reads the configuration file as the top-level object map, checking ifRevision
+// (when given) and then validating it with D1's rules. A missing file is an empty object; an invalid or newer one is
 // POLICY_CONFIG_UNUSABLE, left untouched (ADR-0032 §4; plan m1k D3).
-func (p *Policy) readTop() (map[string]json.RawMessage, *capability.Error) {
+func (p *Policy) readTop(ifRevision *string) (map[string]json.RawMessage, *capability.Error) {
 	data, err := readConfigFile(p.path)
+	revision := AbsentRevision
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return nil, configUnusable(p.path, err)
+	default:
+		revision = revisionOf(data)
+	}
+	// The comparison is under the lock, with the bytes just read, before anything else
+	// is judged about them (ADR-0032 §5, Q2).
+	if ifRevision != nil && *ifRevision != revision {
+		msg := "the given ifRevision is not a revision policy.get returned, so the update was not applied"
+		if wellFormedRevision(*ifRevision) {
+			msg = fmt.Sprintf("the configuration changed since revision %s was read, so the update was not applied", *ifRevision)
+		}
+		return nil, capability.Errorf(capability.ErrPolicyRevisionConflict, "%s", msg).
+			WithCause("the file's revision under the lock is " + revision).
+			WithNextStep("call policy.get and apply the change again")
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return map[string]json.RawMessage{}, nil
-	}
-	if err != nil {
-		return nil, configUnusable(p.path, err)
 	}
 	if _, derr := decode(data); derr != nil {
 		return nil, configUnusable(p.path, derr)
@@ -343,4 +393,17 @@ func canonicalJSON(m map[string]json.RawMessage) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(v)
+}
+
+// wellFormedRevision reports whether s has the shape of a revision: 64 lowercase hex
+// digits, or "absent".
+func wellFormedRevision(s string) bool {
+	if s == AbsentRevision {
+		return true
+	}
+	if len(s) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil && s == strings.ToLower(s)
 }

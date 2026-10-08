@@ -19,6 +19,8 @@ package policy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -87,6 +90,9 @@ type snapshot struct {
 	roots    []string // the trust entries, canonicalised
 	prefixes []string // the trust prefixes, canonicalised
 	err      *capability.Error
+	// revision is the hex SHA-256 of the bytes this snapshot was parsed from, "absent"
+	// when there is no file; "" when the bytes could not be read (ADR-0032 §5, Q2).
+	revision string
 }
 
 // New returns the policy that reads <env's configuration directory>/config.json and
@@ -380,6 +386,31 @@ type GetResult struct {
 	Trust   TrustPolicy  `json:"trust" jsonschema:"required"`
 	Devices DevicePolicy `json:"devices" jsonschema:"required"`
 	Shell   ShellPolicy  `json:"shell" jsonschema:"required"`
+	// Revision is the token policy.update's ifRevision compares against.
+	Revision string `json:"revision" jsonschema:"required" jsonschema_description:"The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."`
+}
+
+// AbsentRevision is the revision of a configuration file that does not exist.
+const AbsentRevision = "absent"
+
+// revisionOf is the revision of a configuration file's bytes.
+func revisionOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// parseSeam, when non-nil, runs in snapshot() after the bytes are parsed, so a test can
+// change the file at the one moment a revision hashed from a fresh read would differ
+// from the parsed bytes' (Q2). Production leaves it nil.
+var parseSeam atomic.Pointer[func()]
+
+// SetParseSeam installs the parse seam, or clears it with nil. For tests only.
+func SetParseSeam(f func()) {
+	if f == nil {
+		parseSeam.Store(nil)
+		return
+	}
+	parseSeam.Store(&f)
 }
 
 // Get returns the policy as policy.get reports it: the sections as written, with
@@ -397,6 +428,7 @@ func (p *Policy) Get() GetResult {
 		return res
 	}
 	snap := p.snapshot()
+	res.Revision = snap.revision
 	switch {
 	case snap.err != nil:
 		res.State, res.Error = StateInvalid, snap.err.Cause
@@ -426,7 +458,7 @@ func Register(reg *capability.Registry, p *Policy) {
 		Scope:    capability.Global,
 		Audience: capability.AudienceHuman,
 		Since:    "0.10.0",
-		Description: "Returns the droidyard policy: the configuration file's path and whether it parsed (state missing, ok or invalid, with the parse error when invalid), and the trust, devices and shell sections as written in the file, with their defaults when the file is missing or invalid. " +
+		Description: "Returns the droidyard policy: the configuration file's path and whether it parsed (state missing, ok or invalid, with the parse error when invalid), its revision (pass it to policy.update as ifRevision), and the trust, devices and shell sections as written in the file, with their defaults when the file is missing or invalid. " +
 			"Policy is the user's to change — trusted roots, the physical-device allowlist and whether shell.exec is enabled — so it is answerable only to a human client: the core refuses this capability from an agent session. " +
 			"It never fails on a bad file, so the UI can show the problem.",
 		Params:  None{},
@@ -445,10 +477,11 @@ func Register(reg *capability.Registry, p *Policy) {
 			"Arrays are replaced whole, so to add a trusted root send the whole list. Any other key, at the top level or inside a section, is REQUEST_INVALID_PARAMS, not a silent no-op. " +
 			"Policy is the user's to change, so it is answerable only to a human client: the core refuses this capability from an agent session. " +
 			"It takes the exclusive lock on the configuration's lock file, re-reads the file under it (so a concurrent `droidyard trust` on another key is not lost), canonicalises the path entries the patch wrote, validates the whole result and writes atomically; unknown keys in the file, and every other section, are kept. " +
-			"A relative path is REQUEST_INVALID_PARAMS and the file is untouched; a file that does not parse or is of a newer version is POLICY_CONFIG_UNUSABLE and is left untouched. Tool keys are edited by hand, not here. A patch that changes nothing writes nothing.",
+			"A relative path is REQUEST_INVALID_PARAMS and the file is untouched; a file that does not parse or is of a newer version is POLICY_CONFIG_UNUSABLE and is left untouched. Tool keys are edited by hand, not here. A patch that changes nothing writes nothing. " +
+			"With `ifRevision` (the `revision` policy.get returned, or `absent`) the patch is applied only if the file is still the one that revision names, compared under the lock with the bytes just re-read; otherwise it is POLICY_REVISION_CONFLICT and nothing is written. Without it the patch applies to whatever the file holds.",
 		Params: UpdateParams{},
 		Result: GetResult{},
-		Errors: []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams},
+		Errors: []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams, capability.ErrPolicyRevisionConflict},
 		Handler: func(_ context.Context, call *capability.Call) (any, error) {
 			patch, _ := call.Params.(UpdateParams)
 			res, err := p.Update(patch)
@@ -554,7 +587,7 @@ func (p *Policy) snapshot() *snapshot {
 		p.mu.Lock()
 		p.cached = nil
 		p.mu.Unlock()
-		return &snapshot{}
+		return &snapshot{revision: AbsentRevision}
 	}
 	if err != nil {
 		return &snapshot{err: configurationError(p.path, err)}
@@ -570,8 +603,13 @@ func (p *Policy) snapshot() *snapshot {
 		p.cached = nil
 		return &snapshot{err: configurationError(p.path, err)}
 	}
-	snap := &snapshot{size: fi.Size(), mtime: fi.ModTime()}
+	// The revision is of these bytes: whatever the file becomes afterwards, the policy
+	// and its revision describe the same bytes (Q2).
+	snap := &snapshot{size: fi.Size(), mtime: fi.ModTime(), revision: revisionOf(data)}
 	doc, derr := decode(data)
+	if seam := parseSeam.Load(); seam != nil {
+		(*seam)()
+	}
 	if derr != nil {
 		snap.err = configurationError(p.path, derr)
 	} else {

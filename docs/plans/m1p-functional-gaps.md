@@ -49,7 +49,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - [x] A5. With no configuration a physical device is hidden from `device.list` and refused by device calls; admitted by `devices.allowPhysical` and the allowlist, it is listed. Level 5 with the owner's Samsung only if the owner agrees. Source: plan m1e A3; ADR-0015 §4. Proven by: step 5.
 - [ ] A6. A launch is recorded in `processes.json` from spawn until its serial is resolved; a daemon killed in that window has its launch ended by the next daemon; a record whose AVD already answers as a listed serial, or whose adb query fails or times out, is dropped with nothing signalled. Source: Q1. Proven by: step 6.
 - [x] A7. `shell.exec` runs in `cwd` with `env` applied, per D1. Source: brief H. Proven by: step 7.
-- [ ] A8. `policy.get` returns a `revision`; `policy.update {ifRevision}` with a stale one fails `POLICY_REVISION_CONFLICT` and writes nothing; without it, behaviour is unchanged. Source: plan m1k D3; Q2. Proven by: step 8.
+- [x] A8. `policy.get` returns a `revision`; `policy.update {ifRevision}` with a stale one fails `POLICY_REVISION_CONFLICT` and writes nothing; without it, behaviour is unchanged. Source: plan m1k D3; Q2. Proven by: step 8.
 - [ ] A9. The register, `docs/README.md` and the plans index updated; the earlier plans' in-part items annotated with where they closed. Source: brief I. Proven by: step 9.
 
 ## Steps
@@ -148,7 +148,7 @@ Expected: the code at `m1o-tokens-and-harness.md`'s close; the four commands rec
 - Needs: Q2 accepted.
 - Not here: `droidyard trust` sending a revision (it re-reads under the lock already).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/policy/revision_test.go`: the six tests of the Check plus `TestConflictDropsAStaleSnapshot`, `TestNullIfRevisionIsRefused`, `TestEmptyIfRevisionConflicts`. Seen failing with the comparison moved before the lock (the lock-held test, which now waits on a seam before `lockExclusive`, no sleep) and with the revision hashed from a fresh read (the seam test); the review-round tests each with their mutation. Opus verifier: proceed, N1–N5 fixed in a round (the sleep, the cached snapshot after a conflict, `ifRevision: null` refused rather than disabling the check, the empty token, the texts); N6 (a hand edit inside the update's critical section is still overwritten) to the register at the close. Schema: `revision` on both results, `ifRevision`, `POLICY_REVISION_CONFLICT`; API 0.12.0.
 
 ### 9. Close
 
