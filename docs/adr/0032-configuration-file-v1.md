@@ -31,6 +31,17 @@
   overstates: an agent cannot change policy through droidyard's agent-facing surface,
   but on a trusted root it can through the build (ADR-0015, second 2026-10-07
   `Amended:` line), shell or no shell. `droidyard trust` now says so when it trusts.
+- Amended: 2026-10-08 (Delegated, plan m1p Q2). §5 gains an optimistic check:
+  `policy.get` returns `revision`, the hex SHA-256 of the bytes its policy was parsed from
+  (`"absent"` when there is no file; an invalid file has the hash of its bytes);
+  `policy.update` takes an optional `ifRevision`, compared under the lock with the bytes
+  just re-read: a difference fails the new code `POLICY_REVISION_CONFLICT` (nextStep: call
+  `policy.get` and apply the change again) and writes nothing. Without `ifRevision` the
+  behaviour is unchanged. Any writer, a hand edit included, changes the revision. It
+  closes the lost `trust.roots` entry when a patch races `droidyard trust` (plan m1k D3)
+  for a client that sends it. Rejected: an HTTP `ETag` only (the CLI writes too); merging
+  arrays (not RFC 7386); a lock held from `get` to `update` (spans calls); a counter in the
+  file (a hand edit forgets it).
 
 ## Context
 
