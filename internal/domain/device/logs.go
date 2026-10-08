@@ -413,8 +413,12 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	res.Counts.Returned = len(inline)
 	res.Truncated = readTruncated || len(matched) > maxLines
 	res.Lines = make([]LogLine, 0, len(inline))
+	// crashFlags is indexed like matched; the inline lines are its tail, so the flags are
+	// read at the same offset (they were once read from the start, which gave every line
+	// of a truncated read the flag of another).
+	cut := len(matched) - len(inline)
 	for i, l := range inline {
-		res.Lines = append(res.Lines, logLineView(l, crashFlags[i]))
+		res.Lines = append(res.Lines, logLineView(l, crashFlags[cut+i]))
 	}
 
 	// window: from the effective lower bound to the newest matched line.
