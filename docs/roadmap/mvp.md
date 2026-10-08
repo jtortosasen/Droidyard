@@ -274,8 +274,8 @@ last and may slip.
 - [ ] Idle footprint reported **per process** (see Metrics), with the core under 50 MB
       RSS and the Gradle sidecar stopped when idle.
 - [x] A recorded comparison of agent steps, tokens and failures, our MCP vs raw shell,
-      on the golden path: **supported** by the threshold below (m1m, 2026-10-07;
-      [m1m plan](../plans/m1m-emulator-robustness.md)).
+      on the golden path: **supported** by the threshold below
+      ([m1m](../plans/m1m-emulator-robustness.md); [m1o](../plans/m1o-tokens-and-harness.md), Cursor).
 - [ ] Every deviation from the design recorded as an ADR.
 
 ## Metrics
