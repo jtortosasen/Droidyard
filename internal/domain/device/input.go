@@ -579,7 +579,8 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 		}
 		var useFallback bool
 		var readerWarnings []string
-		method, typed, readerWarnings, useFallback, err = a.deliverThroughReader(tctx, ac, p.Text, askKeys, p.Clear, password, pre, preKnown, fieldNode.hint)
+		clearForKeys := func() error { return a.clearField(actx, tctx, t, targetText) }
+		method, typed, readerWarnings, useFallback, err = a.deliverThroughReader(tctx, ac, p.Text, askKeys, p.Clear, password, pre, preKnown, fieldNode.hint, clearForKeys)
 		if err != nil {
 			return nil, err
 		}
@@ -713,7 +714,7 @@ func (a *ADB) typeText(runCtx, ctx context.Context, t *target, method, text stri
 // B1). A request the reader took without answering ends the call completed with a
 // may-have-applied warning: the text is never sent again, by this method or another
 // (ADR-0020's 2026-10-06 line).
-func (a *ADB) deliverThroughReader(ctx context.Context, ac *actor, text string, askKeys, replace, password bool, pre string, preKnown bool, hint string) (string, int, []string, bool, error) {
+func (a *ADB) deliverThroughReader(ctx context.Context, ac *actor, text string, askKeys, replace, password bool, pre string, preKnown bool, hint string, clearForKeys func() error) (string, int, []string, bool, error) {
 	// An empty text with no clear has nothing to deliver, so nothing is sent and the call
 	// completes with 0 characters — as it did before the reader path existed (plan m1n step 5,
 	// fix round N4).
@@ -764,6 +765,25 @@ func (a *ADB) deliverThroughReader(ctx context.Context, ac *actor, text string, 
 				keys = true
 				continue
 			}
+			if !keys && replace && act.refusal == refusalSetText {
+				// A clear was asked for and the field refused ACTION_SET_TEXT before anything was
+				// executed (ADR-0035 §3: a refused set-text may lead to keys). Keys only append, so
+				// the field is cleared the input command's way first, then typed — printable ASCII
+				// only; any other text cannot be delivered to this field (plan m1n close review N1).
+				if !printableASCII(text) {
+					return "", 0, nil, false, setTextRefusedNotDeliverable()
+				}
+				if clearForKeys != nil {
+					if err := clearForKeys(); err != nil {
+						return "", 0, nil, false, err
+					}
+				}
+				keys, replace = true, false
+				continue
+			}
+			if !keys && act.refusal == refusalSetText && !printableASCII(text) {
+				return "", 0, nil, false, setTextRefusedNotDeliverable()
+			}
 			if act.refusal == refusalTooLong {
 				// The request line was over the reader's cap. The text is the caller's data, so
 				// this is DEVICE_TEXT_NOT_DELIVERABLE, not DEVICE_NOT_READY, and it cannot
@@ -786,6 +806,15 @@ func (a *ADB) deliverThroughReader(ctx context.Context, ac *actor, text string, 
 // call is completed rather than failing with an error that invites a retry that taps twice
 // (plan m1n step 5, fix round N6; ADR-0020's 2026-10-06 line).
 const nothingTypedWarning = "Nothing was typed: the target field never reported focus after the focusing tap, so the text was not delivered."
+
+// setTextRefusedNotDeliverable is the field refusing ACTION_SET_TEXT for a text keys cannot
+// type (plan m1n close review N1): DEVICE_TEXT_NOT_DELIVERABLE, since a repeat fails the same
+// way; the focusing tap was issued, nothing was typed.
+func setTextRefusedNotDeliverable() *capability.Error {
+	return capability.NewError(ErrTextNotDeliverable, "the field does not accept a set text and the text cannot be typed as key events, so nothing was typed").
+		WithCause("the field refused ACTION_SET_TEXT, and the virtual keyboard cannot map a character outside printable ASCII").
+		WithNextStep("Send printable ASCII to this field (it is then typed as key events); repeating the same call fails the same way. The focusing tap was issued; nothing was typed.")
+}
 
 // keysTextNotDeliverable refuses a keys delivery of a text the virtual keyboard cannot map
 // (plan m1n step 5, fix round N3). It is DEVICE_TEXT_NOT_DELIVERABLE, because the text is the

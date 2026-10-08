@@ -1900,3 +1900,43 @@ func TestEmptyFieldShowingItsHintIsEmpty(t *testing.T) {
 	}
 	noInputCommand(t, f.calls(t))
 }
+
+// Decision (ADR-0035 §3; plan m1n close review N1): with clear, a field that refuses
+// ACTION_SET_TEXT is cleared the input command's way and then typed as keys — a refused
+// set-text may lead to keys, and keys only append — rather than failing after the focusing
+// tap. Seen failing with the clear case returning the refusal as an error.
+func TestClearedKeysWhenSetTextIsRefused(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t,
+		"droidyard-reader: done",
+		"droidyard-reader: refused settext",
+		"droidyard-reader: done QW5h", // "Ana"
+	)
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"},"clear":true}`)
+	res := mustInput(t, out)
+	if res.Method != inputTextMethodKeys || res.Characters != 3 {
+		t.Fatalf("result = %+v, want method %s and 3 characters", res, inputTextMethodKeys)
+	}
+	want := []string{"tap 100 100", "settext replace QW5h", "keys QW5h"}
+	if got := r.Acts(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the reader received %q, want %q", got, want)
+	}
+	if n := countInput(f.calls(t), "input keyevent 123"); n != 1 {
+		t.Errorf("%d clears (the cursor to the end, then deletes), want one before the keys (%q)", n, f.calls(t))
+	}
+}
+
+// Decision (plan m1n close review N1): a field that refuses ACTION_SET_TEXT cannot take a
+// non-ASCII text (keys cannot type it): DEVICE_TEXT_NOT_DELIVERABLE, never "retry".
+func TestRefusedSetTextOfNonASCIIIsNotDeliverable(t *testing.T) {
+	quickAct(t)
+	f, r := readerForm(t,
+		"droidyard-reader: done",
+		"droidyard-reader: refused settext",
+	)
+	out := f.inputCall(t, `{"device":"emulator-5554","text":"ñandú","target":{"id":"name"},"clear":true}`)
+	mustFail(t, out, ErrTextNotDeliverable)
+	if got := r.Acts(); len(got) != 2 {
+		t.Errorf("the reader received %q, want the tap and the one refused set-text", got)
+	}
+}
