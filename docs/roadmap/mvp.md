@@ -184,14 +184,15 @@ Deliverables:
 - Svelte 5 + TypeScript app the daemon serves; CodeMirror 6 editor
   ([ADR-0039](../adr/0039-frontend-svelte.md),
   [ADR-0009](../adr/0009-editor-component.md)).
-- Panels, in priority order: **Logcat**, **build / Gradle tasks**, **Git**,
-  **devices + screen**, then project explorer and problems. A code viewer/editor is
-  deferred: it only becomes useful with code intelligence.
+- Panels: **Logcat**, streaming (2a); **build / Gradle tasks** with problems and
+  **devices**, no stills (2b); **Git** and the explorer (2c): the owner's split of
+  2026-10-09 ([m2a](../plans/m2a-minimal-web-ui.md)). A code editor waits for code
+  intelligence.
 - TypeScript client generated from the capability schema.
 - The loopback HTTP baseline (127.0.0.1, Host and Origin checks, a per-launch token),
   delivered early with the Phase 0 skeleton; Phase 2 adds no rule to it.
 
-Stretch (not required to close the MVP): live screen stream to the device panel.
+Stretch (not required to close the MVP): live screen stream to the device panel; 2b weighs its cost.
 
 Acceptance:
 
