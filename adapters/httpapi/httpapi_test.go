@@ -3,9 +3,11 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +92,8 @@ func TestArtifactRouteIsAnArtifactReadOperationOfClientUI(t *testing.T) {
 		},
 	})
 	ops.RegisterCapabilities()
+	traces := make(chan string, 4)
+	ops.UseTrace(func(format string, v ...any) { traces <- fmt.Sprintf(format, v...) })
 	h := New(reg, ops, nil, "tok", nil)
 	req := httptest.NewRequest("GET", "http://127.0.0.1:7317/v1/artifacts/e.x.1.aaaaaaaaaaaa?maxEdge=100&region=0,0,0.5,0.25", nil)
 	req.Header.Set("Authorization", "Bearer tok")
@@ -105,6 +109,17 @@ func TestArtifactRouteIsAnArtifactReadOperationOfClientUI(t *testing.T) {
 	out, err := ops.Wait(context.Background(), ids[0], time.Now().Add(-time.Second))
 	if err != nil || out.Capability != "artifact.read" || out.State != capability.StateCompleted {
 		t.Errorf("the operation store: %+v, %v; want a completed artifact.read", out, err)
+	}
+	// The capability trace (plan m2a, Q3): the route's operation is traced as client ui,
+	// and the line carries neither the ref nor the query.
+	select {
+	case line := <-traces:
+		want := regexp.MustCompile(`^droidyard: op ` + regexp.QuoteMeta(ids[0]) + ` client=ui capability=artifact\.read workspace=- state=completed ms=\d+$`)
+		if !want.MatchString(line) {
+			t.Errorf("trace line %q; want client=ui capability=artifact.read for %s", line, ids[0])
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("no trace line for the artifact.read operation")
 	}
 	if got.Ref != "droidyard://artifact/e.x.1.aaaaaaaaaaaa" || got.MaxEdge == nil || *got.MaxEdge != 100 || got.Region == nil || got.Region.H != 0.25 {
 		t.Errorf("params %+v", got)
