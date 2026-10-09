@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Client, type ConnectionState } from './lib/api/client';
+	import { ActivityStore } from './lib/ops/activity';
+	import Activity from './lib/ops/Activity.svelte';
 	import Logcat from './lib/logcat/Logcat.svelte';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
@@ -18,18 +20,25 @@
 	let healthError = $state<string | null>(null);
 
 	let client = $state.raw<Client | null>(null);
+	let activity = $state.raw<ActivityStore | null>(null);
 	let devices = $state.raw<Result<'device.list'>['devices']>([]);
 	let devicesError = $state<string | null>(null);
 	let device = $state('');
 
 	$effect(() => {
 		if (token === null) return;
+		// Created before the client so the connection's state reaches it from the first change.
+		const store = new ActivityStore({
+			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+			call: (name, params) => c.call(name, params),
+		});
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
 			createSocket: (url) => new WebSocket(url),
 			onState: (s) => {
 				connection = s;
+				store.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
@@ -48,10 +57,14 @@
 			);
 		}
 		client = c;
+		activity = store;
+		store.start();
 		c.connect();
 		return () => {
+			store.stop();
 			c.close();
 			client = null;
+			activity = null;
 		};
 	});
 
@@ -122,6 +135,10 @@
 
 	{#if client}
 		<Logcat {client} {connection} {device} />
+	{/if}
+
+	{#if activity}
+		<Activity store={activity} />
 	{/if}
 {/if}
 
