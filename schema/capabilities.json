@@ -4946,7 +4946,7 @@
                   "exited",
                   "replaced"
                 ],
-                "description": "deviceGone: logcat ended and device.list no longer holds the serial. exited: logcat ended by itself. replaced: the same session started a stream of this device."
+                "description": "deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: logcat ended by itself. replaced: the same session started a stream of this device."
               },
               "cause": {
                 "type": "string",

@@ -441,6 +441,7 @@ func TestWatchLogsEndsItsChild(t *testing.T) {
 	}{
 		{"a logcat that exits while the serial is gone", false, StopDeviceGone},
 		{"a logcat that exits while the serial is listed", true, StopExited},
+		{"a logcat that exits while the serial is listed offline", true, StopDeviceGone},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := newWatchFixture(t, files)
@@ -448,6 +449,8 @@ func TestWatchLogsEndsItsChild(t *testing.T) {
 			rec := w.waitRecords(t, 1)[0]
 			if !c.listed {
 				devicetestWrite(t, w.dir, "devices.out", listHead)
+			} else if c.reason == StopDeviceGone {
+				devicetestWrite(t, w.dir, "devices.out", listHead+uiSerial+"\toffline transport_id:1\n")
 			}
 			devicetestWrite(t, w.dir, uiSerial+".follow.exitcode", "7")
 			var stopped StoppedEvent

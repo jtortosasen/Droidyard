@@ -108,7 +108,7 @@ type LinesEvent struct {
 // and empty until events.unsubscribe or the session's end.
 type StoppedEvent struct {
 	Device string `json:"device" jsonschema:"required"`
-	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=replaced" jsonschema_description:"deviceGone: logcat ended and device.list no longer holds the serial. exited: logcat ended by itself. replaced: the same session started a stream of this device."`
+	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=replaced" jsonschema_description:"deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: logcat ended by itself. replaced: the same session started a stream of this device."`
 	Cause  string `json:"cause,omitempty" jsonschema_description:"For exited and deviceGone, the exit status of adb logcat; never device text."`
 }
 
@@ -450,7 +450,7 @@ func (s *logStream) publishStopped(reason, cause string) {
 }
 
 // stoppedByItself publishes the end of a logcat the daemon did not cause: deviceGone when
-// device.list no longer holds the serial, else exited. The cause names the exit status,
+// device.list no longer holds the serial online, else exited. The cause names the exit status,
 // never device text (capability-api.md §Untrusted outputs).
 func (s *logStream) stoppedByItself(out Output, err error) {
 	s.drain()
@@ -465,9 +465,11 @@ func (s *logStream) stoppedByItself(out Output, err error) {
 	lctx, cancel := context.WithTimeout(s.ctx, streamListBound)
 	defer cancel()
 	if devices, lerr := s.adb.listAll(lctx, s.adbPath); lerr == nil {
+		// Present means listed and online: an emulator shutting down is still listed,
+		// offline, when its logcat ends (seen at plan m2a step 6).
 		gone := true
 		for _, d := range devices {
-			if d.Device == s.device {
+			if d.Device == s.device && d.State == StateDevice {
 				gone = false
 				break
 			}
