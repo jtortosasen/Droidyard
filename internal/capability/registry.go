@@ -2,6 +2,7 @@ package capability
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -13,6 +14,19 @@ import (
 // the dot, never an underscore, so the MCP mapping (dot to underscore) is reversible
 // (docs/architecture/capability-api.md §Naming and namespaces).
 var namePattern = regexp.MustCompile(`^[a-z]+\.[a-z][A-Za-z0-9]*$`)
+
+var (
+	// topicPattern is a stream's topic: "<domain>.<noun>", as a capability name is.
+	topicPattern = regexp.MustCompile(`^[a-z]+\.[a-z][A-Za-z0-9]*$`)
+	// eventTypePattern is an event type's name inside its topic.
+	eventTypePattern = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
+)
+
+// reservedTopics are the topics a capability's own stream may not take: the ones
+// events.subscribe serves (the workspace registry names workspace.lifecycle itself, since
+// the core does not import the bus, and event.TopicGap is the marker every subscription
+// receives). A stream on one of them would reach subscribers it was never meant for.
+var reservedTopics = []string{"workspace.lifecycle", ProgressTopic, "events.gap"}
 
 // Registry holds every capability the core exposes. It is the single source for
 // dispatch, JSON Schema generation, MCP tool definitions and the CLI.
@@ -52,6 +66,11 @@ func (r *Registry) Register(d Descriptor) error {
 			return fmt.Errorf("capability %q: an annotation override requires a reason", d.Name)
 		}
 	}
+	if d.Events != nil {
+		if err := validateEvents(d); err != nil {
+			return err
+		}
+	}
 	if d.Audience == AudienceHuman && d.Scope == Global {
 		// Not an error by itself, but worth stating: human-only capabilities are
 		// rejected at the MCP transport, not hidden (ADR-0015 §6).
@@ -73,7 +92,46 @@ func (r *Registry) Register(d Descriptor) error {
 	if _, exists := r.byName[d.Name]; exists {
 		return fmt.Errorf("capability %q: already registered", d.Name)
 	}
+	if d.Events != nil {
+		for _, other := range r.byName {
+			if other.Events != nil && other.Events.Topic == d.Events.Topic {
+				return fmt.Errorf("capability %q: events topic %q is already published by %s", d.Name, d.Events.Topic, other.Name)
+			}
+		}
+	}
 	r.byName[d.Name] = d
+	return nil
+}
+
+// validateEvents refuses a stream declaration the published schema could not state
+// cleanly: only a streaming capability owns a stream, its topic is well formed and not
+// one events.subscribe serves, and every type is a named struct whose untrusted tags are
+// valid (ADR-0041 §4).
+func validateEvents(d Descriptor) error {
+	e := d.Events
+	if d.Statefulness != Streaming {
+		return fmt.Errorf("capability %q: Events declared on a %s capability; only a streaming one owns a stream", d.Name, d.Statefulness)
+	}
+	if !topicPattern.MatchString(e.Topic) {
+		return fmt.Errorf("capability %q: events topic %q must match %s", d.Name, e.Topic, topicPattern)
+	}
+	if slices.Contains(reservedTopics, e.Topic) {
+		return fmt.Errorf("capability %q: events topic %q is served by events.subscribe and cannot be a capability's own stream", d.Name, e.Topic)
+	}
+	if len(e.Types) == 0 {
+		return fmt.Errorf("capability %q: Events declares topic %q with no types", d.Name, e.Topic)
+	}
+	for name, payload := range e.Types {
+		if !eventTypePattern.MatchString(name) {
+			return fmt.Errorf("capability %q: event type %q must match %s", d.Name, name, eventTypePattern)
+		}
+		if payload == nil || reflect.TypeOf(payload).Kind() != reflect.Struct {
+			return fmt.Errorf("capability %q: event type %q: the payload must be a struct value", d.Name, name)
+		}
+		if _, err := deriveUntrusted(payload); err != nil {
+			return fmt.Errorf("capability %q: event type %q: %w", d.Name, name, err)
+		}
+	}
 	return nil
 }
 

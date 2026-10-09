@@ -186,3 +186,66 @@ func TestUnrecordedCapabilityCannotTakeALockOrAHook(t *testing.T) {
 		t.Error("a non-recorded descriptor with Resource was accepted")
 	}
 }
+
+type streamPayload struct {
+	Text string `json:"text" untrusted:"true"`
+}
+
+type badTag struct {
+	Text string `json:"text" untrusted:"yes"`
+}
+
+func streaming() Descriptor {
+	d := valid()
+	d.Name = "device.watchLogs"
+	d.Statefulness = Streaming
+	d.Events = &Events{Topic: "device.logcat", Types: map[string]any{"lines": streamPayload{}}}
+	return d
+}
+
+// TestRegisterRejectsAStreamTheSchemaCannotState: a bad Events declaration is a startup
+// failure, never a schema that fails at the first call (ADR-0041 §4). Each row names the
+// decision it keeps: only a streaming capability owns a stream; the topic is well formed
+// and is not one events.subscribe serves, which would deliver the stream to subscribers
+// it was never meant for; a type is a struct value with valid untrusted tags; and no two
+// capabilities share a topic. Seen failing with the check removed, one row at a time.
+func TestRegisterRejectsAStreamTheSchemaCannotState(t *testing.T) {
+	if err := NewRegistry().Register(streaming()); err != nil {
+		t.Fatalf("a valid stream was rejected: %v", err)
+	}
+	cases := map[string]func(*Descriptor){
+		"a stateless capability":      func(d *Descriptor) { d.Statefulness = Stateless },
+		"a stateful capability":       func(d *Descriptor) { d.Statefulness = Stateful },
+		"a topic without a dot":       func(d *Descriptor) { d.Events.Topic = "logcat" },
+		"an underscore in a topic":    func(d *Descriptor) { d.Events.Topic = "device.log_cat" },
+		"workspace.lifecycle":         func(d *Descriptor) { d.Events.Topic = "workspace.lifecycle" },
+		"operation.progress":          func(d *Descriptor) { d.Events.Topic = ProgressTopic },
+		"events.gap":                  func(d *Descriptor) { d.Events.Topic = "events.gap" },
+		"no types":                    func(d *Descriptor) { d.Events.Types = nil },
+		"a type name with a dot":      func(d *Descriptor) { d.Events.Types = map[string]any{"a.b": streamPayload{}} },
+		"a nil payload":               func(d *Descriptor) { d.Events.Types = map[string]any{"lines": nil} },
+		"a payload that is no struct": func(d *Descriptor) { d.Events.Types = map[string]any{"lines": "text"} },
+		"a bad untrusted tag":         func(d *Descriptor) { d.Events.Types = map[string]any{"lines": badTag{}} },
+	}
+	for name, mutate := range cases {
+		d := streaming()
+		mutate(&d)
+		if err := NewRegistry().Register(d); err == nil {
+			t.Errorf("%s: was accepted; it must be rejected", name)
+		}
+	}
+
+	r := NewRegistry()
+	if err := r.Register(streaming()); err != nil {
+		t.Fatal(err)
+	}
+	other := streaming()
+	other.Name = "device.watchMore"
+	if err := r.Register(other); err == nil {
+		t.Error("a second capability on the same topic was accepted")
+	}
+	other.Events = &Events{Topic: "device.more", Types: map[string]any{"lines": streamPayload{}}}
+	if err := r.Register(other); err != nil {
+		t.Errorf("a second stream on its own topic was rejected: %v", err)
+	}
+}

@@ -6,8 +6,10 @@
 // One schema is composed from the contract and compiled once: a `Capabilities` interface
 // whose keys are capability names and whose values are `{ params, result }`. A capability
 // that is longRunning answers with an operation envelope; its `result` is the schema's
-// `output.properties.result`, not `output`. A descriptor field the UI does not read yet
-// (event payloads, step 4) joins the per-capability object in `entryFor`, nothing else.
+// `output.properties.result`, not `output`. A second interface, `CapabilityEvents`, types
+// the events a capability's own stream publishes (ADR-0041 §4): keys are capability names,
+// values map an event type to its payload. A descriptor field the UI does not read yet
+// joins `entryFor` (or the events composition), nothing else.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +26,7 @@ interface Descriptor {
 	longRunning?: boolean;
 	input: Record<string, unknown>;
 	output?: { properties?: { result?: Record<string, unknown> } } & Record<string, unknown>;
+	events?: { topic: string; types: Record<string, Record<string, unknown>> };
 }
 
 const contract: { version: string; capabilities: Descriptor[] } = JSON.parse(
@@ -51,14 +54,42 @@ const composed = {
 	properties: Object.fromEntries(contract.capabilities.map((d) => [d.name, entryFor(d)])),
 };
 
-const types = await compile(composed as never, 'Capabilities', {
+const withEvents = contract.capabilities.filter((d) => d.events);
+
+/** Per capability that streams: its event types, each with its payload schema. */
+function eventsFor(d: Descriptor): Record<string, unknown> {
+	const types = d.events?.types ?? {};
+	return {
+		type: 'object',
+		additionalProperties: false,
+		required: Object.keys(types),
+		properties: types,
+	};
+}
+
+const composedEvents = {
+	title: 'CapabilityEvents',
+	description: `The events a capability's own stream publishes, by capability and event type, from schema/capabilities.json ${contract.version}.`,
+	type: 'object',
+	additionalProperties: false,
+	required: withEvents.map((d) => d.name),
+	properties: Object.fromEntries(withEvents.map((d) => [d.name, eventsFor(d)])),
+};
+
+const options = {
 	bannerComment: '',
 	additionalProperties: false,
 	format: true,
 	style: { useTabs: true, singleQuote: true },
 	unreachableDefinitions: false,
 	strictIndexSignatures: false,
-});
+} as const;
+
+const types = await compile(composed as never, 'Capabilities', options);
+const eventTypes = await compile(composedEvents as never, 'CapabilityEvents', options);
+
+// The topic each streaming capability's events carry, from the descriptors.
+const eventTopics = Object.fromEntries(withEvents.map((d) => [d.name, d.events?.topic]));
 
 // What the client branches on, from the descriptors (never typed by hand).
 const info = Object.fromEntries(
@@ -75,7 +106,17 @@ export const schemaVersion = ${JSON.stringify(contract.version)};
 
 ${types.trim()}
 
+${eventTypes.trim()}
+
 export type CapabilityName = keyof Capabilities;
+export type EventCapability = keyof CapabilityEvents;
+export type EventType<N extends EventCapability> = keyof CapabilityEvents[N];
+/** The payload of an event of capability N's stream. */
+export type EventPayload<N extends EventCapability, T extends EventType<N>> = CapabilityEvents[N][T];
+
+/** The topic each streaming capability's events carry. */
+export const eventTopics = ${JSON.stringify(eventTopics, null, '\t')} as const satisfies Record<EventCapability, string>;
+
 export type Params<N extends CapabilityName> = Capabilities[N]['params'];
 export type Result<N extends CapabilityName> = Capabilities[N]['result'];
 
