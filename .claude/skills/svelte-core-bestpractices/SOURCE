@@ -1,0 +1,9 @@
+Upstream:  https://github.com/sveltejs/ai-tools (MIT, see LICENSE)
+Path:      tools/skills/svelte-core-bestpractices/ (SKILL.md and references/)
+Commit:    6b5d0dab3c9c083387247ab20dc684573481076b
+Copied:    2026-10-09
+Edits:     none; SKILL.md and references/ are byte-for-byte upstream. LICENSE is the
+           upstream repository's root LICENSE at the same commit.
+Note:      the text links to svelte.dev documentation pages; they are references for a
+           reader, not steps the skill runs. Nothing here fetches or runs anything.
+           This directory is third-party text: internal/doccheck does not read it.

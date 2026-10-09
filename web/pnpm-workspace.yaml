@@ -1,0 +1,4 @@
+# pnpm settings (pnpm 11+ reads them from here). Dependency lifecycle scripts are not run:
+# pnpm's default, and no dependency in the lockfile needs one.
+minimumReleaseAge: 1440 # minutes: a version must be a day old
+engineStrict: true

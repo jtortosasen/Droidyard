@@ -3,9 +3,12 @@
 #   git config core.hooksPath .githooks
 # Selective: it tests the packages the staged files belong to and every package that
 # imports them (directly, or in its tests), not the whole tree; a document-only commit
-# runs the document checks. `go build ./...` always runs. The full `go test ./...` stays
-# the implementer's job at each step's close (milestone-workflow). go.mod, go.sum or this
-# hook changing runs everything. Bypass only knowingly: git commit --no-verify.
+# runs the document checks. A commit touching web/, the schema or this hook first runs
+# the frontend gates (pnpm -C web run verify, then the svelte-autofixer gate) and needs
+# pnpm and web/node_modules for it; any other commit needs no Node. `go build ./...`
+# always runs. The full `go test ./...` stays the implementer's job at each step's close
+# (milestone-workflow). go.mod, go.sum or this hook changing runs everything. Bypass
+# only knowingly: git commit --no-verify.
 set -u
 
 staged=$(git diff --cached --name-only --diff-filter=ACMRD)
@@ -22,6 +25,32 @@ run_tests() { # packages...
 		fail "go test failed"
 	}
 }
+
+# The frontend gates (ADR-0039 §3, ADR-0040 §3). They run before the Go part, and only
+# when the commit touches web/, the schema or this hook, so a Go-only or document-only
+# commit never needs Node or pnpm.
+if printf '%s\n' "$staged" | grep -qE '^(web/|schema/capabilities\.json$|\.githooks/)'; then
+	have_frontend=1
+	command -v pnpm >/dev/null 2>&1 && command -v node >/dev/null 2>&1 || have_frontend=0
+	[ -d web/node_modules ] || have_frontend=0
+	[ "$have_frontend" = 1 ] ||
+		fail "frontend gate: pnpm, node or web/node_modules is missing; run: pnpm -C web install --frozen-lockfile"
+	if printf '%s\n' "$staged" | grep -qE '^web/(package\.json|pnpm-lock\.yaml)$'; then
+		# The pins first: a range would otherwise surface as a lockfile mismatch.
+		node web/scripts/check-pins.mjs >&2 ||
+			fail "frontend gate (dependency pins): web/package.json holds a version that is not exact"
+		pnpm -C web install --frozen-lockfile --offline >&2 ||
+			fail "frontend gate (pnpm install --frozen-lockfile --offline): the lockfile does not match package.json, or a package is not in the store"
+	fi
+	pnpm -C web run verify >&2 ||
+		fail "frontend gate (pnpm -C web run verify: pins, svelte-check, tests, build) failed"
+	svelte_files=$(printf '%s\n' "$staged" | grep -E '\.svelte(\.ts|\.js)?$' || true)
+	existing_svelte=$(for f in $svelte_files; do [ -f "$f" ] && echo "$f"; done)
+	if [ -n "$existing_svelte" ]; then
+		node web/scripts/autofixer-gate.mjs $existing_svelte >&2 ||
+			fail "frontend gate (svelte-autofixer): issues in the staged .svelte, .svelte.ts or .svelte.js files"
+	fi
+fi
 
 if ! printf '%s\n' "$staged" | grep -qvE '^(docs/|AGENTS\.md$|\.claude/|\.opencode/)'; then
 	run_tests ./internal/doccheck
