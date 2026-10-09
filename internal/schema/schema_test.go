@@ -86,7 +86,7 @@ func registry() *capability.Registry {
 	// policy, trust, starter and store are left nil.
 	shell.Register(reg, shell.Options{})
 	workspace.Register(reg, workspace.New(workspace.Options{Ops: ops}))
-	event.Register(reg)
+	event.Register(reg, ops.Active)
 	return reg
 }
 

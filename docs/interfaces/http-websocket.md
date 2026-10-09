@@ -74,7 +74,7 @@ scoped to the exact origin, port included. A tab opened without a token shows
 contains no data. Rules 1–3 and 7 still apply to it.
 
 **Residual risk, stated plainly.** Any process running as the same user can read the
-token file, just as it can connect to the Unix socket. Same-uid code is inside the
+token file, as it can connect to the Unix socket. Same-uid code is inside the
 trust boundary (ADR-0015 §6). This baseline defends against web pages and other users,
 not against the user's own processes.
 

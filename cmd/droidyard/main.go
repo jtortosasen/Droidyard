@@ -215,6 +215,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The daemon's one event bus (overview.md §Events).
 	bus := event.New(event.Options{})
 	ops.UsePublisher(bus)
+	ops.UseStatePublisher(bus)
 	var problems system.StateProblems
 	if st != nil {
 		problems = st.Problems
@@ -372,7 +373,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		Tick:     watchTick,
 	})
 	workspace.Register(reg, ws)
-	event.Register(reg)
+	event.Register(reg, ops.Active)
 	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
 	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
 	// hook the project-code capabilities share; its command is spawned through the

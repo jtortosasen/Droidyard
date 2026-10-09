@@ -162,7 +162,9 @@ another's ids.
   are the exceptions: each takes a `seq` but never enters the ring, which a busy stream
   would flush for other subscribers. It is offered only to the subscription that
   `file.watch` or `device.watchLogs` created, is not subscribable and accepts no `since`:
-  after a reconnect the client starts the stream again.
+  after a reconnect the client starts the stream again. `operation.state`
+  ([ADR-0043](../adr/0043-operation-watch.md)) is ring-less, offered to **every**
+  `operation.watch` subscription.
 - Overflowing a subscription's own queue costs that subscription a gap, not the session.
   On the WebSocket an event arrives as `{"subscriptionId", "event"}`, never before the
   response that gave the id ([http-websocket](../interfaces/http-websocket.md)

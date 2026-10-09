@@ -90,6 +90,8 @@ type Bus struct {
 
 	// subscribeHook is a test seam: see SetSubscribeHook.
 	subscribeHook atomic.Pointer[func()]
+	// watchHook is a test seam: see SetWatchHook.
+	watchHook atomic.Pointer[func(sessionID string)]
 }
 
 var _ capability.Publisher = (*Bus)(nil)
@@ -150,6 +152,24 @@ func (b *Bus) PublishTo(sub *Subscription, topic, typ, workspace, operation stri
 		sub.offer(e)
 	}
 }
+
+// Broadcast delivers one event to every subscription that holds its topic: it takes a seq
+// like Publish but appends nothing to the replay ring, so a busy stream of a capability's
+// own (operation.state, ADR-0043) never flushes what other subscribers resume from, and
+// the topic is not one events.subscribe can name. It implements capability.StatePublisher.
+func (b *Bus) Broadcast(topic, typ, workspace, operation string, payload any) {
+	e := stamp(topic, typ, workspace, operation, payload)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.assign(&e)
+	for s := range b.subs {
+		if s.topics[topic] {
+			s.offer(e)
+		}
+	}
+}
+
+var _ capability.StatePublisher = (*Bus)(nil)
 
 // stamp builds an event envelope from its parts, encoding the payload; one that does
 // not encode becomes null. The epoch, seq, time and encoded size are assigned under mu
@@ -257,6 +277,17 @@ func (b *Bus) SetSubscribeHook(f func()) {
 		return
 	}
 	b.subscribeHook.Store(&f)
+}
+
+// SetWatchHook makes every operation.watch call run f, given its session's id, after it
+// has opened its subscription and before it takes the snapshot. Test-only: it is where an
+// operation can be made to start or end inside the window ADR-0043 §1 closes. Nil removes it.
+func (b *Bus) SetWatchHook(f func(sessionID string)) {
+	if f == nil {
+		b.watchHook.Store(nil)
+		return
+	}
+	b.watchHook.Store(&f)
 }
 
 // Subscription is one subscriber's view of the bus: the events of its topics, in seq

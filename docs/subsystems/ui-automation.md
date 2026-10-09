@@ -195,7 +195,7 @@ pixels**, because the tree's bounds are already in that space. Text and taps go 
 reader when it can run; `input tap`, `input text` and the ADBKeyboard IME are the fallback.
 **Rotation** pins `accelerometer_rotation=0` before setting `user_rotation`, so auto-rotate cannot
 fight an explicit value. **Device actions** (notifications, quick settings, lock, wake, assistant) are
-plain adb verbs; `wm dismiss-keyguard` is best-effort and a locked device simply stays locked.
+plain adb verbs; `wm dismiss-keyguard` is best-effort and a locked device stays locked.
 
 ## Failure modes
 
