@@ -1,0 +1,228 @@
+# Plan: Milestone 2b — build and devices panels, the activity feed, and the golden path from the browser
+
+- Status: Approved
+- Approved: 2026-10-10, Delegated (owner: "/goal 2b"). Q1 became ADR-0043; Q2 applied as recommended (no live screen in 2b). The owner can revert any Delegated choice.
+- Date: 2026-10-10
+- Milestone: "the next is 2b" (`docs/README.md` §Where the work stands), as the owner scoped it on 2026-10-09/10: the build and Gradle tasks panel with problems; the devices panel without screenshots; an operation activity feed; controls that mirror operations any client runs; the golden path G1–G8 from the browser with the same-primitive check.
+- Phase: `docs/roadmap/mvp.md` §Phase 2 (in part; see Scope). Closes its acceptance and the Definition of done's browser item.
+- Contract: ADR-0039, ADR-0040, ADR-0041, ADR-0042 (the frontend and the stream pattern 2b reuses); ADR-0010; ADR-0016; ADR-0020 §Core primitives; ADR-0015 §1, §6; ADR-0006; `docs/architecture/capability-api.md` §Events and subscriptions, §Operations and cancellation, §Discovery and versioning; `docs/architecture/overview.md` §Events, §Concurrency; `docs/interfaces/http-websocket.md` §Security baseline; `docs/subsystems/adb-device.md` §Screen viewing; `docs/plans/m1l-phase1-acceptance.md` §The golden-path run; `docs/plans/m2a-minimal-web-ui.md` §Delegated decisions (D1–D8 stay in force).
+
+**The owner's decisions this plan follows (2026-10-09/10):** build/tasks and devices panels, no screenshots; the activity feed as events on a new topic built on 2a's trace (a minor version and an ADR); controls mirror shared state from those events plus a state query at load; the live screen only if cheap (Q2: not cheap, not built); no aesthetics; steps of one implementer run each, split if over about 7–8.
+
+**The owner should see:** Q1 (the new capability `operation.watch`, a contract change: draft ADR, minor version); Q2 (no live screen in 2b); D10 (the root is typed: no workspace list); D15 (G3's edit is made from the CLI).
+
+**Size.** Eight steps, at the owner's bound. No split is recommended: steps 1–2 are the shared base of everything after. If the owner wants one, the cut is after step 4 (activity, build, tasks) and steps 5–8 become 2b′.
+
+## Scope
+
+| Phase 2 item, or Definition of done item | Here? | If not, where and why |
+| --- | --- | --- |
+| Panel: build / Gradle tasks with problems | yes | steps 3, 4 |
+| Panel: devices, no stills | yes | steps 5, 6 (owner: no screenshots) |
+| Operation activity feed; controls mirroring any client's operations | yes | steps 1, 2, then 3–5 (owner, 2026-10-09) |
+| Acceptance: golden path from the browser, structured build errors, device state (logs, UI tree) | yes | step 7 |
+| Acceptance: same-primitive check from the trace | yes | step 7, over 2a's `droidyard: op` line |
+| DoD: the golden path completes from the browser | yes | step 7 |
+| DoD: every deviation recorded as an ADR | part | 2b's own: Q1's ADR |
+| Stretch: live screen stream | no | Q2: a slideshow the design rejects, or a milestone of its own |
+| Panels: Git, explorer | no | 2c |
+| CodeMirror editor | no | `mvp.md` §Phase 2: waits for code intelligence (v1) |
+| DoD: `build.errors` on both KGP fixtures; idle footprint per process | no | register rows; not UI work |
+| Register: a long-running call cut by a lost connection loses its id | yes | step 2 |
+
+## Starting point
+
+Code at `3e7c26b` (2a merged). API `0.14.0`, 34 MCP tools. `internal/capability/operation.go`: `Operations` holds each record's capability, client kind, workspace and timing, queues one trace line per terminal operation under `mu` and writes it after the unlock (`writeTraces`, any caller drains); it publishes progress on `operation.progress` through `UsePublisher`; nothing lists operations, and no event marks a start or an end. `internal/event/session.go`: `subscribable` is `workspace.lifecycle` and `operation.progress`; `Session.Open` opens a capability's own subscription; `Bus.PublishTo` keeps a stream out of the ring for one subscription. `Descriptor.Events` publishes a stream's payloads in the schema, and `gen-client.ts` already types them (`CapabilityEvents`). `web/src/lib/api/client.ts`: a long-running call is sent with `waitMs: 0` and followed with `operation.wait`; a lost connection rejects the follow with `ConnectionError('lost')` and the id is dropped (register row). `App.svelte` holds the device `select` and mounts `Logcat.svelte`; `web/testdata/burstadb` is a fake adb for browser runs. The scratch AVD `droidyard_m2a` (API 31, stopped, nothing installed) and its guard are under `~/Library/Caches/droidyard-dev/m2a/`. The sample is `samples/golden/` (m1l D2, D3).
+
+Baseline on 2026-10-10 at `3e7c26b` (macOS): `go vet ./...` and `gofmt -l .` printed nothing; `go test ./...` ok in every package. `pnpm -C web run verify` not run by the planner (its command guard); 2a's close ran it green. Green: no repair step.
+
+## Run rules
+
+- K1. `B=~/Library/Caches/droidyard-dev/m2b`. Every daemon runs with a scratch `DROIDYARD_STATE_DIR` and `DROIDYARD_CONFIG_DIR` unset (`m1l-phase1-acceptance.md` §Scratch rules, S1); `~/Library/Application Support/droidyard` unchanged.
+- K2. A run with Gradle or a device follows `m1l-phase1-acceptance.md` §Owner's constraints, §Scratch rules (S2–S7) and §Emulator rules (E1–E7) with `m2b` for `m1l`: the sample copied by `git archive` of the commit under test into `$B/g-<run>`, trusted with `droidyard trust` under the run's state; `-tags droidyard_nodump`; `ANDROID_SERIAL=droidyard-m2b-none`; no task matching `install*`, `uninstall*`, `connected*`, `device*`; the SDK stamp. The AVD is `droidyard_m2a`, reused in place (`ANDROID_AVD_HOME` its `avd/`), behind m2a's guard copied to `$B/bin/adb`; a device run ends with E5's wipe and stop, and the AVD is kept.
+- K3. Browser: Claude in Chrome on a new tab if connected, else headless Chrome over CDP with a scratch profile (2a's §Changes); 2a's K3 probe first; the CDP network log is kept (A8).
+- K4. "An agent" is a scripted `droidyard mcp --no-autostart --root <copy>` session (`verify-daemon` §Drive, MCP): real shim, client kind `mcp`, no LLM.
+- K5. Level-4 and level-5 runs are the main session's; the implementer never runs adb, an emulator, Gradle or a browser.
+
+## Delegated decisions
+
+- D9. **Layout.** `web/src/lib/ops/`, `build/`, `devices/`: logic in `.ts` with Vitest beside it, `.svelte` thin (2a D7). `App.svelte` stacks plain sections (workspace and build, tasks and console, devices, Logcat, activity); no router, no component library (2a D3).
+- D10. **Workspace selection.** The root is typed once, kept in `localStorage`, opened with `workspace.open`; events are matched on the id it returns. No capability lists open workspaces; one would be a contract change no golden-path step needs.
+- D11. **The mirror rule**, read only from the activity store (step 2), whoever started the operation: *building* = a non-terminal `build.assemble` or `build.run` of this workspace; *booting* = a non-terminal `emulator.start` or `emulator.wipe` (one boot key: one at a time, `overview.md` §Concurrency); *stopping* = a non-terminal `emulator.stop`; *installing* = a non-terminal `device.install`. The control shows the state and the client kind, and offers Cancel (`operation.cancel` on that id: any session may cancel any operation, `capability-api.md` §Operations and cancellation). The UI never calls `operation.wait` on an id it did not start: the first delivery takes a slimmed capability's full result from its caller (`Operations.snapshot`).
+- D12. **Progress.** One `events.subscribe {topics: ["operation.progress"]}` per session, routed by the event's `operation`. Its payload is typed by an `OperationProgress` the generator emits from the operation view's `progress` (the same `capability.Progress`), not by hand (ADR-0016).
+- D13. **No polling.** Only the terminal event of a named trigger causes reads, never a read's own: `build.assemble` or `build.run` of this workspace → `build.lastResult`, then `build.errors {buildId}`; `emulator.start`, `emulator.stop`, `emulator.wipe`, `device.install` → `emulator.list`, `device.list`. At load the same reads run once.
+- D14. **Console.** `artifact.read {ref: consoleRef, offset: -262144, limit: 262144}` over the WebSocket, shown as text; "Earlier" pages back. Not the artifact route: the same primitive an agent uses.
+- D15. **G3's edit** is made with `droidyard call file.write` (client `cli`): 2b has no editor (`mvp.md` §Phase 2; the explorer is 2c). The browser builds and reads `build.errors`, which is the acceptance's wording.
+- D16. **Working defaults** (constants with a comment): the feed keeps 500 operations, and its `ui` checkbox starts off (the UI's own reads, `operation.watch` included, are operations too: Q1 ¶4), so it shows other clients' work by default; at most 20 tasks per `build.run` (the schema's bound); 5 expectations per action (the schema's).
+
+## Acceptance
+
+- [ ] A1. `operation.watch` and `operation.state` behave as Q1 decides: the schema diff is the new capability with its `events` and `0.15.0`, nothing else; the MCP tool list is unchanged; a CLI or `POST /v1/call` call fails `SESSION_REQUIRED`; each operation publishes one start, one terminal and, if it was queued, one running event, in that order, never under the store's lock, with no parameter, result or message in any payload; snapshot plus events miss no operation, `operation.watch`'s own calls included (Q1 ¶4); `mvp.md` §MVP capability surface lists `watch`. Source: Q1; ADR-0010; ADR-0020 §Core primitives. Proven by: step 1
+- [ ] A2. The activity panel lists every operation of every client (cli, mcp, ui) as it starts and ends, with capability, client, state, duration and failure code; a tab opened mid-operation shows it running; after a gap or a reconnect it resyncs. Source: owner decision 2. Proven by: step 2, step 7
+- [ ] A3. A long-running call whose connection is lost while its id is known resumes `operation.wait` on the same id after the reconnect; a refused token rejects carrying the id. Source: register row (2a step 2). Proven by: step 2
+- [ ] A4. The build panel: modules, variants, assemble, progress, cancel, the problems list from `build.errors` (file, line, column, message), the last build at load; the tasks panel lists `build.tasks` and runs `build.run`; the console's tail after a build. Source: `mvp.md` §Phase 2; owner decision 1. Proven by: step 3, step 4, step 7
+- [ ] A5. Controls mirror shared state (D11): an MCP session's build in the workspace shows *building (mcp)* and the panel's Cancel cancels that operation; an MCP `emulator.start` shows *booting (mcp)* with Cancel; an MCP `emulator.stop` shows *stopping*; a tab opened during any of them shows the same from the snapshot. Source: owner decision 3. Proven by: step 3, step 5, step 7
+- [ ] A6. The devices panel: device and emulator lists, start and stop, install, launch, the UI tree, tap and type with expectations, the app's logs since launch with its crash; no screenshot; every device field rendered as text. Source: owner decision 1; `http-websocket.md` §Security baseline (rule 8). Proven by: step 5, step 6, step 7
+- [ ] A7. G1–G8 (`m1l-phase1-acceptance.md` §The golden-path run) complete from the browser on the sample, G6 being logs and the UI tree, each step's result shown structured. Source: `mvp.md` §Phase 2 (Acceptance), §Definition of done. Proven by: step 7
+- [ ] A8. Same-primitive check (step 7's procedure): every capability of `mvp.md` §The golden path's Capability column but `device.screenshot` (owner) appears in the run's trace with `client=ui` (G3's edit `client=cli`, D15) and with `client=mcp` from the K4 session in the same `daemon.log`; any other `client=ui` capability is on step 7's allowed list of published reads and streams; the browser's network log holds only `/`, `/assets/…`, `/favicon.ico` and `/v1/ws`. Source: `mvp.md` §Phase 2 (Acceptance). Proven by: step 7
+- [ ] A9. The register, `mvp.md`, `docs/README.md` and the plans index record what 2b closed and left open. Source: `milestone-workflow` step 6. Proven by: step 8
+
+## Steps
+
+### 1. `operation.watch`: the activity stream in the core (Q1)
+
+- Builds: Q1's ADR first (main session). `internal/capability`: `OperationState` (payload) and `ActiveOperation` (snapshot row) beside the envelope types. `operation.go`: an ordered queue of state events beside `traces`, appended under `mu` at each transition — recorded (`start`, after the lock or the queue place is taken: `running`, or `queued` with `blockedBy`), granted (`releaseLocked`: `running`), terminal (`endLocked`: state, `durationMs`, `code` when failed); `writeTraces` becomes one flush that, holding a new `flushMu` (never `mu`), takes the queue under `mu` and writes lines and publishes events in queue order; `start` flushes before it launches the handler's goroutine; `UseStatePublisher`; `Active()` lists the non-terminal operations whose start event is already queued (a flag set where it is appended, under `mu`), so a snapshot never shows `running` an operation about to be queued. `internal/event`: `Bus.Broadcast` (a seq, never the ring, offered to every subscription holding the topic); `operation.watch` registered beside `events.*` (it needs the session), given the store's `Active`: the handler opens its subscription on `operation.state`, then takes the snapshot, and returns `{subscriptionId, operations}`; a test-only hook between the two (as `subscribeHook`). Wiring where the daemon builds the bus and store. `system.Version` → `0.15.0`; `go test ./internal/schema -update`. Documents: `capability-api.md` §Subscriptions — `operation.state` is a capability's own stream offered to **every** `operation.watch` subscription (not one); `overview.md` §Events, one clause; `mvp.md` §MVP capability surface, the `operation` row gains `watch`, phase "0, 2" (`TestCapabilityNamesAgree`); `mcp.md` §What is exposed — the not-exposed row names `device.watchLogs` and `operation.watch`.
+- Implements: Q1 (ADR); ADR-0010; ADR-0016; ADR-0020 §Core primitives; `capability-api.md` §Discovery and versioning.
+- Run by: the implementer (effort high); review: **Opus verifier** (a new capability, concurrency in the store).
+- Check: `TestOperationStateEvents` (`internal/capability`, `-race`, recording publisher): for completed, failed, cancelled running, cancelled queued, queue timeout, `CancelWorkspace` and `Shutdown`, each operation gets exactly one start and one terminal event, a queued one a `running` event between them, in seq order; failed carries its code; a sentinel in params, result and error message appears in no payload; `operation.wait`/`operation.cancel` publish nothing. Seen failing with publishing under `mu` (a publisher calling `Active()` deadlocks within the test's timeout), with the flush unserialised (a publisher that blocks on one operation's start while it ends: the end overtakes), and without the granted event. `TestOperationWatchMissesNothing` (`internal/event`, `-race`): the hook between subscribing and the snapshot starts a fixture operation, which must reach the watcher (seen failing deterministically with the snapshot taken first); then 200 operations started from goroutines while 50 watches open, each watch seeing every operation non-terminal at or started after its snapshot, the watches' own included, in the snapshot or by its terminal event; a queued operation is never in a snapshot as `running` (seen failing without the flag). `TestOperationWatchNeedsASession`: CLI and `POST /v1/call` → `SESSION_REQUIRED`; `TestMCPTranscript` still 34 tools. `TestWSOperationWatchSeesAnMCPCall` (`cmd/droidyard`): a WebSocket session watches, an MCP session calls `system_health`; the WebSocket gets `running` then `completed`, client `mcp`, the id on the daemon's trace line. The schema diff reviewed line by line; `pnpm -C web run verify` passes.
+- Schema: `operation.watch` added with `events` (topic `operation.state`, type `state`); `version` `0.14.0` → `0.15.0`; no other line.
+- Needs: nothing in this plan.
+- Not here: the panel (step 2); a target (serial, AVD) in the payload, and `operation.state` through `events.subscribe` (Q1 alternatives); progress stays on `operation.progress` (m1d's rejected mixing). If the run under-delivers, the step splits into 1a (the store's events and `Bus.Broadcast`, no contract change) and 1b (the capability, schema, documents), recorded under Changes.
+- Rests on: one event per transition, in order, never under the store's lock (level 4, `-race`, an adversarial publisher).
+- [ ] Done. Evidence:
+
+### 2. The activity panel, and long calls that survive a lost connection
+
+- Builds: `client.ts`: `#run` keeps the id of a long-running call once its first answer gives it; a follow cut by `ConnectionError('lost')` sends `operation.wait` on the same id again, queued for the next socket; `unauthorized` or `close()` rejects with a `ConnectionError` carrying `operationId`; a call lost before its first answer rejects without one (the snapshot shows it if it started). `src/lib/ops/activity.ts`: the store from `operation.watch`'s snapshot and `state` events, merged by operation id, every non-terminal event applied in order and a terminal state never replaced; capped at 500 (D16); `active(predicate)` for D11; on `events.gap`, a reconnect or a failed start, `operation.watch` is called again and the old subscription unsubscribed: terminal rows are kept, the new snapshot's rows merged, and a local non-terminal row the snapshot lacks is marked "ended unseen" (so no mirror stays stuck). `Activity.svelte`: newest first, time, client, capability, workspace, state, duration, code; one checkbox per client kind. `App.svelte` mounts it.
+- Implements: owner decision 2; Q1; the register row.
+- Run by: the implementer; review: the main session's diff review, and `code-review` at `low` if over about 200 lines.
+- Check: Vitest `client.test.ts`: a socket closed mid-follow → after the reconnect the next request is `operation.wait` with the same id, and the call resolves with its result (seen failing with today's reject); 4401 mid-follow → rejects with `operationId`; lost before the first answer → rejects, no id. `activity.test.ts`: snapshot then events; a terminal event before its start (across a resync) stays terminal; a start already in the snapshot makes one row, and a `running` event updates a row the snapshot had `queued`; the cap; after a gap, a running row the new snapshot lacks is "ended unseen" and terminal rows survive (seen failing with merge-only, and with replace-all). Level 4 (K1, K3; main session; daemon with `ADB` = `burstadb`): `droidyard call system.health` and a K4 session's `system_health` appear as `cli` and `mcp` rows within 1 s; with `droidyard call device.logs --params '{"device":…,"followMs":10000}'` running, a newly opened tab lists it running, then completed (if `burstadb` cannot serve that follow, this part moves to step 3's tab opened during a K4 build, and the step's evidence says so).
+- Schema: no change.
+- Needs: step 1.
+- Not here: build and device panels (steps 3–6).
+- Rests on: merging a snapshot with events from a subscription opened before it loses no operation (level 3 here; the core side is step 1's level 4).
+- [ ] Done. Evidence:
+
+### 3. The workspace and the build panel, mirroring any client's build
+
+- Builds: `src/lib/build/workspace.ts` (D10; `workspace.open`'s id, name, trusted; an error's code and `nextStep` shown, e.g. `WORKSPACE_UNTRUSTED` naming `droidyard trust`). `build.ts`: `project.modules`, `project.variants` for the chosen module; Build → `build.assemble {module, variant}`; *building*, Cancel and the queued state (`blockedBy`) from D11; progress per D12 (done, the active task); D13's reads at load and on a build's end. `gen-client.ts` emits `OperationProgress`. `Build.svelte`, `Problems.svelte`: one row per error, `file:line:column`, severity, tool, source, message, `merged` marked; the labelled `tail` when `unrecognised`.
+- Implements: owner decisions 1, 3; D10–D13; `mvp.md` §Phase 2.
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest `build.test.ts`: a non-terminal `build.assemble` of client `mcp` in this workspace → *building (mcp)*, Cancel sends `operation.cancel` with that id; one in another workspace → idle; a queued one shows what it waits behind; progress of another operation is ignored; a terminal `build.assemble` event → `build.lastResult` then `build.errors` once, and a terminal `build.lastResult`, `build.errors` or `build.tasks` event (client `ui`) → no read (seen failing with a `build.*` trigger); `BUILD_NOT_FOUND` at load → "no build yet". Level 5 (K1–K4, no device): the sample copy trusted; Build `:app` debug → success, no problems; the compile-error line added with `droidyard call file.write` → Build → failed, the problems list's file, line and column equal `droidyard call build.errors`'s; restored → success; a K4 session's `build_assemble` → the panel shows *building (mcp)*, its Cancel ends that operation `cancelled` (the shim's `operation_wait` says so); a tab opened during a K4 build shows it from the snapshot.
+- Schema: no change.
+- Needs: step 2.
+- Not here: tasks and console (step 4); a trust control (register: policy panel).
+- Rests on: the mirror reads only the activity store, so any client's build drives it (level 5).
+- [ ] Done. Evidence:
+
+### 4. Gradle tasks and the console
+
+- Builds: `src/lib/build/tasks.ts`: `build.tasks`, a text filter, a selection of 1–20, Run → `build.run {tasks}`, sharing step 3's *building*, Cancel and progress. `console.ts` (D14): the newest build's `consoleRef`, the tail first, "Earlier" with the previous offset minus the limit, stopping at 0; `size` and `growing` shown. `Tasks.svelte`, `Console.svelte` (a `<pre>` of text).
+- Implements: owner decision 1 ("assemble and run … the console after a build"); D14.
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest: the 21st selection is refused; `build.run`'s params; the console's offsets page back and stop at the start. Level 5 (step 3's environment): the task list loads; running `help` succeeds; the console shows its last lines, `BUILD SUCCESSFUL` among them.
+- Schema: no change.
+- Needs: step 3.
+- Not here: the console live during a build (`build.output`, register).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 5. Emulators and devices: list, start, stop, install, launch
+
+- Builds: `src/lib/devices/`: `devices.ts` (the device selection, moved out of `App.svelte` and shared with Logcat; `device.list`); `emulators.ts` (`emulator.list`; Start `{avd, headless?}`; Stop `{device}`; *booting* and *stopping* from D11 with Cancel; D13's refresh); `install.ts` (`device.install {device, build: {module, variant}}` from step 3's selection; `device.launch {device, applicationId}` from the install's result; a `null` pid shows its `reason`). `Devices.svelte`.
+- Implements: owner decisions 1, 3; D11, D13.
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest: a non-terminal `emulator.start` of client `mcp` → every Start disabled, *booting (mcp)*, Cancel targets it; an `emulator.stop` → *stopping*; a terminal `emulator.start` event → both lists read again once, a terminal `emulator.list` or `device.list` event → no read; install's params come from the build selection; Logcat follows the shared selection. Level 5 at step 7.
+- Schema: no change.
+- Needs: step 3.
+- Not here: `emulator.wipe` and `device.uninstall` as controls (no golden-path step; K2's wipe runs from the CLI).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 6. The UI tree, tap and type with expectations, the app's logs
+
+- Builds: `src/lib/devices/uitree.ts`: `device.uiTree {device}`, nodes indented by `children`, each row class, id, text, desc; picking a node gives a selector: `id` when it has one, else `text`, else `{ref, snapshot}`. `act.ts`: up to 5 expectations (`appears` or `gone`, by id or text), `timeoutMs`; `device.tapElement {device, target, expect}`, `device.inputText {device, target, text, expect}`; the result as matched, `afterMs`, unmet with candidates, vacuous, `appCrash`, `systemDialog`, warnings. `applogs.ts`: `device.logs {device, applicationId}` (since launch): crashes first (exception, message, frames), then lines. `Tree.svelte`, `Act.svelte`, `AppLogs.svelte`; every device field as text.
+- Implements: owner decision 1 ("the UI tree as tap and type need it"); `mvp.md` §The golden path (G6, G7); `http-websocket.md` §Security baseline rule 8.
+- Run by: the implementer (effort high); review: **Opus verifier** (untrusted device text in new views).
+- Check: Vitest: the selector picked for a node with an id, with text only, with neither; expectation params type-check against the generated `Params`; result summaries for matched, unmet with candidates, and an `appCrash`; `TestNoHTMLSinks` passes over the new files, and is seen failing on a seeded `{@html node.text}`.
+- Schema: no change.
+- Needs: step 5.
+- Not here: screenshots (owner); `within` and `index` in the picker (typed by hand if needed).
+- Rests on: device text never reaches an HTML sink (level 3, the sink test).
+- [ ] Done. Evidence:
+
+### 7. The golden path from the browser, the mirror on the emulator, the same-primitive check
+
+- Builds: nothing unless a defect is found (each its own step before step 8, with a failing test first; m1l's §Defects rule).
+- Implements: A2, A4–A8 at level 5.
+- Run by: the main session under K1–K5.
+- Check: on a fresh copy, state and daemon, E7 holding, the K3 probe passed, G1–G8 in the browser: G1 the workspace opened, `:app` and `:feature:golden` listed; G2 Build → success; G3 the edit by CLI (D15), Build → failed, the problems row at the edit's file, line, column, the edit removed, Build → success; G4 Start `droidyard_m2a` → a serial not in `protected`; G5 install, launch → a pid; G6 Logcat shows `GoldenApp: started`, App logs since launch, the UI tree has `name` and `submit`; G7 the four actions of m1l's G7 row, each `matched`; G8 Crash, App logs shows `java.lang.IllegalStateException` / `golden app crash`. Mirror: a K4 session's `emulator_stop` then `emulator_start` show *stopping (mcp)* and *booting (mcp)*; after another `emulator_stop`, a K4 start cancelled from the panel before the serial appears ends `cancelled`, and a last K4 start boots it again; the feed shows the session's calls as `mcp`. **Agent side:** after the browser run, the K4 session repeats the golden path as scripted tool calls in the same daemon (G1 `workspace_describe`, `project_modules`; G2, G3's build and `build_errors`; G4 `emulator_start`, adopting; G5–G7 on a relaunch), so one `daemon.log` holds both clients. **Same-primitive check:** let *G* be `mvp.md` §The golden path's Capability column without `device.screenshot`: `workspace.open`, `project.modules`, `build.assemble`, `build.errors`, `emulator.start`, `device.install`, `device.launch`, `device.logs`, `device.uiTree`, `device.tapElement`, `device.inputText` (`device.list` is G4's alternative). Every capability of *G* has a completed `client=ui` line in the browser window and a completed `client=mcp` line in the agent's (the agent's `workspace.open` is the session's own open, ADR-0019 §Sessions: its line counts if it writes one, otherwise `workspace.describe` stands for it, recorded as such); the edit's `file.write` is `client=cli`; every other `client=ui` capability is on the allowed list — `system.health`, `workspace.describe`, `project.variants`, `build.lastResult`, `build.tasks`, `build.run`, `artifact.read`, `emulator.list`, `emulator.stop`, `device.list`, `device.watchLogs`, `events.subscribe`, `events.unsubscribe`, `operation.watch`, `operation.cancel` — each a published capability an agent can reach or a stream ADR-0010 keeps off MCP; the CDP log holds only A8's paths. No CSP violation; E1, E3, S3; E5's wipe and stop by CLI; `verify-daemon` §Cleanup, zero orphans.
+- Schema: no change.
+- Needs: steps 1–6.
+- Not here: an LLM agent (K4 is the agent; m1l ran the real ones on the same capabilities).
+- Rests on: the UI reaches the golden path through capabilities only (level 5: the trace and the network log).
+- [ ] Done. Evidence:
+
+### 8. Close: documents and register
+
+- Builds: `docs/roadmap/known-limits.md`: closed — the lost-connection row (2b), the browser golden path row, `operation.state` out of the no-producer row; updated — the live-screen row (Q2: not built in 2b); added — whatever 2b leaves (a target in `operation.state`, the console live during a build if still wanted, Unverified rows not settled). `mvp.md` §Definition of done: the browser item ticked with the evidence path. `docs/README.md` §Where the work stands names 2c. The close commit is `milestone-workflow` step 6.
+- Implements: A9; `milestone-workflow` step 6.
+- Run by: the main session; review: **Opus verifier** over A1–A9.
+- Check: `go test ./internal/doccheck` passes; every Not-in-this-milestone item has a register row or a named milestone.
+- Schema: no change.
+- Needs: step 7.
+- Not here: 2c's plan.
+- Rests on: —
+- [ ] Done. Evidence:
+
+## Not in this milestone
+
+- **The live emulator screen** (Phase 2's stretch): not built (Q2); the owner watches the emulator's window. Register row updated.
+- Screenshots in the UI (owner, 2026-10-09); `device.screenshot` stays the agents'.
+- **2c**: Git and the explorer. The editor: v1 with `code.*`.
+- A target (serial, AVD) in `operation.state`; an `operation.list` query; `operation.state` through `events.subscribe` (Q1 alternatives): a minor change when a consumer needs one.
+- The console live during a build (`build.output`, register); `emulator.wipe`, `device.uninstall`, `sdk.*`, `file.*` and trust controls in the UI (no golden-path step; the policy panel is a register row).
+- `build.errors` on both KGP fixtures, the second Gradle spike, the idle footprint per process: register rows.
+- Styling, Safari, Firefox (register).
+
+## Design questions
+
+Each has a recommendation the main session may apply as Delegated; Q1 becomes an ADR before step 1.
+
+### Q1. What carries the activity feed and the state at load?
+
+- Blocks: step 1 (and every mirror)
+- The documents say: `operation.state` is a designed topic whose first consumer is the Phase 2 UI (m1d's Scope; the register's no-producer row); a new topic is a minor version (`capability-api.md` §Events and subscriptions); m2a Q3's option: the store already holds the record and a publisher. Nothing defines the payload or a state query.
+- Draft decision, as a new ADR:
+  1. **Capability** `operation.watch`: command (it creates a subscription), global, `streaming`, audience all, not long-running, since `0.15.0`; params `{}`; result `{subscriptionId, operations: [ActiveOperation]}`, the operations not yet terminal, taken **after** the subscription is open, so snapshot plus events miss nothing (a duplicate is merged by id). Streaming keeps it off MCP (ADR-0010) and the agents' tool budget unchanged, and keeps the register row "no MCP tool returns another session's" operation ids true.
+  2. **Events**, topic `operation.state`, type `state`, published with the descriptor's `events` so the client is generated (ADR-0041 §4): the envelope's `operation` and `workspace` name it; payload `{capability, client?: cli|mcp|ui, state, startedAt, durationMs?, code?, blockedBy?}`, `client` omitted for a call recorded without a kind (the trace's `-`). One event at the start (`running` or `queued`), one when a queued operation starts running, one terminal. Never parameters, results, messages or causes: the trace line's rule (m2a Q3). Not untrusted. The topic shares its name with the envelope's `operation.state` field on purpose: it carries that field's transitions.
+  3. **Delivery**: a seq, never the replay ring (as `file.changes` and `device.logcat`), offered to every `operation.watch` subscription; not subscribable through `events.subscribe`. Loss is the bus's `events.gap`; the client calls `operation.watch` again. Published after the store's lock, in transition order.
+  4. Recorded operations only: `operation.wait` and `operation.cancel` are not operations and publish nothing. Everything else is, `operation.watch` itself and the UI's reads included: each publishes to every watcher and writes its trace line (the panel's filter, D16, hides the `ui` rows by default).
+- Alternatives considered: **`events.subscribe` on `operation.state` plus an `operation.list` query** — two calls with a window between them, a stateless query becomes an MCP tool (token budget, ADR-0036) or misuses the human audience, and `events.subscribe` topics publish no payload schema; **a target (serial, AVD) in the payload** — the owner's two named mirrors work without it (builds by workspace, boots by the one boot key), and it would need a per-descriptor declaration; a later minor change; **progress on the same topic** — rejected by m1d (different consumers); **tailing the trace log** — text the client would parse.
+
+### Q2. Does 2b build the live emulator screen?
+
+- Blocks: nothing (scope)
+- The documents say: `adb-device.md` §Screen viewing (an H.264 path behind a seam, "not a PNG-per-frame loop"); m2a §Not in this milestone's cost estimate.
+- Recommendation: **not in 2b**. Neither version is "few changes": the `screencap` loop is a 2–8 fps slideshow the design rejects, needing a superseding ADR, a capability and topic, base64 frames and a canvas (the CSP refuses `blob:`), about three steps; the H.264 path is a milestone. The owner watches the emulator's window, which `emulator.start` opens unless `headless`. The register row stays, naming this decision.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| A real build's `operation.progress` rate stays within a subscription's 1,024-event queue; a gap is shown and resynced, not lost | 3 | step 3's level-5 build |
+| The sidecar honours a cancel from the panel (a cancel it ignores releases the lock while Gradle builds: register) | 3, 7 | step 3's cancelled K4 build |
+| `operation.state` order under the real scheduler matches the `-race` tests | 1, 2 | step 7's feed (nothing out of order) |
+| Headless Chrome stands for Chrome; Safari and Firefox unchecked | 2–7 | register row |
+| A tab's lost connection with the daemon alive (A3) is reproduced only by Vitest's fake socket | 2 | not settled in 2b; register if no level-5 path is found |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise | 1 [bug] blocking: D13's `build.*`/`emulator.*` trigger fires on the UI's own reads, without end | D13 names the triggers; steps 3, 5: a read's terminal event triggers no read, seen failing with the broad trigger |
+| 1 | | 2 [test] blocking: step 7's comparison with m1l's G table fails by construction (`workspace_describe`, extras, no agent trace) | A8 and step 7: *G* from `mvp.md`'s Capability column; the K4 session repeats it in the same daemon for a `client=mcp` side; an allowed list of the UI's other capabilities |
+| 1 | | 3 [doc] blocking: `TestCapabilityNamesAgree` needs `watch` in `mvp.md` §MVP capability surface | Step 1 Builds; A1 |
+| 1 | | 4 [bug] a snapshot can show `running` an operation about to be queued | Step 1: `Active()` skips operations whose start event is not queued, test seen failing without it; step 2 applies every non-terminal event in order |
+| 1 | | 5 [contract] `operation.watch` and the UI's reads are operations too | Q1 ¶4, A1, step 1's test counts the watches' own; D16: the `ui` filter starts off |
+| 1 | | 6 [safety] a UI `operation.wait` on an agent's id would take its unslimmed result | D11: the UI never waits on an id it did not start |
+| 1 | | 7 [plan] replacing the store on a resync erases the feed | Step 2: terminal rows kept, missing running rows "ended unseen" |
+| 1 | | 8 [test] the snapshot-order mutation is caught only by chance | Step 1: a hook between subscribe and snapshot makes it deterministic |
+| 1 | | 9 [plan] step 1 is the largest run | Step 1 Not here: the 1a/1b split if it under-delivers |
+| 1 | | Nits [doc]/[contract]: §Subscriptions' "only the subscription"; the topic's name; `client` with no kind; `mcp.md`'s not-exposed row; size | Step 1 Builds edits §Subscriptions and `mcp.md`; Q1 ¶2 names the clash and omits `client`; size left near 36 KB (the checks carry it) |
+| 2 | approve | Blocking 1–3 answered; nothing new blocking | — |
+| 2 | | [test] the agent's `workspace.open` may write its own line; the mcp side must be completed too; [nit] a second start needs a stop before it | Step 7: the open's line counts when written; "completed" on both sides; the stop named |
+
+## Changes
+
+Changes after approval: date, what changed, why, and the ADR if the change touches the design.
