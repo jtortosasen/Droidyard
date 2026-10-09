@@ -84,8 +84,8 @@ trips, fewer tokens, no image interpretation.
   authentication get no effort in the MVP. *Ratified 2026-09-29: remote access comes
   after v1*, though it is where the project started. The loopback HTTP baseline is
   still required before the UI ships.
-- **Live screen streaming** to the UI. The device panel refreshes stills; streaming is
-  a stretch goal inside phase 2.
+- **Live screen streaming** to the UI: a stretch 2b weighs; no stills (owner,
+  2026-10-09).
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
 - **Distribution**: binaries ([ADR-0014](../adr/0014-agent-distribution-model.md));
   the skill and `init` are in ([ADR-0037](../adr/0037-assistant-integration-by-init.md)).
@@ -197,7 +197,7 @@ Stretch (not required to close the MVP): live screen stream to the device panel;
 Acceptance:
 
 - The golden path is drivable from the browser, including reading the structured build
-  errors and seeing device state.
+  errors and seeing device state (step 6: logs and the UI tree, no screen).
 - **Same-primitive check**: the UI and the agent reach the golden path through the same
   capabilities, verified from the capability trace (every call is an operation record,
   [ADR-0020](../adr/0020-operation-contract.md)).

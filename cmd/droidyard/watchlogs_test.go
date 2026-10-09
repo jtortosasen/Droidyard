@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -420,7 +421,10 @@ func TestKilledDaemonLeavesTheStreamForTheNextStart(t *testing.T) {
 
 	s.srv.cmd.Process.Signal(syscall.SIGKILL)
 	s.srv.wait(t)
-	if !alive(rec.PID) {
+	// On macOS the child outlives a kill -9 and the next daemon reaps it. On Linux the
+	// death signal (internal/process/deathsignal.go) ends it with the daemon; its record
+	// stays all the same, for the next daemon to drop. Not run on Linux here.
+	if runtime.GOOS != "linux" && !alive(rec.PID) {
 		t.Fatalf("the child (pid %d) died with the daemon; it must outlive a kill -9", rec.PID)
 	}
 	if recs := s.records(t); len(recs) != 1 || recs[0].PID != rec.PID || recs[0].Kind != proc.DeviceStream {

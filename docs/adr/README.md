@@ -71,6 +71,7 @@ edits made before this rule and are not added to.
 | [0039](0039-frontend-svelte.md) | Frontend built with Svelte 5 and TypeScript | Accepted |
 | [0040](0040-built-ui-not-committed.md) | The built UI is not committed; Go never needs Node | Accepted |
 | [0041](0041-device-watchlogs-stream.md) | `device.watchLogs`, a session-owned Logcat stream | Accepted |
+| [0042](0042-watchlogs-device-gone-online.md) | `device.watchLogs`: `deviceGone` means not listed online; the no-uid-column next step | Accepted |
 
 ## Open decisions (not yet ADRs)
 
