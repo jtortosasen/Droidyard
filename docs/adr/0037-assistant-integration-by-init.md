@@ -1,6 +1,7 @@
 # ADR-0037: Optional assistant integration, written by `droidyard init`
 
 - Status: Accepted
+- Superseded in part by: ADR-0038 (§Decision)
 - Date: 2026-10-08
 - Supersedes: ADR-0014 §Decision (in part: per-assistant configuration is written into the project, not only printed)
 - Supersedes: ADR-0019 §Processes (in part: items 3 and 4, the subcommand set gains `init`, which never auto-starts the daemon)

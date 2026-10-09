@@ -1,17 +1,16 @@
 // Package assistant writes droidyard's integration with the coding assistants into a
-// user's project (ADR-0037): an AGENTS.md or CLAUDE.md block, the droidyard-android
-// skill, and per client the MCP server entry and an allowlist of the read-only tools.
-// `droidyard init` is its only caller.
+// user's project (ADR-0037, ADR-0038): the droidyard-android skill, and per client the
+// MCP server entry and an allowlist of the read-only tools. It writes no AGENTS.md or
+// CLAUDE.md. `droidyard init` is its only caller.
 //
 // It edits files the user owns, so it follows one rule throughout: add what is absent,
 // keep what is there, and change nothing it cannot put back. JSON is merged by key, an
 // existing entry under droidyard's key is kept and reported, never replaced, and a file
 // that does not parse is refused and left as it is. --uninstall removes only what is
 // equal, after parsing, to what the same run would write now. Every write goes through
-// a temporary file and a rename, and no path may leave the project root. Two things are
-// init's own and refreshed when they differ: the text between the droidyard marks and
-// the skill's files; a user's edits there are replaced (reported "updated"), while
-// --uninstall keeps a differing one.
+// a temporary file and a rename, and no path may leave the project root. The skill's
+// files are init's own and refreshed when they differ: a user's edits there are
+// replaced (reported "updated"), while --uninstall keeps a differing one.
 //
 // The package knows the clients' file formats and nothing about capabilities: the tool
 // names arrive in Options, already chosen by the caller from the registry.
@@ -198,10 +197,9 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		jobs = append(jobs, keepIfShared(append([]job{blockJob("AGENTS.md")}, sj...), root, o)...)
+		jobs = append(jobs, keepIfShared(sj, root, o)...)
 	}
 	if has(o.Clients, Claude) {
-		jobs = append(jobs, blockJob("CLAUDE.md"))
 		sj, err := skillJobs(o.Skill, ".claude/skills/"+SkillName)
 		if err != nil {
 			return nil, nil, err
@@ -298,10 +296,10 @@ var openCodeServers = []string{"mcp", "servers"}
 // cursorServers is where .cursor/mcp.json lists them.
 var cursorServers = []string{"mcpServers"}
 
-// keepIfShared turns the jobs Cursor and OpenCode share (the AGENTS.md block and the
-// .agents skill) into "kept" on --uninstall while a client not in this run still has its
-// droidyard entry, so uninstalling one client does not take what the other reads. An
-// entry file that cannot be read counts as an entry: init will not guess.
+// keepIfShared turns the jobs Cursor and OpenCode share (the .agents skill) into "kept"
+// on --uninstall while a client not in this run still has its droidyard entry, so
+// uninstalling one client does not take what the other reads. An entry file that cannot
+// be read counts as an entry: init will not guess.
 func keepIfShared(jobs []job, root *fsRoot, o Options) []job {
 	if !o.Uninstall {
 		return jobs
@@ -371,10 +369,6 @@ func rawJSON(v any) json.RawMessage {
 		panic(err)
 	}
 	return bytes.TrimRight(b.Bytes(), "\n")
-}
-
-func blockJob(rel string) job {
-	return job{rel: rel, install: installBlock, uninstall: uninstallBlock}
 }
 
 func jsonJob(rel string, s jsonSpec) job {
