@@ -43,8 +43,10 @@ export class CapabilityError extends Error {
 /** The session ended before the call was answered. The operation, if one started, goes on in the daemon. */
 export class ConnectionError extends Error {
 	readonly kind: 'lost' | 'unauthorized' | 'closed';
+	/** The long-running operation that was already started when the session ended, if any. */
+	readonly operationId?: string;
 
-	constructor(kind: 'lost' | 'unauthorized' | 'closed') {
+	constructor(kind: 'lost' | 'unauthorized' | 'closed', operationId?: string) {
 		super(
 			kind === 'unauthorized'
 				? 'the daemon refused the token'
@@ -54,6 +56,7 @@ export class ConnectionError extends Error {
 		);
 		this.name = 'ConnectionError';
 		this.kind = kind;
+		this.operationId = operationId;
 	}
 }
 
@@ -214,9 +217,9 @@ export class Client {
 		params: Params<N>,
 		handlers: SubscribeHandlers,
 		opts: CallOptions = {},
-	): Promise<Subscription> {
+	): Promise<Subscription & { readonly result: Result<N> }> {
 		let id = '';
-		await this.#run(name, params, opts, (env) => {
+		const result = await this.#run(name, params, opts, (env) => {
 			const sid = (env.result as { subscriptionId?: unknown } | undefined)?.subscriptionId;
 			if (typeof sid === 'string' && sid !== '') {
 				id = sid;
@@ -226,6 +229,7 @@ export class Client {
 		if (id === '') throw new Error(`${name} answered with no subscriptionId`);
 		return {
 			subscriptionId: id,
+			result: result as Result<N>,
 			stop: () => {
 				this.#subscriptions.delete(id);
 			},
@@ -239,15 +243,33 @@ export class Client {
 		hook: ((env: ResponseEnvelope) => void) | undefined,
 	): Promise<unknown> {
 		const longRunning = capabilityInfo[name].longRunning;
-		let env = await this.#request(name, params, opts.workspace, longRunning ? 0 : undefined, hook);
-		while (longRunning && env.operation && !env.error && isLive(env.operation.state)) {
-			env = await this.#request(
-				'operation.wait',
-				{ operationId: env.operation.id, timeoutMs: WAIT_SLICE_MS },
-				undefined,
-				undefined,
-				hook,
-			);
+		// The id of the operation once the first answer gives it: a follow cut by a lost
+		// connection asks again for the same operation on the next socket (plan m2b step 2);
+		// a call lost before its first answer is not retried (the activity feed shows it if
+		// it started).
+		let operationId: string | undefined;
+		let env: ResponseEnvelope;
+		for (;;) {
+			try {
+				env =
+					operationId === undefined
+						? await this.#request(name, params, opts.workspace, longRunning ? 0 : undefined, hook)
+						: await this.#request(
+								'operation.wait',
+								{ operationId, timeoutMs: WAIT_SLICE_MS },
+								undefined,
+								undefined,
+								hook,
+							);
+			} catch (e) {
+				if (operationId !== undefined && e instanceof ConnectionError) {
+					if (e.kind === 'lost') continue;
+					throw new ConnectionError(e.kind, operationId);
+				}
+				throw e;
+			}
+			if (longRunning && env.operation) operationId = env.operation.id;
+			if (!(longRunning && env.operation && !env.error && isLive(env.operation.state))) break;
 		}
 		if (env.error) throw new CapabilityError(env.error, env.meta?.untrusted === true);
 		return env.result;
