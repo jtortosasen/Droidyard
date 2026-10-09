@@ -169,9 +169,9 @@ export class Client {
 		return this.#state;
 	}
 
-	/** Opens the session. Calls made before it is open wait for it. */
+	/** Opens the session. Calls made before it is open wait for it. A refused token is never retried. */
 	connect(): void {
-		if (this.#state === 'open' || this.#state === 'connecting' || this.#state === 'reconnecting') return;
+		if (this.#state !== 'closed') return;
 		this.#attempt = 0;
 		this.#open('connecting');
 	}

@@ -1,6 +1,6 @@
 // Package httpapi is the HTTP adapter for the web UI (docs/interfaces/http-websocket.md):
 // a loopback listener, the security baseline run on every request before any route,
-// POST /v1/call and GET /v1/ws. Requests identify their adapter as ui (ADR-0015 §6). It
+// the built UI at / and /assets/, POST /v1/call and GET /v1/ws. Requests identify their adapter as ui (ADR-0015 §6). It
 // translates; it adds no domain logic.
 package httpapi
 
@@ -62,9 +62,10 @@ func Listen(addr string) (net.Listener, error) {
 	return ln, err
 }
 
-// Server is the UI's HTTP side: the baseline, then GET /, POST /v1/call, GET
-// /v1/artifacts/{id} and, when it has a bus, GET /v1/ws. token is the per-launch token API requests must carry (the
-// WebSocket carries it in its first frame instead).
+// Server is the UI's HTTP side: the baseline, then GET / and GET /assets/ (the built UI,
+// ADR-0040), POST /v1/call, GET /v1/artifacts/{id} and, when it has a bus, GET /v1/ws.
+// token is the per-launch token API requests must carry (the WebSocket carries it in its
+// first frame instead).
 type Server struct {
 	handler http.Handler
 	ws      *wsHandler

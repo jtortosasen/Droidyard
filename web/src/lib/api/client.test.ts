@@ -221,6 +221,8 @@ describe('Client', () => {
 		expect(timers.scheduled.filter((t) => t.live)).toHaveLength(0);
 		expect(sockets).toHaveLength(1);
 		await expect(client.call('system.health', {})).rejects.toBeInstanceOf(ConnectionError);
+		client.connect(); // a refused token is not retried by an explicit connect either
+		expect(sockets).toHaveLength(1);
 	});
 
 	it('reconnects after any other close, with a backoff from 250 ms doubling to 5 s', () => {

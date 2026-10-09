@@ -24,11 +24,20 @@ var sinks = []struct {
 	{"insertAdjacentHTML", regexp.MustCompile(`insertAdjacentHTML`)},
 	{"document.write", regexp.MustCompile(`document\s*\.\s*write(ln)?\b`)},
 	{"srcdoc", regexp.MustCompile(`srcdoc`)},
-	// An href or src whose value is an expression: href={x}, xlink:href={x}, or the {href}
-	// shorthand. A literal value (href="/x") is not a sink.
-	{"href/src={expression}", regexp.MustCompile(`(?i)\b(xlink:)?(href|src)\s*=\s*\{`)},
-	{"{href}/{src} shorthand", regexp.MustCompile(`(?i)[\s<]\{\s*(href|src)\s*\}`)},
+	// A URL attribute whose value holds an expression, bare or inside quotes: href={x},
+	// href="{x}", href="https://{host}/p", xlink:href, src, srcset, action, formaction,
+	// an object's data, or the {href} shorthand. A literal value (href="/x") is not a sink.
+	{"URL attribute={expression}", regexp.MustCompile(`(?i)\b(xlink:)?(href|src|srcset|action|formaction|data)\s*=\s*["']?[^"'>\s]*\{`)},
+	{"{href}/{src} shorthand", regexp.MustCompile(`(?i)[\s<]\{\s*(href|src|srcset|action|formaction)\s*\}`)},
+	// An attribute spread on an element can carry any of them.
+	{"attribute spread", regexp.MustCompile(`<[A-Za-z][\w:.-]*\b[^>]*\{\s*\.\.\.`)},
+	// The same sinks set from script.
+	{"URL property or setAttribute", regexp.MustCompile(`(?i)\.(href|src|srcdoc|action|formaction)\s*=[^=]|setAttribute\(\s*['"](href|src|srcset|srcdoc|action|formaction|xlink:href)`)},
 }
+
+// generated is the schema-generated client (git-ignored, present once gen has run): it
+// holds types and descriptions, no markup, and a description may name a sink in prose.
+const generated = "lib/api/capabilities.gen.ts"
 
 // findSinks lists the sinks in one file's text, with their line numbers.
 func findSinks(name, text string) []string {
@@ -60,6 +69,16 @@ func TestNoHTMLSinks(t *testing.T) {
 		"src expression":         `<img src={x} alt="" />`,
 		"xlink:href":             `<use xlink:href={x} />`,
 		"href shorthand":         `<a {href}>t</a>`,
+		"href quoted":            `<a href="{x}">t</a>`,
+		"href interpolated":      `<a href="https://{host}/p">t</a>`,
+		"src quoted":             `<img src="{x}" alt="" />`,
+		"spread":                 `<a {...props}>t</a>`,
+		"svelte:element spread":  `<svelte:element this={tag} {...attrs} />`,
+		"formaction":             `<button formaction={x}>t</button>`,
+		"action":                 `<form action={x}></form>`,
+		"object data":            `<object data={x}></object>`,
+		"setAttribute":           `el.setAttribute('href', x);`,
+		"href property":          `a.href = x;`,
 	}
 	for name, line := range bad {
 		if len(findSinks("f", line)) == 0 {
@@ -71,6 +90,9 @@ func TestNoHTMLSinks(t *testing.T) {
 		`<p>{text}</p>`,
 		`<img src="/logo.png" alt="" />`,
 		`const html = 'plain';`,
+		`const env = { ...params, id };`,
+		`if (a.href === b) {}`,
+		`<div data-row={i}>t</div>`,
 	} {
 		if got := findSinks("f", line); len(got) != 0 {
 			t.Errorf("%q was flagged: %v", line, got)
@@ -82,6 +104,9 @@ func TestNoHTMLSinks(t *testing.T) {
 	err := fs.WalkDir(src, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
+		}
+		if p == generated {
+			return nil
 		}
 		switch filepath.Ext(p) {
 		case ".svelte", ".ts", ".js", ".html":
