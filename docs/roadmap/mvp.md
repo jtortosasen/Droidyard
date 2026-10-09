@@ -245,7 +245,7 @@ Two practical notes:
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult` | 1 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
-| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1 |
+| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch` | 1–2 |
 | `git` | `status`, `diff`, `log`, `branches` | last |
 | `operation` | `wait`, `cancel` | 0 |

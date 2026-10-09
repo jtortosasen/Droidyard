@@ -68,7 +68,13 @@
 // — the backlog from `-T` at once, then each line once the device clock (`<serial>.date.out`,
 // or `-T` when it is absent) has reached its epoch — and blocks until it is killed, as the
 // daemon ends the window by killing the client's pid. It writes its pid to
-// `<serial>.follow.pid`, so a test can tell the window's client is gone afterwards.
+// `<serial>.follow.pid`, so a test can tell the window's client is gone afterwards. A `-T`
+// of digits only is a count, as logcat's is, not an epoch: the newest N lines already due
+// are printed at once, then the follow continues; without `<serial>.date.out` every line
+// of the log is due when it is read, so a line a test appends is printed at the next
+// turn. A test ends a follow by itself, partway through, as a logcat does when
+// its device goes, by writing the status to `<serial>.follow.exitcode`: the follow exits
+// with it at its next turn.
 //
 // The fake models `pm list packages -U <filter>` as a table: `<serial>.pm.out` holds one
 // `package:<name> uid:<n>` line per installed package and the command prints the lines
@@ -127,6 +133,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -1035,8 +1042,16 @@ func runLogcat(ctx context.Context, dir, serial string, rest []string, stdout, s
 // tell the window's client is gone after the call.
 func followLogcat(ctx context.Context, dir, serial string, buffers []string, since string, stdout io.Writer) int {
 	writeFollowPid(dir, serial)
+	// A -T of digits only is a count of lines, not an epoch (an epoch has its fraction).
+	count := -1
+	if n, err := strconv.Atoi(since); err == nil && !strings.Contains(since, ".") {
+		count, since = n, ""
+	}
 	from, _ := strconv.ParseFloat(since, 64)
 	deviceNow := from
+	if count >= 0 {
+		deviceNow = math.MaxFloat64 // every line is due when read, unless date.out paces them
+	}
 	// The device clock is the answer a `shell date +%s.%N` gives, so the fake paces by the
 	// same instant the daemon read for its `-T` bound.
 	if v := dirString(dir, serial+".date.out"); v != "" {
@@ -1048,12 +1063,28 @@ func followLogcat(ctx context.Context, dir, serial string, buffers []string, sin
 	start := time.Now()
 	cur := ""
 	emitted := 0
+	if count >= 0 {
+		// The backlog is the newest count of the lines already due; the rest are skipped.
+		due := 0
+		for _, e := range logcatEntries(dir, serial, buffers, "") {
+			if !e.hasEpoch || e.epoch <= deviceNow {
+				due++
+			}
+		}
+		if due > count {
+			emitted = due - count
+		}
+	}
 	// Bounded: a test that fails before its window ends or before reconciliation must not
 	// leave this process re-reading files forever on a shared machine (step 3 review 7).
 	giveUp := time.Now().Add(2 * time.Minute)
 	for {
 		if time.Now().After(giveUp) {
 			return 0
+		}
+		if v := dirString(dir, serial+".follow.exitcode"); v != "" {
+			code, _ := strconv.Atoi(v)
+			return code
 		}
 		entries := logcatEntries(dir, serial, buffers, since)
 		elapsed := time.Since(start).Seconds()

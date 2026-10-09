@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
@@ -72,6 +73,12 @@ type ADB struct {
 	// DEVICE_NOT_FOUND drops the serial's entry.
 	devMu sync.Mutex
 	devs  map[string]*deviceCache
+
+	// bus is the daemon's event bus, which device.watchLogs' streams publish to
+	// (ADR-0041); nil in a registry that only needs the descriptors. streams is every
+	// live stream: Close ends them all and waits for each child to be reaped.
+	bus     *event.Bus
+	streams streamSet
 
 	// log is the daemon's log (daemon.log when the daemon is detached), where reader
 	// restarts, fallbacks and slow warm reads are recorded (plan m1n step 2). Nil, the
@@ -185,6 +192,10 @@ func NewADB(env []string, start Starter) *ADB {
 // supervisor's SpawnRecorded through the daemon's adapter (plan m1i D9). Without one a
 // follow cannot be recorded and fails rather than leave a client no daemon can find.
 func (a *ADB) SetStreamStarter(s StreamStarter) { a.stream = s }
+
+// SetBus gives the ADB the daemon's event bus, which device.watchLogs publishes its
+// streams to (ADR-0041). It is called once, at wiring, before any call.
+func (a *ADB) SetBus(b *event.Bus) { a.bus = b }
 
 // SetPolicy gives the ADB the daemon's policy, so a physical device's admission is
 // decided live at each check (ADR-0032 §2, §6; plan m1k D7). It is called once, at
