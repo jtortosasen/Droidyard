@@ -282,6 +282,29 @@ describe('Client', () => {
 		await expect(queued).resolves.toEqual({ back: true });
 	});
 
+	it('keeps a call made from an onEnd handler, and sends it on the next socket', async () => {
+		// A subscriber that resubscribes as soon as its subscription ends must not lose the
+		// request: the state is already reconnecting when onEnd runs.
+		const { client, sockets, timers } = setup();
+		client.connect();
+		sockets[0].open();
+		let again: Promise<unknown> | undefined;
+		const sub = client.subscribe(
+			'events.subscribe',
+			{ topics: ['workspace.lifecycle'] },
+			{ onEvent() {}, onEnd: () => (again = client.call('system.health', {})) },
+		);
+		sockets[0].reply({ id: sockets[0].lastId, result: { subscriptionId: 's' } });
+		await sub;
+		sockets[0].drop(1006);
+		expect(client.state).toBe('reconnecting');
+		timers.fire();
+		sockets[1].open();
+		expect(sockets[1].sent.map((f) => f.capability ?? 'auth')).toEqual(['auth', 'system.health']);
+		sockets[1].reply({ id: sockets[1].lastId, result: { ok: 1 } });
+		await expect(again).resolves.toEqual({ ok: 1 });
+	});
+
 	it('keeps a call made before the first connection when that attempt fails', async () => {
 		// The daemon may be starting: a call that was never sent waits for a socket that opens.
 		const { client, sockets, timers } = setup();
