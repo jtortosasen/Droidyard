@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Client, type ConnectionState } from './lib/api/client';
+	import Logcat from './lib/logcat/Logcat.svelte';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
 
@@ -16,9 +17,14 @@
 	let health = $state.raw<Result<'system.health'> | null>(null);
 	let healthError = $state<string | null>(null);
 
+	let client = $state.raw<Client | null>(null);
+	let devices = $state.raw<Result<'device.list'>['devices']>([]);
+	let devicesError = $state<string | null>(null);
+	let device = $state('');
+
 	$effect(() => {
 		if (token === null) return;
-		const client = new Client({
+		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
 			createSocket: (url) => new WebSocket(url),
@@ -29,7 +35,8 @@
 			},
 		});
 		function refresh() {
-			client.call('system.health', {}).then(
+			listDevices(c);
+			c.call('system.health', {}).then(
 				(h) => {
 					health = h;
 					healthError = null;
@@ -40,9 +47,33 @@
 				},
 			);
 		}
-		client.connect();
-		return () => client.close();
+		client = c;
+		c.connect();
+		return () => {
+			c.close();
+			client = null;
+		};
 	});
+
+	function listDevices(c: Client) {
+		c.call('device.list', {}).then(
+			(r) => {
+				devices = r.devices;
+				devicesError = null;
+				// One device to choose from is the choice, until the user picks another.
+				const online = r.devices.filter((d) => d.online);
+				if (device === '' && online.length === 1) device = online[0]!.device;
+			},
+			(e: unknown) => {
+				if (e instanceof Error && 'code' in e) devicesError = String(e.code);
+			},
+		);
+	}
+
+	function deviceLabel(d: Result<'device.list'>['devices'][number]): string {
+		const name = d.avdName ?? d.model ?? d.product ?? d.kind;
+		return `${d.device} (${name}, ${d.state})`;
+	}
 
 	function uptime(seconds: number): string {
 		const h = Math.floor(seconds / 3600);
@@ -67,6 +98,30 @@
 	{/if}
 	{#if healthError}
 		<p>system.health failed: {healthError}</p>
+	{/if}
+
+	<p>
+		<label>
+			Device
+			<select value={device} onchange={(e) => (device = e.currentTarget.value)}>
+				<option value="">none</option>
+				{#each devices as d (d.device)}
+					<option value={d.device} disabled={!d.online}>{deviceLabel(d)}</option>
+				{/each}
+			</select>
+		</label>
+		<button type="button" disabled={!client || connection !== 'open'} onclick={() => client && listDevices(client)}>
+			Refresh
+		</button>
+		{#if devicesError}
+			device.list failed: {devicesError}
+		{:else if devices.length === 0}
+			No device is connected.
+		{/if}
+	</p>
+
+	{#if client}
+		<Logcat {client} {connection} {device} />
 	{/if}
 {/if}
 

@@ -298,8 +298,10 @@ export class Client {
 				this.#end(new ConnectionError('unauthorized'));
 				return;
 			}
-			this.#end(new ConnectionError('lost'));
+			// The state first: a call made from an onEnd handler is then queued for the
+			// next socket rather than sent on the closed one.
 			this.#setState('reconnecting');
+			this.#end(new ConnectionError('lost'));
 			const delay = Math.min(BACKOFF_START_MS * 2 ** this.#attempt, BACKOFF_MAX_MS);
 			this.#attempt++;
 			this.#retry = this.#timers.setTimeout(() => {
