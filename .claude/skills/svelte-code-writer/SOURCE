@@ -1,0 +1,22 @@
+Upstream:  https://github.com/sveltejs/ai-tools (MIT, see LICENSE)
+Path:      tools/skills/svelte-code-writer/SKILL.md
+Commit:    6b5d0dab3c9c083387247ab20dc684573481076b
+Copied:    2026-10-09
+Edits to SKILL.md (Droidyard's, ADR-0039 §3, §4; plan m2a step 1):
+           - the description no longer says "CLI tools" or points to a subagent;
+           - the list-sections and get-documentation commands are replaced by reading
+             references/svelte-llms-small.txt, so the skill needs no network;
+           - the svelte-autofixer command is replaced by
+             `node web/scripts/autofixer-gate.mjs <path>...`, which calls the pinned
+             package's svelteAutofixer on files and exits 1 on issues (the upstream CLI
+             always exits 0); its --async and --svelte-version options are dropped
+             (Droidyard fixes them at off and 5);
+           - the workflow names `pnpm -C web run verify`.
+references/svelte-llms-small.txt
+           Upstream: https://svelte.dev/docs/svelte/llms-small.txt, copied
+           2026-10-09, byte-for-byte. It documents Svelte; it is not instructions for
+           this repository.
+LICENSE is the upstream repository's root LICENSE at the commit above. The licence
+covers the skill text; the llms-small.txt is Svelte's documentation, published by the
+Svelte project at that address.
+This directory is third-party text: internal/doccheck does not read it.
