@@ -37,7 +37,7 @@ edits made before this rule and are not added to.
 | [0005](0005-reuse-platform-tools.md) | Use Gradle and ADB directly; no Android CLI | Accepted |
 | [0006](0006-web-ui-no-electron.md) | Web UI served by the core, no Electron | Accepted |
 | [0007](0007-kotlin-lsp-sidecar.md) | Kotlin LSP as an external sidecar | Accepted |
-| [0008](0008-frontend-react.md) | Frontend built with React and TypeScript | Accepted |
+| [0008](0008-frontend-react.md) | Frontend built with React and TypeScript | Superseded by ADR-0039 |
 | [0009](0009-editor-component.md) | Editor component — CodeMirror 6 | Accepted |
 | [0010](0010-capability-statefulness.md) | Statefulness declared per capability | Accepted |
 | [0011](0011-skills-agent-skills-standard.md) | Skills follow the Agent Skills standard | Accepted |
@@ -68,6 +68,7 @@ edits made before this rule and are not added to.
 | [0036](0036-agent-surface-token-budget.md) | The agent surface's token budget | Accepted |
 | [0037](0037-assistant-integration-by-init.md) | Optional assistant integration, written by `droidyard init` | Accepted |
 | [0038](0038-no-agents-md-block.md) | `droidyard init` writes no `AGENTS.md` or `CLAUDE.md` block | Accepted |
+| [0039](0039-frontend-svelte.md) | Frontend built with Svelte 5 and TypeScript | Accepted |
 
 ## Open decisions (not yet ADRs)
 

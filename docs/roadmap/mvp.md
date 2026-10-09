@@ -181,8 +181,8 @@ structured results at every step and **no stdout parsing by the agent**. Accepte
 
 Deliverables:
 
-- React + TypeScript app served by the daemon; CodeMirror 6 editor
-  ([ADR-0008](../adr/0008-frontend-react.md),
+- Svelte 5 + TypeScript app the daemon serves; CodeMirror 6 editor
+  ([ADR-0039](../adr/0039-frontend-svelte.md),
   [ADR-0009](../adr/0009-editor-component.md)).
 - Panels, in priority order: **Logcat**, **build / Gradle tasks**, **Git**,
   **devices + screen**, then project explorer and problems. A code viewer/editor is
