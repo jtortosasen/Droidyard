@@ -213,6 +213,27 @@ describe('LogStream', () => {
 		expect(t.messages()).toEqual(['a', 'fresh']);
 	});
 
+	// Decision: a start is sent only once the previous start has been answered. The daemon
+	// serves a session's requests concurrently and registers a stream when it runs, so a
+	// slow earlier start could otherwise register last and replace the newer one.
+	it('sends a start only after the previous one is answered, and never one superseded while waiting', async () => {
+		const t = make();
+		t.stream.open('a', 'dev.slow.app');
+		t.stream.open('b');
+		t.stream.open('a');
+		expect(t.client.watches).toHaveLength(1); // b and the second a wait for the first answer
+		t.client.answer(0);
+		await settle();
+		expect(t.client.unsubscribed).toEqual(['sub1']); // the stale first start is ended first
+		expect(t.client.watches).toHaveLength(2); // b, superseded while it waited, was never sent
+		expect(t.client.watches[1]!.params).toEqual({ device: 'a' });
+		t.client.answer(1);
+		await settle();
+		expect(t.state).toBe('streaming');
+		t.client.lines(1, [line(1, 'newest')]);
+		expect(t.messages()).toEqual(['newest']);
+	});
+
 	it('shows a refused start by its code', async () => {
 		const t = make();
 		t.stream.open('d', 'dev.app.id');

@@ -1,6 +1,8 @@
 // Command burstadb is a fake adb for measuring the web UI's Logcat panel against a real
-// daemon (plan m2a step 5; K3, A7, A8). Point the daemon at it with ADB=<this binary> and
-// an empty ANDROID_AVD_HOME; it never touches a device or an adb server.
+// daemon (plan m2a step 5; K3, A7, A8). Point the daemon at it with ADB=<this binary>, an
+// empty ANDROID_AVD_HOME and ANDROID_ADB_SERVER_PORT set to a port nothing listens on: the
+// daemon's own adb check dials the server port directly, 5037 when unset, and the shared
+// server there is never to be touched. It never touches a device or an adb server itself.
 //
 // It answers exactly the invocations the daemon makes for device.list and for
 // device.watchLogs on one emulator, and a following logcat that emits lines at the rate
