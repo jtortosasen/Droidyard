@@ -129,7 +129,7 @@ close an item.
 | Whether clients hide `_meta` from the model | unverified | MCP/agents | [m1e §Unverified](../plans/m1e-jvm-free-device-slice.md#unverified) | 1e | |
 | OpenCode keeps a stable tool list across a policy change within one process | unverified | MCP/agents | [m1k §Unverified](../plans/m1k-policy-and-shell.md#unverified) | 1k | |
 | Whether nested `oneOf`/`anyOf` in a tool's `inputSchema` is safe for the clients we target (spike S7, not run); top-level unions are already refused by a schema test | unverified | MCP/agents | [mcp.md](../interfaces/mcp.md) | design | |
-| `init --client claude` (`CLAUDE.md`, `.mcp.json`, `.claude/settings.json`) not run in a real Claude Code; Codex gets nothing from `init` | unverified | MCP/agents | [m1o §Changes](../plans/m1o-tokens-and-harness.md#changes) | 1o | |
+| `init --client claude` (`.mcp.json`, `.claude/settings.json`, `.claude/skills`) not run in a real Claude Code; Codex gets nothing from `init` | unverified | MCP/agents | [m1o §Changes](../plans/m1o-tokens-and-harness.md#changes) | 1o | |
 | Distribution and registries: binaries, an installer, `llms-install.md`, telemetry, `init` for Codex (the skill and `droidyard init` are built: ADR-0037) | deferred | MCP/agents | [mvp §Out of scope](mvp.md#out-of-scope-explicit) | design | |
 | A stop-time build check after edits (automatic builds after editing were rejected) | deferred | MCP/agents | [m1o §Not in this milestone](../plans/m1o-tokens-and-harness.md#not-in-this-milestone) | 1o | |
 | Dropping `outputSchema` from `tools/list`, `$ref` deduplication, `tools/list_changed`, tree diffs between reads | deferred | MCP/agents | [m1o §Not in this milestone](../plans/m1o-tokens-and-harness.md#not-in-this-milestone) | 1o | |

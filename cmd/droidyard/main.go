@@ -73,11 +73,11 @@ Commands:
              It writes the user configuration; no daemon is involved or started.
   init       Set a project up for coding assistants (optional; every tool works without it):
              droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
-             Writes an AGENTS.md (CLAUDE.md for claude) block, the droidyard-android skill,
-             and per client the MCP server entry and an allowlist of the read-only tools,
-             naming this binary by its absolute path. It merges into existing files, keeps
-             an existing droidyard entry, and refuses a file it cannot parse. --uninstall
-             removes what init would write; --dry-run prints the changes and writes none.
+             Writes the droidyard-android skill and, per client, the MCP server entry and
+             an allowlist of the read-only tools, naming this binary by its absolute path.
+             It merges into existing files, keeps an existing droidyard entry, and refuses
+             a file it cannot parse. --uninstall removes what init would write; --dry-run
+             prints the changes and writes none.
              The root is --root, else the project root of the current directory.
              No daemon is involved or started.
 `

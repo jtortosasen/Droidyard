@@ -13,8 +13,9 @@ import (
 // fsRoot confines every read and write to one project root. It resolves symlinks one
 // path component at a time and refuses a path whose real location is outside the root:
 // init writes into the user's project, and a `.cursor` that links elsewhere is not a
-// reason to write there. A link that stays inside the root is followed, so an AGENTS.md
-// that is a link to CLAUDE.md is edited where it points and stays a link.
+// reason to write there. A link that stays inside the root is followed, so an
+// opencode.json that links to another file in the project is edited where it points and
+// stays a link.
 type fsRoot struct {
 	real string // the root with its symlinks resolved
 }

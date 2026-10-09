@@ -67,6 +67,7 @@ edits made before this rule and are not added to.
 | [0035](0035-reader-acts-fenced-by-peer-uid.md) | The reader acts: taps, keys and set-text, fenced by its peer's uid | Accepted |
 | [0036](0036-agent-surface-token-budget.md) | The agent surface's token budget | Accepted |
 | [0037](0037-assistant-integration-by-init.md) | Optional assistant integration, written by `droidyard init` | Accepted |
+| [0038](0038-no-agents-md-block.md) | `droidyard init` writes no `AGENTS.md` or `CLAUDE.md` block | Accepted |
 
 ## Open decisions (not yet ADRs)
 

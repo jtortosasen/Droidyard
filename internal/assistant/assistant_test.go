@@ -214,10 +214,9 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 	}{
 		{Cursor, func(root string) map[string]string {
 			return map[string]string{
-				"AGENTS.md":                         Block(),
-				".agents/":                          "",
-				".agents/skills/":                   "",
-				".agents/skills/droidyard-android/": "",
+				".agents/":                                             "",
+				".agents/skills/":                                      "",
+				".agents/skills/droidyard-android/":                    "",
 				".agents/skills/droidyard-android/SKILL.md":            skill,
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
@@ -228,10 +227,9 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 		}},
 		{Claude, func(root string) map[string]string {
 			return map[string]string{
-				"CLAUDE.md":                         Block(),
-				".claude/":                          "",
-				".claude/skills/":                   "",
-				".claude/skills/droidyard-android/": "",
+				".claude/":                                             "",
+				".claude/skills/":                                      "",
+				".claude/skills/droidyard-android/":                    "",
 				".claude/skills/droidyard-android/SKILL.md":            skill,
 				".claude/skills/droidyard-android/references/":         "",
 				".claude/skills/droidyard-android/references/tools.md": tools,
@@ -241,14 +239,13 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 		}},
 		{OpenCode, func(root string) map[string]string {
 			return map[string]string{
-				"AGENTS.md":                         Block(),
-				".agents/":                          "",
-				".agents/skills/":                   "",
-				".agents/skills/droidyard-android/": "",
+				".agents/":                                             "",
+				".agents/skills/":                                      "",
+				".agents/skills/droidyard-android/":                    "",
 				".agents/skills/droidyard-android/SKILL.md":            skill,
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
-				"opencode.json": opencode(root),
+				"opencode.json":                                        opencode(root),
 			}
 		}},
 	}
@@ -285,16 +282,6 @@ func sameText(t *testing.T, want, got map[string]string) {
 	}
 }
 
-// The block is at most five lines with its marks (ADR-0037 Decision 2).
-func TestBlockIsAtMostFiveLines(t *testing.T) {
-	if n := strings.Count(Block(), "\n"); n > 5 {
-		t.Errorf("the block has %d lines; ADR-0037 allows five", n)
-	}
-	if !strings.HasPrefix(Block(), beginMark+"\n") || !strings.HasSuffix(Block(), endMark+"\n") {
-		t.Errorf("the block is not enclosed in its marks: %q", Block())
-	}
-}
-
 // A second init changes nothing: not a byte, and it says so.
 func TestSecondInitChangesNothing(t *testing.T) {
 	root := projectRoot(t)
@@ -310,71 +297,33 @@ func TestSecondInitChangesNothing(t *testing.T) {
 	}
 }
 
-// An AGENTS.md keeps the user's text byte for byte outside the marks, through init, a
-// refresh of the block and --uninstall, whatever the file ended with.
-func TestMarkdownKeepsTheUsersTextOutsideTheMarks(t *testing.T) {
-	for _, orig := range []string{
-		"text",
-		"text\n",
-		"text\n\n",
-		"# Title\n\nSome rules.\n\n- one\n- two\n",
-		"\n",
-		"no newline, with <!-- other comment --> inside",
-		"crlf\r\nlines\r\n",
-	} {
-		t.Run(fmt.Sprintf("%q", orig), func(t *testing.T) {
-			root := projectRoot(t)
-			write(t, root, "AGENTS.md", orig)
-			mustRun(t, opts(root, OpenCode))
-			got := read(t, root, "AGENTS.md")
-			if !strings.HasPrefix(got, orig) || !strings.Contains(got, Block()) {
-				t.Fatalf("init changed the user's text or lost the block: %q", got)
-			}
-			mustRun(t, uninstall(opts(root, OpenCode)))
-			if after := read(t, root, "AGENTS.md"); after != orig {
-				t.Errorf("--uninstall left %q; want the original %q byte for byte", after, orig)
-			}
-		})
+// ADR-0038: init writes, refreshes and uninstalls nothing in AGENTS.md or CLAUDE.md,
+// whatever they hold, including a block from the 1o wording.
+func TestInitNeverTouchesAgentsOrClaudeMd(t *testing.T) {
+	oldBlock := "<!-- droidyard:begin -->\nold wording\n<!-- droidyard:end -->\n"
+	files := map[string]string{
+		"AGENTS.md": "# Rules\n\nBe kind.\n",
+		"CLAUDE.md": "mine\n\n" + oldBlock,
 	}
-
-	t.Run("text before and after the block, and an old block", func(t *testing.T) {
-		root := projectRoot(t)
-		stale := beginMark + "\nan older wording\n" + endMark + "\n"
-		write(t, root, "AGENTS.md", "before\n"+stale+"after\n")
-		res := mustRun(t, opts(root, OpenCode))
-		if got, want := read(t, root, "AGENTS.md"), "before\n"+Block()+"after\n"; got != want {
-			t.Errorf("a stale block was not refreshed in place: %q; want %q", got, want)
+	root := projectRoot(t)
+	for n, c := range files {
+		write(t, root, n, c)
+	}
+	check := func(when string, res Result) {
+		t.Helper()
+		for n, want := range files {
+			if got := read(t, root, n); got != want {
+				t.Errorf("%s: %s is %q; want it byte-identical %q", when, n, got, want)
+			}
+			for _, c := range res.Changes {
+				if c.Path == n {
+					t.Errorf("%s: %s is in the result (%s)", when, n, c.Status)
+				}
+			}
 		}
-		if c := statusOf(t, res, "AGENTS.md"); c.Status != Updated {
-			t.Errorf("refreshing a stale block is %s; want updated, said out loud", c.Status)
-		}
-		mustRun(t, uninstall(opts(root, OpenCode)))
-		if got := read(t, root, "AGENTS.md"); got != "before\nafter\n" {
-			t.Errorf("--uninstall left %q; want the text outside the marks, untouched", got)
-		}
-	})
-
-	t.Run("a block only init wrote is deleted with its file", func(t *testing.T) {
-		root := projectRoot(t)
-		mustRun(t, opts(root, OpenCode))
-		mustRun(t, uninstall(opts(root, OpenCode)))
-		if exists(root, "AGENTS.md") {
-			t.Error("--uninstall left an AGENTS.md that held only init's block")
-		}
-	})
-
-	t.Run("malformed marks are refused, not guessed", func(t *testing.T) {
-		root := projectRoot(t)
-		orig := "x\n" + beginMark + "\nno end\n"
-		write(t, root, "AGENTS.md", orig)
-		res := mustRun(t, opts(root, OpenCode))
-		if c := statusOf(t, res, "AGENTS.md"); c.Status != Refused {
-			t.Errorf("AGENTS.md with a lone begin mark is %s; want refused", c.Status)
-		}
-		if got := read(t, root, "AGENTS.md"); got != orig {
-			t.Errorf("a refused AGENTS.md was changed: %q", got)
-		}
-	})
+	}
+	check("init", mustRun(t, opts(root, Cursor, Claude, OpenCode)))
+	check("--uninstall", mustRun(t, uninstall(opts(root, Cursor, Claude, OpenCode))))
 }
 
 // The merge is by key: the user's servers stay in their order, and a droidyard entry
@@ -473,7 +422,7 @@ func TestUsersOwnAllowSurvivesInitAndUninstall(t *testing.T) {
 		sameTree(t, map[string]string{f: before[f]}, map[string]string{f: read(t, root, f)})
 	}
 	// init's own files are gone, with the directories it made.
-	for _, gone := range []string{".mcp.json", ".cursor/mcp.json", "CLAUDE.md", "AGENTS.md", ".claude/skills", ".agents"} {
+	for _, gone := range []string{".mcp.json", ".cursor/mcp.json", ".claude/skills", ".agents"} {
 		if exists(root, gone) {
 			t.Errorf("--uninstall left %s", gone)
 		}
@@ -531,17 +480,16 @@ func TestUninstallPrunesTheObjectsItEmptied(t *testing.T) {
 }
 
 // --uninstall removes only what is equal to what init writes now: a changed entry, a
-// changed block and a changed skill are the user's, and are reported.
+// changed skill are the user's, and are reported.
 func TestUninstallKeepsWhatDiffersFromWhatInitWrites(t *testing.T) {
 	root := projectRoot(t)
 	mustRun(t, opts(root, Cursor))
 	write(t, root, ".cursor/mcp.json", `{"mcpServers": {"droidyard": {"command": "/my/own/droidyard", "args": ["mcp"]}}}`)
 	write(t, root, ".agents/skills/droidyard-android/SKILL.md", "my edited skill\n")
-	write(t, root, "AGENTS.md", "x\n"+beginMark+"\nmy words\n"+endMark+"\n")
 	before := snapshot(t, root)
 
 	res := mustRun(t, uninstall(opts(root, Cursor)))
-	for _, p := range []string{".cursor/mcp.json", ".agents/skills/droidyard-android/SKILL.md", "AGENTS.md"} {
+	for _, p := range []string{".cursor/mcp.json", ".agents/skills/droidyard-android/SKILL.md"} {
 		c := statusOf(t, res, p)
 		if c.Status != Unchanged || !strings.Contains(notesOf(c), "kept") {
 			t.Errorf("%s: %s (%s); want unchanged, kept and reported", p, c.Status, notesOf(c))
@@ -580,7 +528,7 @@ func TestUnparseableFilesAreRefusedAndUntouched(t *testing.T) {
 			if got := read(t, root, ".cursor/cli.json"); got != content {
 				t.Errorf("a refused file was changed: %q", got)
 			}
-			if !exists(root, ".cursor/mcp.json") || !exists(root, "AGENTS.md") {
+			if !exists(root, ".cursor/mcp.json") || !exists(root, ".agents/skills/droidyard-android/SKILL.md") {
 				t.Error("one refused file stopped the others from being written")
 			}
 			// And --uninstall does not rewrite it either.
@@ -631,12 +579,13 @@ func TestNothingIsWrittenOutsideTheRoot(t *testing.T) {
 	})
 	t.Run("a file that is a symlink out", func(t *testing.T) {
 		root, outside := projectRoot(t), projectRoot(t)
-		target := filepath.Join(outside, "AGENTS.md")
+		target := filepath.Join(outside, "mcp.json")
 		os.WriteFile(target, []byte("theirs\n"), 0o644)
-		os.Symlink(target, filepath.Join(root, "AGENTS.md"))
+		os.MkdirAll(filepath.Join(root, ".cursor"), 0o755)
+		os.Symlink(target, filepath.Join(root, ".cursor", "mcp.json"))
 		res := mustRun(t, opts(root, Cursor))
-		if c := statusOf(t, res, "AGENTS.md"); c.Status != Refused {
-			t.Errorf("AGENTS.md: %s; want refused", c.Status)
+		if c := statusOf(t, res, ".cursor/mcp.json"); c.Status != Refused {
+			t.Errorf(".cursor/mcp.json: %s; want refused", c.Status)
 		}
 		if b, _ := os.ReadFile(target); string(b) != "theirs\n" {
 			t.Errorf("init wrote through the link: %q", b)
@@ -644,24 +593,25 @@ func TestNothingIsWrittenOutsideTheRoot(t *testing.T) {
 	})
 	t.Run("a dangling link", func(t *testing.T) {
 		root := projectRoot(t)
-		os.Symlink(filepath.Join(root, "nowhere"), filepath.Join(root, "AGENTS.md"))
-		if c := statusOf(t, mustRun(t, opts(root, Cursor)), "AGENTS.md"); c.Status != Refused {
-			t.Errorf("a dangling AGENTS.md: %s; want refused", c.Status)
+		os.MkdirAll(filepath.Join(root, ".cursor"), 0o755)
+		os.Symlink(filepath.Join(root, "nowhere"), filepath.Join(root, ".cursor", "mcp.json"))
+		if c := statusOf(t, mustRun(t, opts(root, Cursor)), ".cursor/mcp.json"); c.Status != Refused {
+			t.Errorf("a dangling .cursor/mcp.json: %s; want refused", c.Status)
 		}
 	})
 	t.Run("a link inside the root is followed and stays a link", func(t *testing.T) {
 		root := projectRoot(t)
-		write(t, root, "CLAUDE.md", "shared rules\n")
-		os.Symlink("CLAUDE.md", filepath.Join(root, "AGENTS.md"))
-		mustRun(t, opts(root, Cursor, Claude))
-		if fi, err := os.Lstat(filepath.Join(root, "AGENTS.md")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
-			t.Fatalf("AGENTS.md is no longer a symlink: %v", err)
+		write(t, root, "shared.json", "{\"theme\": \"dark\"}\n")
+		os.Symlink("shared.json", filepath.Join(root, "opencode.json"))
+		mustRun(t, opts(root, OpenCode))
+		if fi, err := os.Lstat(filepath.Join(root, "opencode.json")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("opencode.json is no longer a symlink: %v", err)
 		}
-		if got := read(t, root, "CLAUDE.md"); got != "shared rules\n\n"+Block() || strings.Count(got, beginMark) != 1 {
-			t.Errorf("CLAUDE.md = %q; want one block after the user's text", got)
+		if got := read(t, root, "shared.json"); !strings.Contains(got, ServerName) || !strings.Contains(got, "theme") {
+			t.Errorf("shared.json = %q; want the user's key and droidyard's entry", got)
 		}
-		mustRun(t, uninstall(opts(root, Cursor, Claude)))
-		if got := read(t, root, "CLAUDE.md"); got != "shared rules\n" {
+		mustRun(t, uninstall(opts(root, OpenCode)))
+		if got := read(t, root, "shared.json"); strings.Contains(got, ServerName) || !strings.Contains(got, "theme") {
 			t.Errorf("--uninstall left %q", got)
 		}
 	})
@@ -670,17 +620,17 @@ func TestNothingIsWrittenOutsideTheRoot(t *testing.T) {
 // --dry-run reports what it would do and writes nothing, for init and --uninstall.
 func TestDryRunWritesNothing(t *testing.T) {
 	root := projectRoot(t)
-	write(t, root, "AGENTS.md", "mine\n")
+	write(t, root, ".cursor/mcp.json", `{"mcpServers": {"other": {"command": "o"}}}`)
 	before := snapshot(t, root)
 	o := opts(root, Cursor, Claude, OpenCode)
 	o.DryRun = true
 	res := mustRun(t, o)
 	sameTree(t, before, snapshot(t, root))
-	if c := statusOf(t, res, "AGENTS.md"); c.Status != Updated {
-		t.Errorf("the dry run reports AGENTS.md %s; want updated", c.Status)
+	if c := statusOf(t, res, ".cursor/mcp.json"); c.Status != Updated {
+		t.Errorf("the dry run reports .cursor/mcp.json %s; want updated", c.Status)
 	}
-	if c := statusOf(t, res, ".cursor/mcp.json"); c.Status != Created {
-		t.Errorf("the dry run reports .cursor/mcp.json %s; want created", c.Status)
+	if c := statusOf(t, res, ".mcp.json"); c.Status != Created {
+		t.Errorf("the dry run reports .mcp.json %s; want created", c.Status)
 	}
 
 	o.DryRun = false
@@ -770,12 +720,13 @@ func TestUntouchedValuesKeepTheirText(t *testing.T) {
 	}
 }
 
-// Cursor and OpenCode share AGENTS.md's block and the .agents skill. Uninstalling one
+// Cursor and OpenCode share the .agents skill. Uninstalling one
 // leaves them while the other's droidyard entry is still in its file; uninstalling the
 // last one takes them (ADR-0037 Decision 2: remove exactly what this run wrote, and not
 // what another client still reads).
 func TestUninstallKeepsWhatAnotherClientStillUses(t *testing.T) {
-	shared := []string{"AGENTS.md", ".agents/skills/droidyard-android/SKILL.md", ".agents/skills/droidyard-android/references/tools.md"}
+	sharedSkill := ".agents/skills/droidyard-android/SKILL.md"
+	shared := []string{".agents/skills/droidyard-android/SKILL.md", ".agents/skills/droidyard-android/references/tools.md"}
 	for _, order := range [][2]Client{{Cursor, OpenCode}, {OpenCode, Cursor}} {
 		first, second := order[0], order[1]
 		t.Run(string(first)+" then "+string(second), func(t *testing.T) {
@@ -821,8 +772,8 @@ func TestUninstallKeepsWhatAnotherClientStillUses(t *testing.T) {
 		mustRun(t, opts(root, Cursor, OpenCode))
 		write(t, root, "opencode.json", "{not json")
 		mustRun(t, uninstall(opts(root, Cursor)))
-		if !exists(root, "AGENTS.md") {
-			t.Error("AGENTS.md was removed while opencode.json could not be read to say OpenCode is gone")
+		if !exists(root, sharedSkill) {
+			t.Error("the shared skill was removed while opencode.json could not be read to say OpenCode is gone")
 		}
 	})
 
@@ -831,8 +782,8 @@ func TestUninstallKeepsWhatAnotherClientStillUses(t *testing.T) {
 		mustRun(t, opts(root, Cursor))
 		write(t, root, "opencode.jsonc", "{\n  // the user's own, edited by hand\n}\n")
 		mustRun(t, uninstall(opts(root, Cursor)))
-		if !exists(root, "AGENTS.md") {
-			t.Error("AGENTS.md was removed while an opencode.jsonc may still configure OpenCode")
+		if !exists(root, sharedSkill) {
+			t.Error("the shared skill was removed while an opencode.jsonc may still configure OpenCode")
 		}
 	})
 
@@ -840,7 +791,7 @@ func TestUninstallKeepsWhatAnotherClientStillUses(t *testing.T) {
 		root := projectRoot(t)
 		mustRun(t, opts(root, Cursor, Claude))
 		mustRun(t, uninstall(opts(root, Claude)))
-		if exists(root, "CLAUDE.md") || !exists(root, "AGENTS.md") || !exists(root, ".cursor/mcp.json") {
+		if exists(root, ".claude/skills") || !exists(root, sharedSkill) || !exists(root, ".cursor/mcp.json") {
 			t.Errorf("uninstalling claude left %v", snapshot(t, root))
 		}
 	})
@@ -854,8 +805,6 @@ func TestFilesThatAreNotRegularAreRefused(t *testing.T) {
 		clients []Client
 	}
 	places := []place{
-		{"AGENTS.md", []Client{Cursor}},
-		{"CLAUDE.md", []Client{Claude}},
 		{".cursor/mcp.json", []Client{Cursor}},
 		{".cursor/cli.json", []Client{Cursor}},
 		{".mcp.json", []Client{Claude}},
@@ -915,12 +864,12 @@ func TestFilesThatAreNotRegularAreRefused(t *testing.T) {
 	t.Run("too large", func(t *testing.T) {
 		root := projectRoot(t)
 		big := strings.Repeat("x", maxFileSize+1)
-		write(t, root, "AGENTS.md", big)
+		write(t, root, ".cursor/mcp.json", big)
 		res := mustRun(t, opts(root, Cursor))
-		if c := statusOf(t, res, "AGENTS.md"); c.Status != Refused || !strings.Contains(notesOf(c), "larger than") {
-			t.Errorf("a 1 MiB+ AGENTS.md: %s (%s); want refused", c.Status, notesOf(c))
+		if c := statusOf(t, res, ".cursor/mcp.json"); c.Status != Refused || !strings.Contains(notesOf(c), "larger than") {
+			t.Errorf("a 1 MiB+ .cursor/mcp.json: %s (%s); want refused", c.Status, notesOf(c))
 		}
-		if read(t, root, "AGENTS.md") != big {
+		if read(t, root, ".cursor/mcp.json") != big {
 			t.Error("the large file was changed")
 		}
 	})
