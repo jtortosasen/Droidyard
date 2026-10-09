@@ -22,5 +22,5 @@ export function formatLine(l: StreamLine): string {
 
 /** The class a row gets for its priority: from a fixed set, never the device's own text. */
 export function priorityClass(p: Priority): string {
-	return LETTER[p] === undefined ? '' : `p-${p}`;
+	return Object.hasOwn(LETTER, p) ? `p-${p}` : '';
 }

@@ -70,6 +70,11 @@ export class LogStream {
 	#applicationId = '';
 	#run: Run | null = null;
 	#sub: Subscription | null = null;
+	// The start whose answer has not been handled yet. The daemon serves a session's
+	// requests concurrently and registers a stream only once it runs, so a slow earlier
+	// start (an application filter's uid lookup) could register after a fast later one
+	// and replace it. A start is therefore sent only once the previous one has settled.
+	#inflight: Promise<void> | null = null;
 	#waiting = false;
 
 	// The resume point: the newest line's time, and the lines held at exactly that time
@@ -148,7 +153,7 @@ export class LogStream {
 				}
 			},
 		};
-		this.#client.subscribe('device.watchLogs', params, handlers).then(
+		const send = (): Promise<void> => this.#client.subscribe('device.watchLogs', params, handlers).then(
 			(sub) => {
 				if (this.#run !== run) {
 					this.#unsubscribe(sub); // stopped or replaced while the answer was on its way
@@ -175,6 +180,13 @@ export class LogStream {
 				}
 			},
 		);
+		const prev = this.#inflight;
+		// A start superseded while it waited is never sent.
+		const p = prev === null ? send() : prev.then(() => (this.#run === run ? send() : undefined));
+		this.#inflight = p;
+		void p.finally(() => {
+			if (this.#inflight === p) this.#inflight = null;
+		});
 	}
 
 	#event(run: Run, frame: EventFrame): void {
