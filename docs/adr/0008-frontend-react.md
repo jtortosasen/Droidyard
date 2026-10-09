@@ -1,6 +1,6 @@
 # ADR-0008: Frontend built with React and TypeScript
 
-- Status: Accepted
+- Status: Superseded by ADR-0039
 - Date: 2026-09-27
 
 ## Context
