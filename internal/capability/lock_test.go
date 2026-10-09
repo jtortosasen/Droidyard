@@ -527,8 +527,8 @@ func TestQueueBoundRunsFromTheEnqueue(t *testing.T) {
 	f.ops.mu.Lock()
 	f.ops.ops[op.id] = op
 	f.ops.mu.Unlock()
-	w := f.ops.enqueue(op, "k")
 	f.ops.mu.Lock()
+	w := f.ops.enqueueLocked(op, "k")
 	w.since = time.Now().Add(-6 * time.Second)
 	f.ops.mu.Unlock()
 	start := time.Now()

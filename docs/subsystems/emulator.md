@@ -164,7 +164,7 @@ Booting is slow (tens of seconds to minutes for a cold boot). The defaults are c
 a configuration key exists (1i D14: boot 180 s, stop 20 s, listing 10 s), and `start`/`wipe`
 are long-running ([ADR-0020](../adr/0020-operation-contract.md)): an MCP call returns an
 operation id after its wait budget. A boot cancelled **after** its serial resolved **leaves the
-emulator running** (we do not own it) and simply stops waiting; one cancelled before then has
+emulator running** (we do not own it) and stops waiting; one cancelled before then has
 its launch ended (ADR-0033). That asymmetry is intentional and must be in the capability's
 description, so an agent does not assume cancellation killed the device.
 

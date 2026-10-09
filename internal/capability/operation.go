@@ -97,6 +97,9 @@ type operation struct {
 	started time.Time
 
 	// Guarded by Operations.mu.
+	// announced is set where the operation's start event is queued, so Active never
+	// lists an operation whose place (running or queued) is not decided yet.
+	announced       bool
 	state           State
 	result          any
 	err             *Error
@@ -137,6 +140,14 @@ type Publisher interface {
 	Publish(topic, typ, workspace, operation string, payload any)
 }
 
+// StatePublisher puts an operation.state event on the daemon's bus (ADR-0043). The event
+// layer implements it; capability does not import it. Broadcast takes a seq but never
+// enters the replay ring, and offers the event to every subscription holding the topic.
+// It never blocks on a subscriber.
+type StatePublisher interface {
+	Broadcast(topic, typ, workspace, operation string, payload any)
+}
+
 // Progress is published on operation.progress, type progress, with the operation id,
 // the operation's workspace and a Progress payload (overview.md §Events:
 // "Progress goes to the event bus, tagged with the operation id"; plan m1d, D4).
@@ -152,6 +163,8 @@ type Operations struct {
 	reg *Registry
 	ws  Workspaces
 	pub Publisher
+	// spub receives the operation.state events (UseStatePublisher).
+	spub StatePublisher
 
 	mu       sync.Mutex
 	ops      map[string]*operation
@@ -159,15 +172,31 @@ type Operations struct {
 	now      func() time.Time
 
 	// traces holds the trace lines of operations that reached a terminal state and
-	// are not yet written; traceLog writes them (see writeTraces). Guarded by mu.
+	// are not yet written; traceLog writes them (see flush). Guarded by mu.
 	traces   []string
 	traceLog func(format string, v ...any)
+
+	// events holds the operation.state events not yet published, in transition order,
+	// appended under mu where the transition happens. flush publishes them after mu is
+	// released. Guarded by mu.
+	events []stateEvent
+	// flushMu makes a flush (take the queues, write, publish) one step at a time, so two
+	// callers cannot publish out of the order the queue holds. It is never held together
+	// with mu in the other order: flush takes mu while holding flushMu, and nothing
+	// holding mu takes flushMu.
+	flushMu sync.Mutex
 
 	// locks holds the per-resource locks (Descriptor.Resource), by key. An entry
 	// exists while its key is held or awaited. Guarded by mu.
 	locks map[string]*lock
 	// queueBound is the queued-call bound; a field so a test can shorten it.
 	queueBound time.Duration
+}
+
+// stateEvent is one queued operation.state event.
+type stateEvent struct {
+	workspace, operation string
+	payload              OperationState
 }
 
 // lock is one resource key's holder and the operations queued behind it, oldest first.
@@ -200,7 +229,15 @@ func (o *Operations) UseWorkspaces(ws Workspaces) { o.ws = ws }
 // Without one, progress is only kept on the operation.
 func (o *Operations) UsePublisher(p Publisher) { o.pub = p }
 
-// UseTrace sets where the trace lines go (writeTraces); the default is the standard
+// UseStatePublisher gives the store the bus its operations' state transitions are
+// published on (ADR-0043). Without one, none is published.
+func (o *Operations) UseStatePublisher(p StatePublisher) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.spub = p
+}
+
+// UseTrace sets where the trace lines go (flush); the default is the standard
 // logger, which the daemon points at its log. A test injects a recorder.
 func (o *Operations) UseTrace(logf func(format string, v ...any)) {
 	o.mu.Lock()
@@ -270,24 +307,38 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 
 	// The lock is taken, or the place in its queue, before Start returns and in
 	// start order, so the order is the callers' and the state is already `queued`
-	// when the caller first looks.
+	// when the caller first looks. The start event is queued in the same critical
+	// section that decides the place (begin), so no transition of the operation can
+	// precede it, and it is published before the handler's goroutine exists.
 	var key string
-	var w *waiter
 	if d.Resource != nil {
-		if key = d.Resource(call); key != "" {
-			w = o.enqueue(op, key)
-		}
+		key = d.Resource(call)
 	}
+	w := o.begin(op, key)
+	o.flush()
 
 	go o.run(hctx, op, d, call, key, w)
 	return id, nil
 }
 
-// enqueue takes the lock on key for op, or, if another operation holds it, queues op
-// behind that one and returns its waiter.
-func (o *Operations) enqueue(op *operation, key string) *waiter {
+// begin decides the operation's place — it takes the lock on key, or queues behind its
+// holder, or has no key — and queues its start event (ADR-0043 §2), all under one hold of
+// o.mu. It returns the operation's waiter when it is queued.
+func (o *Operations) begin(op *operation, key string) *waiter {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	var w *waiter
+	if key != "" {
+		w = o.enqueueLocked(op, key)
+	}
+	op.announced = true
+	o.queueStateLocked(op)
+	return w
+}
+
+// enqueueLocked takes the lock on key for op, or, if another operation holds it, queues
+// op behind that one and returns its waiter. Called with o.mu held.
+func (o *Operations) enqueueLocked(op *operation, key string) *waiter {
 	l := o.locks[key]
 	if l == nil {
 		l = &lock{}
@@ -317,6 +368,7 @@ func (o *Operations) releaseLocked(key string) {
 	l.holder = next.op
 	next.granted = true
 	next.op.state, next.op.waiter, next.op.blockedBy = StateRunning, nil, nil
+	o.queueStateLocked(next.op)
 	for _, w := range l.waiters {
 		w.op.blockedBy = &BlockedBy{OperationID: next.op.id, Capability: next.op.capability}
 	}
@@ -343,7 +395,7 @@ func (o *Operations) awaitLock(ctx context.Context, op *operation, d Descriptor,
 		timedOut = true
 	}
 
-	defer o.writeTraces() // runs after the unlock below
+	defer o.flush() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if w.granted {
@@ -406,6 +458,7 @@ func (o *Operations) endLocked(op *operation) {
 	op.cancel()
 	o.terminal = append(o.terminal, op.id)
 	o.traces = append(o.traces, traceLine(op))
+	o.queueStateLocked(op)
 	close(op.done)
 	o.prune()
 }
@@ -431,20 +484,80 @@ func traceLine(op *operation) string {
 	return line
 }
 
-// writeTraces writes the trace lines that endLocked queued, after o.mu is released: a
-// log writer that is slow, or that calls back into the store, must not hold the store
-// (plan m2a, Q3). Every path that can end an operation calls it once it has unlocked, so
-// a line is written by whichever call gets there first and never twice.
-func (o *Operations) writeTraces() {
+// queueStateLocked queues the operation.state event for op's current state: at the start
+// (running, or queued with blockedBy), when a queued operation is granted (running), and
+// at its terminal state (durationMs, and code when failed). The payload is built from the
+// record's own fields and never from a parameter, result, message or cause (ADR-0043 §2).
+// Called with o.mu held; flush publishes it.
+func (o *Operations) queueStateLocked(op *operation) {
+	if o.spub == nil {
+		return
+	}
+	p := OperationState{Capability: op.capability, Client: op.client, State: op.state, StartedAt: op.started.UTC()}
+	if op.state.Terminal() {
+		ms := op.finished.Sub(op.started).Milliseconds()
+		p.DurationMs = &ms
+		if op.state == StateFailed && op.err != nil {
+			p.Code = op.err.Code
+		}
+	}
+	if op.blockedBy != nil {
+		b := *op.blockedBy
+		p.BlockedBy = &b
+	}
+	o.events = append(o.events, stateEvent{workspace: op.workspace, operation: op.id, payload: p})
+}
+
+// Active lists the operations not yet terminal whose start event is already queued, in
+// no particular order: operation.watch's snapshot (ADR-0043 §1). An operation between its
+// record and its start event is not listed, so a snapshot never shows `running` one that
+// is about to be queued; its start event reaches the watcher instead.
+func (o *Operations) Active() []ActiveOperation {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := []ActiveOperation{}
+	for _, op := range o.ops {
+		if !op.announced || op.state.Terminal() {
+			continue
+		}
+		a := ActiveOperation{OperationID: op.id, Capability: op.capability, Workspace: op.workspace,
+			Client: op.client, State: op.state, StartedAt: op.started.UTC()}
+		if op.blockedBy != nil {
+			b := *op.blockedBy
+			a.BlockedBy = &b
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// flush writes the trace lines and publishes the operation.state events that the
+// transitions queued, after o.mu is released: a log writer or a publisher that is slow, or
+// that calls back into the store, must not hold the store (plan m2a, Q3; ADR-0043 §3).
+// Every path that can end or start an operation calls it once it has unlocked, so a line
+// or an event is written by whichever call gets there first and never twice. flushMu is
+// held from taking the queues to the last publish, so a later caller cannot publish
+// before an earlier one has: the events leave in the order the transitions happened.
+func (o *Operations) flush() {
+	o.flushMu.Lock()
+	defer o.flushMu.Unlock()
 	o.mu.Lock()
 	lines, logf := o.traces, o.traceLog
-	o.traces = nil
+	events, spub := o.events, o.spub
+	o.traces, o.events = nil, nil
 	o.mu.Unlock()
-	if logf == nil {
-		logf = log.Printf
+	if len(lines) > 0 {
+		if logf == nil {
+			logf = log.Printf
+		}
+		for _, l := range lines {
+			logf("%s", l)
+		}
 	}
-	for _, l := range lines {
-		logf("%s", l)
+	if spub != nil {
+		for _, e := range events {
+			spub.Broadcast(StateTopic, StateType, e.workspace, e.operation, e.payload)
+		}
 	}
 }
 
@@ -475,7 +588,7 @@ func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, c
 		}
 	}
 
-	defer o.writeTraces() // runs after the unlock below
+	defer o.flush() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch {
@@ -553,7 +666,7 @@ func (o *Operations) Cancel(id string) error {
 	if err != nil {
 		return err
 	}
-	defer o.writeTraces() // runs after the unlock below
+	defer o.flush() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if op.state.Terminal() {
@@ -572,7 +685,7 @@ func (o *Operations) Cancel(id string) error {
 // returns, whatever it returns, unlike Cancel, under which a handler that returns a
 // result still completes. It does not wait, and returns the ids it cancelled.
 func (o *Operations) CancelWorkspace(id string) []string {
-	defer o.writeTraces() // runs after the unlock below
+	defer o.flush() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	var ids []string
@@ -618,7 +731,7 @@ func (o *Operations) Shutdown(ctx context.Context) error {
 		}
 	}
 	o.mu.Unlock()
-	o.writeTraces()
+	o.flush()
 	for _, op := range running {
 		select {
 		case <-op.done:

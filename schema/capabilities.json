@@ -1,5 +1,5 @@
 {
-  "version": "0.14.0",
+  "version": "0.15.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -5916,6 +5916,168 @@
           "capability",
           "state"
         ]
+      }
+    },
+    {
+      "name": "operation.watch",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.15.0",
+      "description": "Streams every operation's state transitions to the calling WebSocket session on topic operation.state: when it is recorded (running or queued), when a queued one starts running, when it ends. The result lists the operations not yet terminal, taken after the subscription opened: merge it with the events by operationId, and call this again after an events.gap.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "SESSION_REQUIRED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "properties": {
+                "operationId": {
+                  "type": "string"
+                },
+                "capability": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string",
+                  "description": "The workspace id; omitted for a global operation."
+                },
+                "client": {
+                  "type": "string",
+                  "enum": [
+                    "cli",
+                    "mcp",
+                    "ui"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "running"
+                  ]
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "blockedBy": {
+                  "properties": {
+                    "operationId": {
+                      "type": "string"
+                    },
+                    "capability": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Set while the operation is queued."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "operationId",
+                "capability",
+                "state",
+                "startedAt"
+              ]
+            },
+            "type": "array",
+            "description": "The operations not yet terminal, taken after the subscription opened: an operation in this list may also arrive as an event, merge by operationId."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "operations"
+        ]
+      },
+      "events": {
+        "topic": "operation.state",
+        "types": {
+          "state": {
+            "properties": {
+              "capability": {
+                "type": "string"
+              },
+              "client": {
+                "type": "string",
+                "enum": [
+                  "cli",
+                  "mcp",
+                  "ui"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "durationMs": {
+                "type": "integer",
+                "description": "Set on the terminal event: milliseconds from the operation's record to its end."
+              },
+              "code": {
+                "type": "string",
+                "description": "Set on a failed operation's terminal event."
+              },
+              "blockedBy": {
+                "properties": {
+                  "operationId": {
+                    "type": "string"
+                  },
+                  "capability": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "Set while the operation is queued."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "capability",
+              "state",
+              "startedAt"
+            ]
+          }
+        }
       }
     },
     {

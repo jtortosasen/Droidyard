@@ -118,7 +118,7 @@ subscription: [files](../subsystems/files.md)). Detail in
 - Subscribers resume with `since` from a bounded replay ring; overflow and expired
   resumes are an explicit `events.gap`, never silent. A capability's own stream
   (`file.changes`) takes a `seq` but never enters the ring, so a busy watch cannot flush
-  what other subscribers resume from.
+  what other subscribers resume from; so does `operation.state`.
 - The bus is the **only** cross-cutting channel. Progress goes to it tagged with the
   operation id; adapters subscribe and translate (MCP progress notifications, WebSocket
   frames). No adapter polls, and no handler knows which adapter is watching.
