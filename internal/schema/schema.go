@@ -53,6 +53,18 @@ type CapabilitySchema struct {
 	// Output is the MCP output schema: the result, or the operation view for a
 	// long-running capability.
 	Output json.RawMessage `json:"output"`
+
+	// Events are the events the capability publishes to the subscription its own call
+	// opened, per type, inlined and marked untrusted like a result (ADR-0041 §4). Absent
+	// for a capability that streams nothing.
+	Events *EventsSchema `json:"events,omitempty"`
+}
+
+// EventsSchema is a capability's stream: the topic its events carry and the payload
+// schema of each type. The topic is not subscribable through events.subscribe.
+type EventsSchema struct {
+	Topic string                     `json:"topic"`
+	Types map[string]json.RawMessage `json:"types"`
 }
 
 // AnnotationsSchema is the four hints as a client receives them, already resolved.
@@ -299,6 +311,18 @@ func Generate(reg *capability.Registry, version string) (*Document, error) {
 			requires = append(requires, string(r))
 		}
 
+		var events *EventsSchema
+		if d.Events != nil {
+			events = &EventsSchema{Topic: d.Events.Topic, Types: make(map[string]json.RawMessage, len(d.Events.Types))}
+			for typ, payload := range d.Events.Types {
+				raw, err := reflect(payload)
+				if err != nil {
+					return nil, fmt.Errorf("capability %s: event %s: %w", d.Name, typ, err)
+				}
+				events.Types[typ] = raw
+			}
+		}
+
 		doc.Capabilities = append(doc.Capabilities, CapabilitySchema{
 			Name:         d.Name,
 			Kind:         d.Kind.String(),
@@ -319,6 +343,7 @@ func Generate(reg *capability.Registry, version string) (*Document, error) {
 			Errors: codes,
 			Input:  input,
 			Output: output,
+			Events: events,
 		})
 	}
 

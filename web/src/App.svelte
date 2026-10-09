@@ -1,0 +1,134 @@
+<script lang="ts">
+	import { Client, type ConnectionState } from './lib/api/client';
+	import Logcat from './lib/logcat/Logcat.svelte';
+	import type { Result } from './lib/api/capabilities.gen';
+	import { bootstrapToken, forgetToken } from './lib/api/token';
+
+	// The token comes from the fragment `droidyard ui` opened, once; a tab without one,
+	// or whose token the daemon refused, shows the instruction (http-websocket.md
+	// §Security baseline).
+	const token = bootstrapToken({
+		location: window.location,
+		history: window.history,
+		storage: window.sessionStorage,
+	});
+
+	let connection = $state<ConnectionState>('connecting');
+	let health = $state.raw<Result<'system.health'> | null>(null);
+	let healthError = $state<string | null>(null);
+
+	let client = $state.raw<Client | null>(null);
+	let devices = $state.raw<Result<'device.list'>['devices']>([]);
+	let devicesError = $state<string | null>(null);
+	let device = $state('');
+
+	$effect(() => {
+		if (token === null) return;
+		const c = new Client({
+			url: `ws://${window.location.host}/v1/ws`,
+			token,
+			createSocket: (url) => new WebSocket(url),
+			onState: (s) => {
+				connection = s;
+				if (s === 'unauthorized') forgetToken(window.sessionStorage);
+				if (s === 'open') refresh();
+			},
+		});
+		function refresh() {
+			listDevices(c);
+			c.call('system.health', {}).then(
+				(h) => {
+					health = h;
+					healthError = null;
+				},
+				(e: unknown) => {
+					// A lost connection is shown by the state; a capability error by its code.
+					if (e instanceof Error && 'code' in e) healthError = String(e.code);
+				},
+			);
+		}
+		client = c;
+		c.connect();
+		return () => {
+			c.close();
+			client = null;
+		};
+	});
+
+	function listDevices(c: Client) {
+		c.call('device.list', {}).then(
+			(r) => {
+				devices = r.devices;
+				devicesError = null;
+				// One device to choose from is the choice, until the user picks another.
+				const online = r.devices.filter((d) => d.online);
+				if (device === '' && online.length === 1) device = online[0]!.device;
+			},
+			(e: unknown) => {
+				if (e instanceof Error && 'code' in e) devicesError = String(e.code);
+			},
+		);
+	}
+
+	function deviceLabel(d: Result<'device.list'>['devices'][number]): string {
+		const name = d.avdName ?? d.model ?? d.product ?? d.kind;
+		return `${d.device} (${name}, ${d.state})`;
+	}
+
+	function uptime(seconds: number): string {
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		return h > 0 ? `${h} h ${m} min` : m > 0 ? `${m} min ${seconds % 60} s` : `${seconds} s`;
+	}
+</script>
+
+<h1>Droidyard</h1>
+
+{#if token === null}
+	<p>No token in this tab: run <code>droidyard ui</code>.</p>
+{:else if connection === 'unauthorized'}
+	<p>The daemon restarted: run <code>droidyard ui</code>.</p>
+{:else}
+	<p>Connection: <strong>{connection}</strong></p>
+	{#if health}
+		<p>
+			Daemon {health.version ?? 'unknown version'}, up
+			{health.uptimeSeconds === undefined ? 'unknown' : uptime(health.uptimeSeconds)}
+		</p>
+	{/if}
+	{#if healthError}
+		<p>system.health failed: {healthError}</p>
+	{/if}
+
+	<p>
+		<label>
+			Device
+			<select value={device} onchange={(e) => (device = e.currentTarget.value)}>
+				<option value="">none</option>
+				{#each devices as d (d.device)}
+					<option value={d.device} disabled={!d.online}>{deviceLabel(d)}</option>
+				{/each}
+			</select>
+		</label>
+		<button type="button" disabled={!client || connection !== 'open'} onclick={() => client && listDevices(client)}>
+			Refresh
+		</button>
+		{#if devicesError}
+			device.list failed: {devicesError}
+		{:else if devices.length === 0}
+			No device is connected.
+		{/if}
+	</p>
+
+	{#if client}
+		<Logcat {client} {connection} {device} />
+	{/if}
+{/if}
+
+<style>
+	:global(body) {
+		font-family: system-ui, sans-serif;
+		margin: 1rem;
+		line-height: 1.4;
+	}
+</style>

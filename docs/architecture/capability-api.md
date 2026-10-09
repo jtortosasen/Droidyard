@@ -158,11 +158,11 @@ another's ids.
   (count and byte caps in `internal/event/event.go`), then continues live. If `since` is
   older than the buffer, or from another epoch, delivery starts with an `events.gap`
   marker. Events are never persisted.
-- `file.changes` is the exception: it takes a `seq` but never enters the ring, because a
-  busy watch would otherwise flush what other subscribers resume from. It is offered to
-  the subscription `file.watch` created and to no other, it is not subscribable, and it
-  does not accept `since`: a watch that was not running produced nothing to replay, so
-  after a reconnect the client watches again and re-lists.
+- `file.changes` and `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md))
+  are the exceptions: each takes a `seq` but never enters the ring, which a busy stream
+  would flush for other subscribers. It is offered only to the subscription that
+  `file.watch` or `device.watchLogs` created, is not subscribable and accepts no `since`:
+  after a reconnect the client starts the stream again.
 - Overflowing a subscription's own queue costs that subscription a gap, not the session.
   On the WebSocket an event arrives as `{"subscriptionId", "event"}`, never before the
   response that gave the id ([http-websocket](../interfaces/http-websocket.md)

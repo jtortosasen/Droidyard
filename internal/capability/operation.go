@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -90,6 +91,10 @@ type operation struct {
 	// workspace is the canonical id of the workspace the operation runs in; empty for
 	// a global call and for workspace.open and workspace.close.
 	workspace string
+	// client is the kind of the session that made the call, and started when the
+	// operation was recorded: both only for the trace line.
+	client  ClientKind
+	started time.Time
 
 	// Guarded by Operations.mu.
 	state           State
@@ -153,6 +158,11 @@ type Operations struct {
 	terminal []string // ids of terminal operations, oldest first
 	now      func() time.Time
 
+	// traces holds the trace lines of operations that reached a terminal state and
+	// are not yet written; traceLog writes them (see writeTraces). Guarded by mu.
+	traces   []string
+	traceLog func(format string, v ...any)
+
 	// locks holds the per-resource locks (Descriptor.Resource), by key. An entry
 	// exists while its key is held or awaited. Guarded by mu.
 	locks map[string]*lock
@@ -190,6 +200,14 @@ func (o *Operations) UseWorkspaces(ws Workspaces) { o.ws = ws }
 // Without one, progress is only kept on the operation.
 func (o *Operations) UsePublisher(p Publisher) { o.pub = p }
 
+// UseTrace sets where the trace lines go (writeTraces); the default is the standard
+// logger, which the daemon points at its log. A test injects a recorder.
+func (o *Operations) UseTrace(logf func(format string, v ...any)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.traceLog = logf
+}
+
 // Start validates a call, records it as an operation and runs its handler, returning
 // the operation id without waiting. A call rejected here gets a typed error and
 // creates no operation (ADR-0020 §Core primitives).
@@ -201,18 +219,18 @@ func (o *Operations) Start(ctx context.Context, req Request) (string, error) {
 	if !d.Recorded() {
 		return "", fmt.Errorf("capability %s is not an operation: call it through Invoke", d.Name)
 	}
-	return o.start(ctx, d, params, req.Workspace, req.Session)
+	return o.start(ctx, d, params, req.Workspace, req.Session, req.Client)
 }
 
 // start records the operation and runs its handler. A workspace-scoped call is
 // admitted first: its target must be an open workspace, and the call runs with the
 // workspace's canonical id (ADR-0020 §Scope and workspace addressing).
-func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session) (string, error) {
+func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session, client ClientKind) (string, error) {
 	id := newID()
 	// The handler's context carries the caller's values but not its cancellation:
 	// only Cancel ends it.
 	hctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	op := &operation{id: id, capability: d.Name, state: StateRunning, cancel: cancel, done: make(chan struct{})}
+	op := &operation{id: id, capability: d.Name, client: client, started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
 	call := &Call{
 		OperationID: id,
 		Workspace:   target,
@@ -325,6 +343,7 @@ func (o *Operations) awaitLock(ctx context.Context, op *operation, d Descriptor,
 		timedOut = true
 	}
 
+	defer o.writeTraces() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if w.granted {
@@ -386,8 +405,47 @@ func (o *Operations) endLocked(op *operation) {
 	op.finished = o.now()
 	op.cancel()
 	o.terminal = append(o.terminal, op.id)
+	o.traces = append(o.traces, traceLine(op))
 	close(op.done)
 	o.prune()
+}
+
+// traceLine is the operation's trace: one line, written once, when it reaches a terminal
+// state (docs/architecture/overview.md §Cross-cutting concerns). It names the operation
+// and who asked, never what was asked or answered: no parameter, result, message, cause or
+// detail, and a code only for a failed operation. A call recorded without a client kind
+// shows it as "-". Called with o.mu held.
+func traceLine(op *operation) string {
+	client, workspace := string(op.client), op.workspace
+	if client == "" {
+		client = "-"
+	}
+	if workspace == "" {
+		workspace = "-"
+	}
+	line := fmt.Sprintf("droidyard: op %s client=%s capability=%s workspace=%s state=%s ms=%d",
+		op.id, client, op.capability, workspace, op.state, op.finished.Sub(op.started).Milliseconds())
+	if op.state == StateFailed && op.err != nil {
+		line += " code=" + string(op.err.Code)
+	}
+	return line
+}
+
+// writeTraces writes the trace lines that endLocked queued, after o.mu is released: a
+// log writer that is slow, or that calls back into the store, must not hold the store
+// (plan m2a, Q3). Every path that can end an operation calls it once it has unlocked, so
+// a line is written by whichever call gets there first and never twice.
+func (o *Operations) writeTraces() {
+	o.mu.Lock()
+	lines, logf := o.traces, o.traceLog
+	o.traces = nil
+	o.mu.Unlock()
+	if logf == nil {
+		logf = log.Printf
+	}
+	for _, l := range lines {
+		logf("%s", l)
+	}
 }
 
 // run waits for the operation's lock, if it has one, then runs it. The lock is handed
@@ -417,6 +475,7 @@ func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, c
 		}
 	}
 
+	defer o.writeTraces() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch {
@@ -494,6 +553,7 @@ func (o *Operations) Cancel(id string) error {
 	if err != nil {
 		return err
 	}
+	defer o.writeTraces() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if op.state.Terminal() {
@@ -512,6 +572,7 @@ func (o *Operations) Cancel(id string) error {
 // returns, whatever it returns, unlike Cancel, under which a handler that returns a
 // result still completes. It does not wait, and returns the ids it cancelled.
 func (o *Operations) CancelWorkspace(id string) []string {
+	defer o.writeTraces() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	var ids []string
@@ -557,6 +618,7 @@ func (o *Operations) Shutdown(ctx context.Context) error {
 		}
 	}
 	o.mu.Unlock()
+	o.writeTraces()
 	for _, op := range running {
 		select {
 		case <-op.done:
@@ -578,7 +640,7 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 		return Outcome{}, err
 	}
 	if d.Recorded() {
-		id, err := o.start(ctx, d, params, req.Workspace, req.Session)
+		id, err := o.start(ctx, d, params, req.Workspace, req.Session, req.Client)
 		if err != nil {
 			return Outcome{}, err
 		}

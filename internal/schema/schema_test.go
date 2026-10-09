@@ -134,6 +134,10 @@ func TestSchemaObeysTheClientRules(t *testing.T) {
 			Name   string          `json:"name"`
 			Input  json.RawMessage `json:"input"`
 			Output json.RawMessage `json:"output"`
+			Events *struct {
+				Topic string                     `json:"topic"`
+				Types map[string]json.RawMessage `json:"types"`
+			} `json:"events"`
 		} `json:"capabilities"`
 	}
 	if err := json.Unmarshal(generate(t), &doc); err != nil {
@@ -144,7 +148,18 @@ func TestSchemaObeysTheClientRules(t *testing.T) {
 	}
 
 	for _, c := range doc.Capabilities {
-		for _, s := range []json.RawMessage{c.Input, c.Output} {
+		// A stream's event payloads obey the same rules: they are what the generated
+		// client types, and a $ref or a union there would not survive its generator.
+		schemas := []json.RawMessage{c.Input, c.Output}
+		if c.Events != nil {
+			if c.Events.Topic == "" || len(c.Events.Types) == 0 {
+				t.Errorf("%s: events has topic %q and %d types; both are required", c.Name, c.Events.Topic, len(c.Events.Types))
+			}
+			for _, raw := range c.Events.Types {
+				schemas = append(schemas, raw)
+			}
+		}
+		for _, s := range schemas {
 			var obj map[string]any
 			if err := json.Unmarshal(s, &obj); err != nil {
 				t.Fatalf("%s: a schema is not an object: %v", c.Name, err)

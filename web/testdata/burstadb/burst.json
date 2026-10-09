@@ -1,0 +1,8 @@
+{
+  "serial": "emulator-5554",
+  "app": "dev.droidyard.burst",
+  "uid": 10146,
+  "backlog": 200,
+  "trigger": "",
+  "phases": [{ "seconds": 2, "rate": 0 }, { "seconds": 15, "rate": 5000 }]
+}

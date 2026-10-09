@@ -170,8 +170,17 @@ func plainStart(start Starter) func(*exec.Cmd) (func() error, error) {
 // client, so a recorded client's record is removed by the same call that reaps it. A
 // starter error is wrapped as a failure to start, so the caller's mapping is the same
 // whichever starter it used.
+//
+// A timeout of zero or less is no window at all: the client runs until it exits or ctx
+// ends. device.watchLogs' stream is that case (ADR-0041 §6); every other caller passes
+// the bound its call needs.
 func (a *ADB) runLines(ctx context.Context, path string, timeout time.Duration, stderrLimit int, onLine func(line []byte) error, start func(*exec.Cmd) (func() error, error), args []string) (Output, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = a.env

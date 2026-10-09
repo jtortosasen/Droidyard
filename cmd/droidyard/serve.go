@@ -27,6 +27,7 @@ import (
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/web"
 	"golang.org/x/sys/unix"
 )
 
@@ -90,7 +91,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		HTTP: &daemon.HTTP{
 			Addr:    httpAddr,
 			Listen:  httpapi.Listen,
-			Handler: httpapi.New(reg, ops, bus, token),
+			Handler: httpapi.New(reg, ops, bus, token, web.Assets()),
 			Token:   token,
 		},
 		Log: log,

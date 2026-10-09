@@ -326,6 +326,30 @@ func TestLinkChecksCatchDrift(t *testing.T) {
 	})
 }
 
+// Decision (plan m2a step 1): the vendored third-party skills are not read by any
+// check. Their markdown cites documents that do not exist here, and a link or
+// section reference in them is not ours to check; the same text in a skill of ours is.
+func TestThirdPartyDirectoriesAreSkipped(t *testing.T) {
+	text := "# Vendored\n\nSee [x](../nowhere.md) and `docs/missing.md` §Nothing.\n"
+	tr := linkFixture.with(t, ".claude/skills/svelte-core-bestpractices/references/x.md", "", text).
+		with(t, ".claude/skills/svelte-code-writer/SKILL.md", "", text)
+	files, err := markdownFiles(tr.fs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f, ".claude/skills/svelte-") {
+			t.Errorf("markdownFiles lists vendored %s", f)
+		}
+	}
+	expectClean(t, checkLinks(tr.fs()))
+	expectClean(t, checkSectionRefs(tr.fs()))
+
+	// The same text in a skill of ours is checked.
+	own := linkFixture.with(t, ".claude/skills/own/SKILL.md", "", text)
+	expect(t, checkLinks(own.fs()), ".claude/skills/own/SKILL.md", "does not exist")
+}
+
 const goodPlan = `# Plan: Milestone 1b — Daemon
 
 - Status: Approved
