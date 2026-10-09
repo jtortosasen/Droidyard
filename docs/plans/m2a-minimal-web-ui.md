@@ -98,7 +98,7 @@ Baseline on 2026-10-09 at `09cda54` (macOS): `go vet ./...` and `gofmt -l .` pri
 - Needs: step 2 (both touch `httpapi`).
 - Not here: a trace file, a switch or an operation listing (Q3); `daemon.log` rotation (register).
 - Rests on: the line carries no request or device data (level 4).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `cb61932`. `TestEveryOperationIsTracedOnce` (`-race`): cli, mcp and ui through completed, failed, cancelled running and queued, a queue timeout, `CancelWorkspace` and `Shutdown`, 30 lines, one per id; `operation.wait`/`operation.cancel` add none (they are not recorded: `Invoke`'s unrecorded branch). Seen failing with the client unrecorded, with params on the line, with the line written under `mu` (deadlock: the recorder re-enters the store), without the drain in `execute`, and with the pending list never cleared. Every `endLocked` path (`awaitLock`, `execute`, `Cancel`, `CancelWorkspace`, `Shutdown`) drains after its unlock (read). The artifact route's test asserts `client=ui capability=artifact.read`. A scratch daemon wrote `droidyard: op op-… client=cli capability=system.health workspace=- state=completed ms=78` for a CLI call and nothing for an `operation.wait`; a foreground `serve` logs to its stderr, an auto-started one to `daemon.log`. Reviewed by the main session (diff).
 
 ### 4. `device.watchLogs` in the core (Q2)
 
