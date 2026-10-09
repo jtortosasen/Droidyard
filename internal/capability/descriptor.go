@@ -219,6 +219,11 @@ type Descriptor struct {
 	// passes the waited operation's code through. Part of the published schema.
 	Errors []ErrorCode
 
+	// Events declares the events a streaming capability publishes to the subscription
+	// its own call opened, so the published schema types them (ADR-0041 §4; ADR-0016).
+	// Nil for a capability that publishes none.
+	Events *Events
+
 	Annotations Annotations
 
 	// Availability lists the external tools the capability needs.
@@ -267,6 +272,16 @@ func (d Descriptor) Untrusted() bool { return d.untrusted }
 // capability's does except operation.wait's and operation.cancel's: callers run those
 // through Invoke, never Start.
 func (d Descriptor) Recorded() bool { return !d.unrecorded }
+
+// Events is the stream a capability owns: the topic its events are published on and, per
+// event type, the payload's Go type (a struct value). The schema package publishes it as
+// `events: {topic, types: {<type>: <schema>}}`, inlined and with the untrusted marks the
+// payload's tags give (ADR-0015 §1). The topic is not subscribable through
+// events.subscribe: only the subscription the capability's call opened receives it.
+type Events struct {
+	Topic string
+	Types map[string]any
+}
 
 // Deprecation marks a capability as deprecated without removing it.
 type Deprecation struct {

@@ -114,6 +114,19 @@ gofmt -l .          # must print nothing
 go test ./...
 ```
 
+The frontend (`web/`, Svelte 5 with TypeScript, ADR-0039) needs Node and pnpm only when a
+commit touches `web/`, the schema or the hook (ADR-0040). Install once, with pinned
+versions and the lockfile as the authority; never use `npx` or `pnpm dlx`:
+
+```sh
+pnpm -C web install --frozen-lockfile
+pnpm -C web run verify    # pins, svelte-check (no warnings), Vitest, Vite build
+node web/scripts/autofixer-gate.mjs <file>...   # svelteAutofixer on .svelte, .svelte.ts, .svelte.js
+```
+
+`.githooks/pre-commit` runs both before its Go part. Before writing Svelte, load the
+`svelte-core-bestpractices` and `svelte-code-writer` skills (vendored, third-party).
+
 After changing any descriptor, regenerate the published schema and review the diff:
 
 ```sh

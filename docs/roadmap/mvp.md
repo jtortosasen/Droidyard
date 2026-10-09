@@ -84,8 +84,8 @@ trips, fewer tokens, no image interpretation.
   authentication get no effort in the MVP. *Ratified 2026-09-29: remote access comes
   after v1*, though it is where the project started. The loopback HTTP baseline is
   still required before the UI ships.
-- **Live screen streaming** to the UI. The device panel refreshes stills; streaming is
-  a stretch goal inside phase 2.
+- **Live screen streaming** to the UI: a stretch 2b weighs; no stills (owner,
+  2026-10-09).
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
 - **Distribution**: binaries ([ADR-0014](../adr/0014-agent-distribution-model.md));
   the skill and `init` are in ([ADR-0037](../adr/0037-assistant-integration-by-init.md)).
@@ -184,19 +184,20 @@ Deliverables:
 - Svelte 5 + TypeScript app the daemon serves; CodeMirror 6 editor
   ([ADR-0039](../adr/0039-frontend-svelte.md),
   [ADR-0009](../adr/0009-editor-component.md)).
-- Panels, in priority order: **Logcat**, **build / Gradle tasks**, **Git**,
-  **devices + screen**, then project explorer and problems. A code viewer/editor is
-  deferred: it only becomes useful with code intelligence.
+- Panels: **Logcat**, streaming (2a); **build / Gradle tasks** with problems and
+  **devices**, no stills (2b); **Git** and the explorer (2c): the owner's split of
+  2026-10-09 ([m2a](../plans/m2a-minimal-web-ui.md)). A code editor waits for code
+  intelligence.
 - TypeScript client generated from the capability schema.
 - The loopback HTTP baseline (127.0.0.1, Host and Origin checks, a per-launch token),
   delivered early with the Phase 0 skeleton; Phase 2 adds no rule to it.
 
-Stretch (not required to close the MVP): live screen stream to the device panel.
+Stretch (not required to close the MVP): live screen stream to the device panel; 2b weighs its cost.
 
 Acceptance:
 
 - The golden path is drivable from the browser, including reading the structured build
-  errors and seeing device state.
+  errors and seeing device state (step 6: logs and the UI tree, no screen).
 - **Same-primitive check**: the UI and the agent reach the golden path through the same
   capabilities, verified from the capability trace (every call is an operation record,
   [ADR-0020](../adr/0020-operation-contract.md)).
@@ -245,7 +246,7 @@ Two practical notes:
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult` | 1 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
-| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1 |
+| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch` | 1–2 |
 | `git` | `status`, `diff`, `log`, `branches` | last |
 | `operation` | `wait`, `cancel` | 0 |

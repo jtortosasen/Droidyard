@@ -173,8 +173,8 @@ Persistence: [ADR-0021](../adr/0021-persistence-format-and-location.md); artifac
   listener has a security baseline ([http-websocket](../interfaces/http-websocket.md)).
 - **Capability detection**: the core detects tool versions and features (adb, Gradle,
   AGP, KGP) and advertises what is available; the UI adapts.
-- **Observability**: structured logs, and one operation record per call, which is also
-  the capability trace.
+- **Observability**: structured logs; each operation ends in one `droidyard: op` log
+  line, the capability trace.
 
 ## What is deliberately not here
 

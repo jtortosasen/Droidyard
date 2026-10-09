@@ -44,6 +44,7 @@ type inProcess struct {
 	bus      *event.Bus
 	store    *artifact.Store // the daemon's artifact store
 	watchers *file.Watchers  // the daemon's live file.watch pollers (plan m1j, D9)
+	adb      *device.ADB     // the daemon's adb: its Close is the daemon's AfterOps
 	token    string          // the HTTP token
 	log      *lockedBuffer   // the daemon's log, also copied to stderr
 	state    string
@@ -91,6 +92,9 @@ func withoutEnv(extra func(reg *capability.Registry)) func(reg *capability.Regis
 type adbSeam struct {
 	env  []string
 	exec device.Exec
+	// wrapStream, when set, wraps the recorded starter of a Logcat stream, so a test can
+	// hold a child's reaping (ADR-0041 §6).
+	wrapStream func(device.StreamStarter) device.StreamStarter
 }
 
 // adbSeamMu orders the daemons that start at once (parallel tests): registry() reads
@@ -145,18 +149,19 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 		return os.Getenv(k)
 	}}
 	adbSeamMu.Lock()
-	oldEnv, oldExec := adbEnviron, adbExec
+	oldEnv, oldExec, oldWrap := adbEnviron, adbExec, adbStreamWrap
 	oldTick := watchTick
 	if adb != nil {
-		adbEnviron, adbExec = func() []string { return adb.env }, adb.exec
+		adbEnviron, adbExec, adbStreamWrap = func() []string { return adb.env }, adb.exec, adb.wrapStream
 	}
 	watchTick = tick
 	reg, ops, bus, artifacts, deviceADB, watchers := registry(env, st, sup, os.Stderr)
-	adbEnviron, adbExec, watchTick = oldEnv, oldExec, oldTick
+	adbEnviron, adbExec, adbStreamWrap, watchTick = oldEnv, oldExec, oldWrap, oldTick
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.ops, p.bus, p.store = ops, bus, artifacts
 	p.watchers = watchers
+	p.adb = deviceADB
 	if extra != nil {
 		extra(reg, env)
 	}

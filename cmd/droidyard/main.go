@@ -178,6 +178,9 @@ var (
 	// (device.NewADBWithExec): the fake adb of a test whose daemon runs in the test's
 	// own process. The shipped binary never sets it.
 	adbExec device.Exec
+	// adbStreamWrap, when set, wraps the recorded starter of a Logcat stream: a test
+	// holds a child's reaping to see what waits for it. The shipped binary never sets it.
+	adbStreamWrap func(device.StreamStarter) device.StreamStarter
 	// gradleEnviron is the environment the sidecar's JVM is discovered in and the
 	// sidecar inherits: the daemon's own. Tests replace it with a fake JAVA_HOME so
 	// discovery does not depend on this machine (plan m1g step 5).
@@ -246,8 +249,13 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		adb = device.NewADBWithExec(adbEnviron(), adbExec)
 	} else {
 		adb = device.NewADB(adbEnviron(), spawn)
+		if recorded != nil && adbStreamWrap != nil {
+			recorded = adbStreamWrap(recorded)
+		}
 		adb.SetStreamStarter(recorded)
 	}
+	// device.watchLogs publishes its streams to the daemon's bus (ADR-0041).
+	adb.SetBus(bus)
 	// `tools.adb` is the first adb candidate, fixed at this start (ADR-0032 §3, §6;
 	// plan m1k D8).
 	adb.SetToolKey(startup.ADBKey())

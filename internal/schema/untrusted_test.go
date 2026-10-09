@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -352,5 +353,88 @@ func TestGenerateFailsWhereATaggedFieldCannotBePlaced(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "byInt") || !strings.Contains(err.Error(), "M") {
 		t.Errorf("error %q names neither the type nor the field", err)
+	}
+}
+
+// streamingFixture registers a streaming capability whose events are the given types.
+func streamingFixture(types map[string]any) *capability.Registry {
+	reg := capability.NewRegistry()
+	reg.MustRegister(capability.Descriptor{
+		Name: "fixture.stream", Kind: capability.Command, Scope: capability.Global,
+		Statefulness: capability.Streaming,
+		Params:       struct{}{}, Result: struct{}{}, Description: "Streams device-derived text.",
+		Events:  &capability.Events{Topic: "fixture.text", Types: types},
+		Handler: func(context.Context, *capability.Call) (any, error) { return struct{}{}, nil },
+	})
+	return reg
+}
+
+// TestEventPayloadsPublishTheUntrustedKeyword walks the events of every capability of the
+// shipped registry: the keyword is on a payload field exactly where the payload's Go type
+// tags it, at every depth (ADR-0015 §1; ADR-0041 §4), so a consumer reading the schema
+// alone knows which event fields are the device's text. For device.watchLogs that is each
+// line's tag and message and nothing else; a stopped event quotes no device text. Seen
+// failing with the walk skipped for events (no mark on tag and message) and with the
+// keyword added to the line's time, pid or priority.
+func TestEventPayloadsPublishTheUntrustedKeyword(t *testing.T) {
+	reg := registry()
+	doc, err := schema.Generate(reg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, c := range doc.Capabilities {
+		if c.Events == nil {
+			continue
+		}
+		d, _ := reg.Lookup(c.Name)
+		for typ, raw := range c.Events.Types {
+			seen++
+			has := bytes.Contains(raw, []byte(capability.UntrustedKeyword))
+			tagged, err := capability.HasUntrusted(reflect.TypeOf(d.Events.Types[typ]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if has != tagged {
+				t.Errorf("%s event %s: the schema carries %s = %v, but the payload type's tags say %v", c.Name, typ, capability.UntrustedKeyword, has, tagged)
+			}
+		}
+		if c.Name != "device.watchLogs" {
+			continue
+		}
+		var lines map[string]any
+		if err := json.Unmarshal(c.Events.Types["lines"], &lines); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{"tag", "message"} {
+			if v, _ := prop(t, lines, "lines", "[]", f)[capability.UntrustedKeyword].(bool); !v {
+				t.Errorf("device.watchLogs lines[].%s: not marked untrusted", f)
+			}
+		}
+		for _, f := range []string{"time", "pid", "tid", "priority"} {
+			if _, present := prop(t, lines, "lines", "[]", f)[capability.UntrustedKeyword]; present {
+				t.Errorf("device.watchLogs lines[].%s: marked untrusted, but it is the daemon's own", f)
+			}
+		}
+		for _, f := range []string{"device", "dropped", "untrusted"} {
+			if _, present := prop(t, lines, f)[capability.UntrustedKeyword]; present {
+				t.Errorf("device.watchLogs lines.%s: marked untrusted, but it is the daemon's own", f)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no capability of the shipped registry publishes events")
+	}
+}
+
+// TestGenerateFailsWhereATaggedEventFieldCannotBePlaced: the placement error of a result
+// holds for an event payload too, so a stream's device text is never published unmarked.
+func TestGenerateFailsWhereATaggedEventFieldCannotBePlaced(t *testing.T) {
+	_, err := schema.Generate(streamingFixture(map[string]any{"text": byInt{}}), "test")
+	if err == nil {
+		t.Fatal("an event payload with a tagged field the schema cannot place was accepted")
+	}
+	if !strings.Contains(err.Error(), "fixture.stream") || !strings.Contains(err.Error(), "text") || !strings.Contains(err.Error(), "byInt") {
+		t.Errorf("error %q names neither the capability, the event type nor the payload type", err)
 	}
 }

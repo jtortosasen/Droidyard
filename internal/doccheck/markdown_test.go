@@ -178,17 +178,39 @@ func codeSpans(s string) []string {
 // lineNo is the 1-based line number for a message.
 func lineNo(i int) int { return i + 1 }
 
-// markdownFiles lists the repository's own markdown, skipping the cloned research
+// thirdPartyDirs are vendored copies of other projects' text (plan m2a step 1: Svelte's
+// two agent skills, MIT, kept verbatim at a pinned commit). They are not this
+// repository's documentation and cite documents that are not here, so no check reads
+// them.
+var thirdPartyDirs = []string{
+	".claude/skills/svelte-core-bestpractices",
+	".claude/skills/svelte-code-writer",
+}
+
+// skipDir reports whether the walk leaves a directory unread: .git, the cloned research
 // material under .refs/ (git-ignored), parallel workers' worktrees under
 // .claude/worktrees/ (git-ignored), any node_modules (pi's extensions under .pi/npm/,
-// git-ignored), and .git itself.
+// git-ignored), and the vendored third-party directories.
+func skipDir(p string) bool {
+	if p == ".git" || p == ".refs" || path.Base(p) == "node_modules" || p == ".claude/worktrees" {
+		return true
+	}
+	for _, d := range thirdPartyDirs {
+		if p == d {
+			return true
+		}
+	}
+	return false
+}
+
+// markdownFiles lists the repository's own markdown (see skipDir for what it leaves out).
 func markdownFiles(fsys fs.FS) ([]string, error) {
 	var out []string
 	err := fs.WalkDir(fsys, ".", func(p string, e fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if e.IsDir() && (p == ".git" || p == ".refs" || path.Base(p) == "node_modules" || p == ".claude/worktrees") {
+		if e.IsDir() && skipDir(p) {
 			return fs.SkipDir
 		}
 		if !e.IsDir() && strings.HasSuffix(p, ".md") {
@@ -207,7 +229,7 @@ func goFiles(fsys fs.FS) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		if e.IsDir() && (p == ".git" || p == ".refs" || path.Base(p) == "node_modules" || p == ".claude/worktrees") {
+		if e.IsDir() && skipDir(p) {
 			return fs.SkipDir
 		}
 		if !e.IsDir() && strings.HasSuffix(p, ".go") {
