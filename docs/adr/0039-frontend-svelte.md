@@ -49,9 +49,9 @@ holds: CodeMirror 6 (ADR-0009) and the generated client are framework-agnostic.
 
 ## Consequences
 
-- The owner's two priorities become measurable acceptance items in the Phase 2 plan (a
-  bundle budget and a frame-time check under a log burst), so the choice is checked, not
-  assumed.
+- The owner's two priorities steer the choice of framework and libraries; they are not
+  size budgets, and no feature or library is cut for its size alone (owner, 2026-10-09).
+  Phase 2 checks only that the UI stays fluid while Logcat streams a burst.
 - Every frontend step costs the two gates; an implementer run that fails them is sent back
   like a failing `go test`.
 - Component libraries are Svelte ones (for example Bits UI, shadcn-svelte, Ark UI) or

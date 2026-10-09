@@ -29,3 +29,4 @@ the output.
 | [m1o-tokens-and-harness.md](m1o-tokens-and-harness.md) | 1o — tokens, assistant integration, and the comparison with Cursor | Done |
 | [m1p-functional-gaps.md](m1p-functional-gaps.md) | 1p — the functional gaps of Phase 1, and three ideas from earlier plans | Done |
 | [m1q-one-source-of-truth.md](m1q-one-source-of-truth.md) | 1q — one source of truth, fewer documents | Done |
+| [m2a-minimal-web-ui.md](m2a-minimal-web-ui.md) | 2a — the minimal web UI | Reviewed |
