@@ -1,6 +1,6 @@
 # Plan: Milestone 2a — the web UI's foundation and a streaming Logcat
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-09, Delegated (owner: "hasta completar el primer hito"). The owner can revert any Delegated choice.
 - Date: 2026-10-09
 - Milestone: "the next milestone is Phase 2, the minimal web UI" (`docs/README.md` §Where the work stands), split by the owner's decisions of 2026-10-09 (Delegated split): **2a** (this plan) = the toolchain and gates, serving with the generated client and the WebSocket, the capability trace, a minimal shell, and Logcat streaming end to end, usable on its own; 2b and 2c under Not in this milestone.

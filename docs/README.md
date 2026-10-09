@@ -33,7 +33,7 @@ original sketch, [`../android-agent-suite-boceto.md`](../android-agent-suite-boc
 
 ## Where the work stands
 
-Phase 1 is accepted and 1o is done; the next milestone is Phase 2, the minimal web UI
+Phase 1 is accepted and 2a, Phase 2's first milestone, is done; the next is 2b
 ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
 [`plans/README.md`](plans/README.md); what is open is in
 [`roadmap/known-limits.md`](roadmap/known-limits.md).
