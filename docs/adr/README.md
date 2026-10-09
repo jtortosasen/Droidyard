@@ -69,6 +69,8 @@ edits made before this rule and are not added to.
 | [0037](0037-assistant-integration-by-init.md) | Optional assistant integration, written by `droidyard init` | Accepted |
 | [0038](0038-no-agents-md-block.md) | `droidyard init` writes no `AGENTS.md` or `CLAUDE.md` block | Accepted |
 | [0039](0039-frontend-svelte.md) | Frontend built with Svelte 5 and TypeScript | Accepted |
+| [0040](0040-built-ui-not-committed.md) | The built UI is not committed; Go never needs Node | Accepted |
+| [0041](0041-device-watchlogs-stream.md) | `device.watchLogs`, a session-owned Logcat stream | Accepted |
 
 ## Open decisions (not yet ADRs)
 
