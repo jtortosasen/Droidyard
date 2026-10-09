@@ -368,18 +368,21 @@ func (s *logStream) run() {
 // onLine parses one logcat line into the pending buffer. A line that is not in the
 // requested format is counted as dropped, never silently lost; the application filter
 // drops a line that is not the application's without counting it, as it is not a line
-// the client asked for.
+// the client asked for. Under the filter, a line with no uid column cannot be told to be
+// the application's or not, so it is counted as dropped: a device whose probe read no
+// line but prints no uid column must not yield a silently empty stream.
 func (s *logStream) onLine(line []byte) error {
 	text := strings.TrimSuffix(string(line), "\r")
 	if text == "" || strings.HasPrefix(text, "--------- ") {
 		return nil // a buffer marker
 	}
 	l, ok := parseLogLine(text, "", true)
+	withUID := ok
 	if !ok {
 		// A device that ignores the uid format element prints no uid column.
 		l, ok = parseLogLine(text, "", false)
 	}
-	if !ok {
+	if !ok || (s.filterUID && !withUID) {
 		s.mu.Lock()
 		s.dropped++
 		s.mu.Unlock()
