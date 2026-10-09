@@ -314,6 +314,23 @@ func TestWatchLogsCountsDrops(t *testing.T) {
 		}
 	})
 
+	t.Run("a line in no known format is counted, and the lines around it arrive", func(t *testing.T) {
+		w := newWatchFixture(t, map[string]string{
+			uiSerial + ".date.out": "1791337500.000000\n",
+			uiSerial + ".log": wlHeader + wlLog(wlBase, 0, 3, 10146, func(i int) string { return fmt.Sprintf("a%d", i) }) +
+				"not a logcat line\n" + wlLog(wlBase, 3, 3, 10146, func(i int) string { return fmt.Sprintf("b%d", i) }),
+		})
+		_, sub := w.start(t, w.params(`"since":"2026-10-07T00:00:00Z"`))
+		events := collect(t, sub, 7)
+		dropped := 0
+		for _, e := range events {
+			dropped += e.Dropped
+		}
+		if got := messagesOf(events); got != "a0,a1,a2,b0,b1,b2" || dropped != 1 {
+			t.Errorf("lines %q, dropped %d; want a0,a1,a2,b0,b1,b2 and 1 dropped", got, dropped)
+		}
+	})
+
 	t.Run("a subscription that does not drain gets events.gap", func(t *testing.T) {
 		const n = 3000 // six events of 500, a queue of two
 		w := newWatchFixture(t, map[string]string{
@@ -544,6 +561,26 @@ func TestWatchLogsApplicationFilter(t *testing.T) {
 		}
 		if got := messagesOf(collect(t, sub, 2)); got != "m1,m2" {
 			t.Errorf("lines %q, want only the application's m1,m2", got)
+		}
+	})
+
+	t.Run("under the filter, a line without the uid column is counted, not hidden", func(t *testing.T) {
+		w := newWatchFixture(t, map[string]string{
+			// The uid-less line is older than the five the start probe reads (-t 5), which
+			// have the column: the probe passes, as on a device whose column comes and goes.
+			uiSerial + ".log": wlHeader + wlBase + ".000000 6406 6406 I NoUID: n1\n" +
+				wlLog(wlBase, 1, 5, 10146, func(i int) string { return fmt.Sprintf("m%d", i) }),
+			uiSerial + ".pm.out":   "package:" + appID + " uid:10146\n",
+			uiSerial + ".date.out": "1791337500.000000\n",
+		})
+		_, sub := w.start(t, w.params(`"applicationId":"`+appID+`","tail":100`))
+		events := collect(t, sub, 6)
+		dropped := 0
+		for _, e := range events {
+			dropped += e.Dropped
+		}
+		if got := messagesOf(events); got != "m0,m1,m2,m3,m4" || dropped != 1 {
+			t.Errorf("lines %q, dropped %d; want m0..m4 and the uid-less line counted as 1 dropped", got, dropped)
 		}
 	})
 
