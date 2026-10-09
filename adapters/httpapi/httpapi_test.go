@@ -46,7 +46,7 @@ func TestOnlyLoopbackIsBound(t *testing.T) {
 // header is set on the request directly: a real server trims its trailing space, so
 // only the handler itself can be held to this.
 func TestEmptyTokenRefusesEverything(t *testing.T) {
-	h := New(nil, nil, nil, "")
+	h := New(nil, nil, nil, "", nil)
 	req := httptest.NewRequest("POST", "http://127.0.0.1:7317/v1/call", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer ")
 	req.Header.Set("Content-Type", "application/json")
@@ -90,7 +90,7 @@ func TestArtifactRouteIsAnArtifactReadOperationOfClientUI(t *testing.T) {
 		},
 	})
 	ops.RegisterCapabilities()
-	h := New(reg, ops, nil, "tok")
+	h := New(reg, ops, nil, "tok", nil)
 	req := httptest.NewRequest("GET", "http://127.0.0.1:7317/v1/artifacts/e.x.1.aaaaaaaaaaaa?maxEdge=100&region=0,0,0.5,0.25", nil)
 	req.Header.Set("Authorization", "Bearer tok")
 	req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 7317}))
@@ -135,7 +135,7 @@ func TestArtifactRouteAnswers500ForAResultItCannotServe(t *testing.T) {
 			Handler: func(context.Context, *capability.Call) (any, error) { return res, nil },
 		})
 		ops.RegisterCapabilities()
-		h := New(reg, ops, nil, "tok")
+		h := New(reg, ops, nil, "tok", nil)
 		req := httptest.NewRequest("GET", "http://127.0.0.1:7317/v1/artifacts/e.x.1.aaaaaaaaaaaa", nil)
 		req.Header.Set("Authorization", "Bearer tok")
 		req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 7317}))

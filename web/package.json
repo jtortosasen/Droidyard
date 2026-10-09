@@ -8,14 +8,16 @@
 		"node": ">=24.13.1"
 	},
 	"scripts": {
-		"check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
-		"test": "vitest run",
-		"build": "vite build",
+		"gen": "node scripts/gen-client.ts",
+		"check": "pnpm run gen && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+		"test": "pnpm run gen && vitest run",
+		"build": "pnpm run gen && vite build",
 		"verify": "node scripts/check-pins.mjs && pnpm run check && pnpm run test && pnpm run build"
 	},
 	"devDependencies": {
 		"@sveltejs/mcp": "0.1.26",
 		"@sveltejs/vite-plugin-svelte": "7.3.1",
+		"json-schema-to-typescript": "16.0.0",
 		"svelte": "5.57.2",
 		"svelte-check": "4.7.6",
 		"typescript": "6.0.3",
