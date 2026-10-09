@@ -55,7 +55,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | Not exposed | Why |
 | --- | --- |
 | `events.subscribe`, `events.unsubscribe`, `file.watch`, `device.watchLogs`, `operation.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
-| `policy.get`, `policy.update` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). The core rejects them from an MCP session: this is enforcement, not omission. |
+| `policy.get`, `policy.update` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). The core rejects them from an MCP session: enforcement, not just omission. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and

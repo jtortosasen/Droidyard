@@ -589,9 +589,9 @@ func TestWSOverflow(t *testing.T) {
 	first := p.bus.Position().Seq
 	const n = 2000
 	w.send("pub", "fixture.publish", "", `{"count":2000}`, nil)
-	for deadline := time.Now().Add(10 * time.Second); p.bus.Position().Seq < first+n; time.Sleep(2 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); p.bus.Position().Seq < first+n+2; time.Sleep(2 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatalf("the bus is at %d; want %d", p.bus.Position().Seq, first+n)
+			t.Fatalf("the bus is at %d; want %d", p.bus.Position().Seq, first+n+2)
 		}
 	}
 	release()

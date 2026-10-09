@@ -537,26 +537,31 @@ func (o *Operations) Active() []ActiveOperation {
 // Every path that can end or start an operation calls it once it has unlocked, so a line
 // or an event is written by whichever call gets there first and never twice. flushMu is
 // held from taking the queues to the last publish, so a later caller cannot publish
-// before an earlier one has: the events leave in the order the transitions happened.
+// before an earlier one has: the events leave in the order the transitions happened. A
+// publisher may call back only into methods that do not flush (Active, Wait, Running):
+// one that calls Start, Cancel, CancelWorkspace or Shutdown waits on flushMu forever.
 func (o *Operations) flush() {
 	o.flushMu.Lock()
-	defer o.flushMu.Unlock()
 	o.mu.Lock()
 	lines, logf := o.traces, o.traceLog
 	events, spub := o.events, o.spub
 	o.traces, o.events = nil, nil
 	o.mu.Unlock()
+	if spub != nil {
+		for _, e := range events {
+			spub.Broadcast(StateTopic, StateType, e.workspace, e.operation, e.payload)
+		}
+	}
+	// The trace lines are written after flushMu is released: they carry no order, and a
+	// stalled log writer (a paused terminal on a foreground daemon's stderr) must not hold
+	// every later Start behind it.
+	o.flushMu.Unlock()
 	if len(lines) > 0 {
 		if logf == nil {
 			logf = log.Printf
 		}
 		for _, l := range lines {
 			logf("%s", l)
-		}
-	}
-	if spub != nil {
-		for _, e := range events {
-			spub.Broadcast(StateTopic, StateType, e.workspace, e.operation, e.payload)
 		}
 	}
 }
