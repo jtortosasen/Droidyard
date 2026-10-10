@@ -121,10 +121,7 @@ export class SessionsModel {
 		const bySession = new Map<string, Operation[]>();
 		for (const op of ops) {
 			const key = keyOf(op);
-			// Opening a project is connecting, not work: an agent's bound open runs before its
-			// workspace is open and would place it under "No project" (ADR-0048 §3: an agent
-			// that has run nothing is not listed).
-			if (key === null || op.capability === 'workspace.open') continue;
+			if (key === null) continue;
 			let list = bySession.get(key);
 			if (!list) bySession.set(key, (list = []));
 			list.push(op);
@@ -190,6 +187,10 @@ export class SessionsModel {
  * commands are "You" (their reads are not shown); an MCP call belongs to its session.
  */
 export function keyOf(op: Operation): string | null {
+	// Opening a project is connecting, not work: an agent's bound open runs before its
+	// workspace is open and would place it under "No project", and it would mark the row
+	// unread (ADR-0048 §3: an agent that has run nothing is not listed).
+	if (op.capability === 'workspace.open') return null;
 	if (op.client === 'ui' || op.client === 'cli') {
 		// A read, or one of the tab's own subscriptions (a streaming watch), is not activity.
 		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean; statefulness: string } | undefined;
