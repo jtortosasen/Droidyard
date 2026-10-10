@@ -42,8 +42,9 @@ var (
 	listTimeout = 10 * time.Second
 	// stopTimeout bounds the wait for a killed emulator's serial to leave `adb devices`,
 	// and the `emu kill` command itself. It stays above the emulator's own 20 s grace to
-	// shut down, which a stop right after a wipe can need in full (plan m2c, D18).
-	stopTimeout = 35 * time.Second
+	// shut down, which a stop right after a wipe can need in full (plan m2c, D18), and
+	// below what keeps the queue bound and the preamble under ADR-0020's 60 s (the close review).
+	stopTimeout = 30 * time.Second
 	// stopPollInterval is how often the listing is read while a stop waits.
 	stopPollInterval = time.Second
 	// bootTimeout bounds a boot from its snapshot to `sys.boot_completed` being 1, and

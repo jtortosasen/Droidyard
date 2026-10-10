@@ -103,7 +103,7 @@ emulator to the daemon (`internal/domain/emulator/launch.go`):
 ## Stop
 
 `adb -s <serial> emu kill` (the console auth token is handled by adb) for `emulator-<port>`
-serials only. Then wait, bounded (35 s), until the serial leaves `adb devices` and, when we
+serials only. Then wait, bounded (30 s), until the serial leaves `adb devices` and, when we
 launched it, the launcher's `Wait` returns. A timeout is an error naming the serial and the
 pid when known. We do not escalate to signals: a running emulator is not ours.
 
@@ -162,7 +162,7 @@ complete is `EMULATOR_STOP_TIMEOUT` with no signal escalation.
 ## Timeouts
 
 Booting is slow (tens of seconds to minutes for a cold boot). The defaults are constants until
-a configuration key exists (1i D14: boot 180 s, stop 35 s, listing 10 s), and `start`/`wipe`
+a configuration key exists (1i D14 and m2c D18: boot 180 s, stop 30 s, listing 10 s), and `start`/`wipe`
 are long-running ([ADR-0020](../adr/0020-operation-contract.md)): an MCP call returns an
 operation id after its wait budget. A boot cancelled **after** its serial resolved **leaves the
 emulator running** (we do not own it) and stops waiting; one cancelled before then has
