@@ -231,7 +231,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: steps 5–11.
 - Not here: an LLM agent; Safari, Firefox.
 - Rests on: a project is reached from both entries without typing a path (level 5).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `~/Library/Caches/droidyard-dev/m2c/l5-s12/SUMMARY.md` (binary at `e243cb4`). CLI entry: a bare `droidyard` in `g-cli/app` auto-started the daemon and landed on `#w=` the copy, untrusted; Trust → modules; Start (headless), Build, Install, Launch from the UI; the file recorded the AVD and the application id; a second `droidyard` → a new tab with the same choices. Picker entry: a bare `droidyard` in `/` → the picker, the copy open and trusted, a click lands; "Open folder..." → the dialog on screen at layer 8, the owner chose `g-pick` (a first attempt ran out its 5 minutes unanswered) → untrusted, Trust → modules. `droidyard stop`, `droidyard` → choices restored; a hand-set `:evil` ignored, the file not rewritten. Step 5's restart: dex 0 bytes, the next read persistent. Same primitive: 27 `client=ui` capabilities, all published; CDP paths `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. E: 5037 and the owner's daemon untouched, the real state root unchanged, SDK clean, the AVD wiped and stopped. No defect found. The file holds no `build` until a choice changes (D19): the defaults were kept, so `:app debug` was not written.
 
 ### 13. The concurrency run: two workspaces, two emulators, two agents, the UI
 
