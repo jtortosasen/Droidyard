@@ -59,7 +59,16 @@ export interface WatchWorkspace {
 	subscribe(listener: () => void): () => void;
 }
 
+/** A second reader of the same stream (the file viewer, plan m2d step 6): no second `file.watch`. */
+export interface WatchListener {
+	/** A frame's changes, in order, after the sink has them. */
+	changes(list: Change[]): void;
+	/** A baseline arrived or the watch restarted: events may have been missed, so re-read what is shown. */
+	resync(): void;
+}
+
 export class FileWatch {
+	#listeners = new Set<WatchListener>();
 	#client: WatchClient;
 	#ws: WatchWorkspace;
 	#sink: WatchSink;
@@ -84,6 +93,14 @@ export class FileWatch {
 		this.#frames = frames;
 		this.#offs.push(ws.subscribe(() => this.#workspaceChanged()));
 		this.#workspaceChanged();
+	}
+
+	/** Another reader of the changes this watch already delivers; returns how to stop listening. */
+	listen(listener: WatchListener): () => void {
+		this.#listeners.add(listener);
+		return () => {
+			this.#listeners.delete(listener);
+		};
 	}
 
 	/** The page is hidden or shown: the watch ends while hidden and starts again, with a new baseline, when shown. */
@@ -114,6 +131,7 @@ export class FileWatch {
 
 	dispose(): void {
 		this.#disposed = true;
+		this.#listeners.clear();
 		for (const off of this.#offs) off();
 		this.#offs = [];
 		this.#run = null;
@@ -167,6 +185,7 @@ export class FileWatch {
 				this.#complete = sub.result.truncated !== true;
 				this.#sink.status('watching', '');
 				this.#sink.baseline(sub.result.entries ?? [], this.#complete);
+				for (const l of [...this.#listeners]) l.resync();
 				const early = this.#early;
 				this.#early = [];
 				for (const f of early) {
@@ -222,7 +241,10 @@ export class FileWatch {
 		const cut = this.#cut;
 		this.#queue = [];
 		this.#cut = false;
-		if (list.length > 0) this.#sink.changes(list);
+		if (list.length > 0) {
+			this.#sink.changes(list);
+			for (const l of [...this.#listeners]) l.changes(list);
+		}
 		if (cut) this.#sink.cut();
 	}
 

@@ -137,7 +137,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: step 5.
 - Not here: editing, highlighting (the editor milestone); image preview (Q4).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `viewer.test.ts` (pages joined at offsets, the 2 MiB cap stated, binary holds no text, a wrong-offset page restarts, `modified` re-reads that path only, `deleted` marks and keeps the text, a resync re-reads all) and `tabs.test.ts` (preview tabs replaced, a second open keeps it, no duplicates, neighbour on close, restore drops a missing path per project, nothing written before the restore, storage that throws; Terminal and Diff cannot activate), each decision seen failing reversed (8 mutations). The viewer listens to the tab's one root watch (`FileWatch.listen`), no second `file.watch`. Level 4: a preview tab replaced by the next, line numbers, size in the header; a CLI `file.write` to the open `VIEW.md` re-rendered 2.05 s after the CLI call began (tick 1 s, probe every 0.25 s). Tabs reveal their file in the tree when activated.
 
 ### 7. The projects and agents panel (Q1, Q2)
 

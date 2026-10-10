@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Client, ConnectionState } from '../api/client';
+	import { CapabilityError, type Client, type ConnectionState } from '../api/client';
 	import type { ActivityStore } from '../ops/activity';
 	import Activity from '../ops/Activity.svelte';
 	import Logcat from '../logcat/Logcat.svelte';
@@ -32,6 +32,10 @@
 	import { FileTreeModel } from '../files/tree';
 	import { FileWatch } from '../files/watch';
 	import FileTree from '../files/FileTree.svelte';
+	import { TabsModel } from '../editor/tabs';
+	import { ViewerSet } from '../editor/viewer';
+	import Editor from '../editor/Editor.svelte';
+	import { browserStorage } from '../ui/layout';
 	import Banners from './Banners.svelte';
 	import Shell from '../ui/Shell.svelte';
 	import type { Snippet } from 'svelte';
@@ -70,6 +74,8 @@
 	let appLogs = $state.raw<AppLogsModel | null>(null);
 	let fileTree = $state.raw<FileTreeModel | null>(null);
 	let fileWatch = $state.raw<FileWatch | null>(null);
+	let editorTabs = $state.raw<TabsModel | null>(null);
+	let viewers = $state.raw<ViewerSet | null>(null);
 	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
@@ -121,6 +127,10 @@
 			ws,
 			files.sink,
 		);
+		// The viewer reads the same watch the tree does (no second file.watch).
+		const tabs = new TabsModel(browserStorage(window), workspaceId);
+		const readers = new ViewerSet(callOn, ws);
+		const offListen = watcher.listen(readers);
 		const offDevice = deviceList.subscribe(() => {
 			device = deviceList.view.selected;
 		});
@@ -138,6 +148,8 @@
 		appLogs = logs;
 		fileTree = files;
 		fileWatch = watcher;
+		editorTabs = tabs;
+		viewers = readers;
 		// The project is opened by the id from the address (workspace.open is idempotent);
 		// after another client closes it the panel offers to reopen, it does not reopen.
 		// A refusal by the daemon shows the projects panel with the reason; a lost connection does not.
@@ -145,10 +157,24 @@
 		void ws.openById(workspaceId).then((ok) => {
 			const why = ws.view.error;
 			if (!ok && !gone && why?.code) onmissing(why);
+			if (ok && !gone) {
+				// A remembered tab whose file is gone is dropped; any other failure keeps it.
+				void tabs.restore(async (path) => {
+					try {
+						await callOn.call('file.read', { path, limit: 4 }, { workspace: ws.root.trim() });
+						return true;
+					} catch (e) {
+						return !(e instanceof CapabilityError && e.code === 'FILE_NOT_FOUND');
+					}
+				});
+			}
 		});
 		return () => {
 			gone = true;
 			offDevice();
+			offListen();
+			readers.dispose();
+			tabs.dispose();
 			watcher.dispose();
 			files.dispose();
 			unbind();
@@ -178,6 +204,8 @@
 			appLogs = null;
 			fileTree = null;
 			fileWatch = null;
+			editorTabs = null;
+			viewers = null;
 			device = '';
 		};
 	});
@@ -211,12 +239,13 @@
 		{/if}
 	{:else if id === 'files'}
 		{#if fileTree && fileWatch}
-			<!-- Step 6 wires the viewer; until then a chosen file is only selected. -->
-			<FileTree model={fileTree} watch={fileWatch} onopen={() => {}} />
+			<FileTree model={fileTree} watch={fileWatch} onopen={(path) => editorTabs?.open(path)} />
 		{/if}
 	{:else if id === 'editor'}
-		<!-- Slot for the second-level file tabs (plan m2d step 6). -->
-		<p class="empty">Open a file from the tree to read it here.</p>
+		{#if editorTabs && viewers && fileTree}
+			{@const files = fileTree}
+			<Editor tabs={editorTabs} {viewers} onactivate={(path) => void files.reveal(path)} copyPath={(path) => files.absolutePath(path)} />
+		{/if}
 	{:else if id === 'logcat'}
 		<Logcat {client} {connection} {device} />
 	{:else if id === 'applogs'}
@@ -269,8 +298,3 @@
 
 <Shell content={panel} {status} {banners} {rail} />
 
-<style>
-	.empty {
-		color: var(--text-3);
-	}
-</style>
