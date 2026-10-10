@@ -137,14 +137,16 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 	c.initialize("binding")
 	boundReady(t, "(c) the cwd", c.workspaceTool(1, "workspace_describe"), bare)
 
-	// (e) A second session bound to the same root shares the workspace: its open is a
-	// no-op, so workspaces.json is not rewritten and createdAt is the same.
-	index := filepath.Join(p.state, "workspaces.json")
-	before, err := os.Stat(index)
+	// (e) A second session bound to the same root shares the workspace: its open changes
+	// no state but the recency (ADR-0045 §3 refreshes lastOpenedAt on every open), so
+	// workspace.json is not rewritten, createdAt is the same, and the index entry moved.
+	first := a.workspaceTool(3, "workspace_describe")
+	config := filepath.Join(p.state, "ws", first.info.ID, "workspace.json")
+	before, err := os.Stat(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := a.workspaceTool(3, "workspace_describe")
+	openedBefore := lastOpenedAt(t, p.state, first.info.ID)
 	a2 := startShimIn(t, p.state, groovy, "a2", []string{"mcp", "--no-autostart"})
 	a2.initialize("binding")
 	second := a2.workspaceTool(1, "workspace_describe")
@@ -152,8 +154,11 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 	if second.info.CreatedAt == nil || first.info.CreatedAt == nil || !second.info.CreatedAt.Equal(*first.info.CreatedAt) {
 		t.Errorf("(e) the second session sees createdAt %v; the first %v", second.info.CreatedAt, first.info.CreatedAt)
 	}
-	if after, _ := os.Stat(index); !after.ModTime().Equal(before.ModTime()) {
-		t.Errorf("(e) workspaces.json was rewritten by the second session's open: it was not a no-op")
+	if after, _ := os.Stat(config); !after.ModTime().Equal(before.ModTime()) {
+		t.Errorf("(e) workspace.json was rewritten by the second session's open")
+	}
+	if openedAfter := lastOpenedAt(t, p.state, first.info.ID); !openedAfter.After(openedBefore) {
+		t.Errorf("(e) lastOpenedAt is %v after the second session's open, %v before: an open of an open workspace must refresh it", openedAfter, openedBefore)
 	}
 
 	// (d) Another client closes the workspace: both sessions' tools get

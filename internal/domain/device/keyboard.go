@@ -200,12 +200,46 @@ func (a *ADB) hideSoftKeyboard(ctx context.Context, t *target) (string, error) {
 	return "The BACK key command that hides the soft keyboard did not report success, so the target may still be covered.", nil
 }
 
+// backSent says what the guard did before a failure that follows it: the BACK key event is on
+// the device, and it goes back a screen if the keyboard had already closed.
+const backSent = "A BACK key event was sent to hide the soft keyboard before this failed (it goes back a screen if the keyboard had already closed)"
+
+// afterKeyboardBack makes the failure of a step that follows the guard's BACK say so (plan
+// m2c, S8). The steps' own messages claim that nothing was changed or that the call is safe
+// to repeat, which a BACK already sent makes untrue: those claims are cut from the next step,
+// and the BACK is named in the message and the next step. what is "tapped" or "typed". A
+// caller's cancellation, or an error that is not a capability error, passes through.
+func afterKeyboardBack(err error, what string) error {
+	e, ok := err.(*capability.Error)
+	if !ok || e == nil {
+		return err
+	}
+	c := *e
+	c.Message = e.Message + "; a BACK key event was sent first to hide the soft keyboard, but nothing was " + what
+	next := e.NextStep
+	if i := strings.Index(next, "nothing "); i >= 0 {
+		// Cut the clause that claims nothing changed, up to the end of its sentence, and
+		// keep whatever guidance follows it.
+		tail := ""
+		if j := strings.Index(next[i:], ". "); j >= 0 {
+			tail = " " + next[i+j+2:]
+		}
+		next = strings.TrimRight(next[:i], " ;:,") + "." + tail
+	}
+	if next != "" {
+		next += " "
+	}
+	c.NextStep = next + backSent + ", so the screen may have changed: take a fresh device.uiTree before retrying; nothing was " + what + "."
+	return &c
+}
+
 // softKeyboardOffscreenError is the failure of a target the soft keyboard still covers after
 // it was hidden (plan m1n step 5, fix round L1): the point cannot be tapped, so the call
 // fails DEVICE_ELEMENT_OFFSCREEN rather than tapping a key. The next step names the keyboard,
-// so the caller knows it is not a scroll or a covering view. what is "tapped" or "typed".
+// so the caller knows it is not a scroll or a covering view, and the BACK that was sent. what
+// is "tapped" or "typed".
 func softKeyboardOffscreenError(what string) *capability.Error {
-	return capability.NewError(ErrElementOffscreen, "the soft keyboard covers the target, so it could not be "+what).
+	return capability.NewError(ErrElementOffscreen, "the soft keyboard still covers the target after a BACK key event was sent to hide it, so it could not be "+what).
 		WithCause("the target's tap point lies inside the soft keyboard's touchable region, and hiding the keyboard did not move it clear").
-		WithNextStep("Dismiss the keyboard (a BACK key event, or send the field's text and press the keyboard's own done key), then retry: nothing was " + what + ".")
+		WithNextStep("Dismiss the keyboard (send the field's text and press the keyboard's own done key, or a BACK key event if it is still shown), then retry. " + backSent + "; nothing was " + what + ".")
 }

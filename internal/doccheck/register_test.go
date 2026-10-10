@@ -110,8 +110,10 @@ func checkRegister(fsys fs.FS) []string {
 // milestone 1o step 3: the manual that left 31 tool descriptions (selectors, the golden
 // order, never repeat an action, the shell and wrapper rules) is now the server
 // instructions block in docs/interfaces/mcp.md, which `adapters/mcp` must equal verbatim
-// and cannot be kept shorter than the points it carries (ADR-0036 Decision 1).
-const liveBudget = 25755
+// and cannot be kept shorter than the points it carries (ADR-0036 Decision 1). Raised by 312
+// (to 26,067) in milestone 2c step 1: the 2026-10-10 Phase 2 reorganisation (12 words net
+// after cuts) and about 300 for the live documents 2c's steps 3, 4, 8, 9 and 11 change.
+const liveBudget = 26067
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

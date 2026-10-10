@@ -1141,3 +1141,36 @@ func TestWriteWorksWithoutTrust(t *testing.T) {
 		t.Fatalf("write result: %+v", res)
 	}
 }
+
+// Decision (register S4): the temporary name's length does not depend on the target's, so
+// a final name of 255 bytes, the most a directory entry can have, writes, new and
+// overwritten. A temporary name built from the target's (the old one added 23 bytes)
+// overflows the file system's limit from 233 bytes up and fails FILE_IO_FAILED. The
+// temporary name still matches file.watch's skip rule, so an in-progress write is not
+// watch noise.
+func TestWriteAcceptsA255ByteName(t *testing.T) {
+	f := newFixture(t)
+	name := strings.Repeat("n", 255-len(".kt")) + ".kt"
+	if len(name) != 255 {
+		t.Fatalf("name is %d bytes", len(name))
+	}
+	for i, want := range []string{"first\n", "second\n"} {
+		res, cerr := f.writeCall(WriteParams{Path: "long/" + name, Content: want})
+		if cerr != nil {
+			t.Fatalf("write %d of a 255-byte name: %v (cause %q)", i+1, cerr, cerr.Cause)
+		}
+		if res.Created != (i == 0) || res.Path != "long/"+name {
+			t.Errorf("write %d result: %+v", i+1, res)
+		}
+		got, err := os.ReadFile(filepath.Join(f.root, "long", name))
+		if err != nil || string(got) != want {
+			t.Errorf("write %d: read %q, %v; want %q", i+1, got, err, want)
+		}
+	}
+	if left := tempFilesUnder(t, f.root); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+	if tmp := tempName(); !tempWatchName(tmp) || len(tmp) > 64 || tmp == tempName() {
+		t.Errorf("tempName() = %q: want a short, random name file.watch skips", tmp)
+	}
+}

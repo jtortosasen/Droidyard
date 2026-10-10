@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -97,6 +98,13 @@ type Options struct {
 	Launch Launch
 	// IdleTimeout overrides the 10 minutes the sidecar may go unused (tests).
 	IdleTimeout time.Duration
+	// OnCrash is told when the sidecar died while a build ran, with the root of that
+	// build: the workspace of that root, and no other, degrades (plan m2c, D21). It runs
+	// on the build's goroutine, outside the client's locks.
+	OnCrash func(root string, err *capability.Error)
+	// OnRecover is told when a sidecar start succeeds after an OnCrash, so the
+	// workspaces it degraded can return to ready. Outside the client's locks.
+	OnRecover func()
 }
 
 // Client is the daemon's sidecar client: it starts the one shared sidecar on demand,
@@ -112,6 +120,9 @@ type Client struct {
 	sess   *session
 	roots  map[string]*root
 	builds map[string]BuildSink
+
+	// crashNotified is set when OnCrash ran, and cleared by the next successful start.
+	crashNotified atomic.Bool
 }
 
 // session is one run of the sidecar: the requests outstanding on it and the hello
@@ -821,9 +832,27 @@ func (c *Client) fail(_ *root, err error) {
 	}
 }
 
+// crashed tells the daemon a build was running on the sidecar that died: the client's
+// own mark, and the workspace's (plan m2c, D21).
+func (c *Client) crashed(root string, e *capability.Error) {
+	c.fail(nil, e)
+	if c.opts.OnCrash == nil {
+		return
+	}
+	// The flag is set after OnCrash returns: a successful start that swapped it in
+	// between would run OnRecover before the workspace was degraded, and the degradation
+	// would then stay until the start after it.
+	c.opts.OnCrash(root, e)
+	c.crashNotified.Store(true)
+}
+
 // clearDegraded clears every root's degradation: a successful handshake means the
-// sidecar is whole again (plan m1g D20).
+// sidecar is whole again (plan m1g D20), and the workspaces a crash degraded return to
+// ready (plan m2c, D21).
 func (c *Client) clearDegraded() {
+	if c.crashNotified.Swap(false) && c.opts.OnRecover != nil {
+		defer c.opts.OnRecover()
+	}
 	c.mu.Lock()
 	roots := make([]*root, 0, len(c.roots))
 	for _, r := range c.roots {

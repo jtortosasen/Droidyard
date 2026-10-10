@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -888,5 +889,50 @@ func TestStopFailsFastWhenEmuKillFails(t *testing.T) {
 	mustFail(t, out, device.ErrADBFailed)
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("a failed kill took %s to report, want the short grace", d)
+	}
+}
+
+// virtualClock is a clock whose waits cost nothing: after advances it by the wait and
+// answers at once.
+type virtualClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *virtualClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *virtualClock) after(d time.Duration) <-chan time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+	ch := make(chan time.Time, 1)
+	ch <- c.t
+	return ch
+}
+
+// Decision (plan m2c D18, S7): the stop's bound outlasts the emulator's own 20 s grace to
+// shut down, which a stop right after a wipe can need in full. A fake emulator that leaves
+// `adb devices` only after 25 s of polling still ends in a completed stop, with the real
+// bound and the real poll interval, on a virtual clock. Seen failing with the bound at
+// 20 s (EMULATOR_STOP_TIMEOUT).
+func TestStopOutlastsTheEmulatorGrace(t *testing.T) {
+	vc := &virtualClock{t: time.Now()}
+	start := vc.now()
+	old := clock
+	clock.now, clock.after = vc.now, vc.after
+	t.Cleanup(func() { clock = old })
+	// 25 polls still list the serial, one a second: the 26th, at 25 s, does not.
+	f := newFixture(t, map[string]string{
+		"devices.out":             listOf(emuLine),
+		serial + ".emukill.leave": "25",
+	})
+	out := f.invoke(t, "emulator.stop", `{"device":"`+serial+`"}`)
+	mustStop(t, out)
+	if waited := vc.now().Sub(start); waited < 25*time.Second {
+		t.Errorf("the stop waited %s on the virtual clock; the fake emulator leaves after 25 s", waited)
 	}
 }

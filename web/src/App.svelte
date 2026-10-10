@@ -2,38 +2,28 @@
 	import { Client, type ConnectionState } from './lib/api/client';
 	import { ActivityStore } from './lib/ops/activity';
 	import Activity from './lib/ops/Activity.svelte';
-	import Logcat from './lib/logcat/Logcat.svelte';
-	import { BuildModel } from './lib/build/build';
-	import Build from './lib/build/Build.svelte';
-	import { TasksModel } from './lib/build/tasks';
-	import Tasks from './lib/build/Tasks.svelte';
-	import { ConsoleModel } from './lib/build/console';
-	import Console from './lib/build/Console.svelte';
 	import { EventsHub } from './lib/build/hub';
-	import { WorkspaceModel } from './lib/build/workspace';
-	import Workspace from './lib/build/Workspace.svelte';
-	import { DevicesMirror } from './lib/devices/mirror';
-	import { DevicesModel } from './lib/devices/devices';
-	import { EmulatorsModel } from './lib/devices/emulators';
-	import { InstallModel } from './lib/devices/install';
-	import Devices from './lib/devices/Devices.svelte';
-	import { UiTreeModel } from './lib/devices/uitree';
-	import Tree from './lib/devices/Tree.svelte';
-	import { ActModel } from './lib/devices/act';
-	import Act from './lib/devices/Act.svelte';
-	import { AppLogsModel } from './lib/devices/applogs';
-	import AppLogs from './lib/devices/AppLogs.svelte';
+	import type { Failure } from './lib/build/failure';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
+	import { browserRouteEnv, Router, type Route } from './lib/start/route';
+	import { PickerModel } from './lib/start/picker';
+	import Picker from './lib/start/Picker.svelte';
+	import Project from './lib/start/Project.svelte';
 
 	// The token comes from the fragment `droidyard ui` opened, once; a tab without one,
 	// or whose token the daemon refused, shows the instruction (http-websocket.md
-	// §Security baseline).
+	// §Security baseline). The fragment's `w` stays: it names the tab's project.
 	const token = bootstrapToken({
 		location: window.location,
 		history: window.history,
 		storage: window.sessionStorage,
 	});
+
+	// The view follows the address (ADR-0045 §2): `#w=<id>` is a project, no `w` the picker.
+	const router = new Router(browserRouteEnv(window));
+	let route = $state.raw<Route>(router.route);
+	$effect(() => router.subscribe(() => (route = router.route)));
 
 	let connection = $state<ConnectionState>('connecting');
 	let health = $state.raw<Result<'system.health'> | null>(null);
@@ -41,18 +31,8 @@
 
 	let client = $state.raw<Client | null>(null);
 	let activity = $state.raw<ActivityStore | null>(null);
-	let workspace = $state.raw<WorkspaceModel | null>(null);
-	let build = $state.raw<BuildModel | null>(null);
-	let tasks = $state.raw<TasksModel | null>(null);
-	let buildConsole = $state.raw<ConsoleModel | null>(null);
-	let devices = $state.raw<DevicesModel | null>(null);
-	let emulators = $state.raw<EmulatorsModel | null>(null);
-	let install = $state.raw<InstallModel | null>(null);
-	let uiTree = $state.raw<UiTreeModel | null>(null);
-	let act = $state.raw<ActModel | null>(null);
-	let appLogs = $state.raw<AppLogsModel | null>(null);
-	// The selected device is the devices model's; Logcat follows it.
-	let device = $state('');
+	let hub = $state.raw<EventsHub | null>(null);
+	let picker = $state.raw<PickerModel | null>(null);
 
 	$effect(() => {
 		if (token === null) return;
@@ -61,42 +41,17 @@
 			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
 			call: (name, params) => c.call(name, params),
 		});
-		const hub = new EventsHub({
+		const events = new EventsHub({
 			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
 			call: (name, params) => c.call(name, params),
 		});
-		const callOn = {
-			call: ((name, params, opts) => c.call(name, params, opts)) as Client['call'],
-		};
-		// The typed root is a view preference; blocked storage leaves it to be typed again.
-		let storage: Storage | null = null;
-		try {
-			storage = window.localStorage;
-		} catch {
-			// Blocked storage.
-		}
-		const ws = new WorkspaceModel(callOn, hub, storage);
-		const builds = new BuildModel(callOn, store, hub, ws);
-		const taskList = new TasksModel(callOn, builds.mirror, ws);
-		const console_ = new ConsoleModel(callOn, builds, ws);
-		const mirror = new DevicesMirror(store, callOn);
-		const deviceList = new DevicesModel(callOn, store);
-		const emulatorList = new EmulatorsModel(callOn, store, mirror);
-		const installer = new InstallModel(
-			callOn,
-			mirror,
+		const projects = new PickerModel(
 			{
-				selection: () => (ws.id === null ? null : { root: ws.root, module: builds.view.module, variant: builds.view.variant }),
-				subscribe: (l) => builds.subscribe(l),
+				call: (name, params, opts) => c.call(name, params, opts),
+				subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
 			},
-			deviceList,
+			(id) => router.go({ view: 'project', workspace: id }),
 		);
-		const tree = new UiTreeModel(callOn, deviceList, store);
-		const actions = new ActModel(callOn, deviceList);
-		const logs = new AppLogsModel(callOn, deviceList, installer, store);
-		const offDevice = deviceList.subscribe(() => {
-			device = deviceList.view.selected;
-		});
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -104,14 +59,13 @@
 			onState: (s) => {
 				connection = s;
 				store.onConnection(s);
-				hub.onConnection(s);
+				events.onConnection(s);
+				projects.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
 		});
 		function refresh() {
-			void deviceList.refresh();
-			void emulatorList.refresh();
 			c.call('system.health', {}).then(
 				(h) => {
 					health = h;
@@ -125,55 +79,30 @@
 		}
 		client = c;
 		activity = store;
-		workspace = ws;
-		build = builds;
-		tasks = taskList;
-		buildConsole = console_;
-		devices = deviceList;
-		emulators = emulatorList;
-		install = installer;
-		uiTree = tree;
-		act = actions;
-		appLogs = logs;
+		hub = events;
+		picker = projects;
 		// Connect first: a call made on a client never connected is refused as closed,
 		// while one made while connecting waits for the socket.
 		c.connect();
 		store.start();
-		hub.start();
-		// A root kept from an earlier visit is opened once (workspace.open is idempotent);
-		// after another client closes it the panel offers to reopen, it does not reopen.
-		void ws.open();
+		events.start();
 		return () => {
-			offDevice();
-			logs.dispose();
-			actions.dispose();
-			tree.dispose();
-			installer.dispose();
-			emulatorList.dispose();
-			deviceList.dispose();
-			mirror.dispose();
-			console_.dispose();
-			taskList.dispose();
-			builds.dispose();
-			ws.dispose();
-			hub.stop();
+			projects.stop();
+			events.stop();
 			store.stop();
 			c.close();
 			client = null;
 			activity = null;
-			workspace = null;
-			build = null;
-			tasks = null;
-			buildConsole = null;
-			devices = null;
-			emulators = null;
-			install = null;
-			uiTree = null;
-			act = null;
-			appLogs = null;
-			device = '';
+			hub = null;
+			picker = null;
 		};
 	});
+
+	// The daemon refused the project the address names: the picker, with the reason.
+	function missing(why: Failure) {
+		picker?.showError(why);
+		router.go({ view: 'picker' });
+	}
 
 	function uptime(seconds: number): string {
 		const h = Math.floor(seconds / 3600);
@@ -200,43 +129,22 @@
 		<p>system.health failed: {healthError}</p>
 	{/if}
 
-	{#if workspace}
-		<Workspace model={workspace} />
-	{/if}
-	{#if build}
-		<Build model={build} />
-	{/if}
-	{#if tasks}
-		<Tasks model={tasks} />
-	{/if}
-	{#if buildConsole}
-		<Console model={buildConsole} />
-	{/if}
-
-	{#if devices && emulators && install}
-		<Devices {devices} {emulators} {install} connected={connection === 'open'} />
-	{/if}
-
-	{#if uiTree && act}
-		{@const tree = uiTree}
-		{@const actions = act}
-		<Tree
-			model={tree}
-			connected={connection === 'open'}
-			onpick={(index) => {
-				const s = tree.selectorAt(index);
-				if (s) actions.pick(s);
-			}}
-		/>
-		<Act model={actions} connected={connection === 'open'} />
-	{/if}
-
-	{#if appLogs}
-		<AppLogs model={appLogs} connected={connection === 'open'} />
-	{/if}
-
-	{#if client}
-		<Logcat {client} {connection} {device} />
+	{#if route.view === 'picker'}
+		{#if picker}
+			<Picker model={picker} />
+		{/if}
+	{:else if client && activity && hub}
+		{#key route.workspace}
+			<Project
+				{client}
+				{activity}
+				{hub}
+				{connection}
+				workspaceId={route.workspace}
+				onmissing={missing}
+				onpicker={() => router.go({ view: 'picker' })}
+			/>
+		{/key}
 	{/if}
 
 	{#if activity}

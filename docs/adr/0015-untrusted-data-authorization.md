@@ -1,6 +1,7 @@
 # ADR-0015: Untrusted device data and an explicit authorization boundary
 
 - Status: Accepted
+- Superseded in part by: ADR-0045 (§Decision)
 - Date: 2026-09-27
 - Amended: 2026-09-29. What changed: how the untrusted mark travels; the project-root
   trust gate; policy changes limited to human channels; `shell.exec` off by default;

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image"
 	"image/png"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -414,4 +416,43 @@ func mustDecode(t *testing.T, s string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// Decision (plan m2c D18, S9): artifact.read decodes at most artifact.MaxConcurrentDecodes
+// images at once, however many reads are in flight. 20 concurrent reads of a large image
+// all complete, and the most that were ever in the decode slots is the bound. Seen failing
+// with no bound (the peak was the number of reads in flight).
+func TestDecodesAreBounded(t *testing.T) {
+	f := newFixture(t)
+	rng := rand.New(rand.NewSource(1))
+	img := image.NewNRGBA(image.Rect(0, 0, 1600, 1200))
+	rng.Read(img.Pix)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	ref := f.put(t, buf.Bytes(), true)
+
+	const reads = 20
+	ids := make([]string, reads)
+	for i := range ids {
+		id, err := f.ops.Start(context.Background(), capability.Request{Capability: "artifact.read", Params: []byte(params(ref.Ref, `,"maxEdge":300`))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id
+	}
+	for _, id := range ids {
+		out, err := f.ops.Wait(context.Background(), id, time.Now().Add(60*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, _ := ok(t, out)
+		if d := delivered(t, r); max(d.Width, d.Height) != 300 {
+			t.Errorf("a read delivered %+v; want a 300 px long edge", d)
+		}
+	}
+	if peak := artifact.PeakDecodes(); peak < 2 || peak > artifact.MaxConcurrentDecodes {
+		t.Errorf("the most images decoding at once was %d; want between 2 (the reads did overlap) and %d", peak, artifact.MaxConcurrentDecodes)
+	}
 }

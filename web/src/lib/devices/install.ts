@@ -4,6 +4,11 @@
 // applicationId from the install's result (the field may be typed: an agent may have
 // installed it). A `null` pid is shown with its `reason`. *Installing* is the mirror's
 // (D11), so another client's install disables Install here and offers Cancel.
+//
+// The application id shown (m2c D20): what the user typed; else the newest build's output
+// for the chosen module and variant; else the project file's, which is written after each
+// install this tab makes (ADR-0046). The last two only fill the field: nothing is launched
+// or read from the device until a click.
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { failure, type Failure } from '../build/failure';
@@ -19,7 +24,12 @@ export interface InstallClient {
 export interface BuildSelection {
 	selection(): { root: string; module: string; variant: string } | null;
 	subscribe(listener: () => void): () => void;
+	/** D20's first source; a build selection without one falls through to the file's. */
+	output?: BuildOutput;
 }
+
+/** The newest build's output application id for a module and variant, if it has one. */
+export type BuildOutput = (module: string, variant: string) => string | undefined;
 
 export interface DeviceSelection {
 	view: { selected: string };
@@ -33,6 +43,7 @@ export interface InstallView {
 	/** The build panel's module and variant; null without an open workspace. */
 	build: { module: string; variant: string } | null;
 	installed: Result<'device.install'> | null;
+	/** What Launch and the app logs use: typed, else the build's output, else the file's. */
 	applicationId: string;
 	launched: Result<'device.launch'> | null;
 	installing: boolean;
@@ -50,7 +61,12 @@ export class InstallModel {
 	#view: InstallView | null = null;
 	#offs: (() => void)[] = [];
 	#installed: Result<'device.install'> | null = null;
-	#applicationId = '';
+	/** What the user typed; null follows D20's other sources. */
+	#typed: string | null = null;
+	/** The project file's application id, or the one this tab's last install reported. */
+	#stored = '';
+	#installedHere = false;
+	#installs = new Set<(applicationId: string) => void>();
 	#launched: Result<'device.launch'> | null = null;
 	#installing = false;
 	#launching = false;
@@ -75,7 +91,7 @@ export class InstallModel {
 				device: this.#devices.view.selected,
 				build: b && b.module !== '' && b.variant !== '' ? { module: b.module, variant: b.variant } : null,
 				installed: this.#installed,
-				applicationId: this.#applicationId,
+				applicationId: this.#applicationId(b),
 				launched: this.#launched,
 				installing: this.#installing,
 				launching: this.#launching,
@@ -93,9 +109,31 @@ export class InstallModel {
 		};
 	}
 
+	/** Typing replaces D20's sources; emptied, the field follows them again. */
 	setApplicationId(id: string): void {
-		this.#applicationId = id;
+		this.#typed = id === '' ? null : id;
 		this.#changed();
+	}
+
+	/** The project file's application id (ADR-0046); an install this tab made is newer than it. */
+	setStoredApplicationId(id: string): void {
+		if (this.#installedHere) return;
+		this.#stored = id;
+		this.#changed();
+	}
+
+	/** `fn` hears of the application id of each install this tab makes. */
+	subscribeInstalled(fn: (applicationId: string) => void): () => void {
+		this.#installs.add(fn);
+		return () => {
+			this.#installs.delete(fn);
+		};
+	}
+
+	#applicationId(b: { module: string; variant: string } | null): string {
+		if (this.#typed !== null) return this.#typed;
+		const out = b && b.module !== '' && b.variant !== '' ? this.#build.output?.(b.module, b.variant) : undefined;
+		return out ?? this.#stored;
 	}
 
 	async install(): Promise<void> {
@@ -112,7 +150,10 @@ export class InstallModel {
 				{ workspace: b.root.trim() },
 			);
 			this.#installed = r;
-			this.#applicationId = r.applicationId;
+			this.#typed = null;
+			this.#stored = r.applicationId;
+			this.#installedHere = true;
+			for (const fn of [...this.#installs]) fn(r.applicationId);
 			this.#launched = null;
 			this.#launchError = null;
 		} catch (e) {
@@ -126,7 +167,7 @@ export class InstallModel {
 
 	async launch(): Promise<void> {
 		const device = this.#devices.view.selected;
-		const applicationId = this.#applicationId.trim();
+		const applicationId = this.view.applicationId.trim();
 		if (this.#launching || device === '' || applicationId === '') return;
 		this.#launching = true;
 		this.#launchError = null;
@@ -143,6 +184,7 @@ export class InstallModel {
 	}
 
 	dispose(): void {
+		this.#installs.clear();
 		for (const off of this.#offs) off();
 		this.#offs = [];
 	}

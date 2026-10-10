@@ -193,6 +193,10 @@ type Admission struct {
 	// is false, the serial is not in the allowlist, or the configuration file could not
 	// be used, by name (ADR-0032 §4).
 	Cause string
+	// Invalid is true when the refusal is because the configuration file could not be
+	// used (or its directory resolved), as opposed to the file saying no: the user
+	// meant something the file cannot say, and a listing tells them so.
+	Invalid bool
 }
 
 // PhysicalAdmitted reports whether a physical device's exact serial is admitted. A
@@ -200,12 +204,12 @@ type Admission struct {
 // names itself as the cause.
 func (p *Policy) PhysicalAdmitted(serial string) Admission {
 	if p.dirErr != nil {
-		return Admission{Cause: p.dirErr.Error()}
+		return Admission{Cause: p.dirErr.Error(), Invalid: true}
 	}
 	snap := p.snapshot()
 	switch {
 	case snap.err != nil:
-		return Admission{Cause: snap.err.Cause}
+		return Admission{Cause: snap.err.Cause, Invalid: true}
 	case !snap.present:
 		return Admission{Cause: "devices.allowPhysical is false"}
 	case !snap.doc.devices.allowPhysical:
@@ -474,9 +478,9 @@ func Register(reg *capability.Registry, p *Policy) {
 		Params:      UpdateParams{},
 		Result:      GetResult{},
 		Errors:      []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams, capability.ErrPolicyRevisionConflict},
-		Handler: func(_ context.Context, call *capability.Call) (any, error) {
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			patch, _ := call.Params.(UpdateParams)
-			res, err := p.Update(patch)
+			res, err := p.Update(ctx, patch)
 			if err != nil {
 				return nil, err
 			}
@@ -632,7 +636,7 @@ func (p *Policy) Trust(root string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	lock, err := lockExclusive(filepath.Join(dir, LockName))
+	lock, err := lockExclusive(context.Background(), filepath.Join(dir, LockName))
 	if err != nil {
 		return "", err
 	}
@@ -654,19 +658,36 @@ func (p *Policy) Trust(root string) (string, error) {
 	return canonical, nil
 }
 
-// lockExclusive takes a blocking exclusive flock, the serialisation concurrent writers
-// need. The kernel releases it when the process dies, so a crashed run never blocks the
-// next.
-func lockExclusive(path string) (*os.File, error) {
+// lockPoll is how often a waiting lockExclusive tries the lock again.
+const lockPoll = 10 * time.Millisecond
+
+// lockExclusive takes the exclusive flock, the serialisation concurrent writers need.
+// It never blocks in the kernel: it tries LOCK_EX|LOCK_NB and, while another process
+// holds the lock, tries again every lockPoll until ctx is done, so a cancelled call
+// stops waiting (a blocking flock cannot be interrupted). The kernel releases the lock
+// when the process dies, so a crashed run never blocks the next. A wait that ctx ends
+// returns ctx's error.
+func lockExclusive(ctx context.Context, path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, err
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return f, nil
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EINTR {
+			f.Close()
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			f.Close()
+			return nil, ctx.Err()
+		case <-time.After(lockPoll):
+		}
 	}
-	return f, nil
 }
 
 func contains(list []string, want string) bool {
@@ -725,6 +746,9 @@ func decode(data []byte) (*document, error) {
 	if err := json.Unmarshal(data, &top); err != nil {
 		return nil, err
 	}
+	if err := rejectDuplicateKeys(data); err != nil {
+		return nil, err
+	}
 	if top == nil {
 		return nil, errors.New("the configuration is not a JSON object")
 	}
@@ -754,6 +778,61 @@ func decode(data []byte) (*document, error) {
 		return nil, err
 	}
 	return doc, nil
+}
+
+// rejectDuplicateKeys fails a document that repeats a key within one object, at any
+// depth. encoding/json keeps the last of two equal keys, so a hand-edited file with two
+// `shell` sections would silently enable what the first one said off (or the reverse);
+// a duplicate makes the file unparseable instead, which is the fail-closed path of
+// ADR-0031 §3 and ADR-0032 §4. The error names the key and the path to it. data has
+// already parsed as one JSON value, so only the repeat is looked for here.
+func rejectDuplicateKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	// Numbers stay text: a valid file may hold one outside float64's range.
+	dec.UseNumber()
+	return walkValue(dec, "")
+}
+
+// walkValue consumes one JSON value from dec, checking every object in it.
+func walkValue(dec *json.Decoder, path string) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		return nil // a scalar
+	}
+	switch delim {
+	case '{':
+		seen := map[string]bool{}
+		for dec.More() {
+			kt, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			key, _ := kt.(string)
+			at := key
+			if path != "" {
+				at = path + "." + key
+			}
+			if seen[key] {
+				return fmt.Errorf("%s: the key is written twice, and which one counts is ambiguous, so the file is refused", at)
+			}
+			seen[key] = true
+			if err := walkValue(dec, at); err != nil {
+				return err
+			}
+		}
+	case '[':
+		for dec.More() {
+			if err := walkValue(dec, path+"[]"); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = dec.Token() // the closing delimiter
+	return err
 }
 
 func decodeTrust(raw json.RawMessage, doc *document) error {

@@ -170,8 +170,8 @@ type readerClient struct {
 	// name is `droidyard-reader-<d12>`: the abstract socket's name and the process's
 	// --nice-name (plan m1f, D2).
 	name string
-	// remote is the dex's path on the device; it is pushed once and left there
-	// (ADR-0030: the dex file may stay in /data/local/tmp).
+	// remote is the dex's path on the device; it is left there (ADR-0030: the dex file
+	// may stay in /data/local/tmp) and pushed again when a start finds it changed (dexNeedsPush).
 	remote string
 
 	// lock serialises this device's reads (plan m1f, R2). It is context-aware, not a
@@ -182,7 +182,7 @@ type readerClient struct {
 	mu       sync.Mutex
 	port     string // the forward's host port, "" until forwarded
 	launched bool   // the serve command ran at least once (or a reader was adopted)
-	pushed   bool   // the dex was pushed by this daemon
+	pushed   bool   // the dex was pushed by this daemon; not proof it is still there (dexNeedsPush)
 	// reconciled is true once `forward --list` has been read for this client: the
 	// forward list is consulted on the client's first read and after a failed read,
 	// never on a warm read (plan m1f step 7).
@@ -728,7 +728,7 @@ func (a *ADB) ensureReader(parent context.Context, t *target, c *readerClient, e
 	// device's one UiAutomation and must be stopped before this daemon starts (plan m1f
 	// step 7).
 	a.clearForeignReaders(ctx, t, c)
-	if !c.isPushed() {
+	if a.dexNeedsPush(ctx, t, c) {
 		if ok, why := a.pushReader(ctx, t, c); !ok {
 			return false, why
 		}
@@ -781,7 +781,7 @@ func (a *ADB) restartReader(parent context.Context, t *target, c *readerClient, 
 	// adopted reader's dex was not pushed by this daemon, so it is put back before its
 	// replacement starts (plan m1f step 7).
 	a.clearForeignReaders(ctx, t, c)
-	if !c.isPushed() {
+	if a.dexNeedsPush(ctx, t, c) {
 		if ok, why := a.pushReader(ctx, t, c); !ok {
 			return false, why
 		}
@@ -1040,9 +1040,36 @@ func (a *ADB) killPid(ctx context.Context, t *target, pid string) {
 	a.Run(ctx, t.adb, readerCloseBound, 1<<10, "-s", t.serial, "shell", "kill", pid)
 }
 
-// pushReader puts the embedded dex on the device once. It is the same file the one-shot
-// reader uses; the persistent reader leaves it (ADR-0030), and only a daemon that
-// restarts pushes it again.
+// dexNeedsPush decides, before a start, whether the dex must be pushed first. It is on the
+// slow path only (the callers are about to start a process), never on a warm read. A dex
+// this daemon has not pushed is pushed. One it has pushed is trusted only after one
+// bounded `stat -c %s` of the fixed remote path: the pushed flag outlives a device restart
+// under the same serial, and a restart that kills the guest before its page cache reaches
+// the disk leaves the dex 0 bytes long (milestone 2c step 2), or gone after a wipe, so a start
+// from it fails and the read falls back for good. A dex whose size is not the embedded
+// one, a missing file, a failed or unparseable stat all mean push: a push is idempotent and
+// its own failure carries the reason. The stat is not content proof (a same-length
+// corruption is not seen); the loss a restart causes is a truncation or a removal.
+func (a *ADB) dexNeedsPush(ctx context.Context, t *target, c *readerClient) bool {
+	if !c.isPushed() {
+		return true
+	}
+	// c.remote is readerRemote: a fixed shape built from the pinned digest, no untrusted
+	// text reaches the shell.
+	out, err := a.Run(ctx, t.adb, readerCloseBound, 1<<10, "-s", t.serial, "shell", "stat", "-c", "%s", c.remote)
+	if err != nil || out.ExitCode != 0 || out.Truncated {
+		return true
+	}
+	n, perr := strconv.ParseInt(strings.TrimSpace(string(out.Stdout)), 10, 64)
+	if perr != nil {
+		return true
+	}
+	return n != int64(len(reader.Dex()))
+}
+
+// pushReader puts the embedded dex on the device. It is the same file the one-shot
+// reader uses; the persistent reader leaves it (ADR-0030), and it is pushed again when this
+// daemon has not pushed it or the device's copy is not the embedded one (dexNeedsPush).
 func (a *ADB) pushReader(ctx context.Context, t *target, c *readerClient) (bool, string) {
 	dir, err := os.MkdirTemp("", "droidyard-reader-")
 	if err != nil {

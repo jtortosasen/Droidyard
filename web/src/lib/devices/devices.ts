@@ -14,6 +14,17 @@ export interface DevicesClient {
 	call(name: 'device.list', params: Params<'device.list'>, opts?: CallOptions): Promise<Result<'device.list'>>;
 }
 
+/** What the project file preselects (ADR-0046): a running emulator's AVD or a device's serial. */
+export type DevicePreselect = { avd: string } | { serial: string };
+
+/** The device chosen by default (D19): the only running emulator, else the only online device. */
+export function defaultDevice(devices: readonly DeviceInfo[]): string {
+	const online = devices.filter((d) => d.online);
+	const emulators = online.filter((d) => d.kind === 'emulator');
+	if (emulators.length === 1) return emulators[0]!.device;
+	return online.length === 1 ? online[0]!.device : '';
+}
+
 export interface DevicesView {
 	devices: readonly DeviceInfo[];
 	/** The selected serial; '' for none. */
@@ -31,6 +42,11 @@ export class DevicesModel {
 	#selected = '';
 	#error: Failure | null = null;
 	#gen = 0;
+	// ADR-0046: the project file's device applies until the user picks one; the user's
+	// own picks are announced so the file can be written from them.
+	#pref: DevicePreselect | null = null;
+	#touched = false;
+	#choices = new Set<(serial: string) => void>();
 
 	constructor(client: DevicesClient, activity: Pick<DevicesActivity, 'onTerminal'>) {
 		this.#client = client;
@@ -49,9 +65,35 @@ export class DevicesModel {
 		};
 	}
 
+	/** The user's pick; `fn` hears of it, never of a default or a preselection. */
 	select(serial: string): void {
+		this.#touched = true;
 		this.#selected = serial;
 		this.#changed();
+		if (serial !== '') for (const fn of [...this.#choices]) fn(serial);
+	}
+
+	subscribeChoice(fn: (serial: string) => void): () => void {
+		this.#choices.add(fn);
+		return () => {
+			this.#choices.delete(fn);
+		};
+	}
+
+	/** The project file's device: chosen when the list holds it online, until the user picks. */
+	setPreselect(pref: DevicePreselect | null): void {
+		this.#pref = pref;
+		if (this.#apply()) this.#changed();
+	}
+
+	/** Selects the preselected device if it is listed and online; whether the selection changed. */
+	#apply(): boolean {
+		const p = this.#pref;
+		if (p === null || this.#touched) return false;
+		const hit = this.#devices.find((d) => d.online && ('avd' in p ? d.avdName === p.avd : d.device === p.serial));
+		if (hit === undefined || hit.device === this.#selected) return false;
+		this.#selected = hit.device;
+		return true;
 	}
 
 	/** `device.list`; a newer read supersedes an older one still on its way. */
@@ -63,8 +105,8 @@ export class DevicesModel {
 			this.#devices = r.devices;
 			this.#error = null;
 			if (this.#selected !== '' && !r.devices.some((d) => d.device === this.#selected)) this.#selected = '';
-			const online = r.devices.filter((d) => d.online);
-			if (this.#selected === '' && online.length === 1) this.#selected = online[0]!.device;
+			if (this.#selected === '') this.#selected = defaultDevice(r.devices);
+			this.#apply();
 		} catch (e) {
 			if (gen !== this.#gen) return;
 			// A lost connection is shown by the connection state; a capability error by its code.
@@ -76,6 +118,7 @@ export class DevicesModel {
 
 	dispose(): void {
 		this.#off();
+		this.#choices.clear();
 	}
 
 	#changed(): void {

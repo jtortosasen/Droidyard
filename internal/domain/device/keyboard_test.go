@@ -1,9 +1,12 @@
 package device
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
 // Decision (plan m1n step 5, fix round L1; ui-automation.md §Typing): the guard reads whether
@@ -267,5 +270,84 @@ func TestTapElementKeyboardGuardSendsNoBackWhenTheRegionIsUnreadable(t *testing.
 				t.Errorf("the reader acts = %q, want [tap 150 1650]", got)
 			}
 		})
+	}
+}
+
+// Decision (plan m2c, S8): a failure that follows the guard's BACK says a BACK was sent.
+// The steps' own wording ("nothing on the device was changed", "this call is safe to
+// repeat") is untrue once the BACK is on the device (it goes back a screen if the keyboard had
+// already closed), so the error names the BACK and drops those claims. Seen failing with the
+// errors passed through, as before this fix. The tap and the typing both run the guard.
+func TestKeyboardBackFailureSaysBackWasSent(t *testing.T) {
+	quickAct(t)
+	other := kbNode("android.widget.TextView", "other", "", "[0,0][10,10]")
+	// For a tap the target is a button under the keyboard; for typing it is the field itself.
+	tapBefore := tappable(kbField("[0,0][200,200]"), kbLike("[100,1600][200,1700]"))
+	tapGone := tappable(kbField("[0,0][200,200]"), other)
+	inBefore := tappable(kbField("[100,1600][200,1700]"))
+	inGone := tappable(other)
+	untrue := []string{"safe to repeat", "nothing on the device was changed"}
+	tapCall := func(f *uiFixture, t *testing.T) capability.Outcome {
+		return f.tapCall(t, `{"device":"emulator-5554","target":{"id":"like"}}`)
+	}
+	inCall := func(f *uiFixture, t *testing.T) capability.Outcome {
+		return f.inputCall(t, `{"device":"emulator-5554","text":"Ana","target":{"id":"name"}}`)
+	}
+	for _, tc := range []struct {
+		name          string
+		before, after string
+		stillShown    bool // the keyboard is still reported shown after the BACK
+		code          capability.ErrorCode
+		call          func(f *uiFixture, t *testing.T) capability.Outcome
+		what          string
+	}{
+		{"tap, target gone after the BACK", tapBefore, tapGone, false, ErrElementNotFound, tapCall, "tapped"},
+		{"tap, still covered", tapBefore, tapBefore, true, ErrElementOffscreen, tapCall, "tapped"},
+		{"input, target gone after the BACK", inBefore, inGone, false, ErrElementNotFound, inCall, "typed"},
+		{"input, still covered", inBefore, inBefore, true, ErrElementOffscreen, inCall, "typed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			shownAfter := "  mInputShown=false\n"
+			if tc.stillShown {
+				shownAfter = "  mInputShown=true\n"
+			}
+			files, _ := withPersistentReaderR(t, map[string]string{
+				uiSerial + ".dumpsysinputmethod.out":   "  mInputShown=true\n",
+				uiSerial + ".dumpsysinputmethod#2.out": shownAfter,
+				uiSerial + ".dumpsyswindowwindows.out": imeWindowDump,
+			}, tc.before, tc.after, tc.after)
+			f := newUIFixture(t, files)
+			ce := mustFail(t, tc.call(f, t), tc.code)
+			if n := countInput(f.calls(t), "input keyevent 4"); n != 1 {
+				t.Fatalf("%d BACK keys, want the one the claim is about (%q)", n, f.calls(t))
+			}
+			text := ce.Message + " | " + ce.NextStep
+			if !strings.Contains(text, "BACK key event") {
+				t.Errorf("the failure does not say a BACK was sent: %s", text)
+			}
+			if !strings.Contains(ce.NextStep, "nothing was "+tc.what) {
+				t.Errorf("the next step lost the true claim that nothing was %s: %s", tc.what, ce.NextStep)
+			}
+			for _, claim := range untrue {
+				if strings.Contains(text, claim) {
+					t.Errorf("the failure still claims %q after a BACK was sent: %s", claim, text)
+				}
+			}
+		})
+	}
+
+	// The wrapper: the before-phase budget's wording is cut, a cancellation passes through.
+	budget := phaseError(context.Background(), context.DeadlineExceeded, ErrUIDumpFailed, "the UI could not be re-read")
+	got := afterKeyboardBack(budget, "tapped").(*capability.Error)
+	if strings.Contains(got.NextStep, "nothing on the device was changed") || !strings.Contains(got.NextStep, "BACK key event") || got.Code != ErrUIDumpFailed {
+		t.Errorf("a budget failure after the BACK: %+v", got)
+	}
+	// Guidance after the claim's sentence survives the cut.
+	dump := afterKeyboardBack(dumpFailed("it exited"), "tapped").(*capability.Error)
+	if !strings.Contains(dump.NextStep, "the screen may be animating") || strings.Contains(dump.NextStep, "nothing on the device was changed") {
+		t.Errorf("the dump failure's next step after the BACK: %s", dump.NextStep)
+	}
+	if err := afterKeyboardBack(context.Canceled, "tapped"); err != context.Canceled {
+		t.Errorf("a cancellation was changed: %v", err)
 	}
 }

@@ -17,6 +17,8 @@ export interface EmulatorsClient {
 
 export interface EmulatorsView {
 	avds: readonly AvdInfo[];
+	/** The AVD the project file names, when it is listed and not running: Start is its action. */
+	preselected: string;
 	mirror: DevicesMirrorView;
 	/** View preference: boot without a window. */
 	headless: boolean;
@@ -40,6 +42,9 @@ export class EmulatorsModel {
 	#startError: Failure | null = null;
 	#stopError: Failure | null = null;
 	#gen = 0;
+	// ADR-0046: the AVD the project file names, and the listeners told when the user starts one.
+	#pref = '';
+	#choices = new Set<(avd: string) => void>();
 
 	constructor(client: EmulatorsClient, activity: Pick<DevicesActivity, 'onTerminal'>, mirror: DevicesMirror) {
 		this.#client = client;
@@ -51,6 +56,7 @@ export class EmulatorsModel {
 	get view(): EmulatorsView {
 		this.#view ??= {
 			avds: this.#avds,
+			preselected: this.#avds.some((a) => a.name === this.#pref && !a.running) ? this.#pref : '',
 			mirror: this.mirror.view,
 			headless: this.#headless,
 			starting: this.#starting,
@@ -65,6 +71,20 @@ export class EmulatorsModel {
 		this.#listeners.add(listener);
 		return () => {
 			this.#listeners.delete(listener);
+		};
+	}
+
+	/** The project file's AVD; one the list lacks, or one already running, preselects nothing. */
+	setPreselect(avd: string | null): void {
+		this.#pref = avd ?? '';
+		this.#changed();
+	}
+
+	/** `fn` hears of an AVD the user starts: that is the project's AVD from then on. */
+	subscribeChoice(fn: (avd: string) => void): () => void {
+		this.#choices.add(fn);
+		return () => {
+			this.#choices.delete(fn);
 		};
 	}
 
@@ -91,6 +111,7 @@ export class EmulatorsModel {
 	/** `emulator.start`, refused while anything boots (the daemon would queue it behind). */
 	async start(avd: string): Promise<void> {
 		if (this.#starting || this.mirror.view.booting !== null) return;
+		for (const fn of [...this.#choices]) fn(avd);
 		this.#starting = true;
 		this.#startError = null;
 		this.#changed();
@@ -119,6 +140,7 @@ export class EmulatorsModel {
 	}
 
 	dispose(): void {
+		this.#choices.clear();
 		for (const off of this.#offs) off();
 		this.#offs = [];
 	}

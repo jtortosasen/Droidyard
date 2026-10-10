@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +23,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // stopTimeout bounds how long `stop` waits for the daemon to release its lock.
@@ -333,7 +336,7 @@ func status() int {
 			fmt.Printf("http token: %v\n", err)
 			return 0
 		}
-		fmt.Println(uiURL(addr, token))
+		fmt.Println(uiURL(addr, token, ""))
 	}
 	return 0
 }
@@ -349,8 +352,14 @@ func httpAddr(state string, info daemon.LockInfo) (string, error) {
 
 // uiURL is the tokenised URL that bootstraps the web UI: the token is in the
 // fragment, which a browser never sends to a server (http-websocket.md §Bootstrapping).
-func uiURL(addr, token string) string {
-	return "http://" + addr + "/#token=" + token
+// A workspace id adds `&w=<id>`, the project the tab shows; without one the page is the
+// project picker (ADR-0045 §1–2).
+func uiURL(addr, token, workspace string) string {
+	u := "http://" + addr + "/#token=" + token
+	if workspace != "" {
+		u += "&w=" + workspace
+	}
+	return u
 }
 
 // openURL opens a URL in the default browser. A variable only so that this package's
@@ -371,9 +380,10 @@ func openBrowser(url string) error {
 	return nil
 }
 
-// ui runs `droidyard ui`: it connects as `call` does, starting a daemon when none
-// answers unless --no-autostart, then opens the browser at the tokenised URL the lock
-// and run/http-token give (ADR-0019 §3, §4). It does not print the token.
+// ui runs `droidyard ui`, and `droidyard` alone: it connects as `call` does, starting a
+// daemon when none answers unless --no-autostart, opens the project of the working
+// directory when there is one (ADR-0045 §1), then opens the browser at the tokenised URL
+// the lock and run/http-token give (ADR-0019 §3, §4). It does not print the token.
 func ui(args []string) int {
 	autostart := true
 	for _, a := range args {
@@ -383,10 +393,21 @@ func ui(args []string) int {
 		}
 		autostart = false
 	}
-	conn, _, socket, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, autostart, nil)
+	conn, r, socket, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, autostart, nil)
 	if err != nil {
 		reportDialError("ui", socket, err)
 		return 1
+	}
+	// The project is found by the MCP binding's rule. Opening it runs no project code
+	// and grants no trust (ADR-0015 §5); when it cannot be opened the browser still
+	// opens, on the picker, with the reason said here.
+	var id string
+	if cwd, err := os.Getwd(); err == nil {
+		if root, ok := platform.GradleRoot(cwd); ok {
+			if id, err = openProject(conn, r, root); err != nil {
+				fmt.Fprintf(os.Stderr, "droidyard ui: opening %s: %v\nThe browser opens on the project picker instead.\n", root, err)
+			}
+		}
 	}
 	conn.Close()
 	state, err := platform.Current().StateDir()
@@ -409,12 +430,34 @@ func ui(args []string) int {
 		fmt.Fprintf(os.Stderr, "droidyard ui: reading the token: %v\n", err)
 		return 1
 	}
-	if err := openURL(uiURL(addr, token)); err != nil {
+	if err := openURL(uiURL(addr, token, id)); err != nil {
 		fmt.Fprintf(os.Stderr, "droidyard ui: opening the browser: %v\nOpen the address `droidyard status` prints instead.\n", err)
 		return 1
 	}
 	fmt.Printf("opened http://%s/ in the browser\n", addr)
 	return 0
+}
+
+// openProject calls workspace.open on root over the connection and returns the
+// workspace's id.
+func openProject(conn net.Conn, r *bufio.Reader, root string) (string, error) {
+	var out bytes.Buffer
+	call := cli.Call{Capability: workspace.CapOpen, Workspace: root}
+	if _, err := call.Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil); err != nil {
+		return "", err
+	}
+	var env capability.ResponseEnvelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		return "", fmt.Errorf("the daemon's answer is not an envelope: %w", err)
+	}
+	if env.Error != nil {
+		return "", fmt.Errorf("%s: %s", env.Error.Code, env.Error.Message)
+	}
+	var info workspace.Info
+	if err := json.Unmarshal(env.Result, &info); err != nil || info.ID == "" {
+		return "", fmt.Errorf("workspace.open answered no workspace id")
+	}
+	return info.ID, nil
 }
 
 // stop sends SIGTERM to the daemon that holds the lock and waits for the lock's
