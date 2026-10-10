@@ -12,6 +12,11 @@
 	import { EventsHub } from './lib/build/hub';
 	import { WorkspaceModel } from './lib/build/workspace';
 	import Workspace from './lib/build/Workspace.svelte';
+	import { DevicesMirror } from './lib/devices/mirror';
+	import { DevicesModel } from './lib/devices/devices';
+	import { EmulatorsModel } from './lib/devices/emulators';
+	import { InstallModel } from './lib/devices/install';
+	import Devices from './lib/devices/Devices.svelte';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
 
@@ -34,8 +39,10 @@
 	let build = $state.raw<BuildModel | null>(null);
 	let tasks = $state.raw<TasksModel | null>(null);
 	let buildConsole = $state.raw<ConsoleModel | null>(null);
-	let devices = $state.raw<Result<'device.list'>['devices']>([]);
-	let devicesError = $state<string | null>(null);
+	let devices = $state.raw<DevicesModel | null>(null);
+	let emulators = $state.raw<EmulatorsModel | null>(null);
+	let install = $state.raw<InstallModel | null>(null);
+	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
 	$effect(() => {
@@ -63,6 +70,21 @@
 		const builds = new BuildModel(callOn, store, hub, ws);
 		const taskList = new TasksModel(callOn, builds.mirror, ws);
 		const console_ = new ConsoleModel(callOn, builds, ws);
+		const mirror = new DevicesMirror(store, callOn);
+		const deviceList = new DevicesModel(callOn, store);
+		const emulatorList = new EmulatorsModel(callOn, store, mirror);
+		const installer = new InstallModel(
+			callOn,
+			mirror,
+			{
+				selection: () => (ws.id === null ? null : { root: ws.root, module: builds.view.module, variant: builds.view.variant }),
+				subscribe: (l) => builds.subscribe(l),
+			},
+			deviceList,
+		);
+		const offDevice = deviceList.subscribe(() => {
+			device = deviceList.view.selected;
+		});
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -76,7 +98,8 @@
 			},
 		});
 		function refresh() {
-			listDevices(c);
+			void deviceList.refresh();
+			void emulatorList.refresh();
 			c.call('system.health', {}).then(
 				(h) => {
 					health = h;
@@ -94,6 +117,9 @@
 		build = builds;
 		tasks = taskList;
 		buildConsole = console_;
+		devices = deviceList;
+		emulators = emulatorList;
+		install = installer;
 		// Connect first: a call made on a client never connected is refused as closed,
 		// while one made while connecting waits for the socket.
 		c.connect();
@@ -103,6 +129,11 @@
 		// after another client closes it the panel offers to reopen, it does not reopen.
 		void ws.open();
 		return () => {
+			offDevice();
+			installer.dispose();
+			emulatorList.dispose();
+			deviceList.dispose();
+			mirror.dispose();
 			console_.dispose();
 			taskList.dispose();
 			builds.dispose();
@@ -116,28 +147,12 @@
 			build = null;
 			tasks = null;
 			buildConsole = null;
+			devices = null;
+			emulators = null;
+			install = null;
+			device = '';
 		};
 	});
-
-	function listDevices(c: Client) {
-		c.call('device.list', {}).then(
-			(r) => {
-				devices = r.devices;
-				devicesError = null;
-				// One device to choose from is the choice, until the user picks another.
-				const online = r.devices.filter((d) => d.online);
-				if (device === '' && online.length === 1) device = online[0]!.device;
-			},
-			(e: unknown) => {
-				if (e instanceof Error && 'code' in e) devicesError = String(e.code);
-			},
-		);
-	}
-
-	function deviceLabel(d: Result<'device.list'>['devices'][number]): string {
-		const name = d.avdName ?? d.model ?? d.product ?? d.kind;
-		return `${d.device} (${name}, ${d.state})`;
-	}
 
 	function uptime(seconds: number): string {
 		const h = Math.floor(seconds / 3600);
@@ -164,26 +179,6 @@
 		<p>system.health failed: {healthError}</p>
 	{/if}
 
-	<p>
-		<label>
-			Device
-			<select value={device} onchange={(e) => (device = e.currentTarget.value)}>
-				<option value="">none</option>
-				{#each devices as d (d.device)}
-					<option value={d.device} disabled={!d.online}>{deviceLabel(d)}</option>
-				{/each}
-			</select>
-		</label>
-		<button type="button" disabled={!client || connection !== 'open'} onclick={() => client && listDevices(client)}>
-			Refresh
-		</button>
-		{#if devicesError}
-			device.list failed: {devicesError}
-		{:else if devices.length === 0}
-			No device is connected.
-		{/if}
-	</p>
-
 	{#if workspace}
 		<Workspace model={workspace} />
 	{/if}
@@ -195,6 +190,10 @@
 	{/if}
 	{#if buildConsole}
 		<Console model={buildConsole} />
+	{/if}
+
+	{#if devices && emulators && install}
+		<Devices {devices} {emulators} {install} connected={connection === 'open'} />
 	{/if}
 
 	{#if client}
