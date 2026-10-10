@@ -1,5 +1,5 @@
 {
-  "version": "0.15.0",
+  "version": "0.16.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -2038,6 +2038,113 @@
           "capability",
           "state"
         ]
+      }
+    },
+    {
+      "name": "build.watchOutput",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.16.0",
+      "description": "Streams every build console of the workspace to the calling WebSocket session while it runs: whole lines on topic build.output, with the byte offset of the first. The result lists the running builds with each console's size taken after the subscription opened; read [0, offset) with artifact.read, apply the events from there, and after an events.gap read on from the last offset.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "SESSION_REQUIRED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the build.output events arrive on, over the WebSocket session that made the call. It follows every build of the workspace, started by any client, until events.unsubscribe or the session's end."
+          },
+          "builds": {
+            "items": {
+              "properties": {
+                "buildId": {
+                  "type": "string"
+                },
+                "consoleRef": {
+                  "type": "string",
+                  "description": "The build's console artifact, readable while it grows."
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "The console's size in bytes when the snapshot was taken, after the subscription opened. The events for this build with a smaller offset repeat bytes already below it: ignore them."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "buildId",
+                "consoleRef",
+                "offset"
+              ]
+            },
+            "type": "array",
+            "description": "The workspace's running builds, taken after the subscription opened. Read each console's bytes [0, offset) with artifact.read; the rest arrives as events. An event whose offset is past what the client holds for its build, a build not listed included, is preceded by bytes to read with artifact.read."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "builds"
+        ]
+      },
+      "events": {
+        "topic": "build.output",
+        "types": {
+          "lines": {
+            "properties": {
+              "buildId": {
+                "type": "string"
+              },
+              "consoleRef": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer",
+                "description": "The byte position of the first line in the console artifact; the lines are contiguous from there, each followed by a newline."
+              },
+              "stream": {
+                "type": "string",
+                "enum": [
+                  "stdout",
+                  "stderr",
+                  "droidyard"
+                ],
+                "description": "stdout or stderr from the build; droidyard for the connector notice and the cap marker."
+              },
+              "lines": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Whole lines without their newline, oldest first."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "buildId",
+              "consoleRef",
+              "offset",
+              "stream",
+              "lines"
+            ]
+          }
+        }
       }
     },
     {

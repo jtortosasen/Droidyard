@@ -7,11 +7,13 @@ import (
 	"path"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/extract"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
 
@@ -53,6 +55,10 @@ type RegistryOptions struct {
 	Log io.Writer
 	// Now is the clock retention and timestamps read; nil means time.Now.
 	Now func() time.Time
+	// Bus is the daemon's event bus: build.output lines are published on it to the
+	// build.watchOutput subscriptions (ADR-0044). Nil makes build.watchOutput answer
+	// SESSION_REQUIRED and publishes nothing.
+	Bus *event.Bus
 }
 
 // Registry is the daemon's build history, across every workspace it has built in: the
@@ -69,8 +75,21 @@ type Registry struct {
 	mu sync.Mutex
 	// running holds the build ids this daemon is running, so the sweep at an open
 	// never deletes a console an in-flight build is writing.
-	runMu   sync.Mutex
-	running map[string]bool
+	runMu    sync.Mutex
+	running  map[string]bool
+	consoles map[string]map[string]*liveConsole // running builds' consoles, by workspace and build id
+
+	// bus carries build.output (ADR-0044). Nil publishes nothing.
+	bus *event.Bus
+	// watchMu guards watches: the build.watchOutput subscriptions, by workspace.
+	watchMu sync.Mutex
+	watches map[string]map[*watch]struct{}
+	// watchHook is a test seam: build.watchOutput runs it after its subscription is
+	// registered and before it snapshots the running builds. Nil in production.
+	watchHook atomic.Pointer[func()]
+	// capOverride, when positive, replaces consoleCap for the consoles created from now
+	// on. Test-only.
+	capOverride int64
 }
 
 // NewRegistry returns an empty registry over opts.
@@ -81,7 +100,8 @@ func NewRegistry(o RegistryOptions) *Registry {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	return &Registry{store: o.Store, arts: o.Artifacts, log: o.Log, now: o.Now, running: map[string]bool{}}
+	return &Registry{store: o.Store, arts: o.Artifacts, log: o.Log, now: o.Now, running: map[string]bool{}, consoles: map[string]map[string]*liveConsole{},
+		bus: o.Bus, watches: map[string]map[*watch]struct{}{}}
 }
 
 // configured reports whether the registry has both stores a build capability needs. A

@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -95,6 +96,16 @@ type adbSeam struct {
 	// wrapStream, when set, wraps the recorded starter of a Logcat stream, so a test can
 	// hold a child's reaping (ADR-0041 §6).
 	wrapStream func(device.StreamStarter) device.StreamStarter
+	// gradle, when set, gives the daemon a fake Gradle sidecar in place of the sealed
+	// "no JDK" of TestMain. It is applied beside the adb seam, under adbSeamMu.
+	gradle *gradleSeam
+}
+
+// gradleSeam is the Gradle sidecar one in-process daemon is given: how it is launched
+// and the finder that tells it a JDK exists.
+type gradleSeam struct {
+	launch gradle.Launch
+	finder func(env []string) *gradle.Finder
 }
 
 // adbSeamMu orders the daemons that start at once (parallel tests): registry() reads
@@ -151,12 +162,17 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	adbSeamMu.Lock()
 	oldEnv, oldExec, oldWrap := adbEnviron, adbExec, adbStreamWrap
 	oldTick := watchTick
-	if adb != nil {
+	oldLaunch, oldFinder := gradleLaunch, gradleFinder
+	if adb != nil && adb.env != nil {
 		adbEnviron, adbExec, adbStreamWrap = func() []string { return adb.env }, adb.exec, adb.wrapStream
+	}
+	if adb != nil && adb.gradle != nil {
+		gradleLaunch, gradleFinder = adb.gradle.launch, adb.gradle.finder
 	}
 	watchTick = tick
 	reg, ops, bus, artifacts, deviceADB, watchers := registry(env, st, sup, os.Stderr)
 	adbEnviron, adbExec, adbStreamWrap, watchTick = oldEnv, oldExec, oldWrap, oldTick
+	gradleLaunch, gradleFinder = oldLaunch, oldFinder
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.ops, p.bus, p.store = ops, bus, artifacts

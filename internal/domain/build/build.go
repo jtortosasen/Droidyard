@@ -161,6 +161,29 @@ func registerBuilds(reg *capability.Registry, o Options) {
 			}, model)
 		},
 	})
+	notDestructive := false
+	reg.MustRegister(capability.Descriptor{
+		Name:         "build.watchOutput",
+		Kind:         capability.Command,
+		Scope:        capability.Workspace,
+		Statefulness: capability.Streaming,
+		Since:        "0.16.0",
+		Description:  "Streams every build console of the workspace to the calling WebSocket session while it runs: whole lines on topic build.output, with the byte offset of the first. The result lists the running builds with each console's size taken after the subscription opened; read [0, offset) with artifact.read, apply the events from there, and after an events.gap read on from the last offset.",
+		Params:       struct{}{},
+		Result:       WatchOutputResult{},
+		Events: &capability.Events{
+			Topic: TopicOutput,
+			Types: map[string]any{EventLines: LinesEvent{}},
+		},
+		Errors: []capability.ErrorCode{capability.ErrSessionRequired},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "adds a subscription to the calling session; changes no build",
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			return o.History.watchOutput(ctx, call)
+		},
+	})
 	reg.MustRegister(capability.Descriptor{
 		Name:        "build.errors",
 		Kind:        capability.Query,
@@ -238,13 +261,19 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	// The console exists before the build does, so the whole of its output has
 	// somewhere to go and a result's consoleRef is stable from the first byte
 	// (gradle.md §Output; D13, D24).
-	console, err := r.arts.CreateDurable(call.Workspace, buildID, artifact.DurableOptions{MediaType: "text/plain", Cap: consoleCap})
+	console, err := r.arts.CreateDurable(call.Workspace, buildID, artifact.DurableOptions{MediaType: "text/plain", Cap: r.consoleLimit()})
 	if err != nil {
 		return Result{}, capability.Errorf(capability.ErrWorkspaceStateUnreadable, "the build's console could not be created").
 			WithCause(err.Error()).
 			WithNextStep("check the permissions and free space of the state directory")
 	}
 	defer console.Close()
+	// Every write to the console goes through lc, under its lock, as whole lines, and is
+	// published to the workspace's build.watchOutput watches (ADR-0044). It is listed
+	// among the running consoles before its first byte, and released (the cap marker
+	// written, if due) before the file is closed.
+	lc := r.newLiveConsole(call.Workspace, buildID, console)
+	defer lc.release()
 	r.markRunning(buildID)
 	defer r.unmarkRunning(buildID)
 
@@ -263,10 +292,10 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	// before the build's own output so the tail is never droidyard's text.
 	conn := br.Conn()
 	if line := connectorNotice(conn); line != "" {
-		_, _ = console.Write([]byte(line + "\n"))
+		lc.append(streamDroidyard, []string{line})
 	}
 
-	sink := newBuildSink(console, call.Progress, buildID)
+	sink := newBuildSink(lc, call.Progress, buildID)
 	started := r.now()
 	if err := br.Run(ctx, buildID, req.Tasks, sink); err != nil {
 		if ctx.Err() != nil {
@@ -307,6 +336,10 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		}
 	}
 
+	// The cap marker goes last, so it carries the final count of what the cap dropped
+	// (D24), and before the record and the operation's end, so a watcher has it by then
+	// (ADR-0044 §2).
+	lc.end()
 	fin := sink.finish()
 	outcome := fin.Outcome
 	if outcome == "" {
@@ -360,12 +393,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		OutputPaths:         paths,
 		ConsoleRef:          console.Ref().Ref,
 		ConsoleBytes:        console.Size(),
-		ConsoleDropped:      console.Dropped(),
-	}
-	// The marker goes last, so it carries the final count of what the cap dropped
-	// (D24).
-	if rec.ConsoleDropped > 0 {
-		_ = console.WriteMarker(markerLine(consoleCap, rec.ConsoleDropped))
+		ConsoleDropped:      lc.droppedBytes(),
 	}
 	if err := r.persist(call.Workspace, rec); err != nil {
 		return Result{}, stateUnreadable(call.Workspace, err)
@@ -461,13 +489,12 @@ func (rec record) result() Result {
 // Problems records. Every method runs on the client's protocol goroutine, and progress
 // is reported from there, before the build's next fact arrives.
 type buildSink struct {
-	out      *artifact.Durable
+	out      *liveConsole
 	progress func(done int, total int, message string)
 	buildID  string
 
 	mu       sync.Mutex
 	lines    []extract.Line
-	bytes    int64
 	summary  gradle.TaskSummary
 	tasks    []gradle.TaskFinished
 	problems []extract.Problem
@@ -480,30 +507,21 @@ type buildSink struct {
 
 var _ gradle.BuildSink = (*buildSink)(nil)
 
-func newBuildSink(console *artifact.Durable, progress func(done int, total int, message string), buildID string) *buildSink {
+func newBuildSink(console *liveConsole, progress func(done int, total int, message string), buildID string) *buildSink {
 	return &buildSink{out: console, progress: progress, buildID: buildID, done: make(chan struct{})}
 }
 
-// Output writes one console batch to the artifact and keeps its lines for the
-// extractor, while the cap lasts: the same 32 MiB bound holds the artifact and the
-// extractor's input, so a build that prints without end cannot grow the daemon's
-// memory without bound (D24).
+// Output writes one console batch through the live console and keeps the lines it
+// kept for the extractor: the same 32 MiB bound holds the artifact and the extractor's
+// input, so a build that prints without end cannot grow the daemon's memory without
+// bound (D24).
 func (s *buildSink) Output(o gradle.Output) {
+	kept := s.out.append(o.Stream, o.Lines)
 	s.mu.Lock()
-	for _, line := range o.Lines {
-		if s.bytes+int64(len(line))+1 > consoleCap {
-			continue
-		}
+	for _, line := range kept {
 		s.lines = append(s.lines, extract.Line{Stream: o.Stream, Text: line})
-		s.bytes += int64(len(line)) + 1
 	}
 	s.mu.Unlock()
-	var b []byte
-	for _, line := range o.Lines {
-		b = append(b, line...)
-		b = append(b, '\n')
-	}
-	_, _ = s.out.Write(b)
 }
 
 // TaskFinished records one task's outcome, counts it and reports progress (D21).

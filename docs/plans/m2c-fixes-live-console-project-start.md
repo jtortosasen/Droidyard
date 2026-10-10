@@ -123,7 +123,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 1.
 - Not here: the UI (step 9); a per-build watch, `since`, an `ended` type (Q1 alternatives).
 - Rests on: console and events written under one lock, so prefix plus events reassemble it exactly (level 4, `-race`, the hook).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `HEAD` (this commit). Implementer (effort high): `TestWatchOutputReassemblesTheConsole` (`-race`; watches before, mid-build through `watchHook`, after 10 batches; seen failing with the snapshot before the subscription, the notice around the publisher, and the mid-line cut), `TestLiveConsoleKeepsOffsetsAndEventsInStep` (seen failing with the publish and with append's offset outside the lock; the snapshot's offset read outside the lock does not fail and cannot lose bytes: the watch registers first), `TestWatchOutputKeepsToItsWorkspace`, `TestWatchOutputEndsWithItsSubscription`, `TestWatchOutputNeedsASession`, `TestWSWatchOutputSeesAnMCPBuild` (fails without `Bus: bus` in `main.go`); `TestMCPTranscript` 34 tools; schema: `0.16.0` and `build.watchOutput` only. Opus verifier: proceed, no blocking; two important findings fixed by the main session: a failed console write now ends the console (a missing tail, never a hole), and the result's description gives the general rule (an event past what the client holds is preceded by bytes to read), which also covers a build that ends between the subscription and the snapshot; nit: `gradle.md`'s sentence. Kept: no trust gate (the verifier's judgement: it runs no project code). `go test ./...`, `pnpm -C web run verify` green.
 
 ### 4. `workspace.watch`, `workspace.chooseRoot`, and `droidyard` alone (Q2)
 

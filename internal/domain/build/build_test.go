@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/extract"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
@@ -29,7 +30,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-const testWS = "dc-0123456789ab"
+const (
+	testWS  = "dc-0123456789ab"
+	otherWS = "dc-fedcba987654"
+)
 
 type testLog struct{ t *testing.T }
 
@@ -92,21 +96,22 @@ type buildFixture struct {
 	st      *store.Store
 	arts    *artifact.Store
 	history *Registry
+	bus     *event.Bus
 	ops     *capability.Operations
 	pub     *recorder
 	client  *gradle.Client
 	log     *captureLog
 }
 
-// admitWS admits testWS and nothing else, the way the workspace registry admits an open
-// one.
+// admitWS admits testWS and otherWS and nothing else, the way the workspace registry
+// admits an open one.
 type admitWS struct{}
 
 func (admitWS) Admit(target string, record func(id string)) bool {
-	if target != testWS {
+	if target != testWS && target != otherWS {
 		return false
 	}
-	record(testWS)
+	record(target)
 	return true
 }
 
@@ -140,7 +145,8 @@ func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor po
 		t.Fatal(err)
 	}
 	capLog := &captureLog{t: t}
-	history := NewRegistry(RegistryOptions{Store: st, Artifacts: arts, Log: capLog})
+	bus := event.New(event.Options{})
+	history := NewRegistry(RegistryOptions{Store: st, Artifacts: arts, Log: capLog, Bus: bus})
 
 	procStore, err := store.New(filepath.Join(state, "proc"))
 	if err != nil {
@@ -171,7 +177,7 @@ func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor po
 		},
 	})
 	ops.RegisterCapabilities()
-	return &buildFixture{t: t, state: state, root: root, st: st, arts: arts, history: history, ops: ops, pub: pub, client: client, log: capLog}
+	return &buildFixture{t: t, state: state, root: root, st: st, arts: arts, history: history, bus: bus, ops: ops, pub: pub, client: client, log: capLog}
 }
 
 // testModel is the project model the fake serves: one :app module with the two tasks a
