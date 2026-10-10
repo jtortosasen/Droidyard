@@ -5828,6 +5828,34 @@
             },
             "type": "array",
             "description": "Directories and names the watch never reports."
+          },
+          "entries": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The entry's path relative to the project root."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "dir",
+                    "symlink",
+                    "other"
+                  ],
+                  "description": "The entry's kind; a symlink is reported as symlink, never followed."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "type"
+              ]
+            },
+            "type": "array",
+            "description": "The baseline walk the first tick compares with: every entry under the path, excluded ones absent, sorted by path, at most 20000. Events then report the differences, so the entries plus the events equal the tree. Empty in a result returned again after delivery."
           }
         },
         "additionalProperties": false,
@@ -5835,8 +5863,93 @@
         "required": [
           "subscriptionId",
           "watched",
-          "excluded"
+          "excluded",
+          "entries"
         ]
+      },
+      "events": {
+        "topic": "file.changes",
+        "types": {
+          "changes": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "The watched directory, relative to the project root."
+              },
+              "changes": {
+                "items": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "The entry's path relative to the project root."
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "modified",
+                        "deleted"
+                      ],
+                      "description": "What happened since the previous walk."
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "file",
+                        "dir",
+                        "symlink",
+                        "other"
+                      ],
+                      "description": "The entry's kind, as file.list reports it."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "kind"
+                  ]
+                },
+                "type": "array",
+                "description": "A tick's differences, sorted by path, at most 1000."
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when the walk hit its 20000-entry cap (no deletion is then reported; watching again returns another capped baseline, so watch a subdirectory) or the changes were cut at 1000 (then call file.watch again for a new baseline)."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "path",
+              "changes",
+              "truncated"
+            ]
+          },
+          "stopped": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "The watched directory, relative to the project root."
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "workspaceClosed",
+                  "pathGone",
+                  "unreadable"
+                ],
+                "description": "workspaceClosed: the workspace was closed. pathGone: the directory no longer exists or is no longer a directory. unreadable: the directory can no longer be read."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "path",
+              "reason"
+            ]
+          }
+        }
       }
     },
     {
