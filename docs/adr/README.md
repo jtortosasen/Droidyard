@@ -76,6 +76,9 @@ edits made before this rule and are not added to.
 | [0044](0044-build-watchoutput.md) | `build.watchOutput`, the build console while a build runs | Accepted |
 | [0045](0045-project-start-flow.md) | The project start: `droidyard` alone, one tab per project, recents and a folder dialog | Accepted |
 | [0046](0046-project-file.md) | The project file, `.droidyard/project.json`, for the UI's choices | Accepted |
+| [0047](0047-projects-panel-no-picker.md) | One tab for every project: the projects panel replaces the picker | Accepted |
+| [0048](0048-operation-session.md) | `session` on the operation events, for the agents panel | Accepted |
+| [0049](0049-file-watch-baseline.md) | `file.watch` returns its baseline and publishes its events, for the file tree | Accepted |
 
 ## Open decisions (not yet ADRs)
 
