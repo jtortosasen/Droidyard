@@ -118,7 +118,7 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 1. May run in parallel with steps 2–4 (web shell only; `Project.svelte` merged by the main session).
 - Not here: the toolbar's right group (7).
 - Rests on: no panel or control is lost in the move (level 4).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `layout.test.ts` (7 new cases: open collapses and records, close restores, a user-collapsed right stays collapsed, a user minimize or restore clears the record, purity, the size clamp, a stale record dropped on load), each of six reversals failing at least one; `Rail.svelte` gone, `SessionsToggle.svelte` (click only); `projectfile` moved to a `status` region (its `panels.test.ts` assertion with it); verify 388 tests. Level 4 (headless Chrome, a K1 daemon on a sample copy, 1280×900): sessions open → right collapsed, close → restored; right minimized by the user, then open and close → still collapsed; open, the user restores right, close → right stays; left and bottom minimized to strips, the bottom strip's Activity restoring the bottom on Activity; reload keeps all (`droidyard.ui.layout` with `sessions`); density in the column; the status bar "open · daemon 0.18.0, up …"; sessions 280 + left 260 + right 340 open → centre 385 px; light and dark captured; `window.__csp` empty; network `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`. Found, fixed in step 7: Workspace's "All projects" button duplicates the toggle; the uptime is read once (it does not tick); the palette has no command opening the column.
 
 ### 6. The Run sequence
 
@@ -130,7 +130,7 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 1.
 - Not here: the buttons (7); Debug or Apply Changes.
 - Rests on: ■ cancels only the operation the run started (level 3).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `run.test.ts` (9 cases) in order build → install by `buildId` → launch; a pending AVD started first and its device used and selected; operation errors stop with step and code; ■ cancels the run's own operation, also when pressed before the id; another client's install stops the run; a second ▶ ignored; dispose mid-build installs nothing. `client.test.ts`: `onOperation` once for a long-running call, never for a short one. `devices.test.ts`: a pending AVD keeps the selection empty across a refresh. Install and launch through `InstallModel` (explicit forms returning the result). `DevicesModel.subscribeAvdChoice` added for the file's `{avd}` (wired in step 7). Seen failing reversed: the `subscribeInstalled` notification, outcome handling, the refill while pending, `onOperation` per answer, cancel-on-arrival, the other-client guard (6). verify 404 tests.
 
 ### 7. The toolbar
 
