@@ -3,6 +3,11 @@
 	import { ActivityStore } from './lib/ops/activity';
 	import Activity from './lib/ops/Activity.svelte';
 	import Logcat from './lib/logcat/Logcat.svelte';
+	import { BuildModel } from './lib/build/build';
+	import Build from './lib/build/Build.svelte';
+	import { EventsHub } from './lib/build/hub';
+	import { WorkspaceModel } from './lib/build/workspace';
+	import Workspace from './lib/build/Workspace.svelte';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
 
@@ -21,6 +26,8 @@
 
 	let client = $state.raw<Client | null>(null);
 	let activity = $state.raw<ActivityStore | null>(null);
+	let workspace = $state.raw<WorkspaceModel | null>(null);
+	let build = $state.raw<BuildModel | null>(null);
 	let devices = $state.raw<Result<'device.list'>['devices']>([]);
 	let devicesError = $state<string | null>(null);
 	let device = $state('');
@@ -32,6 +39,22 @@
 			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
 			call: (name, params) => c.call(name, params),
 		});
+		const hub = new EventsHub({
+			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+			call: (name, params) => c.call(name, params),
+		});
+		const callOn = {
+			call: ((name, params, opts) => c.call(name, params, opts)) as Client['call'],
+		};
+		// The typed root is a view preference; blocked storage leaves it to be typed again.
+		let storage: Storage | null = null;
+		try {
+			storage = window.localStorage;
+		} catch {
+			// Blocked storage.
+		}
+		const ws = new WorkspaceModel(callOn, hub, storage);
+		const builds = new BuildModel(callOn, store, hub, ws);
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -39,6 +62,7 @@
 			onState: (s) => {
 				connection = s;
 				store.onConnection(s);
+				hub.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
@@ -58,15 +82,26 @@
 		}
 		client = c;
 		activity = store;
+		workspace = ws;
+		build = builds;
 		// Connect first: a call made on a client never connected is refused as closed,
 		// while one made while connecting waits for the socket.
 		c.connect();
 		store.start();
+		hub.start();
+		// A root kept from an earlier visit is opened once (workspace.open is idempotent);
+		// after another client closes it the panel offers to reopen, it does not reopen.
+		void ws.open();
 		return () => {
+			builds.dispose();
+			ws.dispose();
+			hub.stop();
 			store.stop();
 			c.close();
 			client = null;
 			activity = null;
+			workspace = null;
+			build = null;
 		};
 	});
 
@@ -134,6 +169,13 @@
 			No device is connected.
 		{/if}
 	</p>
+
+	{#if workspace}
+		<Workspace model={workspace} />
+	{/if}
+	{#if build}
+		<Build model={build} />
+	{/if}
 
 	{#if client}
 		<Logcat {client} {connection} {device} />
