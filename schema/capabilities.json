@@ -7775,6 +7775,100 @@
       }
     },
     {
+      "name": "workspace.chooseRoot",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.16.0",
+      "description": "Raises the operating system's folder dialog on the daemon's machine and returns the project root of the folder the user picks, or dismissed when they cancel or leave it for five minutes. One dialog at a time, on macOS only, and a person's choice: the core refuses it from an agent session.",
+      "availability": [
+        "folderDialog"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "WORKSPACE_DIALOG_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "root": {
+                "type": "string",
+                "description": "The nearest ancestor of the chosen folder, itself included, that holds settings.gradle or settings.gradle.kts; the folder itself when none does. Absent when dismissed."
+              },
+              "dismissed": {
+                "type": "boolean",
+                "description": "True when the user cancelled the dialog or left it for five minutes."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "workspace.close",
       "kind": "command",
       "scope": "workspace",
@@ -7967,6 +8061,157 @@
           "state",
           "trusted"
         ]
+      }
+    },
+    {
+      "name": "workspace.watch",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.16.0",
+      "description": "Streams every workspace's state transitions to the calling WebSocket session on topic workspace.state, with its name, root and trust. The result lists the workspaces this installation has known, the newest opened first and at most 50, with the live state of those open now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "SESSION_REQUIRED",
+        "WORKSPACE_STATE_UNREADABLE"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the workspace.state events arrive on, over the WebSocket session that made the call. It follows every workspace, opened by any client, until events.unsubscribe or the session's end."
+          },
+          "workspaces": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "root": {
+                  "type": "string"
+                },
+                "lastOpenedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When it was last opened, an open workspace asked for again included."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "opening",
+                    "ready",
+                    "degraded",
+                    "closing",
+                    "closed"
+                  ],
+                  "description": "closed when this daemon holds no open workspace for it."
+                },
+                "trusted": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "root",
+                "lastOpenedAt",
+                "state",
+                "trusted"
+              ]
+            },
+            "type": "array",
+            "description": "The workspaces this state root has known, newest first, with the live state of those open now, taken after the subscription opened: merge it with the events by id."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when more than 50 are known and the oldest were left out."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "workspaces",
+          "truncated"
+        ]
+      },
+      "events": {
+        "topic": "workspace.state",
+        "types": {
+          "state": {
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "opening",
+                  "ready",
+                  "degraded",
+                  "closing",
+                  "closed"
+                ]
+              },
+              "degradedBy": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "cause": {
+                    "type": "string"
+                  },
+                  "nextStep": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "code",
+                  "message"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "root": {
+                "type": "string"
+              },
+              "trusted": {
+                "type": "boolean",
+                "description": "Whether the root is trusted when the transition happened; a trust granted afterwards publishes no event."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "state",
+              "name",
+              "root",
+              "trusted"
+            ]
+          }
+        }
       }
     }
   ]

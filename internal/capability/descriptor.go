@@ -107,6 +107,8 @@ const (
 	RequiresSDK      Requirement = "sdk"
 	RequiresGradle   Requirement = "gradle"
 	RequiresGit      Requirement = "git"
+	// RequiresFolderDialog is the operating system's folder dialog (ADR-0045 §4).
+	RequiresFolderDialog Requirement = "folderDialog"
 )
 
 // Annotations are hints for a client's approval interface. They are never

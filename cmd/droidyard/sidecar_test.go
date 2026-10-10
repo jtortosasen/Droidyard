@@ -23,6 +23,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // The environment a re-executed daemon reads its test seams from.
@@ -49,6 +50,10 @@ const (
 	// they share (plan m1i step 5, D20).
 	emulatorDirEnv = "DROIDYARD_TEST_EMULATOR_DIR"
 	emulatorADBEnv = "DROIDYARD_TEST_EMULATOR_ADB_DIR"
+	// dialogFakeEnv names a fake osascript (a script): a re-executed daemon then raises
+	// workspace.chooseRoot's folder dialog through it, as on macOS, through the
+	// supervisor's real spawner (ADR-0045 §4).
+	dialogFakeEnv = "DROIDYARD_TEST_DIALOG"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -120,6 +125,11 @@ func installTestSeams() {
 			env = append(env, "ANDROID_ADB_SERVER_PORT="+port)
 		}
 		adbEnviron = func() []string { return env }
+	}
+	// A test may give the daemon a fake osascript, so workspace.chooseRoot runs on any
+	// host without raising a window.
+	if bin := os.Getenv(dialogFakeEnv); bin != "" {
+		dialogSeam = func(d *workspace.Dialog) { d.GOOS, d.Binary = "darwin", bin }
 	}
 	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar
 	// command runs the test binary again in the fake's mode, so reexec must not reach
