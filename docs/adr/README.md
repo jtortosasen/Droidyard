@@ -74,6 +74,7 @@ edits made before this rule and are not added to.
 | [0042](0042-watchlogs-device-gone-online.md) | `device.watchLogs`: `deviceGone` means not listed online; the no-uid-column next step | Accepted |
 | [0043](0043-operation-watch.md) | `operation.watch`, the activity feed and the state at load | Accepted |
 | [0044](0044-build-watchoutput.md) | `build.watchOutput`, the build console while a build runs | Accepted |
+| [0045](0045-project-start-flow.md) | The project start: `droidyard` alone, one tab per project, recents and a folder dialog | Accepted |
 
 ## Open decisions (not yet ADRs)
 
