@@ -10,6 +10,7 @@
 	import { PickerModel } from './lib/start/picker';
 	import Picker from './lib/start/Picker.svelte';
 	import Project from './lib/start/Project.svelte';
+	import Status from './lib/ui/Status.svelte';
 
 	// The token comes from the fragment `droidyard ui` opened, once; a tab without one,
 	// or whose token the daemon refused, shows the instruction (http-websocket.md
@@ -103,59 +104,61 @@
 		picker?.showError(why);
 		router.go({ view: 'picker' });
 	}
-
-	function uptime(seconds: number): string {
-		const h = Math.floor(seconds / 3600);
-		const m = Math.floor((seconds % 3600) / 60);
-		return h > 0 ? `${h} h ${m} min` : m > 0 ? `${m} min ${seconds % 60} s` : `${seconds} s`;
-	}
 </script>
 
-<h1>Droidyard</h1>
+{#snippet status()}
+	<Status {connection} {health} {healthError} />
+{/snippet}
 
 {#if token === null}
-	<p>No token in this tab: run <code>droidyard ui</code>.</p>
+	<main class="solo">
+		<h1>Droidyard</h1>
+		<p>No token in this tab: run <code>droidyard ui</code>.</p>
+	</main>
 {:else if connection === 'unauthorized'}
-	<p>The daemon restarted: run <code>droidyard ui</code>.</p>
-{:else}
-	<p>Connection: <strong>{connection}</strong></p>
-	{#if health}
-		<p>
-			Daemon {health.version ?? 'unknown version'}, up
-			{health.uptimeSeconds === undefined ? 'unknown' : uptime(health.uptimeSeconds)}
-		</p>
-	{/if}
-	{#if healthError}
-		<p>system.health failed: {healthError}</p>
-	{/if}
-
-	{#if route.view === 'picker'}
+	<main class="solo">
+		<h1>Droidyard</h1>
+		<p>The daemon restarted: run <code>droidyard ui</code>.</p>
+	</main>
+{:else if route.view === 'picker'}
+	<!-- The picker stays a page of its own until the projects panel (plan m2d step 7). -->
+	<main class="solo">
+		<h1>Droidyard {@render status()}</h1>
 		{#if picker}
 			<Picker model={picker} />
 		{/if}
-	{:else if client && activity && hub}
-		{#key route.workspace}
-			<Project
-				{client}
-				{activity}
-				{hub}
-				{connection}
-				workspaceId={route.workspace}
-				onmissing={missing}
-				onpicker={() => router.go({ view: 'picker' })}
-			/>
-		{/key}
-	{/if}
-
-	{#if activity}
-		<Activity store={activity} />
-	{/if}
+		{#if activity}
+			<Activity store={activity} />
+		{/if}
+	</main>
+{:else if client && activity && hub}
+	{#key route.workspace}
+		<Project
+			{client}
+			{activity}
+			{hub}
+			{connection}
+			workspaceId={route.workspace}
+			onmissing={missing}
+			onpicker={() => router.go({ view: 'picker' })}
+			{status}
+		/>
+	{/key}
 {/if}
 
 <style>
-	:global(body) {
-		font-family: system-ui, sans-serif;
-		margin: 1rem;
-		line-height: 1.4;
+	.solo {
+		height: 100%;
+		overflow: auto;
+		padding: var(--sp-6);
+		max-width: 960px;
+		margin: 0 auto;
+	}
+	h1 {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-5);
+		margin: 0 0 var(--sp-5);
+		font-size: 18px;
 	}
 </style>
