@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -33,7 +34,7 @@ func TestUpdateWithCurrentRevisionWrites(t *testing.T) {
 	if len(rev) != 64 {
 		t.Fatalf("revision = %q; want a hex SHA-256", rev)
 	}
-	res, err := p.Update(revisionPatch(t, rev, `, "shell": {"enabled": true}`))
+	res, err := p.Update(context.Background(), revisionPatch(t, rev, `, "shell": {"enabled": true}`))
 	if err != nil {
 		t.Fatalf("an update with the current revision = %v", err)
 	}
@@ -59,7 +60,7 @@ func TestStaleRevisionConflictsAndWritesNothing(t *testing.T) {
 	}
 	before, mtime := raw(t, path)
 
-	_, err := p.Update(revisionPatch(t, rev, `, "trust": {"roots": ["/other"]}`))
+	_, err := p.Update(context.Background(), revisionPatch(t, rev, `, "trust": {"roots": ["/other"]}`))
 	e := errCode(err)
 	if e == nil || e.Code != capability.ErrPolicyRevisionConflict {
 		t.Fatalf("a stale revision = %v; want POLICY_REVISION_CONFLICT", err)
@@ -99,7 +100,7 @@ func TestWriteWhileUpdateWaitsForTheLockConflicts(t *testing.T) {
 	t.Cleanup(func() { policy.SetLockSeam(nil) })
 	done := make(chan *capability.Error, 1)
 	go func() {
-		_, err := policy.New(envAt(dir)).Update(upd)
+		_, err := policy.New(envAt(dir)).Update(context.Background(), upd)
 		done <- err
 	}()
 	<-about // the update is about to take the lock, which the test holds
@@ -130,12 +131,12 @@ func TestAbsentFileRevision(t *testing.T) {
 	if rev := p.Get().Revision; rev != "absent" {
 		t.Fatalf("revision of no file = %q; want absent", rev)
 	}
-	if _, err := p.Update(revisionPatch(t, "absent", `, "shell": {"enabled": true}`)); err != nil {
+	if _, err := p.Update(context.Background(), revisionPatch(t, "absent", `, "shell": {"enabled": true}`)); err != nil {
 		t.Fatalf("absent with no file = %v; want it written", err)
 	}
 	path := filepath.Join(dir, policy.FileName)
 	before, _ := raw(t, path)
-	_, err := p.Update(revisionPatch(t, "absent", `, "shell": {"enabled": false}`))
+	_, err := p.Update(context.Background(), revisionPatch(t, "absent", `, "shell": {"enabled": false}`))
 	if e := errCode(err); e == nil || e.Code != capability.ErrPolicyRevisionConflict {
 		t.Fatalf("absent with a file = %v; want POLICY_REVISION_CONFLICT", err)
 	}
@@ -152,7 +153,7 @@ func TestUpdateWithoutRevisionIsUnchanged(t *testing.T) {
 	p := policy.New(envAt(dir))
 	p.Get()
 	write(t, dir, `{"schemaVersion":1,"trust":{"roots":["/hand"]}}`)
-	if _, err := p.Update(patch(t, `{"shell": {"enabled": true}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`)); err != nil {
 		t.Fatalf("an update without ifRevision = %v", err)
 	}
 	doc := read(t, path)
@@ -203,7 +204,7 @@ func TestEmptyIfRevisionConflicts(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, `{"schemaVersion":1}`)
 	before, mtime := raw(t, path)
-	_, err := policy.New(envAt(dir)).Update(revisionPatch(t, "", `, "shell": {"enabled": true}`))
+	_, err := policy.New(envAt(dir)).Update(context.Background(), revisionPatch(t, "", `, "shell": {"enabled": true}`))
 	e := errCode(err)
 	if e == nil || e.Code != capability.ErrPolicyRevisionConflict {
 		t.Fatalf("an empty ifRevision = %v; want POLICY_REVISION_CONFLICT", err)
@@ -235,7 +236,7 @@ func TestConflictDropsAStaleSnapshot(t *testing.T) {
 	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Update(revisionPatch(t, stale, `, "shell": {"enabled": true}`)); err == nil || err.Code != capability.ErrPolicyRevisionConflict {
+	if _, err := p.Update(context.Background(), revisionPatch(t, stale, `, "shell": {"enabled": true}`)); err == nil || err.Code != capability.ErrPolicyRevisionConflict {
 		t.Fatalf("update = %v; want POLICY_REVISION_CONFLICT", err)
 	}
 	sum := sha256.Sum256([]byte(fresh))

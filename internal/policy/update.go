@@ -2,6 +2,7 @@ package policy
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -67,6 +68,10 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 	// strict decode then applies to every level.
 	type wire UpdateParams
 	var w wire
+	// A repeated key would resolve last-wins in the maps below, as it would in the file.
+	if err := rejectDuplicateKeys(data); err != nil {
+		return err
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&w); err != nil {
@@ -181,8 +186,9 @@ func SetLockSeam(f func()) {
 // to the three sections, canonicalises the path entries the patch wrote, validates the
 // whole result and writes atomically, so nothing a concurrent `droidyard trust` wrote
 // to another key is lost. The file is left untouched on every failure. A patch that
-// changes nothing writes nothing.
-func (p *Policy) Update(patch UpdateParams) (GetResult, *capability.Error) {
+// changes nothing writes nothing. The wait for the lock ends with ctx, as
+// OPERATION_CANCELLED.
+func (p *Policy) Update(ctx context.Context, patch UpdateParams) (GetResult, *capability.Error) {
 	if p.dirErr != nil {
 		return GetResult{}, configUnusable("", p.dirErr)
 	}
@@ -193,8 +199,12 @@ func (p *Policy) Update(patch UpdateParams) (GetResult, *capability.Error) {
 	if seam := lockSeam.Load(); seam != nil {
 		(*seam)()
 	}
-	lock, err := lockExclusive(filepath.Join(dir, LockName))
+	lock, err := lockExclusive(ctx, filepath.Join(dir, LockName))
 	if err != nil {
+		if ctx.Err() != nil {
+			// The wait for another writer ended with the call: nothing was read or written.
+			return GetResult{}, capability.NewError(capability.ErrOperationCancelled, "the operation was cancelled while it waited for the configuration lock, so the configuration is untouched")
+		}
 		return GetResult{}, configUnusable(p.path, err)
 	}
 	defer lock.Close()

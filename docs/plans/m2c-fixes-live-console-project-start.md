@@ -171,7 +171,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 5 (`internal/domain/device`).
 - Not here: array merges, a `policy` subcommand (register).
 - Rests on: a duplicate key now fails closed (level 3, the test).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `HEAD` (this commit). S1: a token walk refuses a key repeated at any depth, so the file is unparseable (fail closed); `TestDuplicateKeysMakeTheFileUnparseable` (4 cases) seen failing with last-wins. S2: the lock is polled non-blocking under the call's context; `TestUpdateLockWaitHonoursCancel` seen failing with the blocking `flock`. S3: `Admission.Invalid` and one `device.list` warning naming the file, not the serial; seen failing without it. S4: the temporary name is `.droidyard-<16 hex>.tmp`; `TestWriteAcceptsA255ByteName` seen failing with the old name (`file name too long`). Schema unchanged. Opus verifier: proceed; its two findings fixed by the main session: numbers stay text in the walk (`TestDuplicateCheckKeepsAHugeNumber`, seen failing without `UseNumber`), and a `policy.update` patch that repeats a key is refused (`TestPatchWithARepeatedKeyIsRefused`, seen failing without the check). `go test ./...` green.
 
 ### 8. Register sweep: daemon, sidecar, emulator, devices (S5–S9)
 
