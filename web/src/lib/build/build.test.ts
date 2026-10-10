@@ -13,6 +13,7 @@ const outcome = (buildId: string, over: Record<string, unknown> = {}) => ({
 class FakeWs {
 	id: string | null;
 	root = '/p';
+	trusted = true;
 	#l = new Set<() => void>();
 	constructor(id: string | null) {
 		this.id = id;
@@ -23,6 +24,10 @@ class FakeWs {
 	}
 	set(id: string | null) {
 		this.id = id;
+		for (const l of this.#l) l();
+	}
+	trust() {
+		this.trusted = true;
 		for (const l of this.#l) l();
 	}
 }
@@ -43,6 +48,24 @@ async function setup(ops: ReturnType<typeof liveOp>[] = [], lastResult?: () => u
 	calls.calls.length = 0; // the load's own reads are not what these tests count
 	return { ...act, events, hub, calls, ws, model };
 }
+
+describe('trust granted from the UI', () => {
+	// Decision (ADR-0045 §5): a grant publishes no event, so the panel reads what the
+	// untrusted workspace refused again when the workspace says it is trusted now
+	// (level 4 showed WORKSPACE_UNTRUSTED kept after Trust).
+	it('reads the modules and the last build again when the workspace becomes trusted', async () => {
+		const t = await setup();
+		t.ws.trusted = false;
+		t.ws.set('w1'); // same id: nothing read, the untrusted mark recorded
+		await settle();
+		t.calls.calls.length = 0;
+		t.ws.trust();
+		await settle();
+		const names = t.calls.calls.map((c) => c.name);
+		expect(names).toContain('project.modules');
+		expect(names).toContain('build.lastResult');
+	});
+});
 
 describe('the build mirror', () => {
 	// Decision (D11): a build of another client in this workspace shows as building with

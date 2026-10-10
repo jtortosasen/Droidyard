@@ -7,6 +7,7 @@ import { hubStarted } from './testing';
 class FakeWs {
 	id: string | null = 'w1';
 	root = '/p';
+	trusted = true;
 	#l = new Set<() => void>();
 	subscribe(l: () => void) {
 		this.#l.add(l);
@@ -14,6 +15,10 @@ class FakeWs {
 	}
 	set(id: string | null) {
 		this.id = id;
+		for (const l of this.#l) l();
+	}
+	trust() {
+		this.trusted = true;
 		for (const l of this.#l) l();
 	}
 }
@@ -37,6 +42,20 @@ async function tasksSetup(ops: ReturnType<typeof liveOp>[] = []) {
 }
 
 describe('the tasks panel', () => {
+	// Decision (ADR-0045 §5): a grant publishes no event; the list the untrusted workspace
+	// refused is read again when the workspace says it is trusted (level 4 kept the error).
+	it('reads the tasks again when the workspace becomes trusted', async () => {
+		const t = await tasksSetup();
+		t.ws.trusted = false;
+		t.ws.set('w1');
+		await settle();
+		t.calls.calls.length = 0;
+		t.ws.trust();
+		await settle();
+		expect(t.calls.calls.map((c) => c.name)).toContain('build.tasks');
+	});
+
+
 	// Decision (D16): at most 20 tasks per build.run; the 21st selection is refused, and
 	// unselecting makes room again.
 	it('refuses the 21st selected task', async () => {

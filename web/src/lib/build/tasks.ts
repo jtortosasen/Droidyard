@@ -54,6 +54,7 @@ export class TasksModel {
 	#runError: Failure | null = null;
 	#starting = false;
 	#gen = 0;
+	#trusted = false;
 
 	constructor(client: TasksClient, mirror: BuildMirror, ws: BuildWorkspace) {
 		this.#client = client;
@@ -169,7 +170,15 @@ export class TasksModel {
 
 	#workspaceChanged(): void {
 		const id = this.#ws.id;
-		if (id === this.#id) return;
+		const trusted = this.#ws.trusted === true;
+		const granted = trusted && !this.#trusted;
+		this.#trusted = trusted;
+		if (id === this.#id) {
+			// Trust granted from the UI (ADR-0045 §5): the list the untrusted workspace refused
+			// is read again; no event carries trust.
+			if (granted && id !== null) void this.load();
+			return;
+		}
 		this.#id = id;
 		this.#tasks = [];
 		this.#selected = [];
