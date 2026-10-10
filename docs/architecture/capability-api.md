@@ -164,7 +164,10 @@ another's ids.
   `file.watch` or `device.watchLogs` created, is not subscribable and accepts no `since`:
   after a reconnect the client starts the stream again. `operation.state`
   ([ADR-0043](../adr/0043-operation-watch.md)) is ring-less, offered to **every**
-  `operation.watch` subscription.
+  `operation.watch` subscription, and `build.output`
+  ([ADR-0044](../adr/0044-build-watchoutput.md)) to every `build.watchOutput` subscription of
+  the build's workspace, and `workspace.state`
+  ([ADR-0045](../adr/0045-project-start-flow.md)) to every `workspace.watch` subscription.
 - Overflowing a subscription's own queue costs that subscription a gap, not the session.
   On the WebSocket an event arrives as `{"subscriptionId", "event"}`, never before the
   response that gave the id ([http-websocket](../interfaces/http-websocket.md)

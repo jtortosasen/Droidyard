@@ -43,8 +43,8 @@ const (
 	dumpOutputCap = 8 << 20
 	sdcardDump    = "/sdcard/window_dump.xml"
 	idleFailure   = "could not get idle state"
-	// readerRemote is where the persistent reader's dex is pushed once and left
-	// (ADR-0030); the one-shot reader has its own file, removed after its read. The
+	// readerRemote is where the persistent reader's dex is left (ADR-0030) and
+	// pushed again when a start finds it changed; the one-shot reader has its own file, removed after its read. The
 	// two never share a path, so a fallback never removes the dex the persistent
 	// reader starts from. Both names carry the pinned digest, so two builds never
 	// share a file, and both stay inside E6's /data/local/tmp/droidyard-*.

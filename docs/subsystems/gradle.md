@@ -62,8 +62,9 @@ in `sidecar/` and the client's `codec.go`.
   ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)).
 - *Milestone 1g (D26, D27, Delegated):* a build result carries no console tail, inline or in its MCP
   rendering; the agent reads the errors with `build.errors` and the console with `artifact.read
-  {ref: consoleRef, offset: -16384}`. `consoleRef` appears only once the build has finished: reading
-  a console while it grows lands with the `build.output` topic and its first consumer, the Phase 2 UI.
+  {ref: consoleRef, offset: -16384}`. `consoleRef` appears in the build's result once it has finished; a
+  console while it grows is `build.watchOutput`'s ([ADR-0044](../adr/0044-build-watchoutput.md)),
+  which is not an MCP tool.
 
 ## The build model
 

@@ -10,7 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -68,7 +70,7 @@ func TestUpdateAppliesARestrictedMergePatch(t *testing.T) {
 }`)
 	before := read(t, path)
 
-	got, err := policy.New(envAt(dir)).Update(patch(t, `{"shell": {"enabled": true}}`))
+	got, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestUpdateAppliesARestrictedMergePatch(t *testing.T) {
 	}
 
 	// A null section is removed and its defaults apply.
-	if _, err := policy.New(envAt(dir)).Update(patch(t, `{"shell": null}`)); err != nil {
+	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": null}`)); err != nil {
 		t.Fatal(err)
 	}
 	removed := read(t, path)
@@ -113,7 +115,7 @@ func TestUpdateEmptyPatchWritesNothing(t *testing.T) {
 	before, mtime := raw(t, path)
 
 	for _, body := range []string{`{}`, `{"trust": {}}`} {
-		if _, err := policy.New(envAt(dir)).Update(patch(t, body)); err != nil {
+		if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, body)); err != nil {
 			t.Fatalf("%s: %v", body, err)
 		}
 		after, afterMtime := raw(t, path)
@@ -166,7 +168,7 @@ func TestUpdateCanonicalisesPathsAndRejectsRelative(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, `{"schemaVersion":1}`)
 
-	if _, err := policy.New(envAt(dir)).Update(patch(t, `{"trust": {"roots": ["/x/../y"]}}`)); err != nil {
+	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"trust": {"roots": ["/x/../y"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if got := policy.New(envAt(dir)).Get().Trust.Roots; len(got) != 1 || got[0] != "/y" {
@@ -178,7 +180,7 @@ func TestUpdateCanonicalisesPathsAndRejectsRelative(t *testing.T) {
 		{`{"trust": {"roots": ["rel"]}}`, "trust.roots"},
 		{`{"shell": {"roots": ["./here"]}}`, "shell.roots"},
 	} {
-		_, err := policy.New(envAt(dir)).Update(patch(t, c.body))
+		_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, c.body))
 		if e := errCode(err); e == nil || e.Code != capability.ErrInvalidParams || !strings.Contains(e.Cause, c.key) {
 			t.Errorf("%s = %v; want REQUEST_INVALID_PARAMS naming %s", c.body, err, c.key)
 		}
@@ -201,7 +203,7 @@ func TestUpdateRefusesAnInvalidOrNewerFileUntouched(t *testing.T) {
 		path := write(t, dir, body)
 		before, mtime := raw(t, path)
 
-		_, err := policy.New(envAt(dir)).Update(patch(t, `{"shell": {"enabled": true}}`))
+		_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`))
 		if e := errCode(err); e == nil || e.Code != capability.ErrPolicyConfigUnusable {
 			t.Errorf("%s = %v; want POLICY_CONFIG_UNUSABLE", body, err)
 		}
@@ -222,7 +224,7 @@ func TestUpdateRefusesAReadOnlyDirectory(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	_, err := policy.New(envAt(dir)).Update(patch(t, `{"shell": {"enabled": true}}`))
+	_, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, `{"shell": {"enabled": true}}`))
 	if e := errCode(err); e == nil || e.Code != capability.ErrPolicyConfigUnusable || e.Cause == "" {
 		t.Fatalf("a read-only directory = %v; want POLICY_CONFIG_UNUSABLE with the OS error as cause", err)
 	}
@@ -238,11 +240,11 @@ func TestUpdateIsIdempotent(t *testing.T) {
 	path := write(t, dir, `{"schemaVersion":1}`)
 	body := `{"shell": {"enabled": true, "roots": ["/w"]}, "devices": {"allowPhysical": true, "allowlist": ["SER"]}}`
 
-	if _, err := policy.New(envAt(dir)).Update(patch(t, body)); err != nil {
+	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, body)); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := raw(t, path)
-	if _, err := policy.New(envAt(dir)).Update(patch(t, body)); err != nil {
+	if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, body)); err != nil {
 		t.Fatal(err)
 	}
 	second, _ := raw(t, path)
@@ -260,7 +262,7 @@ func TestUpdateMakesTheShellPolicyLive(t *testing.T) {
 	if ok, _ := p.ShellAllowed("/w/proj"); ok {
 		t.Fatal("the shell is allowed before it is enabled")
 	}
-	if _, err := p.Update(patch(t, `{"shell": {"roots": ["/w/proj"]}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"roots": ["/w/proj"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := p.ShellAllowed("/w/proj"); !ok || err != nil {
@@ -300,7 +302,7 @@ func TestConcurrentTrustsAndUpdatesLoseNothing(t *testing.T) {
 			if i%2 == 0 {
 				body = `{"devices": {"allowPhysical": false}}`
 			}
-			if _, err := policy.New(envAt(dir)).Update(patch(t, body)); err != nil {
+			if _, err := policy.New(envAt(dir)).Update(context.Background(), patch(t, body)); err != nil {
 				errs <- err
 			}
 		}(i)
@@ -336,7 +338,7 @@ func TestUpdateRefusesAFileOverTheReadersBound(t *testing.T) {
 		serials = append(serials, fmt.Sprintf("SERIAL%06d", i))
 	}
 	body, _ := json.Marshal(map[string]any{"devices": map[string]any{"allowlist": serials}})
-	_, err := p.Update(patch(t, string(body)))
+	_, err := p.Update(context.Background(), patch(t, string(body)))
 	if err == nil || err.Code != capability.ErrInvalidParams {
 		t.Fatalf("an oversized patch = %v; want REQUEST_INVALID_PARAMS", err)
 	}
@@ -355,7 +357,7 @@ func TestUpdateRefusesAFileOverTheReadersBound(t *testing.T) {
 func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	dir := t.TempDir()
 	p := policy.New(envAt(dir))
-	if _, err := p.Update(patch(t, `{"shell": {"roots": ["/w/aa"]}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"roots": ["/w/aa"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, policy.FileName)
@@ -366,7 +368,7 @@ func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	if ok, _ := p.ShellAllowed("/w/bb"); ok {
 		t.Fatal("/w/bb allowed before the update")
 	}
-	if _, err := p.Update(patch(t, `{"shell": {"roots": ["/w/bb"]}}`)); err != nil {
+	if _, err := p.Update(context.Background(), patch(t, `{"shell": {"roots": ["/w/bb"]}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
@@ -377,5 +379,63 @@ func TestTheNextCheckSeesAnUpdate(t *testing.T) {
 	}
 	if ok, err := p.ShellAllowed("/w/bb"); !ok {
 		t.Errorf("ShellAllowed(/w/bb) after the update = %v, %v; the cache served the old file", ok, err)
+	}
+}
+
+// TestUpdateLockWaitHonoursCancel pins the decision that a call waiting for the
+// configuration's lock stops when the call is cancelled: the wait is a poll under the
+// call's context, not a blocking flock (which nothing can interrupt, so a cancelled
+// policy.update would hold its place until the other writer let go). A cancelled wait
+// is OPERATION_CANCELLED and leaves the file untouched.
+func TestUpdateLockWaitHonoursCancel(t *testing.T) {
+	dir := t.TempDir()
+	path := write(t, dir, `{"schemaVersion":1}`)
+	before, _ := raw(t, path)
+	lockFile, err := os.OpenFile(filepath.Join(dir, policy.LockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	about := make(chan struct{})
+	policy.SetLockSeam(func() { close(about) })
+	t.Cleanup(func() { policy.SetLockSeam(nil) })
+	done := make(chan *capability.Error, 1)
+	go func() {
+		_, err := policy.New(envAt(dir)).Update(ctx, patch(t, `{"shell": {"enabled": true}}`))
+		done <- err
+	}()
+	<-about
+	time.Sleep(50 * time.Millisecond) // the call is polling a lock that stays held
+	select {
+	case err := <-done:
+		t.Fatalf("the update returned %v while the lock was held and the call live", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil || err.Code != capability.ErrOperationCancelled {
+			t.Fatalf("a cancelled update = %v; want OPERATION_CANCELLED", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("the cancelled update still waits for the lock after 100ms")
+	}
+	if after, _ := raw(t, path); string(after) != string(before) {
+		t.Errorf("a cancelled update changed the file:\n%s", after)
+	}
+}
+
+// A patch that repeats a key is refused, as a file that repeats one is unparseable: a
+// last-wins patch would apply the second value unseen (step 7's verifier).
+func TestPatchWithARepeatedKeyIsRefused(t *testing.T) {
+	var p policy.UpdateParams
+	if err := json.Unmarshal([]byte(`{"shell":{"enabled":false,"enabled":true}}`), &p); err == nil {
+		t.Fatal("a patch repeating shell.enabled was accepted")
 	}
 }

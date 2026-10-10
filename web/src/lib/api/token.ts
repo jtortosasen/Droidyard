@@ -2,7 +2,9 @@
 // §Security baseline, "Bootstrapping the browser"). `droidyard ui` opens
 // `/#token=<token>`; a fragment is never sent to a server or into Referer. The token is
 // moved into sessionStorage, scoped to this origin and tab, and the fragment is stripped
-// from the address bar so a copied URL or a bookmark never carries it.
+// from the address bar so a copied URL or a bookmark never carries it. The project the
+// tab shows is the fragment's `w` (ADR-0045 §2): it is not a secret, so it stays, and a
+// reload stays on the project.
 
 const KEY = 'droidyard.token';
 
@@ -17,7 +19,7 @@ export interface TokenEnv {
  * The token this tab has, or null when it has none and must show the "run
  * `droidyard ui`" instruction. A token in the fragment wins over a stored one (a new
  * launch has a new token) and is stripped from the address bar. A fragment that carries
- * no token is left alone.
+ * no token is left alone. The fragment's `w` survives the strip.
  */
 export function bootstrapToken(env: TokenEnv): string | null {
 	const fromHash = new URLSearchParams(env.location.hash.replace(/^#/, '')).get('token');
@@ -27,7 +29,10 @@ export function bootstrapToken(env: TokenEnv): string | null {
 		} catch {
 			// Storage can be blocked: the token then lives for this page load only.
 		}
-		env.history.replaceState(null, '', env.location.pathname + env.location.search);
+		const params = new URLSearchParams(env.location.hash.replace(/^#/, ''));
+		const w = params.get('w');
+		const keep = w ? `#${new URLSearchParams({ w }).toString()}` : '';
+		env.history.replaceState(null, '', env.location.pathname + env.location.search + keep);
 		return fromHash;
 	}
 	try {

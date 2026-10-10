@@ -1,27 +1,18 @@
-// The workspace the panels work on (plan m2b D10 and §Changes). The root is typed once and
-// kept in localStorage (a view preference); `workspace.open` returns the id, and every
-// event and operation is matched on that id. No capability lists the open workspaces, so
-// the panel knows only what it opened and what `workspace.lifecycle` tells it afterwards:
-// a workspace another client opens or closes is shown, and when the open one is closed by
-// another client the panel says so and offers to reopen it. It never reopens by itself
+// The workspace the panels work on (plan m2b D10 and §Changes, m2c step 10). The tab's
+// project is the address's `w` (ADR-0045 §2): the model opens it by id, `workspace.open`
+// answers with the root, and every other panel addresses its calls by that root and
+// matches events on the id. Nothing is kept in storage. When the open workspace is closed
+// by another client the panel says so and offers to reopen it; it never reopens by itself
 // after that (a closed workspace is a decision, mcp.md).
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { failure, type Failure } from './failure';
 import type { EventsHub, LifecycleEvent } from './hub';
 
-export const ROOT_KEY = 'droidyard.workspaceRoot';
-
 type Calls = 'workspace.open' | 'workspace.describe';
 
 export interface WorkspaceClient {
 	call<N extends Calls>(name: N, params: Params<N>, opts?: CallOptions): Promise<Result<N>>;
-}
-
-/** The slice of localStorage used; every access is guarded, the panel works without it. */
-export interface RootStorage {
-	getItem(key: string): string | null;
-	setItem(key: string, value: string): void;
 }
 
 export interface WorkspaceInfo {
@@ -33,6 +24,7 @@ export interface WorkspaceInfo {
 }
 
 export interface WorkspaceView {
+	/** The open workspace's root; empty until the first open answered. */
 	root: string;
 	/** The workspace this panel opened; null before it and while it is not open. */
 	info: WorkspaceInfo | null;
@@ -46,8 +38,9 @@ export interface WorkspaceView {
 
 export class WorkspaceModel {
 	#client: WorkspaceClient;
-	#storage: RootStorage | null;
+	/** The root once known, else the id the tab was opened with: what the open call addresses. */
 	#root = '';
+	#target = '';
 	#info: WorkspaceInfo | null = null;
 	#opening = false;
 	#error: Failure | null = null;
@@ -57,20 +50,19 @@ export class WorkspaceModel {
 	#view: WorkspaceView | null = null;
 	#offs: (() => void)[] = [];
 
-	constructor(client: WorkspaceClient, hub: Pick<EventsHub, 'onLifecycle' | 'onResync'>, storage: RootStorage | null) {
+	constructor(client: WorkspaceClient, hub: Pick<EventsHub, 'onLifecycle' | 'onResync'>) {
 		this.#client = client;
-		this.#storage = storage;
-		try {
-			this.#root = storage?.getItem(ROOT_KEY) ?? '';
-		} catch {
-			// Blocked storage: the root is typed again.
-		}
 		this.#offs.push(hub.onLifecycle((e) => this.#lifecycle(e)));
 		this.#offs.push(hub.onResync(() => void this.#resync()));
 	}
 
 	get root(): string {
 		return this.#root;
+	}
+
+	/** The open workspace's trust, as the daemon last described it. */
+	get trusted(): boolean {
+		return this.#info?.trusted === true;
 	}
 
 	/** The id of the open workspace; null when none is (or it was closed by another client). */
@@ -102,25 +94,23 @@ export class WorkspaceModel {
 		this.#offs = [];
 	}
 
-	setRoot(root: string): void {
-		this.#root = root;
-		try {
-			this.#storage?.setItem(ROOT_KEY, root);
-		} catch {
-			// Blocked storage: the root lives for this tab only.
-		}
-		this.#changed();
+	/** Opens the tab's project by its workspace id (the address's `w`); false when it did not open. */
+	openById(id: string): Promise<boolean> {
+		this.#target = id.trim();
+		return this.open();
 	}
 
-	/** `workspace.open` for the typed root; also the "reopen" after another client closed it. */
-	async open(): Promise<void> {
-		const root = this.#root.trim();
-		if (root === '' || this.#opening) return;
+	/** `workspace.open` for the project; also the "reopen" after another client closed it. */
+	async open(): Promise<boolean> {
+		const target = this.#root !== '' ? this.#root : this.#target;
+		if (target === '' || this.#opening) return false;
 		this.#opening = true;
 		this.#error = null;
 		this.#changed();
+		let ok = false;
 		try {
-			const r = await this.#client.call('workspace.open', {}, { workspace: root });
+			const r = await this.#client.call('workspace.open', {}, { workspace: target });
+			this.#root = r.root;
 			this.#info = {
 				id: r.id,
 				name: r.name,
@@ -130,12 +120,19 @@ export class WorkspaceModel {
 			};
 			this.#closed = false;
 			this.#seen.set(r.id, r.state);
+			ok = true;
 		} catch (e) {
 			this.#error = failure(e);
 		} finally {
 			this.#opening = false;
 			this.#changed();
 		}
+		return ok;
+	}
+
+	/** Reads the workspace again: a trust granted from the UI publishes no event. */
+	refresh(): Promise<void> {
+		return this.#resync();
 	}
 
 	#lifecycle(e: LifecycleEvent): void {

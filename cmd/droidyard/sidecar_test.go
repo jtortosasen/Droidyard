@@ -23,6 +23,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
 // The environment a re-executed daemon reads its test seams from.
@@ -49,6 +50,13 @@ const (
 	// they share (plan m1i step 5, D20).
 	emulatorDirEnv = "DROIDYARD_TEST_EMULATOR_DIR"
 	emulatorADBEnv = "DROIDYARD_TEST_EMULATOR_ADB_DIR"
+	// dialogFakeEnv names a fake osascript (a script): a re-executed daemon then raises
+	// workspace.chooseRoot's folder dialog through it, as on macOS, through the
+	// supervisor's real spawner (ADR-0045 §4).
+	dialogFakeEnv = "DROIDYARD_TEST_DIALOG"
+	// logMaxEnv is the size, in bytes, past which a re-executed detached daemon rotates
+	// its log (plan m2c, step 8).
+	logMaxEnv = "DROIDYARD_TEST_LOG_MAX"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -69,6 +77,9 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(drainEnv)); err == nil {
 		testDrain = d
+	}
+	if n, err := strconv.ParseInt(os.Getenv(logMaxEnv), 10, 64); err == nil {
+		logMaxBytes = n
 	}
 	if d, err := time.ParseDuration(os.Getenv(shutdownEnv)); err == nil {
 		shutdownTimeout = d
@@ -121,6 +132,11 @@ func installTestSeams() {
 		}
 		adbEnviron = func() []string { return env }
 	}
+	// A test may give the daemon a fake osascript, so workspace.chooseRoot runs on any
+	// host without raising a window.
+	if bin := os.Getenv(dialogFakeEnv); bin != "" {
+		dialogSeam = func(d *workspace.Dialog) { d.GOOS, d.Binary = "darwin", bin }
+	}
 	// A test may give the daemon a fake Gradle sidecar (plan m1g step 5): the sidecar
 	// command runs the test binary again in the fake's mode, so reexec must not reach
 	// it, or it would run the daemon instead of the fake.
@@ -169,6 +185,16 @@ func appendEvent(path, event string) {
 // "use refused" or "use <pid>" (ADR-0027: a cancelled operation cannot start a
 // sidecar again).
 func registerSidecarFixture(reg *capability.Registry, sup *proc.Supervisor) {
+	// fixture.stray writes to standard error by the process's own handle, as a panic or
+	// a library's print would, bypassing the daemon's log writer.
+	reg.MustRegister(capability.Descriptor{
+		Name: "fixture.stray", Kind: capability.Command, Scope: capability.Global,
+		Description: "Prints a line to standard error; test-only.", Params: struct{}{}, Result: struct{}{},
+		Handler: func(context.Context, *capability.Call) (any, error) {
+			fmt.Fprintln(os.Stderr, "STRAY-LINE")
+			return struct{}{}, nil
+		},
+	})
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.sidecar", Kind: capability.Command, Scope: capability.Workspace,
 		Description: "Uses the dummy sidecar; test-only.", Params: sidecarParams{}, Result: sidecarResult{},

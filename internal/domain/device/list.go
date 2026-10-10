@@ -103,10 +103,24 @@ func (a *ADB) list(ctx context.Context) ([]Device, []string, error) {
 		return nil, nil, err
 	}
 	visible := listed[:0:0]
+	invalid := ""
 	for _, d := range listed {
-		if d.Kind == KindEmulator || a.admitted(d.Device).Admitted {
+		if d.Kind == KindEmulator {
 			visible = append(visible, d)
+			continue
 		}
+		if adm := a.admitted(d.Device); adm.Admitted {
+			visible = append(visible, d)
+		} else if adm.Invalid && invalid == "" {
+			invalid = adm.Cause
+		}
+	}
+	if invalid != "" {
+		// A physical device is connected and hidden, and only because the configuration
+		// cannot be read: the listing would otherwise look as if nothing were plugged in.
+		// One warning however many, and no serial: a hidden device is not disclosed.
+		// Clipped, so the append copies: the version check's own slice is shared.
+		warnings = append(warnings[:len(warnings):len(warnings)], "a physical device is connected but hidden, because the droidyard configuration could not be used (all physical devices stay hidden until it is fixed): "+invalid)
 	}
 	a.fillDetails(ctx, res.Path, visible)
 	if cerr := ctx.Err(); cerr != nil { // the caller gave up during the details phase

@@ -101,6 +101,9 @@
 					{avd.name}
 					{avd.config?.displayName ?? ''}
 					{avd.running ? `running as ${avd.running.device}` : 'not running'}
+					{#if ev.preselected === avd.name}
+						(this project's AVD: Start it)
+					{/if}
 					<button
 						type="button"
 						disabled={ev.starting || ev.mirror.booting !== null}

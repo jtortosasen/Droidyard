@@ -121,7 +121,7 @@ func (r *resolver) write(p WriteParams) (WriteResult, error) {
 		dest = onDiskName(root, dir, dirf, base, fi)
 	}
 
-	tempRel := path.Join(dir, tempName(dest))
+	tempRel := path.Join(dir, tempName())
 	f, err := root.OpenFile(tempRel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return WriteResult{}, r.classifyWrite(rel, err)
@@ -190,10 +190,13 @@ func (r *resolver) write(p WriteParams) (WriteResult, error) {
 
 // tempName is the temporary file's name (D6): a dot-prefixed, recognisable name in the
 // target's directory, matching *.droidyard-*.tmp so a human and file.watch both know it.
-func tempName(base string) string {
-	var b [4]byte
+// It is a fixed 31 bytes whatever the target is called, so a final name of any length the
+// file system allows (255 bytes) still writes; a name built from the target's would
+// overflow it, and the random part keeps two writes in one directory apart.
+func tempName() string {
+	var b [8]byte
 	_, _ = rand.Read(b[:])
-	return "." + base + ".droidyard-" + hex.EncodeToString(b[:]) + ".tmp"
+	return ".droidyard-" + hex.EncodeToString(b[:]) + ".tmp"
 }
 
 // onDiskName returns the target's on-disk name: base when the directory lists it
