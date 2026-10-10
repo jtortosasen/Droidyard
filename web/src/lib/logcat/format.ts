@@ -17,7 +17,7 @@ export function clockTime(time: string): string {
 }
 
 export function formatLine(l: StreamLine): string {
-	return `${clockTime(l.time)} ${l.pid} ${l.tid} ${LETTER[l.priority] ?? '?'} ${l.tag}: ${l.message}`;
+	return `${clockTime(l.time)} ${l.pid} ${l.tid} ${l.package ?? '-'} ${LETTER[l.priority] ?? '?'} ${l.tag}: ${l.message}`;
 }
 
 /** The class a row gets for its priority: from a fixed set, never the device's own text. */

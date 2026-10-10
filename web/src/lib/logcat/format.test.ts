@@ -3,9 +3,15 @@ import { clockTime, formatLine, priorityClass } from './format';
 import { line } from './testing';
 
 describe('formatLine', () => {
-	it('puts the time, ids, priority, tag and message in one row', () => {
-		const l = line(123456, 'hello', { pid: 7, tid: 8, priority: 'warn', tag: 'Net' });
-		expect(formatLine(l)).toBe('12:00:00.123 7 8 W Net: hello');
+	it('puts the time, ids, package, priority, tag and message in one row', () => {
+		const l = line(123456, 'hello', { pid: 7, tid: 8, priority: 'warn', tag: 'Net', package: 'dev.app' });
+		expect(formatLine(l)).toBe('12:00:00.123 7 8 dev.app W Net: hello');
+	});
+
+	// Decision (m2e D38): each row shows the line's package; a line the device could not
+	// attribute to one shows a dash, not a blank that shifts the columns.
+	it('shows a dash where the line has no package', () => {
+		expect(formatLine(line(123456, 'hello', { pid: 7, tid: 8, tag: 'Net' }))).toBe('12:00:00.123 7 8 - I Net: hello');
 	});
 
 	// Decision (D5): device text is data. Markup in a field comes out as the same

@@ -3,6 +3,8 @@
 	import type { ActivityStore } from '../ops/activity';
 	import Activity from '../ops/Activity.svelte';
 	import Logcat from '../logcat/Logcat.svelte';
+	import { LogcatDevice } from '../logcat/device';
+	import { MineSet } from '../logcat/mine';
 	import { BuildModel } from '../build/build';
 	import Build from '../build/Build.svelte';
 	import BuildResult from '../build/BuildResult.svelte';
@@ -88,8 +90,10 @@
 	let viewers = $state.raw<ViewerSet | null>(null);
 	let palette = $state.raw<PaletteModel | null>(null);
 	let treeView = $state<{ focus(): void } | undefined>();
-	// The selected device is the devices model's; Logcat follows it.
-	let device = $state('');
+	// Logcat follows the devices model's selection unless a device is picked there (D40);
+	// "mine" is the application ids this tab saw built or installed (D39).
+	let logcatDevice = $state.raw<LogcatDevice | null>(null);
+	let mine = $state.raw<MineSet | null>(null);
 
 	$effect(() => {
 		const c = client;
@@ -146,9 +150,10 @@
 		// The palette's file index reads the same stream (no second file.watch).
 		const index = new FileIndex();
 		const offIndex = watcher.listen(index);
-		const offDevice = deviceList.subscribe(() => {
-			device = deviceList.view.selected;
-		});
+		const logcatDevices = new LogcatDevice(deviceList);
+		const mineIds = new MineSet(builds, installer);
+		logcatDevice = logcatDevices;
+		mine = mineIds;
 		workspace = ws;
 		trust = trusting;
 		projectFile = file;
@@ -187,7 +192,8 @@
 		});
 		return () => {
 			gone = true;
-			offDevice();
+			mineIds.dispose();
+			logcatDevices.dispose();
 			offListen();
 			offIndex();
 			readers.dispose();
@@ -224,7 +230,8 @@
 			editorTabs = null;
 			viewers = null;
 			palette = null;
-			device = '';
+			logcatDevice = null;
+			mine = null;
 		};
 	});
 
@@ -261,7 +268,9 @@
 			<Editor tabs={editorTabs} {viewers} onactivate={(path) => void files.reveal(path)} copyPath={(path) => files.absolutePath(path)} />
 		{/if}
 	{:else if id === 'logcat'}
-		<Logcat {client} {connection} {device} />
+		{#if logcatDevice && mine}
+			<Logcat {client} {connection} devices={logcatDevice} {mine} {workspaceId} />
+		{/if}
 	{:else if id === 'applogs'}
 		{#if appLogs}
 			<AppLogs model={appLogs} connected={connection === 'open'} />

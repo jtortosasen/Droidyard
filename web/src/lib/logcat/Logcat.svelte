@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
+	import Eraser from '@lucide/svelte/icons/eraser';
+	import Pause from '@lucide/svelte/icons/pause';
+	import Play from '@lucide/svelte/icons/play';
+	import RotateCw from '@lucide/svelte/icons/rotate-cw';
 	import type { Client, ConnectionState } from '../api/client';
-	import { isMarker, PRIORITIES, type Priority } from './entry';
-	import { parseQuery } from './query';
+	import { browserStorage } from '../ui/layout';
+	import { isMarker } from './entry';
+	import { QueryBar } from './bar';
+	import type { LogcatDevice } from './device';
+	import type { MineSet } from './mine';
 	import { formatLine, priorityClass } from './format';
 	import { LogcatSession } from './session';
 	import { rowWindow } from './virtual';
@@ -15,10 +22,14 @@
 	interface Props {
 		client: Client;
 		connection: ConnectionState;
-		/** The serial to stream; '' for none. */
-		device: string;
+		/** Which device to stream (D40): the toolbar's, or one picked here. */
+		devices: LogcatDevice;
+		/** This workspace's application ids, for `package:mine` (D39). */
+		mine: MineSet;
+		/** The remembered query is per project (D38). */
+		workspaceId: string;
 	}
-	let { client, connection, device }: Props = $props();
+	let { client, connection, devices, mine, workspaceId }: Props = $props();
 
 	/** Fixed row height in px, so the window is arithmetic (plan m2a step 5). */
 	const ROW_HEIGHT = 18;
@@ -31,6 +42,7 @@
 		},
 		hidden: document.hidden,
 	});
+	const bar = new QueryBar({ session, mine: untrack(() => mine.ids), storage: browserStorage(window), workspaceId: untrack(() => workspaceId) });
 
 	function snapshot() {
 		return {
@@ -46,15 +58,12 @@
 	}
 
 	let snap = $state.raw(snapshot());
+	let barView = $state.raw(bar.view);
+	let deviceView = $state.raw(untrack(() => devices.view));
+	let mineCount = $state(untrack(() => mine.ids.size));
 	let scroller = $state<HTMLDivElement>();
 	let scrollTop = $state(0);
 	let viewportHeight = $state(400);
-
-	let minPriority = $state<Priority>('verbose');
-	let tagsText = $state('');
-	let text = $state('');
-	let applicationText = $state('');
-	let applicationId = $state('');
 
 	// The scroll position this component set itself, so its own scroll event is not
 	// mistaken for the user leaving the bottom.
@@ -96,17 +105,33 @@
 			session.dispose();
 		};
 	});
+	$effect(() => {
+		const d = devices;
+		const m = mine;
+		const offDevice = d.subscribe(() => (deviceView = d.view));
+		// An id joining the set changes what `package:mine` shows: the held lines are tested again.
+		const offMine = m.subscribe(() => {
+			mineCount = m.ids.size;
+			bar.reapply();
+			barView = bar.view;
+		});
+		deviceView = d.view;
+		mineCount = m.ids.size;
+		return () => {
+			offDevice();
+			offMine();
+		};
+	});
 	// The session is an object outside Svelte's state: these effects tell it what the props
-	// and the application field now are. Its callbacks assign state, so the calls are
-	// untracked: the effects depend on the arguments alone.
+	// and the device now are. Its callbacks assign state, so the calls are untracked: the
+	// effects depend on the arguments alone.
 	$effect(() => {
 		const state = connection;
 		untrack(() => session.onConnection(state));
 	});
 	$effect(() => {
-		const serial = device;
-		const app = applicationId;
-		untrack(() => session.select(serial, app));
+		const serial = deviceView.serial;
+		untrack(() => session.select(serial));
 	});
 
 	function onscroll() {
@@ -117,25 +142,9 @@
 		session.setFollowing(scroller.scrollHeight - top - scroller.clientHeight <= ROW_HEIGHT * 2);
 	}
 
-	function applyFilter() {
-		const r = parseQuery(legacyQuery(minPriority, tagsText, text));
-		if (r.ok) session.setFilter(r.predicate);
-	}
-
-	// Step 3 stopgap: the three old controls, written as a query. Step 4 replaces them
-	// with the query bar. Tags are now exact but case-insensitive.
-	function legacyQuery(min: Priority, tags: string, message: string): string {
-		const q = (s: string) => `"${s.replace(/[\\"]/g, '\\$&')}"`;
-		const parts: string[] = [];
-		if (min !== 'verbose') parts.push(`level:${min}`);
-		for (const t of tags.split(/[\s,]+/).filter((t) => t !== '')) parts.push(`tag=:${q(t)}`);
-		if (message !== '') parts.push(`message:${q(message)}`);
-		return parts.join(' ');
-	}
-
-	function applyApplication(e: SubmitEvent) {
-		e.preventDefault();
-		applicationId = applicationText.trim();
+	function oninput(e: Event & { currentTarget: HTMLInputElement }) {
+		bar.set(e.currentTarget.value);
+		barView = bar.view;
 	}
 
 	function toBottom() {
@@ -146,6 +155,9 @@
 	function statusText(s: typeof snap.status): string {
 		return s.detail === '' ? s.state : `${s.state}: ${s.detail}`;
 	}
+
+	const canRestart = $derived(snap.status.state === 'stopped' || snap.status.state === 'error');
+	const idleText = $derived(deviceView.pendingAvd !== '' ? 'AVD not running' : 'No device selected.');
 </script>
 
 <svelte:document onvisibilitychange={() => session.setHidden(document.hidden)} />
@@ -153,68 +165,46 @@
 <section aria-label="Logcat">
 	<h2>Logcat</h2>
 
-	<div class="controls">
-		<label>
-			Priority
-			<select
-				value={minPriority}
-				onchange={(e) => {
-					minPriority = e.currentTarget.value as Priority;
-					applyFilter();
-				}}
-			>
-				{#each PRIORITIES as p (p)}
-					<option value={p}>{p}{p === 'verbose' ? '' : ' and above'}</option>
-				{/each}
-			</select>
-		</label>
-		<label>
-			Tags
-			<input
-				type="text"
-				value={tagsText}
-				placeholder="exact tags, e.g. ActivityManager"
-				oninput={(e) => {
-					tagsText = e.currentTarget.value;
-					applyFilter();
-				}}
-			/>
-		</label>
-		<label>
-			Text
-			<input
-				type="text"
-				value={text}
-				placeholder="in the message"
-				oninput={(e) => {
-					text = e.currentTarget.value;
-					applyFilter();
-				}}
-			/>
-		</label>
-		<form onsubmit={applyApplication}>
-			<label>
-				Application
-				<input
-					type="text"
-					value={applicationText}
-					placeholder="applicationId, e.g. dev.example.app"
-					oninput={(e) => (applicationText = e.currentTarget.value)}
-				/>
-			</label>
-			<button type="submit">Apply</button>
-		</form>
-		<button type="button" onclick={() => session.setPaused(!snap.paused)}>
-			{snap.paused ? 'Resume' : 'Pause'}
+	<div class="bar">
+		<select
+			aria-label="Logcat device"
+			title="Which device's logcat to show"
+			value={deviceView.pick}
+			onchange={(e) => devices.select(e.currentTarget.value)}
+		>
+			<option value="">Toolbar device</option>
+			{#each deviceView.options as d (d.device)}
+				<option value={d.device}>{d.avdName ? `${d.avdName} (${d.device})` : d.device}</option>
+			{/each}
+		</select>
+		<input
+			type="text"
+			class="query"
+			aria-label="Logcat query"
+			aria-invalid={barView.error !== null}
+			aria-describedby={barView.error !== null ? 'logcat-query-error' : undefined}
+			placeholder="package:mine level:warn"
+			spellcheck="false"
+			autocomplete="off"
+			value={barView.text}
+			{oninput}
+		/>
+		<button type="button" class="icon" title={snap.paused ? 'Resume' : 'Pause'} aria-label={snap.paused ? 'Resume' : 'Pause'} onclick={() => session.setPaused(!snap.paused)}>
+			{#if snap.paused}<Play size={14} />{:else}<Pause size={14} />{/if}
 		</button>
-		<button type="button" onclick={() => session.clear()}>Clear</button>
-		{#if snap.status.state === 'stopped' || snap.status.state === 'error'}
-			<button type="button" onclick={() => session.restart()}>Restart stream</button>
-		{/if}
+		<button type="button" class="icon" title="Clear" aria-label="Clear" onclick={() => session.clear()}><Eraser size={14} /></button>
+		<button type="button" class="icon" title="Restart the stream" aria-label="Restart the stream" disabled={!canRestart} onclick={() => session.restart()}>
+			<RotateCw size={14} />
+		</button>
 	</div>
+	{#if barView.error}
+		<p class="error" id="logcat-query-error" role="alert">{barView.error.message} (at column {barView.error.at + 1})</p>
+	{:else if barView.usesMine && mineCount === 0}
+		<p class="hint" id="logcat-mine-empty">no application id known yet: build or install once</p>
+	{/if}
 
 	<p class="status" id="logcat-status">
-		{device === '' ? 'No device selected.' : `Stream: ${statusText(snap.status)}`}
+		{deviceView.serial === '' ? idleText : `Stream: ${statusText(snap.status)}`}
 	</p>
 
 	<div class="frame">
@@ -254,16 +244,36 @@
 </section>
 
 <style>
-	.controls {
+	.bar {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem 1rem;
+		gap: var(--sp-2);
 		align-items: center;
 	}
-	.controls form {
-		display: flex;
-		gap: 0.25rem;
+	.query {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--font-mono);
+		font-size: var(--fs-mono);
+	}
+	.query[aria-invalid='true'] {
+		border-color: var(--danger);
+	}
+	.icon {
+		display: inline-flex;
 		align-items: center;
+		justify-content: center;
+		padding: var(--sp-2);
+	}
+	.error,
+	.hint {
+		margin: var(--sp-2) 0 0;
+		font-size: var(--fs-small);
+	}
+	.error {
+		color: var(--danger);
+	}
+	.hint {
+		color: var(--text-2);
 	}
 	.status {
 		margin: 0.5rem 0;

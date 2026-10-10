@@ -21,7 +21,7 @@ export interface QueryContext {
 	now?: () => number;
 }
 
-export type ParseResult = { ok: true; predicate: (e: Entry) => boolean } | { ok: false; error: string; at: number };
+export type ParseResult = { ok: true; predicate: (e: Entry) => boolean; /** The query has a `package:mine` term (D39): the panel says so when the set is empty. */ usesMine: boolean } | { ok: false; error: string; at: number };
 
 export class QueryError extends Error {
 	constructor(
@@ -129,6 +129,7 @@ class Parser {
 	#src: string;
 	#ctx: QueryContext;
 	#p = 0;
+	usesMine = false;
 
 	constructor(src: string, toks: Token[], ctx: QueryContext) {
 		this.#src = src;
@@ -211,6 +212,7 @@ class Parser {
 		const { key, op, value, valueAt } = t;
 		if (TEXT_KEYS.has(key)) {
 			if (key === 'package' && op === 'sub' && !t.neg && value.toLowerCase() === 'mine') {
+				this.usesMine = true;
 				return { test: mineTest(this.#ctx), group: 'package' };
 			}
 			const test = textTest(key, op, value, valueAt);
@@ -324,8 +326,9 @@ const STACK_LINE = /^\s*at \S.*\(.*\)$/;
 /** Parses `text`; the predicate lets markers through (m2a: a filter never hides a loss). */
 export function parseQuery(text: string, ctx: QueryContext = {}): ParseResult {
 	try {
-		const root = new Parser(text, scan(text), ctx).parse();
-		return { ok: true, predicate: (e) => isMarker(e) || root(e) };
+		const parser = new Parser(text, scan(text), ctx);
+		const root = parser.parse();
+		return { ok: true, predicate: (e) => isMarker(e) || root(e), usesMine: parser.usesMine };
 	} catch (err) {
 		if (err instanceof QueryError) return { ok: false, error: err.message, at: err.at };
 		throw err;
