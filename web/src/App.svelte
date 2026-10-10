@@ -58,8 +58,10 @@
 		}
 		client = c;
 		activity = store;
-		store.start();
+		// Connect first: a call made on a client never connected is refused as closed,
+		// while one made while connecting waits for the socket.
 		c.connect();
+		store.start();
 		return () => {
 			store.stop();
 			c.close();
