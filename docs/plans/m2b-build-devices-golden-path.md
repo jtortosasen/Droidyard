@@ -115,7 +115,7 @@ Baseline on 2026-10-10 at `3e7c26b` (macOS): `go vet ./...` and `gofmt -l .` pri
 - Needs: step 3.
 - Not here: the console live during a build (`build.output`, register).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `4bf8140`, fix `HEAD`. Vitest (implementer): 9 tests, the 21st selection refused, `build.run`'s params and order, the shared mirror blocking Run and cancelling an MCP build without `operation.wait`, the console's tail and paging back to 0, no read while a build runs — the decisive ones seen failing reversed. Level 5 (step 3's environment, the same sample copy): the task list loaded (`:help`, `:dependencies`, …); `:help` selected and run → `build.run` completed; the console then showed "REQUEST_UNEXPECTED_WORKSPACE: artifact.read is global and takes no workspace" — `ConsoleModel` sent the workspace root with a global capability; fixed (the test now asserts no workspace) and rerun: "From byte 0 of 807", `> Task :help`, `BUILD SUCCESSFUL in 5s`. Every other UI call that carries a workspace is workspace-scoped (checked against the schema: `build.*`, `project.*`, `workspace.*`, `device.install`).
 
 ### 5. Emulators and devices: list, start, stop, install, launch
 
