@@ -185,8 +185,11 @@ Deliverables:
 - Panels: **Logcat**, streaming (2a); **build / Gradle tasks** with problems and
   **devices**, no stills (2b) ([m2a](../plans/m2a-minimal-web-ui.md)). Then (owner,
   2026-10-10): **2c**, fixes, the live build console and a project start without typed
-  paths; **2d**, a redesign and the file tree; **Git** and the **editor**
-  ([ADR-0009](../adr/0009-editor-component.md)), a milestone each after 2d.
+  paths; **2d**, a redesign and a read-only file tree; **2e**, the tree's file operations. After 2e, a milestone each, each after a
+  discussion (owner, 2026-10-10): **agent sessions** (a terminal the daemon hosts on a
+  pseudo-terminal, the agents' chats in it, a worktree per session); a **live emulator
+  view** (the stretch below); **Git** (the tree's Git view, a Diff tab, branches and
+  commits); the **editor** ([ADR-0009](../adr/0009-editor-component.md)).
 - TypeScript client generated from the capability schema.
 - The loopback HTTP baseline (127.0.0.1, Host and Origin checks, a per-launch token),
   delivered early with the Phase 0 skeleton; Phase 2 adds no rule to it.
