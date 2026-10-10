@@ -204,6 +204,20 @@ describe('the action model', () => {
 		});
 	});
 
+	// Decision (step 6 review): a picked node and a result belong to their device; another
+	// selection drops them, so a ref from one device is never tapped on another.
+	it('drops a picked node and the last result when another device is selected', async () => {
+		const t = await setup();
+		t.actModel.pick({ ref: 'n9', snapshot: 's4' });
+		await t.actModel.tap();
+		expect(t.actModel.view.result).not.toBeNull();
+		t.sel.select('emulator-5556');
+		expect(t.actModel.view.picked).toBeNull();
+		expect(t.actModel.view.result).toBeNull();
+		t.sel.select('emulator-5556');
+		expect(t.actModel.view.device).toBe('emulator-5556');
+	});
+
 	// Decision: the forms the schema allows: a picked ref stands alone, and typing replaces it.
 	it('sends a picked ref with its snapshot, and a typed field replaces it', async () => {
 		const t = await setup();
