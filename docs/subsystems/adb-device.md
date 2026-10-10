@@ -47,7 +47,7 @@ resolved binary, version and source. Devices are global, so no workspace is degr
 
 ## Device model
 
-Details are best-effort: a flaky device still lists, its details simply stay sparse. Emulator detection uses the serial prefix **or** known
+Details are best-effort: a flaky device still lists, its details stay sparse. Emulator detection uses the serial prefix **or** known
 product strings, so it does not depend on naming alone. A device that `devices -l` reports
 with `usb:` is `physical` whatever its product says, and an unclassifiable device is
 `physical`, so the emulators-only default never admits an unknown device (1e).

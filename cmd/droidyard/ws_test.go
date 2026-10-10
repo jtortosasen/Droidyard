@@ -589,16 +589,21 @@ func TestWSOverflow(t *testing.T) {
 	first := p.bus.Position().Seq
 	const n = 2000
 	w.send("pub", "fixture.publish", "", `{"count":2000}`, nil)
-	for deadline := time.Now().Add(10 * time.Second); p.bus.Position().Seq < first+n; time.Sleep(2 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); p.bus.Position().Seq < first+n+2; time.Sleep(2 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatalf("the bus is at %d; want %d", p.bus.Position().Seq, first+n)
+			t.Fatalf("the bus is at %d; want %d", p.bus.Position().Seq, first+n+2)
 		}
 	}
 	release()
 
+	// The burst is n consecutive seqs, but not the ones right after `first`: the pub
+	// operation's own operation.state events take seqs too, and the lifecycle
+	// subscription is not offered them (ADR-0043 §3). The queue's oldest frame is the
+	// burst's first event, so the range to cover starts there.
 	covered := map[int64]bool{}
 	last, delivered, gaps, answered := first, 0, 0, false
-	for last < first+n || !answered {
+	burst := int64(0) // the seq before the burst's first, once the first frame is read
+	for burst == 0 || last < burst+n || !answered {
 		f := w.must(fmt.Sprintf("frames after seq %d", last))
 		if f.ID == "pub" {
 			answered = true
@@ -606,6 +611,10 @@ func TestWSOverflow(t *testing.T) {
 		}
 		if f.Event == nil {
 			t.Fatalf("an unexpected frame: %+v", f)
+		}
+		if burst == 0 {
+			burst = f.Event.Seq - 1
+			last = burst
 		}
 		from, to := f.Event.Seq, f.Event.Seq
 		if f.Event.Topic == "events.gap" {
@@ -626,7 +635,7 @@ func TestWSOverflow(t *testing.T) {
 		}
 		last = to
 	}
-	for s := first + 1; s <= first+n; s++ {
+	for s := burst + 1; s <= burst+n; s++ {
 		if !covered[s] {
 			t.Fatalf("seq %d was neither delivered nor covered by a gap", s)
 		}

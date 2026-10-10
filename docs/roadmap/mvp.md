@@ -249,7 +249,7 @@ Two practical notes:
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch` | 1–2 |
 | `git` | `status`, `diff`, `log`, `branches` | last |
-| `operation` | `wait`, `cancel` | 0 |
+| `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
@@ -262,7 +262,7 @@ last and may slip.
 
 - [x] The golden path completes from an external agent with **zero stdout parsing by the
       agent** (m1l: OpenCode and Cursor, on the golden sample).
-- [ ] The golden path completes from the browser.
+- [x] The golden path completes from the browser (m2b step 7).
 - [ ] `build.errors` returns structured `{file, line, column, message}` for a real Kotlin
       compile failure — on both fixtures, the KGP < 2.4 one going through the console
       extractor.

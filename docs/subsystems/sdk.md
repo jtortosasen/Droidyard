@@ -56,7 +56,7 @@ the rejected candidates are reported by `sdk.status`, which always answers (`fou
 
 ### Project SDK
 
-1. **What AGP actually resolved**, from the probe's `sdkDir`
+1. **What AGP resolved**, from the probe's `sdkDir`
    ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)): `source: agp`, exact.
 2. **Otherwise, AGP's order emulated**: `local.properties` `sdk.dir` (Java properties syntax; a
    relative path is resolved against the project root), then `ANDROID_HOME`, then

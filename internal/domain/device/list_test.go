@@ -339,7 +339,7 @@ func TestListFailureNamesTheConfiguredPort(t *testing.T) {
 	a := newFake(t, dir, port)
 	_, err := a.List(context.Background())
 	ce := asCapError(t, err)
-	if !strings.Contains(ce.NextStep, "port "+port+" ") || strings.Contains(ce.NextStep, "port 5037") {
+	if !strings.Contains(ce.NextStep, "port "+port+" ") || (port != "5037" && strings.Contains(ce.NextStep, "port 5037 ")) {
 		t.Errorf("next step %q should name port %s", ce.NextStep, port)
 	}
 }

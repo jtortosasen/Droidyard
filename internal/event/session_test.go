@@ -24,8 +24,9 @@ type sessionFixture struct {
 func newSessionFixture(t *testing.T) *sessionFixture {
 	t.Helper()
 	reg := capability.NewRegistry()
-	Register(reg)
-	f := &sessionFixture{bus: New(Options{}), ops: capability.NewOperations(reg)}
+	ops := capability.NewOperations(reg)
+	Register(reg, ops.Active)
+	f := &sessionFixture{bus: New(Options{}), ops: ops}
 	f.a, f.b = NewSession(f.bus, "ses-a"), NewSession(f.bus, "ses-b")
 	return f
 }

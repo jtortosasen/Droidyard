@@ -76,6 +76,15 @@ const composedEvents = {
 	properties: Object.fromEntries(withEvents.map((d) => [d.name, eventsFor(d)])),
 };
 
+// The progress a long-running call reports, which is also the payload of an
+// `operation.progress` event (the same capability.Progress; plan m2b D12). Read from the
+// first long-running descriptor's operation view, so it is never typed by hand.
+const progressSchema = contract.capabilities
+	.filter((d) => d.longRunning)
+	.map((d) => (d.output?.properties as Record<string, unknown> | undefined)?.progress)
+	.find((p) => p !== undefined);
+if (!progressSchema) throw new Error('no long-running descriptor carries an operation view with progress');
+
 const options = {
 	bannerComment: '',
 	additionalProperties: false,
@@ -87,6 +96,11 @@ const options = {
 
 const types = await compile(composed as never, 'Capabilities', options);
 const eventTypes = await compile(composedEvents as never, 'CapabilityEvents', options);
+const progressType = await compile(
+	{ ...(progressSchema as object), title: 'OperationProgress' } as never,
+	'OperationProgress',
+	options,
+);
 
 // The topic each streaming capability's events carry, from the descriptors.
 const eventTopics = Object.fromEntries(withEvents.map((d) => [d.name, d.events?.topic]));
@@ -107,6 +121,8 @@ export const schemaVersion = ${JSON.stringify(contract.version)};
 ${types.trim()}
 
 ${eventTypes.trim()}
+
+${progressType.trim()}
 
 export type CapabilityName = keyof Capabilities;
 export type EventCapability = keyof CapabilityEvents;
