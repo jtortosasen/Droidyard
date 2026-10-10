@@ -65,7 +65,7 @@ Baseline on 2026-10-10 at `3e7c26b` (macOS): `go vet ./...` and `gofmt -l .` pri
 - [x] A6. The devices panel: device and emulator lists, start and stop, install, launch, the UI tree, tap and type with expectations, the app's logs since launch with its crash; no screenshot; every device field rendered as text. Source: owner decision 1; `http-websocket.md` §Security baseline (rule 8). Proven by: step 5, step 6, step 7
 - [x] A7. G1–G8 (`m1l-phase1-acceptance.md` §The golden-path run) complete from the browser on the sample, G6 being logs and the UI tree, each step's result shown structured. Source: `mvp.md` §Phase 2 (Acceptance), §Definition of done. Proven by: step 7
 - [x] A8. Same-primitive check (step 7's procedure): every capability of `mvp.md` §The golden path's Capability column but `device.screenshot` (owner) appears in the run's trace with `client=ui` (G3's edit `client=cli`, D15) and with `client=mcp` from the K4 session in the same `daemon.log`; any other `client=ui` capability is on step 7's allowed list of published reads and streams; the browser's network log holds only `/`, `/assets/…`, `/favicon.ico` and `/v1/ws`. Source: `mvp.md` §Phase 2 (Acceptance). Proven by: step 7
-- [ ] A9. The register, `mvp.md`, `docs/README.md` and the plans index record what 2b closed and left open. Source: `milestone-workflow` step 6. Proven by: step 8
+- [x] A9. The register, `mvp.md`, `docs/README.md` and the plans index record what 2b closed and left open. Source: `milestone-workflow` step 6. Proven by: step 8
 
 ## Steps
 
@@ -163,7 +163,7 @@ Baseline on 2026-10-10 at `3e7c26b` (macOS): `go vet ./...` and `gofmt -l .` pri
 - Needs: step 7.
 - Not here: 2c's plan.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `102fc3f` and the close-review fix round `bf7466c`. Register: closed — the 2a lost-connection row and the browser golden path row (the `operation.state` no-producer entry went at step 1); updated — the live-screen row (not built, Q2); added — the persistent-reader defect against ADR-0030, windowed boots after a cancelled boot, the operation view without a device, the application id per tab, a workspace opened before the tab, A3 at level 3 only, the progress rate and event order unmeasured, the live console, and the UI controls not in 2b. `mvp.md`'s Definition of done: the browser item ticked; `docs/README.md` names 2c; the plans index Done. Close review (Opus verifier): fix first, documents only — [plan] A3's level-5 gap was missing from the register while its 2a row was closed; [doc]/[plan] the reader row called "limit" what ADR-0030 promises otherwise, and step 7's defect rule was bypassed unrecorded — both fixed (`bf7466c`, a §Changes entry). Non-blocking, left: [test] no test pins trace lines outside `flushMu` or `connect()` before the stores start; nits (an `unseen` row whose terminal event was already queued; wording trims outside any step's Builds). Counts: plan review 3 blocking ([bug], [test], [doc]); step verifiers: step 1 0 blocking, step 6 0 blocking; close 2 blocking ([plan], [doc]); level-5 runs found 2 client defects (fixed) and 2 pre-existing device behaviours (register). `go test ./...`, `go vet`, `gofmt`, `pnpm -C web run verify` green at the close.
 
 ## Not in this milestone
 
