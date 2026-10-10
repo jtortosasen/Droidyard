@@ -99,7 +99,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: nothing.
 - Not here: code.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `1f25ad3`; `go test ./...` green; the roadmap edit cut 44 words and `liveBudget` raised by 312 with the reason in its comment.
 
 ### 2. Observe before code: the reader, the windowed boot, the folder dialog
 
@@ -272,7 +272,7 @@ Each has a recommendation the main session may apply as Delegated (owner: "you d
 
 - Blocks: steps 3, 9
 - The documents say: `build.output` is designed with no producer (`capability-api.md` §Events, register); `gradle.md` §Output: batches every 100 ms, `consoleRef` published only at the end; ADR-0041 and ADR-0043 set the pattern. Nothing defines the payload.
-- Draft decision, as a new ADR (numbered when written, at step 3):
+- Draft decision, now ADR-0044:
   1. **Capability** `build.watchOutput`: command, **workspace-scoped**, streaming, audience all, not long-running, since `0.16.0`; params `{}`; result `{subscriptionId, builds: [{buildId, consoleRef, offset}]}`, the workspace's running builds with each console's size taken **after** the subscription opened. The client reads `[0, offset)` with `artifact.read`; the rest arrives as events. One subscription follows every build of the workspace, any client's.
   2. **Events**, topic `build.output`, type `lines`: `{buildId, consoleRef, offset, stream, lines}`; `stream` is `stdout`, `stderr` or `droidyard` (the connector notice and the cap marker). The console holds **whole lines only**: a line that does not fit under the 32 MiB cap is dropped whole and counted in `consoleDropped` (as `buildSink.Output` counts today), so the marker starts its own line and no rune is split. Every line appended is published once, in order: the prefix plus the events equal the console. Project output, not untrusted (ADR-0015 §1).
   3. **Delivery** as ADR-0043 §3: a seq, never the ring, offered to every watch of that workspace, not through `events.subscribe`; after `events.gap` the client reads from its last offset.
