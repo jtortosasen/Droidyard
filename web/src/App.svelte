@@ -17,6 +17,12 @@
 	import { EmulatorsModel } from './lib/devices/emulators';
 	import { InstallModel } from './lib/devices/install';
 	import Devices from './lib/devices/Devices.svelte';
+	import { UiTreeModel } from './lib/devices/uitree';
+	import Tree from './lib/devices/Tree.svelte';
+	import { ActModel } from './lib/devices/act';
+	import Act from './lib/devices/Act.svelte';
+	import { AppLogsModel } from './lib/devices/applogs';
+	import AppLogs from './lib/devices/AppLogs.svelte';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
 
@@ -42,6 +48,9 @@
 	let devices = $state.raw<DevicesModel | null>(null);
 	let emulators = $state.raw<EmulatorsModel | null>(null);
 	let install = $state.raw<InstallModel | null>(null);
+	let uiTree = $state.raw<UiTreeModel | null>(null);
+	let act = $state.raw<ActModel | null>(null);
+	let appLogs = $state.raw<AppLogsModel | null>(null);
 	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
@@ -82,6 +91,9 @@
 			},
 			deviceList,
 		);
+		const tree = new UiTreeModel(callOn, deviceList, store);
+		const actions = new ActModel(callOn, deviceList);
+		const logs = new AppLogsModel(callOn, deviceList, installer, store);
 		const offDevice = deviceList.subscribe(() => {
 			device = deviceList.view.selected;
 		});
@@ -120,6 +132,9 @@
 		devices = deviceList;
 		emulators = emulatorList;
 		install = installer;
+		uiTree = tree;
+		act = actions;
+		appLogs = logs;
 		// Connect first: a call made on a client never connected is refused as closed,
 		// while one made while connecting waits for the socket.
 		c.connect();
@@ -130,6 +145,9 @@
 		void ws.open();
 		return () => {
 			offDevice();
+			logs.dispose();
+			actions.dispose();
+			tree.dispose();
 			installer.dispose();
 			emulatorList.dispose();
 			deviceList.dispose();
@@ -150,6 +168,9 @@
 			devices = null;
 			emulators = null;
 			install = null;
+			uiTree = null;
+			act = null;
+			appLogs = null;
 			device = '';
 		};
 	});
@@ -194,6 +215,24 @@
 
 	{#if devices && emulators && install}
 		<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+	{/if}
+
+	{#if uiTree && act}
+		{@const tree = uiTree}
+		{@const actions = act}
+		<Tree
+			model={tree}
+			connected={connection === 'open'}
+			onpick={(index) => {
+				const s = tree.selectorAt(index);
+				if (s) actions.pick(s);
+			}}
+		/>
+		<Act model={actions} connected={connection === 'open'} />
+	{/if}
+
+	{#if appLogs}
+		<AppLogs model={appLogs} connected={connection === 'open'} />
 	{/if}
 
 	{#if client}
