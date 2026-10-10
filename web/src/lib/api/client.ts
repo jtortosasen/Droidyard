@@ -119,6 +119,11 @@ export interface ClientOptions {
 export interface CallOptions {
 	/** The workspace root, for a workspace-scoped capability (an envelope field, never a parameter). */
 	workspace?: string;
+	/**
+	 * Client-only (no contract change): called once, with the operation id the first answer
+	 * of a long-running call carries, so a caller can cancel that operation and no other.
+	 */
+	onOperation?: (operationId: string) => void;
 }
 
 export interface SubscribeHandlers {
@@ -268,7 +273,11 @@ export class Client {
 				}
 				throw e;
 			}
-			if (longRunning && env.operation) operationId = env.operation.id;
+			if (longRunning && env.operation) {
+				const first = operationId === undefined;
+				operationId = env.operation.id;
+				if (first) opts.onOperation?.(operationId);
+			}
 			if (!(longRunning && env.operation && !env.error && isLive(env.operation.state))) break;
 		}
 		if (env.error) throw new CapabilityError(env.error, env.meta?.untrusted === true);

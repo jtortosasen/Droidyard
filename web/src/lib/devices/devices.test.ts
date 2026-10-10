@@ -162,3 +162,17 @@ describe('install and launch', () => {
 		expect(t.install.view.launched).toMatchObject({ pid: null, reason: 'crashed on start' });
 	});
 });
+
+describe('the pending AVD (m2e D36)', () => {
+	// Decision (D36): an AVD picked in the toolbar is pending, the selection is empty, and a
+	// refresh does not fill it with the default device; select(serial) clears the pending AVD.
+	it('keeps the selection empty across a refresh while an AVD is pending, until a serial is picked', async () => {
+		const t = await setup();
+		t.devices.selectAvd('a1');
+		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a1' });
+		await t.devices.refresh();
+		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a1' });
+		t.devices.select('emulator-5554');
+		expect(t.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
+	});
+});
