@@ -21,6 +21,9 @@ import (
 const (
 	CapSubscribe   = "events.subscribe"
 	CapUnsubscribe = "events.unsubscribe"
+	// CapOperationWatch is registered here, beside events.*, because it needs the session
+	// (ADR-0043).
+	CapOperationWatch = "operation.watch"
 )
 
 // introduced is the API version that introduced events.* (plan m1d, R1).
@@ -131,6 +134,16 @@ type UnsubscribeParams struct {
 
 // UnsubscribeResult is events.unsubscribe's result: nothing.
 type UnsubscribeResult struct{}
+
+// WatchParams are operation.watch's parameters: none.
+type WatchParams struct{}
+
+// WatchResult is operation.watch's result: the subscription the operation.state events
+// arrive on, and the operations not yet terminal when it was taken (ADR-0043 §1).
+type WatchResult struct {
+	SubscriptionID string                       `json:"subscriptionId" jsonschema:"required"`
+	Operations     []capability.ActiveOperation `json:"operations" jsonschema:"required" jsonschema_description:"The operations not yet terminal, taken after the subscription opened: an operation in this list may also arrive as an event, merge by operationId."`
+}
 
 // Session is a session that can carry events: what a WebSocket connection sets on its
 // requests. It owns the subscriptions its calls make, so that its end closes them
@@ -262,9 +275,10 @@ func sessionOf(call *capability.Call) (*Session, error) {
 	return s, nil
 }
 
-// Register adds events.subscribe and events.unsubscribe. Neither is an MCP tool: the
-// adapter lists stateless capabilities only (mcp.md §What is exposed).
-func Register(reg *capability.Registry) {
+// Register adds events.subscribe, events.unsubscribe and operation.watch, which reads
+// the operation store's snapshot through active. None is an MCP tool: the adapter lists
+// stateless capabilities only (mcp.md §What is exposed).
+func Register(reg *capability.Registry, active func() []capability.ActiveOperation) {
 	// A subscription is state the call creates, so this is a command, not a query
 	// (mcp.md §Annotations: "a query that writes is a Kind bug").
 	notDestructive := false
@@ -303,6 +317,47 @@ func Register(reg *capability.Registry) {
 				(*hook)()
 			}
 			return SubscribeResult{SubscriptionID: id}, nil
+		},
+	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:         CapOperationWatch,
+		Kind:         capability.Command,
+		Scope:        capability.Global,
+		Statefulness: capability.Streaming,
+		Since:        "0.15.0",
+		Description:  "Streams every operation's state transitions to the calling WebSocket session on topic operation.state: when it is recorded (running or queued), when a queued one starts running, when it ends. The result lists the operations not yet terminal, taken after the subscription opened: merge it with the events by operationId, and call this again after an events.gap.",
+		Params:       WatchParams{},
+		Result:       WatchResult{},
+		Events: &capability.Events{
+			Topic: capability.StateTopic,
+			Types: map[string]any{capability.StateType: capability.OperationState{}},
+		},
+		Errors: []capability.ErrorCode{capability.ErrSessionRequired},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "adds a subscription to the calling session; ends nothing",
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			s, err := sessionOf(call)
+			if err != nil {
+				return nil, err
+			}
+			// The subscription first, the snapshot second: an operation that ends between
+			// the two reaches the watcher as an event, and one that is still running is in
+			// the snapshot (ADR-0043 §1).
+			id, _, err := s.Open([]string{capability.StateTopic}, nil)
+			if err != nil {
+				return nil, err
+			}
+			if hook := s.bus.watchHook.Load(); hook != nil {
+				(*hook)(s.ID())
+			}
+			ops := active()
+			if ops == nil {
+				ops = []capability.ActiveOperation{}
+			}
+			return WatchResult{SubscriptionID: id, Operations: ops}, nil
 		},
 	})
 

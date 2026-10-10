@@ -1,6 +1,28 @@
 <script lang="ts">
 	import { Client, type ConnectionState } from './lib/api/client';
+	import { ActivityStore } from './lib/ops/activity';
+	import Activity from './lib/ops/Activity.svelte';
 	import Logcat from './lib/logcat/Logcat.svelte';
+	import { BuildModel } from './lib/build/build';
+	import Build from './lib/build/Build.svelte';
+	import { TasksModel } from './lib/build/tasks';
+	import Tasks from './lib/build/Tasks.svelte';
+	import { ConsoleModel } from './lib/build/console';
+	import Console from './lib/build/Console.svelte';
+	import { EventsHub } from './lib/build/hub';
+	import { WorkspaceModel } from './lib/build/workspace';
+	import Workspace from './lib/build/Workspace.svelte';
+	import { DevicesMirror } from './lib/devices/mirror';
+	import { DevicesModel } from './lib/devices/devices';
+	import { EmulatorsModel } from './lib/devices/emulators';
+	import { InstallModel } from './lib/devices/install';
+	import Devices from './lib/devices/Devices.svelte';
+	import { UiTreeModel } from './lib/devices/uitree';
+	import Tree from './lib/devices/Tree.svelte';
+	import { ActModel } from './lib/devices/act';
+	import Act from './lib/devices/Act.svelte';
+	import { AppLogsModel } from './lib/devices/applogs';
+	import AppLogs from './lib/devices/AppLogs.svelte';
 	import type { Result } from './lib/api/capabilities.gen';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
 
@@ -18,24 +40,78 @@
 	let healthError = $state<string | null>(null);
 
 	let client = $state.raw<Client | null>(null);
-	let devices = $state.raw<Result<'device.list'>['devices']>([]);
-	let devicesError = $state<string | null>(null);
+	let activity = $state.raw<ActivityStore | null>(null);
+	let workspace = $state.raw<WorkspaceModel | null>(null);
+	let build = $state.raw<BuildModel | null>(null);
+	let tasks = $state.raw<TasksModel | null>(null);
+	let buildConsole = $state.raw<ConsoleModel | null>(null);
+	let devices = $state.raw<DevicesModel | null>(null);
+	let emulators = $state.raw<EmulatorsModel | null>(null);
+	let install = $state.raw<InstallModel | null>(null);
+	let uiTree = $state.raw<UiTreeModel | null>(null);
+	let act = $state.raw<ActModel | null>(null);
+	let appLogs = $state.raw<AppLogsModel | null>(null);
+	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
 	$effect(() => {
 		if (token === null) return;
+		// Created before the client so the connection's state reaches it from the first change.
+		const store = new ActivityStore({
+			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+			call: (name, params) => c.call(name, params),
+		});
+		const hub = new EventsHub({
+			subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+			call: (name, params) => c.call(name, params),
+		});
+		const callOn = {
+			call: ((name, params, opts) => c.call(name, params, opts)) as Client['call'],
+		};
+		// The typed root is a view preference; blocked storage leaves it to be typed again.
+		let storage: Storage | null = null;
+		try {
+			storage = window.localStorage;
+		} catch {
+			// Blocked storage.
+		}
+		const ws = new WorkspaceModel(callOn, hub, storage);
+		const builds = new BuildModel(callOn, store, hub, ws);
+		const taskList = new TasksModel(callOn, builds.mirror, ws);
+		const console_ = new ConsoleModel(callOn, builds, ws);
+		const mirror = new DevicesMirror(store, callOn);
+		const deviceList = new DevicesModel(callOn, store);
+		const emulatorList = new EmulatorsModel(callOn, store, mirror);
+		const installer = new InstallModel(
+			callOn,
+			mirror,
+			{
+				selection: () => (ws.id === null ? null : { root: ws.root, module: builds.view.module, variant: builds.view.variant }),
+				subscribe: (l) => builds.subscribe(l),
+			},
+			deviceList,
+		);
+		const tree = new UiTreeModel(callOn, deviceList, store);
+		const actions = new ActModel(callOn, deviceList);
+		const logs = new AppLogsModel(callOn, deviceList, installer, store);
+		const offDevice = deviceList.subscribe(() => {
+			device = deviceList.view.selected;
+		});
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
 			createSocket: (url) => new WebSocket(url),
 			onState: (s) => {
 				connection = s;
+				store.onConnection(s);
+				hub.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
 		});
 		function refresh() {
-			listDevices(c);
+			void deviceList.refresh();
+			void emulatorList.refresh();
 			c.call('system.health', {}).then(
 				(h) => {
 					health = h;
@@ -48,32 +124,56 @@
 			);
 		}
 		client = c;
+		activity = store;
+		workspace = ws;
+		build = builds;
+		tasks = taskList;
+		buildConsole = console_;
+		devices = deviceList;
+		emulators = emulatorList;
+		install = installer;
+		uiTree = tree;
+		act = actions;
+		appLogs = logs;
+		// Connect first: a call made on a client never connected is refused as closed,
+		// while one made while connecting waits for the socket.
 		c.connect();
+		store.start();
+		hub.start();
+		// A root kept from an earlier visit is opened once (workspace.open is idempotent);
+		// after another client closes it the panel offers to reopen, it does not reopen.
+		void ws.open();
 		return () => {
+			offDevice();
+			logs.dispose();
+			actions.dispose();
+			tree.dispose();
+			installer.dispose();
+			emulatorList.dispose();
+			deviceList.dispose();
+			mirror.dispose();
+			console_.dispose();
+			taskList.dispose();
+			builds.dispose();
+			ws.dispose();
+			hub.stop();
+			store.stop();
 			c.close();
 			client = null;
+			activity = null;
+			workspace = null;
+			build = null;
+			tasks = null;
+			buildConsole = null;
+			devices = null;
+			emulators = null;
+			install = null;
+			uiTree = null;
+			act = null;
+			appLogs = null;
+			device = '';
 		};
 	});
-
-	function listDevices(c: Client) {
-		c.call('device.list', {}).then(
-			(r) => {
-				devices = r.devices;
-				devicesError = null;
-				// One device to choose from is the choice, until the user picks another.
-				const online = r.devices.filter((d) => d.online);
-				if (device === '' && online.length === 1) device = online[0]!.device;
-			},
-			(e: unknown) => {
-				if (e instanceof Error && 'code' in e) devicesError = String(e.code);
-			},
-		);
-	}
-
-	function deviceLabel(d: Result<'device.list'>['devices'][number]): string {
-		const name = d.avdName ?? d.model ?? d.product ?? d.kind;
-		return `${d.device} (${name}, ${d.state})`;
-	}
 
 	function uptime(seconds: number): string {
 		const h = Math.floor(seconds / 3600);
@@ -100,28 +200,47 @@
 		<p>system.health failed: {healthError}</p>
 	{/if}
 
-	<p>
-		<label>
-			Device
-			<select value={device} onchange={(e) => (device = e.currentTarget.value)}>
-				<option value="">none</option>
-				{#each devices as d (d.device)}
-					<option value={d.device} disabled={!d.online}>{deviceLabel(d)}</option>
-				{/each}
-			</select>
-		</label>
-		<button type="button" disabled={!client || connection !== 'open'} onclick={() => client && listDevices(client)}>
-			Refresh
-		</button>
-		{#if devicesError}
-			device.list failed: {devicesError}
-		{:else if devices.length === 0}
-			No device is connected.
-		{/if}
-	</p>
+	{#if workspace}
+		<Workspace model={workspace} />
+	{/if}
+	{#if build}
+		<Build model={build} />
+	{/if}
+	{#if tasks}
+		<Tasks model={tasks} />
+	{/if}
+	{#if buildConsole}
+		<Console model={buildConsole} />
+	{/if}
+
+	{#if devices && emulators && install}
+		<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+	{/if}
+
+	{#if uiTree && act}
+		{@const tree = uiTree}
+		{@const actions = act}
+		<Tree
+			model={tree}
+			connected={connection === 'open'}
+			onpick={(index) => {
+				const s = tree.selectorAt(index);
+				if (s) actions.pick(s);
+			}}
+		/>
+		<Act model={actions} connected={connection === 'open'} />
+	{/if}
+
+	{#if appLogs}
+		<AppLogs model={appLogs} connected={connection === 'open'} />
+	{/if}
 
 	{#if client}
 		<Logcat {client} {connection} {device} />
+	{/if}
+
+	{#if activity}
+		<Activity store={activity} />
 	{/if}
 {/if}
 

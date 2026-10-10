@@ -2,6 +2,7 @@ package capability
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/invopop/jsonschema"
 )
@@ -96,6 +97,43 @@ type BlockedBy struct {
 	OperationID string `json:"operationId,omitempty"`
 	Capability  string `json:"capability,omitempty"`
 	Reason      string `json:"reason,omitempty"`
+}
+
+// The operation.state stream (ADR-0043): one event per transition of a recorded
+// operation, published to every operation.watch subscription.
+const (
+	StateTopic = "operation.state"
+	StateType  = "state"
+)
+
+// OperationState is the payload of an operation.state event. The envelope's operation
+// and workspace name the operation. It carries who asked and where the operation
+// stands, never what was asked or answered: no parameter, result, message or cause (the
+// trace line's rule; ADR-0043 §2).
+type OperationState struct {
+	Capability string `json:"capability" jsonschema:"required"`
+	// Client is the kind of session that made the call; omitted for a call recorded
+	// without one.
+	Client    ClientKind `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui"`
+	State     State      `json:"state" jsonschema:"required,enum=queued,enum=running,enum=completed,enum=failed,enum=cancelled"`
+	StartedAt time.Time  `json:"startedAt" jsonschema:"required"`
+	// DurationMs is set on the terminal event only.
+	DurationMs *int64 `json:"durationMs,omitempty" jsonschema_description:"Set on the terminal event: milliseconds from the operation's record to its end."`
+	// Code is set on a failed operation's terminal event only.
+	Code      ErrorCode  `json:"code,omitempty" jsonschema_description:"Set on a failed operation's terminal event."`
+	BlockedBy *BlockedBy `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
+}
+
+// ActiveOperation is one row of operation.watch's snapshot: an operation not yet
+// terminal.
+type ActiveOperation struct {
+	OperationID string     `json:"operationId" jsonschema:"required"`
+	Capability  string     `json:"capability" jsonschema:"required"`
+	Workspace   string     `json:"workspace,omitempty" jsonschema_description:"The workspace id; omitted for a global operation."`
+	Client      ClientKind `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui"`
+	State       State      `json:"state" jsonschema:"required,enum=queued,enum=running"`
+	StartedAt   time.Time  `json:"startedAt" jsonschema:"required"`
+	BlockedBy   *BlockedBy `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
 }
 
 // Object is a JSON object whose shape is named elsewhere: for operation_wait, by the

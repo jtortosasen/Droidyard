@@ -47,7 +47,7 @@ class FakeTimers implements Timers {
 		return t;
 	}
 	clearTimeout(h: unknown) {
-		(h as { live: boolean }).live = false;
+		if (h) (h as { live: boolean }).live = false;
 	}
 	/** Fires the pending timer and returns its delay. */
 	fire(): number {
@@ -327,5 +327,63 @@ describe('Client', () => {
 		expect(timers.scheduled.filter((t) => t.live)).toHaveLength(0);
 		expect(client.state).toBe('closed');
 		await expect(client.call('system.health', {})).rejects.toMatchObject({ kind: 'closed' });
+	});
+
+	// Decision (plan m2b step 2, A3): a long-running call cut by a lost connection resumes
+	// operation.wait on the same operation id once the connection is back.
+	it('resumes a cut long-running call with operation.wait on the same id after the reconnect', async () => {
+		const { client, sockets, timers } = setup();
+		client.connect();
+		sockets[0].open();
+		const p = client.call('build.tasks', {}, { workspace: '/w' });
+		sockets[0].reply({ id: sockets[0].lastId, operation: { id: 'op1', state: 'running' } });
+		await tick();
+		expect(sockets[0].sent.at(-1)).toMatchObject({ capability: 'operation.wait' });
+		sockets[0].drop(1006);
+		await tick();
+		timers.fire();
+		sockets[1].open();
+		expect(sockets[1].sent.map((f) => f.capability ?? 'auth')).toEqual(['auth', 'operation.wait']);
+		expect(sockets[1].sent[1]).toMatchObject({ params: { operationId: 'op1' } });
+		sockets[1].reply({ id: sockets[1].lastId, operation: { id: 'op1', state: 'completed' }, result: { ok: 2 } });
+		await expect(p).resolves.toEqual({ ok: 2 });
+	});
+
+	// Decision: a refused token mid-follow rejects with the operation id attached, so the
+	// caller can say which operation went on without it.
+	it('rejects a call cut by a refused token with the operation id', async () => {
+		const { client, sockets } = setup();
+		client.connect();
+		sockets[0].open();
+		const p = client.call('build.tasks', {}, { workspace: '/w' });
+		sockets[0].reply({ id: sockets[0].lastId, operation: { id: 'op7', state: 'running' } });
+		await tick();
+		sockets[0].drop(4401);
+		await expect(p).rejects.toMatchObject({ kind: 'unauthorized', operationId: 'op7' });
+	});
+
+	it('rejects a call lost before its first answer, with no operation id and no retry', async () => {
+		const { client, sockets, timers } = setup();
+		client.connect();
+		sockets[0].open();
+		const p = client.call('build.tasks', {}, { workspace: '/w' });
+		sockets[0].drop(1006);
+		const err = await p.catch((e: unknown) => e);
+		expect(err).toMatchObject({ kind: 'lost' });
+		expect((err as ConnectionError).operationId).toBeUndefined();
+		timers.fire();
+		sockets[1].open();
+		expect(sockets[1].sent.map((f) => f.capability ?? 'auth')).toEqual(['auth']);
+	});
+
+	it('close() mid-follow rejects with the operation id', async () => {
+		const { client, sockets } = setup();
+		client.connect();
+		sockets[0].open();
+		const p = client.call('build.tasks', {}, { workspace: '/w' });
+		sockets[0].reply({ id: sockets[0].lastId, operation: { id: 'op9', state: 'queued' } });
+		await tick();
+		client.close();
+		await expect(p).rejects.toMatchObject({ kind: 'closed', operationId: 'op9' });
 	});
 });
