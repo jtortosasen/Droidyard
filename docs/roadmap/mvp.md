@@ -262,7 +262,7 @@ last and may slip.
 
 - [x] The golden path completes from an external agent with **zero stdout parsing by the
       agent** (m1l: OpenCode and Cursor, on the golden sample).
-- [ ] The golden path completes from the browser.
+- [x] The golden path completes from the browser (m2b step 7).
 - [ ] `build.errors` returns structured `{file, line, column, message}` for a real Kotlin
       compile failure — on both fixtures, the KGP < 2.4 one going through the console
       extractor.

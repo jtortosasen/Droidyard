@@ -1,6 +1,6 @@
 # Plan: Milestone 2b — build and devices panels, the activity feed, and the golden path from the browser
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-10, Delegated (owner: "/goal 2b"). Q1 became ADR-0043; Q2 applied as recommended (no live screen in 2b). The owner can revert any Delegated choice.
 - Date: 2026-10-10
 - Milestone: "the next is 2b" (`docs/README.md` §Where the work stands), as the owner scoped it on 2026-10-09/10: the build and Gradle tasks panel with problems; the devices panel without screenshots; an operation activity feed; controls that mirror operations any client runs; the golden path G1–G8 from the browser with the same-primitive check.
