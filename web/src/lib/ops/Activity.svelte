@@ -104,6 +104,16 @@
 			scroller.scrollTop = scroller.scrollHeight;
 		});
 	});
+	// A tab shown again (its pane was hidden, so its height was 0) lands on the bottom too.
+	$effect(() => {
+		const el = scroller;
+		if (!el) return;
+		const ro = new ResizeObserver(() => {
+			if (following) el.scrollTop = el.scrollHeight;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
 	function onscroll() {
 		if (!scroller) return;
 		following = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;

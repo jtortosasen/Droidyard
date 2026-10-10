@@ -450,9 +450,9 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: var(--sp-3);
-		min-height: 150px;
-		padding: var(--sp-5);
+		gap: var(--sp-2);
+		min-height: 64px;
+		padding: var(--sp-3);
 		border: 1px dashed var(--border);
 		border-radius: var(--radius-panel);
 		background: var(--bg-window);

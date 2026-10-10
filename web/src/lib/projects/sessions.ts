@@ -121,7 +121,10 @@ export class SessionsModel {
 		const bySession = new Map<string, Operation[]>();
 		for (const op of ops) {
 			const key = keyOf(op);
-			if (key === null) continue;
+			// Opening a project is connecting, not work: an agent's bound open runs before its
+			// workspace is open and would place it under "No project" (ADR-0048 §3: an agent
+			// that has run nothing is not listed).
+			if (key === null || op.capability === 'workspace.open') continue;
 			let list = bySession.get(key);
 			if (!list) bySession.set(key, (list = []));
 			list.push(op);
@@ -188,8 +191,9 @@ export class SessionsModel {
  */
 export function keyOf(op: Operation): string | null {
 	if (op.client === 'ui' || op.client === 'cli') {
-		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean } | undefined;
-		return info?.readOnly === true ? null : YOU;
+		// A read, or one of the tab's own subscriptions (a streaming watch), is not activity.
+		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean; statefulness: string } | undefined;
+		return info?.readOnly === true || info?.statefulness === 'streaming' ? null : YOU;
 	}
 	return op.client === 'mcp' && op.session ? op.session.id : null;
 }
