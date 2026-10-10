@@ -33,6 +33,8 @@ export interface BuildActivity extends MirrorActivity {
 export interface BuildWorkspace {
 	readonly id: string | null;
 	readonly root: string;
+	/** Whether the open workspace is trusted; a grant makes the project's reads possible. */
+	readonly trusted?: boolean;
 	subscribe(listener: () => void): () => void;
 }
 
@@ -78,6 +80,7 @@ export class BuildModel {
 	#startError: Failure | null = null;
 	#starting = false;
 	#gen = 0; // the newest read of the last result; an older one is dropped
+	#trusted = false;
 	#projectGen = 0;
 
 	constructor(client: BuildClient, activity: BuildActivity, progress: MirrorProgress, ws: BuildWorkspace) {
@@ -128,7 +131,18 @@ export class BuildModel {
 
 	#workspaceChanged(): void {
 		const id = this.#ws.id;
-		if (id === this.#id) return;
+		const trusted = this.#ws.trusted === true;
+		const granted = trusted && !this.#trusted;
+		this.#trusted = trusted;
+		if (id === this.#id) {
+			// Trust granted from the UI (ADR-0045 §5): what the untrusted workspace refused is
+			// read again; no event carries trust.
+			if (granted && id !== null) {
+				void this.loadProject();
+				void this.reload();
+			}
+			return;
+		}
 		this.#id = id;
 		this.#modules = [];
 		this.#variants = [];

@@ -207,7 +207,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 4.
 - Not here: the project file (step 11); a policy panel.
 - Rests on: the UI never trusts without the click (level 3; level 5 at step 12).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `HEAD` (this commit). Implementer: `token.ts` keeps `w`; `start/route.ts`, `picker.ts`, `trust.ts`, `Picker.svelte`, `Trust.svelte`, `Project.svelte`; `WorkspaceModel` opens by id, its `localStorage` root gone. Vitest 235, seen failing reversed: strip-all token, snapshot-only picker, a dismissed dialog with a stale root, the chooser forced available, this root alone, no `ifRevision`, no re-read on conflict. Level 4 (main session, `/Users/jorgetortosa/Library/Caches/droidyard-dev/m2c/l4-s10-20261010-1230`, no device): the picker at `#`; a K5 `workspace.open` of another root listed open 2 ms after its open; a row click → `#w=<id>`; Trust wrote the read root plus this one (the file shows both) through `policy.get` then `policy.update`; a reload stayed on `#w=<id>` and the console streamed a CLI build after it; an unknown `w` → the picker with `WORKSPACE_ROOT_INVALID`; "Open folder..." shown (darwin); no CSP violation. Found at level 4 and fixed here: after Trust the build and tasks panels kept `WORKSPACE_UNTRUSTED` (no event carries trust); both now read again when the workspace turns trusted (`trusted` on `BuildWorkspace`), each with a Vitest test seen failing without it; rerun on a fresh untrusted project: modules, variants and tasks listed after the click.
 
 ### 11. The project file and the application id (Q3)
 

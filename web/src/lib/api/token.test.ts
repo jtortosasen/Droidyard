@@ -26,6 +26,20 @@ describe('bootstrapToken', () => {
 		expect(replaced).toEqual(['/']);
 	});
 
+	it('keeps the project id when it strips the token, so a reload stays on the project', () => {
+		// ADR-0045 §2: the address ends as `#w=<id>`, the token only in storage.
+		const { e, store, replaced } = env('#token=t&w=x');
+		expect(bootstrapToken(e)).toBe('t');
+		expect(store.get('droidyard.token')).toBe('t');
+		expect(replaced).toEqual(['/#w=x']);
+	});
+
+	it('keeps the project id whatever the order of the fragment, encoded', () => {
+		const { e, replaced } = env('#w=a%20b&token=t');
+		bootstrapToken(e);
+		expect(replaced).toEqual(['/#w=a+b']);
+	});
+
 	it('keeps the query when it strips the fragment', () => {
 		const { e, replaced } = env('#token=t');
 		e.location.search = '?x=1';
