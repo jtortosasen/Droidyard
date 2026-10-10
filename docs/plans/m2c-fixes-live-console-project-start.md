@@ -147,7 +147,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 2. It may run in parallel with steps 3–4 (disjoint packages, no golden file); steps 7 and 8 follow it (they share `internal/domain/device`).
 - Not here: the other reader limits (§Register sweep).
 - Rests on: the stale state step 2 names is the whole cause (level 5).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `HEAD` (this commit). `dexNeedsPush` at both start sites: not pushed → push; pushed → one bounded `stat -c %s` of the remote dex against the embedded size, any failure → push; warm reads untouched. Fake adb: `.stat` and a zero-length dex failing its start. `TestReaderIsPushedAgainWhenARestartTruncatedItsDex` (step 2's transcript) and `…WhenAWipeRemovedItsDex` seen failing with the flag-only rule (fallback, 1 push, 0 stats); `TestReaderRestartDoesNotPushAnIntactDex` seen failing with always-push. Opus verifier: proceed, no blocking; comments corrected (the dex is no longer "pushed once"). Level 5 (`~/Library/Caches/droidyard-dev/m2c/l5-s56-20261010-1151/SUMMARY.md`): a fresh push then an immediate stop left the dex at 0 bytes after the restart; the next read was persistent, no warning, no fallback line, the dex 26144 again and the reader running; no daemon restart. E: 5037's pid unchanged, SDK stamp clean, the AVD wiped and stopped.
 
 ### 6. Windowed boots after a cancelled boot: fixed or recorded
 
@@ -159,7 +159,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 2.
 - Not here: default boot flags (the owner's open question).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `HEAD` (this commit). `spawn` appends `-crash-report-mode never` to every launch (start and wipe); exact-argv tests, seen failing without it. `emulator.md` one line. Opus verifier: proceed. Level 5 (same run): a windowed start cancelled at 1.5 s (qemu up, serial offline) crashed qemu in Qt (the emulator's own, recorded), then three windowed starts completed (11.0, 11.1, 12.4 s); before the fix they hung 45 s on the consent dialog (step 2).
 
 ### 7. Register sweep: configuration and files (S1–S4)
 
@@ -342,4 +342,4 @@ Each has a recommendation the main session may apply as Delegated (owner: "you d
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
-- 2026-10-10, step 2's findings set steps 5 and 6. Step 5: the cause is the per-serial `pushed` flag outliving a restart that truncated the dex; the fix re-pushes when a start does not answer (or the remote dex's size differs from the embedded one), with the fake-adb transcript of step 2. Step 6 has code after all, outside its plan text ("Not here: default boot flags"): every launch adds `-crash-report-mode never`, so a crash never leaves a consent dialog that hangs the next windowed boot (Delegated: it is the emulator's own switch, and it only removes a modal question; the dumps stay local). The Qt crash on a signal during window construction is the emulator's and is recorded, not fixed. Step 2 D read the panel's layer from CGWindowList instead of `screencapture` (privacy).
+- 2026-10-10, step 2's findings set steps 5 and 6. Step 5: the cause is the per-serial `pushed` flag outliving a restart that truncated the dex; the fix re-pushes when, at a start, the remote dex's size differs from the embedded one (one bounded `stat`, slow path only), with the fake-adb transcript of step 2; a dex of the right size but corrupt content is not seen (not observed). Step 6 has code after all, outside its plan text ("Not here: default boot flags"): every launch adds `-crash-report-mode never`, so a crash never leaves a consent dialog that hangs the next windowed boot (Delegated: it is the emulator's own switch, and it only removes a modal question; the run saw it drop the pending local dumps). The Qt crash on a signal during window construction is the emulator's and is recorded, not fixed. Step 2 D read the panel's layer from CGWindowList instead of `screencapture` (privacy).

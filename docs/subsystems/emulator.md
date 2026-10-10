@@ -130,8 +130,9 @@ has happened.
 
 Defaults favour fast, repeatable boots: `-no-boot-anim`, `-no-audio`, `-no-snapshot-save`. `coldBoot`
 adds `-no-snapshot-load`; `headless` adds `-no-window`, which makes emulator automation viable on a
-machine with no display (the remote/tablet scenario). We do not manage the emulator's own memory
-configuration: that is the AVD's business.
+machine with no display (the remote/tablet scenario). Every launch ends with `-crash-report-mode
+never`: after a crash, a windowed boot otherwise waits on a consent dialog. We do not manage the
+emulator's own memory configuration: that is the AVD's business.
 
 ## Concurrency
 

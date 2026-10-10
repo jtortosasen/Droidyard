@@ -140,6 +140,10 @@ func logPath(root, avd string) (string, bool) {
 	return p, true
 }
 
+// crashReportFlags is the emulator's own switch that answers its crash-report question
+// itself (`-crash-report-mode <disabled|never|always|ask>`).
+var crashReportFlags = []string{"-crash-report-mode", "never"}
+
 // spawn starts the launcher detached (emulator.md §Detached launch; plan m1i, D15):
 // exec.Cmd with SysProcAttr{Setsid: true}, stdin from /dev/null, stdout and stderr to
 // the AVD's log truncated now, the working directory the state root, the daemon's
@@ -167,7 +171,14 @@ func (e *Emulator) spawn(path, avd string, flags []string) (*launch, error) {
 	}
 	defer devnull.Close()
 
-	cmd := exec.Command(path, append([]string{"-avd", avd}, flags...)...)
+	// Every launch ends with crashReportFlags, whatever flags the capability chose: a
+	// windowed emulator that crashed (a Qt crash while the window is built, observed in
+	// milestone 2c step 2) otherwise leaves a modal crash-report consent dialog that blocks
+	// the next windowed boot until it times out. It only removes a question; with it the
+	// emulator also dropped the pending dumps of its local database (step 2's run).
+	argv := append([]string{"-avd", avd}, flags...)
+	argv = append(argv, crashReportFlags...)
+	cmd := exec.Command(path, argv...)
 	cmd.Env = e.env
 	cmd.Dir = e.state
 	cmd.Stdin = devnull

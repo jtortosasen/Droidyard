@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -166,6 +167,121 @@ func TestReaderGoneIsStartedAgainOnce(t *testing.T) {
 	}
 	if r.Dumps() != 3 {
 		t.Errorf("the reader saw %d dumps, want the prime, the vanished one and the tree", r.Dumps())
+	}
+}
+
+// statDexCall is the one bounded command that checks the dex on the device before a start.
+const statDexCall = "-s " + uiSerial + " shell stat -c %s " + readerRemote
+
+// afterDeviceRestart is the state step 2 of milestone 2c observed once the emulator was
+// stopped and started again under the same serial: the host's forward is gone (a dial is
+// refused), no reader process answers, and the device's copy of the dex is whatever the
+// restart left (setDex).
+func afterDeviceRestart(t *testing.T, f *uiFixture, r *devicetest.FakeReader, setDex func()) {
+	t.Helper()
+	devicetest.ForgetForward(t, f.dir, "localabstract:"+readerNamePrefix+reader.SHA256[:12])
+	r.SetMutePings(1)
+	setDex()
+}
+
+// Decision (milestone 2c step 5; ADR-0030 "the next read starts it again"): the per-serial
+// pushed flag outlives a device restart under the same serial, and a restart that kills the
+// guest before its page cache reaches the disk leaves the dex 0 bytes long. The read after
+// it must still be the persistent reader: the start path finds the dex is not the embedded
+// one, pushes it, starts and forwards again, and no fallback line is logged. The two warm
+// reads before the restart cost neither a stat nor a push. Seen failing without the check
+// (dexNeedsPush answering from the flag alone): the start from the empty dex fails, the
+// read falls to the one-shot reader with a warning and one push is all the fake ever sees.
+func TestReaderIsPushedAgainWhenARestartTruncatedItsDex(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial))
+	mustComplete(t, f.tree(t, uiSerial))
+	if n := count(f.calls(t), statDexCall); n != 0 {
+		t.Fatalf("%d stats before any restart: a warm read must not check the dex (calls %q)", n, f.calls(t))
+	}
+
+	afterDeviceRestart(t, f, r, func() { devicetest.SetDeviceFile(t, f.dir, readerRemote, nil) })
+	s := mustComplete(t, f.tree(t, uiSerial))
+	if len(s.Warnings) != 0 {
+		t.Errorf("warnings %q: the read after the restart must be the persistent reader's", s.Warnings)
+	}
+	calls := f.calls(t)
+	if n := count(calls, prPushCall); n != 2 {
+		t.Errorf("%d pushes, want 2: the first and the one after the restart (calls %q)", n, calls)
+	}
+	if n := countServeStarts(calls); n != 2 {
+		t.Errorf("%d serve starts, want the first and one after the restart (calls %q)", n, calls)
+	}
+	if n := countForward(calls); n != 2 {
+		t.Errorf("%d forwards, want the first and one after the restart (calls %q)", n, calls)
+	}
+	if n := count(calls, statDexCall); n != 1 {
+		t.Errorf("%d stats, want 1 before the one start (calls %q)", n, calls)
+	}
+	if n := count(calls, rdRunCall) + count(calls, ttyCall); n != 0 {
+		t.Errorf("a fallback ran although the persistent reader could start: %q", calls)
+	}
+	if b, ok := devicetest.DeviceFile(t, f.dir, readerRemote); !ok || !bytes.Equal(b, reader.Dex()) {
+		t.Errorf("the device's dex is %d bytes (present %v), want the embedded %d", len(b), ok, len(reader.Dex()))
+	}
+
+	// The next read is warm again: no stat, no push, no start.
+	mustComplete(t, f.tree(t, uiSerial))
+	for _, c := range f.calls(t)[len(calls):] {
+		if c != "devices -l" {
+			t.Errorf("a warm read after the recovery ran %q: only the device lookup is expected", c)
+		}
+	}
+}
+
+// Decision (milestone 2c step 5): the same recovery when a wipe removed the dex (the file is
+// gone, so `stat` fails). Seen failing without the check, as for the truncated dex.
+func TestReaderIsPushedAgainWhenAWipeRemovedItsDex(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial))
+	mustComplete(t, f.tree(t, uiSerial))
+
+	afterDeviceRestart(t, f, r, func() { devicetest.RemoveDeviceFile(t, f.dir, readerRemote) })
+	s := mustComplete(t, f.tree(t, uiSerial))
+	if len(s.Warnings) != 0 {
+		t.Errorf("warnings %q: the read after the wipe must be the persistent reader's", s.Warnings)
+	}
+	calls := f.calls(t)
+	if n := count(calls, prPushCall); n != 2 {
+		t.Errorf("%d pushes, want 2 (calls %q)", n, calls)
+	}
+	if n := countServeStarts(calls); n != 2 {
+		t.Errorf("%d serve starts, want 2 (calls %q)", n, calls)
+	}
+	if n := count(calls, rdRunCall) + count(calls, ttyCall); n != 0 {
+		t.Errorf("a fallback ran: %q", calls)
+	}
+}
+
+// Decision (milestone 2c step 5; ADR-0030 "started again once"): the check does not push
+// what is already right. When the restart left the dex intact (the 60 s case of step 2 R),
+// the start path pays one stat and no second push, and the restart is still one start.
+// Seen failing with a check that always pushes (2 pushes) and with none (0 stats).
+func TestReaderRestartDoesNotPushAnIntactDex(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial))
+	afterDeviceRestart(t, f, r, func() {})
+	s := mustComplete(t, f.tree(t, uiSerial))
+	if len(s.Warnings) != 0 {
+		t.Errorf("warnings %q", s.Warnings)
+	}
+	calls := f.calls(t)
+	if n := count(calls, prPushCall); n != 1 {
+		t.Errorf("%d pushes, want 1: an intact dex is not pushed again (calls %q)", n, calls)
+	}
+	if n := count(calls, statDexCall); n != 1 {
+		t.Errorf("%d stats, want 1 (calls %q)", n, calls)
+	}
+	if n := countServeStarts(calls); n != 2 {
+		t.Errorf("%d serve starts, want the first and one restart (calls %q)", n, calls)
 	}
 }
 
