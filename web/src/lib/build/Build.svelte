@@ -1,15 +1,17 @@
 <script lang="ts">
 	import type { BuildModel, BuildView } from './build';
-	import { failureText } from './failure';
-	import Problems from './Problems.svelte';
+	import { failureShort, failureText } from './failure';
 
 	// The build panel (plan m2b step 3): module and variant from the daemon, Build, the
-	// state of any client's build (the mirror, D11) and the last result with its problems.
+	// state of any client's build (the mirror, D11). The last result and its problems are the
+	// bottom Problems tab's (BuildResult.svelte, plan m2d step 2).
 	// Every field is a text node.
 	interface Props {
 		model: BuildModel;
+		/** One row for the toolbar (the status is BuildStatus's): errors as `Failed: CODE` with the text in a tooltip, in full in the Problems tab. */
+		compact?: boolean;
 	}
-	let { model }: Props = $props();
+	let { model, compact = false }: Props = $props();
 
 	let view = $state.raw<BuildView | null>(null);
 
@@ -32,6 +34,36 @@
 	}
 </script>
 
+{#if compact}
+	<section class="compact">
+		{#if view?.open}
+			<select aria-label="Module" title="Module" value={view.module} onchange={(e) => void model.selectModule(e.currentTarget.value)}>
+				{#each view.modules as m (m)}
+					<option value={m}>{m}</option>
+				{/each}
+			</select>
+			<select aria-label="Variant" title="Variant" value={view.variant} onchange={(e) => model.selectVariant(e.currentTarget.value)}>
+				{#each view.variants as v (v)}
+					<option value={v}>{v}</option>
+				{/each}
+			</select>
+			<button
+				type="button"
+				disabled={building !== null || view.starting || view.module === '' || view.variant === ''}
+				onclick={() => void model.build()}
+			>
+				Build
+			</button>
+			{#if building}
+				<!-- The toolbar's centre shows the build and Cancel (toolbar/BuildStatus.svelte). -->
+			{:else if view.startError}
+				<span class="bad" title={failureText(view.startError)}>{failureShort(view.startError)}</span>
+			{:else if view.loadError}
+				<span class="bad" title={failureText(view.loadError)}>{failureShort(view.loadError)}</span>
+			{/if}
+		{/if}
+	</section>
+{:else}
 <section>
 	<h2>Build</h2>
 	{#if !view}
@@ -85,19 +117,19 @@
 		{:else}
 			<p>Idle.</p>
 		{/if}
-
-		<h3>Last build</h3>
-		{#if view.noBuild}
-			<p>No build yet.</p>
-		{:else if view.last}
-			<p>
-				{view.last.outcome}, {view.last.buildId}
-				{view.last.request.module ?? ''} {view.last.request.variant ?? ''}
-				({view.last.request.tasks.join(' ')}), {view.last.durationMs ?? ''} ms
-			</p>
-			{#if view.problems}
-				<Problems problems={view.problems} />
-			{/if}
-		{/if}
 	{/if}
 </section>
+{/if}
+
+<style>
+	.compact {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-3);
+		white-space: nowrap;
+	}
+	.bad {
+		color: var(--danger);
+		font-size: var(--fs-small);
+	}
+</style>

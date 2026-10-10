@@ -1,19 +1,47 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+	import Check from '@lucide/svelte/icons/check';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import X from '@lucide/svelte/icons/x';
+	import Ban from '@lucide/svelte/icons/ban';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
+	import Clock from '@lucide/svelte/icons/clock';
+	import Spinner from '../projects/Spinner.svelte';
+	import type { BuildModel } from '../build/build';
+	import type { ConsoleModel, ConsoleView } from '../build/console';
+	import { failureText } from '../build/failure';
+	import type { SessionsModel, SessionsView } from '../projects/sessions';
 	import type { ActivityStore, Operation, WatchStatus } from './activity';
+	import { buildBlocks, elapsedText, type ActorFilter, type Block } from './blocks';
 
-	// The activity feed: what every client runs in the daemon, newest first, from the
-	// store (plan m2b step 2). Every field is a text node. The `ui` rows start hidden
-	// because the UI's own reads are operations too (plan D16).
+	// The activity stream (plan m2d step 8, direction C): a block per operation, newest at
+	// the bottom, following the stream unless the user scrolled up. Every field is a text
+	// node. The `ui` reads are not shown (m2b D16); the projects panel's selected row
+	// filters the stream (D30) and a chip says so.
 	interface Props {
 		store: ActivityStore;
+		sessions: SessionsModel;
+		console: ConsoleModel;
+		build: BuildModel;
+		/** Shows the Build output tab. */
+		onopenoutput: () => void;
 	}
-	let { store }: Props = $props();
+	let { store, sessions, console: buildConsole, build, onopenoutput }: Props = $props();
 
-	const KINDS = ['cli', 'mcp', 'ui'] as const;
+	/** How many console lines an expanded block draws: the newest ones. */
+	const LINES = 200;
 
 	let operations = $state.raw<readonly Operation[]>([]);
 	let status = $state.raw<WatchStatus>({ state: 'idle', detail: '' });
-	let shown = $state<Record<string, boolean>>({ cli: true, mcp: true, ui: false });
+	let agents = $state.raw<SessionsView>({ rows: [], runningAgents: 0 });
+	let agentKey = $state<string | null>(null);
+	let consoleView = $state.raw<ConsoleView | null>(null);
+	let startError = $state.raw<{ code?: string; message: string } | null>(null);
+	let actor = $state<ActorFilter>('all');
+	let open = $state<Record<string, boolean>>({});
+	let now = $state(Date.now());
+	let following = $state(true);
+	let scroller = $state<HTMLDivElement>();
 
 	$effect(() => {
 		const s = store;
@@ -24,63 +52,326 @@
 		read();
 		return s.subscribe(read);
 	});
+	$effect(() => {
+		const m = sessions;
+		const read = () => {
+			agents = m.view;
+			agentKey = m.selectedKey;
+		};
+		read();
+		return m.subscribe(read);
+	});
+	$effect(() => {
+		const m = buildConsole;
+		const read = () => {
+			consoleView = m.view;
+		};
+		read();
+		return m.subscribe(read);
+	});
+	$effect(() => {
+		const m = build;
+		const read = () => {
+			const e = m.view.startError;
+			startError = e === null ? null : { code: e.code, message: failureText(e) };
+		};
+		read();
+		return m.subscribe(read);
+	});
+	// Durations tick while anything is live.
+	$effect(() => {
+		const timer = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(timer);
+	});
 
-	// A call recorded without a kind has no checkbox and is always shown.
-	const rows = $derived(operations.filter((o) => o.client === undefined || shown[o.client] !== false));
+	const labels = $derived(new Map(agents.rows.filter((r) => !r.you).map((r) => [r.key, r.label])));
+	const chip = $derived(agentKey === null ? null : (agents.rows.find((r) => r.key === agentKey)?.label ?? 'agent'));
+	const blocks = $derived(
+		buildBlocks(
+			operations,
+			{ actor, agentKey },
+			{ labels, heldBuild: consoleView?.hasBuild ? consoleView.buildId : null, ownFailure: startError },
+		),
+	);
 
-	function duration(ms: number | undefined): string {
-		return ms === undefined ? '' : `${ms} ms`;
+	// Follow the bottom as blocks arrive, unless the user scrolled up.
+	$effect(() => {
+		void blocks.length;
+		void consoleView?.count;
+		if (!following) return;
+		void tick().then(() => {
+			if (!scroller) return;
+			scroller.scrollTop = scroller.scrollHeight;
+		});
+	});
+	// A tab shown again (its pane was hidden, so its height was 0) lands on the bottom too.
+	$effect(() => {
+		const el = scroller;
+		if (!el) return;
+		const ro = new ResizeObserver(() => {
+			if (following) el.scrollTop = el.scrollHeight;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+	function onscroll() {
+		if (!scroller) return;
+		following = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+	}
+
+	function lines(): string[] {
+		const v = consoleView;
+		if (!v) return [];
+		return buildConsole.rows(Math.max(0, v.count - LINES), v.count).map((r) => r.text);
 	}
 </script>
 
-<section>
+{#snippet icon(b: Block)}
+	{#if b.tone === 'running'}
+		<Spinner />
+	{:else if b.tone === 'success'}
+		<Check size={14} />
+	{:else if b.tone === 'failure'}
+		<X size={14} />
+	{:else if b.tone === 'cancelled'}
+		<Ban size={14} />
+	{:else if b.tone === 'queued'}
+		<Clock size={14} />
+	{:else}
+		<CircleHelp size={14} />
+	{/if}
+{/snippet}
+
+<section class="activity">
 	<h2>Activity</h2>
-	<p>
-		{#each KINDS as kind (kind)}
-			<label>
-				<input type="checkbox" bind:checked={shown[kind]} />
-				{kind}
-			</label>
-		{/each}
-		Watching: {status.state}{status.detail ? ` (${status.detail})` : ''}. {rows.length} of {operations.length} shown.
-	</p>
-	<table>
-		<thead>
-			<tr>
-				<th>Started</th>
-				<th>Client</th>
-				<th>Capability</th>
-				<th>Workspace</th>
-				<th>State</th>
-				<th>Duration</th>
-				<th>Code</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each rows as o (o.id)}
-				<tr>
-					<td>{o.startedAt}</td>
-					<td>{o.client ?? ''}</td>
-					<td>{o.capability}</td>
-					<td>{o.workspace ?? ''}</td>
-					<td>{o.state === 'unseen' ? 'ended unseen' : o.state}</td>
-					<td>{duration(o.durationMs)}</td>
-					<td>{o.code ?? ''}</td>
-				</tr>
+	<div class="filters">
+		<div class="seg" role="group" aria-label="Who">
+			{#each ['all', 'you', 'agents'] as const as k (k)}
+				<button type="button" class:current={actor === k} aria-pressed={actor === k} onclick={() => (actor = k)}>
+					{k === 'all' ? 'All' : k === 'you' ? 'You' : 'Agents'}
+				</button>
 			{/each}
-		</tbody>
-	</table>
+		</div>
+		{#if chip !== null}
+			<span class="chip">
+				{chip}
+				<button type="button" class="clear" aria-label="Show every agent" title="Show every agent" onclick={() => sessions.select(null)}>
+					<X size={12} />
+				</button>
+			</span>
+		{/if}
+		{#if status.state !== 'watching'}
+			<span class="note">Watching: {status.state}{status.detail ? ` (${status.detail})` : ''}</span>
+		{/if}
+	</div>
+	<div class="stream" bind:this={scroller} {onscroll}>
+		{#each blocks as b (b.id)}
+			{@const expandable = b.output.kind !== 'none'}
+			<article class="block" data-tone={b.tone}>
+				<div class="head">
+					<span class="status" data-tone={b.tone} title={b.stateText}>{@render icon(b)}</span>
+					<span class="title" title={b.capability}>{b.title}</span>
+					<span class="actor" class:you={b.you}>{b.actor}</span>
+					<span class="time">{new Date(b.startedAt).toLocaleTimeString()}</span>
+					<span class="elapsed">{elapsedText(b, now)}</span>
+					{#if expandable}
+						<button
+							type="button"
+							class="chevron"
+							class:turned={open[b.id]}
+							aria-expanded={open[b.id] === true}
+							aria-label="Output of {b.title}"
+							onclick={() => (open[b.id] = !open[b.id])}
+						>
+							<ChevronRight size={14} />
+						</button>
+					{/if}
+				</div>
+				{#if b.tone === 'queued' && b.blockedBy}
+					<p class="why">
+						Waiting for {b.blockedBy.capability ?? 'another operation'}{b.blockedBy.reason ? `: ${b.blockedBy.reason}` : ''}
+					</p>
+				{/if}
+				{#if open[b.id]}
+					{#if b.output.kind === 'console'}
+						<pre class="out">{lines().join('\n')}</pre>
+					{:else if b.output.kind === 'error'}
+						<p class="out err">{b.output.code}{b.output.message ? `: ${b.output.message}` : ''}</p>
+					{:else if b.output.kind === 'build-output'}
+						<p class="out"><button type="button" class="link" onclick={onopenoutput}>Open in Build output</button></p>
+					{/if}
+				{/if}
+			</article>
+		{:else}
+			<p class="note">Nothing here yet.</p>
+		{/each}
+	</div>
 </section>
 
 <style>
-	table {
-		border-collapse: collapse;
+	.activity {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		height: 100%;
+		gap: var(--sp-3);
 	}
-	th,
-	td {
-		text-align: left;
-		padding: 0 0.75rem 0 0;
-		font-family: ui-monospace, monospace;
-		font-size: 0.85rem;
+	.filters {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--sp-4);
+	}
+	.seg {
+		display: inline-flex;
+		padding: var(--sp-1);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--bg-window);
+	}
+	.seg button {
+		min-height: 0;
+		height: calc(var(--row) - 4px);
+		border: 0;
+		background: transparent;
+		color: var(--text-2);
+		font-size: var(--fs-small);
+	}
+	.seg button.current {
+		background: var(--bg-active);
+		color: var(--text);
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		padding: 0 var(--sp-3);
+		border-radius: 999px;
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-size: var(--fs-small);
+	}
+	.clear {
+		display: grid;
+		place-items: center;
+		min-height: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+	}
+	.note {
+		margin: 0;
+		color: var(--text-3);
+		font-size: var(--fs-small);
+	}
+	.stream {
+		flex: 1;
+		min-height: 0;
+		overflow: auto;
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-3);
+	}
+	.block {
+		flex: none;
+		border: 1px solid var(--border);
+		border-left: 3px solid var(--text-3);
+		border-radius: var(--radius-panel);
+		background: var(--bg-raised);
+		padding: var(--sp-3) var(--sp-4);
+	}
+	.block[data-tone='running'],
+	.block[data-tone='queued'] {
+		border-left-color: var(--accent);
+	}
+	.block[data-tone='success'] {
+		border-left-color: var(--success);
+	}
+	.block[data-tone='failure'] {
+		border-left-color: var(--danger);
+	}
+	.head {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-4);
+		min-height: var(--row);
+	}
+	.status {
+		display: inline-grid;
+		place-items: center;
+		color: var(--text-3);
+	}
+	.status[data-tone='running'],
+	.status[data-tone='queued'] {
+		color: var(--accent);
+	}
+	.status[data-tone='success'] {
+		color: var(--success);
+	}
+	.status[data-tone='failure'] {
+		color: var(--danger);
+	}
+	.title {
+		font-weight: 600;
+	}
+	.actor {
+		padding: 0 var(--sp-3);
+		border-radius: 999px;
+		background: var(--bg-active);
+		color: var(--text-2);
+		font-size: var(--fs-small);
+	}
+	.actor.you {
+		background: transparent;
+		border: 1px solid var(--border);
+	}
+	.time,
+	.elapsed {
+		color: var(--text-3);
+		font-size: var(--fs-small);
+		font-variant-numeric: tabular-nums;
+	}
+	.elapsed {
+		margin-left: auto;
+	}
+	.chevron {
+		display: grid;
+		place-items: center;
+		min-height: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-2);
+		transition: transform 0.12s;
+	}
+	.chevron.turned {
+		transform: rotate(90deg);
+	}
+	.why {
+		margin: var(--sp-2) 0 0;
+		color: var(--text-2);
+		font-size: var(--fs-small);
+	}
+	.out {
+		margin: var(--sp-3) 0 0;
+		max-height: 240px;
+		overflow: auto;
+		font-family: var(--font-mono);
+		font-size: var(--fs-mono);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.err {
+		color: var(--danger);
+	}
+	.link {
+		min-height: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--accent);
+		text-decoration: underline;
+		font: inherit;
 	}
 </style>

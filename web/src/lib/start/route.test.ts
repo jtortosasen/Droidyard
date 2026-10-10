@@ -5,8 +5,13 @@ function fakeEnv(initial = '') {
 	let hash = initial;
 	const fns = new Set<() => void>();
 	const pushed: string[] = [];
+	const replaced: string[] = [];
 	const env: RouteEnv = {
 		hash: () => hash,
+		replace: (h) => {
+			replaced.push(h);
+			hash = h;
+		},
 		navigate: (h) => {
 			pushed.push(h);
 			hash = h;
@@ -21,23 +26,23 @@ function fakeEnv(initial = '') {
 		hash = h;
 		for (const f of [...fns]) f();
 	};
-	return { env, pushed, user, listeners: fns };
+	return { env, pushed, replaced, user, listeners: fns };
 }
 
 describe('parseRoute', () => {
-	// Decision (ADR-0045 §2): `w` names the project; without it the tab shows the picker.
-	it('reads the project from w and the picker from no w', () => {
+	// Decision (ADR-0045 §2, ADR-0047): `w` names the project; without it the page decides (ADR-0047).
+	it('reads the project from w and no project from no w', () => {
 		expect(parseRoute('#w=abc')).toEqual({ view: 'project', workspace: 'abc' });
-		expect(parseRoute('')).toEqual({ view: 'picker' });
-		expect(parseRoute('#')).toEqual({ view: 'picker' });
-		expect(parseRoute('#w=')).toEqual({ view: 'picker' });
-		expect(parseRoute('#other=1')).toEqual({ view: 'picker' });
+		expect(parseRoute('')).toEqual({ view: 'none' });
+		expect(parseRoute('#')).toEqual({ view: 'none' });
+		expect(parseRoute('#w=')).toEqual({ view: 'none' });
+		expect(parseRoute('#other=1')).toEqual({ view: 'none' });
 	});
 
 	it('round-trips an id through the fragment', () => {
 		const r = { view: 'project', workspace: 'a b&c=d' } as const;
 		expect(parseRoute(routeHash(r))).toEqual(r);
-		expect(routeHash({ view: 'picker' })).toBe('');
+		expect(routeHash({ view: 'none' })).toBe('');
 	});
 });
 
@@ -50,7 +55,7 @@ describe('Router', () => {
 		router.subscribe(() => seen.push(JSON.stringify(router.route)));
 		t.user('#w=b');
 		t.user('');
-		expect(seen).toEqual(['{"view":"project","workspace":"b"}', '{"view":"picker"}']);
+		expect(seen).toEqual(['{"view":"project","workspace":"b"}', '{"view":"none"}']);
 	});
 
 	it('navigates with a history entry and tells listeners once even if the browser echoes', () => {
@@ -61,6 +66,20 @@ describe('Router', () => {
 		router.go({ view: 'project', workspace: 'x' });
 		t.user('#w=x'); // the hashchange the browser fires after location.hash is assigned
 		expect(t.pushed).toEqual(['#w=x']);
+		expect(n).toBe(1);
+		expect(router.route).toEqual({ view: 'project', workspace: 'x' });
+	});
+
+	// Decision (ADR-0047 §2): the redirect to the newest project and the refused `w` replace
+	// the history entry; a push would make Back return to the address that is redirected away.
+	it('replaces the address without a history entry and tells listeners', () => {
+		const t = fakeEnv('');
+		const router = new Router(t.env);
+		let n = 0;
+		router.subscribe(() => n++);
+		router.replace({ view: 'project', workspace: 'x' });
+		expect(t.replaced).toEqual(['#w=x']);
+		expect(t.pushed).toEqual([]);
 		expect(n).toBe(1);
 		expect(router.route).toEqual({ view: 'project', workspace: 'x' });
 	});

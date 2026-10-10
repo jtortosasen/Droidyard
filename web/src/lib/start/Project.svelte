@@ -1,12 +1,19 @@
 <script lang="ts">
-	import type { Client, ConnectionState } from '../api/client';
+	import { CapabilityError, type Client, type ConnectionState } from '../api/client';
 	import type { ActivityStore } from '../ops/activity';
 	import Activity from '../ops/Activity.svelte';
 	import Logcat from '../logcat/Logcat.svelte';
 	import { BuildModel } from '../build/build';
 	import Build from '../build/Build.svelte';
+	import BuildResult from '../build/BuildResult.svelte';
 	import { TasksModel } from '../build/tasks';
-	import Tasks from '../build/Tasks.svelte';
+	import TaskSelect from '../toolbar/TaskSelect.svelte';
+	import BuildStatus from '../toolbar/BuildStatus.svelte';
+	import type { SessionsModel } from '../projects/sessions';
+	import type { ProjectsModel } from '../projects/projects';
+	import { buildCommands, FileIndex, PaletteModel } from '../palette/palette';
+	import Palette from '../palette/Palette.svelte';
+	import type { ShellApi } from '../ui/panels';
 	import { ConsoleModel } from '../build/console';
 	import Console from '../build/Console.svelte';
 	import type { EventsHub } from '../build/hub';
@@ -28,21 +35,40 @@
 	import Act from '../devices/Act.svelte';
 	import { AppLogsModel } from '../devices/applogs';
 	import AppLogs from '../devices/AppLogs.svelte';
+	import { FileTreeModel } from '../files/tree';
+	import { FileWatch } from '../files/watch';
+	import FileTree from '../files/FileTree.svelte';
+	import { TabsModel } from '../editor/tabs';
+	import { ViewerSet } from '../editor/viewer';
+	import Editor from '../editor/Editor.svelte';
+	import { browserStorage } from '../ui/layout';
+	import Banners from './Banners.svelte';
+	import Shell from '../ui/Shell.svelte';
+	import { tick, type Snippet } from 'svelte';
 
-	// One project in one tab (ADR-0045 §2): the panels of the workspace the address's `w`
-	// names, over the session App owns. App mounts this keyed on the id, so a different
+	// One project's panels (ADR-0047): the workspace the address's `w` names, over the
+	// session App owns. App mounts this keyed on the id, so a different
 	// project is a new instance, never a model re-pointed.
 	interface Props {
 		client: Client;
 		activity: ActivityStore;
+		/** The agents the projects panel lists; its selected row filters Activity (D30). */
+		sessions: SessionsModel;
+		/** The projects list the palette's "Switch project" reads. */
+		projects: ProjectsModel;
 		hub: EventsHub;
 		connection: ConnectionState;
 		workspaceId: string;
-		/** The daemon refused the id: the tab goes to the picker with the reason. */
+		/** The daemon refused the id: the page shows the projects panel with the reason. */
 		onmissing: (why: Failure) => void;
-		onpicker: () => void;
+		/** "All projects": opens the projects panel. */
+		onprojects: () => void;
+		/** The connection and health line App owns, shown in the toolbar. */
+		status: Snippet;
+		/** The rail's projects icon, which App owns (it outlives the project view). */
+		rail: Snippet;
 	}
-	let { client, activity, hub, connection, workspaceId, onmissing, onpicker }: Props = $props();
+	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -56,6 +82,12 @@
 	let uiTree = $state.raw<UiTreeModel | null>(null);
 	let act = $state.raw<ActModel | null>(null);
 	let appLogs = $state.raw<AppLogsModel | null>(null);
+	let fileTree = $state.raw<FileTreeModel | null>(null);
+	let fileWatch = $state.raw<FileWatch | null>(null);
+	let editorTabs = $state.raw<TabsModel | null>(null);
+	let viewers = $state.raw<ViewerSet | null>(null);
+	let palette = $state.raw<PaletteModel | null>(null);
+	let treeView = $state<{ focus(): void } | undefined>();
 	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
@@ -98,6 +130,22 @@
 		const tree = new UiTreeModel(callOn, deviceList, store);
 		const actions = new ActModel(callOn, deviceList);
 		const logs = new AppLogsModel(callOn, deviceList, installer, store);
+		const files = new FileTreeModel(callOn, ws);
+		const watcher = new FileWatch(
+			{
+				call: callOn.call,
+				subscribe: (name, params, handlers, opts) => c.subscribe(name, params, handlers, opts),
+			},
+			ws,
+			files.sink,
+		);
+		// The viewer reads the same watch the tree does (no second file.watch).
+		const tabs = new TabsModel(browserStorage(window), workspaceId);
+		const readers = new ViewerSet(callOn, ws);
+		const offListen = watcher.listen(readers);
+		// The palette's file index reads the same stream (no second file.watch).
+		const index = new FileIndex();
+		const offIndex = watcher.listen(index);
 		const offDevice = deviceList.subscribe(() => {
 			device = deviceList.view.selected;
 		});
@@ -113,17 +161,39 @@
 		uiTree = tree;
 		act = actions;
 		appLogs = logs;
+		fileTree = files;
+		fileWatch = watcher;
+		editorTabs = tabs;
+		viewers = readers;
+		palette = new PaletteModel(index, () => [], () => {});
 		// The project is opened by the id from the address (workspace.open is idempotent);
 		// after another client closes it the panel offers to reopen, it does not reopen.
-		// A refusal by the daemon sends the tab to the picker; a lost connection does not.
+		// A refusal by the daemon shows the projects panel with the reason; a lost connection does not.
 		let gone = false;
 		void ws.openById(workspaceId).then((ok) => {
 			const why = ws.view.error;
 			if (!ok && !gone && why?.code) onmissing(why);
+			if (ok && !gone) {
+				// A remembered tab whose file is gone is dropped; any other failure keeps it.
+				void tabs.restore(async (path) => {
+					try {
+						await callOn.call('file.read', { path, limit: 4 }, { workspace: ws.root.trim() });
+						return true;
+					} catch (e) {
+						return !(e instanceof CapabilityError && e.code === 'FILE_NOT_FOUND');
+					}
+				});
+			}
 		});
 		return () => {
 			gone = true;
 			offDevice();
+			offListen();
+			offIndex();
+			readers.dispose();
+			tabs.dispose();
+			watcher.dispose();
+			files.dispose();
 			unbind();
 			file.dispose();
 			logs.dispose();
@@ -149,6 +219,11 @@
 			uiTree = null;
 			act = null;
 			appLogs = null;
+			fileTree = null;
+			fileWatch = null;
+			editorTabs = null;
+			viewers = null;
+			palette = null;
 			device = '';
 		};
 	});
@@ -158,6 +233,7 @@
 	$effect(() => {
 		buildConsole?.onConnection(connection);
 		projectFile?.onConnection(connection);
+		fileWatch?.onConnection(connection);
 	});
 	$effect(() => {
 		if (connection !== 'open' || !devices || !emulators) return;
@@ -166,42 +242,118 @@
 	});
 </script>
 
-{#if workspace && trust}
-	<Workspace model={workspace} {trust} {onpicker} />
-{/if}
-{#if projectFile}
-	<ProjectFile model={projectFile} />
-{/if}
-{#if build}
-	<Build model={build} />
-{/if}
-{#if tasks}
-	<Tasks model={tasks} />
-{/if}
-{#if buildConsole}
-	<Console model={buildConsole} />
-{/if}
+{#snippet panel(id: string, show: (id: string) => void)}
+	{#if id === 'workspace'}
+		{#if workspace && trust}
+			<Workspace model={workspace} {trust} {onprojects} compact />
+		{/if}
+	{:else if id === 'projectfile'}
+		{#if projectFile}
+			<ProjectFile model={projectFile} compact />
+		{/if}
+	{:else if id === 'build'}
+		{#if build}
+			<Build model={build} compact />
+		{/if}
+	{:else if id === 'files'}
+		{#if fileTree && fileWatch}
+			<FileTree bind:this={treeView} model={fileTree} watch={fileWatch} onopen={(path) => editorTabs?.open(path)} />
+		{/if}
+	{:else if id === 'editor'}
+		{#if editorTabs && viewers && fileTree}
+			{@const files = fileTree}
+			<Editor tabs={editorTabs} {viewers} onactivate={(path) => void files.reveal(path)} copyPath={(path) => files.absolutePath(path)} />
+		{/if}
+	{:else if id === 'logcat'}
+		<Logcat {client} {connection} {device} />
+	{:else if id === 'applogs'}
+		{#if appLogs}
+			<AppLogs model={appLogs} connected={connection === 'open'} />
+		{/if}
+	{:else if id === 'console'}
+		{#if buildConsole}
+			<Console model={buildConsole} />
+		{/if}
+	{:else if id === 'problems'}
+		{#if build}
+			<BuildResult model={build} />
+		{/if}
+	{:else if id === 'activity'}
+		{#if buildConsole && build}
+			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => show('console')} />
+		{/if}
+	{:else if id === 'tasks'}
+		{#if tasks}
+			<TaskSelect model={tasks} />
+		{/if}
+	{:else if id === 'devices'}
+		{#if devices && emulators && install}
+			<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+		{/if}
+	{:else if id === 'tree'}
+		{#if uiTree && act}
+			{@const tree = uiTree}
+			{@const actions = act}
+			<Tree
+				model={tree}
+				connected={connection === 'open'}
+				onpick={(index) => {
+					const s = tree.selectorAt(index);
+					if (s) actions.pick(s);
+				}}
+			/>
+		{/if}
+	{:else if id === 'act'}
+		{#if act}
+			<Act model={act} connected={connection === 'open'} />
+		{/if}
+	{/if}
+{/snippet}
 
-{#if devices && emulators && install}
-	<Devices {devices} {emulators} {install} connected={connection === 'open'} />
-{/if}
+{#snippet banners()}
+	{#if workspace && trust}
+		<Banners {workspace} {trust} />
+	{/if}
+{/snippet}
 
-{#if uiTree && act}
-	{@const tree = uiTree}
-	{@const actions = act}
-	<Tree
-		model={tree}
-		connected={connection === 'open'}
-		onpick={(index) => {
-			const s = tree.selectorAt(index);
-			if (s) actions.pick(s);
-		}}
-	/>
-	<Act model={actions} connected={connection === 'open'} />
-{/if}
+{#snippet centre()}
+	{#if build}
+		<BuildStatus {build} {sessions} />
+	{/if}
+{/snippet}
 
-{#if appLogs}
-	<AppLogs model={appLogs} connected={connection === 'open'} />
-{/if}
+{#snippet overlay(shell: ShellApi)}
+	{#if palette && workspace && build && tasks && emulators && fileTree && editorTabs}
+		{@const ws = workspace}
+		{@const builds = build}
+		{@const taskList = tasks}
+		{@const emus = emulators}
+		{@const files = fileTree}
+		{@const tabs = editorTabs}
+		<Palette
+			model={palette}
+			commands={() =>
+				buildCommands({
+					workspace: ws,
+					build: builds,
+					tasks: taskList,
+					emulators: emus,
+					projects,
+					currentProject: workspaceId,
+					tree: files,
+					density: { get: shell.density, set: shell.setDensity },
+					focusTree: () => {
+						shell.showFiles();
+						void tick().then(() => treeView?.focus());
+					},
+				})}
+			onopen={(path) => {
+				shell.show('editor');
+				tabs.open(path);
+			}}
+		/>
+	{/if}
+{/snippet}
 
-<Logcat {client} {connection} {device} />
+<Shell content={panel} {status} {centre} {banners} {rail} {overlay} />
+

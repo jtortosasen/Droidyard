@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
@@ -233,5 +234,50 @@ func TestLongRunningCapabilitiesAdvertiseTheOperationView(t *testing.T) {
 		r, _ := json.Marshal(props["result"])
 		w, _ := json.Marshal(outputs["build.twin"])
 		t.Errorf("the view's result is %s; want the capability's own result schema %s", r, w)
+	}
+}
+
+// TestNoCapabilityTakesASessionID is the decision of ADR-0048 §2: a session id is an
+// identity the events show, never a handle a caller can present, so no capability's
+// parameters, at any depth, name a session. If one did, the id the events publish would
+// become a credential for whatever that capability acts on.
+func TestNoCapabilityTakesASessionID(t *testing.T) {
+	var doc struct {
+		Capabilities []struct {
+			Name  string         `json:"name"`
+			Input map[string]any `json:"input"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(generate(t), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(name, path string, node any)
+	walk = func(name, path string, node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			if props, ok := n["properties"].(map[string]any); ok {
+				for prop, sub := range props {
+					if strings.Contains(strings.ToLower(prop), "session") {
+						t.Errorf("%s takes %s.%s: no capability takes a session id (ADR-0048 §2)", name, path, prop)
+					}
+					walk(name, path+"."+prop, sub)
+				}
+			}
+			for k, v := range n {
+				if k != "properties" {
+					walk(name, path, v)
+				}
+			}
+		case []any:
+			for _, v := range n {
+				walk(name, path, v)
+			}
+		}
+	}
+	for _, c := range doc.Capabilities {
+		walk(c.Name, "input", c.Input)
+	}
+	if len(doc.Capabilities) == 0 {
+		t.Fatal("the schema has no capabilities")
 	}
 }

@@ -57,7 +57,9 @@ between deciding a path is inside and using it.
 (D7): the handler walks the directory through the root's `fs.FS` for a baseline, then a
 goroutine walks again **every second** and publishes the differences. No OS notification API is
 used: FSEvents needs cgo on macOS or one kqueue descriptor per file, and inotify is Linux-only;
-a second's latency suits a file explorer.
+a second's latency suits a file explorer. The baseline is also the result's `entries`, the map the
+first tick diffs against and never a second walk, so a client builds the tree from one call and the
+events ([ADR-0049](../adr/0049-file-watch-baseline.md)).
 
 A change is an entry's **type, size or modification time** differing; a directory's own size
 and mtime are not compared (a child change already names itself). A tick with no change

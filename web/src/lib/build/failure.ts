@@ -19,3 +19,8 @@ export function failureText(f: Failure): string {
 	const head = f.code ? `${f.code}: ${f.message}` : f.message;
 	return f.nextStep ? `${head} Next step: ${f.nextStep}` : head;
 }
+
+/** The short form for a toolbar: `Failed: CODE`, or `Failed` for a failure without a code. */
+export function failureShort(f: Failure): string {
+	return f.code ? `Failed: ${f.code}` : 'Failed';
+}

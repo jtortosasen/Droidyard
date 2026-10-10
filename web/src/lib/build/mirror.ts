@@ -32,6 +32,9 @@ export interface Building {
 	capability: string;
 	/** cli, mcp or ui. */
 	client: string | undefined;
+	/** The daemon session that made the call (ADR-0048); the toolbar names an agent's build by it. */
+	session?: Operation['session'];
+	startedAt: string;
 	state: 'queued' | 'running';
 	/**
 	 * What the build waited behind when it was recorded. The daemon does not send it again
@@ -114,6 +117,8 @@ export class BuildMirror {
 			operationId: op.id,
 			capability: op.capability,
 			client: op.client,
+			session: op.session,
+			startedAt: op.startedAt,
 			state: op.state,
 			blockedBy: op.blockedBy,
 			progress: this.#progress.progress(op.id),
