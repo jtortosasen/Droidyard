@@ -195,7 +195,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 3.
 - Not here: consoles of builds older than the newest; styling.
 - Rests on: the offset rule plus Q1's invariant lose and double nothing across a gap or reconnect (level 5).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `HEAD` (this commit). Implementer: `console.ts` live on `build.watchOutput` (head, offset rule, gap and reconnect reads, retired builds, D18's 20,000 lines in `lines.ts`), `Console.svelte` on 2a's virtual list; Vitest 206, the decisive ones seen failing reversed (no duplicate drop, no gap read, `events.gap` not read, the cap, a partial first line, the previous build over a running one, characters for bytes, a re-read on end, no catch-up on reconnect). Deviation (accepted): a head above one page is read as its last page and the rest left to "Earlier" (D18 keeps 20,000 lines; reading 32 MiB to drop it is waste). Level 5 (`~/Library/Caches/droidyard-dev/m2c/l5-s9-20261010-1212/SUMMARY.md`): frame-to-DOM p95 16.9 ms, max 17 ms; the console byte-identical to the artifact for a UI build, an MCP build in an open tab and in a tab opened 0.8 s into it; a reset proxy on `[::1]` (Chrome `--host-resolver-rules`) cut the UI's connections 1.3 s into its build: reconnect in 0.27 s, the watch reopened, the result shown, the console identical. `operation.wait` has no trace line (ADR-0043 §4), so the resume shows by the result. Found at level 5 and fixed here: a tab opened mid-build kept "still growing" after the end (assertion added, seen failing). No CSP violation; 5037 unchanged.
 
 ### 10. The picker, the project URL, and trust from the UI
 

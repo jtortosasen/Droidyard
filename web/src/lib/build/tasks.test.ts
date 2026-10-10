@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BuildMirror } from './mirror';
 import { MAX_TASKS, TasksModel, type TasksClient } from './tasks';
-import { ConsoleModel, PAGE, type ConsoleClient, type ConsoleSource } from './console';
 import { activityWith, capError, FakeCalls, liveOp, settle, stateEvent } from './testing';
 import { hubStarted } from './testing';
 
@@ -97,98 +96,5 @@ describe('the tasks panel', () => {
 		t.model.setFilter('SPECIAL');
 		expect(t.model.view.filtered.map((x) => x.path)).toEqual([':app:t3']);
 		expect(t.model.view.selected).toEqual([':app:t1']);
-	});
-});
-
-class FakeConsoleSource implements ConsoleSource {
-	view = { open: true, last: null as { buildId: string; consoleRef: string } | null, mirror: { building: null as unknown } };
-	#l = new Set<() => void>();
-	subscribe(l: () => void) {
-		this.#l.add(l);
-		return () => this.#l.delete(l);
-	}
-	set(over: Partial<FakeConsoleSource['view']>) {
-		this.view = { ...this.view, ...over };
-		for (const l of this.#l) l();
-	}
-}
-
-function consoleSetup() {
-	const calls = new FakeCalls();
-	const src = new FakeConsoleSource();
-	const ws = new FakeWs();
-	return { calls, src, ws, mk: () => new ConsoleModel(calls as unknown as ConsoleClient, src, ws) };
-}
-
-describe('the console', () => {
-	// Decision (D14): the tail first, as artifact.read {ref, offset: -262144, limit: 262144}.
-	it('reads the tail of the last build\'s console first', async () => {
-		const t = consoleSetup();
-		t.calls.on('artifact.read', () => ({ ref: 'r', mediaType: 'text/plain', offset: 1000, size: 2000, text: 'tail\nBUILD SUCCESSFUL\n' }));
-		t.src.view.last = { buildId: 'b1', consoleRef: 'ref-1' };
-		const m = t.mk();
-		await settle();
-		expect(t.calls.calls).toEqual([{ name: 'artifact.read', params: { ref: 'ref-1', offset: -PAGE, limit: PAGE }, workspace: undefined }]);
-		expect(m.view.text).toContain('BUILD SUCCESSFUL');
-		expect(m.view.hasEarlier).toBe(true);
-	});
-
-	// Decision (D14): "Earlier" reads from the previous offset minus the limit, ends where
-	// the shown text starts, prepends, and stops at offset 0.
-	it('pages back with the previous offset minus the limit and stops at 0', async () => {
-		const t = consoleSetup();
-		const offsets = [PAGE + 100, 100, 0];
-		let n = 0;
-		t.calls.on('artifact.read', (p) => {
-			const params = p as { offset: number };
-			const off = n === 0 ? offsets[0]! : params.offset;
-			return { ref: 'r', mediaType: 'text/plain', offset: off, size: PAGE + 600, text: `page${n++}\n` };
-		});
-		t.src.view.last = { buildId: 'b1', consoleRef: 'ref-1' };
-		const m = t.mk();
-		await settle();
-		await m.earlier();
-		expect(t.calls.calls[1]!.params).toEqual({ ref: 'ref-1', offset: 100, limit: PAGE });
-		expect(m.view.text).toBe('page1\npage0\n');
-		expect(m.view.hasEarlier).toBe(true);
-		await m.earlier();
-		expect(t.calls.calls[2]!.params).toEqual({ ref: 'ref-1', offset: 0, limit: 100 });
-		expect(m.view.offset).toBe(0);
-		expect(m.view.hasEarlier).toBe(false);
-		await m.earlier();
-		expect(t.calls.calls).toHaveLength(3);
-	});
-
-	// Decision (plan step 4): no live console; while a build runs nothing is read and the
-	// console says "after the build", then the new build's console is read.
-	it('reads nothing while a build runs and reads the new console after it', async () => {
-		const t = consoleSetup();
-		t.calls.on('artifact.read', (p) => ({ ref: 'r', mediaType: 'text/plain', offset: 0, size: 5, text: (p as { ref: string }).ref }));
-		t.src.view.last = { buildId: 'b1', consoleRef: 'ref-1' };
-		const m = t.mk();
-		await settle();
-		t.src.set({ mirror: { building: { id: 'x' } } });
-		expect(m.view.building).toBe(true);
-		t.src.set({ last: { buildId: 'b2', consoleRef: 'ref-2' } });
-		await settle();
-		expect(t.calls.calls).toHaveLength(1); // b2 is not read while building
-		t.src.set({ mirror: { building: null } });
-		await settle();
-		expect(t.calls.calls).toHaveLength(2);
-		expect(m.view.text).toBe('ref-2');
-		expect(m.view.building).toBe(false);
-	});
-
-	// Decision: a failed read shows its code and does not invent text.
-	it('shows a failed read as an error', async () => {
-		const t = consoleSetup();
-		t.calls.on('artifact.read', () => {
-			throw capError('ARTIFACT_NOT_FOUND');
-		});
-		t.src.view.last = { buildId: 'b1', consoleRef: 'ref-1' };
-		const m = t.mk();
-		await settle();
-		expect(m.view.error?.code).toBe('ARTIFACT_NOT_FOUND');
-		expect(m.view.text).toBe('');
 	});
 });

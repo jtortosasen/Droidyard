@@ -78,7 +78,14 @@
 		const ws = new WorkspaceModel(callOn, hub, storage);
 		const builds = new BuildModel(callOn, store, hub, ws);
 		const taskList = new TasksModel(callOn, builds.mirror, ws);
-		const console_ = new ConsoleModel(callOn, builds, ws);
+		const console_ = new ConsoleModel(
+			{
+				call: callOn.call,
+				subscribe: (name, params, handlers, opts) => c.subscribe(name, params, handlers, opts),
+			},
+			builds,
+			ws,
+		);
 		const mirror = new DevicesMirror(store, callOn);
 		const deviceList = new DevicesModel(callOn, store);
 		const emulatorList = new EmulatorsModel(callOn, store, mirror);
@@ -105,6 +112,7 @@
 				connection = s;
 				store.onConnection(s);
 				hub.onConnection(s);
+				console_.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
