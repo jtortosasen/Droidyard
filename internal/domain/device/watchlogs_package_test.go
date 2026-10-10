@@ -337,25 +337,45 @@ func TestWatchLogsDeferredRefreshRuns(t *testing.T) {
 }
 
 // Decision (ADR-0051 §2): a failed read enters nothing and releases the lines held for it
-// without a package; the stream keeps going (no stopped event), and the next allowed read
-// resolves the same application id. Seen failing with the failure entering the asked ids
-// as none (the later line of the same id stayed unnamed and no second read ran).
+// without a package; the stream keeps going (no stopped event); later lines of that id do
+// not wait for the retry; the next read resolves the id. Seen failing with the failure
+// entering the asked ids as none (no second read ran), and with later lines of a failed id
+// waiting (a2 held until the retry answered).
 func TestWatchLogsPMFailure(t *testing.T) {
 	w := newWatchFixture(t, map[string]string{
-		uiSerial + ".pm#1.exit": "1",
-		uiSerial + ".pm#2.out":  pkgTable,
-		uiSerial + ".log":       wlHeader + uidLine(wlBase+".000000", "10146", "a1"),
+		uiSerial + ".pm#1.exit":  "1",
+		uiSerial + ".pm#2.delay": "3000",
+		uiSerial + ".pm#2.out":   pkgTable,
+		uiSerial + ".log":        wlHeader + uidLine(wlBase+".000000", "10146", "a1"),
 	})
 	_, sub := w.start(t, w.params(`"tail":100`))
 	first, _ := readLines(t, sub, 1, wlWait)
 	if first[0].Message != "a1" || first[0].Package != "" {
 		t.Fatalf("first line %+v, want a1 without a package: the read failed", first[0])
 	}
-	w.setLog(t, wlHeader+uidLine(wlBase+".000000", "10146", "a1")+uidLine("1791337100.000001", "10146", "a2"))
+	retry := w.waitPMPids(t, 2)[1] // the retry runs, slowly
+	// A later line of the failed id does not wait for the retry (review N1: each line of
+	// it, and every line behind it, would otherwise wait again for every retry).
+	log := wlHeader + uidLine(wlBase+".000000", "10146", "a1") + uidLine("1791337100.000001", "10146", "a2")
+	w.setLog(t, log)
+	appended := time.Now()
 	// readLines fails the test on any event that is not lines: no stopped.
 	second, _ := readLines(t, sub, 1, wlWait)
-	if second[0].Message != "a2" || second[0].Package != pkgApp {
-		t.Errorf("second line %+v, want a2 named %s by the next read", second[0], pkgApp)
+	if took := time.Since(appended); second[0].Message != "a2" || second[0].Package != "" || took > 1500*time.Millisecond {
+		t.Errorf("second line %+v after %s, want a2 without a package at once, not held for the retry", second[0], took)
+	}
+	// The retry resolves the id for the lines after it: wait for its child to end, then for
+	// the read to record what it got.
+	for deadline := time.Now().Add(wlWait); !gone(retry); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the retry's pm never ended")
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	w.setLog(t, log+uidLine("1791337100.000002", "10146", "a3"))
+	third, _ := readLines(t, sub, 1, wlWait)
+	if third[0].Message != "a3" || third[0].Package != pkgApp {
+		t.Errorf("third line %+v, want a3 named %s by the retry", third[0], pkgApp)
 	}
 	if n := pmReadCalls(t, w.dir); n != 2 {
 		t.Errorf("%d package reads, want 2: the failed one and its retry", n)
@@ -435,4 +455,14 @@ func TestWatchLogsEndsDuringRefresh(t *testing.T) {
 			t.Errorf("an event %s/%s was published after the unsubscribe", e.Topic, e.Type)
 		}
 	})
+}
+
+// A name over packageNameCap is unreadable, and its id shares it: the id gets none rather
+// than the other package's name (verifier nit). Seen failing with the long line skipped.
+func TestParsePackagesLongNameMakesTheIDAmbiguous(t *testing.T) {
+	long := "com." + strings.Repeat("a", packageNameCap)
+	got := parsePackages([]byte("package:com.example.app uid:10146\npackage:" + long + " uid:10146\npackage:com.example.other uid:10147\n"))
+	if got[10146] != "" || got[10147] != pkgOther {
+		t.Errorf("parsePackages = %v, want 10146 none and 10147 %s", got, pkgOther)
+	}
 }
