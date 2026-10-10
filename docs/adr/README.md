@@ -73,6 +73,7 @@ edits made before this rule and are not added to.
 | [0041](0041-device-watchlogs-stream.md) | `device.watchLogs`, a session-owned Logcat stream | Accepted |
 | [0042](0042-watchlogs-device-gone-online.md) | `device.watchLogs`: `deviceGone` means not listed online; the no-uid-column next step | Accepted |
 | [0043](0043-operation-watch.md) | `operation.watch`, the activity feed and the state at load | Accepted |
+| [0044](0044-build-watchoutput.md) | `build.watchOutput`, the build console while a build runs | Accepted |
 
 ## Open decisions (not yet ADRs)
 
