@@ -315,7 +315,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The daemon's one build history (plan m1g step 7): the records, their index and
 	// the consoles they own. Without a state store it registers capabilities whose
 	// handlers report that nothing is configured.
-	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log})
+	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log, Bus: bus})
 	device.Register(reg, adb, artifacts, history)
 	emulator.Register(reg, emulatorClient)
 	artifactcap.Register(reg, artifacts)

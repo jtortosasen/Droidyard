@@ -118,7 +118,9 @@ type Flavor struct {
 
 // Step is one notification a scripted build sends, in the order its Steps list them.
 type Step struct {
-	// Kind is output, taskFinished, progress or problem.
+	// Kind is output, taskFinished, progress, problem or gate. A gate sends nothing: the
+	// script waits at it until the file named by Path exists, so a test can hold a build
+	// at a known point and let it go.
 	Kind string `json:"kind"`
 
 	// output
@@ -493,6 +495,10 @@ func (s *sidecar) cancel(buildID string) {
 func (s *sidecar) play(buildID string, cancel chan struct{}) {
 	b := s.cfg.Build
 	for i, step := range b.Steps {
+		if step.Kind == "gate" {
+			waitForFile(step.Path)
+			continue
+		}
 		s.notify(buildID, step)
 		if b.DieAfterSteps > 0 && i+1 >= b.DieAfterSteps {
 			os.Exit(1)
@@ -511,6 +517,16 @@ func (s *sidecar) play(buildID string, cancel chan struct{}) {
 		outcome = "success"
 	}
 	s.finished(buildID, outcome, b)
+}
+
+// waitForFile blocks until path exists, or a minute has passed, so a test that never
+// opens its gate ends instead of hanging.
+func waitForFile(path string) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(2 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+	}
 }
 
 // notify writes one notification: no id, so the client routes it to the sink of the

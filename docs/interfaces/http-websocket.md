@@ -132,8 +132,8 @@ close codes and the keepalive are in `adapters/httpapi/ws.go`.
   meaning (`404`, `410` for `ARTIFACT_EXPIRED`, `400`, `500`).
 - A text artifact that is still growing (a running build's console) will return the bytes
   written so far and a growing marker header, named in ADR-0024's identifier table when
-  growing artifacts land; to follow it live, subscribe to the `build.output` topic instead
-  of polling. Images accept `?maxEdge=` and `?region=`.
+  growing artifacts land; to follow it live, call `build.watchOutput` instead of polling
+  ([ADR-0044](../adr/0044-build-watchoutput.md)). Images accept `?maxEdge=` and `?region=`.
 - An artifact produced by an untrusted capability (a screenshot) is served with
   `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §1; ADR-0024).

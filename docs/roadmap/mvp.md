@@ -242,7 +242,7 @@ Two practical notes:
 | `system` | `capabilities`, `health` | 0 |
 | `workspace` | `open`, `describe`, `close` | 0 |
 | `project` | `modules`, `variants` | 1 |
-| `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult` | 1 |
+| `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult`, `watchOutput` | 1–2 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
