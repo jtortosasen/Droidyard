@@ -49,6 +49,10 @@ type packageTable struct {
 	known map[int]string
 	// unknown holds the application ids seen and not resolved yet.
 	unknown map[int]struct{}
+	// failed holds the unresolved ids a failed read was asked for: their lines no longer
+	// wait (each would otherwise wait again for every retry), and a completed read
+	// resolves them.
+	failed map[int]struct{}
 	// running says a read is in flight; started is when the last one began.
 	running bool
 	started time.Time
@@ -60,14 +64,14 @@ type packageTable struct {
 }
 
 // parsePackages reads `pm list packages -U`'s output into application id -> package. An
-// application id with exactly one package gets it; one with several (a shared uid) gets
-// "". A line that does not match, a uid outside the application range and a name over
-// packageNameCap are skipped.
+// application id with exactly one package gets it; one with several (a shared uid), or
+// with a name over packageNameCap, gets "". A line that does not match and a uid outside
+// the application range are skipped.
 func parsePackages(out []byte) map[int]string {
 	names := map[int]map[string]struct{}{}
 	for _, l := range rawLines(out) {
 		m := pmLineRE.FindStringSubmatch(strings.TrimSpace(l))
-		if m == nil || len(m[1]) > packageNameCap {
+		if m == nil {
 			continue
 		}
 		uid, err := strconv.Atoi(m[2])
@@ -81,7 +85,11 @@ func parsePackages(out []byte) map[int]string {
 		if names[id] == nil {
 			names[id] = map[string]struct{}{}
 		}
-		names[id][m[1]] = struct{}{}
+		name := m[1]
+		if len(name) > packageNameCap {
+			name = "" // unreadable, but it shares the id: the id gets none
+		}
+		names[id][name] = struct{}{}
 	}
 	table := make(map[int]string, len(names))
 	for id, set := range names {
@@ -152,6 +160,12 @@ func (s *logStream) refresh(asked []int) {
 	}
 	if failed {
 		s.pk.releasedTo = s.seq
+		if s.pk.failed == nil {
+			s.pk.failed = map[int]struct{}{}
+		}
+		for _, id := range asked {
+			s.pk.failed[id] = struct{}{}
+		}
 		return
 	}
 	if s.pk.known == nil {
@@ -160,12 +174,14 @@ func (s *logStream) refresh(asked []int) {
 	for id, name := range parsePackages(out.Stdout) {
 		s.pk.known[id] = name
 		delete(s.pk.unknown, id)
+		delete(s.pk.failed, id)
 	}
 	for _, id := range asked {
 		if _, ok := s.pk.known[id]; !ok {
 			s.pk.known[id] = ""
 		}
 		delete(s.pk.unknown, id)
+		delete(s.pk.failed, id)
 	}
 }
 
@@ -185,10 +201,13 @@ func (s *logStream) releaseHeldLocked() {
 }
 
 // waitsLocked says whether a queued line waits for a read: its application id is not
-// resolved, a read is still to come for it, and no failure, full buffer or end has
+// resolved, no read asked for it has failed, and no failure, full buffer or end has
 // released it. mu is held.
 func (s *logStream) waitsLocked(q *queuedLine) bool {
 	if q.appID == 0 || q.seq <= s.pk.releasedTo {
+		return false
+	}
+	if _, f := s.pk.failed[q.appID]; f {
 		return false
 	}
 	_, known := s.pk.known[q.appID]
