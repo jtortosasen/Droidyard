@@ -282,7 +282,8 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 		}
 		inProfile = func(name string) bool { return core[name] }
 	}
-	s.openBound(ctx, root)
+	id := sessionIDOf(ctx)
+	s.openBound(ctx, id, root)
 	// One mcp-go server per connection, and on it one session of the connection's
 	// own: notifications, client info, the protocol version and the requests
 	// notifications/cancelled can reach all belong to it (ADR-0025 §Decision, as
@@ -306,11 +307,11 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 	}
 	s.extraMu.Unlock()
 
-	sess := server.NewInProcessSession(sessionIDOf(ctx), nil)
+	sess := server.NewInProcessSession(id, nil)
 	if err := srv.RegisterSession(ctx, sess); err != nil {
 		return fmt.Errorf("register session: %w", err)
 	}
-	c := &session{ctx: ctx, budget: budget, root: root}
+	c := &session{ctx: ctx, budget: budget, root: root, id: id, client: sess}
 	rctx, cancelRequests := context.WithCancel(context.WithValue(srv.WithContext(ctx, sess), sessionKey{}, c))
 	defer cancelRequests()
 
@@ -490,7 +491,21 @@ type session struct {
 	ctx    context.Context // the one given to Serve; it ends when the daemon stops
 	budget time.Duration
 	root   string // the bound root
+	// id is the daemon's id for the session; client is the mcp-go session, which holds
+	// the clientInfo that initialize sets (ADR-0048).
+	id     string
+	client server.ClientSession
 	gone   atomic.Bool
+}
+
+// origin is who the session's calls come from: its id, the name its client gave in
+// initialize (empty before it), and the bound root (ADR-0048). The core bounds the name.
+func (c *session) origin() capability.Origin {
+	o := capability.Origin{ID: c.id, Root: c.root}
+	if ci, ok := c.client.(server.SessionWithClientInfo); ok {
+		o.Name = ci.GetClientInfo().Name
+	}
+	return o
 }
 
 // openBound opens the session's bound root, once, before the session reads its first
@@ -499,14 +514,15 @@ type session struct {
 // and grants no trust (ADR-0015 §5). A failure does not fail the session: it is
 // logged, and workspace tools get WORKSPACE_NOT_OPEN until workspace_open shows the
 // cause (ADR-0026). Nothing reopens the workspace later (R13).
-func (s *Server) openBound(ctx context.Context, root string) {
+func (s *Server) openBound(ctx context.Context, id, root string) {
 	if root == "" {
 		return
 	}
 	if f := s.boundOpenHook.Load(); f != nil {
 		(*f)()
 	}
-	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP})
+	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP,
+		Origin: capability.Origin{ID: id, Root: root}})
 	switch {
 	case err != nil:
 		s.log.Printf("session bound to %s: %s was rejected: %v", root, openCapability, err)
@@ -611,8 +627,11 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 // session's bound root: agents never pass a workspace (ADR-0019 §Sessions).
 func (s *Server) request(ctx context.Context, d capability.Descriptor, args json.RawMessage) capability.Request {
 	req := capability.Request{Capability: d.Name, Params: args, Client: capability.ClientMCP}
-	if c := sessionOf(ctx); c != nil && d.Scope == capability.Workspace {
-		req.Workspace = c.root
+	if c := sessionOf(ctx); c != nil {
+		req.Origin = c.origin()
+		if d.Scope == capability.Workspace {
+			req.Workspace = c.root
+		}
 	}
 	return req
 }

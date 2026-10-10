@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // ClientKind is what a session's hello says it is (ADR-0019 §7), or ui for an HTTP
@@ -77,6 +78,44 @@ type Request struct {
 	// otherwise. A Stateful or Streaming capability is rejected without one, before
 	// any operation exists (ADR-0010; plan m1d, D6).
 	Session Session
+	// Origin names the session the call came from, for the operation.state events
+	// (ADR-0048); the zero Origin (no ID) is a call without one.
+	Origin Origin
+}
+
+// Origin is who made a call, as an adapter knows it: the daemon's id for the session, the
+// name the client gave itself, and the root the session is bound to. It is recorded with
+// the operation and appears on operation.state as SessionRef (ADR-0048). It is not a
+// Session: it cannot carry events, and no capability takes it.
+type Origin struct {
+	// ID is the daemon session's id; empty means the call has no session.
+	ID string
+	// Name is what the client calls itself (for MCP, clientInfo.name); empty before it
+	// is known. The store bounds it (SessionName).
+	Name string
+	// Root is the session's bound root; empty for an unbound session.
+	Root string
+}
+
+// SessionNameMax is the most runes a SessionRef's name keeps (ADR-0048 §1).
+const SessionNameMax = 64
+
+// SessionName bounds a client-chosen name for the events: invalid UTF-8, control (Cc)
+// and format (Cf) characters are removed, surrounding white space is trimmed, and at
+// most SessionNameMax runes are kept.
+func SessionName(name string) string {
+	name = strings.ToValidUTF8(name, "")
+	name = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if r := []rune(name); len(r) > SessionNameMax {
+		name = strings.TrimSpace(string(r[:SessionNameMax]))
+	}
+	return name
 }
 
 // Outcome is an operation as Wait reports it. Result is set iff State is completed,
@@ -108,6 +147,9 @@ type operation struct {
 	// operation was recorded: both only for the trace line.
 	client  ClientKind
 	started time.Time
+	// session is who made the call, as the events name it; nil without one. Fixed when
+	// the operation is recorded.
+	session *SessionRef
 
 	// Guarded by Operations.mu.
 	// announced is set where the operation's start event is queued, so Active never
@@ -269,18 +311,33 @@ func (o *Operations) Start(ctx context.Context, req Request) (string, error) {
 	if !d.Recorded() {
 		return "", fmt.Errorf("capability %s is not an operation: call it through Invoke", d.Name)
 	}
-	return o.start(ctx, d, params, req.Workspace, req.Session, req.Client)
+	return o.start(ctx, d, params, req.Workspace, req.Session, req.Client, req.Origin)
+}
+
+// sessionRef is the SessionRef an origin becomes when its operation is recorded: nil
+// without an id; the name bounded; the workspace the bound root's canonical id, only
+// while that workspace is open (ADR-0048 §1). Admit does the lookup and records nothing
+// here.
+func (o *Operations) sessionRef(origin Origin) *SessionRef {
+	if origin.ID == "" {
+		return nil
+	}
+	ref := &SessionRef{ID: origin.ID, Name: SessionName(origin.Name)}
+	if origin.Root != "" && o.ws != nil {
+		o.ws.Admit(origin.Root, func(id string) { ref.Workspace = id })
+	}
+	return ref
 }
 
 // start records the operation and runs its handler. A workspace-scoped call is
 // admitted first: its target must be an open workspace, and the call runs with the
 // workspace's canonical id (ADR-0020 §Scope and workspace addressing).
-func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session, client ClientKind) (string, error) {
+func (o *Operations) start(ctx context.Context, d Descriptor, params any, target string, session Session, client ClientKind, origin Origin) (string, error) {
 	id := newID()
 	// The handler's context carries the caller's values but not its cancellation:
 	// only Cancel ends it.
 	hctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	op := &operation{id: id, capability: d.Name, client: client, started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
+	op := &operation{id: id, capability: d.Name, client: client, session: o.sessionRef(origin), started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
 	call := &Call{
 		OperationID: id,
 		Workspace:   target,
@@ -506,7 +563,7 @@ func (o *Operations) queueStateLocked(op *operation) {
 	if o.spub == nil {
 		return
 	}
-	p := OperationState{Capability: op.capability, Client: op.client, State: op.state, StartedAt: op.started.UTC()}
+	p := OperationState{Capability: op.capability, Client: op.client, State: op.state, StartedAt: op.started.UTC(), Session: op.session.copy()}
 	if op.state.Terminal() {
 		ms := op.finished.Sub(op.started).Milliseconds()
 		p.DurationMs = &ms
@@ -534,7 +591,7 @@ func (o *Operations) Active() []ActiveOperation {
 			continue
 		}
 		a := ActiveOperation{OperationID: op.id, Capability: op.capability, Workspace: op.workspace,
-			Client: op.client, State: op.state, StartedAt: op.started.UTC()}
+			Client: op.client, State: op.state, StartedAt: op.started.UTC(), Session: op.session.copy()}
 		if op.blockedBy != nil {
 			b := *op.blockedBy
 			a.BlockedBy = &b
@@ -771,7 +828,7 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 		return Outcome{}, err
 	}
 	if d.Recorded() {
-		id, err := o.start(ctx, d, params, req.Workspace, req.Session, req.Client)
+		id, err := o.start(ctx, d, params, req.Workspace, req.Session, req.Client, req.Origin)
 		if err != nil {
 			return Outcome{}, err
 		}

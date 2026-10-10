@@ -101,7 +101,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: step 1.
 - Not here: a session list or idle sessions (Q2); parameters or a target on the events (ADR-0043 §2); the trace line.
 - Rests on: a session id grants nothing, no capability takes one (level 3).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 3. `TestOperationStateCarriesTheSession` (two real MCP shims "agent-a"/"agent-b" on two roots, a WebSocket watch, `POST /v1/call`, a CLI call; `-race`): own id, name and workspace per shim; the bound opens an id, no name, no workspace; the WebSocket and CLI an id only; `POST /v1/call` none. `TestActiveOperationCarriesTheSession`, `TestStateEventsCarryTheSession`, `TestSessionNameIsBounded` (300 runes, `\n`, `\x1b`, U+202E → 64), `TestNoCapabilityTakesASessionID`. Seen failing: each adapter's wiring removed, the Cc/Cf filter removed, the cut before the filter, a `sessionId` param. Schema +46/−1 (`0.17.0`, `session` on the row and the payload); 34 tools. Opus verifier: proceed, 0 blocking; 1 [contract], 1 [plan], 1 [test], 4 nits; the three applied (see Changes).
 
 ### 4. `file.watch` for the tree (Q3)
 
@@ -290,3 +290,5 @@ Each has a recommendation applied as Delegated; Q1–Q3 become ADRs at step 1.
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-10, step 3 (verifier): `session.workspace` is taken once, when the call is recorded (re-evaluating it under the store's lock would invert the lock order admission uses), so its description says so and the bound `workspace.open` carries none (now asserted); step 7's `sessions.ts` takes a session's workspace from its latest event that carries one. The CLI's origin carries no root (its `hello.Root` is the cwd's project, not a binding).

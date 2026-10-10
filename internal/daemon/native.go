@@ -34,7 +34,7 @@ func Native(reg *capability.Registry, ops *capability.Operations) Handler {
 				inflight.Add(1)
 				go func() {
 					defer inflight.Done()
-					env, ok := handle(ctx, reg, ops, s.Hello, line)
+					env, ok := handle(ctx, reg, ops, s.Hello, s.ID, line)
 					if !ok {
 						return
 					}
@@ -58,7 +58,7 @@ func Native(reg *capability.Registry, ops *capability.Operations) Handler {
 // nothing should be written. A workspace-scoped request that names no workspace gets
 // the root the session's hello named, the CLI's cwd root (ADR-0020 §Scope: "the CLI
 // from --workspace, else the cwd's root"; plan m1c, R3).
-func handle(ctx context.Context, reg *capability.Registry, ops *capability.Operations, hello Hello, line []byte) (capability.ResponseEnvelope, bool) {
+func handle(ctx context.Context, reg *capability.Registry, ops *capability.Operations, hello Hello, sessionID string, line []byte) (capability.ResponseEnvelope, bool) {
 	var req capability.RequestEnvelope
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.DisallowUnknownFields()
@@ -71,7 +71,8 @@ func handle(ctx context.Context, reg *capability.Registry, ops *capability.Opera
 			"the request is not a valid envelope").WithCause(err.Error())}, true
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
-	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: hello.Client}
+	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: hello.Client,
+		Origin: capability.Origin{ID: sessionID}}
 	if d, ok := reg.Lookup(req.Capability); ok && d.Scope == capability.Workspace && creq.Workspace == "" {
 		creq.Workspace = hello.Root
 	}
