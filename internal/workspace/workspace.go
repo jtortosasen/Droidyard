@@ -120,6 +120,12 @@ type Options struct {
 	// Publisher receives every transition on workspace.lifecycle. Nil publishes
 	// nothing.
 	Publisher capability.Publisher
+	// States receives the same transitions on workspace.state, ring-less, for the
+	// workspace.watch subscriptions (ADR-0045 §3). Nil publishes nothing.
+	States capability.StatePublisher
+	// Dialog is the folder dialog workspace.chooseRoot raises; the zero value cannot
+	// run one (ADR-0045 §4).
+	Dialog Dialog
 }
 
 // Policy decides which project roots are trusted: trusted if equal to a configured
@@ -138,6 +144,24 @@ const LifecycleTopic = "workspace.lifecycle"
 type Lifecycle struct {
 	State      State             `json:"state"`
 	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
+}
+
+// StateTopic is where workspace.watch's events are published (ADR-0045 §3): every
+// transition of LifecycleTopic again, with the workspace's name, root and trust, so a
+// picker needs no read per event. It is the stream of a capability, not a subscribable
+// topic, and it keeps off the replay ring.
+const StateTopic = "workspace.state"
+
+// EventState is the type of a workspace.state event.
+const EventState = "state"
+
+// StateEvent is a workspace.state event's payload.
+type StateEvent struct {
+	State      State             `json:"state" jsonschema:"required,enum=opening,enum=ready,enum=degraded,enum=closing,enum=closed"`
+	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
+	Name       string            `json:"name" jsonschema:"required"`
+	Root       string            `json:"root" jsonschema:"required"`
+	Trusted    bool              `json:"trusted" jsonschema:"required" jsonschema_description:"Whether the root is trusted when the transition happened; a trust granted afterwards publishes no event."`
 }
 
 type workspace struct {
@@ -165,6 +189,9 @@ type Registry struct {
 	// never removed.
 	allMu sync.RWMutex
 	all   map[string]*workspace
+
+	// watchHook is a test seam: see SetWatchHook.
+	watchHook atomic.Pointer[func()]
 
 	indexMu     sync.Mutex
 	indexLoaded bool
@@ -250,20 +277,26 @@ func (r *Registry) entry(id string) *workspace {
 }
 
 // setState changes a workspace's state under the admission lock, and publishes it.
-func (r *Registry) setState(w *workspace, s State) {
+// name and root are the workspace's, which w.info does not hold until its first load.
+func (r *Registry) setState(w *workspace, s State, name, root string) {
 	r.mu.Lock()
 	w.info.State = s
 	w.state.Store(s)
 	id := w.info.ID
 	r.mu.Unlock()
-	r.publish(id, s, nil)
+	r.publish(id, s, nil, name, root)
 }
 
-// publish puts a transition on workspace.lifecycle. Transitions of one workspace are
-// serialised by its tx, so they are published in the order they happen.
-func (r *Registry) publish(id string, s State, degradedBy *capability.Error) {
+// publish puts a transition on workspace.lifecycle and on workspace.state. Transitions
+// of one workspace are serialised by its tx, so they are published in the order they
+// happen.
+func (r *Registry) publish(id string, s State, degradedBy *capability.Error, name, root string) {
 	if r.opts.Publisher != nil {
 		r.opts.Publisher.Publish(LifecycleTopic, string(s), id, "", Lifecycle{State: s, DegradedBy: degradedBy})
+	}
+	if r.opts.States != nil {
+		r.opts.States.Broadcast(StateTopic, EventState, id, "",
+			StateEvent{State: s, DegradedBy: degradedBy, Name: name, Root: root, Trusted: r.trusted(root)})
 	}
 }
 
@@ -326,6 +359,11 @@ func (r *Registry) Open(target string) (Info, error) {
 		// (ADR-0015 §6), and reading the configuration does I/O we keep out of the
 		// admission lock.
 		info.Trusted = r.trusted(info.Root)
+		// Opening again is still opening it: the picker lists the newest first
+		// (ADR-0045 §3). A failed write does not fail an open that is otherwise a no-op.
+		if err := r.recordOpen(id, info.Root, info.Name); err != nil {
+			fmt.Fprintf(r.opts.Log, "droidyard: workspace %s: recording its reopen in %s: %v\n", id, indexFile, err)
+		}
 		return info, nil
 	}
 	r.mu.Unlock()
@@ -333,17 +371,18 @@ func (r *Registry) Open(target string) (Info, error) {
 	if err := readableDir(root); err != nil {
 		return Info{}, rootInvalid(target, err.Error())
 	}
-	r.setState(w, Opening)
+	name := filepath.Base(root)
+	r.setState(w, Opening, name, root)
 	info, err := r.load(id, root)
 	if err != nil {
-		r.setState(w, Closed)
+		r.setState(w, Closed, name, root)
 		return Info{}, stateUnreadable(target, err)
 	}
 	r.mu.Lock()
 	w.info = info
 	w.state.Store(info.State)
 	r.mu.Unlock()
-	r.publish(id, info.State, info.DegradedBy)
+	r.publish(id, info.State, info.DegradedBy, info.Name, info.Root)
 	return info, nil
 }
 
@@ -464,10 +503,12 @@ func (r *Registry) recordOpen(id, root, name string) error {
 	if err := r.loadIndex(); err != nil {
 		return err
 	}
+	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, LastOpenedAt: r.now().UTC()}
 	if r.indexNewer {
+		// Kept for this daemon's life only, so workspace.watch lists what it opened:
+		// a file of a newer version is neither read nor written.
 		return nil
 	}
-	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, LastOpenedAt: r.now().UTC()}
 	return r.opts.Store.Write(indexFile, r.idx)
 }
 
@@ -515,11 +556,11 @@ func (r *Registry) Close(target string) error {
 		r.mu.Unlock()
 		return nil
 	}
-	root := w.info.Root
+	root, name := w.info.Root, w.info.Name
 	w.info.State = Closing
 	w.state.Store(Closing)
 	r.mu.Unlock()
-	r.publish(id, Closing, nil)
+	r.publish(id, Closing, nil, name, root)
 
 	if r.opts.Ops != nil {
 		ids := r.opts.Ops.CancelWorkspace(id)
@@ -543,6 +584,6 @@ func (r *Registry) Close(target string) error {
 	if r.opts.StopPollers != nil {
 		r.opts.StopPollers(id)
 	}
-	r.setState(w, Closed)
+	r.setState(w, Closed, name, root)
 	return nil
 }

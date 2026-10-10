@@ -65,8 +65,10 @@ bare HTTP error and never reaches the capability layer.
    plain text: never as HTML or Markdown, and never as links. Artifacts are served only
    as `image/png`, `image/jpeg` or `text/plain; charset=utf-8`.
 
-**Bootstrapping the browser.** `droidyard ui` (which auto-starts the daemon) opens
-`http://127.0.0.1:<port>/#token=<token>`. `droidyard status` prints the same URL. A URL
+**Bootstrapping the browser.** `droidyard ui`, or `droidyard` alone (which auto-start the
+daemon), opens `http://127.0.0.1:<port>/#token=<token>`, with `&w=<workspace id>` when run
+in a project, which it opens ([ADR-0045](../adr/0045-project-start-flow.md)); the page
+without `w` is the project picker. `droidyard status` prints the URL without `w`. A URL
 fragment is never sent to a server and never appears in `Referer`. The UI moves the
 token into `sessionStorage` and strips it from the address bar. `sessionStorage` is
 scoped to the exact origin, port included. A tab opened without a token shows

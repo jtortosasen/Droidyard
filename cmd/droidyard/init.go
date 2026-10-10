@@ -119,7 +119,7 @@ func initCmd(args []string, out, errw io.Writer) int {
 	// home directory is never a project (its .cursor and .claude are the user's global
 	// configuration).
 	if *rootFlag == "" {
-		if _, ok := gradleRoot(cwd); !ok {
+		if _, ok := platform.GradleRoot(cwd); !ok {
 			fmt.Fprintf(errw, "droidyard init: no settings.gradle or settings.gradle.kts in %s or above it; name the project with --root\n%s\n", cwd, initUsage)
 			return 2
 		}

@@ -42,7 +42,9 @@ import (
 const usage = `Droidyard — a lean Android development runtime for humans and agents.
 
 Usage:
-  droidyard <command>
+  droidyard [<command>]
+
+With no command, droidyard runs ui.
 
 Commands:
   caps       List the capabilities this build exposes, with their annotations.
@@ -67,6 +69,8 @@ Commands:
   stop       Stop the running daemon.
   ui         Open the web UI in the default browser, at the tokenised URL:
              droidyard ui [--no-autostart]
+             In a project folder, or under one (a settings.gradle or settings.gradle.kts),
+             it opens that project; elsewhere, the project picker.
              ui starts a daemon when none answers, unless --no-autostart.
   trust      Grant a project root trust, so capabilities that run its code may:
              droidyard trust <root>
@@ -83,9 +87,10 @@ Commands:
 `
 
 func main() {
+	// No subcommand is `ui`: a user types `droidyard` in a project folder (ADR-0045 §1).
+	// The usage is `help`'s.
 	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		os.Exit(ui(nil))
 	}
 
 	cmd := os.Args[1]
@@ -134,6 +139,9 @@ type requirements struct {
 	adb      *device.ADB
 	emulator *emulator.Emulator
 	gradle   *gradle.Client
+	// dialog answers folderDialog: workspace.chooseRoot's macOS folder dialog
+	// (ADR-0045 §4).
+	dialog workspace.Dialog
 }
 
 func (r requirements) Missing(req capability.Requirement) (string, bool) {
@@ -158,6 +166,8 @@ func (r requirements) Missing(req capability.Requirement) (string, bool) {
 			return "no Gradle sidecar client is configured", true
 		}
 		return r.gradle.Missing(req)
+	case capability.RequiresFolderDialog:
+		return r.dialog.Missing()
 	default:
 		return string(req) + " was not found on this machine", true
 	}
@@ -197,6 +207,10 @@ var (
 	// process starts: the in-process WebSocket test shortens it to 50 ms so a change is
 	// seen at once (plan m1j step 4). Set under adbSeamMu, like adbEnviron.
 	watchTick time.Duration
+	// dialogSeam, when set, adjusts the folder dialog before the daemon uses it: a test
+	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
+	// sets it.
+	dialogSeam func(d *workspace.Dialog)
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -307,7 +321,13 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// edit decides the next call without a restart. The emulator subsystem shares this
 	// ADB, so its policy check uses the same configuration.
 	adb.SetPolicy(pol)
-	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient}, adb, ops, problems, gradleClient, pol)
+	// workspace.chooseRoot's folder dialog is started through the same locked spawner
+	// (ADR-0045 §4); a test replaces the osascript it runs and the platform it asks on.
+	dialog := workspace.NewDialog(spawn)
+	if dialogSeam != nil {
+		dialogSeam(&dialog)
+	}
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient, dialog: dialog}, adb, ops, problems, gradleClient, pol)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch
@@ -338,7 +358,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// watches, each publishing its stopped event (plan m1j, D9).
 	watchers := file.NewWatchers()
 	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus,
+		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
 		OnOpen: func(id, _ string) { history.Sweep(id) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).

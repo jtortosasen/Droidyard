@@ -1,8 +1,9 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
+
+	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
 // resolveRoot is the project root a shim names to the daemon (ADR-0019 §Sessions): an
@@ -17,25 +18,8 @@ func resolveRoot(explicit, cwd string) string {
 		}
 		return filepath.Join(cwd, explicit)
 	}
-	if dir, ok := gradleRoot(cwd); ok {
+	if dir, ok := platform.GradleRoot(cwd); ok {
 		return dir
 	}
 	return filepath.Clean(cwd)
-}
-
-// gradleRoot is the nearest ancestor of cwd, cwd included, that holds settings.gradle or
-// settings.gradle.kts.
-func gradleRoot(cwd string) (string, bool) {
-	for dir := filepath.Clean(cwd); ; {
-		for _, f := range []string{"settings.gradle", "settings.gradle.kts"} {
-			if fi, err := os.Stat(filepath.Join(dir, f)); err == nil && !fi.IsDir() {
-				return dir, true
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", false
-		}
-		dir = parent
-	}
 }

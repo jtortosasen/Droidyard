@@ -47,7 +47,7 @@ that call with `WORKSPACE_UNTRUSTED` before anything is spawned
 ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md),
 [gradle](../subsystems/gradle.md) §Lifecycle).
 
-`workspace.open` on an already open workspace is a no-op returning its state, so several sessions
+`workspace.open` on an already open workspace changes nothing but its `lastOpenedAt` and returns its state, so several sessions
 (two agent windows, the UI) share one workspace, and `workspace.close` closes it for all of them.
 Invalid roots and state-file errors are [ADR-0026](../adr/0026-workspace-addressing-invalid-roots.md);
 close and reopen (operations drained for up to 10 s) are
@@ -91,7 +91,7 @@ workspace; the shipped design ties each watch to the session's subscription.)
 
 ## Durable vs ephemeral state
 
-**Durable**: root, name, selected variant, preferences, recent workspaces, the build registry and
+**Durable**: root, name, selected variant, preferences, recent workspaces (`workspaces.json`), the build registry and
 `lastResult`, durable artifacts (build consoles), and, as the one exception, the **pid records** of
 supervised children (until reaped, for crash recovery only). **Derived**: project modules/variants and
 AGP/Gradle versions, fetched lazily on first use, trusted roots only, cacheable and deletable.

@@ -241,6 +241,15 @@ func (s *Session) open(topics []string, since *Position, onClose func()) (string
 	return id, sub, nil
 }
 
+// Follow implements capability.Follower: a subscription of the session's own to the
+// stream of a capability that cannot use Open, because it does not import this package.
+func (s *Session) Follow(topics []string) (string, error) {
+	id, _, err := s.Open(topics, nil)
+	return id, err
+}
+
+var _ capability.Follower = (*Session)(nil)
+
 // Unsubscribe ends one of the session's own subscriptions, as events.unsubscribe does.
 // A file.watch handler calls it to clean up a watch it will not return an id for.
 func (s *Session) Unsubscribe(id string) { s.unsubscribe(id) }

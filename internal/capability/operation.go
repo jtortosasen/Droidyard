@@ -38,6 +38,19 @@ type Session interface {
 	ID() string
 }
 
+// Follower is a session that can open a subscription of its own to a capability's
+// stream, the topic of which events.subscribe does not serve (workspace.watch,
+// ADR-0045 §3). The event layer implements it, as it does Session; capability and the
+// domains do not import it, and a handler asserts the session it needs.
+type Follower interface {
+	Session
+	// Follow opens a subscription that belongs to the session, for topics, and returns
+	// its id; it fails with SESSION_REQUIRED once the session has ended.
+	Follow(topics []string) (string, error)
+	// Unsubscribe ends one of the session's own subscriptions.
+	Unsubscribe(id string)
+}
+
 // Retention of terminal operations (ADR-0020 §Retention): 15 minutes, and at least
 // the last 200.
 const (
