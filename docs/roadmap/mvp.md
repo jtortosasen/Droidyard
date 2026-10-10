@@ -181,18 +181,17 @@ structured results at every step and **no stdout parsing by the agent**. Accepte
 
 Deliverables:
 
-- Svelte 5 + TypeScript app the daemon serves; CodeMirror 6 editor
-  ([ADR-0039](../adr/0039-frontend-svelte.md),
-  [ADR-0009](../adr/0009-editor-component.md)).
+- Svelte 5 + TypeScript app the daemon serves ([ADR-0039](../adr/0039-frontend-svelte.md)).
 - Panels: **Logcat**, streaming (2a); **build / Gradle tasks** with problems and
-  **devices**, no stills (2b); **Git** and the explorer (2c): the owner's split of
-  2026-10-09 ([m2a](../plans/m2a-minimal-web-ui.md)). A code editor waits for code
-  intelligence.
+  **devices**, no stills (2b) ([m2a](../plans/m2a-minimal-web-ui.md)). Then (owner,
+  2026-10-10): **2c**, fixes, the live build console and a project start without typed
+  paths; **2d**, a redesign and the file tree; **Git** and the **editor**
+  ([ADR-0009](../adr/0009-editor-component.md)), a milestone each after 2d.
 - TypeScript client generated from the capability schema.
 - The loopback HTTP baseline (127.0.0.1, Host and Origin checks, a per-launch token),
   delivered early with the Phase 0 skeleton; Phase 2 adds no rule to it.
 
-Stretch (not required to close the MVP): live screen stream to the device panel; 2b weighs its cost.
+Stretch (not required to close the MVP): live screen stream to the device panel.
 
 Acceptance:
 
