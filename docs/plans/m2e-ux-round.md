@@ -106,7 +106,7 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 3.
 - Not here: the toolbar's device selector (7); the panel's look beyond the bar.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `mine.ts` (`MineSet`: build outputs at load and after each build, installs; no project-file id), `device.ts` (`LogcatDevice`: "Toolbar device" follows, a pick held until it leaves the online list), `bar.ts` (`QueryBar`: parse per input, the last valid filter kept on an error, the valid query stored under `droidyard.ui.logcat.<workspaceId>`, default `package:mine`, `reapply` when the set grows), `query.ts`'s `usesMine`; `session.ts` streams the whole device; `format.ts` the package column; `Logcat.svelte` one row (device ▾, query, Pause/Resume, Clear, Restart icons), the error with its column, the empty-mine hint only for `package:mine`. The pending AVD (D36) was built in step 6. Vitest `mine.test.ts`, `device.test.ts`, `session.test.ts` (whole-device params, the bar), `format.test.ts`; verify 452. Seen failing reversed (9): refill while pending, `select` not clearing it, a pick not reset, an `applicationId` passed, an error applying an accept-all filter, a throwing storage rethrown, installs and build outputs ignored, the package column. Level 4 grouped with step 7's.
 
 ### 5. The shell: collapsible regions, the sessions column, the status bar (Q1)
 

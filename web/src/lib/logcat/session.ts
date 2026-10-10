@@ -49,7 +49,6 @@ export class LogcatSession {
 
 	#crash = new CrashMarker();
 	#device = '';
-	#applicationId = '';
 	#status: StreamStatus = { state: 'idle', detail: '' };
 	#daemonDropped = 0;
 
@@ -87,9 +86,6 @@ export class LogcatSession {
 	}
 	get device(): string {
 		return this.#device;
-	}
-	get applicationId(): string {
-		return this.#applicationId;
 	}
 	get following(): boolean {
 		return this.#following;
@@ -150,15 +146,14 @@ export class LogcatSession {
 
 	// What the user and the connection do.
 
-	/** Streams `device` (from its newest lines) filtered to `applicationId`; '' device stops. The panel starts empty. */
-	select(device: string, applicationId = ''): void {
-		if (device === this.#device && applicationId === this.#applicationId) return;
+	/** Streams the whole of `device` (from its newest lines; the UI filters, D40); '' stops. The panel starts empty. */
+	select(device: string): void {
+		if (device === this.#device) return;
 		this.#device = device;
-		this.#applicationId = applicationId;
 		this.#crash.reset();
 		this.clear();
 		if (device === '') this.#stream.stop();
-		else this.#stream.open(device, applicationId);
+		else this.#stream.open(device);
 	}
 
 	/** Starts the stream again where it left off, after it stopped. */
