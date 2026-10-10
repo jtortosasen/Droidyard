@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/png"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
@@ -91,7 +93,7 @@ func TestTransformReturnsStoredBytesWhenNothingToDo(t *testing.T) {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
 		long := max(cfg.Width, cfg.Height)
 		for _, edge := range []int{0, long, long + 500} {
-			out, typ, w, h, err := Transform(data, "image/png", edge, nil)
+			out, typ, w, h, err := Transform(context.Background(), data, "image/png", edge, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,7 +110,7 @@ func TestTransformMaxEdgeDimensions(t *testing.T) {
 	for _, name := range fixtures {
 		data := fixture(t, name)
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
-		out, typ, w, h, err := Transform(data, "image/png", 1024, nil)
+		out, typ, w, h, err := Transform(context.Background(), data, "image/png", 1024, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +138,7 @@ func TestTransformMaxEdgeDimensions(t *testing.T) {
 		{100, 100, 10, 10, 10}, // square
 		{1000, 3, 10, 10, 1},   // short edge never below 1
 	} {
-		_, _, w, h, err := Transform(encodePNG(t, quadrants(c.w, c.h)), "image/png", c.edge, nil)
+		_, _, w, h, err := Transform(context.Background(), encodePNG(t, quadrants(c.w, c.h)), "image/png", c.edge, nil)
 		if err != nil || w != c.ww || h != c.wh {
 			t.Errorf("%dx%d at %d: %dx%d err=%v, want %dx%d", c.w, c.h, c.edge, w, h, err, c.ww, c.wh)
 		}
@@ -151,7 +153,7 @@ func TestTransformDownscaleAverages(t *testing.T) {
 	img.Set(1, 1, color.Black)
 	img.Set(1, 0, white)
 	img.Set(0, 1, white)
-	out, _, w, h, err := Transform(encodePNG(t, img), "image/png", 1, nil)
+	out, _, w, h, err := Transform(context.Background(), encodePNG(t, img), "image/png", 1, nil)
 	if err != nil || w != 1 || h != 1 {
 		t.Fatalf("%dx%d %v", w, h, err)
 	}
@@ -159,7 +161,7 @@ func TestTransformDownscaleAverages(t *testing.T) {
 	if r>>8 < 126 || r>>8 > 129 {
 		t.Errorf("average is %d, want about 127", r>>8)
 	}
-	out, _, _, _, _ = Transform(encodePNG(t, quadrants(64, 64)), "image/png", 8, nil)
+	out, _, _, _, _ = Transform(context.Background(), encodePNG(t, quadrants(64, 64)), "image/png", 8, nil)
 	if c := decode(t, out).At(1, 1); !near(c, red) {
 		t.Errorf("flat red quadrant came out %v", c)
 	}
@@ -169,11 +171,11 @@ func TestTransformDownscaleAverages(t *testing.T) {
 // size; a region smaller than maxEdge is cropped but not enlarged.
 func TestTransformNeverUpscales(t *testing.T) {
 	small := encodePNG(t, quadrants(20, 10))
-	_, _, w, h, err := Transform(small, "image/png", 500, nil)
+	_, _, w, h, err := Transform(context.Background(), small, "image/png", 500, nil)
 	if err != nil || w != 20 || h != 10 {
 		t.Errorf("%dx%d %v, want 20x10", w, h, err)
 	}
-	_, _, w, h, err = Transform(small, "image/png", 500, &Region{0, 0, 0.5, 0.5})
+	_, _, w, h, err = Transform(context.Background(), small, "image/png", 500, &Region{0, 0, 0.5, 0.5})
 	if err != nil || w != 10 || h != 5 {
 		t.Errorf("region+large maxEdge: %dx%d %v, want 10x5", w, h, err)
 	}
@@ -196,7 +198,7 @@ func TestTransformRegionCrop(t *testing.T) {
 		{"full", Region{0, 0, 1, 1}, 100, 60, red},
 		{"tiny, still one pixel", Region{0.99, 0.99, 0.0001, 0.0001}, 1, 1, white},
 	} {
-		out, typ, w, h, err := Transform(data, "image/png", 0, &c.r)
+		out, typ, w, h, err := Transform(context.Background(), data, "image/png", 0, &c.r)
 		if err != nil || typ != "image/png" || w != c.w || h != c.h {
 			t.Errorf("%s: %dx%d %s err=%v, want %dx%d", c.name, w, h, typ, err, c.w, c.h)
 			continue
@@ -211,7 +213,7 @@ func TestTransformRegionCrop(t *testing.T) {
 	}
 	// Crop first, scale second: the top-right quadrant at maxEdge 10 is all green, which
 	// a scale-then-crop of a different area would not be.
-	out, _, w, h, _ := Transform(data, "image/png", 10, &Region{0.5, 0, 0.5, 0.5})
+	out, _, w, h, _ := Transform(context.Background(), data, "image/png", 10, &Region{0.5, 0, 0.5, 0.5})
 	if max(w, h) != 10 {
 		t.Fatalf("%dx%d", w, h)
 	}
@@ -227,7 +229,7 @@ func TestTransformRegionOnFixtures(t *testing.T) {
 	for _, name := range fixtures {
 		data := fixture(t, name)
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
-		_, _, w, h, err := Transform(data, "image/png", 0, &Region{0, 0, 0.5, 0.5})
+		_, _, w, h, err := Transform(context.Background(), data, "image/png", 0, &Region{0, 0, 0.5, 0.5})
 		if err != nil || w != (cfg.Width+1)/2 && w != cfg.Width/2 || h != (cfg.Height+1)/2 && h != cfg.Height/2 {
 			t.Errorf("%s: %dx%d of %dx%d err=%v", name, w, h, cfg.Width, cfg.Height, err)
 		}
@@ -251,18 +253,18 @@ func TestTransformRejectsInvalidParams(t *testing.T) {
 		"width above 1":  {0, 0, 1.5, 1},
 		"nan":            {nan, 0, 0.5, 0.5},
 	} {
-		_, _, _, _, err := Transform(data, "image/png", 0, &r)
+		_, _, _, _, err := Transform(context.Background(), data, "image/png", 0, &r)
 		if e, ok := err.(*capability.Error); !ok || e.Code != capability.ErrInvalidParams {
 			t.Errorf("%s: %v, want REQUEST_INVALID_PARAMS", name, err)
 		}
 	}
-	if _, _, _, _, err := Transform(data, "image/png", -1, nil); code(err) != capability.ErrInvalidParams {
+	if _, _, _, _, err := Transform(context.Background(), data, "image/png", -1, nil); code(err) != capability.ErrInvalidParams {
 		t.Errorf("negative maxEdge: %v", err)
 	}
-	if _, _, _, _, err := Transform(data, "image/png", 0, &Region{0.5, 0.5, 0.5, 0.5}); err != nil {
+	if _, _, _, _, err := Transform(context.Background(), data, "image/png", 0, &Region{0.5, 0.5, 0.5, 0.5}); err != nil {
 		t.Errorf("a region touching the edge is valid: %v", err)
 	}
-	if _, _, _, _, err := Transform([]byte("not an image"), "image/png", 5, nil); err == nil || code(err) == capability.ErrInvalidParams {
+	if _, _, _, _, err := Transform(context.Background(), []byte("not an image"), "image/png", 5, nil); err == nil || code(err) == capability.ErrInvalidParams {
 		t.Errorf("undecodable data: %v", err)
 	}
 }
@@ -345,7 +347,7 @@ func TestEncodeInlineOnFixtures(t *testing.T) {
 			t.Errorf("%s: PNG of %d bytes over the limit", name, len(out))
 		}
 		t.Logf("%s: stored %d bytes -> inline %s %dx%d %d bytes", name, len(data), typ, w, h, len(out))
-		tr, _, tw, th, err := Transform(data, "image/png", 1024, nil)
+		tr, _, tw, th, err := Transform(context.Background(), data, "image/png", 1024, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -379,5 +381,45 @@ func TestEncodeInlineDecodedDoesNotDecodeAgain(t *testing.T) {
 	b, _, bw, bh, _ := EncodeInlineDecoded(real, "image/png", decode(t, real), 1024)
 	if aw != bw || ah != bh || !bytes.Equal(a, b) {
 		t.Errorf("decoded and decoding entry points differ: %dx%d vs %dx%d", aw, ah, bw, bh)
+	}
+}
+
+// Decision (plan m2c D18, S9): a decode waits for a slot, and a waiter honours its context:
+// with every slot taken, a Transform whose context ends returns that context's error at
+// once instead of queueing behind the decodes. Seen failing with the wait ignoring the
+// context. An image the call does not have to decode takes no slot at all.
+func TestADecodeWaiterHonoursItsContext(t *testing.T) {
+	data := encodePNG(t, quadrants(64, 64))
+	var releases []func()
+	for i := 0; i < MaxConcurrentDecodes; i++ {
+		rel, err := acquireDecode(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		releases = append(releases, rel)
+	}
+	defer func() {
+		for _, r := range releases {
+			r()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, _, err := Transform(ctx, data, "image/png", 8, nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != context.DeadlineExceeded {
+			t.Errorf("a decode that waited past its context returned %v; want the context's error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a decode waiting for a slot did not stop when its context ended")
+	}
+	// No decode is needed to hand the stored bytes back: no slot, so no wait.
+	if _, _, _, _, err := Transform(context.Background(), data, "image/png", 0, nil); err != nil {
+		t.Errorf("a read that decodes nothing waited for a slot: %v", err)
 	}
 }

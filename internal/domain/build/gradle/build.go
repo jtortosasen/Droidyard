@@ -163,7 +163,8 @@ func (b *BuildRun) Err() error { return b.lease.Err() }
 
 // Crash is why a build ends when the sidecar serving it is gone: Done was closed
 // before the terminal notification came, so no build finished and none will. It marks
-// the root degraded for the next call (D20) and the caller records nothing
+// the root degraded for the next call (D20), degrades the workspace of the root whose
+// build it was and no other (plan m2c, D21), and the caller records nothing
 // (gradle.md §Lifecycle: the operation fails with a cause; the registry keeps only what
 // finished).
 func (b *BuildRun) Crash() *capability.Error {
@@ -171,7 +172,7 @@ func (b *BuildRun) Crash() *capability.Error {
 	if err := b.Err(); err != nil {
 		e = e.WithCause(err.Error())
 	}
-	b.c.fail(nil, e)
+	b.c.crashed(b.root, e)
 	return e
 }
 
@@ -189,6 +190,11 @@ func (b *BuildRun) Run(ctx context.Context, buildID string, tasks []string, sink
 	})
 	if err != nil {
 		b.c.unwatch(buildID)
+		// A sidecar that died under the build.run request ended this build as surely as
+		// one that died after it accepted.
+		if e, ok := err.(*capability.Error); ok && e.Code == capability.ErrBuildSidecarCrashed {
+			b.c.crashed(b.root, e)
+		}
 		return err
 	}
 	return nil

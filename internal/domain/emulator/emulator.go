@@ -27,6 +27,13 @@ const (
 	ErrStopTimeout      capability.ErrorCode = "EMULATOR_STOP_TIMEOUT"
 )
 
+// clock is the stop's source of time: a test replaces it with a virtual one, so that a
+// wait of 25 seconds costs nothing.
+var clock = struct {
+	now   func() time.Time
+	after func(time.Duration) <-chan time.Time
+}{time.Now, time.After}
+
 // Timeouts are constants: emulator.md §Timeouts calls the boot timeout configurable but
 // no configuration key exists (known-limits.md, configuration version 1 deferrals), so none of them is
 // (plan m1i, D14). Variables so a test injects a scale.
@@ -34,8 +41,9 @@ var (
 	// listTimeout bounds `emulator -list-avds`.
 	listTimeout = 10 * time.Second
 	// stopTimeout bounds the wait for a killed emulator's serial to leave `adb devices`,
-	// and the `emu kill` command itself.
-	stopTimeout = 20 * time.Second
+	// and the `emu kill` command itself. It stays above the emulator's own 20 s grace to
+	// shut down, which a stop right after a wipe can need in full (plan m2c, D18).
+	stopTimeout = 35 * time.Second
 	// stopPollInterval is how often the listing is read while a stop waits.
 	stopPollInterval = time.Second
 	// bootTimeout bounds a boot from its snapshot to `sys.boot_completed` being 1, and

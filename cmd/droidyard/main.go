@@ -279,7 +279,14 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The one Gradle sidecar client (ADR-0019): it discovers the JVM in the daemon's
 	// environment, extracts the jars to the cache directory and supervises the shared
 	// sidecar lazily (plan m1g step 5). It holds no process until a call needs one.
-	gradleOpts := gradle.Options{Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch, JavaHome: startup.JavaHomeKey(), AllowBelowFloor: startup.BelowFloorKey()}
+	// A sidecar crash degrades the workspace whose build was running, and the next
+	// successful start returns it to ready (workspace-state.md §Lifecycle; plan m2c,
+	// D21). The workspace registry is built below, before any call reaches the client.
+	var ws *workspace.Registry
+	gradleOpts := gradle.Options{
+		OnCrash:    func(root string, e *capability.Error) { ws.Degrade(root, e) },
+		OnRecover:  func() { ws.Recover(capability.ErrBuildSidecarCrashed) },
+		Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch, JavaHome: startup.JavaHomeKey(), AllowBelowFloor: startup.BelowFloorKey()}
 	if sup != nil {
 		if cache, err := env.CacheDir(); err == nil {
 			gradleOpts.CacheDir = cache
@@ -357,7 +364,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The daemon's live file.watch pollers: a workspace close ends that workspace's
 	// watches, each publishing its stopped event (plan m1j, D9).
 	watchers := file.NewWatchers()
-	ws := workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
+	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
 		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
 		OnOpen: func(id, _ string) { history.Sweep(id) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root

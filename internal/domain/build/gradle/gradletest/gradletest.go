@@ -169,6 +169,9 @@ type Build struct {
 	// DieAfterSteps exits the process, without answering anything more, once that many
 	// of the script's notifications have been sent: the sidecar that dies mid-build.
 	DieAfterSteps int `json:"dieAfterSteps,omitempty"`
+	// DieOnRun exits the process on build.run before {accepted} is sent: the sidecar that
+	// dies under the request itself.
+	DieOnRun bool `json:"dieOnRun,omitempty"`
 }
 
 // Main runs the fake when ModeEnv is set, and returns otherwise. A test's TestMain
@@ -462,6 +465,9 @@ func (s *sidecar) build(id json.RawMessage, params json.RawMessage) {
 	if s.cfg.Build == nil {
 		s.writeError(id, -32000, "build.run: this fake has no build script")
 		return
+	}
+	if s.cfg.Build.DieOnRun {
+		os.Exit(1)
 	}
 	cancel := make(chan struct{})
 	s.cmu.Lock()

@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -20,6 +21,43 @@ var decodes atomic.Int64
 
 // Decodes reports how many full image decodes this package has made (a test seam).
 func Decodes() int64 { return decodes.Load() }
+
+// PeakDecodes reports the most images this package has had in the decode slots at once
+// (a test seam).
+func PeakDecodes() int64 { return decodePeak.Load() }
+
+// MaxConcurrentDecodes bounds the images that are decoded, cropped, scaled and encoded at
+// once (plan m2c, D18): a full decode holds the pixels of the whole image, and several
+// artifact.read calls on a large screenshot would hold that many at the same time.
+const MaxConcurrentDecodes = 4
+
+var (
+	decodeSlots = make(chan struct{}, MaxConcurrentDecodes)
+	// decodeActive and decodePeak are the slots in use now and the most in use at once,
+	// read by this package's tests.
+	decodeActive, decodePeak atomic.Int64
+)
+
+// acquireDecode takes a decode slot, waiting while all of them are taken, and gives up
+// when ctx ends. The caller releases the slot when the pixels it decoded are no longer held.
+func acquireDecode(ctx context.Context) (release func(), err error) {
+	select {
+	case decodeSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	n := decodeActive.Add(1)
+	for {
+		peak := decodePeak.Load()
+		if n <= peak || decodePeak.CompareAndSwap(peak, n) {
+			break
+		}
+	}
+	return func() {
+		decodeActive.Add(-1)
+		<-decodeSlots
+	}, nil
+}
 
 // Region is a crop in normalised 0..1 coordinates of the stored image: origin X, Y
 // and size W, H (artifact.read's `region`, ADR-0012 §Reading artifacts).
@@ -65,9 +103,10 @@ func (r Region) Validate() error {
 // type). Otherwise it decodes, crops to region (applied before scaling), downscales so
 // the long edge is at most maxEdge (never upscaling) and re-encodes as PNG. maxEdge 0
 // means no limit. The returned width and height are the delivered ones. A bad region
-// or a negative maxEdge is REQUEST_INVALID_PARAMS.
-func Transform(data []byte, mediaType string, maxEdge int, region *Region) (out []byte, outType string, w, h int, err error) {
-	out, outType, w, h, _, err = transform(data, mediaType, maxEdge, region, nil)
+// or a negative maxEdge is REQUEST_INVALID_PARAMS. A decode waits for one of
+// MaxConcurrentDecodes slots, and ctx ending ends the wait with its error.
+func Transform(ctx context.Context, data []byte, mediaType string, maxEdge int, region *Region) (out []byte, outType string, w, h int, err error) {
+	out, outType, w, h, _, err = transform(ctx, data, mediaType, maxEdge, region, nil)
 	return
 }
 
@@ -75,7 +114,7 @@ func Transform(data []byte, mediaType string, maxEdge int, region *Region) (out 
 // otherwise), so a producer that had to decode it to validate it does not decode twice.
 // pix is the delivered pixels when they are at hand (decoded, cropped or scaled), else
 // nil.
-func transform(data []byte, mediaType string, maxEdge int, region *Region, decoded image.Image) (out []byte, outType string, w, h int, pix image.Image, err error) {
+func transform(ctx context.Context, data []byte, mediaType string, maxEdge int, region *Region, decoded image.Image) (out []byte, outType string, w, h int, pix image.Image, err error) {
 	if maxEdge < 0 {
 		return nil, "", 0, 0, nil, invalid("maxEdge must be positive")
 	}
@@ -100,7 +139,11 @@ func transform(data []byte, mediaType string, maxEdge int, region *Region, decod
 	}
 	src := decoded
 	if src == nil {
-		var err error
+		release, err := acquireDecode(ctx)
+		if err != nil {
+			return nil, "", 0, 0, nil, err
+		}
+		defer release()
 		decodes.Add(1)
 		if src, _, err = image.Decode(bytes.NewReader(data)); err != nil {
 			return nil, "", 0, 0, nil, fmt.Errorf("artifact: not a decodable image: %w", err)
@@ -123,7 +166,8 @@ func transform(data []byte, mediaType string, maxEdge int, region *Region, decod
 // EncodeInline is the MCP adapter's rule for the image block: the longest edge at
 // most maxEdge (0 means InlineMaxEdge; above InlineMaxEdgeCap it is capped), PNG, or
 // JPEG at quality 85 when the PNG exceeds 512 KiB. A source that already fits is not
-// re-scaled, but is still turned into JPEG if its PNG is over the limit.
+// re-scaled, but is still turned into JPEG if its PNG is over the limit. The adapter has
+// no context to give, so a decode here waits for its slot without one.
 func EncodeInline(data []byte, mediaType string, maxEdge int) (out []byte, outType string, w, h int, err error) {
 	return encodeInline(data, mediaType, maxEdge, nil)
 }
@@ -139,7 +183,8 @@ func encodeInline(data []byte, mediaType string, maxEdge int, decoded image.Imag
 		maxEdge = InlineMaxEdge
 	}
 	maxEdge = min(maxEdge, InlineMaxEdgeCap)
-	out, outType, w, h, img, err := transform(data, mediaType, maxEdge, nil, decoded)
+	ctx := context.Background()
+	out, outType, w, h, img, err := transform(ctx, data, mediaType, maxEdge, nil, decoded)
 	if err != nil {
 		return nil, "", 0, 0, err
 	}
@@ -148,6 +193,11 @@ func encodeInline(data []byte, mediaType string, maxEdge int, decoded image.Imag
 	}
 	// The JPEG is made from the pixels transform had, not from a decode of its PNG.
 	if img == nil {
+		release, err := acquireDecode(ctx)
+		if err != nil {
+			return nil, "", 0, 0, err
+		}
+		defer release()
 		decodes.Add(1)
 		if img, _, err = image.Decode(bytes.NewReader(out)); err != nil {
 			return nil, "", 0, 0, fmt.Errorf("artifact: not a decodable image: %w", err)
