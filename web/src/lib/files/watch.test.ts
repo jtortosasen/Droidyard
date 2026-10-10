@@ -143,4 +143,26 @@ describe('FileWatch', () => {
 		expect(t.stream.handlers).toHaveLength(2);
 		expect(t.stream.unsubscribed).toEqual(['fw1', 'fw2']);
 	});
+
+	// Decision (plan m2d step 6): the viewer listens to the stream the tree already has;
+	// listeners get each frame's changes and a re-sync on a new baseline, and stop on unlisten.
+	it('hands the same changes and a re-sync to a listener, with no second subscription', async () => {
+		const { stream, frames, watch, answer, emit } = await setup();
+		const got: string[] = [];
+		const off = watch.listen({
+			changes: (l) => got.push(`changes:${l.map((c) => c.path).join(',')}`),
+			resync: () => got.push('resync'),
+		});
+		emit(0, 'changes', { path: '', changes: [{ path: 'a.kt', kind: 'modified', type: 'file' }], truncated: false });
+		frames.tick();
+		expect(got).toEqual(['changes:a.kt']);
+		emit(0, 'stopped', { path: '', reason: 'unreadable' });
+		await answer(1);
+		expect(got).toEqual(['changes:a.kt', 'resync']);
+		expect(stream.ids).toHaveLength(2);
+		off();
+		emit(1, 'changes', { path: '', changes: [{ path: 'b.kt', kind: 'modified', type: 'file' }], truncated: false });
+		frames.tick();
+		expect(got).toHaveLength(2);
+	});
 });
