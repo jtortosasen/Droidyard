@@ -24,6 +24,7 @@ interface Descriptor {
 	scope: string;
 	statefulness: string;
 	longRunning?: boolean;
+	annotations?: { readOnlyHint?: boolean };
 	input: Record<string, unknown>;
 	output?: { properties?: { result?: Record<string, unknown> } } & Record<string, unknown>;
 	events?: { topic: string; types: Record<string, Record<string, unknown>> };
@@ -109,7 +110,12 @@ const eventTopics = Object.fromEntries(withEvents.map((d) => [d.name, d.events?.
 const info = Object.fromEntries(
 	contract.capabilities.map((d) => [
 		d.name,
-		{ scope: d.scope, longRunning: d.longRunning === true, statefulness: d.statefulness },
+		{
+			scope: d.scope,
+			longRunning: d.longRunning === true,
+			statefulness: d.statefulness,
+			readOnly: d.annotations?.readOnlyHint === true,
+		},
 	]),
 );
 
@@ -139,7 +145,7 @@ export type Result<N extends CapabilityName> = Capabilities[N]['result'];
 /** What the client branches on, per capability. */
 export const capabilityInfo = ${JSON.stringify(info, null, '\t')} as const satisfies Record<
 	CapabilityName,
-	{ scope: 'global' | 'workspace'; longRunning: boolean; statefulness: 'stateless' | 'stateful' | 'streaming' }
+	{ scope: 'global' | 'workspace'; longRunning: boolean; statefulness: 'stateless' | 'stateful' | 'streaming'; readOnly: boolean }
 >;
 `;
 

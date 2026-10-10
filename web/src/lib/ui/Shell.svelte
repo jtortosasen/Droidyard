@@ -7,7 +7,6 @@
 	import FolderGit from '@lucide/svelte/icons/folder-git';
 	import FolderTree from '@lucide/svelte/icons/folder-tree';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
-	import Folders from '@lucide/svelte/icons/folders';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
 	import PanelBottom from '@lucide/svelte/icons/panel-bottom';
@@ -34,8 +33,10 @@
 		status: Snippet;
 		/** Full-width strips under the toolbar (the trust banner). */
 		banners?: Snippet;
+		/** The projects icon and its overlay, the rail's first item (the overlay anchors to the middle row). */
+		rail?: Snippet;
 	}
-	let { content, status, banners }: Props = $props();
+	let { content, status, banners, rail }: Props = $props();
 
 	const storage = browserStorage(window);
 	let layout = $state(loadLayout(storage));
@@ -130,8 +131,7 @@
 
 	<div class="middle">
 		<nav class="rail" aria-label="Sidebar">
-			<!-- Slot for the projects panel (plan m2d step 7). -->
-			<button type="button" class="rail-button" disabled title="Projects: arrives later in this milestone"><Folders size={16} /></button>
+			{#if rail}{@render rail()}{/if}
 			<button type="button" class="rail-button" class:current={layout.open.left} aria-pressed={layout.open.left} title="Files" onclick={() => toggle('left')}><FolderTree size={16} /></button>
 		</nav>
 
@@ -265,6 +265,7 @@
 		flex: 1;
 		min-height: 0;
 		display: flex;
+		position: relative;
 	}
 	.rail {
 		flex: none;

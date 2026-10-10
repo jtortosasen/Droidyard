@@ -352,8 +352,8 @@ func httpAddr(state string, info daemon.LockInfo) (string, error) {
 
 // uiURL is the tokenised URL that bootstraps the web UI: the token is in the
 // fragment, which a browser never sends to a server (http-websocket.md §Bootstrapping).
-// A workspace id adds `&w=<id>`, the project the tab shows; without one the page is the
-// project picker (ADR-0045 §1–2).
+// A workspace id adds `&w=<id>`, the project the tab shows; without one the page shows the
+// newest open project, else the projects panel (ADR-0047 §2).
 func uiURL(addr, token, workspace string) string {
 	u := "http://" + addr + "/#token=" + token
 	if workspace != "" {
@@ -400,12 +400,12 @@ func ui(args []string) int {
 	}
 	// The project is found by the MCP binding's rule. Opening it runs no project code
 	// and grants no trust (ADR-0015 §5); when it cannot be opened the browser still
-	// opens, on the picker, with the reason said here.
+	// opens, on the projects panel, with the reason said here.
 	var id string
 	if cwd, err := os.Getwd(); err == nil {
 		if root, ok := platform.GradleRoot(cwd); ok {
 			if id, err = openProject(conn, r, root); err != nil {
-				fmt.Fprintf(os.Stderr, "droidyard ui: opening %s: %v\nThe browser opens on the project picker instead.\n", root, err)
+				fmt.Fprintf(os.Stderr, "droidyard ui: opening %s: %v\nThe browser opens on the projects panel instead.\n", root, err)
 			}
 		}
 	}

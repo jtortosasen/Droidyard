@@ -68,7 +68,8 @@ bare HTTP error and never reaches the capability layer.
 **Bootstrapping the browser.** `droidyard ui`, or `droidyard` alone (which auto-start the
 daemon), opens `http://127.0.0.1:<port>/#token=<token>`, with `&w=<workspace id>` when run
 in a project, which it opens ([ADR-0045](../adr/0045-project-start-flow.md)); the page
-without `w` is the project picker. `droidyard status` prints the URL without `w`. A URL
+without `w` shows the newest open project, else the projects panel
+([ADR-0047](../adr/0047-projects-panel-no-picker.md)). `droidyard status` prints the URL without `w`. A URL
 fragment is never sent to a server and never appears in `Referer`. The UI moves the
 token into `sessionStorage` and strips it from the address bar. `sessionStorage` is
 scoped to the exact origin, port included. A tab opened without a token shows

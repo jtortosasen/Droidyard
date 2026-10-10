@@ -3,7 +3,7 @@
 	import type { Result } from '../api/capabilities.gen';
 
 	// The connection and the daemon's health, folded into one compact line for the toolbar
-	// or the picker's header. Every field is a text node.
+	// or the projects page's header. Every field is a text node.
 	interface Props {
 		connection: ConnectionState;
 		health: Result<'system.health'> | null;
