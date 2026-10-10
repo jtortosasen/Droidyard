@@ -170,9 +170,13 @@
 			<div class="body scroll">
 				{#each panelsIn('right') as p (p.id)}
 					{#if p.disabled}
+						{@const Icon = ICONS[p.id]}
 						<section class="reserved" aria-label={p.label}>
 							<h2>{p.label}</h2>
-							<p>{p.label} arrives with the {p.disabled.milestone} milestone.</p>
+							<div class="frame">
+								{#if Icon}<Icon size={28} />{/if}
+								<p>{p.label} arrives with the {p.disabled.milestone} milestone.</p>
+							</div>
 						</section>
 					{:else}
 						<div class="rsec">{@render content(p.id)}</div>
@@ -419,9 +423,25 @@
 		padding: var(--sp-4);
 		border-bottom: 1px solid var(--border);
 	}
+	/* The live view's reserved area: the shape of a phone screen, empty (no stills). */
 	.reserved {
 		color: var(--text-3);
-		background: repeating-linear-gradient(135deg, transparent 0 8px, var(--bg-raised) 8px 16px);
-		min-height: 120px;
+	}
+	.reserved .frame {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--sp-3);
+		min-height: 150px;
+		padding: var(--sp-5);
+		border: 1px dashed var(--border);
+		border-radius: var(--radius-panel);
+		background: var(--bg-window);
+		text-align: center;
+		font-size: var(--fs-small);
+	}
+	.reserved .frame p {
+		margin: 0;
 	}
 </style>
