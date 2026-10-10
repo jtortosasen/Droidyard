@@ -127,7 +127,7 @@ Baseline on 2026-10-10 at `3e7c26b` (macOS): `go vet ./...` and `gofmt -l .` pri
 - Needs: step 3.
 - Not here: `emulator.wipe` and `device.uninstall` as controls (no golden-path step; K2's wipe runs from the CLI).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `217aa01`. Vitest (implementer): 13 tests in `devices.test.ts` — an MCP `emulator.start` from the snapshot shows *booting (mcp)*, refuses Start and cancels with `operation.cancel` and no `operation.wait` (seen failing with the booting gate removed); a wipe is booting (seen failing with `emulator.wipe` dropped); stopping and installing mirrored; a terminal `emulator.start`, `emulator.stop`, `emulator.wipe`, `device.install`, `device.uninstall` or `device.launch` re-reads both lists once (seen failing with `device.uninstall` dropped), a terminal `emulator.list`, `device.list`, `build.assemble` or `device.tap` reads nothing (seen failing with `emulator.list` added); a vanished selection cleared; install's params from the build selection (seen failing with the variant forced). Not proven by reversal: "Cancel of an unshown id is a no-op" (the implementer's edit did not apply). Logcat following the shared selection is wired in `App.svelte` and proven at the model level only. `code-review` (low): no findings. Level 5 at step 7, as planned.
 
 ### 6. The UI tree, tap and type with expectations, the app's logs
 
