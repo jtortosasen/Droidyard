@@ -5,6 +5,10 @@
 	import Logcat from './lib/logcat/Logcat.svelte';
 	import { BuildModel } from './lib/build/build';
 	import Build from './lib/build/Build.svelte';
+	import { TasksModel } from './lib/build/tasks';
+	import Tasks from './lib/build/Tasks.svelte';
+	import { ConsoleModel } from './lib/build/console';
+	import Console from './lib/build/Console.svelte';
 	import { EventsHub } from './lib/build/hub';
 	import { WorkspaceModel } from './lib/build/workspace';
 	import Workspace from './lib/build/Workspace.svelte';
@@ -28,6 +32,8 @@
 	let activity = $state.raw<ActivityStore | null>(null);
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let build = $state.raw<BuildModel | null>(null);
+	let tasks = $state.raw<TasksModel | null>(null);
+	let buildConsole = $state.raw<ConsoleModel | null>(null);
 	let devices = $state.raw<Result<'device.list'>['devices']>([]);
 	let devicesError = $state<string | null>(null);
 	let device = $state('');
@@ -55,6 +61,8 @@
 		}
 		const ws = new WorkspaceModel(callOn, hub, storage);
 		const builds = new BuildModel(callOn, store, hub, ws);
+		const taskList = new TasksModel(callOn, builds.mirror, ws);
+		const console_ = new ConsoleModel(callOn, builds, ws);
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -84,6 +92,8 @@
 		activity = store;
 		workspace = ws;
 		build = builds;
+		tasks = taskList;
+		buildConsole = console_;
 		// Connect first: a call made on a client never connected is refused as closed,
 		// while one made while connecting waits for the socket.
 		c.connect();
@@ -93,6 +103,8 @@
 		// after another client closes it the panel offers to reopen, it does not reopen.
 		void ws.open();
 		return () => {
+			console_.dispose();
+			taskList.dispose();
 			builds.dispose();
 			ws.dispose();
 			hub.stop();
@@ -102,6 +114,8 @@
 			activity = null;
 			workspace = null;
 			build = null;
+			tasks = null;
+			buildConsole = null;
 		};
 	});
 
@@ -175,6 +189,12 @@
 	{/if}
 	{#if build}
 		<Build model={build} />
+	{/if}
+	{#if tasks}
+		<Tasks model={tasks} />
+	{/if}
+	{#if buildConsole}
+		<Console model={buildConsole} />
 	{/if}
 
 	{#if client}
