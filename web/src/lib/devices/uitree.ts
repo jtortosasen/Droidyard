@@ -97,6 +97,16 @@ export interface UiTreeView {
 	/** One line of text each: foreground, display, truncation, hint, system dialog, warnings. */
 	notes: readonly string[];
 	error: Failure | null;
+	/** The inspected row (an index into the rows' `index`); null for none. */
+	selected: number | null;
+	/** The inspected node with the snapshot it came from, raw: the view renders it as text. */
+	selection: { node: UiNode; snapshot: string } | null;
+}
+
+/** The last segment of a class name (`android.widget.Button` shows as `Button`), as text. */
+export function shortClass(cls: string): string {
+	const i = cls.lastIndexOf('.');
+	return i < 0 ? cls : cls.slice(i + 1);
 }
 
 /** What a tap, a typed text, a launch or an install changes on the screen. */
@@ -114,6 +124,8 @@ export class UiTreeModel {
 	#loading = false;
 	#error: Failure | null = null;
 	#gen = 0;
+	/** The inspected node's index in the tree shown; a node belongs to its snapshot, so a new tree clears it. */
+	#selected: number | null = null;
 
 	constructor(client: UiTreeClient, devices: DeviceSelection, activity: Pick<DevicesActivity, 'onTerminal'>) {
 		this.#client = client;
@@ -142,6 +154,13 @@ export class UiTreeModel {
 		return node === undefined || this.#tree === null ? null : selectorFor(node, this.#tree.snapshot);
 	}
 
+	/** Inspect the row at `index` of the tree shown; an index that is not there changes nothing. */
+	select(index: number): void {
+		if (this.#tree?.nodes[index] === undefined) return;
+		this.#selected = index;
+		this.#changed();
+	}
+
 	/** `device.uiTree` on the selected device, on the user's request. */
 	async load(): Promise<void> {
 		const device = this.#devices.view.selected;
@@ -155,6 +174,7 @@ export class UiTreeModel {
 			const r = await this.#client.call('device.uiTree', { device });
 			if (gen !== this.#gen) return;
 			this.#tree = r;
+			this.#selected = null;
 		} catch (e) {
 			if (gen !== this.#gen) return;
 			// A lost connection is shown by the connection state.
@@ -185,6 +205,7 @@ export class UiTreeModel {
 			this.#gen++;
 			this.#for = '';
 			this.#tree = null;
+			this.#selected = null;
 			this.#error = null;
 			this.#loading = false;
 		}
@@ -194,6 +215,7 @@ export class UiTreeModel {
 	#build(): UiTreeView {
 		const t = this.#tree;
 		const notes: string[] = [];
+		const node = this.#selected === null ? undefined : t?.nodes[this.#selected];
 		if (t) {
 			notes.push(`Foreground: ${quoted(t.foreground)}. Display ${t.display.width}x${t.display.height}, rotation ${t.display.rotation}. ${t.nodes.length} nodes.`);
 			if (t.truncated) notes.push('The tree was truncated.');
@@ -211,6 +233,8 @@ export class UiTreeModel {
 			rows: t ? treeRows(t.nodes) : [],
 			notes,
 			error: this.#error,
+			selected: this.#selected,
+			selection: node === undefined || t === null ? null : { node, snapshot: t.snapshot },
 		};
 	}
 

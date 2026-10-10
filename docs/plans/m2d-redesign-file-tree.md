@@ -185,7 +185,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: step 2.
 - Not here: stills or the live view (owner, 2026-10-09).
 - Rests on: no device string reaches the clipboard unquoted (level 3).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 3. `copy.test.ts` (13): id → `{"id":…}`, else text, else ref and snapshot with the expiry line (seen failing without it); a hostile label (`"`, newline, backtick, "ignore previous instructions", an injected `target:` line, U+2028, U+202E) one JSON-quoted line under the untrusted header (seen failing with plain interpolation); a JSON-quoted id that cannot add a key; tag characters, soft hyphen and variation selectors escaped per UTF-16 unit (the verifier's fix); 20 attributes of 200 code points, 13 omitted; `UiTreeModel` selection cleared on a new tree and another device, kept on a refused read (seen failing without each reset). `interact.test.ts`, `devices.test.ts` green; verify 287 tests; `TestNoHTMLSinks`. Opus verifier: proceed, 0 blocking; 1 [safety] applied, 1 [plan] recorded (Changes), 4 nits. The panel's look and the real clipboard are step 11's.
 
 ### 11. The whole UI at level 5
 

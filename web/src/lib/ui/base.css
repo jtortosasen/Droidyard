@@ -114,3 +114,34 @@ td {
 	border: 2px solid transparent;
 	background-clip: content-box;
 }
+
+/* Inspector controls (plan m2d step 10), shared by the right panel's sections. */
+.muted {
+	color: var(--text-2);
+}
+.small {
+	font-size: var(--fs-small);
+}
+.btn-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--sp-2);
+	padding: 0 var(--sp-3);
+}
+.btn-primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+.btn-primary:hover:not(:disabled) {
+	background: var(--accent);
+	filter: brightness(1.1);
+}
+.btn-primary:active:not(:disabled) {
+	background: var(--accent);
+	filter: brightness(0.92);
+}
+.err {
+	color: var(--danger);
+}
