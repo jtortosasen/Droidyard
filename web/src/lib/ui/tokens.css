@@ -1,0 +1,79 @@
+/* The design tokens (plan m2d D24): dark by default, light under prefers-color-scheme.
+   The accent is a fixed blue: step 1's probe showed Chrome resolves `AccentColor` to its
+   own blue, not the system's. The monospace stack is the probe's: SF Mono in Safari,
+   Menlo in Chrome. Nothing else in the UI hard-codes a colour, a size or a font. */
+:root {
+	color-scheme: light dark;
+
+	--bg-window: #1e1e20;
+	--bg-panel: #252528;
+	--bg-raised: #2c2c30;
+	--bg-hover: #323237;
+	--bg-active: #3a3a40;
+	--border: #3a3a3f;
+	--text: #e6e6e9;
+	--text-2: #a0a0a8;
+	--text-3: #6e6e76;
+	--accent: #0a84ff;
+	--accent-text: #ffffff;
+	--accent-soft: rgb(10 132 255 / 0.18);
+	--success: #32d74b;
+	--warning: #ffd60a;
+	--danger: #ff453a;
+	--overlay-solid: #2c2c30;
+	--overlay-glass: rgb(44 44 48 / 0.72);
+	--shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+
+	--font-ui: system-ui, sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+	--fs-base: 13px;
+	--fs-small: 11px;
+	--fs-mono: 12px;
+
+	--radius-control: 6px;
+	--radius-panel: 8px;
+
+	--sp-1: 2px;
+	--sp-2: 4px;
+	--sp-3: 6px;
+	--sp-4: 8px;
+	--sp-5: 12px;
+	--sp-6: 16px;
+
+	--row: 22px;
+	--tab-height: 28px;
+	--splitter: 5px;
+	--icon: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		--bg-window: #f5f5f7;
+		--bg-panel: #ffffff;
+		--bg-raised: #fbfbfd;
+		--bg-hover: #ececf0;
+		--bg-active: #e1e1e8;
+		--border: #d2d2d7;
+		--text: #1d1d1f;
+		--text-2: #6e6e73;
+		--text-3: #a1a1a6;
+		--accent: #007aff;
+		--accent-soft: rgb(0 122 255 / 0.12);
+		--success: #248a3d;
+		--warning: #b25000;
+		--danger: #d70015;
+		--overlay-solid: #ffffff;
+		--overlay-glass: rgb(255 255 255 / 0.72);
+		--shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+	}
+}
+
+/* Density: the height of a row (the tree, lists, controls). */
+[data-density='compact'] {
+	--row: 22px;
+	--tab-height: 26px;
+}
+[data-density='comfortable'] {
+	--row: 28px;
+	--tab-height: 32px;
+}

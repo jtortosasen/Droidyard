@@ -5,6 +5,7 @@
 	import Logcat from '../logcat/Logcat.svelte';
 	import { BuildModel } from '../build/build';
 	import Build from '../build/Build.svelte';
+	import BuildResult from '../build/BuildResult.svelte';
 	import { TasksModel } from '../build/tasks';
 	import Tasks from '../build/Tasks.svelte';
 	import { ConsoleModel } from '../build/console';
@@ -28,6 +29,9 @@
 	import Act from '../devices/Act.svelte';
 	import { AppLogsModel } from '../devices/applogs';
 	import AppLogs from '../devices/AppLogs.svelte';
+	import Banners from './Banners.svelte';
+	import Shell from '../ui/Shell.svelte';
+	import type { Snippet } from 'svelte';
 
 	// One project in one tab (ADR-0045 §2): the panels of the workspace the address's `w`
 	// names, over the session App owns. App mounts this keyed on the id, so a different
@@ -41,8 +45,10 @@
 		/** The daemon refused the id: the tab goes to the picker with the reason. */
 		onmissing: (why: Failure) => void;
 		onpicker: () => void;
+		/** The connection and health line App owns, shown in the toolbar. */
+		status: Snippet;
 	}
-	let { client, activity, hub, connection, workspaceId, onmissing, onpicker }: Props = $props();
+	let { client, activity, hub, connection, workspaceId, onmissing, onpicker, status }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -166,42 +172,79 @@
 	});
 </script>
 
-{#if workspace && trust}
-	<Workspace model={workspace} {trust} {onpicker} />
-{/if}
-{#if projectFile}
-	<ProjectFile model={projectFile} />
-{/if}
-{#if build}
-	<Build model={build} />
-{/if}
-{#if tasks}
-	<Tasks model={tasks} />
-{/if}
-{#if buildConsole}
-	<Console model={buildConsole} />
-{/if}
+{#snippet panel(id: string)}
+	{#if id === 'workspace'}
+		{#if workspace && trust}
+			<Workspace model={workspace} {trust} {onpicker} compact />
+		{/if}
+	{:else if id === 'projectfile'}
+		{#if projectFile}
+			<ProjectFile model={projectFile} compact />
+		{/if}
+	{:else if id === 'build'}
+		{#if build}
+			<Build model={build} compact />
+		{/if}
+	{:else if id === 'files'}
+		<!-- Slot for the file tree (plan m2d step 5). -->
+		<p class="empty">The file tree arrives with the next steps of this milestone.</p>
+	{:else if id === 'editor'}
+		<!-- Slot for the second-level file tabs (plan m2d step 6). -->
+		<p class="empty">Open a file from the tree to read it here.</p>
+	{:else if id === 'logcat'}
+		<Logcat {client} {connection} {device} />
+	{:else if id === 'applogs'}
+		{#if appLogs}
+			<AppLogs model={appLogs} connected={connection === 'open'} />
+		{/if}
+	{:else if id === 'console'}
+		{#if buildConsole}
+			<Console model={buildConsole} />
+		{/if}
+	{:else if id === 'problems'}
+		{#if build}
+			<BuildResult model={build} />
+		{/if}
+	{:else if id === 'activity'}
+		<Activity store={activity} />
+	{:else if id === 'tasks'}
+		{#if tasks}
+			<Tasks model={tasks} />
+		{/if}
+	{:else if id === 'devices'}
+		{#if devices && emulators && install}
+			<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+		{/if}
+	{:else if id === 'tree'}
+		{#if uiTree && act}
+			{@const tree = uiTree}
+			{@const actions = act}
+			<Tree
+				model={tree}
+				connected={connection === 'open'}
+				onpick={(index) => {
+					const s = tree.selectorAt(index);
+					if (s) actions.pick(s);
+				}}
+			/>
+		{/if}
+	{:else if id === 'act'}
+		{#if act}
+			<Act model={act} connected={connection === 'open'} />
+		{/if}
+	{/if}
+{/snippet}
 
-{#if devices && emulators && install}
-	<Devices {devices} {emulators} {install} connected={connection === 'open'} />
-{/if}
+{#snippet banners()}
+	{#if workspace && trust}
+		<Banners {workspace} {trust} />
+	{/if}
+{/snippet}
 
-{#if uiTree && act}
-	{@const tree = uiTree}
-	{@const actions = act}
-	<Tree
-		model={tree}
-		connected={connection === 'open'}
-		onpick={(index) => {
-			const s = tree.selectorAt(index);
-			if (s) actions.pick(s);
-		}}
-	/>
-	<Act model={actions} connected={connection === 'open'} />
-{/if}
+<Shell content={panel} {status} {banners} />
 
-{#if appLogs}
-	<AppLogs model={appLogs} connected={connection === 'open'} />
-{/if}
-
-<Logcat {client} {connection} {device} />
+<style>
+	.empty {
+		color: var(--text-3);
+	}
+</style>

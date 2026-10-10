@@ -89,7 +89,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: step 1. May run in parallel with steps 3–4 (web only).
 - Not here: the tree (5), the projects panel (7), the task selector and blocks (8), the inspector's new parts (10).
 - Rests on: no 2c panel loses behaviour in the move (level 4; the models' suite cannot see a lost component).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `layout.test.ts` (clamp, restore, a throwing storage → defaults; seen failing without the try/catch), `panels.test.ts` (each 2c panel once, disabled entries name a milestone and cannot activate; seen failing without the check), `failure.test.ts`; verify 274 tests, autofixer clean. `@lucide/svelte` 1.54.0. Level 4 (headless Chrome, K1 daemon on a sample copy): dark and light, compact and comfortable captured; one fix round after the first look (a one-row toolbar with short states, the trust banner, the project-file icon, the Editor|Git switch). From the new places: Trust → modules and variants listed; Build `:app debug` → "Building…", the console live (85 lines, BUILD SUCCESSFUL), Problems "No problems"; a task (`:buildEnvironment`) run from the Tasks tab, `build.run` completed in the trace; Logcat's filter applied; `window.__csp` empty. `code-review` not run (no such skill in this session); the main session's diff review instead.
 
 ### 3. `session` on the operation events (Q2)
 
