@@ -209,10 +209,25 @@ export class ActModel {
 	#result: ActSummary | null = null;
 	#error: ActFailure | null = null;
 
+	#device: string;
+
 	constructor(client: ActClient, devices: DeviceSelection) {
 		this.#client = client;
 		this.#devices = devices;
-		this.#off = devices.subscribe(() => this.#changed());
+		this.#device = devices.view.selected;
+		this.#off = devices.subscribe(() => this.#deviceChanged());
+	}
+
+	/** A picked node, a result and an error belong to the device they came from. */
+	#deviceChanged(): void {
+		const now = this.#devices.view.selected;
+		if (now !== this.#device) {
+			this.#device = now;
+			this.#picked = null;
+			this.#result = null;
+			this.#error = null;
+		}
+		this.#changed();
 	}
 
 	get view(): ActView {
