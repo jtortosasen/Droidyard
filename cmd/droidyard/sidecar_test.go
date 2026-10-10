@@ -54,6 +54,9 @@ const (
 	// workspace.chooseRoot's folder dialog through it, as on macOS, through the
 	// supervisor's real spawner (ADR-0045 §4).
 	dialogFakeEnv = "DROIDYARD_TEST_DIALOG"
+	// logMaxEnv is the size, in bytes, past which a re-executed detached daemon rotates
+	// its log (plan m2c, step 8).
+	logMaxEnv = "DROIDYARD_TEST_LOG_MAX"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -74,6 +77,9 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(drainEnv)); err == nil {
 		testDrain = d
+	}
+	if n, err := strconv.ParseInt(os.Getenv(logMaxEnv), 10, 64); err == nil {
+		logMaxBytes = n
 	}
 	if d, err := time.ParseDuration(os.Getenv(shutdownEnv)); err == nil {
 		shutdownTimeout = d
@@ -179,6 +185,16 @@ func appendEvent(path, event string) {
 // "use refused" or "use <pid>" (ADR-0027: a cancelled operation cannot start a
 // sidecar again).
 func registerSidecarFixture(reg *capability.Registry, sup *proc.Supervisor) {
+	// fixture.stray writes to standard error by the process's own handle, as a panic or
+	// a library's print would, bypassing the daemon's log writer.
+	reg.MustRegister(capability.Descriptor{
+		Name: "fixture.stray", Kind: capability.Command, Scope: capability.Global,
+		Description: "Prints a line to standard error; test-only.", Params: struct{}{}, Result: struct{}{},
+		Handler: func(context.Context, *capability.Call) (any, error) {
+			fmt.Fprintln(os.Stderr, "STRAY-LINE")
+			return struct{}{}, nil
+		},
+	})
 	reg.MustRegister(capability.Descriptor{
 		Name: "fixture.sidecar", Kind: capability.Command, Scope: capability.Workspace,
 		Description: "Uses the dummy sidecar; test-only.", Params: sidecarParams{}, Result: sidecarResult{},

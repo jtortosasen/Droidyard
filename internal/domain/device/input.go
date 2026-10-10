@@ -405,15 +405,15 @@ func (a *ADB) inputText(ctx context.Context, t *target, p InputTextParams) (*Inp
 			}
 			after, aw, rerr := a.readSnapshot(bctx, t, true)
 			if rerr != nil {
-				return nil, phaseError(ctx, rerr, ErrUIDumpFailed, "the UI could not be re-read after the soft keyboard was hidden inside the 14 s before-phase budget; nothing was typed")
+				return nil, afterKeyboardBack(phaseError(ctx, rerr, ErrUIDumpFailed, "the UI could not be re-read after the soft keyboard was hidden inside the 14 s before-phase budget"), "typed")
 			}
 			m, err = store.resolve(after, *p.Target)
 			if err != nil {
-				return nil, err
+				return nil, afterKeyboardBack(err, "typed")
 			}
 			oc, err = chooseTapPoint(after, m.Node)
 			if err != nil {
-				return nil, err
+				return nil, afterKeyboardBack(err, "typed")
 			}
 			if covered, cerr := a.softKeyboardStillCovered(bctx, t, oc.Point); cerr != nil {
 				return nil, cerr

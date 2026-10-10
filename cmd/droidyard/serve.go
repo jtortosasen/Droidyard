@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -124,45 +125,49 @@ func serve(args []string) int {
 		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): starting\n", os.Getpid())
 	}
 
+	logw := daemonLog(state, detach)
+	// The operation trace and the HTTP server's own lines use the standard logger.
+	log.SetOutput(logw)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	st, err := store.New(state)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "droidyard serve:", err)
+		fmt.Fprintln(logw, "droidyard serve:", err)
 		return 1
 	}
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
-	sup := proc.New(proc.Options{Store: st, Log: os.Stderr})
-	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, os.Stderr)
+	sup := proc.New(proc.Options{Store: st, Log: logw})
+	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, logw)
 	defer artifacts.Close()
 	socket := env.SocketPath(state)
-	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb.Close, os.Stderr)
+	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb.Close, logw)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
+		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
 	}
 	d, err := daemon.Start(opts)
 	if errors.Is(err, daemon.ErrLocked) {
 		// Racing auto-starts end here: the winner serves every shim.
-		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): lost the lock: %v\n", os.Getpid(), err)
+		fmt.Fprintf(logw, "droidyard serve (pid %d): lost the lock: %v\n", os.Getpid(), err)
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
+		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): holding %s/%s, listening on %s\n", os.Getpid(), state, daemon.LockFile, socket)
+	fmt.Fprintf(logw, "droidyard serve (pid %d): holding %s/%s, listening on %s\n", os.Getpid(), state, daemon.LockFile, socket)
 
 	<-ctx.Done()
 	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := d.Shutdown(sctx); err != nil {
-		fmt.Fprintln(os.Stderr, "droidyard serve: shutdown:", err)
+		fmt.Fprintln(logw, "droidyard serve: shutdown:", err)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "droidyard serve (pid %d): stopped\n", os.Getpid())
+	fmt.Fprintf(logw, "droidyard serve (pid %d): stopped\n", os.Getpid())
 	return 0
 }
 

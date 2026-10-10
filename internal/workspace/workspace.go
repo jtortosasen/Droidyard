@@ -185,6 +185,12 @@ type Registry struct {
 	// admits (Admit), and a close entering closing, all take it.
 	mu sync.Mutex
 
+	// pubMu makes a state change that Degrade or Recover make, and its publication, one
+	// step, so two of them are published in the order they happened. They do not take
+	// the workspace's tx: a close holds it while it waits for the very build that
+	// reports the crash.
+	pubMu sync.Mutex
+
 	// allMu guards the map only, so a state can be read while mu is held. Entries are
 	// never removed.
 	allMu sync.RWMutex
@@ -287,10 +293,18 @@ func (r *Registry) setState(w *workspace, s State, name, root string) {
 	r.publish(id, s, nil, name, root)
 }
 
-// publish puts a transition on workspace.lifecycle and on workspace.state. Transitions
-// of one workspace are serialised by its tx, so they are published in the order they
-// happen.
+// publish puts a transition on workspace.lifecycle and on workspace.state. Open and
+// close transitions of one workspace are serialised by its tx, so they are published in
+// the order they happen. Degrade and Recover bypass tx: pubMu orders their publishes
+// among themselves and against any later publish (but not against Open's final one,
+// which a build cannot overlap, since a build needs the workspace open).
 func (r *Registry) publish(id string, s State, degradedBy *capability.Error, name, root string) {
+	r.pubMu.Lock()
+	defer r.pubMu.Unlock()
+	r.publishLocked(id, s, degradedBy, name, root)
+}
+
+func (r *Registry) publishLocked(id string, s State, degradedBy *capability.Error, name, root string) {
 	if r.opts.Publisher != nil {
 		r.opts.Publisher.Publish(LifecycleTopic, string(s), id, "", Lifecycle{State: s, DegradedBy: degradedBy})
 	}
@@ -298,6 +312,59 @@ func (r *Registry) publish(id string, s State, degradedBy *capability.Error, nam
 		r.opts.States.Broadcast(StateTopic, EventState, id, "",
 			StateEvent{State: s, DegradedBy: degradedBy, Name: name, Root: root, Trusted: r.trusted(root)})
 	}
+}
+
+// Degrade marks the open workspace of root degraded by cause: the Gradle sidecar
+// crashed while that workspace's build ran (workspace-state.md §Lifecycle; plan m2c,
+// D21). Only a ready workspace degrades: one already degraded keeps the cause it has,
+// and one that is not open is not touched. It publishes the transition.
+func (r *Registry) Degrade(root string, cause *capability.Error) {
+	id, _ := r.resolve(root)
+	w := r.lookup(id)
+	if w == nil || cause == nil {
+		return
+	}
+	r.pubMu.Lock()
+	defer r.pubMu.Unlock()
+	r.mu.Lock()
+	if w.info.State != Ready {
+		r.mu.Unlock()
+		return
+	}
+	w.info.State, w.info.DegradedBy = Degraded, cause
+	w.state.Store(Degraded)
+	name, wroot := w.info.Name, w.info.Root
+	r.mu.Unlock()
+	r.publishLocked(id, Degraded, cause, name, wroot)
+}
+
+// Recover returns every workspace degraded by code to ready and publishes each
+// transition: the cause is gone. A workspace degraded by anything else stays degraded.
+func (r *Registry) Recover(code capability.ErrorCode) {
+	r.allMu.RLock()
+	all := make([]*workspace, 0, len(r.all))
+	for _, w := range r.all {
+		all = append(all, w)
+	}
+	r.allMu.RUnlock()
+	for _, w := range all {
+		r.recoverOne(w, code)
+	}
+}
+
+func (r *Registry) recoverOne(w *workspace, code capability.ErrorCode) {
+	r.pubMu.Lock()
+	defer r.pubMu.Unlock()
+	r.mu.Lock()
+	if w.info.State != Degraded || w.info.DegradedBy == nil || w.info.DegradedBy.Code != code {
+		r.mu.Unlock()
+		return
+	}
+	w.info.State, w.info.DegradedBy = Ready, nil
+	w.state.Store(Ready)
+	id, name, root := w.info.ID, w.info.Name, w.info.Root
+	r.mu.Unlock()
+	r.publishLocked(id, Ready, nil, name, root)
 }
 
 func rootInvalid(target, cause string) *capability.Error {

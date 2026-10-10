@@ -99,19 +99,19 @@ var killFailedGrace = 3 * time.Second
 // emulator is not ours. One bound covers the kill and both waits, so the whole stop
 // cannot exceed stopTimeout.
 func (e *Emulator) stopSerialWith(ctx context.Context, adbPath, serial string) error {
-	deadline := time.Now().Add(stopTimeout)
+	deadline := clock.now().Add(stopTimeout)
 	// A kill that reported failure may still have stopped it, and only the listing says,
 	// so the wait follows either way; but after a failed kill it is short, and a serial
 	// still listed then is adb's failure, reported at once instead of after the whole
 	// bound (level 4, step 5: a refused kill took the full 20 s to time out).
-	out, runErr := e.adb.Run(ctx, adbPath, time.Until(deadline), emuOutputCap, "-s", serial, "emu", "kill")
+	out, runErr := e.adb.Run(ctx, adbPath, deadline.Sub(clock.now()), emuOutputCap, "-s", serial, "emu", "kill")
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
 	failed := runErr != nil || out.ExitCode != 0
 	waitUntil := deadline
 	if failed {
-		if g := time.Now().Add(killFailedGrace); g.Before(waitUntil) {
+		if g := clock.now().Add(killFailedGrace); g.Before(waitUntil) {
 			waitUntil = g
 		}
 	}
@@ -146,10 +146,10 @@ func (e *Emulator) stopSerialWith(ctx context.Context, adbPath, serial string) e
 // cannot be read is not the answer, so the wait goes on to the bound.
 func (e *Emulator) waitGone(ctx context.Context, serial string, deadline time.Time) (bool, error) {
 	for {
-		if !time.Now().Before(deadline) {
+		if !clock.now().Before(deadline) {
 			return false, nil
 		}
-		pctx, cancel := context.WithDeadline(ctx, deadline)
+		pctx, cancel := context.WithTimeout(ctx, deadline.Sub(clock.now()))
 		devices, err := e.adb.Devices(pctx)
 		cancel()
 		if cerr := ctx.Err(); cerr != nil {
@@ -158,12 +158,12 @@ func (e *Emulator) waitGone(ctx context.Context, serial string, deadline time.Ti
 		if err == nil && !listed(devices, serial) {
 			return true, nil
 		}
-		next := time.Now().Add(stopPollInterval)
+		next := clock.now().Add(stopPollInterval)
 		if next.After(deadline) {
 			next = deadline
 		}
 		select {
-		case <-time.After(time.Until(next)):
+		case <-clock.after(next.Sub(clock.now())):
 		case <-ctx.Done():
 			return false, ctx.Err()
 		}

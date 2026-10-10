@@ -101,7 +101,7 @@ func Register(reg *capability.Registry, store *artifact.Store) {
 			}
 			return r
 		},
-		Handler: func(_ context.Context, call *capability.Call) (any, error) {
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(ReadParams)
 			// Both parameter groups are validated before the reference is resolved, so
 			// an invalid parameter is REQUEST_INVALID_PARAMS whatever the artifact.
@@ -130,7 +130,7 @@ func Register(reg *capability.Registry, store *artifact.Store) {
 			if p.Region != nil {
 				region = &artifact.Region{X: p.Region.X, Y: p.Region.Y, W: p.Region.W, H: p.Region.H}
 			}
-			data, mt, w, h, err := artifact.Transform(e.Data, e.Ref.MediaType, maxEdge, region)
+			data, mt, w, h, err := artifact.Transform(ctx, e.Data, e.Ref.MediaType, maxEdge, region)
 			if err != nil {
 				return nil, err
 			}
