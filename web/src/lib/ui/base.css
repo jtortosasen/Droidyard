@@ -1,0 +1,147 @@
+/* Base element styles over the tokens: the 2c panels keep their markup and look native
+   because of these (plan m2d step 2). Only tokens are used; no value is hard-coded. */
+html,
+body,
+#app {
+	height: 100%;
+}
+body {
+	margin: 0;
+	overflow: hidden;
+	background: var(--bg-window);
+	color: var(--text);
+	font: var(--fs-base) / 1.4 var(--font-ui);
+	-webkit-font-smoothing: antialiased;
+}
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+code,
+pre,
+kbd,
+samp {
+	font-family: var(--font-mono);
+	font-size: var(--fs-mono);
+}
+p {
+	margin: var(--sp-2) 0;
+}
+h2 {
+	margin: 0 0 var(--sp-3);
+	font-size: var(--fs-small);
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--text-2);
+}
+h3 {
+	margin: var(--sp-3) 0;
+	font-size: var(--fs-base);
+}
+a {
+	color: var(--accent);
+}
+button,
+select,
+input,
+textarea {
+	font: inherit;
+	color: inherit;
+}
+button {
+	min-height: calc(var(--row) - 2px);
+	padding: 0 var(--sp-4);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--bg-raised);
+	cursor: default;
+}
+button:hover:not(:disabled) {
+	background: var(--bg-hover);
+}
+button:active:not(:disabled) {
+	background: var(--bg-active);
+}
+button:disabled,
+select:disabled,
+input:disabled {
+	opacity: 0.5;
+}
+select,
+input:not([type='checkbox'], [type='radio']),
+textarea {
+	min-height: calc(var(--row) - 2px);
+	padding: 0 var(--sp-3);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--bg-window);
+}
+input::placeholder {
+	color: var(--text-3);
+}
+input[type='checkbox'],
+input[type='radio'] {
+	accent-color: var(--accent);
+}
+table {
+	border-collapse: collapse;
+	width: 100%;
+}
+th {
+	text-align: left;
+	font-size: var(--fs-small);
+	font-weight: 600;
+	color: var(--text-2);
+}
+th,
+td {
+	padding: var(--sp-1) var(--sp-4);
+	border-bottom: 1px solid var(--border);
+}
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--bg-active);
+	border-radius: 5px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+}
+
+/* Inspector controls (plan m2d step 10), shared by the right panel's sections. */
+.muted {
+	color: var(--text-2);
+}
+.small {
+	font-size: var(--fs-small);
+}
+.btn-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--sp-2);
+	padding: 0 var(--sp-3);
+}
+.btn-primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+.btn-primary:hover:not(:disabled) {
+	background: var(--accent);
+	filter: brightness(1.1);
+}
+.btn-primary:active:not(:disabled) {
+	background: var(--accent);
+	filter: brightness(0.92);
+}
+.err {
+	color: var(--danger);
+}

@@ -1,12 +1,13 @@
-// The project picker's model (ADR-0045 §3, §4): the projects this installation has known,
+// The projects model (ADR-0047, ADR-0045 §3, §4): the projects this installation has known,
 // live. `workspace.watch` answers with the index merged with the live states, and its
 // `workspace.state` events keep the rows current, so a workspace an agent opens through MCP
-// shows without a reload. Choosing a row opens it by id; "Open folder..." raises the
-// daemon's folder dialog (`workspace.chooseRoot`) and opens the root it answers with; where
-// the dialog is unavailable the user types a root, as 2b did. Opening never trusts.
+// shows without a reload. Selecting a row selects its project, opening it first when it is
+// closed; "Open folder..." raises the daemon's folder dialog (`workspace.chooseRoot`) and
+// opens the root it answers with; where the dialog is unavailable the user types a root, as
+// 2b did. Opening never trusts.
 //
-// The watch lives while the picker is shown (start/stop), so every visit reads the index
-// and the trusted marks anew; a lost connection or `events.gap` starts it again.
+// The watch lives with the page (start/stop); a lost connection or `events.gap` starts it
+// again.
 import { eventTopics, type EventPayload, type Params, type Result } from '../api/capabilities.gen';
 import {
 	ConnectionError,
@@ -17,6 +18,7 @@ import {
 	type Subscription,
 } from '../api/client';
 import { failure, failureText, type Failure } from '../build/failure';
+import type { Route } from '../start/route';
 
 /** The daemon's list is at most 50 (workspace.watch); events never grow it past that. */
 export const MAX_ROWS = 50;
@@ -27,7 +29,7 @@ const TOPIC_GAP = 'events.gap';
 type Calls = 'workspace.open' | 'workspace.chooseRoot' | 'system.capabilities' | 'events.unsubscribe';
 type StateEvent = EventPayload<'workspace.watch', 'state'>;
 
-export interface PickerClient {
+export interface ProjectsClient {
 	call<N extends Calls>(name: N, params: Params<N>, opts?: CallOptions): Promise<Result<N>>;
 	subscribe(
 		name: 'workspace.watch',
@@ -36,7 +38,7 @@ export interface PickerClient {
 	): Promise<Subscription & { readonly result: Result<'workspace.watch'> }>;
 }
 
-export interface PickerRow {
+export interface ProjectRow {
 	id: string;
 	name: string;
 	root: string;
@@ -50,8 +52,8 @@ export interface PickerRow {
 export type Chooser = 'unknown' | 'available' | 'unavailable';
 export type WatchState = 'idle' | 'starting' | 'watching' | 'waiting' | 'error' | 'ended';
 
-export interface PickerView {
-	rows: readonly PickerRow[];
+export interface ProjectsView {
+	rows: readonly ProjectRow[];
 	truncated: boolean;
 	watch: { state: WatchState; detail: string };
 	/** Whether the folder dialog can be raised; anything but available shows the typed field. */
@@ -64,10 +66,10 @@ export interface PickerView {
 	error: Failure | null;
 }
 
-export class PickerModel {
-	#client: PickerClient;
+export class ProjectsModel {
+	#client: ProjectsClient;
 	#navigate: (workspaceId: string) => void;
-	#rows = new Map<string, PickerRow>();
+	#rows = new Map<string, ProjectRow>();
 	#truncated = false;
 	#watch: { state: WatchState; detail: string } = { state: 'idle', detail: '' };
 	#chooser: Chooser = 'unknown';
@@ -79,14 +81,14 @@ export class PickerModel {
 	#sub: Subscription | null = null;
 	#waiting = false;
 	#listeners = new Set<() => void>();
-	#view: PickerView | null = null;
+	#view: ProjectsView | null = null;
 
-	constructor(client: PickerClient, navigate: (workspaceId: string) => void) {
+	constructor(client: ProjectsClient, navigate: (workspaceId: string) => void) {
 		this.#client = client;
 		this.#navigate = navigate;
 	}
 
-	get view(): PickerView {
+	get view(): ProjectsView {
 		this.#view ??= {
 			rows: [...this.#rows.values()].sort((a, b) => time(b.lastOpenedAt) - time(a.lastOpenedAt)),
 			truncated: this.#truncated,
@@ -107,13 +109,13 @@ export class PickerModel {
 		};
 	}
 
-	/** The picker is shown: read what the dialog can do, and follow the workspaces. */
+	/** Read what the dialog can do, and follow the workspaces. */
 	start(): void {
 		void this.#readChooser();
 		this.#begin();
 	}
 
-	/** The picker is left: the watch ends; the rows stay until the next start replaces them. */
+	/** The page is left: the watch ends; the rows stay until the next start replaces them. */
 	stop(): void {
 		this.#run = null;
 		this.#waiting = false;
@@ -132,14 +134,20 @@ export class PickerModel {
 		}
 	}
 
-	/** Why the project the address named could not be opened. */
+	/** Why the project the address named could not be opened: shown in the panel. */
 	showError(f: Failure): void {
 		this.#error = f;
 		this.#changed();
 	}
 
-	/** A click on a row: the workspace is opened by its id, then the tab shows it. */
-	openRow(id: string): Promise<void> {
+	/** A click on a project: an open one is shown at once, a closed one is opened by its id first. */
+	select(id: string): Promise<void> {
+		if (this.#rows.get(id)?.open === true) {
+			this.#error = null;
+			this.#changed();
+			this.#navigate(id);
+			return Promise.resolve();
+		}
 		return this.#open(id);
 	}
 
@@ -300,3 +308,19 @@ const time = (iso: string): number => {
 	const t = Date.parse(iso);
 	return Number.isNaN(t) ? 0 : t;
 };
+
+/** What the page shows (ADR-0047 §2). */
+export type Landing = { kind: 'waiting' } | { kind: 'project'; workspace: string } | { kind: 'panel' };
+
+/**
+ * The address names a project, and that wins. Without `w`: the newest open workspace once
+ * the list is read; none open, or the list unreadable, or a `w` the daemon refused
+ * (`refused`: the reason is in the panel), the pinned panel.
+ */
+export function landing(route: Route, view: ProjectsView, refused: boolean): Landing {
+	if (route.view === 'project') return { kind: 'project', workspace: route.workspace };
+	if (refused) return { kind: 'panel' };
+	if (view.watch.state === 'idle' || view.watch.state === 'starting') return { kind: 'waiting' };
+	const newest = view.rows.find((r) => r.open);
+	return newest ? { kind: 'project', workspace: newest.id } : { kind: 'panel' };
+}

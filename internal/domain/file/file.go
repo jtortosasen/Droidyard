@@ -154,6 +154,21 @@ func Register(reg *capability.Registry, opts Options) {
 		Description:  "Watches a directory in the project (WebSocket sessions only) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
 		Params:       WatchParams{},
 		Result:       WatchResult{},
+		// The stream (ADR-0049 §2): the client is generated from it (ADR-0041 §4).
+		Events: &capability.Events{
+			Topic: TopicFileChanges,
+			Types: map[string]any{TypeChanges: ChangesPayload{}, TypeStopped: StoppedPayload{}},
+		},
+		// A retained result drops the baseline once delivered (ADR-0020 §Retention, ADR-0049
+		// §1): a later operation.wait returns the count and the flags, and the caller
+		// watches again for a baseline.
+		Slim: func(result any) any {
+			if r, ok := result.(WatchResult); ok {
+				r.Entries = []WatchedEntry{}
+				return r
+			}
+			return result
+		},
 		// The codes the handler returns (D3, D7). WORKSPACE_NOT_OPEN and SESSION_REQUIRED
 		// come from Start.
 		Errors: []capability.ErrorCode{

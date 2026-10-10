@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PickerModel, type PickerClient } from './picker';
+import { landing, ProjectsModel, type ProjectsClient } from './projects';
+import type { Route } from '../start/route';
 import { ConnectionError } from '../api/client';
 import { capError, FakeCalls, FakeStream, settle } from '../build/testing';
 
@@ -32,9 +33,9 @@ async function setup(rows: ReturnType<typeof row>[] = [], chooser: boolean | 'fa
 				? stream.call(n as 'events.unsubscribe', p as { subscriptionId: string })
 				: (calls.call as (n: string, p: unknown, o?: unknown) => Promise<never>)(n, p, o),
 		subscribe: (n: string, p: unknown, h: never) => stream.subscribe(n, p, h),
-	} as unknown as PickerClient;
+	} as unknown as ProjectsClient;
 	const navigated: string[] = [];
-	const model = new PickerModel(client, (id) => navigated.push(id));
+	const model = new ProjectsModel(client, (id) => navigated.push(id));
 	model.start();
 	stream.answer(0, { subscriptionId: 'wa1', workspaces: rows, truncated: false });
 	await settle();
@@ -43,7 +44,7 @@ async function setup(rows: ReturnType<typeof row>[] = [], chooser: boolean | 'fa
 	return { calls, stream, model, navigated, ev };
 }
 
-describe('PickerModel', () => {
+describe('ProjectsModel', () => {
 	it('lists the snapshot newest first, with the open ones marked', async () => {
 		const t = await setup([
 			row('old', { lastOpenedAt: '2026-10-01T10:00:00Z' }),
@@ -56,9 +57,9 @@ describe('PickerModel', () => {
 		expect(t.model.view.watch.state).toBe('watching');
 	});
 
-	// Decision (ADR-0045 §3): the picker is live. A workspace an agent opens through MCP
+	// Decision (ADR-0045 §3): the panel is live. A workspace an agent opens through MCP
 	// after the snapshot reaches the list by its workspace.state event; a snapshot-only
-	// picker would not show it.
+	// panel would not show it.
 	it('merges the ready event of a workspace opened after the snapshot', async () => {
 		const t = await setup([row('a')]);
 		t.ev('mcp1', { state: 'ready', name: 'viaMcp', root: '/r/mcp', trusted: false });
@@ -97,7 +98,7 @@ describe('PickerModel', () => {
 		expect(t.stream.handlers).toHaveLength(3);
 	});
 
-	it('ends the watch when the picker is left', async () => {
+	it('ends the watch when the page is left', async () => {
 		const t = await setup([row('a')]);
 		t.model.stop();
 		expect(t.stream.stopped).toEqual(['wa1']);
@@ -105,24 +106,39 @@ describe('PickerModel', () => {
 		expect(t.model.view.rows.map((r) => r.id)).toEqual(['a']);
 	});
 
-	// Decision (ADR-0045 §2): a click opens the workspace by its id and the tab goes to #w=<id>.
-	it('opens a clicked row by its id and navigates to the id the daemon answers', async () => {
+	// Decision (ADR-0047 §1): selecting a closed project opens it by its id and only then
+	// routes to it; routing first would show a project the daemon has not opened.
+	it('opens a closed row by its id, then routes to the id the daemon answers', async () => {
 		const t = await setup([row('a')]);
-		await t.model.openRow('a');
+		let routedBeforeOpen = false;
+		t.calls.on('workspace.open', () => {
+			routedBeforeOpen = t.navigated.length > 0;
+			return { id: 'opened', name: 'n', root: '/x', state: 'ready', trusted: false };
+		});
+		await t.model.select('a');
 		expect(t.calls.calls.find((c) => c.name === 'workspace.open')).toEqual({
 			name: 'workspace.open',
 			params: {},
 			workspace: 'a',
 		});
+		expect(routedBeforeOpen).toBe(false);
 		expect(t.navigated).toEqual(['opened']);
 	});
 
-	it('stays on the picker with the code when the open is refused', async () => {
+	// Decision (ADR-0047 §1): an open project is shown at once; it needs no open call.
+	it('routes to an open row without calling workspace.open', async () => {
+		const t = await setup([row('a', { state: 'ready' })]);
+		await t.model.select('a');
+		expect(t.calls.names()).not.toContain('workspace.open');
+		expect(t.navigated).toEqual(['a']);
+	});
+
+	it('stays put with the code when the open is refused', async () => {
 		const t = await setup([row('a')]);
 		t.calls.on('workspace.open', () => {
 			throw capError('WORKSPACE_ROOT_INVALID');
 		});
-		await t.model.openRow('a');
+		await t.model.select('a');
 		expect(t.navigated).toEqual([]);
 		expect(t.model.view.error).toMatchObject({ code: 'WORKSPACE_ROOT_INVALID' });
 		expect(t.model.view.opening).toBe(false);
@@ -187,5 +203,40 @@ describe('PickerModel', () => {
 		expect(t.calls.calls.find((c) => c.name === 'workspace.open')?.workspace).toBe('/typed/root');
 		await t.model.openRoot('   ');
 		expect(t.calls.calls.filter((c) => c.name === 'workspace.open')).toHaveLength(1);
+	});
+});
+
+describe('landing', () => {
+	const none: Route = { view: 'none' };
+	const settled = async (rows: ReturnType<typeof row>[]) => (await setup(rows)).model.view;
+
+	// Decision (ADR-0047 §2): without `w`, the newest open workspace.
+	it('chooses the newest open project when the address names none', async () => {
+		const view = await settled([
+			row('closed-new', { lastOpenedAt: '2026-10-10T12:00:00Z' }),
+			row('open-old', { state: 'ready', lastOpenedAt: '2026-10-01T12:00:00Z' }),
+			row('open-new', { state: 'ready', lastOpenedAt: '2026-10-09T12:00:00Z' }),
+		]);
+		expect(landing(none, view, false)).toEqual({ kind: 'project', workspace: 'open-new' });
+	});
+
+	// Decision (ADR-0047 §2): none open pins the panel.
+	it('pins the panel when no project is open', async () => {
+		expect(landing(none, await settled([row('a')]), false)).toEqual({ kind: 'panel' });
+		expect(landing(none, await settled([]), false)).toEqual({ kind: 'panel' });
+	});
+
+	// Decision (ADR-0047 §2): a `w` the daemon refused pins the panel with the reason, even
+	// though another project is open: choosing that one would hide the reason.
+	it('pins the panel for a refused w although a project is open', async () => {
+		const view = await settled([row('a', { state: 'ready' })]);
+		expect(landing(none, view, true)).toEqual({ kind: 'panel' });
+	});
+
+	it('waits for the list before choosing, and lets the address win', async () => {
+		const t = await setup([row('a', { state: 'ready' })]);
+		t.model.stop();
+		expect(landing(none, t.model.view, false)).toEqual({ kind: 'waiting' });
+		expect(landing({ view: 'project', workspace: 'x' }, t.model.view, true)).toEqual({ kind: 'project', workspace: 'x' });
 	});
 });

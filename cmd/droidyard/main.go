@@ -70,7 +70,8 @@ Commands:
   ui         Open the web UI in the default browser, at the tokenised URL:
              droidyard ui [--no-autostart]
              In a project folder, or under one (a settings.gradle or settings.gradle.kts),
-             it opens that project; elsewhere, the project picker.
+             it opens that project; elsewhere, the newest open project, else the
+             projects panel.
              ui starts a daemon when none answers, unless --no-autostart.
   trust      Grant a project root trust, so capabilities that run its code may:
              droidyard trust <root>

@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -295,6 +297,10 @@ func TestWatchWalkIsCapped(t *testing.T) {
 	}
 	if res.Watched != 20000 || !res.Truncated {
 		t.Fatalf("a 20001-entry directory watched %d entries (truncated %v); want 20000 and truncated", res.Watched, res.Truncated)
+	}
+	// ADR-0049 §1: the result's entries are capped with the baseline, not beyond it.
+	if len(res.Entries) != 20000 {
+		t.Fatalf("a 20001-entry directory returned %d entries; want 20000", len(res.Entries))
 	}
 
 	w := &watcher{root: mustOpenRoot(t, f.root)}
@@ -628,4 +634,191 @@ func TestWatchTickKeepsAnUnreadableSubdirectory(t *testing.T) {
 	if len(got.Changes) != 1 || got.Changes[0].Path != "w/c.txt" || got.Changes[0].Kind != "created" {
 		t.Fatalf("with w/sub unreadable the tick reported %+v; want only w/c.txt created", got.Changes)
 	}
+}
+
+// TestWatchEntriesAreTheBaseline pins ADR-0049 §1: the result's entries are the baseline
+// walk the first tick diffs against, sorted by path, with the exclusions applied, and
+// never a second walk. The file the hook creates after the walk has read the root is not
+// in entries and arrives as a created event; a result built from a second walk would
+// list it in entries as well, and the client's tree would count it twice.
+func TestWatchEntriesAreTheBaseline(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/b.txt", "b")
+	f.write("w/a/x.txt", "x")
+	f.write("w/z/y.txt", "y")
+	f.write("w/.git/config", "no")
+	f.write("w/app/build.gradle.kts", "plugins {}")
+	f.write("w/app/build/out", "no")
+	f.write("w/.notes.droidyard-01234567.tmp", "no")
+	f.symlink("b.txt", "w/link")
+
+	// The hook runs once per directory, before it is read, in the walk's order: the
+	// second call is the first subdirectory, entered after w itself was read. The file it
+	// creates in w is one the baseline has missed. It stays set until the poller is gone,
+	// since the poller reads it too.
+	var calls atomic.Int32
+	watchWalkHook = func() {
+		if calls.Add(1) == 2 {
+			f.write("w/late.txt", "late")
+		}
+	}
+	defer func() { watchWalkHook = nil }()
+	res, err := f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []WatchedEntry{
+		{"w/a", "dir"}, {"w/a/x.txt", "file"}, {"w/app", "dir"}, {"w/app/build.gradle.kts", "file"},
+		{"w/b.txt", "file"}, {"w/link", "symlink"}, {"w/z", "dir"}, {"w/z/y.txt", "file"},
+	}
+	if len(res.Entries) != len(want) {
+		t.Fatalf("entries %+v; want %+v", res.Entries, want)
+	}
+	for i := range want {
+		if res.Entries[i] != want[i] {
+			t.Fatalf("entries[%d] is %+v; want %+v (all: %+v)", i, res.Entries[i], want[i], res.Entries)
+		}
+	}
+	if res.Watched != len(want) {
+		t.Errorf("watched %d; want %d, the length of entries", res.Watched, len(want))
+	}
+
+	// The late file is the first event's, not the baseline's.
+	sub, ok := f.sess.Subscription(res.SubscriptionID)
+	if !ok {
+		t.Fatal("the result named an unknown subscription")
+	}
+	var created bool
+	for deadline := time.Now().Add(5 * time.Second); !created && time.Now().Before(deadline); time.Sleep(2 * time.Millisecond) {
+		for _, e := range drainEvents(sub) {
+			var p ChangesPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			created = created || kinds(p.Changes)["w/late.txt"] == "created"
+		}
+	}
+	if !created {
+		t.Error("the file created after the baseline never arrived as a created event")
+	}
+	f.sess.Close()
+	waitLive(t, f.watchers, 0)
+}
+
+// TestWatchEntriesAreSlimmed pins ADR-0020 §Retention for file.watch (ADR-0049 §1): the
+// first delivery of the result carries the entries; an operation.wait after it returns
+// the same result with none (an empty array, which the schema requires), the count and
+// the flags kept. A descriptor without the Slim keeps 20000 entries for the retention
+// period, and the second wait would list them again.
+func TestWatchEntriesAreSlimmed(t *testing.T) {
+	f := newWatchFixture(t)
+	f.write("w/a.txt", "a")
+	f.write("w/b.txt", "b")
+	ops := capability.NewOperations(f.reg)
+	ops.UseWorkspaces(admit{})
+	ops.RegisterCapabilities()
+
+	params, _ := json.Marshal(WatchParams{Path: "w"})
+	id, err := ops.Start(context.Background(), capability.Request{Capability: "file.watch", Workspace: "ws", Params: params, Session: f.sess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ops.Wait(context.Background(), id, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := out.Result.(WatchResult)
+	if len(first.Entries) != 2 {
+		t.Fatalf("the first delivery carried %+v; want the two entries", first.Entries)
+	}
+	out, err = ops.Wait(context.Background(), id, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := out.Result.(WatchResult)
+	if second.Entries == nil || len(second.Entries) != 0 {
+		t.Errorf("a retained watch still carries entries %+v; want an empty, non-nil array", second.Entries)
+	}
+	if second.Watched != 2 || second.SubscriptionID != first.SubscriptionID {
+		t.Errorf("Slim dropped more than the entries: %+v", second)
+	}
+	f.sess.Close()
+	waitLive(t, f.watchers, 0)
+}
+
+// buildNestedTree lays out the benchmark's tree under dir: directories branching by four
+// down to depth 6 (5460 of them) and files spread over every directory until the walk
+// has 20000 entries, the cap. A real project's tree is nested, not one big directory, and
+// the cost of a walk is dominated by the directories it opens (ADR-0049 §Consequences).
+func buildNestedTree(tb testing.TB, dir string) {
+	tb.Helper()
+	var dirs []string
+	level := []string{dir}
+	for depth := 1; depth <= 6; depth++ {
+		var next []string
+		for _, parent := range level {
+			for i := 0; i < 4; i++ {
+				d := filepath.Join(parent, "d"+strconv.Itoa(i))
+				if err := os.Mkdir(d, 0o755); err != nil {
+					tb.Fatal(err)
+				}
+				next = append(next, d)
+			}
+		}
+		dirs = append(dirs, next...)
+		level = next
+	}
+	files := watchCap - len(dirs)
+	all := append([]string{dir}, dirs...)
+	for i := 0; i < files; i++ {
+		name := filepath.Join(all[i%len(all)], "f"+strconv.Itoa(i)+".kt")
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			tb.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkWatchWalkNested measures one walk of the watch's cap, 20000 entries in a tree
+// 6 directories deep, the cost the poller pays every second per watch (ADR-0049; plan
+// m2d step 4's gate). "walk" is the baseline; "tick" adds the diff against the last walk
+// that a tick does. The entries are checked once, so a benchmark of a smaller tree cannot
+// pass for this one.
+func BenchmarkWatchWalkNested(b *testing.B) {
+	dir := b.TempDir()
+	buildNestedTree(b, dir)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer root.Close()
+	w := &watcher{root: root}
+	base, truncated, cerr := w.walk(root.FS(), ".")
+	if cerr != nil {
+		b.Fatal(cerr)
+	}
+	if len(base) != watchCap || truncated {
+		b.Fatalf("the tree has %d entries (truncated %v); want exactly %d", len(base), truncated, watchCap)
+	}
+
+	b.Run("walk", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, _, cerr := w.walk(root.FS(), "."); cerr != nil {
+				b.Fatal(cerr)
+			}
+		}
+	})
+	b.Run("tick", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			next, trunc, cerr := w.walkFrom(root.FS(), ".", base)
+			if cerr != nil {
+				b.Fatal(cerr)
+			}
+			if changes, _ := diff(base, next, trunc); len(changes) != 0 {
+				b.Fatalf("an unchanged tree reported %d changes", len(changes))
+			}
+		}
+	})
 }

@@ -80,31 +80,39 @@ type WatchParams struct {
 
 // WatchResult is file.watch's result (D7).
 type WatchResult struct {
-	SubscriptionID string   `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the changes arrive on, over the WebSocket session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."`
-	Watched        int      `json:"watched" jsonschema:"required" jsonschema_description:"How many entries the baseline walk recorded; at most 20000."`
-	Truncated      bool     `json:"truncated" jsonschema_description:"True when the baseline walk stopped at 20000 entries; watch a subdirectory."`
-	Excluded       []string `json:"excluded" jsonschema:"required" jsonschema_description:"Directories and names the watch never reports."`
+	SubscriptionID string         `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the changes arrive on, over the WebSocket session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."`
+	Watched        int            `json:"watched" jsonschema:"required" jsonschema_description:"How many entries the baseline walk recorded; at most 20000."`
+	Truncated      bool           `json:"truncated" jsonschema_description:"True when the baseline walk stopped at 20000 entries; watch a subdirectory."`
+	Excluded       []string       `json:"excluded" jsonschema:"required" jsonschema_description:"Directories and names the watch never reports."`
+	Entries        []WatchedEntry `json:"entries" jsonschema:"required" jsonschema_description:"The baseline walk the first tick compares with: every entry under the path, excluded ones absent, sorted by path, at most 20000. Events then report the differences, so the entries plus the events equal the tree. Empty in a result returned again after delivery."`
+}
+
+// WatchedEntry is one entry of file.watch's baseline: its path from the project root and
+// its kind, as file.list reports it (ADR-0049).
+type WatchedEntry struct {
+	Path string `json:"path" jsonschema:"required" jsonschema_description:"The entry's path relative to the project root."`
+	Type string `json:"type" jsonschema:"required,enum=file,enum=dir,enum=symlink,enum=other" jsonschema_description:"The entry's kind; a symlink is reported as symlink, never followed."`
 }
 
 // FileChange is one change in a file.changes event's payload (D8). Kind is created,
 // modified or deleted; Type is the entry's kind, as file.list reports it.
 type FileChange struct {
-	Path string `json:"path"`
-	Kind string `json:"kind"`
-	Type string `json:"type,omitempty"`
+	Path string `json:"path" jsonschema:"required" jsonschema_description:"The entry's path relative to the project root."`
+	Kind string `json:"kind" jsonschema:"required,enum=created,enum=modified,enum=deleted" jsonschema_description:"What happened since the previous walk."`
+	Type string `json:"type,omitempty" jsonschema:"enum=file,enum=dir,enum=symlink,enum=other" jsonschema_description:"The entry's kind, as file.list reports it."`
 }
 
 // ChangesPayload is the file.changes event's payload for type changes (D8).
 type ChangesPayload struct {
-	Path      string       `json:"path"`
-	Changes   []FileChange `json:"changes"`
-	Truncated bool         `json:"truncated"`
+	Path      string       `json:"path" jsonschema:"required" jsonschema_description:"The watched directory, relative to the project root."`
+	Changes   []FileChange `json:"changes" jsonschema:"required" jsonschema_description:"A tick's differences, sorted by path, at most 1000."`
+	Truncated bool         `json:"truncated" jsonschema:"required" jsonschema_description:"True when the walk hit its 20000-entry cap (no deletion is then reported; watching again returns another capped baseline, so watch a subdirectory) or the changes were cut at 1000 (then call file.watch again for a new baseline)."`
 }
 
 // StoppedPayload is the file.changes event's payload for type stopped (D8).
 type StoppedPayload struct {
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
+	Path   string `json:"path" jsonschema:"required" jsonschema_description:"The watched directory, relative to the project root."`
+	Reason string `json:"reason" jsonschema:"required,enum=workspaceClosed,enum=pathGone,enum=unreadable" jsonschema_description:"workspaceClosed: the workspace was closed. pathGone: the directory no longer exists or is no longer a directory. unreadable: the directory can no longer be read."`
 }
 
 // watchEntry is one entry of a walk: its kind, and for a file or symlink its size and
@@ -484,6 +492,7 @@ func (o Options) watch(ctx context.Context, call *capability.Call) (any, error) 
 	}
 	w.baseline = baseline
 
+	entries := baselineEntries(baseline)
 	o.Watchers.add(w)
 	go w.run()
 	// The last act (D9): a cancel that landed during the baseline walk ends the
@@ -498,5 +507,19 @@ func (o Options) watch(ctx context.Context, call *capability.Call) (any, error) 
 		Watched:        len(baseline),
 		Truncated:      truncated,
 		Excluded:       excludedText,
+		Entries:        entries,
 	}, nil
+}
+
+// baselineEntries is the baseline walk as the result states it, sorted by path (ADR-0049
+// §1). It is the very map the first tick diffs against, never a second walk, so an entry
+// created after the baseline is an event's, not a duplicate in both. The slice is never
+// nil: the schema requires entries, and an empty directory is an empty array.
+func baselineEntries(baseline map[string]watchEntry) []WatchedEntry {
+	entries := make([]WatchedEntry, 0, len(baseline))
+	for p, e := range baseline {
+		entries = append(entries, WatchedEntry{Path: p, Type: e.typ})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries
 }

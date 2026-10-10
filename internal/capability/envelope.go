@@ -119,21 +119,50 @@ type OperationState struct {
 	StartedAt time.Time  `json:"startedAt" jsonschema:"required"`
 	// DurationMs is set on the terminal event only.
 	DurationMs *int64 `json:"durationMs,omitempty" jsonschema_description:"Set on the terminal event: milliseconds from the operation's record to its end."`
+	// Session is the session that made the call (ADR-0048); omitted for a call recorded
+	// without one.
+	Session *SessionRef `json:"session,omitempty" jsonschema_description:"The session that made the call; omitted for a call recorded without one."`
 	// Code is set on a failed operation's terminal event only.
 	Code      ErrorCode  `json:"code,omitempty" jsonschema_description:"Set on a failed operation's terminal event."`
 	BlockedBy *BlockedBy `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
 }
 
+// SessionRef names the session that made a recorded call, on operation.state events and
+// operation.watch rows (ADR-0048). It is an opaque identity for the UI's agents panel: no
+// capability takes a session id, so it grants nothing, and it carries no device or
+// project text.
+type SessionRef struct {
+	ID string `json:"id" jsonschema:"required" jsonschema_description:"The daemon session's opaque id."`
+	// Name is what the client calls itself: for MCP, clientInfo.name from initialize,
+	// at most 64 runes with control and format characters removed; absent before it.
+	Name string `json:"name,omitempty" jsonschema_description:"What the client calls itself: for MCP, clientInfo.name from initialize (at most 64 characters, control and format characters removed); absent before it."`
+	// Workspace is the session's bound workspace id, if that workspace was open when the
+	// call was recorded. It is taken once: under the store's lock it could not be, since
+	// admission takes the store's lock inside the workspace's.
+	Workspace string `json:"workspace,omitempty" jsonschema_description:"The session's bound workspace id, if that workspace was open when the call was recorded."`
+}
+
+// copy returns a copy of the reference, so no event shares memory with the record; nil
+// stays nil.
+func (r *SessionRef) copy() *SessionRef {
+	if r == nil {
+		return nil
+	}
+	c := *r
+	return &c
+}
+
 // ActiveOperation is one row of operation.watch's snapshot: an operation not yet
 // terminal.
 type ActiveOperation struct {
-	OperationID string     `json:"operationId" jsonschema:"required"`
-	Capability  string     `json:"capability" jsonschema:"required"`
-	Workspace   string     `json:"workspace,omitempty" jsonschema_description:"The workspace id; omitted for a global operation."`
-	Client      ClientKind `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui"`
-	State       State      `json:"state" jsonschema:"required,enum=queued,enum=running"`
-	StartedAt   time.Time  `json:"startedAt" jsonschema:"required"`
-	BlockedBy   *BlockedBy `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
+	OperationID string      `json:"operationId" jsonschema:"required"`
+	Capability  string      `json:"capability" jsonschema:"required"`
+	Workspace   string      `json:"workspace,omitempty" jsonschema_description:"The workspace id; omitted for a global operation."`
+	Client      ClientKind  `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui"`
+	State       State       `json:"state" jsonschema:"required,enum=queued,enum=running"`
+	StartedAt   time.Time   `json:"startedAt" jsonschema:"required"`
+	BlockedBy   *BlockedBy  `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
+	Session     *SessionRef `json:"session,omitempty" jsonschema_description:"The session that made the call; omitted for a call recorded without one."`
 }
 
 // Object is a JSON object whose shape is named elsewhere: for operation_wait, by the
