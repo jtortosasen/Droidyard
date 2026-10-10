@@ -1,5 +1,5 @@
 {
-  "version": "0.16.0",
+  "version": "0.17.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -6099,6 +6099,28 @@
                   "additionalProperties": false,
                   "type": "object",
                   "description": "Set while the operation is queued."
+                },
+                "session": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The daemon session's opaque id."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "What the client calls itself: for MCP, clientInfo.name from initialize (at most 64 characters, control and format characters removed); absent before it."
+                    },
+                    "workspace": {
+                      "type": "string",
+                      "description": "The session's bound workspace id, if that workspace was open when the call was recorded."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "description": "The session that made the call; omitted for a call recorded without one."
                 }
               },
               "additionalProperties": false,
@@ -6154,6 +6176,28 @@
               "durationMs": {
                 "type": "integer",
                 "description": "Set on the terminal event: milliseconds from the operation's record to its end."
+              },
+              "session": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The daemon session's opaque id."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "What the client calls itself: for MCP, clientInfo.name from initialize (at most 64 characters, control and format characters removed); absent before it."
+                  },
+                  "workspace": {
+                    "type": "string",
+                    "description": "The session's bound workspace id, if that workspace was open when the call was recorded."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "description": "The session that made the call; omitted for a call recorded without one."
               },
               "code": {
                 "type": "string",
