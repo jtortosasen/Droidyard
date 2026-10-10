@@ -191,6 +191,28 @@ describe('Client', () => {
 		await expect(p).resolves.toEqual({ ok: 1 });
 	});
 
+	// Decision (m2e D37): onOperation gives the first answer's operation id, once, for a
+	// long-running call only, so a caller cancels its own operation and no other.
+	it('calls onOperation once with the operation id of a long-running call, never for a short one', async () => {
+		const { client, sockets } = setup();
+		client.connect();
+		sockets[0].open();
+		const ids: string[] = [];
+		const p = client.call('build.tasks', {}, { onOperation: (id) => ids.push(id) });
+		sockets[0].reply({ id: sockets[0].lastId, operation: { id: 'op1', state: 'running' } });
+		await tick();
+		expect(ids).toEqual(['op1']);
+		sockets[0].reply({ id: sockets[0].lastId, operation: { id: 'op1', state: 'running' } });
+		await tick();
+		sockets[0].reply({ id: sockets[0].lastId, operation: { id: 'op1', state: 'completed' }, result: { ok: 1 } });
+		await p;
+		expect(ids).toEqual(['op1']);
+		const short = client.call('system.health', {}, { onOperation: (id) => ids.push(id) });
+		sockets[0].reply({ id: sockets[0].lastId, result: { ok: 1 } });
+		await short;
+		expect(ids).toEqual(['op1']);
+	});
+
 	it('sends a short capability without waitMs, and a failed operation rejects with its error', async () => {
 		const { client, sockets } = setup();
 		client.connect();
