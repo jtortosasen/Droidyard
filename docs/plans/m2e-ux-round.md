@@ -1,0 +1,226 @@
+# Plan: Milestone 2e — a UX round: collapsible panels, the sessions panel beside the tree, a status bar, a run toolbar and a Logcat query bar
+
+- Status: Approved
+- Approved: 2026-10-11, Delegated (owner: "hasta terminar el hito"). Q1, Q2 and D31–D41 applied as recommended; the owner can revert any Delegated choice.
+- Date: 2026-10-11
+- Milestone: the owner's six UX changes of 2026-10-11 after trying 2d, before the file operations (below). The file operations become **2f** (step 1).
+- Phase: `docs/roadmap/mvp.md` §Phase 2 (in part; see Scope). Phase 2's acceptance is met (2b); 2e adds none.
+- Contract: ADR-0041 §2, §4–§7; ADR-0042; ADR-0047 §1, §2; ADR-0048; ADR-0046; ADR-0023 §5, §6; ADR-0020; ADR-0015 §1; ADR-0016; ADR-0036; ADR-0039; ADR-0040; ADR-0010; `adb-device.md` §Filtering by app survives the app's death; `http-websocket.md` §Security baseline; m2a D2, D3, D5–D7 and m2d D23–D26 in force.
+
+**The owner's words (2026-10-11, translated; the requirement):** (1) "There is no collapse-panels button at the top right; each panel will have its own minimize button to hide, and what it does is collapse." (2) "The projects panel, which is the sessions panel (right now it is 'projects'), has two buttons, one at the top and one on the side. There is only one, on the side. When it expands, the right panel collapses automatically. And it does not expand over the tree but to its left. And its icon will take the place where it now says Droidyard. That vertical bar with the two icons is not there." (3) "Compact/comfortable will live inside the panel that appears with the sessions, at the top." (4) "Where it says 'open · daemon 0.17.0, up 0 s', that goes below, to a bottom status bar." (5) "The top bar where tasks are selected, launched etc. will be like Android Studio: simpler and more compact and shifted to the right. A run button that will be a play icon. To its left, select the device (emulator/device) and the variant/module." (6) "Logcat: simpler, a single search bar with what Android Studio does now (package:mine, tag:blablabla and things like that); you type them in the search box and filter as you go. And on the left you can select which device's logcat you want to listen to (of those available)." The main session's reading, D-a to D-g, is applied below as D31–D41.
+
+**The owner should see:** Q1 (the sessions panel is a docked column toggled from the toolbar; ADR-0047 §1 superseded in part) and Q2 (`device.watchLogs` lines carry the line's `package`, from its uid; API `0.18.0`). Both applied as recommended, Delegated; each becomes an ADR at step 1.
+
+## Scope
+
+| Item | Here? | Where, or why not |
+| --- | --- | --- |
+| Owner 1: per-region minimize, collapsed strips; the top-right toggles go | yes | step 5 (D32) |
+| Owner 2, 3: one sessions toggle in the brand's place, a docked column left of the tree, the right panel collapsed while open, the rail gone, density at the column's top | yes | step 5 (Q1, D33) |
+| Owner 4: the bottom status bar | yes | step 5 (D35) |
+| Owner 5: a compact right-aligned toolbar, `[device ▾] [module · variant ▾] [▶]`, ▶ as Run | yes | steps 6, 7 (D34, D36, D37) |
+| Owner 6: one Logcat query bar, Studio's keys, a device selector on its left | yes, a subset | steps 2–4 (Q2, D38–D41); `process:`, match case, autocomplete, history, favourites: Not in this milestone |
+| Debug, Apply Changes, several devices at once, run configurations beyond module and variant | no | not asked; `mvp.md` §Out of scope (multi-device) |
+| File operations | no | 2f (step 1 renames it) |
+
+## Starting point
+
+Code at `7f5ecc3` (2d merged). API `0.17.0`, 34 MCP tools. `web/src/lib/ui/Shell.svelte`: a toolbar (brand, the `toolbar` panels of `panels.ts`, build status, `Status.svelte`, density button, three region toggles), `<nav class="rail">` (`projects/Rail.svelte`: badge, spinner, hover overlay, click to pin; a Files icon), the four regions; `layout.ts` keeps sizes, `open` and density in `droidyard.ui.layout`. `App.svelte` owns the client, projects, sessions, `Status` and the rail; `start/Project.svelte`, keyed per workspace, builds the models and renders `Shell`. `logcat/Logcat.svelte`: Priority, Tags, Text and Application controls over `filter.ts`, `session.ts`, `stream.ts` (`device.watchLogs {device, applicationId?}`), its device `DevicesModel.view.selected` from `devices/Devices.svelte`'s selector. `internal/domain/device/watchlogs.go` reads `logcat -v threadtime,epoch,usec,uid` and parses the uid (`logcat.go`, -1 for a named one) but publishes `StreamLine {time, pid, tid, priority, tag, message}`; `appUID` (`logs.go`) parses `pm list packages -U` with `pmLineRE`. Application ids reach the UI from build outputs (ADR-0023 §5), installs and the project file (`install.ts`). `client.call` exposes no operation id.
+
+Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go test ./...` green. With this draft present `TestPlansIndexMatchesFiles` fails (no index row): step 1. `pnpm -C web run verify` not run (the planner's command guard).
+
+## Run rules
+
+- K1–K8 are m2d's (`m2d-redesign-file-tree.md` §Run rules) with `m2e` for `m2d`: `B=~/Library/Caches/droidyard-dev/m2e`, fresh state and configuration per run on every `droidyard` invocation, the adb guard at `$B/bin/adb`, `ANDROID_SERIAL=droidyard-m2e-none`, the scratch AVD `droidyard_m2a` through `$B/avd`, no owner device writes or UI dumps, no adb server restart, nothing in `~/Documents/DopamineControl`.
+- K9. Uninstalling the sample (step 2's fresh uid) only on the scratch AVD.
+
+## Delegated decisions
+
+- D31. **One version**: step 2 moves `0.17.0` → `0.18.0`; nothing else in 2e changes the contract.
+- D32. **Collapse.** Left, right and bottom each get a minimize button in their header; collapsed, a region leaves a 24 px strip (left and right vertical, the region's icon; bottom horizontal, each tab's icon and label) whose buttons restore it, the bottom's also selecting that tab. The centre does not collapse. `layout.open` keeps the state.
+- D33. **Sessions column.** The toggle takes the brand's place (Rail's icon, agent count and spinner); the column docks left of the left region (strip or panel), titled "Sessions", the density switch (Compact | Comfortable) at its top, then `Projects.svelte`; width remembered, 220–420 px, a splitter. Opening collapses the right region and records that it did; closing restores it only if the record is still set; any user action on the right region (minimize, strip) clears the record. Click only: no hover reveal, no Escape. Stored as `layout.sessions {open, size, collapsedRight}`. Workspace's "All projects" and the palette's "Switch project" open it. On the page without a project (ADR-0047 §2) the panel is still the page.
+- D34. **Toolbar.** Left: the sessions toggle, then the project's name (Workspace compact; a click opens the column; Reopen when closed). Right-aligned: the build status, device ▾, module · variant ▾ (one Popover API menu with both lists), ▶ or ■, Build as a hammer icon, the task selector behind a list icon. The trust banner stays a banner; the project file's indicator moves to the status bar.
+- D35. **Status bar**, the shell's last row: the connection state, daemon version, uptime, a `system.health` failure, the project file's indicator; text only.
+- D36. **Device ▾** lists `device.list`'s devices (not `device` state shown disabled with it), then the AVDs `emulator.list` does not report running, under "Start and run"; choosing writes the project file's preselection as today (`{serial}` or `{avd}`, ADR-0046). A device chosen is `DevicesModel`'s selection (a serial), the one the right panel and Logcat's "Toolbar device" use. An AVD chosen is a **pending AVD** in `DevicesModel` (`selectAvd(avd)`: touched, `selected` `''`, `view.pendingAvd`; `refresh` does not fill an empty selection while one is pending; `select(serial)` clears it); the right panel and Logcat say "AVD not running"; when `emulator.start` answers, the run calls `devices.select(device)`. The right panel's selector goes (the device shown as text; emulators and App stay).
+- D37. **Run.** ▶ runs, from the UI, `emulator.start {avd}` for a pending AVD, then `build.assemble {module, variant}`, then, only on `outcome: "success"`, the install of that build's output (`buildId`) and the launch of its application id, both through `InstallModel` so the project file, the right panel and "mine" hear of them as of a click there. A build's `failed` and `cancelled` are results, not errors (ADR-0020): `failed` shows "Build failed" pointing to Problems, `cancelled` ends the run as cancelled, and no install follows either; an operation error stops the run naming its step, code and message. ■ replaces ▶ while it runs and cancels the current step's own operation (`operation.cancel` with the id a new client-only `CallOptions.onOperation` gives; pressed before the id is known, the cancel is sent when it arrives); no step follows; `device.launch` is short and not cancelled. Disabled with the reason: untrusted, no module or variant, no device or AVD, a run in progress. Each step is an ordinary operation, so Activity shows it. The palette gains ">Run".
+- D38. **Query bar.** Text keys `tag`, `package`, `message`, `line`: substring by default, `-key:` negated, `key~:` regex, `key=:` exact; values bare, `'…'` or `"…"`, backslash escapes. `level:<verbose|debug|info|warn|error|assert|fatal>` (that level and above; assert is `fatal`), `age:<n><s|m|h|d>` (line time against the host clock when the query is applied and as each line arrives; shown rows are not re-tested as time passes), `is:crash`, `is:stacktrace`, `name:` accepted and ignored; negating a plain key is ignored. A bare word or quoted string is a `line` substring; adjacent bare words form one phrase. `&`, `|` and parentheses, AND tighter than OR; without them, same-key non-negated terms are ORed, different keys ANDed, negated terms ANDed. Everything case-insensitive. `package:mine` exactly is D39. An unknown key (`process:` named as not available), a bad level, age or regex, an unbalanced quote or parenthesis, or a dangling operator is shown inline with its position, and the last valid query stays applied (Studio's fallback to a line filter rejected: a typo would silently change what is shown). The default is `package:mine`; the query is remembered per project under `droidyard.ui.logcat.<workspaceId>`. Markers always pass (m2a). Each row shows the line's package.
+- D39. **"mine"** is the union of this workspace's application ids the tab knows: every build output it sees (`build.lastResult` at load and after each build) and its installs (the Run's included). Not the project file's id: ADR-0046 §3 uses it for logs only after a click. `androidTest` APKs are not build outputs (ADR-0023 §6), so test apps never count. `package:mine` matches a line whose `package` is in the set, or an `error`-or-above line whose message contains one of them (a system process logging the app's crash). An empty set says "no application id known yet: build or install once".
+- D40. **Logcat's device** selector lists the online devices; its first entry, "Toolbar device", follows the toolbar's choice; picking another holds it until it leaves the list, then it follows again. The stream is always the whole device (no `applicationId`).
+- D41. **Crash marks.** `is:crash` matches a Java crash run, an `AndroidRuntime` `error` line starting "FATAL EXCEPTION" and that pid's following `AndroidRuntime` lines (others may interleave), and a native one, `fatal` lines tagged `DEBUG` or `libc`; marked once at ingest. `is:stacktrace` matches a message `^\s*at \S.*\(.*\)$`. Logcat prints a multi-line message as several lines, so Studio's whole-message tests are applied per line.
+
+## Acceptance
+
+- [ ] A1. Left, bottom and right each collapse from their own header to a strip that restores them; the top-right toggles and the rail are gone; the state survives a reload. Source: owner 1, 2; D32. Proven by: step 5, step 8
+- [ ] A2. One sessions toggle where the brand was, with the agent count; the column docks left of the tree; opening collapses the right panel and closing restores it unless the user acted on it; density at its top. Source: owner 2, 3; Q1; D33. Proven by: step 5, step 8
+- [ ] A3. A bottom status bar holds the connection, the daemon version and uptime. Source: owner 4; D35. Proven by: step 5, step 8
+- [ ] A4. The toolbar's right-aligned `[device ▾] [module · variant ▾] [▶]`: ▶ starts a chosen AVD, assembles, installs the build it made and launches; ■ cancels the running step and nothing follows; the build status, hammer and task selector kept; the right panel has no selector of its own. Source: owner 5; D34, D36, D37. Proven by: step 6, step 7, step 8
+- [ ] A5. `device.watchLogs` lines carry `package` when the line's uid has exactly one package, from the first line of a freshly installed app's first process; the schema diff is that and `0.18.0`; 34 MCP tools. Source: Q2. Proven by: step 2
+- [ ] A6. Logcat: one query bar filtering as typed (D38's keys, `package:mine` following a relaunch, `is:crash` showing the crash run), errors inline with the last query kept, the device selector on its left, Pause, Clear and Restart as icons. Source: owner 6; D38–D41. Proven by: step 3, step 4, step 8
+- [ ] A7. Same primitive: every `client=ui` call in the trace is published; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 8
+- [ ] A8. `mvp.md`, `docs/README.md`, the register and the plans index name 2e and 2f and record what 2e closed and left. Source: `milestone-workflow` step 6. Proven by: step 1, step 9
+
+## Steps
+
+### 1. Baseline, renumbering and the two ADRs
+
+- Builds: the main session: in `mvp.md` §Phase 2, **2e** is this round and **2f** the tree's file operations, "after 2f" for the rest; `docs/README.md`'s status line; register rows 133, 221 and 222's "2e" → "2f"; this plan's index row; Q1's ADR (superseding ADR-0047 §1 in part) and Q2's ADR (superseding ADR-0041 §4 in part), their index rows and the header lines of ADR-0041 and ADR-0047.
+- Implements: `milestone-plan` §Writing one 3; D-g.
+- Check: `go test ./internal/doccheck` (index, ADR mentions and supersession, links, budget) and `go test ./...` green.
+- Schema: no change.
+- Needs: nothing.
+- Not here: code.
+- Rests on: —
+- [x] Done. Evidence: the Phase 2 section of `mvp.md` names 2e (this round) and 2f (file operations); the status line; register rows' "2e" → "2f" (three); the index row; ADR-0050 (Q1, supersedes ADR-0047 §1, §2 in part) and ADR-0051 (Q2, supersedes ADR-0041 §4 in part), indexed, with the header lines on 0041 and 0047. `go test ./internal/doccheck` and `go test ./...` green.
+
+### 2. `package` on `device.watchLogs` lines (Q2)
+
+- Builds: `internal/domain/device/watchlogs.go` (with a new `packages.go` if it reads better): `StreamLine.Package` (`json:"package,omitempty"`, `untrusted:"true"`, the description of Q2); an internal `appID` on the pending line; a per-stream table appId → package. A line whose uid's appId (`uid % 100000`) is in 10000–19999 and absent from the table starts a refresh, `adb shell pm list packages -U` (every package; `pmLineRE`; a line that does not match skipped; output cap 1 MiB; `logsPMTimeout`), at most one running and at most one started per second per stream, in a goroutine on a context of its own derived from the stream's and cancelled before the join; a refresh due but deferred by that gap is started by the batcher's 50 ms tick, so a held line never waits on a later unseen uid. After a successful refresh, appIds seen before it started and still absent are entered as none; one first seen while it ran stays absent and is resolved by the next allowed refresh; a failed one enters nothing (the next allowed refresh retries). Packages are attached at publish time; `publishBatch` stops at the first line whose appId waits on a refresh until it ends; a pending buffer at `streamPendingCap` releases the held lines without `package` rather than drop them; `drain` at logcat's exit publishes held lines without waiting. `run()` waits for the refresh goroutine, its `pm` child reaped, before the stream leaves the set. A uid shared by several packages, a named uid (-1), a system appId or a device without the uid column gives no package and never waits. `system.Version` `0.18.0`; `go test ./internal/schema -update`. `adb-device.md` §Logs: one clause naming the stream's package and pointing to the ADR.
+- Implements: Q2 (its ADR); ADR-0041 §4–§6, ADR-0042 §2; ADR-0015 §1; `adb-device.md` §Filtering by app survives the app's death.
+- Run by: the implementer (effort high); review: **Opus verifier** (a contract change, concurrency and child lifetime). Then the main session's level-5 run.
+- Check: fake adb, `-race`. `TestWatchLogsLinesCarryPackage` (pm lists `com.example.app uid:10146`, `com.shared.a`/`com.shared.b uid:10200`): uid 10146 and 1010146 → `com.example.app`; 10200, 1000, `root` → none, and 1000 and `root` cause no pm call. `TestWatchLogsHoldsUntilRefresh`: the first line of an unseen app uid is published after pm answers, with its package, and no later line of another uid overtakes it (seen failing without the hold). `TestWatchLogsRefreshIsBounded`: 50 unseen appIds in one second → at most 2 pm calls; an appId pm does not list causes no second call. `TestWatchLogsDeferredRefreshRuns`: an unseen appId 0.3 s after a refresh, then only known uids → its line published within 1 s plus pm's answer (seen failing with the `onLine`-only trigger); a new uid first seen while pm hangs, absent from that answer → the second pm call names it and its line carries the package (seen failing with "seen by the end"). `TestWatchLogsPMFailure`: pm exits 1 → the held lines published without `package`, no `stopped`, the same appId resolved by the next refresh. `TestWatchLogsHeldLinesAtTheCap`: pm hangs past `streamPendingCap` lines → the held line published without `package`, not dropped. `TestWatchLogsEndsDuringRefresh`: (a) logcat exits while pm hangs → the held lines before `stopped`, the pm child reaped before `LiveStreams()` is 0; (b) unsubscribe while pm hangs → nothing published, the pm child reaped before `LiveStreams()` is 0 (each seen failing without the join). Existing watchLogs tests green; `TestMCPTranscript` 34 tools; the schema diff line by line. **Level 5** (main session, K1, K2, K9): on a K1 daemon, a CDP snippet on its page opens `device.watchLogs` on `droidyard_m2a` over `/v1/ws`; the sample uninstalled, installed and launched by CLI calls (a new uid); the first line under that uid and every later one carry its id, `system_server`'s none; the hold's latency and that API's `pm list packages -U` format recorded.
+- Schema: `device.watchLogs`: the `lines` event's line gains optional `package` (string, untrusted description); `version` `0.17.0` → `0.18.0`; nothing else (`device.logs` unchanged).
+- Needs: step 1.
+- Not here: a process name or `process:` (Q2's alternative); `package` on `device.logs` (Q2); dropping `applicationId` from `device.watchLogs` (a breaking change; it stays).
+- Rests on: a line's `package` is the single package pm lists for its appId (level 5 on API 31; other APIs Unverified); no line waits longer than the rate gap plus one refresh, at most 1 s plus `logsPMTimeout` (level 3); no child or goroutine outlives the stream (level 3).
+- [ ] Done. Evidence:
+
+### 3. The Logcat query language
+
+- Builds: `web/src/lib/logcat/query.ts`: a tokenizer and recursive-descent parser for D38 returning `{ok, predicate}` or `{error, at}`; `compileQuery(text, {mine, now})` producing `(e: Entry) => boolean`; `crash.ts`: D41's per-pid ingest marking (a `crash` flag on the line object; `entry.ts`'s `Line` type) applied in `session.ts` before the batcher. `filter.ts`'s `Filter` replaced by the query. No component change.
+- Implements: owner 6; D38, D39, D41.
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest `query.test.ts`: each key, its `-`, `~` and `=` forms; quotes and escapes; a bare phrase; `tag:a tag:b package:x` = `(tag:a | tag:b) & package:x`; `-tag:a -tag:b` both ANDed; `a | b & c` binds AND first; `level:WARN` keeps warn, error, fatal; `level:assert` = fatal; `age:5m` against a fake `now`; `package:mine` by package and by an `error` message naming an id, not a `warn` one; `-package:mine` is a negated text match of "mine"; `process:x`, `level:loud`, `tag~:(`, `(tag:a`, `tag:a |` → errors with positions; `name:x` matches all; case-insensitive throughout; markers pass. `crash.test.ts`: a FATAL EXCEPTION run with another pid interleaved marks only the crashing pid's `AndroidRuntime` lines and ends at its first other tag; a `DEBUG` `fatal` line marked; `at com.x.A.b(A.kt:3)` is a stack line. Over 50,000 lines (`RING_CAPACITY`), `View.setFilter` with `package:mine tag:a | level:error` under a generous 500 ms in Node, the measured time on the Done line. Each decision seen failing reversed.
+- Schema: no change.
+- Needs: step 2 (the generated `package` field).
+- Not here: the bar (4); autocomplete, history, favourites, match case (Not in this milestone).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 4. The Logcat panel: the bar, the device selector, "mine"
+
+- Builds: `devices/devices.ts`: D36's pending AVD (`selectAvd`, `view.pendingAvd`, `refresh` leaving the selection empty while one is pending, `select` clearing it); `logcat/mine.ts` (D39, from `BuildModel` and `InstallModel`'s listeners; disposed with the project); `logcat/device.ts` (D40; "AVD not running" while the toolbar's AVD is pending); `Logcat.svelte`: the device selector, one query input (`aria-invalid`, the error text and position under it), Pause, Clear and Restart as Lucide icon buttons with titles; the four old controls and the Application form removed; `session.ts` always streams the whole device; `format.ts` adds the package column. `Project.svelte` passes the devices model, the mine set and the workspace id.
+- Implements: owner 6; D38–D40; ADR-0041 §7 (the UI filters).
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest `devices.test.ts`: an AVD pending, then a refresh listing one online device → `selected` still `''` (seen failing with today's `defaultDevice` fill); `select` clears the pending AVD. `mine.test.ts`: last result, a new build and an install join the set; the project file's id and another workspace's build do not. `device.test.ts` (logcat): following the toolbar; a pick held across a toolbar change; a pick that leaves the list → following. `session.test.ts`: `select` never passes `applicationId`; a query error leaves the previous filter's rows; the remembered query restored, a storage that throws leaves `package:mine`. Seen failing reversed. Level 4 (main session, no device): the bar's error shown inline; captures dark and light; no CSP violation.
+- Schema: no change.
+- Needs: step 3.
+- Not here: the toolbar's device selector (7); the panel's look beyond the bar.
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 5. The shell: collapsible regions, the sessions column, the status bar (Q1)
+
+- Builds: `ui/layout.ts`: `sessions {open, size, collapsedRight}` with clamping, and pure `openSessions`, `closeSessions`, `setRegion` (D33's rule); `Shell.svelte`: each region's minimize button and strip (D32), no rail, no top-right toggles, no density button, the sessions column with its splitter, the toolbar's left slot (toggle, project name), a `statusbar` snippet as the last row; `projects/SessionsToggle.svelte` from `Rail.svelte` (badge, spinner, `aria-expanded`; hover, pin and overlay removed; `Rail.svelte` removed); `App.svelte` and `Project.svelte`: `pinned` goes, "All projects" opens the column, `Status` and `ProjectFile` render in the status bar; the palette's density and "Switch project" commands use the shell's API. `ShellApi` gains `openSessions`.
+- Implements: owner 1–4; Q1 (its ADR); D25, D32, D33, D35.
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest `layout.test.ts`: opening collapses an open right region and records it; closing restores it; a right region the user collapsed before opening stays collapsed; a minimize or restore of the right region while open clears the record; stored and restored, a stored size out of bounds clamped, a throwing storage leaves defaults (seen failing reversed). `panels.test.ts` green. Level 4 (main session, K4): each region collapsed and restored from its strip, the bottom strip selecting a tab; sessions open → right collapsed, close → restored; right collapsed by the user, then sessions open and close → still collapsed; reload keeps all; density from the column; the status bar text; at 1280 px wide with the default sizes (sessions 280, left 260, right 340) and the sessions column, left and right all open, the centre is at least 240 px; dark and light captured; no CSP violation.
+- Schema: no change.
+- Needs: step 1. May run in parallel with steps 2–4 (web shell only; `Project.svelte` merged by the main session).
+- Not here: the toolbar's right group (7).
+- Rests on: no panel or control is lost in the move (level 4).
+- [ ] Done. Evidence:
+
+### 6. The Run sequence
+
+- Builds: `web/src/lib/api/client.ts`: `CallOptions.onOperation(id)`, called once with the first answer's operation id of a long-running call. `devices/install.ts`: `install` and `launch` take an optional explicit `{device, build: {buildId, module, variant}}` / `{device, applicationId}` and return their results (null when a guard refused, which stops the run with the reason), still notifying `subscribeInstalled` and updating the view. `web/src/lib/toolbar/run.ts`: `RunModel` (D37) over the device choice (a serial or D36's pending AVD), `BuildModel`'s module and variant, `InstallModel` and `DevicesModel`; states idle, starting, building, installing, launching, done, failed `{step, failure}`, build-failed, cancelled; `cancel()`; `dispose()` stops between steps.
+- Implements: owner 5; D36, D37; ADR-0023 §5 (the build's own output); ADR-0020 (a failed build is a result); ADR-0046 (the install writes the file's `applicationId`).
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest `run.test.ts` (fake client): a running device → `build.assemble`, `device.install` with the build's `buildId`, `device.launch` with the install's `applicationId`, in order, nothing else; the install reaches `subscribeInstalled` (seen failing with direct client calls); a user pick of device A, then an AVD, then ▶ → `emulator.start` first, its `device` used after and selected in `DevicesModel`, the file's preselection `{avd}`; the fake build resolving `{outcome: "failed"}` and `{outcome: "cancelled"}` → no install either way (seen failing with error-only handling); an operation error stops with step and code; ■ during the build → `operation.cancel` with the id `onOperation` gave, not another client's running build, no install; ■ before the id → the cancel sent when it arrives, no install; another client installing when the build ends → stopped with that reason, no launch; untrusted, no device, no module → disabled with the reason; a second ▶ while running ignored; dispose mid-build starts no install. `client.test.ts`: `onOperation` once for a long-running call, never for a short one. Seen failing reversed.
+- Schema: no change.
+- Needs: step 1.
+- Not here: the buttons (7); Debug or Apply Changes.
+- Rests on: ■ cancels only the operation the run started (level 3).
+- [ ] Done. Evidence:
+
+### 7. The toolbar
+
+- Builds: `web/src/lib/toolbar/`: `DeviceMenu.svelte` with `devicemenu.ts` (D36's list), `TargetMenu.svelte` (module · variant), `RunButton.svelte` (▶/■ over `RunModel`, the disabled reason as title), Build as a hammer icon, `TaskSelect` behind an icon; the right-aligned group in `Shell`'s toolbar; `panels.ts`'s toolbar entries reduced; `Devices.svelte` without its selector, showing the device as text or "AVD not running"; the palette's ">Run".
+- Implements: owner 5; D34, D36, D37.
+- Run by: the implementer; review: the main session's diff review.
+- Check: Vitest `devicemenu.test.ts`: devices then non-running AVDs; an AVD whose emulator runs listed once, as its device; an AVD choice holds it pending, empties the selection and sets the `{avd}` preselection; offline devices listed disabled. `panels.test.ts` updated (every panel in one region). Seen failing reversed. Level 4 (main session, K4): both menus open and choose; ▶'s disabled reasons; the right panel and Logcat say "AVD not running" for a pending AVD; dark and light captured; no CSP violation. Level 5, one Run (K1, K2): `droidyard_m2a` chosen not running, ▶ → booted, built, installed, launched; the toolbar, the right panel and Logcat end on its serial.
+- Schema: no change.
+- Needs: steps 4, 5, 6.
+- Not here: the crash, relaunch and ■ paths on a device (8).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 8. The whole UI at level 5
+
+- Builds: nothing unless a defect is found (each its own step before 9, failing test first).
+- Implements: A1–A4, A6, A7.
+- Run by: the main session (K1–K9).
+- Check: fresh state, headless Chrome, a sample copy, `droidyard_m2a` not running. Toolbar: the AVD chosen, ▶ → `emulator.start`, `build.assemble`, `device.install`, `device.launch`, all `client=ui`; Logcat on its default `package:mine` shows the sample from its first process line; ▶ again (a new pid) still shown; the crash button tapped from the right panel's inspector → `is:crash` shows the run and `package:mine` keeps it; `tag:`, `level:error`, `-tag:`, a regex and parentheses applied; an error inline with the last filter kept; Logcat's device selector held across a toolbar change. ▶ then ■ during the build → the build cancelled, no install in the trace. Each region collapsed and restored; sessions open and close with the right panel's rule; reload; density; the status bar; a K5 agent's build counted on the toggle. Same primitive; CDP paths; no CSP violation; E1, E3, E5, S3.
+- Schema: no change.
+- Needs: steps 2–7.
+- Not here: Safari, Firefox; the owner's headed trial (Unverified).
+- Rests on: the UI reaches everything through published capabilities (level 5).
+- [ ] Done. Evidence:
+
+### 9. Close: documents and register
+
+- Builds: the register: row 214's rail clause closed; rows for Not in this milestone and the Unverified rows not settled; `docs/README.md` names 2f next; the index `Done`.
+- Implements: A8.
+- Run by: the main session; review: **Opus verifier** over A1–A8.
+- Check: `go test ./internal/doccheck` passes; every Not-in-this-milestone item has a register row or a named milestone.
+- Schema: no change.
+- Needs: step 8.
+- Not here: 2f's plan.
+- Rests on: —
+- [ ] Done. Evidence:
+
+## Not in this milestone
+
+- `process:` and a process name per line: a later minor change (`ps` per unseen pid, Q2's alternative); register row.
+- Match case, autocomplete, history, favourites and saved filters (`name:` only ignored), split Logcat panes, format options: register row.
+- `package` on `device.logs`: Q2 (agents filter by `applicationId`; ADR-0036's budget).
+- Debug, Apply Changes, run configurations, several devices: not asked; `mvp.md` §Out of scope.
+- File operations: 2f.
+
+## Design questions
+
+Each has a recommendation applied as Delegated; Q1 is ADR-0050, Q2 is ADR-0051 (step 1).
+
+### Q1. Where does the sessions panel live, and how is it opened?
+
+- Blocks: step 5
+- The documents say: ADR-0047 §1: "A projects panel behind the left rail"; Rail.svelte shows it on hover and pins it on click (m2d). The owner: one toggle where the brand is, the rail gone, the panel to the left of the tree, the right panel collapsed while it is open.
+- Draft decision, an ADR superseding ADR-0047 §1 in part (the rail) and §2 in part (the pin): the panel is a docked column left of the left region, opened and closed by one toolbar toggle that carries the running-agent count; opening collapses the right region, closing restores it only if the opening collapsed it and the user has not acted on it since; no hover reveal; its open state is per browser (D25). ADR-0047 §2's "opens pinned" reads "is the page" (no pin remains); §1's content and selection rules, the rest of §2 and §3 stand.
+- Alternatives considered: **keep hover reveal** — with a docked column the whole layout would shift under the pointer; **an overlay over the tree** — the owner's "not over the tree"; **always restore the right region on close** — overrides the user's own collapse.
+
+### Q2. How does a streamed line name its application, for `package:` and `package:mine`?
+
+- Blocks: steps 2–4, 8
+- The documents say: ADR-0041 §4 fixes `StreamLine` as `time, pid, tid, priority, tag, message`; §2 filters one application by uid resolved once at start; nothing names a line's application. `adb-device.md` §Filtering by app survives the app's death: the uid is stable across restarts and `-r` reinstalls and covers dead processes.
+- Draft decision, an ADR superseding ADR-0041 §4 in part: each `lines` event's line carries an optional `package`, the one package `pm list packages -U` lists for the line's appId (`uid % 100000`, application range only), read by the stream on the first unseen appId (one refresh at a time, at most one a second, on the stream's context, killed with it; a short child bounded by its timeout, unrecorded like `device.logs`' `pm` read, beside the stream's one recorded `logcat`); a line waits for the refresh its appId started, so a fresh install's first lines are named, and lines keep their order. Absent for shared, system, named and unknown uids and without the uid column. Untrusted (device-derived). The query runs on the client over whole-device streams (ADR-0041 §7). `device.logs` unchanged: its callers filter by `applicationId` and its lines would cost tokens (ADR-0036). `0.18.0`; streaming, so no MCP change. No new error code.
+- Alternatives considered: **a process name from `ps -A` per unseen pid, `package` its prefix before `:`** — gives `process:`, but a pid that dies before `ps` runs (a startup crash, the case that matters) loses its name unless logcat's `Start proc` lines are parsed too; pid reuse makes names stale; a process name is not always the application id; it stays the way to add `process:` later; **`uid` on each line and a new uid → package query the client maps with** — moves the hold out of the daemon, but adds an MCP tool (ADR-0036's budget) or a stretched audience for one panel, and the client would still hold lines while it asks; **filter in the daemon by query** — the query language would enter the contract, and every keystroke restarts a stream; **`package` on `device.logs` too** — tokens for a field its filtered callers do not need.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| `pm list packages -U` prints one uid per line in `pmLineRE`'s form on the APIs used (multi-user devices may print several) | 2, 4 | step 2's level 5 on API 31; other APIs a register row |
+| The hold adds well under a second at an app's first appearance | 2, 8 | step 2's level 5 measures it |
+| A freed appId reused by another package within one stream keeps the old label until the stream restarts (Restart, or a device change) | 2 | whether Android reuses freed appIds; a register row at step 9 |
+| Studio's query semantics as read secondhand (JetBrains' grammar, the Logcat docs) | 3 | the owner's trial; differences are D38's |
+| `age:` compares the device clock with the host's; skew shifts it | 3 | a register row |
+| The column, strips and toolbar read as Android Studio's to the owner | 5, 7 | the owner's trial |
+| The Popover API menus behave in the owner's Chrome | 7 | level 4 headless; the owner's trial |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise | B1 blocking: step 2's hold stalls when a deferred refresh has no trigger; the unsubscribe test asserts an impossible delivery; the refresh goroutine is not joined; a failed refresh ambiguous | Step 2: the tick starts a due refresh; `run()` joins it; a failed refresh enters nothing; held lines released at the cap; `DeferredRefreshRuns`, `HeldLinesAtTheCap`, the end test split (a)/(b); Rests on restated |
+| 1 | | B2 blocking: a failed or cancelled build is a result (`outcome`), not an error (ADR-0020) | D37 continues only on `success`; `run.test.ts` resolves `failed` and `cancelled` |
+| 1 | | B3 blocking: an AVD not running has no place in the serial selection | D36's pending AVD; the run selects the started serial; tests in steps 6, 7 |
+| 1 | | B4 blocking: Run bypassing `InstallModel` skips the project file, the right panel and "mine" | Step 6: install and launch through `InstallModel`; `subscribeInstalled` asserted |
+| 1 | | B5 blocking: the file's id in "mine" filters logs without a click, against ADR-0046 §3 | D39 drops it; `mine.test.ts` asserts it is absent |
+| 1 | | Important: Q2 lacks the uid-plus-client-map alternative; appId reuse; ■ before the id; the first real Run only at step 8 | Q2 names and rejects it; an Unverified row; a `run.test.ts` case; one level-5 Run at step 7 |
+| 1 | | Nits: ADR-0047 §2's pin; the timing bound; `age:` re-evaluation; size; step 5's widths | Q1 supersedes §2 in part; 500 ms, measured on the Done line; D38 says it; size kept (the owner's words and two design questions); default sizes named |
+| 2 | revise | B1, B2, B4, B5 answered; B3 in part: the pending AVD had no owner, and `DevicesModel.refresh` refills an empty selection | D36: the pending AVD in `DevicesModel` (`selectAvd`, `pendingAvd`, no refill while pending); step 4 builds it, with a `devices.test.ts` case seen failing with today's refill; "AVD not running" named in steps 4 and 7 |
+| 2 | | N1 blocking (from B1's answer): an appId first seen during a refresh could be entered as none for the stream's life | Step 2: only appIds seen before the refresh started are entered as none; a test where the second pm call names a uid first seen while pm hung |
+| 2 | | Important: `InstallModel.install` may return without calling; nits: the refresh's own context; `build` needs module and variant | A null result stops the run with its reason, tested; the refresh gets its own context, cancelled before the join; the signature named |
+
+## Changes
+
+Changes after approval: date, what changed, why, and the ADR if the change touches the design.
