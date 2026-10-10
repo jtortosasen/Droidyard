@@ -161,7 +161,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: steps 2, 3.
 - Not here: targets on blocks (register row 196).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `blocks.test.ts` (the four output cases, a queued block's `blockedBy`, oldest first, actor labels with D30's winning, the user's reads hidden and agents' kept, All/You/Agents and the selected-agent filter, durations) and `status.test.ts` (an agent's build "Building · 12 s" with its name; the panel's " 2" label; the tab's own "Building :app · 3 s", queued, tasks; the selector disabled untrusted with the reason, Run disabled while building), each decision seen failing reversed (4 mutations). The Tasks bottom tab goes; the toolbar's task selector replaces it (multi-select, as `TasksModel`). Main session's change: a module is named only for a UI build (the operation view carries none, ADR-0043 §2), so an agent's build reads "Building · 25 s" rather than the tab's module. Level 4: two agents' blocks (Open, Write, Build) with actor pills and durations; a third agent "claude-code" building `:app release`: the toolbar "Building · 1 s … 25 s" with its name and a spinner, its running block with a ticking duration, the rail badge 1.
 
 ### 9. The palette
 

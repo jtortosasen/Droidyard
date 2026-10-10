@@ -19,6 +19,8 @@ export interface TasksClient {
 
 export interface TasksView {
 	open: boolean;
+	/** The open workspace is trusted: untrusted, `build.tasks` and `build.run` are refused (ADR-0015 §5). */
+	trusted: boolean;
 	mirror: MirrorView;
 	tasks: readonly TaskInfo[];
 	filter: string;
@@ -68,6 +70,7 @@ export class TasksModel {
 	get view(): TasksView {
 		this.#view ??= {
 			open: this.#id !== null,
+			trusted: this.#ws.trusted === true,
 			mirror: this.mirror.view,
 			tasks: this.#tasks,
 			filter: this.#filter,

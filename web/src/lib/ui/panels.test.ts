@@ -16,8 +16,9 @@ describe('panels', () => {
 	// Decision: where the owner put them (toolbar, bottom tabs, right panel).
 	it('places the 2c panels in the owner regions', () => {
 		const region = (id: string) => PANELS.find((p) => p.id === id)?.region;
-		for (const id of ['workspace', 'projectfile', 'build']) expect(region(id)).toBe('toolbar');
-		for (const id of ['logcat', 'applogs', 'console', 'problems', 'activity', 'tasks']) expect(region(id)).toBe('bottom');
+		// Decision (plan m2d step 8): the task selector is a toolbar control; the Tasks tab is gone.
+		for (const id of ['workspace', 'projectfile', 'build', 'tasks']) expect(region(id)).toBe('toolbar');
+		for (const id of ['logcat', 'applogs', 'console', 'problems', 'activity']) expect(region(id)).toBe('bottom');
 		for (const id of ['devices', 'tree', 'act']) expect(region(id)).toBe('right');
 	});
 
