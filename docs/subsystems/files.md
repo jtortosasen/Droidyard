@@ -39,7 +39,7 @@ between deciding a path is inside and using it.
   cut by the window's end excepted) is `binary: true`, `text` omitted. Paging is
   `artifact.read`'s.
 - **write** is atomic by [ADR-0021](../adr/0021-persistence-format-and-location.md)'s recipe:
-  a `.<name>.droidyard-<8 hex>.tmp` in the target's directory, written, `fsync`ed, given the
+  a `.droidyard-<16 hex>.tmp` in the target's directory, written, `fsync`ed, given the
   target's mode, renamed over it, the directory `fsync`ed. The target **keeps its on-disk name**
   (so `src/a.kt` replaces `src/A.kt` on a case-insensitive volume without renaming it). Writes
   under `.git/` are allowed. A daemon killed between the temporary file and the rename leaves

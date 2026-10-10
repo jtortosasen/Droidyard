@@ -304,3 +304,59 @@ func TestSelectorsNeverReachADevice(t *testing.T) {
 		}
 	}
 }
+
+// Decision (register S3): under an invalid configuration a connected physical device is
+// hidden, and device.list says so in its warnings, naming the file, once, without the
+// serial; with a valid configuration that simply does not admit the device, or with no
+// physical device connected, there is no warning (the file said no, or there is nothing
+// to hide). A listing that hid the device silently looked like an unplugged phone.
+func TestListWarnsWhenAnInvalidConfigurationHidesADevice(t *testing.T) {
+	warningsOf := func(t *testing.T, f *devicePolicyFixture) []string {
+		t.Helper()
+		out := f.run(t, "device.list", `{}`)
+		if out.State != capability.StateCompleted {
+			t.Fatalf("device.list: %s, %+v", out.State, out.Error)
+		}
+		res := out.Result.(ListResult)
+		if slices.Contains(listedSerials(res.Devices), physSerial) {
+			t.Fatalf("listed %v: the physical device must stay hidden", listedSerials(res.Devices))
+		}
+		return res.Warnings
+	}
+
+	f := newDevicePolicyFixture(t, nil, `{"schemaVersion":1,"devices":{"allowPhysical":"yes"}}`)
+	got := warningsOf(t, f)
+	if len(got) != 1 || !strings.Contains(got[0], policy.FileName) || strings.Contains(got[0], physSerial) {
+		t.Errorf("warnings = %q; want one warning that names the configuration file and not the serial", got)
+	}
+
+	for name, config := range map[string]string{
+		"no file":                         "",
+		"a valid file that says no":       `{"schemaVersion":1,"devices":{"allowPhysical":false}}`,
+		"a valid file, serial not listed": `{"schemaVersion":1,"devices":{"allowPhysical":true,"allowlist":["OTHER"]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := warningsOf(t, newDevicePolicyFixture(t, nil, config)); len(got) != 0 {
+				t.Errorf("warnings = %q; want none: the file is usable and said no", got)
+			}
+		})
+	}
+
+	t.Run("an invalid file and no physical device connected", func(t *testing.T) {
+		f := newDevicePolicyFixture(t, map[string]string{"devices.out": uiList(phoneLine)}, `{"schemaVersion":1,"devices":{"allowPhysical":"yes"}}`)
+		out := f.run(t, "device.list", `{}`)
+		if out.State != capability.StateCompleted {
+			t.Fatalf("device.list: %s, %+v", out.State, out.Error)
+		}
+		if w := out.Result.(ListResult).Warnings; len(w) != 0 {
+			t.Errorf("warnings = %q; want none: nothing is hidden", w)
+		}
+	})
+
+	t.Run("a duplicate key is an invalid file", func(t *testing.T) {
+		f := newDevicePolicyFixture(t, nil, `{"schemaVersion":1,"devices":{"allowPhysical":true,"allowPhysical":true,"allowlist":["R58M123"]}}`)
+		if got := warningsOf(t, f); len(got) != 1 {
+			t.Errorf("warnings = %q; want the one warning", got)
+		}
+	})
+}

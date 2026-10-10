@@ -652,3 +652,74 @@ func TestConfigFileIsReadBoundedAndWithoutBlocking(t *testing.T) {
 		t.Errorf("a 1 MiB+ configuration: startup %+v; want invalid, larger than the bound", got)
 	}
 }
+
+// TestDuplicateKeysMakeTheFileUnparseable pins ADR-0031 §3's fail-closed path for a
+// repeated key: encoding/json keeps the last of two equal keys, so a hand edit with two
+// `shell` sections (or a repeated key nested under `trust`) would be read as whichever
+// came last, and the first section's off could be undone without a word. A duplicate
+// makes the whole file unparseable at every depth, so nothing is trusted, the shell
+// stays off, and the error names the key.
+func TestDuplicateKeysMakeTheFileUnparseable(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		key  string
+	}{
+		{"two shell sections, the last enables it",
+			`{"schemaVersion":1,"trust":{"roots":["/w/root"]},"shell":{"enabled":false},"shell":{"enabled":true}}`, "shell"},
+		{"a nested duplicate under trust",
+			`{"schemaVersion":1,"trust":{"roots":[],"roots":["/w/root"]}}`, "trust.roots"},
+		{"a duplicate inside an unknown section",
+			`{"schemaVersion":1,"future":{"a":{"b":1,"b":2}}}`, "future.a.b"},
+		{"a duplicate inside an array element",
+			`{"schemaVersion":1,"future":[{"k":1,"k":2}]}`, "future[].k"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := write(t, dir, c.body)
+			p := policy.New(envAt(dir))
+
+			if got, err := p.Trusted("/w/root"); got || err == nil || err.Code != capability.ErrWorkspaceUntrusted {
+				t.Errorf("Trusted = %v, %v; want false and WORKSPACE_UNTRUSTED", got, err)
+			}
+			if got, err := p.ShellAllowed("/w/root"); got || err == nil || err.Code != capability.ErrPolicyShellDisabled {
+				t.Errorf("ShellAllowed = %v, %v; want false and POLICY_SHELL_DISABLED", got, err)
+			} else if !strings.Contains(err.Cause, path) || !strings.Contains(err.Cause, c.key) {
+				t.Errorf("cause %q does not name the file %q and the key %q", err.Cause, path, c.key)
+			}
+			if st := p.ConfigStatus(); st.State != policy.StateInvalid || !strings.Contains(st.Error, c.key) {
+				t.Errorf("ConfigStatus = %+v; want invalid, naming %q", st, c.key)
+			}
+			// A write is refused too, and the file left as it was.
+			if _, err := p.Trust("/w/other"); err == nil {
+				t.Error("Trust rewrote a file with a duplicate key")
+			}
+			if after, _ := os.ReadFile(path); string(after) != c.body {
+				t.Errorf("the file was rewritten:\n%s", after)
+			}
+		})
+	}
+}
+
+// TestDistinctKeysInSeparateObjectsAreNotDuplicates guards the check against the easy
+// over-reach: the same key in two sibling objects is fine (`roots` under trust and
+// shell, `enabled` once each).
+func TestDistinctKeysInSeparateObjectsAreNotDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"schemaVersion":1,"trust":{"roots":["/a"]},"shell":{"roots":["/a"],"enabled":false},"future":[{"k":1},{"k":2}]}`)
+	if st := policy.New(envAt(dir)).ConfigStatus(); st.State != policy.StateOK {
+		t.Errorf("ConfigStatus = %+v; want ok", st)
+	}
+}
+
+// A number outside float64's range is valid JSON the configuration decoder accepts; the
+// duplicate check must not make such a file unparseable (step 7's verifier).
+func TestDuplicateCheckKeepsAHugeNumber(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"schemaVersion":1,"trust":{"roots":["/w/root"]},"future":1e400}`)
+	p := policy.New(envAt(dir))
+	if got, err := p.Trusted("/w/root"); !got || err != nil {
+		t.Fatalf("Trusted = %v, %v; want true", got, err)
+	}
+}
