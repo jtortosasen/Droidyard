@@ -87,6 +87,26 @@ describe('SessionsModel', () => {
 		expect(t.model.view.rows[0]!.workspace).toBe('wNew');
 	});
 
+	// The bound workspace.open runs before its workspace is open, so it carries no
+	// session.workspace (and the capability is global): it is connecting, not work, and a
+	// session that has only opened its project is not a row rather than one in "No project".
+	it('lists no row for a session whose only call is opening its project', () => {
+		const t = setup();
+		t.src.set(op({ id: 'o', state: 'completed', capability: 'workspace.open', workspace: null, session: mcp('s1', undefined) }));
+		t.src.set(op({ id: 'u', state: 'completed', capability: 'workspace.open', workspace: null, client: 'ui' }));
+		expect(t.model.view.rows).toEqual([]);
+		t.src.set(op({ id: 'b', state: 'running', session: mcp('s1', 'agent-b', 'wB') }));
+		expect(t.model.view.rows.map((r) => [r.label, r.workspace])).toEqual([['agent-b', 'wB']]);
+	});
+
+	// The tab's own subscriptions (streaming watches) are not activity, as reads are not.
+	it('leaves the tab own watches out of You', () => {
+		const t = setup();
+		t.src.set(op({ id: 'w', state: 'completed', client: 'ui', capability: 'file.watch' }));
+		t.src.set(op({ id: 'x', state: 'completed', client: 'ui', capability: 'operation.watch' }));
+		expect(t.model.view.rows).toEqual([]);
+	});
+
 	// Decision (D30): running rows first; a row runs while any of its operations is not terminal.
 	it('lists running rows first and keeps a row running while any operation is live', () => {
 		const t = setup();

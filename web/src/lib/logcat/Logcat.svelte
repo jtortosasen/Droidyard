@@ -262,7 +262,9 @@
 	.viewport {
 		height: 60vh;
 		overflow-y: auto;
-		border: 1px solid;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--bg-window);
 	}
 	.spacer {
 		position: relative;
