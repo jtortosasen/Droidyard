@@ -98,6 +98,11 @@ export class SessionsModel {
 		};
 	}
 
+	/** The row selected (D30: it filters Activity); null when none. */
+	get selectedKey(): string | null {
+		return this.#selected;
+	}
+
 	/**
 	 * The row the user selected: its unread mark clears and stays clear while it is the
 	 * selected one (a terminal event on the selected row is read as it happens).
@@ -181,7 +186,7 @@ export class SessionsModel {
  * The row an operation belongs to; null for one no row shows. The user's `ui` and `cli`
  * commands are "You" (their reads are not shown); an MCP call belongs to its session.
  */
-function keyOf(op: Operation): string | null {
+export function keyOf(op: Operation): string | null {
 	if (op.client === 'ui' || op.client === 'cli') {
 		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean } | undefined;
 		return info?.readOnly === true ? null : YOU;

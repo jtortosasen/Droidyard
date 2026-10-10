@@ -7,7 +7,6 @@
 	import FolderGit from '@lucide/svelte/icons/folder-git';
 	import FolderTree from '@lucide/svelte/icons/folder-tree';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
-	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
 	import PanelBottom from '@lucide/svelte/icons/panel-bottom';
 	import PanelLeft from '@lucide/svelte/icons/panel-left';
@@ -29,14 +28,17 @@
 	// current one or its region is collapsed, so a stream (Logcat, the console) keeps
 	// running and a filter keeps its text.
 	interface Props {
-		content: Snippet<[string]>;
+		/** The panel with the given id; the second argument shows another panel's tab. */
+		content: Snippet<[string, (id: string) => void]>;
 		status: Snippet;
+		/** The toolbar's centre (the build status). */
+		centre?: Snippet;
 		/** Full-width strips under the toolbar (the trust banner). */
 		banners?: Snippet;
 		/** The projects icon and its overlay, the rail's first item (the overlay anchors to the middle row). */
 		rail?: Snippet;
 	}
-	let { content, status, banners, rail }: Props = $props();
+	let { content, status, centre, banners, rail }: Props = $props();
 
 	const storage = browserStorage(window);
 	let layout = $state(loadLayout(storage));
@@ -57,11 +59,13 @@
 		console: ScrollText,
 		problems: TriangleAlert,
 		activity: Activity,
-		tasks: ListChecks,
 		git: GitBranch,
 		liveview: MonitorSmartphone,
 	};
 
+	function show(id: string) {
+		active = activate(active, id);
+	}
 	function toggle(region: Region) {
 		layout.open[region] = !layout.open[region];
 	}
@@ -99,7 +103,7 @@
 {#snippet panes(region: PanelRegion)}
 	{#each panelsIn(region).filter((p) => p.disabled === undefined) as p (p.id)}
 		<div class="pane" class:current={active[region] === p.id} role="tabpanel" aria-label={p.label}>
-			{@render content(p.id)}
+			{@render content(p.id, show)}
 		</div>
 	{/each}
 {/snippet}
@@ -108,9 +112,10 @@
 	<header class="toolbar">
 		<strong class="brand"><AppWindow size={16} /> Droidyard</strong>
 		{#each panelsIn('toolbar') as p (p.id)}
-			<div class="tool">{@render content(p.id)}</div>
+			<div class="tool">{@render content(p.id, show)}</div>
 		{/each}
-		<!-- Slot for the task selector (plan m2d step 8). -->
+		<span class="spacer"></span>
+		{#if centre}{@render centre()}{/if}
 		<span class="spacer"></span>
 		{@render status()}
 		<button
@@ -179,7 +184,7 @@
 							</div>
 						</section>
 					{:else}
-						<div class="rsec">{@render content(p.id)}</div>
+						<div class="rsec">{@render content(p.id, show)}</div>
 					{/if}
 				{/each}
 			</div>

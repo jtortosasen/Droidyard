@@ -16,6 +16,7 @@ export interface PanelDef {
 export const PANELS: readonly PanelDef[] = [
 	{ id: 'workspace', region: 'toolbar', label: 'Workspace' },
 	{ id: 'build', region: 'toolbar', label: 'Build' },
+	{ id: 'tasks', region: 'toolbar', label: 'Tasks' },
 	{ id: 'projectfile', region: 'toolbar', label: 'Project file' },
 
 	{ id: 'files', region: 'left', label: 'Editor' },
@@ -30,7 +31,6 @@ export const PANELS: readonly PanelDef[] = [
 	{ id: 'console', region: 'bottom', label: 'Build output' },
 	{ id: 'problems', region: 'bottom', label: 'Problems' },
 	{ id: 'activity', region: 'bottom', label: 'Activity' },
-	{ id: 'tasks', region: 'bottom', label: 'Tasks' },
 	{ id: 'git', region: 'bottom', label: 'Git', disabled: { milestone: 'Git' } },
 
 	{ id: 'devices', region: 'right', label: 'Devices' },

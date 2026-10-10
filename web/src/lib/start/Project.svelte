@@ -7,7 +7,9 @@
 	import Build from '../build/Build.svelte';
 	import BuildResult from '../build/BuildResult.svelte';
 	import { TasksModel } from '../build/tasks';
-	import Tasks from '../build/Tasks.svelte';
+	import TaskSelect from '../toolbar/TaskSelect.svelte';
+	import BuildStatus from '../toolbar/BuildStatus.svelte';
+	import type { SessionsModel } from '../projects/sessions';
 	import { ConsoleModel } from '../build/console';
 	import Console from '../build/Console.svelte';
 	import type { EventsHub } from '../build/hub';
@@ -46,6 +48,8 @@
 	interface Props {
 		client: Client;
 		activity: ActivityStore;
+		/** The agents the projects panel lists; its selected row filters Activity (D30). */
+		sessions: SessionsModel;
 		hub: EventsHub;
 		connection: ConnectionState;
 		workspaceId: string;
@@ -58,7 +62,7 @@
 		/** The rail's projects icon, which App owns (it outlives the project view). */
 		rail: Snippet;
 	}
-	let { client, activity, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
+	let { client, activity, sessions, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -224,7 +228,7 @@
 	});
 </script>
 
-{#snippet panel(id: string)}
+{#snippet panel(id: string, show: (id: string) => void)}
 	{#if id === 'workspace'}
 		{#if workspace && trust}
 			<Workspace model={workspace} {trust} {onprojects} compact />
@@ -261,10 +265,12 @@
 			<BuildResult model={build} />
 		{/if}
 	{:else if id === 'activity'}
-		<Activity store={activity} />
+		{#if buildConsole && build}
+			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => show('console')} />
+		{/if}
 	{:else if id === 'tasks'}
 		{#if tasks}
-			<Tasks model={tasks} />
+			<TaskSelect model={tasks} />
 		{/if}
 	{:else if id === 'devices'}
 		{#if devices && emulators && install}
@@ -296,5 +302,11 @@
 	{/if}
 {/snippet}
 
-<Shell content={panel} {status} {banners} {rail} />
+{#snippet centre()}
+	{#if build}
+		<BuildStatus {build} {sessions} />
+	{/if}
+{/snippet}
+
+<Shell content={panel} {status} {centre} {banners} {rail} />
 

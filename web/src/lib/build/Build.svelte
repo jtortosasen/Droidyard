@@ -8,7 +8,7 @@
 	// Every field is a text node.
 	interface Props {
 		model: BuildModel;
-		/** One row for the toolbar: errors as `Failed: CODE` with the text in a tooltip, in full in the Problems tab. */
+		/** One row for the toolbar (the status is BuildStatus's): errors as `Failed: CODE` with the text in a tooltip, in full in the Problems tab. */
 		compact?: boolean;
 	}
 	let { model, compact = false }: Props = $props();
@@ -55,19 +55,11 @@
 				Build
 			</button>
 			{#if building}
-				<span class="state" title="{building.client ?? 'unknown client'}: {building.capability}, {building.state}. {progressText()}">
-					{building.state === 'queued' ? 'Queued...' : 'Building...'}
-				</span>
-				<button type="button" onclick={() => void model.mirror.cancel()}>Cancel</button>
-				{#if view.mirror.cancelError}
-					<span class="bad" title={view.mirror.cancelError}>Cancel failed</span>
-				{/if}
+				<!-- The toolbar's centre shows the build and Cancel (toolbar/BuildStatus.svelte). -->
 			{:else if view.startError}
 				<span class="bad" title={failureText(view.startError)}>{failureShort(view.startError)}</span>
 			{:else if view.loadError}
 				<span class="bad" title={failureText(view.loadError)}>{failureShort(view.loadError)}</span>
-			{:else}
-				<span class="state">Idle</span>
 			{/if}
 		{/if}
 	</section>
@@ -135,10 +127,6 @@
 		align-items: center;
 		gap: var(--sp-3);
 		white-space: nowrap;
-	}
-	.state {
-		color: var(--text-2);
-		font-size: var(--fs-small);
 	}
 	.bad {
 		color: var(--danger);
