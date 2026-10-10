@@ -10,7 +10,7 @@
 // frame means one notification and one render per frame, whatever the event rate.
 import { Batcher, browserFrames, HIDDEN_QUEUE_CAP, type FrameScheduler } from './batcher';
 import type { Entry } from './entry';
-import { compileFilter, NO_FILTER, type Filter } from './filter';
+import { CrashMarker } from './crash';
 import { Ring, RING_CAPACITY } from './ring';
 import { LogStream, type StreamClient, type StreamStatus } from './stream';
 import { View } from './view';
@@ -47,7 +47,7 @@ export class LogcatSession {
 	#stream: LogStream;
 	#listeners = new Set<() => void>();
 
-	#filter: Filter = NO_FILTER;
+	#crash = new CrashMarker();
 	#device = '';
 	#applicationId = '';
 	#status: StreamStatus = { state: 'idle', detail: '' };
@@ -60,7 +60,7 @@ export class LogcatSession {
 
 	constructor(opts: SessionOptions) {
 		this.#ring = new Ring<Entry>(opts.capacity ?? RING_CAPACITY);
-		this.#view = new View(this.#ring, compileFilter(this.#filter));
+		this.#view = new View(this.#ring, () => true);
 		this.#batcher = new Batcher<Entry>({
 			frames: opts.frames ?? browserFrames,
 			flush: (items, dropped) => this.#flush(items, dropped),
@@ -70,6 +70,7 @@ export class LogcatSession {
 		this.#stream = new LogStream(opts.client, {
 			entries: (entries, daemonDropped) => {
 				this.#daemonDropped += daemonDropped;
+				for (const e of entries) this.#crash.mark(e);
 				this.#batcher.push(entries);
 			},
 			status: (status) => {
@@ -83,9 +84,6 @@ export class LogcatSession {
 
 	get status(): StreamStatus {
 		return this.#status;
-	}
-	get filter(): Filter {
-		return this.#filter;
 	}
 	get device(): string {
 		return this.#device;
@@ -157,6 +155,7 @@ export class LogcatSession {
 		if (device === this.#device && applicationId === this.#applicationId) return;
 		this.#device = device;
 		this.#applicationId = applicationId;
+		this.#crash.reset();
 		this.clear();
 		if (device === '') this.#stream.stop();
 		else this.#stream.open(device, applicationId);
@@ -167,9 +166,9 @@ export class LogcatSession {
 		this.#stream.resume();
 	}
 
-	setFilter(filter: Filter): void {
-		this.#filter = filter;
-		this.#view.setFilter(compileFilter(filter));
+	/** Shows the entries `match` accepts (a compiled query: query.ts); the held ones are tested again. */
+	setFilter(match: (e: Entry) => boolean): void {
+		this.#view.setFilter(match);
 		this.#settle();
 		this.#notify();
 	}
