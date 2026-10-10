@@ -75,6 +75,7 @@ edits made before this rule and are not added to.
 | [0043](0043-operation-watch.md) | `operation.watch`, the activity feed and the state at load | Accepted |
 | [0044](0044-build-watchoutput.md) | `build.watchOutput`, the build console while a build runs | Accepted |
 | [0045](0045-project-start-flow.md) | The project start: `droidyard` alone, one tab per project, recents and a folder dialog | Accepted |
+| [0046](0046-project-file.md) | The project file, `.droidyard/project.json`, for the UI's choices | Accepted |
 
 ## Open decisions (not yet ADRs)
 
