@@ -65,6 +65,8 @@ export interface WatchListener {
 	changes(list: Change[]): void;
 	/** A baseline arrived or the watch restarted: events may have been missed, so re-read what is shown. */
 	resync(): void;
+	/** The baseline itself (the palette's file index, step 9); it replaces any earlier one. Called before `resync`. */
+	baseline?(entries: Baseline, complete: boolean): void;
 }
 
 export class FileWatch {
@@ -185,7 +187,10 @@ export class FileWatch {
 				this.#complete = sub.result.truncated !== true;
 				this.#sink.status('watching', '');
 				this.#sink.baseline(sub.result.entries ?? [], this.#complete);
-				for (const l of [...this.#listeners]) l.resync();
+				for (const l of [...this.#listeners]) {
+					l.baseline?.(sub.result.entries ?? [], this.#complete);
+					l.resync();
+				}
 				const early = this.#early;
 				this.#early = [];
 				for (const f of early) {

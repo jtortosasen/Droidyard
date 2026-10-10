@@ -10,6 +10,10 @@
 	import TaskSelect from '../toolbar/TaskSelect.svelte';
 	import BuildStatus from '../toolbar/BuildStatus.svelte';
 	import type { SessionsModel } from '../projects/sessions';
+	import type { ProjectsModel } from '../projects/projects';
+	import { buildCommands, FileIndex, PaletteModel } from '../palette/palette';
+	import Palette from '../palette/Palette.svelte';
+	import type { ShellApi } from '../ui/panels';
 	import { ConsoleModel } from '../build/console';
 	import Console from '../build/Console.svelte';
 	import type { EventsHub } from '../build/hub';
@@ -40,7 +44,7 @@
 	import { browserStorage } from '../ui/layout';
 	import Banners from './Banners.svelte';
 	import Shell from '../ui/Shell.svelte';
-	import type { Snippet } from 'svelte';
+	import { tick, type Snippet } from 'svelte';
 
 	// One project's panels (ADR-0047): the workspace the address's `w` names, over the
 	// session App owns. App mounts this keyed on the id, so a different
@@ -50,6 +54,8 @@
 		activity: ActivityStore;
 		/** The agents the projects panel lists; its selected row filters Activity (D30). */
 		sessions: SessionsModel;
+		/** The projects list the palette's "Switch project" reads. */
+		projects: ProjectsModel;
 		hub: EventsHub;
 		connection: ConnectionState;
 		workspaceId: string;
@@ -62,7 +68,7 @@
 		/** The rail's projects icon, which App owns (it outlives the project view). */
 		rail: Snippet;
 	}
-	let { client, activity, sessions, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
+	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -80,6 +86,8 @@
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
+	let palette = $state.raw<PaletteModel | null>(null);
+	let treeView = $state<{ focus(): void } | undefined>();
 	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
@@ -135,6 +143,9 @@
 		const tabs = new TabsModel(browserStorage(window), workspaceId);
 		const readers = new ViewerSet(callOn, ws);
 		const offListen = watcher.listen(readers);
+		// The palette's file index reads the same stream (no second file.watch).
+		const index = new FileIndex();
+		const offIndex = watcher.listen(index);
 		const offDevice = deviceList.subscribe(() => {
 			device = deviceList.view.selected;
 		});
@@ -154,6 +165,7 @@
 		fileWatch = watcher;
 		editorTabs = tabs;
 		viewers = readers;
+		palette = new PaletteModel(index, () => [], () => {});
 		// The project is opened by the id from the address (workspace.open is idempotent);
 		// after another client closes it the panel offers to reopen, it does not reopen.
 		// A refusal by the daemon shows the projects panel with the reason; a lost connection does not.
@@ -177,6 +189,7 @@
 			gone = true;
 			offDevice();
 			offListen();
+			offIndex();
 			readers.dispose();
 			tabs.dispose();
 			watcher.dispose();
@@ -210,6 +223,7 @@
 			fileWatch = null;
 			editorTabs = null;
 			viewers = null;
+			palette = null;
 			device = '';
 		};
 	});
@@ -243,7 +257,7 @@
 		{/if}
 	{:else if id === 'files'}
 		{#if fileTree && fileWatch}
-			<FileTree model={fileTree} watch={fileWatch} onopen={(path) => editorTabs?.open(path)} />
+			<FileTree bind:this={treeView} model={fileTree} watch={fileWatch} onopen={(path) => editorTabs?.open(path)} />
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
@@ -308,5 +322,38 @@
 	{/if}
 {/snippet}
 
-<Shell content={panel} {status} {centre} {banners} {rail} />
+{#snippet overlay(shell: ShellApi)}
+	{#if palette && workspace && build && tasks && emulators && fileTree && editorTabs}
+		{@const ws = workspace}
+		{@const builds = build}
+		{@const taskList = tasks}
+		{@const emus = emulators}
+		{@const files = fileTree}
+		{@const tabs = editorTabs}
+		<Palette
+			model={palette}
+			commands={() =>
+				buildCommands({
+					workspace: ws,
+					build: builds,
+					tasks: taskList,
+					emulators: emus,
+					projects,
+					currentProject: workspaceId,
+					tree: files,
+					density: { get: shell.density, set: shell.setDensity },
+					focusTree: () => {
+						shell.showFiles();
+						void tick().then(() => treeView?.focus());
+					},
+				})}
+			onopen={(path) => {
+				shell.show('editor');
+				tabs.open(path);
+			}}
+		/>
+	{/if}
+{/snippet}
+
+<Shell content={panel} {status} {centre} {banners} {rail} {overlay} />
 

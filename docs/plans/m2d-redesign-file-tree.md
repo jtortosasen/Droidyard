@@ -173,7 +173,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: steps 6, 7, 8.
 - Not here: content search (owner).
 - Rests on: Chrome hands ⌘P to the page (Unverified).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `palette.test.ts` (12): "mainact" ranks `MainActivity.kt` first over 5,000 paths with decoys, the name over the directory, at most 50, a created path found and a deleted one forgotten, highlights as text segments, Enter opens, `>` and Backspace switch modes, ⇧⌘P starts in commands, an untrusted Build listed disabled with its reason and inert, the registry's tasks, emulators, projects and toggles; seen failing reversed (5 mutations). The index listens to the tab's root watch (a `baseline` hook on `WatchListener`), no second watch. `fuzzysort` 4.0.2 pinned. The palette in Chrome is step 11's.
 
 ### 10. The right panel: device, inspector, Copy for the agent
 

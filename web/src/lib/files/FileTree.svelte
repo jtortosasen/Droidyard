@@ -136,6 +136,11 @@
 		if (r.ok) closeMenu();
 	}
 
+	/** Moves the keyboard focus to the tree (the palette's "Focus the file tree"). */
+	export function focus() {
+		scroller?.focus();
+	}
+
 	function closeMenu() {
 		menu = null;
 		scroller?.focus();

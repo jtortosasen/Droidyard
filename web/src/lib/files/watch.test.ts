@@ -165,4 +165,20 @@ describe('FileWatch', () => {
 		frames.tick();
 		expect(got).toHaveLength(2);
 	});
+
+	// Decision (plan m2d step 9): the palette's file index gets the baseline from this watch,
+	// before the re-sync, on every start, so a restart replaces what it held.
+	it('hands a listener each baseline before its re-sync', async () => {
+		const { stream, watch, emit } = await setup();
+		const got: string[] = [];
+		watch.listen({
+			baseline: (e, complete) => got.push(`baseline:${e.map((x) => x.path).join(',')}:${complete}`),
+			changes: () => {},
+			resync: () => got.push('resync'),
+		});
+		emit(0, 'stopped', { path: '', reason: 'unreadable' });
+		stream.answer(1, { subscriptionId: stream.ids[1], watched: 1, excluded: [], entries: [{ path: 'a.kt', type: 'file' }] });
+		await settle();
+		expect(got).toEqual(['baseline:a.kt:true', 'resync']);
+	});
 });

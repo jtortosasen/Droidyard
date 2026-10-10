@@ -3,6 +3,8 @@
 // entry is shown and cannot be activated. The 2c panels keep their behaviour; only their
 // place changes.
 
+import type { Density } from './layout';
+
 export type PanelRegion = 'toolbar' | 'left' | 'centre' | 'bottom' | 'right';
 
 export interface PanelDef {
@@ -62,4 +64,14 @@ export function activate(active: Record<PanelRegion, string>, id: string): Recor
 	const panel = PANELS.find((p) => p.id === id);
 	if (panel === undefined || panel.disabled !== undefined) return active;
 	return { ...active, [panel.region]: id };
+}
+
+/** The shell's state a command reaches (plan m2d step 9). */
+export interface ShellApi {
+	density: () => Density;
+	setDensity: (d: Density) => void;
+	/** Opens the left panel on the file tree. */
+	showFiles: () => void;
+	/** Shows a panel's tab. */
+	show: (id: string) => void;
 }

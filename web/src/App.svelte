@@ -168,6 +168,7 @@
 				{client}
 				{activity}
 				{sessions}
+				{projects}
 				{hub}
 				{connection}
 				workspaceId={route.workspace}
