@@ -14,7 +14,7 @@
 //
 // With a baseline that is not complete (the walk hit its cap) every event says `truncated`,
 // so that flag tells nothing. Its changes are applied as they are, and only an event that
-// holds CUT changes (the daemon's cut, internal/capability/file/watch.go) makes the sink
+// holds CUT changes (the daemon's cut, internal/domain/file/watch.go) makes the sink
 // re-list: a smaller event is complete.
 //
 // Changes are handed to the sink at most once per animation frame, in order.

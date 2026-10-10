@@ -148,7 +148,7 @@ type Lifecycle struct {
 
 // StateTopic is where workspace.watch's events are published (ADR-0045 §3): every
 // transition of LifecycleTopic again, with the workspace's name, root and trust, so a
-// picker needs no read per event. It is the stream of a capability, not a subscribable
+// projects panel needs no read per event. It is the stream of a capability, not a subscribable
 // topic, and it keeps off the replay ring.
 const StateTopic = "workspace.state"
 
@@ -426,7 +426,7 @@ func (r *Registry) Open(target string) (Info, error) {
 		// (ADR-0015 §6), and reading the configuration does I/O we keep out of the
 		// admission lock.
 		info.Trusted = r.trusted(info.Root)
-		// Opening again is still opening it: the picker lists the newest first
+		// Opening again is still opening it: the projects panel lists the newest first
 		// (ADR-0045 §3). A failed write does not fail an open that is otherwise a no-op.
 		if err := r.recordOpen(id, info.Root, info.Name); err != nil {
 			fmt.Fprintf(r.opts.Log, "droidyard: workspace %s: recording its reopen in %s: %v\n", id, indexFile, err)

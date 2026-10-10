@@ -96,7 +96,7 @@ describe('SessionsModel', () => {
 		t.src.set(op({ id: 'u', state: 'completed', capability: 'workspace.open', workspace: null, client: 'ui' }));
 		expect(t.model.view.rows).toEqual([]);
 		t.src.set(op({ id: 'b', state: 'running', session: mcp('s1', 'agent-b', 'wB') }));
-		expect(t.model.view.rows.map((r) => [r.label, r.workspace])).toEqual([['agent-b', 'wB']]);
+		expect(t.model.view.rows.map((r) => [r.label, r.workspace, r.unread, r.result])).toEqual([['agent-b', 'wB', false, null]]);
 	});
 
 	// The tab's own subscriptions (streaming watches) are not activity, as reads are not.

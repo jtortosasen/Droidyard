@@ -31,7 +31,7 @@ function fakeEnv(initial = '') {
 
 describe('parseRoute', () => {
 	// Decision (ADR-0045 §2, ADR-0047): `w` names the project; without it the page decides (ADR-0047).
-	it('reads the project from w and the picker from no w', () => {
+	it('reads the project from w and no project from no w', () => {
 		expect(parseRoute('#w=abc')).toEqual({ view: 'project', workspace: 'abc' });
 		expect(parseRoute('')).toEqual({ view: 'none' });
 		expect(parseRoute('#')).toEqual({ view: 'none' });

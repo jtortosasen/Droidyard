@@ -1,6 +1,6 @@
 # Plan: Milestone 2d — a redesign and the file tree
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-10, Delegated (owner: "con lo que tienes para 2d, ponte a hacer un plan e implementalo"). The split, Q1–Q4 and D22–D30 applied as recommended; the owner can revert any Delegated choice.
 - Date: 2026-10-10
 - Milestone: "the next is 2d, a redesign and the file tree" (`docs/README.md` §Where the work stands), as the owner scoped it on 2026-10-10 (below).
@@ -52,18 +52,18 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 
 ## Acceptance
 
-- [ ] A1. The shell: the owner's regions, D24's tokens, dark and light following the system, the density knob, sizes remembered; every 2c panel works from its new place; Terminal, Diff, the Git tab and switch disabled, naming their milestone. Source: owner items 1, 4. Proven by: step 2, step 11
-- [ ] A2. `operation.state` events and `operation.watch` rows carry `session {id, name?, workspace?}`, omitted for a call without a session; the schema diff is that and `0.17.0`; 34 MCP tools. Source: Q2. Proven by: step 3
-- [ ] A3. `file.watch` returns its baseline, slimmed after delivery, and its events are in the schema; the walk's cost recorded. Source: Q3. Proven by: step 4
-- [ ] A4. The tree: folders first, natural order, hidden toggle, compaction, module marks, filter, the WAI-ARIA tree keys, copy path and relative path; an agent's `file.write` shows within 2 s; a tick over 1,000 changes still converges. Source: owner items 3, 6. Proven by: step 5, step 11
-- [ ] A5. A clicked file opens a second-level tab in a read-only viewer with line numbers; a binary file a placeholder; an external change re-reads it; the active file is revealed in the tree. Source: owner item 4; Q4. Proven by: step 6, step 11
-- [ ] A6. No picker: the projects panel (rail icon with the running-agent count and a spinner, hover overlay, click to pin) lists recents with state; selecting one switches every panel; without `w`, or with a refused one, the newest open project or the pinned panel. Source: owner item 4; Q1. Proven by: step 7, step 11
-- [ ] A7. Two scripted agents show as two named rows with their live operations and durations, running first, unread marked. Source: owner item 5; D30. Proven by: step 7, step 11
-- [ ] A8. Toolbar status ("Building :app · 12 s", any client's build) and the task selector; Activity as blocks with status, actor, duration, output. Source: owner items 1, 4. Proven by: step 8, step 11
-- [ ] A9. ⌘P finds files, `>` runs commands. Source: owner item 6. Proven by: step 9, step 11
-- [ ] A10. The right panel: device, start/stop, inspector, actions, Copy for the agent as D29. Source: owner items 2, 4, 6. Proven by: step 10, step 11
-- [ ] A11. Same primitive: every `client=ui` call in the trace is a published capability; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 11
-- [ ] A12. The register, `docs/README.md` and the plans index record what 2d closed and left, and 2e. Source: `milestone-workflow` step 6. Proven by: step 12
+- [x] A1. The shell: the owner's regions, D24's tokens, dark and light following the system, the density knob, sizes remembered; every 2c panel works from its new place; Terminal, Diff, the Git tab and switch disabled, naming their milestone. Source: owner items 1, 4. Proven by: step 2, step 11
+- [x] A2. `operation.state` events and `operation.watch` rows carry `session {id, name?, workspace?}`, omitted for a call without a session; the schema diff is that and `0.17.0`; 34 MCP tools. Source: Q2. Proven by: step 3
+- [x] A3. `file.watch` returns its baseline, slimmed after delivery, and its events are in the schema; the walk's cost recorded. Source: Q3. Proven by: step 4
+- [x] A4. The tree: folders first, natural order, hidden toggle, compaction, module marks, filter, the WAI-ARIA tree keys, copy path and relative path; an agent's `file.write` shows within 2 s; a tick over 1,000 changes still converges. Source: owner items 3, 6. Proven by: step 5, step 11
+- [x] A5. A clicked file opens a second-level tab in a read-only viewer with line numbers; a binary file a placeholder; an external change re-reads it; the active file is revealed in the tree. Source: owner item 4; Q4. Proven by: step 6, step 11
+- [x] A6. No picker: the projects panel (rail icon with the running-agent count and a spinner, hover overlay, click to pin) lists recents with state; selecting one switches every panel; without `w`, or with a refused one, the newest open project or the pinned panel. Source: owner item 4; Q1. Proven by: step 7, step 11
+- [x] A7. Two scripted agents show as two named rows with their live operations and durations, running first, unread marked (rows, operations and durations at level 4; running-first and unread at level 3, `sessions.test.ts`). Source: owner item 5; D30. Proven by: step 7, step 11
+- [x] A8. Toolbar status ("Building :app · 12 s", any client's build; a module named only for a UI build, §Changes) and the task selector; Activity as blocks with status, actor, duration, output. Source: owner items 1, 4. Proven by: step 8, step 11
+- [x] A9. ⌘P finds files, `>` runs commands. Source: owner item 6. Proven by: step 9, step 11
+- [x] A10. The right panel: device, start/stop, inspector, actions, Copy for the agent as D29. Source: owner items 2, 4, 6. Proven by: step 10, step 11
+- [x] A11. Same primitive: every `client=ui` call in the trace is a published capability; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 11
+- [x] A12. The register, `docs/README.md` and the plans index record what 2d closed and left, and 2e. Source: `milestone-workflow` step 6. Proven by: step 12
 
 ## Steps
 
@@ -209,7 +209,7 @@ Baseline on 2026-10-10 at `c21045f` with the uncommitted edit (macOS): `go vet .
 - Needs: step 11.
 - Not here: 2e's plan.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the register: row 212 (`file.changes` schemas) closed by 2d step 4; the nested-walk row closed in part, a new limit row for the per-directory cost; rows added for agent sessions, idle agents, image preview, a CLI trust leaving a tab stale, `inert()`'s narrower set, and the unverified ⌘P, client names and rail; the file operations named as 2e on the files and UI-controls rows; Git and the editor after 2e. `docs/README.md` names 2e; the index `Done`. `go test ./internal/doccheck` green (25,991 words of 26,067).
 
 ## Not in this milestone
 
@@ -296,3 +296,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-10, step 10 (verifier): Copy for the agent escapes every Cc, Cf, Zl, Zp character and variation selector (tag characters included), each UTF-16 unit on its own; a selector over 200 characters is copied as the ref and snapshot, not cut (a cut text could match another node). The 2c `inert()` shown on screen has the narrower set: a register row at step 12.
 - 2026-10-10, steps 5 and 7 implemented in parallel worktrees and committed together (they share `Project.svelte`). D30's "filters Activity to it" moves to step 8, which rebuilds Activity as blocks. "You" follows its latest operation's workspace rather than always "No project" (Delegated: a CLI command in a project belongs there). `gen-client.ts` gains `readOnly` from `annotations.readOnlyHint`, so "You without reads" reads the contract.
 - 2026-10-10, step 11's fixes (main session): a UI or CLI streaming capability (the tab's own watches) is not activity, as reads are not (m2b D16); opening a project (`workspace.open`, global, recorded before the workspace is open) is connecting, not work, so it makes no agent row (ADR-0048 §3: an agent that has run nothing is not listed); Activity lands on the bottom when its tab is shown again (a `ResizeObserver`; not unit-tested); the live-view frame shrinks to 64 px so the inspector has room; Logcat's list border takes the token. Seen: `emulator.wipe` takes `{avd}`, not `{device}`.
+- 2026-10-10, close (Delegated): the toolbar names a module only for a UI build ("Building · 25 s" for an agent's), since the operation view carries none (ADR-0043 §2); step 6's tabs follow VS Code's preview tab (a single click replaces the preview, a second open or a double click keeps it).
+- 2026-10-10, close (verifier): one blocking [plan] finding answered by a level-4 pass (`$B/l4-dev-2135`): from the right panel, Start on `droidyard_m2a` (`emulator.start` client=ui), the device selected, Install (refused `BUILD_OUTPUT_NOT_FOUND` on a fresh state with its next step, then completed after the toolbar's Build), Launch, Read the tree, `EditText name` picked and typed into (`device.inputText`), `View submit` picked and tapped (`device.tapElement`, "Tapped … matched exact"), Stop (`emulator.stop` client=ui) after a CLI wipe; E1, E3, S3 clean. Also applied: a project open marks no agent row unread (in `keyOf`); the stray empty `atch.ts` removed; stale "picker" wording. The toolbar labels any UI tab's build with this tab's module: a register row.
