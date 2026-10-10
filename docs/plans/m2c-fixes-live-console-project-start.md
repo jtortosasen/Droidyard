@@ -296,7 +296,7 @@ Each has a recommendation the main session may apply as Delegated (owner: "you d
 
 - Blocks: step 11
 - The documents say: ADR-0021 §Location: state "never inside the project tree", `.droidyard/` rejected; `ws/<wsid>/workspace.json` was to hold "selected variant, preferences"; ADR-0037 §Consequences: files in the project are the user's asked-for files; the owner asks for a per-project file in the folder, as IDEs keep one.
-- Draft decision, as a new ADR numbered when written at step 11 (`Supersedes: ADR-0021 §Location` in part, the UI's project choices only):
+- Draft decision, now ADR-0046:
   1. **`<root>/.droidyard/project.json`**, `schemaVersion: 1`: `{build: {module, variant}, device: {avd} | {serial}, applicationId}`; unknown keys kept; a newer version, or a file that does not parse, is treated as absent and never overwritten (shown as such). A directory, as `.idea/` and `.vscode/`.
   2. **Read and written by the UI** with `file.read`/`file.write` (the daemon stays the only writing process), on the first change, never on open: opening leaves the tree untouched. Last writer wins; no capability interprets it. A write that fails (a read-only checkout, ADR-0021's concern) keeps the choice for the tab and shows the failure.
   3. **It only preselects.** A module, variant, AVD or serial the daemon's lists lack is ignored; `applicationId`, which no list holds, is used only for launch and logs after a click, below D20's build output; nothing runs from the file without a click, and it never carries trust, policy, device admission or tool keys (ADR-0031, ADR-0032): a repository shipping one gains nothing.

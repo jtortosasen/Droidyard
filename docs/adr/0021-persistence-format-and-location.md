@@ -1,6 +1,7 @@
 # ADR-0021: Persistence — JSON files in a per-user state directory
 
 - Status: Accepted
+- Superseded in part by: ADR-0046 (§Location)
 - Date: 2026-09-29
 - Amended: 2026-09-29. What changed: the `run/` directory and the HTTP token; user
   configuration located outside the state directory; an explicit `DROIDYARD_STATE_DIR`
