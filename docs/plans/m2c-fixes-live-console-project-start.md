@@ -243,7 +243,7 @@ Baseline on 2026-10-10 at `4a311aa` with the uncommitted edit (macOS): `go vet .
 - Needs: step 12.
 - Not here: a per-session device reservation (owner: later; proposed as a register row at step 14); multi-device features (`mvp.md` §Out of scope).
 - Rests on: per-root build keys and per-serial device keys are independent under load (level 5, recorded, not asserted beyond A12).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `~/Library/Caches/droidyard-dev/m2c/l5-s13/SUMMARY.md`. (a) two `build_assemble` at once overlapped (10.7 s and 16.2 s from the same start), no `blockedBy` across roots, each tab's live console only its own; (b) two `emulator_start` at once: the second `queued` with `blockedBy` the first's start, then both ready (5554, 5556); (c) install, launch and ten actions per serial interleaved with no queued event; (d) each session's results and every `mcp` build event named its own workspace; (e) P's `device_uiTree` on Q's serial succeeded, by design; (f) every call terminal, no `events.gap`, both sessions exited 0, no orphans, 5037 unchanged; (g) the core's RSS 33.2 MB after the run and 33.6 MB about 4.5 minutes later, the sidecar alive. No defect found. `droidyard_m2c` created under `$B/avd` (the owner's `~/.android/avd` unchanged; avdmanager rewrote the SDK's `.knownPackages`, the allowed exception); both AVDs wiped and stopped.
 
 ### 14. Close: documents and register
 
