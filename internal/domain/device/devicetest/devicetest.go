@@ -33,6 +33,7 @@
 //	<serial>.forward            `-s <serial> forward tcp:0 localabstract:droidyard-reader-<d12>` (.out holds the port)
 //	<serial>.forwardremove      `-s <serial> forward --remove tcp:<port>`
 //	<serial>.forwardlist        `-s <serial> forward --list` (see below)
+//	<serial>.stat               `-s <serial> shell stat -c %s <reader file>` (answers the fake device file's size, or fails as a missing file does, unless scripted)
 //	<serial>.start              `-s <serial> shell "CLASSPATH=<dex> nohup app_process /system/bin --nice-name=… DroidyardReader serve …"`
 //	<serial>.pidof              `-s <serial> shell pidof droidyard-reader-…`
 //	<serial>.kill               `-s <serial> shell kill <pid>`
@@ -119,7 +120,10 @@
 //
 // The fake models the device's files: a push that exits 0 creates the remote path, `shell
 // rm -f <reader file>` removes it, and a serve start whose CLASSPATH= file is missing
-// exits 1. So a dex a fallback removed cannot be started from, and a test sees it.
+// exits 1, as does one whose file is 0 bytes long (a dex a restart truncated). So a dex a
+// fallback removed cannot be started from, and a test sees it. SetDeviceFile and
+// RemoveDeviceFile put the device in the state a restart or a wipe leaves; `shell stat -c
+// %s <reader file>` answers from the same files.
 //
 // `adb version` answers as client 1.0.41; any other invocation exits 9.
 //
@@ -435,6 +439,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".forwardremove"
 	case len(args) == 4 && args[2] == "shell" && isReaderServe(args[3]):
 		return args[1] + ".start"
+	case len(args) == 7 && args[2] == "shell" && args[3] == "stat" && args[4] == "-c" && args[5] == "%s" && isReaderFile(args[6]):
+		return args[1] + ".stat"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof" && strings.HasPrefix(args[4], "droidyard-reader-"):
 		return args[1] + ".pidof"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof":
@@ -572,6 +578,18 @@ func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout,
 	if b, err := os.ReadFile(filepath.Join(dir, name+".exit")); err == nil {
 		code, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 	}
+	// A stat of the reader's dex answers from the fake device's files unless the scenario
+	// scripts it: the size, or the failure of a file that is not there.
+	if strings.HasSuffix(prefix, ".stat") && code == 0 && len(raw) == 7 && !has(name+".out") {
+		if b, ok := readDeviceFile(dir, raw[6]); ok {
+			fmt.Fprintln(stdout, len(b))
+			event("end")
+			return 0
+		}
+		fmt.Fprintf(stderr, "stat: '%s': No such file or directory\n", raw[6])
+		event("end")
+		return 1
+	}
 	// A successful forward binds a host proxy and prints its port, so a later dial
 	// reaches the reader through it and a removed forward refuses the dial (plan m1f
 	// step 7). A forward that failed falls through to the generic answer below.
@@ -640,9 +658,17 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 		}
 	case strings.HasSuffix(prefix, ".start"):
 		if len(raw) == 4 {
-			if cp := classpathOf(raw[3]); cp != "" && !deviceFileExists(dir, cp) {
-				fmt.Fprintf(stderr, "%s: No such file or directory\n", cp)
-				return 1
+			if cp := classpathOf(raw[3]); cp != "" {
+				b, ok := readDeviceFile(dir, cp)
+				if !ok {
+					fmt.Fprintf(stderr, "%s: No such file or directory\n", cp)
+					return 1
+				}
+				if len(b) == 0 {
+					// app_process cannot load a class from an empty dex.
+					fmt.Fprintf(stderr, "%s: Failed to open dex file: zero-length\n", cp)
+					return 1
+				}
 			}
 		}
 	case strings.HasSuffix(prefix, ".kill"):
@@ -688,9 +714,31 @@ func removeDeviceFile(dir, remote string) {
 	os.Remove(deviceFile(dir, remote))
 }
 
-func deviceFileExists(dir, remote string) bool {
-	_, err := os.Stat(deviceFile(dir, remote))
-	return err == nil
+func readDeviceFile(dir, remote string) ([]byte, bool) {
+	b, err := os.ReadFile(deviceFile(dir, remote))
+	return b, err == nil
+}
+
+// SetDeviceFile makes the fake device hold remote with data, as a restart that left a dex
+// 0 bytes long does (nil data).
+func SetDeviceFile(t testing.TB, dir, remote string, data []byte) {
+	t.Helper()
+	if data == nil {
+		data = []byte{}
+	}
+	writeDeviceFile(dir, remote, data)
+}
+
+// RemoveDeviceFile removes remote from the fake device, as a wipe does.
+func RemoveDeviceFile(t testing.TB, dir, remote string) {
+	t.Helper()
+	removeDeviceFile(dir, remote)
+}
+
+// DeviceFile returns what the fake device holds at remote, and whether it holds anything.
+func DeviceFile(t testing.TB, dir, remote string) ([]byte, bool) {
+	t.Helper()
+	return readDeviceFile(dir, remote)
 }
 
 // Events returns events.log's lines: "begin <prefix>" and "end <prefix>", in order.

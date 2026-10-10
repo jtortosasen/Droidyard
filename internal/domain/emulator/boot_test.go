@@ -128,6 +128,21 @@ func TestStartAdoptsARunningAVD(t *testing.T) {
 	}
 }
 
+// Decision (milestone 2c step 6): a windowed, warm start (no options) carries the crash
+// flag too, not only the headless and cold ones above: the consent dialog that hangs a
+// windowed boot only exists when there is a window. Seen failing with the flag removed
+// from the launch.
+func TestWindowedStartAnswersTheCrashReportQuestionItself(t *testing.T) {
+	scaleBoot(t, 10*time.Second, 10*time.Millisecond)
+	f := newFixture(t, map[string]string{"devices.out": listHead})
+	f.launcher(t, loadedAVD+"\n")
+	mustStart(t, f.boot(t, `{"avd":"`+loadedAVD+`"}`))
+	want := "-avd " + loadedAVD + " -no-boot-anim -no-audio -no-snapshot-save -crash-report-mode never"
+	if c := f.launchCall(t); c != want {
+		t.Errorf("launch = %q; want %q", c, want)
+	}
+}
+
 // Decision (plan m1i step 5, check; D15): a stopped AVD is booted detached — the
 // documented flags, a session of its own (Setsid, not Setpgid), and its output under
 // `<state>/emulator/<avd>.log` — and the result carries the measured bootMs.
@@ -144,7 +159,7 @@ func TestStartBootsDetachedWithTheDocumentedFlags(t *testing.T) {
 	if r.BootMs < 100 {
 		t.Errorf("bootMs = %d; the boot took at least the launcher's 120 ms delay", r.BootMs)
 	}
-	want := "-avd " + loadedAVD + " -no-boot-anim -no-audio -no-snapshot-save -no-snapshot-load -no-window"
+	want := "-avd " + loadedAVD + " -no-boot-anim -no-audio -no-snapshot-save -no-snapshot-load -no-window -crash-report-mode never"
 	if c := f.launchCall(t); c != want {
 		t.Errorf("launch = %q; want %q", c, want)
 	}
@@ -670,7 +685,7 @@ func TestWipeStopsThenBootsWithWipeData(t *testing.T) {
 	if n := countCall(f.calls(t), "-s "+serial2+" emu kill"); n != 1 {
 		t.Errorf("%d `emu kill` calls for the running instance, want one", n)
 	}
-	want := "-avd " + loadedAVD + " -no-boot-anim -no-audio -no-snapshot-save -wipe-data"
+	want := "-avd " + loadedAVD + " -no-boot-anim -no-audio -no-snapshot-save -wipe-data -crash-report-mode never"
 	if c := f.launchCall(t); c != want {
 		t.Errorf("launch = %q; want %q", c, want)
 	}
