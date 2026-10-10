@@ -94,7 +94,7 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 2 (the generated `package` field).
 - Not here: the bar (4); autocomplete, history, favourites, match case (Not in this milestone).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `query.ts` (tokenizer and recursive-descent parser, `parseQuery` → predicate or `{error, at}`), `crash.ts` (per-pid ingest marks), `entry.ts`'s `Line`; `filter.ts` removed; `query.test.ts`, `crash.test.ts`, a session ingest case; verify 438 tests. Seen failing reversed (14): same-key AND, negated OR, `&` not starting a run, assert as error, mine on any priority, mine on every package form, `age` off the clock, case-sensitive text, bare words not merged, markers filtered, a crash run never ending, any `AndroidRuntime` marked, native at any priority, marking removed from the session. `setFilter` over 50,000 lines with `package:mine tag:a | level:error`: 6.1 ms in Node. Where D38 is silent (each pinned by a test): `-` before `level`, `age`, `is`, `name` ignored (Studio's); `line:` and bare words search "package tag message"; an explicit `&` starts a new run; `package:"mine"` is mine, `-`/`~`/`=` forms the literal text. `Logcat.svelte` bridged its old controls into a query until step 4.
 
 ### 4. The Logcat panel: the bar, the device selector, "mine"
 

@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import type { Client, ConnectionState } from '../api/client';
 	import { isMarker, PRIORITIES, type Priority } from './entry';
-	import { parseTags } from './filter';
+	import { parseQuery } from './query';
 	import { formatLine, priorityClass } from './format';
 	import { LogcatSession } from './session';
 	import { rowWindow } from './virtual';
@@ -118,7 +118,19 @@
 	}
 
 	function applyFilter() {
-		session.setFilter({ minPriority, tags: parseTags(tagsText), text });
+		const r = parseQuery(legacyQuery(minPriority, tagsText, text));
+		if (r.ok) session.setFilter(r.predicate);
+	}
+
+	// Step 3 stopgap: the three old controls, written as a query. Step 4 replaces them
+	// with the query bar. Tags are now exact but case-insensitive.
+	function legacyQuery(min: Priority, tags: string, message: string): string {
+		const q = (s: string) => `"${s.replace(/[\\"]/g, '\\$&')}"`;
+		const parts: string[] = [];
+		if (min !== 'verbose') parts.push(`level:${min}`);
+		for (const t of tags.split(/[\s,]+/).filter((t) => t !== '')) parts.push(`tag=:${q(t)}`);
+		if (message !== '') parts.push(`message:${q(message)}`);
+		return parts.join(' ');
 	}
 
 	function applyApplication(e: SubmitEvent) {

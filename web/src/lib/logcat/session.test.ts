@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConnectionError } from '../api/client';
-import { NO_FILTER } from './filter';
+import { compileQuery } from './query';
 import { LogcatSession } from './session';
 import { FakeClient, FakeFrames, line, settle } from './testing';
 
@@ -83,13 +83,26 @@ describe('LogcatSession', () => {
 		const t = await make();
 		t.client.lines(0, [line(1, 'keep'), line(2, 'other')], 3);
 		t.frames.tick();
-		t.session.setFilter({ ...NO_FILTER, text: 'keep' });
+		t.session.setFilter(compileQuery('message:keep'));
 		expect(t.text()).toEqual(['[dropped]', 'keep']);
 		t.client.lines(0, [line(3, 'other 2'), line(4, 'keep 2')]);
 		t.frames.tick();
 		expect(t.text()).toEqual(['[dropped]', 'keep', 'keep 2']);
-		t.session.setFilter(NO_FILTER);
+		t.session.setFilter(compileQuery(''));
 		expect(t.session.count).toBe(5);
+	});
+
+	// Decision (D41): crash runs are marked as lines arrive, before the view tests them.
+	it('marks crash lines at ingest', async () => {
+		const t = await make();
+		t.client.lines(0, [
+			line(1, 'FATAL EXCEPTION: main', { tag: 'AndroidRuntime', priority: 'error' }),
+			line(2, 'java.lang.Boom', { tag: 'AndroidRuntime', priority: 'error' }),
+			line(3, 'fine', { tag: 'Other' }),
+		]);
+		t.frames.tick();
+		t.session.setFilter(compileQuery('is:crash'));
+		expect(t.text()).toEqual(['FATAL EXCEPTION: main', 'java.lang.Boom']);
 	});
 
 	// Decision: when the user scrolled away from the bottom the list keeps growing but
@@ -117,7 +130,7 @@ describe('LogcatSession', () => {
 		t.feed(2, 7);
 		t.frames.tick();
 		expect(t.session.newCount).toBe(2);
-		t.session.setFilter({ ...NO_FILTER, text: 'm' });
+		t.session.setFilter(compileQuery('message:m'));
 		expect(t.session.following).toBe(true);
 		expect(t.session.newCount).toBe(0);
 	});
