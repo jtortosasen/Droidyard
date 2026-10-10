@@ -61,14 +61,14 @@
 		workspaceId: string;
 		/** The daemon refused the id: the page shows the projects panel with the reason. */
 		onmissing: (why: Failure) => void;
-		/** "All projects": opens the projects panel. */
-		onprojects: () => void;
-		/** The connection and health line App owns, shown in the toolbar. */
+		/** The connection and health line App owns, shown in the status bar. */
 		status: Snippet;
-		/** The rail's projects icon, which App owns (it outlives the project view). */
-		rail: Snippet;
+		/** The sessions toggle, which App owns (it outlives the project view). */
+		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void }]>;
+		/** The sessions column's body (the projects and agents panel), which App owns. */
+		sessionsPanel: Snippet;
 	}
-	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
+	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -242,14 +242,10 @@
 	});
 </script>
 
-{#snippet panel(id: string, show: (id: string) => void)}
+{#snippet panel(id: string, shell: ShellApi)}
 	{#if id === 'workspace'}
 		{#if workspace && trust}
-			<Workspace model={workspace} {trust} {onprojects} compact />
-		{/if}
-	{:else if id === 'projectfile'}
-		{#if projectFile}
-			<ProjectFile model={projectFile} compact />
+			<Workspace model={workspace} {trust} onprojects={shell.openSessions} compact />
 		{/if}
 	{:else if id === 'build'}
 		{#if build}
@@ -280,7 +276,7 @@
 		{/if}
 	{:else if id === 'activity'}
 		{#if buildConsole && build}
-			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => show('console')} />
+			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => shell.show('console')} />
 		{/if}
 	{:else if id === 'tasks'}
 		{#if tasks}
@@ -307,6 +303,13 @@
 		{#if act}
 			<Act model={act} connected={connection === 'open'} />
 		{/if}
+	{/if}
+{/snippet}
+
+{#snippet statusbar()}
+	{@render status()}
+	{#if projectFile}
+		<span class="end"><ProjectFile model={projectFile} compact /></span>
 	{/if}
 {/snippet}
 
@@ -355,5 +358,11 @@
 	{/if}
 {/snippet}
 
-<Shell content={panel} {status} {centre} {banners} {rail} {overlay} />
+<Shell content={panel} {statusbar} {centre} {banners} {sessionsToggle} sessions={sessionsPanel} {overlay} />
+
+<style>
+	.end {
+		margin-left: auto;
+	}
+</style>
 
