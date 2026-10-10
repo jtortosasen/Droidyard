@@ -18,7 +18,7 @@
 	import Activity from '@lucide/svelte/icons/activity';
 	import Hammer from '@lucide/svelte/icons/hammer';
 	import { browserStorage, clampSize, loadLayout, saveLayout, type Region } from './layout';
-	import { activate, disabledTitle, initialActive, panelsIn, type PanelDef, type PanelRegion } from './panels';
+	import { activate, disabledTitle, initialActive, panelsIn, type PanelDef, type PanelRegion, type ShellApi } from './panels';
 	import Splitter from './Splitter.svelte';
 
 	// The window the owner described (plan m2d step 2): a toolbar, a rail, the left panel,
@@ -37,8 +37,10 @@
 		banners?: Snippet;
 		/** The projects icon and its overlay, the rail's first item (the overlay anchors to the middle row). */
 		rail?: Snippet;
+		/** Page-level overlays (the command palette), given what only the shell knows. */
+		overlay?: Snippet<[ShellApi]>;
 	}
-	let { content, status, centre, banners, rail }: Props = $props();
+	let { content, status, centre, banners, rail, overlay }: Props = $props();
 
 	const storage = browserStorage(window);
 	let layout = $state(loadLayout(storage));
@@ -66,6 +68,15 @@
 	function show(id: string) {
 		active = activate(active, id);
 	}
+	const api: ShellApi = {
+		density: () => layout.density,
+		setDensity: (d) => (layout.density = d),
+		showFiles: () => {
+			layout.open.left = true;
+			active = activate(active, 'files');
+		},
+		show,
+	};
 	function toggle(region: Region) {
 		layout.open[region] = !layout.open[region];
 	}
@@ -198,6 +209,7 @@
 		{@render tabs('bottom', 'Bottom panel')}
 		<div class="body">{@render panes('bottom')}</div>
 	</section>
+	{#if overlay}{@render overlay(api)}{/if}
 </div>
 
 <style>
