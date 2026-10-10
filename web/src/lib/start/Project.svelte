@@ -29,12 +29,15 @@
 	import Act from '../devices/Act.svelte';
 	import { AppLogsModel } from '../devices/applogs';
 	import AppLogs from '../devices/AppLogs.svelte';
+	import { FileTreeModel } from '../files/tree';
+	import { FileWatch } from '../files/watch';
+	import FileTree from '../files/FileTree.svelte';
 	import Banners from './Banners.svelte';
 	import Shell from '../ui/Shell.svelte';
 	import type { Snippet } from 'svelte';
 
-	// One project in one tab (ADR-0045 §2): the panels of the workspace the address's `w`
-	// names, over the session App owns. App mounts this keyed on the id, so a different
+	// One project's panels (ADR-0047): the workspace the address's `w` names, over the
+	// session App owns. App mounts this keyed on the id, so a different
 	// project is a new instance, never a model re-pointed.
 	interface Props {
 		client: Client;
@@ -42,13 +45,16 @@
 		hub: EventsHub;
 		connection: ConnectionState;
 		workspaceId: string;
-		/** The daemon refused the id: the tab goes to the picker with the reason. */
+		/** The daemon refused the id: the page shows the projects panel with the reason. */
 		onmissing: (why: Failure) => void;
-		onpicker: () => void;
+		/** "All projects": opens the projects panel. */
+		onprojects: () => void;
 		/** The connection and health line App owns, shown in the toolbar. */
 		status: Snippet;
+		/** The rail's projects icon, which App owns (it outlives the project view). */
+		rail: Snippet;
 	}
-	let { client, activity, hub, connection, workspaceId, onmissing, onpicker, status }: Props = $props();
+	let { client, activity, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -62,6 +68,8 @@
 	let uiTree = $state.raw<UiTreeModel | null>(null);
 	let act = $state.raw<ActModel | null>(null);
 	let appLogs = $state.raw<AppLogsModel | null>(null);
+	let fileTree = $state.raw<FileTreeModel | null>(null);
+	let fileWatch = $state.raw<FileWatch | null>(null);
 	// The selected device is the devices model's; Logcat follows it.
 	let device = $state('');
 
@@ -104,6 +112,15 @@
 		const tree = new UiTreeModel(callOn, deviceList, store);
 		const actions = new ActModel(callOn, deviceList);
 		const logs = new AppLogsModel(callOn, deviceList, installer, store);
+		const files = new FileTreeModel(callOn, ws);
+		const watcher = new FileWatch(
+			{
+				call: callOn.call,
+				subscribe: (name, params, handlers, opts) => c.subscribe(name, params, handlers, opts),
+			},
+			ws,
+			files.sink,
+		);
 		const offDevice = deviceList.subscribe(() => {
 			device = deviceList.view.selected;
 		});
@@ -119,9 +136,11 @@
 		uiTree = tree;
 		act = actions;
 		appLogs = logs;
+		fileTree = files;
+		fileWatch = watcher;
 		// The project is opened by the id from the address (workspace.open is idempotent);
 		// after another client closes it the panel offers to reopen, it does not reopen.
-		// A refusal by the daemon sends the tab to the picker; a lost connection does not.
+		// A refusal by the daemon shows the projects panel with the reason; a lost connection does not.
 		let gone = false;
 		void ws.openById(workspaceId).then((ok) => {
 			const why = ws.view.error;
@@ -130,6 +149,8 @@
 		return () => {
 			gone = true;
 			offDevice();
+			watcher.dispose();
+			files.dispose();
 			unbind();
 			file.dispose();
 			logs.dispose();
@@ -155,6 +176,8 @@
 			uiTree = null;
 			act = null;
 			appLogs = null;
+			fileTree = null;
+			fileWatch = null;
 			device = '';
 		};
 	});
@@ -164,6 +187,7 @@
 	$effect(() => {
 		buildConsole?.onConnection(connection);
 		projectFile?.onConnection(connection);
+		fileWatch?.onConnection(connection);
 	});
 	$effect(() => {
 		if (connection !== 'open' || !devices || !emulators) return;
@@ -175,7 +199,7 @@
 {#snippet panel(id: string)}
 	{#if id === 'workspace'}
 		{#if workspace && trust}
-			<Workspace model={workspace} {trust} {onpicker} compact />
+			<Workspace model={workspace} {trust} {onprojects} compact />
 		{/if}
 	{:else if id === 'projectfile'}
 		{#if projectFile}
@@ -186,8 +210,10 @@
 			<Build model={build} compact />
 		{/if}
 	{:else if id === 'files'}
-		<!-- Slot for the file tree (plan m2d step 5). -->
-		<p class="empty">The file tree arrives with the next steps of this milestone.</p>
+		{#if fileTree && fileWatch}
+			<!-- Step 6 wires the viewer; until then a chosen file is only selected. -->
+			<FileTree model={fileTree} watch={fileWatch} onopen={() => {}} />
+		{/if}
 	{:else if id === 'editor'}
 		<!-- Slot for the second-level file tabs (plan m2d step 6). -->
 		<p class="empty">Open a file from the tree to read it here.</p>
@@ -241,7 +267,7 @@
 	{/if}
 {/snippet}
 
-<Shell content={panel} {status} {banners} />
+<Shell content={panel} {status} {banners} {rail} />
 
 <style>
 	.empty {

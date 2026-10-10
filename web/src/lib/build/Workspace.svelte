@@ -6,16 +6,16 @@
 	import Folders from '@lucide/svelte/icons/folders';
 
 	// The workspace panel (plan m2b D10, m2c step 10): the tab's project, what the daemon
-	// says about it, Trust while it is not, and the way back to the picker. Every field is
+	// says about it, Trust while it is not, and the way to the projects panel. Every field is
 	// a text node.
 	interface Props {
 		model: WorkspaceModel;
 		trust: TrustModel;
-		onpicker: () => void;
+		onprojects: () => void;
 		/** One line for the toolbar: the name, a short state, long messages in a tooltip. */
 		compact?: boolean;
 	}
-	let { model, trust, onpicker, compact = false }: Props = $props();
+	let { model, trust, onprojects, compact = false }: Props = $props();
 
 	let view = $state.raw<WorkspaceView | null>(null);
 
@@ -31,7 +31,7 @@
 
 {#if compact}
 	<section class="compact">
-		<button type="button" class="icon" title="All projects" aria-label="All projects" onclick={onpicker}><Folders size={14} /></button>
+		<button type="button" class="icon" title="All projects" aria-label="All projects" onclick={onprojects}><Folders size={14} /></button>
 		{#if view?.info}
 			<strong title="{view.info.name} ({view.info.id}), {view.root}">{view.info.name}</strong>
 			<span class="state" title={view.info.state}>{view.info.state}</span>
@@ -54,7 +54,7 @@
 {:else}
 <section>
 	<h2>Workspace</h2>
-	<button type="button" onclick={onpicker}>All projects</button>
+	<button type="button" onclick={onprojects}>All projects</button>
 	{#if view?.opening}
 		<p>Opening...</p>
 	{/if}

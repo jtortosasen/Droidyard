@@ -63,9 +63,9 @@ func TestBareDroidyardOpensTheProject(t *testing.T) {
 	srv.wait(t)
 }
 
-// TestBareDroidyardElsewhereOpensThePicker: outside any project the browser opens on the
-// page without `w`, and no workspace is opened (ADR-0045 §1).
-func TestBareDroidyardElsewhereOpensThePicker(t *testing.T) {
+// TestBareDroidyardElsewhereOpensWithoutW: outside any project the browser opens on the
+// page without `w`, and no workspace is opened (ADR-0045 §1, ADR-0047 §2).
+func TestBareDroidyardElsewhereOpensWithoutW(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
 	srv, addr := serveOn(t, state)

@@ -34,6 +34,13 @@ export const RETRY_MAX_MS = 30_000;
 /** `unseen`: ended while the store could not see; the outcome is unknown. */
 export type OperationState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unseen';
 
+/** The daemon session that made the call (ADR-0048); absent for a call recorded without one. */
+export interface OperationSession {
+	readonly id: string;
+	readonly name?: string;
+	readonly workspace?: string;
+}
+
 export interface Operation {
 	readonly id: string;
 	readonly capability: string;
@@ -41,6 +48,7 @@ export interface Operation {
 	readonly workspace: string | null;
 	/** cli, mcp or ui; undefined for a call recorded without a kind. */
 	readonly client: string | undefined;
+	readonly session?: OperationSession;
 	readonly state: OperationState;
 	readonly startedAt: string;
 	readonly durationMs?: number;
@@ -279,6 +287,7 @@ export class ActivityStore {
 				capability: p.capability,
 				workspace: ev.workspace,
 				client: p.client,
+				session: p.session,
 				state: p.state,
 				startedAt: p.startedAt,
 				durationMs: p.durationMs,
@@ -301,6 +310,7 @@ export class ActivityStore {
 					capability: o.capability,
 					workspace: o.workspace ?? null,
 					client: o.client,
+					session: o.session,
 					state: o.state,
 					startedAt: o.startedAt,
 					blockedBy: o.blockedBy,
