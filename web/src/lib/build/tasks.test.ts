@@ -128,7 +128,7 @@ describe('the console', () => {
 		t.src.view.last = { buildId: 'b1', consoleRef: 'ref-1' };
 		const m = t.mk();
 		await settle();
-		expect(t.calls.calls).toEqual([{ name: 'artifact.read', params: { ref: 'ref-1', offset: -PAGE, limit: PAGE }, workspace: '/p' }]);
+		expect(t.calls.calls).toEqual([{ name: 'artifact.read', params: { ref: 'ref-1', offset: -PAGE, limit: PAGE }, workspace: undefined }]);
 		expect(m.view.text).toContain('BUILD SUCCESSFUL');
 		expect(m.view.hasEarlier).toBe(true);
 	});

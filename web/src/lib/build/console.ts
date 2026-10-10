@@ -102,7 +102,7 @@ export class ConsoleModel {
 		this.#error = null;
 		this.#changed();
 		try {
-			const r = await this.#client.call('artifact.read', { ref, offset: -PAGE, limit: PAGE }, { workspace: this.#ws.root.trim() });
+			const r = await this.#client.call('artifact.read', { ref, offset: -PAGE, limit: PAGE });
 			if (gen !== this.#gen) return;
 			this.#text = r.text ?? '';
 			this.#offset = r.offset ?? 0;
@@ -128,7 +128,7 @@ export class ConsoleModel {
 		this.#changed();
 		try {
 			// limit is at least the capability's minimum (4 bytes) and ends at the text shown.
-			const r = await this.#client.call('artifact.read', { ref, offset: start, limit: Math.max(4, end - start) }, { workspace: this.#ws.root.trim() });
+			const r = await this.#client.call('artifact.read', { ref, offset: start, limit: Math.max(4, end - start) });
 			if (gen !== this.#gen) return;
 			this.#text = (r.text ?? '') + this.#text;
 			// A read landing mid-line starts at the next line: the offset moves, never below 0.
