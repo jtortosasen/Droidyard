@@ -14,6 +14,9 @@
 	import { WorkspaceModel } from '../build/workspace';
 	import Workspace from '../build/Workspace.svelte';
 	import { TrustModel } from './trust';
+	import { ProjectFileModel } from './projectfile';
+	import { bindProjectFile } from './projectbind';
+	import ProjectFile from './ProjectFile.svelte';
 	import { DevicesMirror } from '../devices/mirror';
 	import { DevicesModel } from '../devices/devices';
 	import { EmulatorsModel } from '../devices/emulators';
@@ -43,6 +46,7 @@
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
+	let projectFile = $state.raw<ProjectFileModel | null>(null);
 	let build = $state.raw<BuildModel | null>(null);
 	let tasks = $state.raw<TasksModel | null>(null);
 	let buildConsole = $state.raw<ConsoleModel | null>(null);
@@ -82,9 +86,15 @@
 			{
 				selection: () => (ws.id === null ? null : { root: ws.root, module: builds.view.module, variant: builds.view.variant }),
 				subscribe: (l) => builds.subscribe(l),
+				// D20: the newest build's output for the chosen module and variant.
+				output: (module, variant) => builds.view.last?.outputs?.find((o) => o.module === module && o.variant === variant)?.applicationId,
 			},
 			deviceList,
 		);
+		// ADR-0046: the project file preselects once it is read and is written from the
+		// user's choices; nothing is written on load.
+		const file = new ProjectFileModel(callOn, ws);
+		const unbind = bindProjectFile({ file, build: builds, devices: deviceList, emulators: emulatorList, install: installer });
 		const tree = new UiTreeModel(callOn, deviceList, store);
 		const actions = new ActModel(callOn, deviceList);
 		const logs = new AppLogsModel(callOn, deviceList, installer, store);
@@ -93,6 +103,7 @@
 		});
 		workspace = ws;
 		trust = trusting;
+		projectFile = file;
 		build = builds;
 		tasks = taskList;
 		buildConsole = console_;
@@ -113,6 +124,8 @@
 		return () => {
 			gone = true;
 			offDevice();
+			unbind();
+			file.dispose();
 			logs.dispose();
 			actions.dispose();
 			tree.dispose();
@@ -126,6 +139,7 @@
 			ws.dispose();
 			workspace = null;
 			trust = null;
+			projectFile = null;
 			build = null;
 			tasks = null;
 			buildConsole = null;
@@ -143,6 +157,7 @@
 	// lost connection, and the device lists are read when the socket (re)opens.
 	$effect(() => {
 		buildConsole?.onConnection(connection);
+		projectFile?.onConnection(connection);
 	});
 	$effect(() => {
 		if (connection !== 'open' || !devices || !emulators) return;
@@ -153,6 +168,9 @@
 
 {#if workspace && trust}
 	<Workspace model={workspace} {trust} {onpicker} />
+{/if}
+{#if projectFile}
+	<ProjectFile model={projectFile} />
 {/if}
 {#if build}
 	<Build model={build} />

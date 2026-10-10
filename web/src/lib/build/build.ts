@@ -39,6 +39,24 @@ export interface BuildWorkspace {
 }
 
 export type LastBuild = Result<'build.lastResult'>;
+
+/** What the project file preselects (ADR-0046); a value the daemon's lists lack is ignored. */
+export interface BuildPreselect {
+	module?: string;
+	variant?: string;
+}
+
+/** The module chosen: the preselected one if listed, else `:app` (D19), else the first real module. */
+export function pickModule(modules: readonly string[], want?: string): string {
+	if (want !== undefined && modules.includes(want)) return want;
+	return modules.includes(':app') ? ':app' : (modules.find((p) => p !== ':') ?? modules[0] ?? '');
+}
+
+/** The variant chosen: the preselected one if listed, else `debug` (D19), else the first. */
+export function pickVariant(variants: readonly string[], want?: string): string {
+	if (want !== undefined && variants.includes(want)) return want;
+	return variants.includes('debug') ? 'debug' : (variants[0] ?? '');
+}
 export type Problems = Result<'build.errors'>;
 
 export interface BuildView {
@@ -82,6 +100,11 @@ export class BuildModel {
 	#gen = 0; // the newest read of the last result; an older one is dropped
 	#trusted = false;
 	#projectGen = 0;
+	// ADR-0046: what the project file preselects, applied until the user chooses something,
+	// and the listeners told of the user's own choices (the file is written from those).
+	#pref: BuildPreselect | null = null;
+	#touched = false;
+	#choices = new Set<(choice: { module: string; variant: string }) => void>();
 
 	constructor(client: BuildClient, activity: BuildActivity, progress: MirrorProgress, ws: BuildWorkspace) {
 		this.#client = client;
@@ -123,9 +146,37 @@ export class BuildModel {
 		};
 	}
 
+	/** Calls `fn` with the module and variant after each change the user makes, never for a default. */
+	subscribeChoice(fn: (choice: { module: string; variant: string }) => void): () => void {
+		this.#choices.add(fn);
+		return () => {
+			this.#choices.delete(fn);
+		};
+	}
+
+	/**
+	 * The project file's module and variant (ADR-0046): used where the daemon's lists hold
+	 * them, until the user chooses. Safe before or after the lists load.
+	 */
+	setPreselect(pref: BuildPreselect | null): void {
+		this.#pref = pref;
+		if (this.#touched || this.#id === null || this.#modules.length === 0) return;
+		const want = pref?.module;
+		if (want !== undefined && want !== this.#module && this.#modules.includes(want)) {
+			void this.#chooseModule(want);
+		} else if (want !== undefined && want === this.#module && this.#variants.length > 0) {
+			const variant = pickVariant(this.#variants, pref?.variant);
+			if (variant !== this.#variant) {
+				this.#variant = variant;
+				this.#changed();
+			}
+		}
+	}
+
 	dispose(): void {
 		for (const off of this.#offs) off();
 		this.#offs = [];
+		this.#choices.clear();
 		this.mirror.dispose();
 	}
 
@@ -148,6 +199,7 @@ export class BuildModel {
 		this.#variants = [];
 		this.#module = '';
 		this.#variant = '';
+		this.#touched = false;
 		this.#last = null;
 		this.#problems = null;
 		this.#noBuild = false;
@@ -171,7 +223,7 @@ export class BuildModel {
 			const r = await this.#client.call('project.modules', {}, { workspace: root });
 			if (gen !== this.#projectGen) return;
 			this.#modules = r.modules.map((m) => m.path);
-			this.#module = this.#modules.includes(':app') ? ':app' : (this.#modules.find((p) => p !== ':') ?? this.#modules[0] ?? '');
+			this.#module = pickModule(this.#modules, this.#touched ? undefined : this.#pref?.module);
 			this.#loadError = null;
 			this.#changed();
 			await this.#loadVariants(gen);
@@ -182,7 +234,25 @@ export class BuildModel {
 		}
 	}
 
+	/** The user chose a module: its variants are read, and the pair is the user's choice. */
 	async selectModule(module: string): Promise<void> {
+		this.#touched = true;
+		await this.#chooseModule(module);
+		if (this.#module === module && this.#variant !== '') this.#announce();
+	}
+
+	selectVariant(variant: string): void {
+		this.#touched = true;
+		this.#variant = variant;
+		this.#changed();
+		if (this.#module !== '' && variant !== '') this.#announce();
+	}
+
+	#announce(): void {
+		for (const fn of [...this.#choices]) fn({ module: this.#module, variant: this.#variant });
+	}
+
+	async #chooseModule(module: string): Promise<void> {
 		this.#module = module;
 		this.#variants = [];
 		this.#variant = '';
@@ -198,18 +268,14 @@ export class BuildModel {
 		}
 	}
 
-	selectVariant(variant: string): void {
-		this.#variant = variant;
-		this.#changed();
-	}
-
 	async #loadVariants(gen: number): Promise<void> {
 		if (this.#module === '') return;
 		const module = this.#module;
 		const r = await this.#client.call('project.variants', { module }, { workspace: this.#ws.root.trim() });
 		if (gen !== this.#projectGen || module !== this.#module) return;
 		this.#variants = r.modules.find((m) => m.module === module)?.variants ?? [];
-		this.#variant = this.#variants.includes('debug') ? 'debug' : (this.#variants[0] ?? '');
+		const pref = this.#touched || this.#pref?.module !== module ? undefined : this.#pref?.variant;
+		this.#variant = pickVariant(this.#variants, pref);
 		this.#loadError = null;
 		this.#changed();
 	}
