@@ -114,15 +114,25 @@ func (r *resolver) classify(path string, err error) *capability.Error {
 }
 
 // isEscape reports whether err is an os.Root's refusal to leave the root: the escape
-// sentinel wrapped in a *PathError or a *LinkError.
+// sentinel wrapped in a *PathError or a *LinkError, possibly inside another one (a
+// Root.MkdirAll reports "mkdirat dir: statat dir: path escapes from parent").
 func isEscape(err error) bool {
-	var pe *fs.PathError
-	if errors.As(err, &pe) {
-		return pe.Err != nil && pe.Err.Error() == escapeText
-	}
-	var le *os.LinkError
-	if errors.As(err, &le) {
-		return le.Err != nil && le.Err.Error() == escapeText
+	for err != nil {
+		var inner error
+		var pe *fs.PathError
+		var le *os.LinkError
+		switch {
+		case errors.As(err, &pe):
+			inner = pe.Err
+		case errors.As(err, &le):
+			inner = le.Err
+		default:
+			return false
+		}
+		if inner != nil && inner.Error() == escapeText {
+			return true
+		}
+		err = inner
 	}
 	return false
 }

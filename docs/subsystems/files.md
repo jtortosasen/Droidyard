@@ -1,7 +1,7 @@
 # Subsystem: files
 
-Reading, writing and watching project files: `file.list`, `file.read`, `file.write` and
-`file.watch`. All four are **workspace-scoped** and run against a workspace's project root
+Reading, writing, watching and changing project files: `file.list`, `file.read`,
+`file.write`, `file.watch`, and the tree's operations (§Operations). All are **workspace-scoped** and run against a workspace's project root
 without running project code. Decisions D2-D9 of [`plans/m1j-files.md`](../plans/m1j-files.md).
 Parameters, results, bounds and error lists are the descriptors' (`internal/domain/file`).
 
@@ -49,6 +49,23 @@ between deciding a path is inside and using it.
   `file.write` has no `FILE_NOT_FOUND` (it creates a missing target, and any `ENOENT` during
   the write is `FILE_IO_FAILED`). A retained (slimmed) result drops the list entries and the
   read text.
+
+## Operations
+
+`file.create` and `file.move` change the tree and replace nothing
+([ADR-0053](../adr/0053-file-operations.md)). A rename is a move inside one folder. A move
+opens each item's two parent folders through the `os.Root` and renames on their descriptors
+with the kernel's no-replace rename (`RENAME_EXCL` on macOS, `RENAME_NOREPLACE` on Linux), so
+containment stays the root's, the final name is never followed, and a writer that takes the
+target first keeps its file: the item is `FILE_EXISTS`. `os.Root`'s `Rename` is not used,
+because `rename(2)` replaces a file and an empty folder. A volume that cannot refuse a replace
+fails the item `FILE_IO_FAILED`; there is no fallback. The one plain rename is a case-only or
+normalisation-only rename of the entry itself on a volume that folds names.
+
+A move is a batch: what the request's text alone decides (a path outside the root, the root
+itself, a source equal to its target or holding it) fails the whole call; what only the
+filesystem can say fails its item, and the call completes with every item's outcome. Parents
+of a move's target are not created (`file.create` makes folders).
 
 ## The watch
 

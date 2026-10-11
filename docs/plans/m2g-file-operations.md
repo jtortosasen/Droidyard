@@ -88,7 +88,7 @@ Baseline on 2026-10-11 at `7958af5` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 1.
 - Not here: copy (4), delete and restore (5); a rename across volumes inside the project (an item `FILE_IO_FAILED` with `EXDEV` as its cause; Not in this milestone); Linux run (Unverified).
 - Rests on: `renamex_np` with `RENAME_EXCL` refuses every existing target on APFS, an empty folder included, and the parents opened through the `os.Root` keep the rename inside the root (level 3 on the real volume).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `ops_test.go`: `TestRenameNoReplaceOnThisVolume` (EEXIST for a file, an empty folder and a file onto a folder, untouched; the case-only rename ran on this case-insensitive APFS volume, not skipped; a hard-linked sibling `FILE_EXISTS`; `ENOTSUP` from the kernel call → `FILE_IO_FAILED`), `TestMoveRefusesEscapes` (lexical → the call; parent symlinks relative and absolute → the item `FILE_OUTSIDE_ROOT`, the valid item done, outside unchanged; a symlink moved as the link), `TestMoveItemsReportEach` (`b 2.kt`, `b 3.kt`), `TestMoveItemFailuresByCode`, `TestMoveRaceKeepsTheOtherWritersFile`, `TestCreate`, `TestFileOpsTakeNoBuildLock`, `TestCancelStopsBetweenItems`, `TestMoveTextLeadsWithTheFailures`, `TestOpsAnnotations`; `cmd/droidyard`: `TestFileOperationsAreNotCore`, `TestMCPBatchWithFailedItemsIsASuccessfulCall` (a real shim: `isError` false, the text opens on the failure). Seen failing reversed: a replacing `renameat` (5 tests), a fallback on `ENOTSUP` inside `rename` (after the verifier's fix, below), a stat check then `Root.Rename`, `O_TRUNC`, a `gradle.root` resource, both cancel-rule variants, done lines first, `file_move` in `CoreTools`. `tools/list` 30,415 → 32,124 bytes (34 → 36 tools; budget 35,000). `GOOS=linux go build ./...` clean; `go test -race -count=5` on the package ok. Level 4 (K1, sample copy): `file.move` renamed `NOTE.md`; a second onto it → the item `FILE_EXISTS`, the target's bytes intact; `keepBoth` → `NOTES 2.md`; `../x.md` → the call `FILE_OUTSIDE_ROOT`; `file.create docs/new/a.md` made its parents. Verifier: fix-then-proceed (below).
 
 ### 3. The tree: new file, new folder, rename
 
@@ -214,9 +214,12 @@ Each has a recommended draft; the main session applies it at approval (Delegated
 | 2 | revise | B1, B2, B3 answered (checked against `operation.go` 670–682 and ADR-0020's m1f D21 amendment) | — |
 | 2 | | N1 [contract][test] blocking: symlink escapes are filesystem-only, so under Q1 they are item failures, yet step 2 expected the call's code; item `code` enums not written out | Step 2's escape test split (lexical → the call; through a symlink → the item, the batch's valid item done); step 5's symlinked parent an item failure; every Schema line lists `errors` and the full item enum |
 | 2 | | Important: a forced cancel of a delete loses its trash ids. Nits: "no item finished" ambiguous; `capability-api.md`'s half sentence; Q1 extends ADR-0020 §States without superseding; validate `aside` before the sweep uses it | Register row text; "no item attempted" with a failed-first-item case; step 2 adds the half sentence; step 1 says so; step 5's sweep case |
+| Step 2 | fix-then-proceed | [test] blocking: the `ENOTSUP` seam replaced the whole rename, so a fallback inside `rename` stayed green (shown by mutation). [contract] `file.move` marked idempotent though a swap batch run twice swaps back. [safety] a three-step adversarial race on case-sensitive volumes (not blocking). [test] the fold guards unexercised on a case-sensitive volume. Nits 5 | `noReplace` seam on the kernel call, the mutation now fails; `file.move` not idempotent (§Changes); the race and the case-sensitive guards to the register at close; nits left |
 
 Plan review: two rounds, both `revise`; blocking 4 (B1–B3 in round 1, N1 in round 2), important 9, nits 11; every blocking finding answered in the plan (`milestone-plan` §Writing one 7: no third round).
 
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-11, step 2 (Delegated): `file.move` is **not** idempotent, against Q1's draft: the step verifier showed a swap batch `[a→t, b→a, t→b]` run twice swaps back, so a client retrying after a timeout would undo it. `file.create` stays idempotent. ADR-0053 does not name the hint; the descriptor carries it.

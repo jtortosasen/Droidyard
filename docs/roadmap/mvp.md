@@ -249,7 +249,7 @@ Two practical notes:
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
-| `file` | `list`, `read`, `write`, `watch` | 1–2 |
+| `file` | `list`, `read`, `write`, `watch`, `create`, `move` | 1–2 |
 | `git` | `status`, `diff`, `log`, `branches` | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |

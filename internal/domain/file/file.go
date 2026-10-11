@@ -1,5 +1,6 @@
-// Package file registers the capabilities that read and write files in a workspace's
-// project root: file.list, file.read, file.write and file.watch (plan m1j). Every
+// Package file registers the capabilities that read, write and change files in a
+// workspace's project root: file.list, file.read, file.write and file.watch (plan m1j),
+// and the tree's operations, file.create and file.move so far (ADR-0053). Every
 // caller-provided path is resolved to a name relative to the
 // root and every filesystem call goes through os.Root opened on that root, so no path
 // escapes it however it is spelled — an absolute path, "..", or a symlink (D2). The
@@ -21,6 +22,10 @@ import (
 // version is the API version that introduces file.list, file.read and file.write (R1).
 // file.watch, in the same milestone, keeps it.
 const version = "0.9.0"
+
+// opsVersion is the API version that introduces the tree's operations (ADR-0053; plan
+// m2g D47): the later ones of the milestone ride on it.
+const opsVersion = "0.19.0"
 
 // Options configure the file capabilities.
 type Options struct {
@@ -136,6 +141,68 @@ func Register(reg *capability.Registry, opts Options) {
 				return nil, err
 			}
 			return r.write(call.Params.(WriteParams))
+		},
+	})
+
+	// The tree's operations (ADR-0053). Neither replaces anything, so neither is destructive
+	// whatever else a command's default says; both are workspace-scoped commands for every
+	// audience, run no trust check, hold no build lock (as file.write) and mark nothing
+	// untrusted.
+	notDestructive := false
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.create",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		Since:       opsVersion,
+		Idempotent:  true,
+		Description: "Creates an empty file or a folder in the project, making missing parent folders; it never replaces, and an existing path is FILE_EXISTS. The path is relative to the project root.",
+		Params:      CreateParams{},
+		Result:      CreateResult{},
+		// The codes the handler returns. WORKSPACE_NOT_OPEN comes from Start.
+		Errors: []capability.ErrorCode{
+			capability.ErrFileExists, capability.ErrFileOutsideRoot,
+			capability.ErrFileWrongType, capability.ErrFileIOFailed,
+			capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "creates only; an existing entry is refused, never replaced",
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.create(call.Params.(CreateParams))
+		},
+	})
+
+	// A batch: Errors lists the codes that fail the whole call, decided from the text of
+	// the request alone; an item's own code is the enum of MovedItem.Code (ADR-0053 §2).
+	reg.MustRegister(capability.Descriptor{
+		Name:  "file.move",
+		Kind:  capability.Command,
+		Scope: capability.Workspace,
+		Since: opsVersion,
+		// Not idempotent: a swap batch [a→t, b→a, t→b] run twice swaps back, so a client
+		// must not retry it blindly.
+		Description: "Moves or renames up to 1000 files or folders, a rename being a move inside one folder; nothing is replaced. The call completes with each item's outcome: a taken target is FILE_EXISTS, or a free name with onCollision keepBoth.",
+		Params:      MoveParams{},
+		Result:      MoveResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "never replaces an existing entry; a move back undoes it",
+		},
+		Text: capability.TextOf(moveText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.move(ctx, call.Params.(MoveParams))
 		},
 	})
 
