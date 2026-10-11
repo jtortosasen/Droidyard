@@ -249,3 +249,21 @@ describe('follow', () => {
 		expect(model.view.selected).toBe('a/x.kt');
 	});
 });
+
+describe('the tree selection (D51)', () => {
+	// Decision (D51): ⇧-click selects in visible row order; operands are the top-most; a deleted row leaves the selection.
+	it('selects a range, acts on top-most paths, and prunes what the watch removed', async () => {
+		const { model } = setup([e('a', 'dir'), e('a/x'), e('a/y'), e('b.kt'), e('c.kt')]);
+		await model.expand('a');
+		model.select('a');
+		model.selectRange('b.kt');
+		expect([...model.view.selection]).toEqual(['a', 'a/x', 'a/y', 'b.kt']);
+		expect(model.operands()).toEqual(['a', 'b.kt']);
+		model.applyChanges([{ path: 'b.kt', kind: 'deleted', type: 'file' }]);
+		expect([...model.view.selection]).toEqual(['a', 'a/x', 'a/y']);
+		model.toggleSelect('c.kt');
+		expect(model.view.selection.has('c.kt')).toBe(true);
+		model.select('c.kt');
+		expect([...model.view.selection]).toEqual(['c.kt']);
+	});
+});
