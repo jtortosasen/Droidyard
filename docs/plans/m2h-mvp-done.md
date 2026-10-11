@@ -57,7 +57,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - [x] A2. KGP 2.4.20 through the daemon: the same file, line, column and named reference in one error, `source: event`, `problemId: UNRESOLVED_REFERENCE` (the console's `e:` line merged into it, not a second record); `kgp: 2.4.20`, `expectedSources.kotlin: problems`, `extraction.sources` holding `event` and `console`. Source: DoD 3; ADR-0022 §Decision 1, 3, §Consequences; F11. Proven by: step 3
 - [x] A3. Both cells built in scratch copies, every download recorded with its size (K3), and the restore building `success`. Source: AGENTS.md §Before touching the Gradle sidecar; owner's rules. Proven by: step 1, step 3
 - [ ] A4. A per-process footprint table (core, sidecar, Gradle daemon, Kotlin daemon, emulator processes, adb server; pid, ours or not, RSS 30 s after the last call or, for the Gradle and Kotlin daemons, after the last build, at the end or when it exited, the window's maximum); the core's final RSS under 48,828 KiB, with its 30 s and maximum figures stated against the budget; the sidecar gone between 10:00 and 11:00 after its last Gradle operation and its record gone from `processes.json`; no unexpected-exit or forced-kill line for the old pid in `daemon.log`; then a `build.assemble` succeeding on a new sidecar pid. Source: DoD 6; `mvp.md` §Other measures; `gradle.md` §Lifecycle; `process-lifecycle.md` §Idle shutdown. Proven by: step 5
-- [ ] A5. §Audit ledger complete for the 23 Done plans under D6; every A unit names its record, every M unit its ADR written in step 7, every X unit its register row. Source: DoD 8. Proven by: step 6, step 7
+- [x] A5. §Audit ledger complete for the 23 Done plans under D6; every A unit names its record, every M unit its ADR written in step 7, every X unit its register row. Source: DoD 8. Proven by: step 6, step 7
 - [ ] A6. `mvp.md`'s three boxes ticked with evidence, DoD 8's naming D6's boundary and the register row for unrecorded divergences; register rows "`build.errors` on a KGP ≥ 2.4 fixture" and "Idle footprint per process" closed by 2h; the sidecar-memory row updated; the plans index row and the §Where the work stands line. Source: `milestone-workflow` §Close. Proven by: step 8
 
 ## Steps
@@ -128,7 +128,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: none (documents only; may run beside steps 1–5).
 - Not here: no ADR written (step 7); no code; frozen records are not edited.
 - Rests on: D6's population is complete for each plan (level 3: the verifier's re-derivation).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11. (a) 23 ledger rows, one per Done plan of `docs/plans/README.md`, 519 units. (b) Each fan-out agent ran the grep on its plans; the verifier reran it on m1d and m1h: every hit inside a unit section is an A, M or X unit or a listed N. (c) The Opus verifier re-derived m1d 8/0/10/5, m1h 17/0/5/7 and m2c 5/3/0/4, each equal to its row, and read every N unit of m1d and m1h: none misclassed; two N reasons and one A record corrected (Review). The other 20 plans' counts rest on the fan-out agents (level 3 by reading).
 
 ### 7. ADRs for the unrecorded deviations
 
@@ -139,7 +139,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 6.
 - Not here: no code change; a deviation better reverted than recorded is an X unit and a register row.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11. ADR-0055 (m1d D5, C4), ADR-0056 (m1c R16 with R10; supersedes ADR-0021 §Format in part) and ADR-0057 (m1h D6; supersedes ADR-0023 §Decision in part) exist, Accepted, Delegated (D8), indexed; ADR-0021 and ADR-0023 carry their `Superseded in part by:` lines; `workspace-state.md`'s `degraded` row names only `workspace.json`. `go test ./internal/doccheck` ok (26,307 of 26,317 words). The Opus verifier read each ADR against its units and code: ADR-0055 and ADR-0056 §1, §2, §4 and ADR-0057 §2 match; ADR-0056 §3 (B1: `Spawn`'s short commands still run with a newer `processes.json`, shown by an overlay test) and ADR-0057's note bound (B2: per project) were corrected in the verifier's words, with `Supervisor.Load`'s comment. The X units: six register rows exist; m1o C9/C13's row is added at the close.
 
 ### 8. Close
 
@@ -154,17 +154,17 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 
 ## Audit ledger
 
-Filled by step 6 (2026-10-11), by four read-only Opus agents over m1b–m1f, m1g–m1l, m1m–m2a and m2b–m2g, the borderline units settled by the main session. Kinds: D (decisions), Q (design questions), R (readings), C (Changes entries). A counts a departure, or a design question answered, that an ADR or an `Amended:` line records; a gap an ADR left, filled and also written into its `Amended:` line, is N. The N column lists the units step 6's grep hit and the borderline ones. Totals: 23 plans, 519 units; 4 M units in 3 groups (ADR-0055 to ADR-0057, step 7), 7 X units (6 with a register row, 1 added at the close).
+Filled by step 6 (2026-10-11), by four read-only Opus agents over m1b–m1f, m1g–m1l, m1m–m2a and m2b–m2g, the borderline units settled by the main session. Kinds: D (decisions), Q (design questions), R (readings), C (Changes entries). A counts a departure, or a design question answered, that an ADR or an `Amended:` line records; a gap an ADR left, filled and also written into its `Amended:` line, is N. The N column lists the units step 6's grep hit and the borderline ones. Totals: 23 plans, 519 units; 4 M units in 3 groups (ADR-0055 to ADR-0057, step 7), 7 X units (6 with a register row, 1 added at the close); a linked pair (m1c R16 with R10, m1o C9 with C13) counts once.
 
 | Plan | Units (D/Q/R/C) | A | M | X | N listed with a reason |
 | --- | --- | --- | --- | --- | --- |
 | m1b | 0/2/11/8 | Q1 (ADR-0025); Q2 (ADR-0019 `Amended:` 2026-09-30); C3, C4 (ADR-0019 `Amended:`, third and fourth passes); C8 (ADR-0020 `Amended:` 2026-10-02) | — | — | C1: steps reordered |
 | m1c | 0/2/17/12 | Q1 (ADR-0026); Q2 (ADR-0027); R7 (ADR-0026 `Amended:` 2026-10-03); C3 (ADR-0026 `Amended:`); C4 (ADR-0021 `Amended:` 2026-10-03) | R16 with R10 (ADR-0056) | — | C1: `SysctlKinfoProcSlice`, the same sysctl; C7: `createdAt` omitted for an unread newer `workspace.json`, a gap ADR-0026 left |
-| m1d | 8/0/10/5 | D1 (ADR-0025 `Amended:`); D2 (ADR-0028); D3 (ADR-0032 `Amended:` 2026-10-07); D6 (ADR-0010, ADR-0019 `Amended:`); D8 (ADR-0019, ADR-0021 `Amended:`); C3; C5 (ADR-0028 `Amended:`) | D5, C4 (ADR-0055) | — | R1: the version bump capability-api.md prescribes; C5's declared deviations: implementation details |
+| m1d | 8/0/10/5 | D1 (ADR-0025 `Amended:`); D2 (ADR-0028); D3 (ADR-0032 `Amended:` 2026-10-07); D6 (ADR-0010, ADR-0019 `Amended:`); D8 (ADR-0019, ADR-0021 `Amended:`); C3 (ADR-0019, ADR-0021 `Amended:` 2026-10-03); C5 (ADR-0028 `Amended:`) | D5, C4 (ADR-0055) | — | R1: the version bump capability-api.md prescribes; C5's declared deviations: implementation details |
 | m1e | 0/6/9/13 | Q2, C7 (ADR-0020 `Amended:` 2026-10-04); Q4 (ADR-0012 `Amended:` 2026-10-04); C5 (ADR-0029); C9 (ADR-0032 §Consequences) | — | — | Q1: flat `nodes[]` follows ui-automation.md's own drawing |
 | m1f | 22/0/8/9 | D5 (ADR-0015 `Amended:` 2026-10-05); D17 (ADR-0030 `Amended:` 2026-10-06); D21, C8 (ADR-0020 `Amended:` 2026-10-06) | — | — | none beyond the A units |
 | m1g | 27/0/7/11 | D1 (ADR-0031; ADR-0021, ADR-0024 `Amended:` 2026-10-06); D2 (ADR-0019 `Amended:` 2026-10-06); D9 (ADR-0018 `Amended:` 2026-10-06, 2026-10-07; ADR-0032); D13 (ADR-0012 `Amended:` 2026-10-06); D25 (ADR-0017, ADR-0023 `Amended:` 2026-10-06); D27 (ADR-0044) | — | — | R4: applies ADR-0020's 2026-10-04 line; D4, D12, C1: gaps ADR-0017 and ADR-0022 left, also in their `Amended:` lines; D26: follows ADR-0022 §Decision 4 over area lines that contradicted it; C5: an internal core–sidecar bound |
-| m1h | 17/0/5/7 | — | D6 (ADR-0057) | — | R5, D4, D5: gaps, also in ADR-0017, ADR-0021, ADR-0023 `Amended:` 2026-10-07; D9: description wording; D11: `sdk.status` reports discovery, the `system.health` SDK block deferred (register row); D12: the reactive branch never built |
+| m1h | 17/0/5/7 | — | D6 (ADR-0057) | — | R5, D4, D5: gaps, also in ADR-0017, ADR-0021, ADR-0023 `Amended:` 2026-10-07; D9: description wording; D11: `sdk.status` reports discovery, the `system.health` SDK block deferred (register row); D12: the published `projectSdk.root` follows `sdk.md` §Project SDK |
 | m1i | 20/0/7/10 | D14 (ADR-0032 §Consequences); D18 (ADR-0041) | — | — | D5: mechanism only; D7: within ADR-0012's 2026-10-04 line; D12: lock keys, a private detail; C6: truncation instead of failure, a fix |
 | m1j | 11/0/5/12 | D7 (ADR-0049 §Alternatives: no OS watcher); D8 (ADR-0041, ADR-0043 adopt it) | — | — | C3: a fix |
 | m1k | 10/2/5/14 | Q1 (ADR-0032, ADR-0015 `Amended:` 2026-10-07); Q2, R3, R4 (ADR-0032, ADR-0018 `Amended:` 2026-10-07); C6 (ADR-0015 `Amended:` 2026-10-07); C12 (ADR-0032 `Amended:` 2026-10-07) | — | C3 (`operation.wait` with no audience check, against ADR-0032 §5; register row exists); C11 (`sdk_gphone*` off USB taken for an emulator, against ADR-0015 §4; register row exists) | D10: a list of documents; C4: verifier fixes |
@@ -227,6 +227,9 @@ None. The steps rest on documented decisions (D1–D8 apply them); a step that w
 | 2 | revise | B1-r2 [test] blocking: "workspace still `ready`" cannot fail (a crash degrades only under a running build, and the restart build clears it); B2 resolved | Changed: D4, A4, step 4's Behaviour and Check, step 5's Rests on use `daemon.log`'s `exited unexpectedly` / `killed; its group outlived` lines for the old pid (`supervisor.go`), crafted-log case fails; D21 sentence corrected; new-pid and build-success assertions kept |
 | 2 | revise | Nits: m1c–m1l, not m1b–m1l; m1q's `## Delegated choices` | Both taken in D6 |
 | 1 | revise | Nits: which D1 string matters; the guard is m2b's; the `nodump` label; ledger kind R | All taken (D1, K5, D4, ledger header) |
+| Steps 6–7 | revise | B1 [doc] blocking: ADR-0056 §3 said a newer `processes.json` starts no child; `Spawn` (adb's one-shot commands) still runs | Fixed: §3 names the refused starts and the short commands that run; `Supervisor.Load`'s comment too |
+| Steps 6–7 | revise | B2 [doc] blocking: ADR-0057's 50-note bound is per project | Fixed: "per project" |
+| Steps 6–7 | revise | Nits [doc] ADR-0055 cited a gone section; [plan] m1d C3 named no record, m1h D12's N reason missed its point, the totals did not say a linked pair counts once | All taken |
 
 ## Changes
 

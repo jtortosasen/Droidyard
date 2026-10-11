@@ -25,15 +25,18 @@ outlive a crash unseen (`process-lifecycle.md` §Shutdown).
 2. A newer `workspaces.json`: no workspace degrades. An open by root proceeds without
    updating the index; an open by an id this daemon has not opened ends
    `WORKSPACE_ROOT_INVALID`, as for an id no index holds.
-3. A newer `processes.json`: the supervisor starts no child, so every capability that needs
-   one fails, and the workspace states are unchanged.
+3. A newer `processes.json`: the supervisor starts no supervised or recorded child (a
+   sidecar, a recorded stream such as a logcat follow, an emulator launch), so the
+   capabilities that need one fail and the workspace states are unchanged. Short
+   per-operation commands, which are never recorded (ADR-0021 §Pid records), such as adb's,
+   still run.
 4. A newer `workspace.json` keeps ADR-0026's rule: that workspace opens `degraded` with
    `WORKSPACE_STATE_NEWER`.
 
 ## Consequences
 
 - The rules live in `internal/workspace/workspace.go` (`loadIndex`, `recordOpen`) and
-  `internal/process/supervisor.go` (`Load`); `workspace-state.md`'s `degraded` row names only
+  `internal/process/supervisor.go` (`Load`, `Use`, `SpawnRecorded`, `RecordLaunch`); `workspace-state.md`'s `degraded` row names only
   the workspace's own file.
 - With a newer `processes.json` a build fails although every workspace reads `ready`; the
   health problem is the only pointer to why.
