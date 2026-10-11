@@ -34,6 +34,17 @@ describe('the file tree rows', () => {
 		expect(model.rows[1]!.depth).toBe(2);
 	});
 
+	// Decision (D51; the close verifier's finding): a folder selected inside a compacted chain
+	// is shown selected on the row that holds it, and an operation acts on that row's path.
+	// Seen failing with the raw selected path.
+	it('selects and acts on the compacted row that holds a selected folder', () => {
+		const { model } = setup([e('src', 'dir'), e('src/main', 'dir'), e('src/main/A.kt')]);
+		expect(model.rows[0]!.path).toBe('src/main');
+		model.select('src');
+		expect([...model.view.selection]).toEqual(['src/main']);
+		expect(model.operands()).toEqual(['src/main']);
+	});
+
 	// Decision: rows are those of expanded folders only, so an event under a collapsed
 	// folder changes no row, and one under an expanded folder adds one.
 	it('adds a created entry under an expanded folder and none under a collapsed one', async () => {

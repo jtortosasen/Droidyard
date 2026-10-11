@@ -147,6 +147,25 @@ describe('FileOps batches', () => {
 		expect(ops.notice).toEqual({ text: 'Deleted 3 items · 1 failed: FILE_NOT_FOUND: gone', undoable: true });
 	});
 
+	// Decision (D56, the close verifier's B1): the notice names the top of the Undo stack,
+	// so a create or a rename after a delete replaces the delete's line, and the line's Undo
+	// removes what it names. Seen failing with create and rename leaving the notice alone.
+	it('names a create or a rename in the notice, so its Undo undoes what it says', async () => {
+		const { calls, ops } = setup();
+		calls.on('file.delete', (p) => ({ items: (p as { paths: string[] }).paths.map((path, i) => ({ path, trashId: String(i + 1) })), done: 1, failed: 0 }));
+		calls.on('file.create', (p) => p);
+		calls.on('file.move', (p) => ({ items: itemsOf(p), done: 1, failed: 0 }));
+		await ops.delete(['a.kt']);
+		await ops.create('src', 'x.kt', 'file');
+		expect(ops.notice).toEqual({ text: 'Created x.kt', undoable: true });
+		await ops.rename('src/y.kt', 'z.kt');
+		expect(ops.notice).toEqual({ text: 'Renamed y.kt to z.kt', undoable: true });
+		await ops.undo();
+		expect(calls.calls.at(-1)).toMatchObject({ name: 'file.move', params: { items: [{ from: 'src/z.kt', to: 'src/y.kt' }] } });
+		await ops.undo();
+		expect(calls.calls.at(-1)).toMatchObject({ name: 'file.delete', params: { paths: ['src/x.kt'] } });
+	});
+
 	// Decision (D57): a move with item 2 failed re-points the tabs of items 1 and 3 only, and so does its undo.
 	it('re-points tabs for the done items, forward and back', async () => {
 		const { calls, ops, moved } = setup();
