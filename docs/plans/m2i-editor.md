@@ -130,7 +130,7 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 3.
 - Not here: Kotlin by the Lezer grammar (step 5); semantic highlighting (LSP, v1).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `legacy-modes` 6.5.5 (exports `clike.kotlin`, `groovy`, `toml`, `properties`, read in the package), `lang-java` 6.0.2, `lang-xml` 6.1.0, `lang-json` 6.0.2, `lang-markdown` 6.5.2, `@lezer/highlight` 1.2.5; `cm/languages.ts`, `cm/highlight.ts`, twelve `--syn-*` tokens per scheme; `EditorHandle.setPath`. Vitest: one highlight test per language at named positions (the TOML mode types a table header `atom`, the properties mode a key `definition(variableName)`; asserted as emitted), the mapping table seen failing with `.kts` mapped to plain. Level 4 (`l4-s4-013611`): `package` and `import` in `MainActivity.kt` and `manifest` in `AndroidManifest.xml` have the resolved `--syn-keyword`/`--syn-tag` colour in dark and light; `.kt`, `.kts`, `.xml` captured in both; only the opened languages' chunks requested; `window.__csp` empty. Step 3's re-read fix: `big.txt` scrolled to 150,000 px, a line appended on disk, the buffer synced in 0.7 s and the scroll stayed at 150,000. Bundle (raw / gzip kB): entry 319.82 / 103.77; view chunk 284.05 / 92.49 (+24.8: `StreamLanguage` and the highlighter); Kotlin `clike` 21.93 / 7.69; Groovy 4.12; TOML 1.04; properties 0.66; Markdown with its embedded HTML, CSS and JS grammars about 191 / 75; Java, XML and JSON about 48 / 20 in shared chunks.
 
 ### 5. The Kotlin grammar spike (O4, D11)
 
@@ -142,7 +142,7 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 4.
 - Not here: tree-sitter (O4); patching the grammar (vendored unmodified; a defect found later is a register row).
 - Rests on: Node parse times stand for the browser's order of magnitude (level 3).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: run beside step 4 (it touches nothing in `web/`). `$B/spike` (`run.mjs`, `checklist.kt`, `checklist.json` written before the run, `out.json`); the package's `dist/index.js` read before any import (generated parser, three external tokenizers, `styleTags`; no network, `eval` or globals; the tarball ships no `.grammar` source), installed with `--ignore-scripts`. Checklist, legacy / Lezer: C1 templates FAIL / FAIL; C2 raw string pass / FAIL (an unterminated multi-line raw string turns the rest of the file into string, so C3–C8 below it fail too); C3 annotations pass / FAIL; C4 soft keywords FAIL (`data` a keyword) / FAIL; C5 pass / FAIL; C6 pass / FAIL; C7 pass / FAIL; C8 pass / FAIL; C9 pass / pass. Golden: error nodes in 9 of 10 `.kt`/`.kts` files (2 to 31 each). 10,000 lines (the golden Kotlin repeated): legacy 16 ms, Lezer 321 ms best of 5, 2,941 error nodes. D11's rule is not met on any of its three counts: the legacy mode stays; nothing in `web/` changes; step 9 adds the register row (the legacy mode does not mark templates and colours a soft keyword used as a name).
 
 ### 6. Edit and save (O5)
 

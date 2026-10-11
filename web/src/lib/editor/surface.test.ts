@@ -12,6 +12,9 @@ class Fake implements EditorHandle {
 	setReadOnly(r: boolean) {
 		this.calls.push(`ro:${r}`);
 	}
+	setPath(p: string) {
+		this.calls.push(`path:${p}`);
+	}
 	reveal(l: number, c: number) {
 		this.calls.push(`reveal:${l}:${c}`);
 	}
@@ -57,7 +60,20 @@ describe('LazyEditor', () => {
 		l.release();
 		await settle();
 		expect(l.mounted).toHaveLength(1);
-		expect(l.mounted[0]!.opts).toEqual({ doc: 'second', readOnly: false });
+		expect(l.mounted[0]!.opts).toEqual({ doc: 'second', readOnly: false, path: undefined });
+	});
+
+	// Decision: the language follows the file: the path given at construction or set while the
+	// code loaded is what the editor mounts with, and later paths are forwarded.
+	it('mounts with the last path and forwards later ones', async () => {
+		const l = loader();
+		const ed = new LazyEditor(host, { doc: 'x', readOnly: true, path: 'a/A.kt' }, () => {}, l.load);
+		ed.setPath('a/B.xml');
+		l.release();
+		await settle();
+		expect(l.mounted[0]!.opts.path).toBe('a/B.xml');
+		ed.setPath('c.json');
+		expect(l.mounted[0]!.calls).toEqual(['path:c.json']);
 	});
 
 	// Decision: a position asked for before the mount is applied after it, once.
