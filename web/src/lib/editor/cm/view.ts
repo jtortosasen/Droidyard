@@ -8,7 +8,7 @@
 // Seen at level 4 in Chrome (m2i step 3): no violation; mounted on the document, refused.
 //
 // Read-only for now (editing is step 6, which adds per-tab state to the interface).
-import { foldGutter } from '@codemirror/language';
+import { foldGutter, syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state';
 import {
 	EditorView,
@@ -20,9 +20,12 @@ import {
 } from '@codemirror/view';
 import type { EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
 import { minimalChange } from './change';
+import { highlightStyle } from './highlight';
+import { languageFor } from './languages';
 import { theme } from './theme';
 
 const readOnlySlot = new Compartment();
+const languageSlot = new Compartment();
 
 /** Ctrl/Cmd+End and +Home jump to the ends of the text (the default keymap arrives with editing). */
 function jump(to: 'start' | 'end') {
@@ -48,6 +51,8 @@ function extensions(readOnly: boolean): Extension[] {
 			{ key: 'Ctrl-Home', run: jump('start') },
 		]),
 		EditorView.contentAttributes.of({ 'aria-label': 'File contents', 'aria-multiline': 'true' }),
+		syntaxHighlighting(highlightStyle),
+		languageSlot.of([]),
 		theme,
 	];
 }
@@ -58,6 +63,8 @@ function clamp(n: number, lo: number, hi: number): number {
 
 class CmEditor implements EditorHandle {
 	#view: EditorView;
+	#gone = false;
+	#language = 0;
 
 	constructor(host: HTMLElement, opts: EditorOptions) {
 		// An open shadow root, reused if the host had one (a root cannot be detached).
@@ -68,6 +75,29 @@ class CmEditor implements EditorHandle {
 			parent: root,
 			root,
 		});
+		if (opts.path !== undefined) this.setPath(opts.path);
+	}
+
+	// The language's code arrives by its own dynamic import; until then (and for a path with
+	// no language, or if the chunk fails) the text is plain, which is a lesser result and not
+	// an error worth the viewer's banner. A later path wins over an earlier one still loading.
+	setPath(path: string): void {
+		const ticket = ++this.#language;
+		const entry = languageFor(path);
+		if (entry === null) {
+			this.#view.dispatch({ effects: languageSlot.reconfigure([]) });
+			return;
+		}
+		entry.load().then(
+			(ext) => {
+				if (this.#gone || ticket !== this.#language) return;
+				this.#view.dispatch({ effects: languageSlot.reconfigure(ext) });
+			},
+			() => {
+				if (this.#gone || ticket !== this.#language) return;
+				this.#view.dispatch({ effects: languageSlot.reconfigure([]) });
+			},
+		);
 	}
 
 	// Replaces only the span that differs, so a re-read (an agent's write, a re-sync) keeps
@@ -99,6 +129,7 @@ class CmEditor implements EditorHandle {
 	}
 
 	destroy(): void {
+		this.#gone = true;
 		this.#view.destroy();
 	}
 }

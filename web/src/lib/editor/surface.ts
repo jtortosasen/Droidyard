@@ -9,6 +9,8 @@ export interface EditorOptions {
 	/** The text to show. */
 	doc: string;
 	readOnly: boolean;
+	/** The file's path or name: its extension picks the language to highlight; none or unknown is plain text. */
+	path?: string;
 }
 
 /** A problem to underline: lines and columns are 1-based, `end*` are optional. */
@@ -26,6 +28,8 @@ export interface EditorHandle {
 	/** Replaces the whole text; nothing happens when it is the text already shown. */
 	setDocument(text: string): void;
 	setReadOnly(readOnly: boolean): void;
+	/** Sets the file's path or name, and so the language; the highlighting follows once its code has loaded. */
+	setPath(path: string): void;
 	/** Moves the cursor to a 1-based line and column (clamped to the text) and scrolls it into view. */
 	reveal(line: number, col: number): void;
 	setDiagnostics(list: readonly EditorDiagnostic[]): void;
@@ -45,7 +49,7 @@ export const loadEditor: LoadEditor = () => import('./cm/view');
 
 /**
  * An editor that is usable at once and mounted when its code has loaded: calls made before
- * that are remembered (the last text, the last read-only flag, the last reveal and diagnostics)
+ * that are remembered (the last text, the last read-only flag, the last path, the last reveal and diagnostics)
  * and applied at mount; a `destroy` before it cancels the mount. A failure to load or to mount
  * goes to `onError`.
  */
@@ -54,17 +58,19 @@ export class LazyEditor implements EditorHandle {
 	#gone = false;
 	#doc: string;
 	#readOnly: boolean;
+	#path: string | undefined;
 	#reveal: [number, number] | null = null;
 	#diagnostics: readonly EditorDiagnostic[] = [];
 
 	constructor(host: HTMLElement, opts: EditorOptions, onError: (e: unknown) => void, load: LoadEditor = loadEditor) {
 		this.#doc = opts.doc;
 		this.#readOnly = opts.readOnly;
+		this.#path = opts.path;
 		load().then(
 			(m) => {
 				if (this.#gone) return;
 				try {
-					const h = m.mount(host, { doc: this.#doc, readOnly: this.#readOnly });
+					const h = m.mount(host, { doc: this.#doc, readOnly: this.#readOnly, path: this.#path });
 					this.#handle = h;
 					if (this.#diagnostics.length > 0) h.setDiagnostics(this.#diagnostics);
 					if (this.#reveal !== null) h.reveal(...this.#reveal);
@@ -86,6 +92,11 @@ export class LazyEditor implements EditorHandle {
 	setReadOnly(readOnly: boolean): void {
 		this.#readOnly = readOnly;
 		this.#handle?.setReadOnly(readOnly);
+	}
+
+	setPath(path: string): void {
+		this.#path = path;
+		this.#handle?.setPath(path);
 	}
 
 	reveal(line: number, col: number): void {

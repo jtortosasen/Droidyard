@@ -33,11 +33,14 @@
 	// editor is destroyed) when the state leaves the text states.
 	const editor: Attachment<HTMLElement> = (host) => {
 		editorError = '';
-		const ed = new LazyEditor(host, { doc: untrack(() => view.text), readOnly: true }, (e) => {
+		const ed = new LazyEditor(host, { doc: untrack(() => view.text), readOnly: true, path: untrack(() => view.path) }, (e) => {
 			editorError = e instanceof Error ? e.message : String(e);
 		});
 		$effect(() => {
 			ed.setDocument(view.text);
+		});
+		$effect(() => {
+			ed.setPath(view.path);
 		});
 		return () => ed.destroy();
 	};
