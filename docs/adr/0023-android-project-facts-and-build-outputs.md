@@ -1,6 +1,7 @@
 # ADR-0023: Android project facts and build outputs — a model-only probe and `output-metadata.json`
 
 - Status: Accepted
+- Superseded in part by: ADR-0057 (§Decision)
 - Date: 2026-09-29
 - Amended: 2026-10-06 — note on §Decision 1: until the probe lands (staging 3, with
   spike S3), the generic model is fetched as TAPI's `GradleProject` and

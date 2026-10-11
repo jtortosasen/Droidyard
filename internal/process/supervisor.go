@@ -209,9 +209,10 @@ func (s *Supervisor) Judge() Judge {
 }
 
 // Load reads processes.json and lets Use spawn. Records it finds are kept, never
-// overwritten unread. One of a newer version, or one that cannot be read, keeps every
-// spawn refused (plan m1c, R10): a process the daemon cannot record could outlive it
-// unseen.
+// overwritten unread. One of a newer version, or one that cannot be read, refuses every
+// supervised or recorded start (Use, SpawnRecorded, RecordLaunch; plan m1c, R10): a
+// process the daemon cannot record could outlive it unseen. Spawn's short commands are
+// never recorded and still run (ADR-0056).
 func (s *Supervisor) Load() error {
 	var recs Records
 	out, err := s.st.Read(RecordsFile, RecordsVersion, &recs)
