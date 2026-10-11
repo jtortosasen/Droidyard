@@ -154,7 +154,7 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 - Needs: steps 2–7.
 - Not here: Safari, Firefox; the owner's headed trial (Unverified).
 - Rests on: the UI reaches everything through published capabilities (level 5).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 on the step 7 run (`$B/l4-s7-0153`, K1, K2; protected list empty before each emulator start; the binary at the step 7 tree). ▶ with `droidyard_m2a` not running → `emulator.start` 13.1 s, `build.assemble` 9.6 s, `device.install`, `device.launch`, all `client=ui`; Logcat's default `package:mine` showed the app from its first process line; ▶ again → no start, build, install, launch: pids 3391 and 4554 both shown under `package:mine`. Crash from the inspector (read the tree, `name` → type "Ana", `submit` → Tap, read, `crash` → Tap; `device.inputText` and two `device.tapElement` `client=ui`): `is:crash` shows the `AndroidRuntime` run of pid 4642 ("java.lang.IllegalStateException: golden app crash" and its `at` lines), `package:mine level:error` keeps it; `package:mine -tag:AndroidRuntime level:warn`, `tag~:^Golden` (3 `GoldenApp` lines), `(tag:GoldenApp | tag:AndroidRuntime) & package:mine` (71 rows, `GoldenApp` first), `message:"golden app crash"` (1 row) applied; the inline error at level 4 (step 7). Logcat's device: `droidyard_m2c` started headless (`emulator-5556`), Logcat picked `emulator-5554`, the toolbar then chose `droidyard_m2c` → the toolbar and the right panel on 5556, Logcat held 5554; back to "Toolbar device" → a new `device.watchLogs`. ■: during a real compile (3.6 s) → `build.assemble` `cancelled`, no install, "Run cancelled". A K5 MCP agent (`agent-k5`) building: the toggle's count 1 and "Building · N s" while it ran, gone after. Regions, the column's rule, reload, density and the status bar at level 4 (step 5). Same primitive: 26 `client=ui` capabilities in the trace, none unpublished; CDP paths `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; `window.__csp` empty. E1 (5037 pid 19285), E3 (`refused.log` empty, no qemu after), S3; both emulators stopped; the owner's daemon 15130 untouched. Defect found and fixed (§Changes): ■ was offered during the launch and ignored.
 
 ### 9. Close: documents and register
 
@@ -224,3 +224,8 @@ Each has a recommendation applied as Delegated; Q1 is ADR-0050, Q2 is ADR-0051 (
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-11, step 2 (verifier, N1): after a failed `pm` read, later lines of that application id waited again for every retry, and every line behind them. The ids a failed read was asked for now pass without a package until a read completes (792ac51). ADR-0051 §2's "a failed read releases held lines" is read as covering them.
+- 2026-10-11, steps 3–4: the pending AVD (D36) was built in step 6, where `RunModel` needed it; step 4 reused it.
+- 2026-10-11, step 7 (main session's level 4): a file `{avd}` of an AVD not running is restored as the pending AVD on reload (`DevicesModel`); the module · variant menu sized to its content.
+- 2026-10-11, step 8 (level 5): ■ was shown during the launch, which D37 does not cancel, and a press did nothing. `RunView.cancellable`: ■ is disabled during the launch with its reason (`run.test.ts`, seen failing with ■ cancellable in every running state).

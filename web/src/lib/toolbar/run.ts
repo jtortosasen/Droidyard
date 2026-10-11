@@ -62,6 +62,8 @@ export interface RunView {
 	state: RunState;
 	/** In progress: ■ replaces ▶. */
 	running: boolean;
+	/** ■ cancels now: a launch is short and is not cancelled, so ■ is disabled during it. */
+	cancellable: boolean;
 	/** The step an operation error stopped the run at, with what the daemon said. */
 	failed: { step: RunStep; failure: Failure } | null;
 	/** Why ▶ does nothing, or null. */
@@ -69,6 +71,7 @@ export interface RunView {
 }
 
 const RUNNING: readonly RunState[] = ['starting', 'building', 'installing', 'launching'];
+const CANCELLABLE: readonly RunState[] = ['starting', 'building', 'installing'];
 
 export class RunModel {
 	#client: RunClient;
@@ -100,6 +103,7 @@ export class RunModel {
 		this.#view ??= {
 			state: this.#state,
 			running: RUNNING.includes(this.#state),
+			cancellable: CANCELLABLE.includes(this.#state),
 			failed: this.#failed,
 			disabled: this.#disabledReason(),
 		};
@@ -199,7 +203,7 @@ export class RunModel {
 
 	/** ■. Cancels the current step's own operation; no step follows. A launch is short and is not cancelled. */
 	cancel(): void {
-		if (this.#disposed || !['starting', 'building', 'installing'].includes(this.#state)) return;
+		if (this.#disposed || !CANCELLABLE.includes(this.#state)) return;
 		this.#cancelRequested = true;
 		if (this.#opId !== null) void this.#sendCancel(this.#opId);
 	}
