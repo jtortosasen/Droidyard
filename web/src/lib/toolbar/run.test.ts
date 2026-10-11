@@ -149,6 +149,23 @@ describe('the run sequence', () => {
 		expect(t.run.view.state).toBe('cancelled');
 	});
 
+	// Decision (D37; level 5 of step 8): a launch is short and not cancelled, so ■ is not
+	// offered during it: the view says it cannot cancel and a press sends nothing. Seen
+	// failing with ■ cancellable in every running state.
+	it('does not offer or send a cancel during the launch', async () => {
+		const t = await setup({ selected: 'A' });
+		t.d.hold.add('device.launch');
+		const p = t.run.run();
+		await settle();
+		expect(t.run.view).toMatchObject({ state: 'launching', running: true, cancellable: false });
+		t.run.cancel();
+		await settle();
+		expect(t.d.names()).not.toContain('operation.cancel');
+		t.d.release('device.launch');
+		await p;
+		expect(t.run.view.state).toBe('done');
+	});
+
 	// Decision (D37): ■ before the operation id is known sends the cancel when it arrives.
 	it('sends a cancel pressed before the id when the id arrives', async () => {
 		const t = await setup({ selected: 'A' });

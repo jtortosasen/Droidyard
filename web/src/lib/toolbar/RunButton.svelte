@@ -33,7 +33,14 @@
 </script>
 
 {#if view?.running}
-	<button type="button" class="stop" title="Cancel the run" aria-label="Cancel the run" onclick={() => model.cancel()}>
+	<button
+		type="button"
+		class="stop"
+		disabled={!view.cancellable}
+		title={view.cancellable ? 'Cancel the run' : 'Launching: a launch is not cancelled'}
+		aria-label="Cancel the run"
+		onclick={() => model.cancel()}
+	>
 		<Square size={14} />
 	</button>
 {:else}
@@ -66,6 +73,9 @@
 	}
 	.stop {
 		color: var(--danger);
+	}
+	.stop:disabled {
+		color: var(--text-3);
 	}
 	.bad {
 		max-width: 220px;
