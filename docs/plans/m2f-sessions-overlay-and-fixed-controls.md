@@ -84,7 +84,7 @@ Baseline on 2026-10-11 at `bd74d27` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 1.
 - Not here: the DOM (4); thresholds tuned by feel (Unverified).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: implementer (Sonnet, default effort) in a worktree; the four files taken into the main tree unchanged but one space; the main session's diff review. `edge.test.ts` 5 tests and `peek.test.ts` 21 (every case the Check lists: zones and thresholds, d = 14 → 3.5, d = 5 → ≈12.6, d = 25 → ≈0.986, the off-switches at d = 2, reduced motion; intent, grace, focus, Escape, pointerdown outside, disarm, window leave, pen and touch, dock, the undock disarm, the latch, dispose). Seen failing reversed (the implementer's runs): a linear ease (the t² test and the feint retraction); inside from enter/leave (the pop that stays with no further input); no undock disarm; no latch (the two undock tests). Two readings the implementer added, accepted: while docked, `pointer()` re-arms past 24 px (else the undock disarm could never matter), and undocking forgets the recorded on-toggle (else the latch is redundant); a disarmed edge still attracts beyond 24 px. `pnpm -C web exec vitest run src/lib/ui` 44 passed.
 
 ### 4. The overlay and the edge in the shell
 
