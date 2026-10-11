@@ -3,6 +3,7 @@
 - Status: Accepted
 - Superseded in part by: ADR-0046 (§Location)
 - Superseded in part by: ADR-0054 (§Layout)
+- Superseded in part by: ADR-0056 (§Format)
 - Date: 2026-09-29
 - Amended: 2026-09-29. What changed: the `run/` directory and the HTTP token; user
   configuration located outside the state directory; an explicit `DROIDYARD_STATE_DIR`

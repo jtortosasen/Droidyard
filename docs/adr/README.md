@@ -84,6 +84,9 @@ edits made before this rule and are not added to.
 | [0052](0052-sessions-overlay.md) | The sessions column also shows as an overlay, on hover and at the window's left edge | Accepted |
 | [0053](0053-file-operations.md) | The tree's file operations are five batch capabilities, open to agents, that never replace | Accepted |
 | [0054](0054-trash.md) | A deleted file goes to its workspace's trash in the state directory | Accepted |
+| [0055](0055-event-subscription-wire-shape.md) | An event frame names its subscription, and subscribing is a command | Accepted |
+| [0056](0056-newer-daemon-wide-state-file.md) | A daemon-wide state file of a newer version degrades no workspace | Accepted |
+| [0057](0057-probe-unread-field-omitted.md) | A probe field that could not be read is omitted, with a note | Accepted |
 
 ## Open decisions (not yet ADRs)
 
