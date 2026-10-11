@@ -3,7 +3,6 @@
 	import type { TrustModel } from '../start/trust';
 	import Trust from '../start/Trust.svelte';
 	import { failureShort, failureText } from './failure';
-	import Folders from '@lucide/svelte/icons/folders';
 
 	// The workspace panel (plan m2b D10, m2c step 10): the tab's project, what the daemon
 	// says about it, Trust while it is not, and the way to the projects panel. Every field is
@@ -12,7 +11,7 @@
 		model: WorkspaceModel;
 		trust: TrustModel;
 		onprojects: () => void;
-		/** One line for the toolbar: the name, a short state, long messages in a tooltip. */
+		/** One line for the toolbar: the name, a short state, long messages in a tooltip; a click on the name opens the sessions column (D34). */
 		compact?: boolean;
 	}
 	let { model, trust, onprojects, compact = false }: Props = $props();
@@ -31,9 +30,8 @@
 
 {#if compact}
 	<section class="compact">
-		<button type="button" class="icon" title="All projects" aria-label="All projects" onclick={onprojects}><Folders size={14} /></button>
 		{#if view?.info}
-			<strong title="{view.info.name} ({view.info.id}), {view.root}">{view.info.name}</strong>
+			<button type="button" class="name" title="{view.info.name} ({view.info.id}), {view.root}: show the sessions" onclick={onprojects}>{view.info.name}</button>
 			<span class="state" title={view.info.state}>{view.info.state}</span>
 			{#if view.info.degradedBy}
 				<span class="bad" title={failureText(view.info.degradedBy)}>degraded</span>
@@ -96,11 +94,11 @@
 		gap: var(--sp-3);
 		white-space: nowrap;
 	}
-	.icon {
-		display: grid;
-		place-items: center;
-		width: 24px;
-		padding: 0;
+	.name {
+		border-color: transparent;
+		background: transparent;
+		font-weight: 600;
+		padding: 0 var(--sp-3);
 	}
 	.state {
 		color: var(--text-2);

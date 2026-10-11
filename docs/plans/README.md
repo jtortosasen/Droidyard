@@ -33,3 +33,4 @@ the output.
 | [m2b-build-devices-golden-path.md](m2b-build-devices-golden-path.md) | 2b — build and devices panels, the activity feed, and the golden path from the browser | Done |
 | [m2c-fixes-live-console-project-start.md](m2c-fixes-live-console-project-start.md) | 2c — a round of fixes, the build console live, and a traditional project start | Done |
 | [m2d-redesign-file-tree.md](m2d-redesign-file-tree.md) | 2d — a redesign, the projects and agents panel, and a read-only file tree | Done |
+| [m2e-ux-round.md](m2e-ux-round.md) | 2e — a UX round: collapsible panels, the sessions column, a status bar, a run toolbar and a Logcat query bar | Done |

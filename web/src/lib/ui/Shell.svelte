@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Component, Snippet } from 'svelte';
-	import AppWindow from '@lucide/svelte/icons/app-window';
 	import Bug from '@lucide/svelte/icons/bug';
 	import FileCode from '@lucide/svelte/icons/file-code';
 	import FileDiff from '@lucide/svelte/icons/file-diff';
@@ -8,39 +7,44 @@
 	import FolderTree from '@lucide/svelte/icons/folder-tree';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
-	import PanelBottom from '@lucide/svelte/icons/panel-bottom';
-	import PanelLeft from '@lucide/svelte/icons/panel-left';
-	import PanelRight from '@lucide/svelte/icons/panel-right';
+	import PanelBottomClose from '@lucide/svelte/icons/panel-bottom-close';
+	import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
+	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
+	import Smartphone from '@lucide/svelte/icons/smartphone';
 	import Rows3 from '@lucide/svelte/icons/rows-3';
 	import ScrollText from '@lucide/svelte/icons/scroll-text';
 	import Terminal from '@lucide/svelte/icons/terminal';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Activity from '@lucide/svelte/icons/activity';
 	import Hammer from '@lucide/svelte/icons/hammer';
-	import { browserStorage, clampSize, loadLayout, saveLayout, type Region } from './layout';
+	import { browserStorage, clampSessionsSize, clampSize, closeSessions, loadLayout, openSessions, saveLayout, setRegion, type Region } from './layout';
 	import { activate, disabledTitle, initialActive, panelsIn, type PanelDef, type PanelRegion, type ShellApi } from './panels';
 	import Splitter from './Splitter.svelte';
 
-	// The window the owner described (plan m2d step 2): a toolbar, a rail, the left panel,
-	// the centre with its first-level tabs, the right panel and the bottom tabs, over the
-	// registry in panels.ts. The shell knows regions, not panels: `content` renders the
+	// The window the owner described (plan m2d step 2, m2e step 5): a toolbar, the sessions
+	// column, the left panel, the centre with its first-level tabs, the right panel and the
+	// bottom tabs, and a status bar, over the registry in panels.ts. Left, right and bottom
+	// each collapse to a 24 px strip (D32). The shell knows regions, not panels: `content` renders the
 	// panel with the id it is given. Every panel stays mounted when its tab is not the
 	// current one or its region is collapsed, so a stream (Logcat, the console) keeps
 	// running and a filter keeps its text.
 	interface Props {
 		/** The panel with the given id; the second argument shows another panel's tab. */
-		content: Snippet<[string, (id: string) => void]>;
-		status: Snippet;
-		/** The toolbar's centre (the build status). */
+		content: Snippet<[string, ShellApi]>;
+		/** The status bar's content, the shell's last row (D35). */
+		statusbar: Snippet;
+		/** The toolbar's right-aligned group opens with it (the build status). */
 		centre?: Snippet;
 		/** Full-width strips under the toolbar (the trust banner). */
 		banners?: Snippet;
-		/** The projects icon and its overlay, the rail's first item (the overlay anchors to the middle row). */
-		rail?: Snippet;
+		/** The toolbar's first control: the sessions toggle (D33), given the column's state. */
+		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void }]>;
+		/** The sessions column's body, under its title and the density switch. */
+		sessions: Snippet;
 		/** Page-level overlays (the command palette), given what only the shell knows. */
 		overlay?: Snippet<[ShellApi]>;
 	}
-	let { content, status, centre, banners, rail, overlay }: Props = $props();
+	let { content, statusbar, centre, banners, sessionsToggle, sessions, overlay }: Props = $props();
 
 	const storage = browserStorage(window);
 	let layout = $state(loadLayout(storage));
@@ -68,17 +72,32 @@
 	function show(id: string) {
 		active = activate(active, id);
 	}
+	// The layout transitions are the pure functions of layout.ts (D33); they take a plain
+	// snapshot and the result replaces the state.
+	function set(next: ReturnType<typeof loadLayout>) {
+		layout = next;
+	}
 	const api: ShellApi = {
 		density: () => layout.density,
 		setDensity: (d) => (layout.density = d),
+		openSessions: () => set(openSessions($state.snapshot(layout))),
 		showFiles: () => {
-			layout.open.left = true;
+			set(setRegion($state.snapshot(layout), 'left', true));
 			active = activate(active, 'files');
 		},
 		show,
 	};
-	function toggle(region: Region) {
-		layout.open[region] = !layout.open[region];
+	function region(r: Region, open: boolean) {
+		set(setRegion($state.snapshot(layout), r, open));
+	}
+	function toggleSessions() {
+		const l = $state.snapshot(layout);
+		set(l.sessions.open ? closeSessions(l) : openSessions(l));
+	}
+	/** A bottom strip button: restores the region and selects the tab. */
+	function restoreBottom(id: string) {
+		region('bottom', true);
+		show(id);
 	}
 	function resize(region: Region, n: number) {
 		layout.size[region] = clampSize(region, n);
@@ -114,59 +133,64 @@
 {#snippet panes(region: PanelRegion)}
 	{#each panelsIn(region).filter((p) => p.disabled === undefined) as p (p.id)}
 		<div class="pane" class:current={active[region] === p.id} role="tabpanel" aria-label={p.label}>
-			{@render content(p.id, show)}
+			{@render content(p.id, api)}
 		</div>
 	{/each}
 {/snippet}
 
 <div class="shell" data-density={layout.density}>
 	<header class="toolbar">
-		<strong class="brand"><AppWindow size={16} /> Droidyard</strong>
-		{#each panelsIn('toolbar') as p (p.id)}
-			<div class="tool">{@render content(p.id, show)}</div>
+		{@render sessionsToggle({ open: layout.sessions.open, toggle: toggleSessions })}
+		{#each panelsIn('toolbar').filter((p) => !p.end) as p (p.id)}
+			<div class="tool">{@render content(p.id, api)}</div>
 		{/each}
 		<span class="spacer"></span>
 		{#if centre}{@render centre()}{/if}
-		<span class="spacer"></span>
-		{@render status()}
-		<button
-			type="button"
-			class="icon-button"
-			title={layout.density === 'compact' ? 'Density: compact (switch to comfortable)' : 'Density: comfortable (switch to compact)'}
-			onclick={() => (layout.density = layout.density === 'compact' ? 'comfortable' : 'compact')}
-		>
-			{layout.density === 'compact' ? 'Compact' : 'Comfortable'}
-		</button>
-		<span class="toggles">
-			<button type="button" class="icon-button" title="Toggle the left panel" aria-pressed={layout.open.left} onclick={() => toggle('left')}><PanelLeft size={14} /></button>
-			<button type="button" class="icon-button" title="Toggle the bottom panel" aria-pressed={layout.open.bottom} onclick={() => toggle('bottom')}><PanelBottom size={14} /></button>
-			<button type="button" class="icon-button" title="Toggle the right panel" aria-pressed={layout.open.right} onclick={() => toggle('right')}><PanelRight size={14} /></button>
-		</span>
+		{#each panelsIn('toolbar').filter((p) => p.end) as p (p.id)}
+			<div class="tool">{@render content(p.id, api)}</div>
+		{/each}
 	</header>
 	{#if banners}{@render banners()}{/if}
 
 	<div class="middle">
-		<nav class="rail" aria-label="Sidebar">
-			{#if rail}{@render rail()}{/if}
-			<button type="button" class="rail-button" class:current={layout.open.left} aria-pressed={layout.open.left} title="Files" onclick={() => toggle('left')}><FolderTree size={16} /></button>
-		</nav>
+		{#if layout.sessions.open}
+			<aside class="sessions" style:width="{layout.sessions.size}px" aria-label="Sessions">
+				<div class="column-head">
+					<h2>Sessions</h2>
+					<div class="segmented" role="group" aria-label="Density">
+						<button type="button" class="pill" class:current={layout.density === 'compact'} aria-pressed={layout.density === 'compact'} onclick={() => (layout.density = 'compact')}>Compact</button>
+						<button type="button" class="pill" class:current={layout.density === 'comfortable'} aria-pressed={layout.density === 'comfortable'} onclick={() => (layout.density = 'comfortable')}>Comfortable</button>
+					</div>
+				</div>
+				<div class="body scroll">{@render sessions()}</div>
+			</aside>
+			<Splitter axis="x" sign={1} value={layout.sessions.size} clamp={clampSessionsSize} onchange={(n) => (layout.sessions.size = clampSessionsSize(n))} label="Resize the sessions column" />
+		{/if}
 
+		{#if !layout.open.left}
+			<div class="strip vertical">
+				<button type="button" class="icon-button" title="Restore the left panel" aria-label="Restore the left panel" onclick={() => region('left', true)}><FolderTree size={14} /></button>
+			</div>
+		{/if}
 		<aside class="left" class:collapsed={!layout.open.left} style:width="{layout.size.left}px" aria-label="Left panel">
-			<div class="segmented" role="tablist" aria-label="Left panel">
-				{#each panelsIn('left') as p (p.id)}
-					<button
-						type="button"
-						role="tab"
-						class="pill"
-						class:current={active.left === p.id}
-						aria-selected={active.left === p.id}
-						disabled={p.disabled !== undefined}
-						title={disabledTitle(p)}
-						onclick={() => (active = activate(active, p.id))}
-					>
-						{p.label}
-					</button>
-				{/each}
+			<div class="head">
+				<div class="segmented" role="tablist" aria-label="Left panel">
+					{#each panelsIn('left') as p (p.id)}
+						<button
+							type="button"
+							role="tab"
+							class="pill"
+							class:current={active.left === p.id}
+							aria-selected={active.left === p.id}
+							disabled={p.disabled !== undefined}
+							title={disabledTitle(p)}
+							onclick={() => (active = activate(active, p.id))}
+						>
+							{p.label}
+						</button>
+					{/each}
+				</div>
+				<button type="button" class="icon-button" title="Minimize the left panel" aria-label="Minimize the left panel" onclick={() => region('left', false)}><PanelLeftClose size={14} /></button>
 			</div>
 			<div class="body">{@render panes('left')}</div>
 		</aside>
@@ -183,6 +207,10 @@
 			<Splitter axis="x" sign={-1} value={layout.size.right} clamp={(n) => clampSize('right', n)} onchange={(n) => resize('right', n)} label="Resize the right panel" />
 		{/if}
 		<aside class="right" class:collapsed={!layout.open.right} style:width="{layout.size.right}px" aria-label="Device panel">
+			<div class="head right-head">
+				<span class="caption">Device</span>
+				<button type="button" class="icon-button" title="Minimize the right panel" aria-label="Minimize the right panel" onclick={() => region('right', false)}><PanelRightClose size={14} /></button>
+			</div>
 			<div class="body scroll">
 				{#each panelsIn('right') as p (p.id)}
 					{#if p.disabled}
@@ -195,20 +223,42 @@
 							</div>
 						</section>
 					{:else}
-						<div class="rsec">{@render content(p.id, show)}</div>
+						<div class="rsec">{@render content(p.id, api)}</div>
 					{/if}
 				{/each}
 			</div>
 		</aside>
+		{#if !layout.open.right}
+			<div class="strip vertical">
+				<button type="button" class="icon-button" title="Restore the right panel" aria-label="Restore the right panel" onclick={() => region('right', true)}><Smartphone size={14} /></button>
+			</div>
+		{/if}
 	</div>
 
 	{#if layout.open.bottom}
 		<Splitter axis="y" sign={-1} value={layout.size.bottom} clamp={(n) => clampSize('bottom', n)} onchange={(n) => resize('bottom', n)} label="Resize the bottom panel" />
+	{:else}
+		<div class="strip horizontal" role="toolbar" aria-label="Bottom panel (minimized)">
+			{#each panelsIn('bottom').filter((p) => p.disabled === undefined) as p (p.id)}
+				{@const Icon = ICONS[p.id]}
+				<button type="button" class="tab" title="Show {p.label}" onclick={() => restoreBottom(p.id)}>
+					{#if Icon}<Icon size={14} />{/if}
+					<span>{p.label}</span>
+				</button>
+			{/each}
+		</div>
 	{/if}
 	<section class="bottom" class:collapsed={!layout.open.bottom} style:height="{layout.size.bottom}px" aria-label="Bottom panel">
-		{@render tabs('bottom', 'Bottom panel')}
+		<div class="head">
+			{@render tabs('bottom', 'Bottom panel')}
+			<button type="button" class="icon-button" title="Minimize the bottom panel" aria-label="Minimize the bottom panel" onclick={() => region('bottom', false)}><PanelBottomClose size={14} /></button>
+		</div>
 		<div class="body">{@render panes('bottom')}</div>
 	</section>
+
+	<footer class="statusbar" aria-label="Status">
+		{@render statusbar()}
+	</footer>
 	{#if overlay}{@render overlay(api)}{/if}
 </div>
 
@@ -228,19 +278,13 @@
 		flex: none;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-5);
-		padding: var(--sp-2) var(--sp-5);
+		gap: var(--sp-3);
+		padding: var(--sp-2) var(--sp-4);
 		height: 38px;
 		flex-wrap: nowrap;
 		overflow: hidden;
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--border);
-	}
-	.brand {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--sp-3);
-		color: var(--accent);
 	}
 	.tool {
 		flex: none;
@@ -253,7 +297,7 @@
 	.tool :global(div) {
 		display: flex;
 		align-items: center;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		gap: var(--sp-3);
 	}
 	.tool :global(h2),
@@ -270,45 +314,99 @@
 	.spacer {
 		flex: 1;
 	}
-	.toggles {
-		display: inline-flex;
-		gap: var(--sp-2);
-	}
-	.icon-button[aria-pressed='true'] {
-		color: var(--accent);
-	}
-
 	.middle {
 		flex: 1;
 		min-height: 0;
 		display: flex;
 		position: relative;
 	}
-	.rail {
+	.sessions {
 		flex: none;
-		width: 40px;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-4) 0;
-		background: var(--bg-raised);
+		min-width: 0;
+		min-height: 0;
+		background: var(--bg-panel);
 		border-right: 1px solid var(--border);
 	}
-	.rail-button {
-		display: grid;
-		place-items: center;
-		width: 30px;
-		height: 30px;
-		padding: 0;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
+	.column-head {
+		flex: none;
+		padding: var(--sp-4);
+		border-bottom: 1px solid var(--border);
+	}
+	.column-head h2 {
+		margin: 0 0 var(--sp-3);
+		font-size: var(--fs-small);
+		color: var(--text-2);
+		font-weight: 600;
+	}
+	.column-head .segmented {
+		margin: 0;
+	}
+	.head {
+		flex: none;
+		display: flex;
+		align-items: center;
+		padding-right: var(--sp-3);
+		background: var(--bg-raised);
+		border-bottom: 1px solid var(--border);
+	}
+	.head .segmented,
+	.head .tabs {
+		flex: 1;
+		min-width: 0;
+		border-bottom: 0;
+	}
+	.head .segmented {
+		margin: var(--sp-3);
+	}
+	.right-head {
+		justify-content: space-between;
+		padding-left: var(--sp-4);
+		min-height: var(--tab-height);
+	}
+	.caption {
+		font-size: var(--fs-small);
 		color: var(--text-2);
 	}
-	.rail-button.current {
-		background: var(--accent-soft);
-		color: var(--accent);
+	.strip {
+		flex: none;
+		display: flex;
+		background: var(--bg-raised);
+	}
+	.strip.vertical {
+		flex-direction: column;
+		align-items: center;
+		width: 24px;
+		padding-top: var(--sp-3);
+		border-right: 1px solid var(--border);
+		border-left: 1px solid var(--border);
+	}
+	.strip.horizontal {
+		height: 24px;
+		align-items: center;
+		gap: var(--sp-1);
+		padding: 0 var(--sp-3);
+		overflow-x: auto;
+		border-top: 1px solid var(--border);
+	}
+	.strip .tab {
+		height: 22px;
+		border-bottom: 0;
+	}
+	.statusbar {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--sp-5);
+		height: 24px;
+		padding: 0 var(--sp-5);
+		overflow: hidden;
+		background: var(--bg-raised);
+		border-top: 1px solid var(--border);
+		font-size: var(--fs-small);
+		color: var(--text-2);
+		white-space: nowrap;
 	}
 
 	.left,

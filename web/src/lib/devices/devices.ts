@@ -29,6 +29,8 @@ export interface DevicesView {
 	devices: readonly DeviceInfo[];
 	/** The selected serial; '' for none. */
 	selected: string;
+	/** D36: an AVD chosen in the toolbar that is not running; '' for none. The run starts it. */
+	pendingAvd: string;
 	/** A `device.list` failure that has a code. */
 	error: Failure | null;
 }
@@ -40,6 +42,7 @@ export class DevicesModel {
 	#off: () => void;
 	#devices: DeviceInfo[] = [];
 	#selected = '';
+	#pendingAvd = '';
 	#error: Failure | null = null;
 	#gen = 0;
 	// ADR-0046: the project file's device applies until the user picks one; the user's
@@ -47,6 +50,7 @@ export class DevicesModel {
 	#pref: DevicePreselect | null = null;
 	#touched = false;
 	#choices = new Set<(serial: string) => void>();
+	#avdChoices = new Set<(avd: string) => void>();
 
 	constructor(client: DevicesClient, activity: Pick<DevicesActivity, 'onTerminal'>) {
 		this.#client = client;
@@ -54,7 +58,7 @@ export class DevicesModel {
 	}
 
 	get view(): DevicesView {
-		this.#view ??= { devices: this.#devices, selected: this.#selected, error: this.#error };
+		this.#view ??= { devices: this.#devices, selected: this.#selected, pendingAvd: this.#pendingAvd, error: this.#error };
 		return this.#view;
 	}
 
@@ -69,8 +73,26 @@ export class DevicesModel {
 	select(serial: string): void {
 		this.#touched = true;
 		this.#selected = serial;
+		this.#pendingAvd = '';
 		this.#changed();
 		if (serial !== '') for (const fn of [...this.#choices]) fn(serial);
+	}
+
+	/** D36: the user picks an AVD that is not running; no device is selected until the run starts it. */
+	selectAvd(avd: string): void {
+		this.#touched = true;
+		this.#selected = '';
+		this.#pendingAvd = avd;
+		this.#changed();
+		if (avd !== '') for (const fn of [...this.#avdChoices]) fn(avd);
+	}
+
+	/** `fn` hears of an AVD the user picks (the project file's `{avd}`), never of a serial. */
+	subscribeAvdChoice(fn: (avd: string) => void): () => void {
+		this.#avdChoices.add(fn);
+		return () => {
+			this.#avdChoices.delete(fn);
+		};
 	}
 
 	subscribeChoice(fn: (serial: string) => void): () => void {
@@ -86,13 +108,27 @@ export class DevicesModel {
 		if (this.#apply()) this.#changed();
 	}
 
+	/**
+	 * The project file's AVD, which `emulator.list` lists as not running (the caller checks,
+	 * ADR-0046 §3), is the pending AVD until the user picks (m2e D36), so ▶ starts it. Once
+	 * its emulator runs, the preselection selects its serial.
+	 */
+	restoreAvd(avd: string): void {
+		if (this.#touched || avd === '' || this.#pendingAvd === avd) return;
+		this.#selected = '';
+		this.#pendingAvd = avd;
+		this.#changed();
+	}
+
 	/** Selects the preselected device if it is listed and online; whether the selection changed. */
 	#apply(): boolean {
 		const p = this.#pref;
 		if (p === null || this.#touched) return false;
 		const hit = this.#devices.find((d) => d.online && ('avd' in p ? d.avdName === p.avd : d.device === p.serial));
-		if (hit === undefined || hit.device === this.#selected) return false;
+		if (hit === undefined) return false;
+		if (hit.device === this.#selected && this.#pendingAvd === '') return false;
 		this.#selected = hit.device;
+		this.#pendingAvd = '';
 		return true;
 	}
 
@@ -105,7 +141,7 @@ export class DevicesModel {
 			this.#devices = r.devices;
 			this.#error = null;
 			if (this.#selected !== '' && !r.devices.some((d) => d.device === this.#selected)) this.#selected = '';
-			if (this.#selected === '') this.#selected = defaultDevice(r.devices);
+			if (this.#selected === '' && this.#pendingAvd === '') this.#selected = defaultDevice(r.devices);
 			this.#apply();
 		} catch (e) {
 			if (gen !== this.#gen) return;
@@ -119,6 +155,7 @@ export class DevicesModel {
 	dispose(): void {
 		this.#off();
 		this.#choices.clear();
+		this.#avdChoices.clear();
 	}
 
 	#changed(): void {

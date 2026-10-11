@@ -7,6 +7,12 @@ import type { EventPayload } from '../api/capabilities.gen';
 export type StreamLine = EventPayload<'device.watchLogs', 'lines'>['lines'][number];
 export type Priority = StreamLine['priority'];
 
+/** A device line, with what the panel learned about it on arrival (crash.ts). */
+export type Line = StreamLine & {
+	/** Part of a crash run (D41): set once at ingest, never changed. */
+	crash?: true;
+};
+
 /** The priorities from least to most severe: the order the priority filter uses. */
 export const PRIORITIES: readonly Priority[] = ['verbose', 'debug', 'info', 'warn', 'error', 'fatal'];
 
@@ -25,7 +31,7 @@ export interface Marker {
 	text: string;
 }
 
-export type Entry = StreamLine | Marker;
+export type Entry = Line | Marker;
 
 /** A line never has a `marker` field, so this tells the two apart without a wrapper. */
 export function isMarker(e: Entry): e is Marker {

@@ -80,8 +80,9 @@
 // The fake models `pm list packages -U <filter>` as a table: `<serial>.pm.out` holds one
 // `package:<name> uid:<n>` line per installed package and the command prints the lines
 // whose package contains the filter, as real pm's substring match does, so a caller must
-// take the exact package it asked for. `<serial>.pm.hang`, `.delay`, `.exit` and `.err`
-// script its outcome.
+// take the exact package it asked for; without a filter it prints every line. `<serial>.pm.hang`,
+// `.delay`, `.exit` and `.err` script its outcome, and `<serial>.pm#N.<ext>` the Nth call's;
+// `<serial>.pm.pids` records the pid of each call.
 //
 // The fake models the host's forwards in `forwards.list`, one `<serial> tcp:<port>
 // <remote>` line per forward. A `forward tcp:0 localabstract:<remote>` binds a real host
@@ -361,7 +362,9 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		writeForwardList(dir, stdout)
 		return 0
 	case len(args) == 8 && args[0] == "-s" && args[2] == "shell" && args[3] == "pm" && args[4] == "list" && args[5] == "packages" && args[6] == "-U":
-		return runPM(ctx, dir, args[1], args[7], stdout, stderr)
+		return runPM(ctx, dir, args[1], args[7], n, stdout, stderr)
+	case len(args) == 7 && args[0] == "-s" && args[2] == "shell" && args[3] == "pm" && args[4] == "list" && args[5] == "packages" && args[6] == "-U":
+		return runPM(ctx, dir, args[1], "", n, stdout, stderr)
 	case len(args) >= 4 && args[0] == "-s" && args[2] == "logcat":
 		return runLogcat(ctx, dir, args[1], args[3:], stdout, stderr)
 	}
@@ -1033,13 +1036,26 @@ func scripted(ctx context.Context, dir, prefix string, stderr io.Writer) (int, b
 	return 0, false
 }
 
-// runPM answers `-s <serial> shell pm list packages -U <filter>` from the <serial>.pm.out
-// table: the lines whose package contains the filter, as real pm's substring match does.
-func runPM(ctx context.Context, dir, serial, filter string, stdout, stderr io.Writer) int {
-	if code, done := scripted(ctx, dir, serial+".pm", stderr); done {
+// runPM answers `-s <serial> shell pm list packages -U [<filter>]` from the <serial>.pm.out
+// table: the lines whose package contains the filter (every line without one), as real
+// pm's substring match does. n is this invocation's place among the identical ones: any
+// of <serial>.pm#N.out, .err, .exit, .delay and .hang replaces the plain files for the Nth,
+// as for the commands serve answers. The command's pid is appended to <serial>.pm.pids
+// before it answers, so a test can tell a killed pm is gone.
+func runPM(ctx context.Context, dir, serial, filter string, n int, stdout, stderr io.Writer) int {
+	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
+	prefix := serial + ".pm"
+	if v := prefix + "#" + strconv.Itoa(n); has(v+".out") || has(v+".err") || has(v+".exit") || has(v+".delay") || has(v+".hang") {
+		prefix = v
+	}
+	if f, err := os.OpenFile(filepath.Join(dir, serial+".pm.pids"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+		fmt.Fprintln(f, os.Getpid())
+		f.Close()
+	}
+	if code, done := scripted(ctx, dir, prefix, stderr); done {
 		return code
 	}
-	for _, l := range strings.Split(strings.TrimSuffix(string(dirBytes(dir, serial+".pm.out")), "\n"), "\n") {
+	for _, l := range strings.Split(strings.TrimSuffix(string(dirBytes(dir, prefix+".out")), "\n"), "\n") {
 		if m := pmLineRE.FindStringSubmatch(l); m != nil && strings.Contains(m[1], filter) {
 			fmt.Fprintln(stdout, l)
 		}

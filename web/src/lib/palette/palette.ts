@@ -304,6 +304,10 @@ export interface CommandDeps {
 	tree: { readonly view: { showHidden: boolean }; setShowHidden(on: boolean): void };
 	density: { get(): Density; set(d: Density): void };
 	focusTree(): void;
+	/** The toolbar's ▶ (m2e D37): `view.disabled` is the reason it cannot run, or null. */
+	run: { readonly view: { readonly disabled: string | null }; run(): Promise<void> };
+	/** Opens the sessions column. */
+	openSessions(): void;
 }
 
 /**
@@ -322,6 +326,7 @@ export function buildCommands(d: CommandDeps): Command[] {
 	else if (b.starting) buildWhy = 'The build is starting';
 	else if (b.module === '' || b.variant === '') buildWhy = 'No module and variant are selected';
 	add('build', 'Build', buildWhy, () => void d.build.build());
+	add('run', 'Run', d.run.view.disabled, () => void d.run.run());
 
 	const t = d.tasks.view;
 	let taskWhy: string | null = null;
@@ -361,5 +366,6 @@ export function buildCommands(d: CommandDeps): Command[] {
 	const dens = d.density.get();
 	add('density', dens === 'compact' ? 'Density: comfortable' : 'Density: compact', null, () => d.density.set(dens === 'compact' ? 'comfortable' : 'compact'));
 	add('files.focus', 'Focus the file tree', null, () => d.focusTree());
+	add('sessions.show', 'Show sessions', null, () => d.openSessions());
 	return out;
 }

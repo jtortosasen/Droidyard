@@ -3,7 +3,7 @@
 import type { BusEvent, SubscribeHandlers, Subscription } from '../api/client';
 import type { Params, Result } from '../api/capabilities.gen';
 import type { FrameScheduler } from './batcher';
-import type { Priority, StreamLine } from './entry';
+import type { Line, Priority, StreamLine } from './entry';
 import type { StreamClient } from './stream';
 
 export class FakeFrames implements FrameScheduler {
@@ -101,7 +101,7 @@ export function settle(): Promise<void> {
 }
 
 /** A line at a given microsecond of 2026-10-09T12:00:00 UTC. */
-export function line(micro: number, message: string, over: Partial<StreamLine> = {}): StreamLine {
+export function line(micro: number, message: string, over: Partial<Line> = {}): Line {
 	const time = `2026-10-09T12:00:00.${String(micro).padStart(6, '0')}Z`;
 	return { time, pid: 100, tid: 100, priority: 'info' as Priority, tag: 'Tag', message, ...over };
 }

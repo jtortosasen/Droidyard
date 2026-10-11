@@ -140,7 +140,7 @@ describe('segments', () => {
 	});
 });
 
-function deps(over: Partial<{ trusted: boolean; building: boolean; avds: { name: string; running?: { device: string } }[] }> = {}) {
+function deps(over: Partial<{ trusted: boolean; building: boolean; runWhy: string | null; avds: { name: string; running?: { device: string } }[] }> = {}) {
 	const calls: string[] = [];
 	const building = over.building ? ({ operationId: 'o' } as never) : null;
 	const d: CommandDeps = {
@@ -168,6 +168,8 @@ function deps(over: Partial<{ trusted: boolean; building: boolean; avds: { name:
 		tree: { view: { showHidden: false }, setShowHidden: (on) => void calls.push(`hidden ${on}`) },
 		density: { get: () => 'compact', set: (x) => void calls.push(`density ${x}`) },
 		focusTree: () => void calls.push('focus'),
+		run: { view: { disabled: over.runWhy ?? null }, run: () => (calls.push('run!'), Promise.resolve()) },
+		openSessions: () => void calls.push('sessions'),
 	};
 	return { d, calls };
 }
@@ -198,6 +200,32 @@ describe('commands', () => {
 		expect(m.view.open).toBe(false);
 		const busy = deps({ building: true });
 		expect(buildCommands(busy.d).find((c) => c.id === 'build')?.disabled).toBe('A build is running');
+	});
+
+	// Decision (D37): ">Run" is the toolbar's ▶, listed disabled with RunModel's own reason
+	// and running nothing then; enabled it calls RunModel.run.
+	it('lists Run with the run model reason and runs it only when enabled', () => {
+		const off = deps({ runWhy: 'No device or AVD chosen' });
+		const m = model(indexOf([]), () => buildCommands(off.d));
+		m.show('commands');
+		m.setQuery('>run');
+		const first = m.view.items[0]!;
+		if (first.kind !== 'command') throw new Error('command expected');
+		expect(first.command).toMatchObject({ id: 'run', title: 'Run', disabled: 'No device or AVD chosen' });
+		m.choose();
+		expect(off.calls).toEqual([]);
+		const on = deps();
+		buildCommands(on.d).find((c) => c.id === 'run')!.run();
+		expect(on.calls).toEqual(['run!']);
+	});
+
+	// Decision (D34): ">Show sessions" opens the column through ShellApi.openSessions.
+	it('offers Show sessions', () => {
+		const { d, calls } = deps();
+		const c = buildCommands(d).find((x) => x.title === 'Show sessions')!;
+		expect(c.disabled).toBeNull();
+		c.run();
+		expect(calls).toEqual(['sessions']);
 	});
 
 	it('offers tasks, emulators, other projects and the view toggles', () => {

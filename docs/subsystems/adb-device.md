@@ -125,6 +125,8 @@ D4-D11; the shape is the descriptor's):
   disconnection is read from adb's stderr only.
 - The follow child is killed by its **pid** during the run (a forked adb server may share its group),
   and by its process group only at reconciliation after a daemon crash (1i D9).
+- A `device.watchLogs` line names its application's package, read from `pm list packages -U` by the
+  line's uid when the stream first sees it ([ADR-0051](../adr/0051-logcat-line-package.md)).
 
 ### Filtering by app survives the app's death
 

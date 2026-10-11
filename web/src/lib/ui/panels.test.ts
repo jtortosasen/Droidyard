@@ -17,9 +17,19 @@ describe('panels', () => {
 	it('places the 2c panels in the owner regions', () => {
 		const region = (id: string) => PANELS.find((p) => p.id === id)?.region;
 		// Decision (plan m2d step 8): the task selector is a toolbar control; the Tasks tab is gone.
-		for (const id of ['workspace', 'projectfile', 'build', 'tasks']) expect(region(id)).toBe('toolbar');
+		for (const id of ['workspace', 'devicemenu', 'target', 'run', 'build', 'tasks']) expect(region(id)).toBe('toolbar');
+		// Decision (plan m2e D35): the project file's indicator lives in the status bar.
+		expect(region('projectfile')).toBe('status');
 		for (const id of ['logcat', 'applogs', 'console', 'problems', 'activity']) expect(region(id)).toBe('bottom');
 		for (const id of ['devices', 'tree', 'act']) expect(region(id)).toBe('right');
+	});
+
+	// Decision (plan m2e D34): the toolbar reads the project name on the left and, right-aligned,
+	// `[device] [module · variant] [run]`, then the hammer and the task selector, in that order.
+	it('orders the right-aligned toolbar group device, target, run, build, tasks', () => {
+		const bar = panelsIn('toolbar');
+		expect(bar.filter((p) => !p.end).map((p) => p.id)).toEqual(['workspace']);
+		expect(bar.filter((p) => p.end).map((p) => p.id)).toEqual(['devicemenu', 'target', 'run', 'build', 'tasks']);
 	});
 
 	// Decision: a panel that does not exist yet is shown and names the milestone that builds it.
