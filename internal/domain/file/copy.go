@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
@@ -174,6 +175,7 @@ type snapEntry struct {
 	kind fs.FileMode // fs.ModeDir, fs.ModeSymlink, or 0 for a regular file
 	perm fs.FileMode // a folder's permission bits at the walk
 	size int64       // a regular file's size at the walk
+	mod  time.Time   // a regular file's modification time at the walk
 }
 
 // copyOne makes one copy and returns the path it ended at: the target, or, for keepBoth,
@@ -214,7 +216,7 @@ func (r *resolver) copyOne(ctx context.Context, root *os.Root, m resolvedMove, k
 			root.RemoveAll(tmpRel)
 		}
 	}()
-	if e := r.copyTree(ctx, root, snap, m.from, tmpRel); e != nil {
+	if e := r.copyTree(ctx, root, root, snap, m.from, tmpRel, false); e != nil {
 		return "", e
 	}
 	if ctx.Err() != nil {
@@ -288,6 +290,27 @@ func (r *resolver) copyBytes() int64 {
 // is found. A cancel inside it is OPERATION_CANCELLED. Another operation's temporary
 // names are not part of a tree and are skipped.
 func (r *resolver) walkSource(ctx context.Context, root *os.Root, from string) ([]snapEntry, *capability.Error) {
+	return r.walkTree(ctx, root, from, copyWalk)
+}
+
+// walkOp says what a walk is for: whether it skips droidyard temporary names, and how it
+// words the refusal of an entry that is neither a file, a folder nor a symlink.
+type walkOp struct {
+	skipTemps bool
+	what, fix string
+}
+
+var (
+	// A copy skips another operation's temporary names, they being work in progress.
+	copyWalk = walkOp{skipTemps: true, what: "a copy", fix: "leave it out of the copy"}
+	// The trash takes everything, so that a delete across volumes leaves nothing behind
+	// that the copy did not carry.
+	deleteWalk  = walkOp{what: "a delete across volumes", fix: "move it out of the folder first"}
+	restoreWalk = walkOp{what: "a restore across volumes", fix: "remove it from the trashed folder first"}
+)
+
+// walkTree is walkSource for any purpose op names.
+func (r *resolver) walkTree(ctx context.Context, root *os.Root, from string, op walkOp) ([]snapEntry, *capability.Error) {
 	fi, err := root.Lstat(from)
 	if err != nil {
 		return nil, r.classifyOp(from, err)
@@ -305,9 +328,9 @@ func (r *resolver) walkSource(ctx context.Context, root *os.Root, from string) (
 		case fi.Mode().IsRegular():
 			bytes += fi.Size()
 		default:
-			return capability.Errorf(capability.ErrFileWrongType, "%q is a %s, which a copy cannot take", p, typeName(fi.Mode())).
+			return capability.Errorf(capability.ErrFileWrongType, "%q is a %s, which %s cannot take", p, typeName(fi.Mode()), op.what).
 				WithDetails(map[string]any{"path": p, "type": typeName(fi.Mode())}).
-				WithNextStep("leave it out of the copy")
+				WithNextStep(op.fix)
 		}
 		if len(snap) >= r.copyEntries() {
 			return r.tooLarge(from, strconv.Itoa(r.copyEntries())+" entries")
@@ -315,7 +338,7 @@ func (r *resolver) walkSource(ctx context.Context, root *os.Root, from string) (
 		if bytes > r.copyBytes() {
 			return r.tooLarge(from, strconv.FormatInt(r.copyBytes(), 10)+" bytes")
 		}
-		snap = append(snap, snapEntry{rel: rel, kind: kind, perm: fi.Mode().Perm(), size: fi.Size()})
+		snap = append(snap, snapEntry{rel: rel, kind: kind, perm: fi.Mode().Perm(), size: fi.Size(), mod: fi.ModTime()})
 		return nil
 	}
 	if e := add("", fi); e != nil {
@@ -338,7 +361,7 @@ func (r *resolver) walkSource(ctx context.Context, root *os.Root, from string) (
 		}
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 		for _, de := range entries {
-			if tempWatchName(de.Name()) {
+			if op.skipTemps && tempWatchName(de.Name()) {
 				continue
 			}
 			info, err := de.Info()
@@ -368,35 +391,39 @@ func (r *resolver) walkSource(ctx context.Context, root *os.Root, from string) (
 	return snap, nil
 }
 
-// copyTree writes the snapshot of from at dst (the temporary), all through the os.Root:
-// a folder made owner-writable so it can be filled and removed, a symlink re-created with
-// its target text and never followed, a regular file by copyFile. The files' bytes are
-// held to the item's byte cap as they are read, not to the sizes the walk saw: a file that
-// grew since the walk is copied whole while the item stays under the cap, and the item
-// fails FILE_TOO_LARGE past it, so a copy is never cut short and reported done.
-func (r *resolver) copyTree(ctx context.Context, root *os.Root, snap []snapEntry, from, dst string) *capability.Error {
+// copyTree writes the snapshot of from, read through src, at dst, written through dstRoot
+// (the same root for file.copy, whose destination is a temporary beside the target; the
+// trash's folder for a delete across volumes): a folder made owner-writable so it can be
+// filled and removed, a symlink re-created with its target text and never followed, a
+// regular file by copyFile. The files' bytes are held to the item's byte cap as they are
+// read, not to the sizes the walk saw: a file that grew since the walk is copied whole
+// while the item stays under the cap, and the item fails FILE_TOO_LARGE past it, so a copy
+// is never cut short and reported done. durable makes the copy survive a crash (ADR-0021
+// §Format): each file is synced after its bytes, each folder after its entries. file.copy
+// does not ask for it.
+func (r *resolver) copyTree(ctx context.Context, src, dstRoot *os.Root, snap []snapEntry, from, dst string, durable bool) *capability.Error {
 	budget := r.copyBytes()
 	for _, ent := range snap {
 		if ctx.Err() != nil {
 			return copyCancelled()
 		}
-		src := path.Join(from, ent.rel)
+		in := path.Join(from, ent.rel)
 		out := path.Join(dst, ent.rel)
 		switch ent.kind {
 		case fs.ModeDir:
-			if err := root.Mkdir(out, ent.perm|0o700); err != nil {
+			if err := dstRoot.Mkdir(out, ent.perm|0o700); err != nil {
 				return r.classifyWrite(out, err)
 			}
 		case fs.ModeSymlink:
-			target, err := root.Readlink(src)
+			target, err := src.Readlink(in)
 			if err != nil {
-				return r.classifyOp(src, err)
+				return r.classifyOp(in, err)
 			}
-			if err := root.Symlink(target, out); err != nil {
+			if err := dstRoot.Symlink(target, out); err != nil {
 				return r.classifyWrite(out, err)
 			}
 		default:
-			n, cerr := r.copyFile(ctx, root, src, out, budget)
+			n, cerr := r.copyFile(ctx, src, dstRoot, in, out, budget, durable)
 			if cerr != nil {
 				return cerr
 			}
@@ -406,7 +433,32 @@ func (r *resolver) copyTree(ctx context.Context, root *os.Root, snap []snapEntry
 			budget -= n
 		}
 	}
+	if durable {
+		// Children before parents, so each folder is synced after everything in it.
+		for i := len(snap) - 1; i >= 0; i-- {
+			if snap[i].kind != fs.ModeDir {
+				continue
+			}
+			out := path.Join(dst, snap[i].rel)
+			if err := syncDir(dstRoot, out); err != nil {
+				return r.classifyWrite(out, err)
+			}
+		}
+	}
 	return nil
+}
+
+// syncDir fsyncs the folder rel of root.
+func syncDir(root *os.Root, rel string) error {
+	d, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	err = fsync(d)
+	if cerr := d.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // ctxReader fails a Read once ctx is done, so a cancel reaches inside a large file.
@@ -430,13 +482,13 @@ func (c ctxReader) Read(p []byte) (int, error) {
 // Root.Chmod, which has a check-then-act race, is not used. Setuid, setgid and sticky are
 // not copied. It reads at most budget+1 bytes and returns how many it copied, so a caller
 // sees a file over the budget (n > budget) without reading the rest of it.
-func (r *resolver) copyFile(ctx context.Context, root *os.Root, src, dst string, budget int64) (int64, *capability.Error) {
-	in, fi, cerr := r.openRegular(root, src)
+func (r *resolver) copyFile(ctx context.Context, srcRoot, dstRoot *os.Root, src, dst string, budget int64, durable bool) (int64, *capability.Error) {
+	in, fi, cerr := r.openRegular(srcRoot, src)
 	if cerr != nil {
 		return 0, cerr
 	}
 	defer in.Close()
-	out, err := root.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	out, err := dstRoot.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return 0, r.classifyWrite(dst, err)
 	}
@@ -455,6 +507,11 @@ func (r *resolver) copyFile(ctx context.Context, root *os.Root, src, dst string,
 			return 0, copyCancelled()
 		}
 		return 0, r.classifyWrite(dst, err)
+	}
+	if durable {
+		if err := fsync(out); err != nil {
+			return 0, r.classifyWrite(dst, err)
+		}
 	}
 	if err := out.Close(); err != nil {
 		return 0, r.classifyWrite(dst, err)

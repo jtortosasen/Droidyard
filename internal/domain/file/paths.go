@@ -30,6 +30,10 @@ type resolver struct {
 	// (Options.CopyMaxEntries, CopyMaxBytes).
 	maxCopyEntries int
 	maxCopyBytes   int64
+	// workspace and trash serve file.delete and file.restore: the workspace id names the
+	// trash folder, and a nil trash (the golden registry) answers FILE_IO_FAILED.
+	workspace string
+	trash     *Trash
 }
 
 // resolve maps path to a slash-separated name relative to the root, per D2: "" and "."

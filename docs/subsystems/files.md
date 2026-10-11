@@ -67,6 +67,8 @@ itself, a source equal to its target or holding it) fails the whole call; what o
 filesystem can say fails its item, and the call completes with every item's outcome. Parents
 of a move's target are not created (`file.create` makes folders).
 
+`file.delete` moves to a trash, `file.restore` puts back ([ADR-0054](../adr/0054-trash.md)).
+
 ## The watch
 
 `file.watch` creates a **subscription** (so it is a command, and streaming: WebSocket only,
