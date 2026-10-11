@@ -125,6 +125,34 @@ func TestCoreProfileListsTheGoldenPath(t *testing.T) {
 
 func mcpadapterSorted() []string { return sorted(mcpadapter.CoreTools) }
 
+// TestFileOperationsAreNotCore: the tree's operations (ADR-0053 §1) are tools under
+// `--tools all`, the default, and under no other profile: the core profile stays the
+// golden path (ADR-0036 Decision 4), so a session that asked for it pays nothing for them.
+// Reversing the decision (a file tool in mcpadapter.CoreTools) fails the core half.
+func TestFileOperationsAreNotCore(t *testing.T) {
+	t.Parallel()
+	p := startInProcess(t)
+	ops := []string{"file_create", "file_move", "file_copy", "file_delete", "file_restore"}
+	for _, profile := range []struct {
+		args []string
+		want bool
+	}{{[]string{"--tools", "core"}, false}, {[]string{"--tools", "all"}, true}, {nil, true}} {
+		c := startShim(t, p.state, "ops", profile.args...)
+		c.initialize("ops")
+		names, _ := toolNames(t, c, 1)
+		c.exit()
+		for _, op := range ops {
+			listed := false
+			for _, n := range names {
+				listed = listed || n == op
+			}
+			if listed != profile.want {
+				t.Errorf("%v: %s listed = %v; want %v", profile.args, op, listed, profile.want)
+			}
+		}
+	}
+}
+
 // TestDefaultListsEverything: without the flag, and with --tools all, every tool is
 // listed (the surface ADR-0036 Decision 4 promises stays unchanged), and the
 // instructions are the plain ones.
@@ -136,8 +164,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 34 {
-			t.Errorf("%v lists %d tools; want 34", args, len(names))
+		if len(names) != 39 {
+			t.Errorf("%v lists %d tools; want 39", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)

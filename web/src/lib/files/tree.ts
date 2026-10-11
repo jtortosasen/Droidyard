@@ -17,6 +17,7 @@
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
 import { failure, failureText } from '../build/failure';
+import { Selection } from './selection';
 import type { Baseline, Change, WatchSink, WatchState } from './watch';
 
 /** The most `file.list` returns (the capability's largest limit). */
@@ -51,6 +52,8 @@ export interface Row {
 export interface TreeView {
 	rows: readonly Row[];
 	selected: string | null;
+	/** Every selected path (D51), the focused row among them; operations act on `operands()`. */
+	selection: ReadonlySet<string>;
 	filter: string;
 	showHidden: boolean;
 	/** A folder or the watch could not be read; text, never markup. */
@@ -126,6 +129,8 @@ export class FileTreeModel {
 	#complete = true;
 	#expanded = new Set<string>();
 	#selected: string | null = null;
+	/** The selected set beside the focused row (D51). */
+	readonly #multi = new Selection();
 	#filter = '';
 	#showHidden = false;
 	#error: string | null = null;
@@ -135,6 +140,7 @@ export class FileTreeModel {
 	#generation = 0;
 	#typed = '';
 	#typedAt = 0;
+	#following: { path: string; expand: boolean } | null = null;
 
 	constructor(client: TreeClient, ws: TreeWorkspace) {
 		this.#client = client;
@@ -157,6 +163,7 @@ export class FileTreeModel {
 		this.#view ??= {
 			rows: this.rows,
 			selected: this.#selected === null ? null : (this.rows.find((r) => this.#covers(r, this.#selected!))?.path ?? this.#selected),
+			selection: new Set([...this.#multi.paths].map((p) => this.#rowFor(p))),
 			filter: this.#filter,
 			showHidden: this.#showHidden,
 			error: this.#error,
@@ -205,6 +212,7 @@ export class FileTreeModel {
 		this.#more.clear();
 		this.#expanded.clear();
 		this.#selected = null;
+		this.#multi.click(null);
 		this.#error = null;
 		this.#complete = true;
 		this.#changed();
@@ -233,6 +241,7 @@ export class FileTreeModel {
 	applyChanges(list: readonly Change[]): void {
 		const before = this.rows;
 		const at = this.#selected === null ? -1 : before.findIndex((r) => this.#covers(r, this.#selected!));
+		let arrived: { path: string; expand: boolean } | null = null;
 		for (const c of list) {
 			const path = c.path;
 			if (c.kind === 'deleted') {
@@ -240,9 +249,14 @@ export class FileTreeModel {
 			} else if (c.kind === 'created') {
 				// (#add skips a folder a partial baseline never listed.)
 				this.#add({ name: nameOf(path), path, type: c.type ?? 'file' });
+				if (this.#following?.path === path) arrived = this.#following;
 			}
 		}
 		this.#changed();
+		if (arrived !== null) {
+			this.#following = null;
+			void this.#show(arrived.path, arrived.expand);
+		}
 		if (this.#selected !== null && at >= 0 && !this.rows.some((r) => this.#covers(r, this.#selected!))) {
 			// The selected row went: its neighbour in the old order that is still there.
 			const now = new Set(this.rows.map((r) => r.path));
@@ -250,7 +264,12 @@ export class FileTreeModel {
 			let next: string | null = null;
 			for (let i = at + 1; i < before.length && next === null; i++) next = pick(before[i]);
 			for (let i = at - 1; i >= 0 && next === null; i--) next = pick(before[i]);
-			this.#selected = next;
+			// Others still selected keep the selection; the focus moves to one of them.
+			if (this.#multi.paths.size > 0) this.#selected = [...this.#multi.paths].at(-1)!;
+			else {
+				this.#selected = next;
+				this.#multi.click(next);
+			}
 			this.#revealSeq++;
 			this.#changed();
 		}
@@ -330,6 +349,13 @@ export class FileTreeModel {
 		}
 	}
 
+	#exists(path: string): boolean {
+		const dir = parentOf(path);
+		const name = nameOf(path);
+		if (!this.#known(dir)) return true; // not read yet: cannot tell it went
+		return this.#kids.get(dir)?.has(name) === true || (this.#showHidden && this.#hidden.get(dir)?.has(name) === true);
+	}
+
 	#known(dir: string): boolean {
 		return this.#complete ? this.#kids.has(dir) : this.#listed.has(dir);
 	}
@@ -363,9 +389,43 @@ export class FileTreeModel {
 	}
 
 	select(path: string | null): void {
-		if (this.#selected === path) return;
+		if (this.#selected === path && this.#multi.paths.size === (path === null ? 0 : 1)) return;
+		this.#selected = path;
+		this.#multi.click(path);
+		this.#changed();
+	}
+
+	/** ⌘-click (D51): the row joins or leaves the selection and takes the focus. */
+	toggleSelect(path: string): void {
+		this.#multi.toggle(path);
 		this.#selected = path;
 		this.#changed();
+	}
+
+	/** ⇧-click (D51): the rows from the anchor to `path`, in row order. */
+	selectRange(path: string): void {
+		this.#multi.range(path, this.rows.map((r) => r.path));
+		this.#selected = path;
+		this.#changed();
+	}
+
+	/** ⇧↑ / ⇧↓ (D51): grows or shrinks the range by one row, and scrolls to it. */
+	extendSelection(delta: -1 | 1): void {
+		if (this.#multi.anchor === null && this.#selected !== null) this.#multi.click(this.#selected);
+		const to = this.#multi.extend(delta, this.rows.map((r) => r.path));
+		if (to === null) return;
+		this.#selected = to;
+		this.#revealSeq++;
+		this.#changed();
+	}
+
+	/** What an operation acts on (D51): the top-most selected paths, in row order. */
+	operands(): string[] {
+		// A folder inside a compacted chain acts as the row that shows it (D51: `row.path`).
+		const top = new Set(this.#multi.topmost().map((p) => this.#rowFor(p)));
+		const ordered = this.rows.map((r) => r.path).filter((p) => top.has(p));
+		// A selected path no row shows (inside a collapsed folder) still counts.
+		return [...ordered, ...[...top].filter((p) => !ordered.includes(p))];
 	}
 
 	setFilter(text: string): void {
@@ -382,6 +442,24 @@ export class FileTreeModel {
 		if (on && this.#complete) this.#relistExpanded();
 	}
 
+	/**
+	 * Selects and reveals `path` (and opens it when `expand`) once the watch reports it (D58);
+	 * at once when the tree already holds it. A path the watch never reports is not shown.
+	 */
+	follow(path: string, expand = false): void {
+		if (this.#kids.get(parentOf(path))?.has(nameOf(path))) {
+			this.#following = null;
+			void this.#show(path, expand);
+		} else {
+			this.#following = { path, expand };
+		}
+	}
+
+	async #show(path: string, expand: boolean): Promise<void> {
+		await this.reveal(path);
+		if (expand) await this.expand(path);
+	}
+
 	/** Opens the folders above `path` and selects it; the component scrolls to it. */
 	async reveal(path: string): Promise<void> {
 		const parts = path.split('/');
@@ -392,6 +470,7 @@ export class FileTreeModel {
 		}
 		this.#filter = '';
 		this.#selected = path;
+		this.#multi.click(path);
 		this.#revealSeq++;
 		this.#changed();
 	}
@@ -407,6 +486,7 @@ export class FileTreeModel {
 		const cur = i >= 0 ? rows[i]! : null;
 		const go = (j: number) => {
 			this.#selected = rows[Math.min(rows.length - 1, Math.max(0, j))]!.path;
+			this.#multi.click(this.#selected);
 			this.#revealSeq++;
 			this.#changed();
 		};
@@ -472,6 +552,11 @@ export class FileTreeModel {
 	}
 
 	// --- the rows ---------------------------------------------------------------------
+
+	/** The path of the row that shows `path` (a compacted chain's deepest folder), else `path`. */
+	#rowFor(path: string): string {
+		return this.rows.find((r) => this.#covers(r, path))?.path ?? path;
+	}
 
 	/** Whether the row stands for `path`: the row itself, or a folder inside its compacted chain. */
 	#covers(r: Row, path: string): boolean {
@@ -551,7 +636,11 @@ export class FileTreeModel {
 	}
 
 	#changed(rows = true): void {
-		if (rows) this.#rows = null;
+		if (rows) {
+			this.#rows = null;
+			// Rows that went take their selection with them (D51).
+			this.#multi.prune((p) => this.#exists(p));
+		}
 		this.#view = null;
 		for (const l of [...this.#listeners]) l();
 	}

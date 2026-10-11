@@ -1,5 +1,7 @@
-// Package file registers the capabilities that read and write files in a workspace's
-// project root: file.list, file.read, file.write and file.watch (plan m1j). Every
+// Package file registers the capabilities that read, write and change files in a
+// workspace's project root: file.list, file.read, file.write and file.watch (plan m1j),
+// and the tree's operations, file.create, file.move, file.copy, file.delete and
+// file.restore (ADR-0053, ADR-0054). Every
 // caller-provided path is resolved to a name relative to the
 // root and every filesystem call goes through os.Root opened on that root, so no path
 // escapes it however it is spelled — an absolute path, "..", or a symlink (D2). The
@@ -22,6 +24,10 @@ import (
 // file.watch, in the same milestone, keeps it.
 const version = "0.9.0"
 
+// opsVersion is the API version that introduces the tree's operations (ADR-0053; plan
+// m2g D47): the later ones of the milestone ride on it.
+const opsVersion = "0.19.0"
+
 // Options configure the file capabilities.
 type Options struct {
 	// Root names the canonical root of an open workspace, and whether it is open. The
@@ -42,6 +48,13 @@ type Options struct {
 	// Tick is the poller's interval between walks; <= 0 is watchInterval's one second. A
 	// test shortens it (plan m1j step 4).
 	Tick time.Duration
+	// CopyMaxEntries and CopyMaxBytes override file.copy's per-item limits (20,000
+	// entries, 1 GiB; plan m2g D48); <= 0 keeps them. A test scales them down.
+	CopyMaxEntries int
+	CopyMaxBytes   int64
+	// Trash holds what file.delete removes and file.restore returns (ADR-0054). Nil (the
+	// golden registry's descriptors) makes both answer FILE_IO_FAILED.
+	Trash *Trash
 }
 
 // Register adds file.list, file.read and file.write to the registry.
@@ -139,6 +152,151 @@ func Register(reg *capability.Registry, opts Options) {
 		},
 	})
 
+	// The tree's operations (ADR-0053). Neither replaces anything, so neither is destructive
+	// whatever else a command's default says; both are workspace-scoped commands for every
+	// audience, run no trust check, hold no build lock (as file.write) and mark nothing
+	// untrusted.
+	notDestructive := false
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.create",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		Since:       opsVersion,
+		Idempotent:  true,
+		Description: "Creates an empty file or a folder in the project, making missing parent folders; it never replaces, and an existing path is FILE_EXISTS. The path is relative to the project root.",
+		Params:      CreateParams{},
+		Result:      CreateResult{},
+		// The codes the handler returns. WORKSPACE_NOT_OPEN comes from Start.
+		Errors: []capability.ErrorCode{
+			capability.ErrFileExists, capability.ErrFileOutsideRoot,
+			capability.ErrFileWrongType, capability.ErrFileIOFailed,
+			capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "creates only; an existing entry is refused, never replaced",
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.create(call.Params.(CreateParams))
+		},
+	})
+
+	// A batch: Errors lists the codes that fail the whole call, decided from the text of
+	// the request alone; an item's own code is the enum of MovedItem.Code (ADR-0053 §2).
+	reg.MustRegister(capability.Descriptor{
+		Name:  "file.move",
+		Kind:  capability.Command,
+		Scope: capability.Workspace,
+		Since: opsVersion,
+		// Not idempotent: a swap batch [a→t, b→a, t→b] run twice swaps back, so a client
+		// must not retry it blindly.
+		Description: "Moves or renames up to 1000 files or folders, a rename being a move inside one folder; nothing is replaced. The call completes with each item's outcome: a taken target is FILE_EXISTS, or a free name with onCollision keepBoth.",
+		Params:      MoveParams{},
+		Result:      MoveResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "never replaces an existing entry; a move back undoes it",
+		},
+		Text: capability.TextOf(moveText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.move(ctx, call.Params.(MoveParams))
+		},
+	})
+
+	// A batch like file.move, and long-running: a copy takes as long as its bytes (ADR-0053
+	// §1). Not idempotent: each call makes a new copy, and keepBoth another free name.
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.copy",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		LongRunning: true,
+		Since:       opsVersion,
+		Description: "Copies up to 1000 files or folders, a folder whole and a symlink as a link; nothing is replaced, and a failed or cancelled copy leaves nothing. A taken target is FILE_EXISTS, or a free name such as \"a copy.kt\" with onCollision keepBoth; an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
+		Params:      CopyParams{},
+		Result:      CopyResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "never replaces an existing entry; deleting the copy undoes it",
+		},
+		Text: capability.TextOf(copyText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.copy(ctx, call.Params.(CopyParams))
+		},
+	})
+
+	// The trash (ADR-0054). A batch like file.copy, and long-running: a delete across
+	// volumes takes as long as its bytes. file.delete is the one destructive file command
+	// (the trash forgets), which is a command's default; it is idempotent, a repeat being
+	// FILE_NOT_FOUND items. Errors lists the call-level codes; FILE_IO_FAILED is a daemon
+	// built without a trash.
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.delete",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		LongRunning: true,
+		Since:       opsVersion,
+		Idempotent:  true,
+		Description: "Deletes up to 1000 files or folders into the workspace's trash, kept up to 7 days within 2 GiB per project; an item's trashId restores it with file.restore. A symlink goes as the link, and across volumes an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
+		Params:      DeleteParams{},
+		Result:      DeleteResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams, capability.ErrFileIOFailed,
+		},
+		Text: capability.TextOf(deleteText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.delete(ctx, call.Params.(DeleteParams))
+		},
+	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.restore",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		LongRunning: true,
+		Since:       opsVersion,
+		Idempotent:  true,
+		Description: "Puts trashed items back at their paths, making missing folders and replacing nothing: a taken path is FILE_EXISTS, and an id this workspace's trash lacks is FILE_NOT_IN_TRASH. It works after a daemon restart.",
+		Params:      RestoreParams{},
+		Result:      RestoreResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams, capability.ErrFileIOFailed,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "never replaces an existing entry; deleting the item again undoes it",
+		},
+		Text: capability.TextOf(restoreText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.restore(ctx, call.Params.(RestoreParams))
+		},
+	})
+
 	// A watch creates a subscription, so it is a command, not a query (mcp.md
 	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
 	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
@@ -208,7 +366,8 @@ func (o Options) resolver(call *capability.Call) (*resolver, *capability.Error) 
 		return nil, capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", call.Workspace).
 			WithNextStep("call workspace.open on it, then retry")
 	}
-	return &resolver{root: root, env: o.Env}, nil
+	return &resolver{root: root, env: o.Env, maxCopyEntries: o.CopyMaxEntries, maxCopyBytes: o.CopyMaxBytes,
+		workspace: call.Workspace, trash: o.Trash}, nil
 }
 
 // openRoot opens the canonical root as an os.Root. Containment is the root's, so every

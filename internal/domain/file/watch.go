@@ -64,10 +64,10 @@ var excludedDirs = []string{".git", ".gradle", ".idea", ".kotlin", ".cxx"}
 
 // excludedText is the fixed list the result publishes, so a caller learns what a watch
 // skips without reading this file (D7). It is the exclusions of excludedDirs, the build
-// rule and file.write's temporary files.
+// rule and the temporary files and folders file.write and file.copy build under.
 var excludedText = append(append([]string{}, excludedDirs...),
 	"build (a directory named build beside build.gradle or build.gradle.kts)",
-	"*.droidyard-*.tmp (file.write temporary files)")
+	"*.droidyard-*.tmp (file.write and file.copy temporary files and folders)")
 
 // watchWalkHook, when non-nil, runs inside every walk. A test holds it to keep a watch
 // mid-walk while it cancels the operation (plan m1j step 4). Nil in production.
@@ -304,11 +304,12 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 				return r.classify(p, err)
 			}
 			isDir := info.IsDir()
-			if isDir {
-				if excludedDir(name) || (name == "build" && hasGradleMarker(fsys, dir)) {
-					continue
-				}
-			} else if tempWatchName(name) {
+			// A temporary name is skipped whatever it is: file.copy builds a folder under
+			// one, and a watch must see only the final name appear (plan m2g step 4).
+			if tempWatchName(name) {
+				continue
+			}
+			if isDir && (excludedDir(name) || (name == "build" && hasGradleMarker(fsys, dir))) {
 				continue
 			}
 			if len(entries) >= watchCap {
@@ -370,9 +371,10 @@ func hasGradleMarker(fsys fs.FS, dir string) bool {
 	return false
 }
 
-// tempWatchName reports whether name is a file.write temporary file (D6): a
-// dot-prefixed name carrying the ".droidyard-" marker and a ".tmp" suffix. A watch
-// ignores them, so an in-progress write is not a stream of create-and-delete noise.
+// tempWatchName reports whether name is a file.write temporary file (D6) or a file.copy
+// temporary file or folder: a dot-prefixed name carrying the ".droidyard-" marker and a
+// ".tmp" suffix. A watch ignores them, so an in-progress write or copy is not a stream
+// of create-and-delete noise.
 func tempWatchName(name string) bool {
 	return strings.HasPrefix(name, ".") && strings.Contains(name, ".droidyard-") && strings.HasSuffix(name, ".tmp")
 }
