@@ -18,8 +18,8 @@ the fetch". Most per-project fields are numbers, version strings or lists, where
 ## Decision
 
 1. A per-project field the probe could not read is omitted, and a note
-   `"<project path>: <field>: <exception class>: <message>"` is added (at most 50 notes, each
-   at most 512 characters); `probe.status` is `partial`.
+   `"<project path>: <field>: <exception class>: <message>"` is added (at most 50 notes per
+   project, each at most 512 characters); `probe.status` is `partial`.
 2. AGP and KGP, which are build-wide, still read `"unknown"` when no project reports them.
 3. A failed read never fails the fetch (unchanged).
 

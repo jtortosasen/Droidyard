@@ -26,7 +26,7 @@ annotations would have claimed for a query (`mcp-tool-surface.md` §Annotations)
 ## Consequences
 
 - The rules live in `adapters/httpapi/ws.go`, `internal/event/session.go`,
-  `http-websocket.md` §`GET /v1/ws` and `capability-api.md` §Classification; the schema
+  `http-websocket.md` §`GET /v1/ws` and `capability-api.md` §Subscriptions; the schema
   carries the annotations.
 - A client holding two subscriptions to one topic receives the event twice, once per id.
 
