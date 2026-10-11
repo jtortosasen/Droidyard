@@ -52,7 +52,9 @@ Pass `--no-autostart` everywhere except the auto-start row: with it, a mis-isola
 
 **The shipped surface.** The binary under test carries no test fixture and publishes the committed schema (test capabilities and the dummy sidecar live in `_test.go` files and `internal/process/processtest`). Check: `"$DY" schema | cmp - schema/capabilities.json` and `"$DY" caps | grep -c '^fixture\.'` and `go list -deps ./cmd/droidyard | grep -c processtest` print nothing, `0` and `0`.
 
-**CLI:** `run <name> "$DY" call --no-autostart <capability> --params '<json>'`. It prints the response envelope and exits non-zero iff the envelope carries `error`.
+**CLI:** `run <name> "$DY" call --no-autostart <capability> --params '<json>'`. It prints the response envelope and exits non-zero iff the envelope carries `error`. A global capability (`emulator.*`, `device.*` but `install`) takes no `--workspace`.
+
+**The Definition of done run:** `samples/mvp-dod.sh` is this recipe scripted for `mvp.md` DoD 3 and 6 (`errors <kgp> <outdir>`, `footprint <outdir> [avd]`; plan m2h D2). A change to §Launch, §Doctor or §Cleanup is made in the script too.
 
 **MCP:** a scripted stdio session. A fifo keeps stdin open until you close it, because EOF ends the session, and `$SHIM` is the shim's own pid.
 

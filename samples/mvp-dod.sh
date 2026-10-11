@@ -307,6 +307,12 @@ call() {
 	fi
 }
 
+# gcall <name> <capability> <params>: the same for a global capability (emulator.*, and
+# device.* but install), which refuses a workspace (REQUEST_UNEXPECTED_WORKSPACE).
+gcall() {
+	run "$1" "$DY" call --no-autostart "$2" --params "$3"
+}
+
 # The golden path's build half (D4, D3): assemble, inject the error, build, errors,
 # restore, build. Writes the four JSON files and returns; check-errors judges them.
 build_phase() {
@@ -336,6 +342,13 @@ downloads_and_sdk() {
 	echo "downloads: $(wc -l <"$OUT/downloads.txt" | tr -d ' ') files, $(awk -F"$TAB" '{ s += $1 } END { print s + 0 }' "$OUT/downloads.txt") bytes" >"$OUT/downloads.summary"
 	find "$SDK" -maxdepth 3 -newer "$OUT/sdk.stamp" 2>/dev/null | grep -v '/\.knownPackages$' >"$OUT/sdk-changes.txt"
 	[ ! -s "$OUT/sdk-changes.txt" ] || SDK_CHANGED=1
+}
+
+# save_log: the daemon's log into $OUT/daemon.log. A daemon started with `serve` in the
+# foreground logs to its standard error (serve.out); one auto-started logs to
+# <state>/daemon.log (cmd/droidyard/serve.go). Both are kept when both exist.
+save_log() {
+	cat "$DROIDYARD_STATE_DIR/daemon.log" "$E/serve.out" 2>/dev/null >"$OUT/daemon.log"
 }
 
 externals_unchanged() {
@@ -371,7 +384,7 @@ cleanup() {
 	[ -n "${PID:-}" ] || exit $rc
 	[ -z "${CAFF:-}" ] || kill "$CAFF" 2>/dev/null
 	if [ -n "${SERIAL:-}" ] && [ -z "${STOPPED_EMU:-}" ]; then
-		run emulator-stop-cleanup "$DY" call --no-autostart --workspace "$G" emulator.stop --params "{\"device\":\"$SERIAL\"}"
+		run emulator-stop-cleanup "$DY" call --no-autostart emulator.stop --params "{\"device\":\"$SERIAL\"}"
 	fi
 	snapshot final
 	run stop "$DY" stop
@@ -391,7 +404,7 @@ cleanup() {
 		echo "mvp-dod: FAIL: $n orphans after stop (K6): see $E/final.orphans" >&2
 		rc=1
 	fi
-	cp "$DROIDYARD_STATE_DIR/daemon.log" "$OUT/daemon.log" 2>/dev/null
+	save_log
 	if [ -n "${ADB_PORT_RUN:-}" ]; then # K5: the run's own adb server, never 5037
 		env -u ANDROID_ADB_SERVER_PORT "$SDK/platform-tools/adb" -P "$ADB_PORT_RUN" kill-server 2>/dev/null
 	fi
@@ -413,7 +426,7 @@ errors_mode() {
 	trust_root
 	build_phase
 	downloads_and_sdk
-	cp "$DROIDYARD_STATE_DIR/daemon.log" "$OUT/daemon.log"
+	save_log
 	{
 		echo "kgp $1"
 		for f in build-ok build-failed build-restored; do echo "$f: $(jq -r '"\(.result.outcome) kgp=\(.result.kgp) expected=\(.result.expectedSources.kotlin) sources=\(.result.extraction.sources)"' "$OUT/$f.json")"; done
@@ -500,16 +513,16 @@ footprint_mode() {
 	last_call=$(date +%s)
 
 	if [ -n "$AVD" ]; then
-		call emu-start emulator.start "{\"avd\":\"$AVD\"}" || die "emulator.start failed: $(cat "$E/emu-start.out")"
+		gcall emu-start emulator.start "{\"avd\":\"$AVD\"}" || die "emulator.start failed: $(cat "$E/emu-start.out")"
 		SERIAL=$(jq -r .result.device "$E/emu-start.out")
 		[ -n "$SERIAL" ] && [ "$SERIAL" != null ] || die "emulator.start returned no serial"
 		call install device.install "{\"device\":\"$SERIAL\",\"build\":{\"module\":\":app\",\"variant\":\"debug\"}}" || die "device.install failed"
-		call launch device.launch "{\"device\":\"$SERIAL\",\"applicationId\":\"$APP_ID\"}" || die "device.launch failed"
-		call logs device.logs "{\"device\":\"$SERIAL\",\"applicationId\":\"$APP_ID\",\"maxLines\":50}" || die "device.logs failed"
-		call shot device.screenshot "{\"device\":\"$SERIAL\"}" || die "device.screenshot failed"
-		call uitree device.uiTree "{\"device\":\"$SERIAL\"}" || die "device.uiTree failed"
-		call input device.inputText "{\"device\":\"$SERIAL\",\"text\":\"Droid\",\"target\":{\"id\":\"name\"}}" || die "device.inputText failed"
-		call tap device.tapElement "{\"device\":\"$SERIAL\",\"target\":{\"id\":\"submit\"},\"expect\":[{\"appears\":{\"id\":\"greeting\"}}]}" || die "device.tapElement failed"
+		gcall launch device.launch "{\"device\":\"$SERIAL\",\"applicationId\":\"$APP_ID\"}" || die "device.launch failed"
+		gcall logs device.logs "{\"device\":\"$SERIAL\",\"applicationId\":\"$APP_ID\",\"maxLines\":50}" || die "device.logs failed"
+		gcall shot device.screenshot "{\"device\":\"$SERIAL\"}" || die "device.screenshot failed"
+		gcall uitree device.uiTree "{\"device\":\"$SERIAL\"}" || die "device.uiTree failed"
+		gcall input device.inputText "{\"device\":\"$SERIAL\",\"text\":\"Droid\",\"target\":{\"id\":\"name\"}}" || die "device.inputText failed"
+		gcall tap device.tapElement "{\"device\":\"$SERIAL\",\"target\":{\"id\":\"submit\"},\"expect\":[{\"appears\":{\"id\":\"greeting\"}}]}" || die "device.tapElement failed"
 		last_call=$(date +%s)
 	fi
 
@@ -540,11 +553,11 @@ footprint_mode() {
 	cp "$DROIDYARD_STATE_DIR/processes.json" "$OUT/processes.restart.json"
 
 	if [ -n "$SERIAL" ]; then
-		call emu-stop emulator.stop "{\"device\":\"$SERIAL\"}" || die "emulator.stop failed"
+		gcall emu-stop emulator.stop "{\"device\":\"$SERIAL\"}" || die "emulator.stop failed"
 		STOPPED_EMU=1
 	fi
 	downloads_and_sdk
-	cp "$DROIDYARD_STATE_DIR/daemon.log" "$OUT/daemon.log"
+	save_log
 	[ -z "$SDK_CHANGED" ] || die "K4: $SDK changed during the run: see $OUT/sdk-changes.txt"
 	check_footprint "$OUT" || exit 1
 	externals_unchanged
