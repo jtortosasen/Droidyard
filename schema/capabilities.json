@@ -5836,6 +5836,153 @@
       }
     },
     {
+      "name": "file.delete",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.19.0",
+      "description": "Deletes up to 1000 files or folders into the workspace's trash, kept up to 7 days within 2 GiB per project; an item's trashId restores it with file.restore. A symlink goes as the link, and across volumes an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_OUTSIDE_ROOT",
+        "REQUEST_INVALID_PARAMS",
+        "FILE_IO_FAILED"
+      ],
+      "input": {
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "description": "The files or folders to delete, relative to the project root, in order; at most 1000. A symlink goes as the link."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "paths"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "The path as asked."
+                    },
+                    "trashId": {
+                      "type": "string",
+                      "description": "Present when the item was deleted: its id in the trash, for file.restore."
+                    },
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "FILE_NOT_FOUND",
+                        "FILE_OUTSIDE_ROOT",
+                        "FILE_TOO_LARGE",
+                        "FILE_IO_FAILED",
+                        "OPERATION_CANCELLED"
+                      ],
+                      "description": "Present when the item failed: why. Absent for a done item."
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Present when the item failed: what happened, with the OS error when there is one."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "path"
+                  ]
+                },
+                "type": "array",
+                "description": "Every requested item, in order, the failed ones beside the done ones."
+              },
+              "done": {
+                "type": "integer",
+                "description": "How many items were deleted."
+              },
+              "failed": {
+                "type": "integer",
+                "description": "How many items failed or were cancelled."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "done",
+              "failed"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "file.list",
       "kind": "query",
       "scope": "workspace",
@@ -6133,6 +6280,155 @@
           "modTime",
           "offset",
           "nextOffset"
+        ]
+      }
+    },
+    {
+      "name": "file.restore",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.19.0",
+      "description": "Puts trashed items back at their paths, making missing folders and replacing nothing: a taken path is FILE_EXISTS, and an id this workspace's trash lacks is FILE_NOT_IN_TRASH. It works after a daemon restart.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_OUTSIDE_ROOT",
+        "REQUEST_INVALID_PARAMS",
+        "FILE_IO_FAILED"
+      ],
+      "input": {
+        "properties": {
+          "trashIds": {
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "description": "Trash ids from file.delete, restored in order; at most 1000."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "trashIds"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "trashId": {
+                      "type": "string",
+                      "description": "The trash id as asked."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "Present when the item was restored: where it is, relative to the project root."
+                    },
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "FILE_NOT_IN_TRASH",
+                        "FILE_EXISTS",
+                        "FILE_OUTSIDE_ROOT",
+                        "FILE_WRONG_TYPE",
+                        "FILE_IO_FAILED",
+                        "OPERATION_CANCELLED"
+                      ],
+                      "description": "Present when the item failed: why. Absent for a done item."
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Present when the item failed: what happened, with the OS error when there is one."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "trashId"
+                  ]
+                },
+                "type": "array",
+                "description": "Every requested item, in order, the failed ones beside the done ones."
+              },
+              "done": {
+                "type": "integer",
+                "description": "How many items were restored."
+              },
+              "failed": {
+                "type": "integer",
+                "description": "How many items failed or were cancelled."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "done",
+              "failed"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
         ]
       }
     },

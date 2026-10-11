@@ -1,6 +1,7 @@
 // Package file registers the capabilities that read, write and change files in a
 // workspace's project root: file.list, file.read, file.write and file.watch (plan m1j),
-// and the tree's operations, file.create and file.move so far (ADR-0053). Every
+// and the tree's operations, file.create, file.move, file.copy, file.delete and
+// file.restore (ADR-0053, ADR-0054). Every
 // caller-provided path is resolved to a name relative to the
 // root and every filesystem call goes through os.Root opened on that root, so no path
 // escapes it however it is spelled — an absolute path, "..", or a symlink (D2). The
@@ -51,6 +52,9 @@ type Options struct {
 	// entries, 1 GiB; plan m2g D48); <= 0 keeps them. A test scales them down.
 	CopyMaxEntries int
 	CopyMaxBytes   int64
+	// Trash holds what file.delete removes and file.restore returns (ADR-0054). Nil (the
+	// golden registry's descriptors) makes both answer FILE_IO_FAILED.
+	Trash *Trash
 }
 
 // Register adds file.list, file.read and file.write to the registry.
@@ -238,6 +242,61 @@ func Register(reg *capability.Registry, opts Options) {
 		},
 	})
 
+	// The trash (ADR-0054). A batch like file.copy, and long-running: a delete across
+	// volumes takes as long as its bytes. file.delete is the one destructive file command
+	// (the trash forgets), which is a command's default; it is idempotent, a repeat being
+	// FILE_NOT_FOUND items. Errors lists the call-level codes; FILE_IO_FAILED is a daemon
+	// built without a trash.
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.delete",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		LongRunning: true,
+		Since:       opsVersion,
+		Idempotent:  true,
+		Description: "Deletes up to 1000 files or folders into the workspace's trash, kept up to 7 days within 2 GiB per project; an item's trashId restores it with file.restore. A symlink goes as the link, and across volumes an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
+		Params:      DeleteParams{},
+		Result:      DeleteResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams, capability.ErrFileIOFailed,
+		},
+		Text: capability.TextOf(deleteText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.delete(ctx, call.Params.(DeleteParams))
+		},
+	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.restore",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		LongRunning: true,
+		Since:       opsVersion,
+		Idempotent:  true,
+		Description: "Puts trashed items back at their paths, making missing folders and replacing nothing: a taken path is FILE_EXISTS, and an id this workspace's trash lacks is FILE_NOT_IN_TRASH. It works after a daemon restart.",
+		Params:      RestoreParams{},
+		Result:      RestoreResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams, capability.ErrFileIOFailed,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "never replaces an existing entry; deleting the item again undoes it",
+		},
+		Text: capability.TextOf(restoreText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.restore(ctx, call.Params.(RestoreParams))
+		},
+	})
+
 	// A watch creates a subscription, so it is a command, not a query (mcp.md
 	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
 	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
@@ -307,7 +366,8 @@ func (o Options) resolver(call *capability.Call) (*resolver, *capability.Error) 
 		return nil, capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", call.Workspace).
 			WithNextStep("call workspace.open on it, then retry")
 	}
-	return &resolver{root: root, env: o.Env, maxCopyEntries: o.CopyMaxEntries, maxCopyBytes: o.CopyMaxBytes}, nil
+	return &resolver{root: root, env: o.Env, maxCopyEntries: o.CopyMaxEntries, maxCopyBytes: o.CopyMaxBytes,
+		workspace: call.Workspace, trash: o.Trash}, nil
 }
 
 // openRoot opens the canonical root as an os.Root. Containment is the root's, so every

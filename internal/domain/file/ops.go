@@ -12,8 +12,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
-// The file operations that change the tree (ADR-0053): file.create and file.move here,
-// file.copy, file.delete and file.restore beside them in later steps. They are batches:
+// The file operations that change the tree (ADR-0053, ADR-0054): file.create and file.move
+// here, file.copy, file.delete and file.restore beside them. They are batches:
 // a call carries up to maxItems items, a refusal decided from the text alone fails the
 // whole call before anything changes, and anything only the filesystem can say fails its
 // item. The call then completes with every item's outcome, the failed ones beside the

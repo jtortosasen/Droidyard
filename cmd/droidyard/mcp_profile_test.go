@@ -132,7 +132,7 @@ func mcpadapterSorted() []string { return sorted(mcpadapter.CoreTools) }
 func TestFileOperationsAreNotCore(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
-	ops := []string{"file_create", "file_move", "file_copy"}
+	ops := []string{"file_create", "file_move", "file_copy", "file_delete", "file_restore"}
 	for _, profile := range []struct {
 		args []string
 		want bool
@@ -164,8 +164,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 37 {
-			t.Errorf("%v lists %d tools; want 37", args, len(names))
+		if len(names) != 39 {
+			t.Errorf("%v lists %d tools; want 39", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)
