@@ -212,8 +212,8 @@
 	.activity {
 		display: flex;
 		flex-direction: column;
+		flex: 1;
 		min-height: 0;
-		height: 100%;
 		gap: var(--sp-3);
 	}
 	.filters {
@@ -267,8 +267,9 @@
 	}
 	.stream {
 		flex: 1;
-		min-height: 0;
+		min-height: 54px;
 		overflow: auto;
+		overscroll-behavior: contain;
 		display: flex;
 		flex-direction: column;
 		gap: var(--sp-3);

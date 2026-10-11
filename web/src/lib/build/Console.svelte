@@ -64,6 +64,22 @@
 		}
 	}
 
+	// The viewport's height changed (a bottom-region resize, a tab shown again): following, the
+	// last line is brought back into view; not following, the scroller gets its place back.
+	$effect(() => {
+		void viewportHeight;
+		const el = scroller;
+		untrack(() => {
+			if (!el) return;
+			if (following) {
+				pinned = Math.max(0, (view?.count ?? 0) * ROW_HEIGHT - el.clientHeight);
+				el.scrollTop = pinned;
+			} else {
+				el.scrollTop = scrollTop;
+			}
+		});
+	});
+
 	$effect(() => {
 		const m = model;
 		untrack(() => void read(m));
@@ -145,9 +161,21 @@
 </section>
 
 <style>
+	section {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	section > p {
+		flex: none;
+	}
 	.viewport {
-		height: 30rem;
+		flex: 1;
+		/* Three rows and the border. */
+		min-height: 56px;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		border: 1px solid;
 	}
 	.spacer {
@@ -164,6 +192,7 @@
 		text-overflow: ellipsis;
 	}
 	footer {
+		flex: none;
 		margin-top: 0.5rem;
 	}
 </style>
