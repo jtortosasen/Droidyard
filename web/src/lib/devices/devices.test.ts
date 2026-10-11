@@ -176,16 +176,21 @@ describe('the pending AVD (m2e D36)', () => {
 		expect(t.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
 	});
 
-	// Decision (D36, ADR-0046): the file's `{avd}` of an AVD that is not running comes back as
-	// the pending AVD after a reload, not as the default device; once its emulator runs, its
-	// serial is selected. Seen failing with only running devices preselected.
-	it('restores a preselected AVD that is not running as pending, then selects its emulator', async () => {
+	// Decision (D36, ADR-0046): the file's AVD that is not running, restored by the binding,
+	// is pending rather than the default device; once its emulator runs, its serial is
+	// selected. A user's pick wins over a restore.
+	it('restores the file AVD as pending, then selects its emulator', async () => {
 		const t = await setup();
 		t.devices.setPreselect({ avd: 'a2' });
+		t.devices.restoreAvd('a2');
 		await t.devices.refresh();
 		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a2' });
 		t.calls.on('device.list', () => ({ devices: [dev('emulator-5554'), { ...dev('emulator-5556'), avdName: 'a2' }] }));
 		await t.devices.refresh();
 		expect(t.devices.view).toMatchObject({ selected: 'emulator-5556', pendingAvd: '' });
+		const picked = await setup();
+		picked.devices.select('emulator-5554');
+		picked.devices.restoreAvd('a2');
+		expect(picked.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
 	});
 });

@@ -29,7 +29,7 @@
 
 	function toggle() {
 		if (!pop || !anchor) return;
-		({ top, left } = placeBelow(anchor, 300));
+		({ top, left } = placeBelow(anchor, 480)); // its widest (max-width), so it stays inside the window
 		pop.togglePopover();
 	}
 </script>

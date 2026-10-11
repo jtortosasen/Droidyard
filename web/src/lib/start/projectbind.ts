@@ -37,6 +37,14 @@ export function bindProjectFile(m: ProjectModels): () => void {
 	};
 	offs.push(m.file.subscribe(preselect));
 	preselect();
+	// D36 with ADR-0046 §3: the file's AVD is the toolbar's pending AVD only while
+	// `emulator.list` lists it as not running (the emulators model's `preselected`).
+	const restoreAvd = () => {
+		const avd = m.emulators.view.preselected;
+		if (avd !== '') m.devices.restoreAvd(avd);
+	};
+	offs.push(m.emulators.subscribe(restoreAvd));
+	restoreAvd();
 
 	offs.push(m.build.subscribeChoice((build) => m.file.update({ build })));
 	offs.push(
