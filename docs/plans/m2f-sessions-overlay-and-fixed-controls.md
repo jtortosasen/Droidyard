@@ -1,6 +1,6 @@
 # Plan: Milestone 2f — the sessions column as an overlay on hover and at the left edge, and bottom panels whose controls do not scroll away
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-11, Delegated (the owner's standing instruction: apply the recommended option). Q1 and D42–D46 applied as recommended; the owner can revert any Delegated choice.
 - Date: 2026-10-11
 - Milestone: the owner's three UI changes of 2026-10-11 after trying 2e (below). The file tree's operations become **2g** (step 1).
