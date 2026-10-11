@@ -163,7 +163,7 @@ export class FileTreeModel {
 		this.#view ??= {
 			rows: this.rows,
 			selected: this.#selected === null ? null : (this.rows.find((r) => this.#covers(r, this.#selected!))?.path ?? this.#selected),
-			selection: new Set(this.#multi.paths),
+			selection: new Set([...this.#multi.paths].map((p) => this.#rowFor(p))),
 			filter: this.#filter,
 			showHidden: this.#showHidden,
 			error: this.#error,
@@ -421,7 +421,8 @@ export class FileTreeModel {
 
 	/** What an operation acts on (D51): the top-most selected paths, in row order. */
 	operands(): string[] {
-		const top = new Set(this.#multi.topmost());
+		// A folder inside a compacted chain acts as the row that shows it (D51: `row.path`).
+		const top = new Set(this.#multi.topmost().map((p) => this.#rowFor(p)));
 		const ordered = this.rows.map((r) => r.path).filter((p) => top.has(p));
 		// A selected path no row shows (inside a collapsed folder) still counts.
 		return [...ordered, ...[...top].filter((p) => !ordered.includes(p))];
@@ -551,6 +552,11 @@ export class FileTreeModel {
 	}
 
 	// --- the rows ---------------------------------------------------------------------
+
+	/** The path of the row that shows `path` (a compacted chain's deepest folder), else `path`. */
+	#rowFor(path: string): string {
+		return this.rows.find((r) => this.#covers(r, path))?.path ?? path;
+	}
 
 	/** Whether the row stands for `path`: the row itself, or a folder inside its compacted chain. */
 	#covers(r: Row, path: string): boolean {

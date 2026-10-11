@@ -149,6 +149,8 @@ export class FileOps {
 		try {
 			const r = await this.#client.call('file.create', { path, type }, this.#opts());
 			this.#undo.push({ kind: 'made', paths: [r.path] });
+			// The notice always names the top of the Undo stack, so its button undoes what it says.
+			this.#say(`Created ${nameOf(r.path)}`, true);
 			return { ok: true, path: r.path };
 		} catch (e) {
 			const f = failure(e);
@@ -168,6 +170,7 @@ export class FileOps {
 			if (item === undefined) return { ok: false, message: 'The daemon returned no result for the rename.' };
 			if (item.code !== undefined) return { ok: false, message: describe(item.code, item.message ?? item.code, name) };
 			this.#movedDone([item]);
+			this.#say(`Renamed ${nameOf(path)} to ${nameOf(item.to)}`, true);
 			return { ok: true, path: item.to };
 		} catch (e) {
 			const f = failure(e);
