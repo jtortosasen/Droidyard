@@ -15,7 +15,10 @@
 	import X from '@lucide/svelte/icons/x';
 	import { copyToClipboard } from '../devices/copy';
 	import { rowWindow } from '../logcat/virtual';
-	import { nameOf, parentOf, type FileOps, refuseName } from './ops';
+	import { Clipboard } from './clipboard';
+	import CollisionDialog from './CollisionDialog.svelte';
+	import { dragStarts, dropMode, dropTarget, edgeScroll, hoverStep, type Hover } from './drag';
+	import { nameOf, parentOf, type FileOps, type Collision, type Notice, refuseName } from './ops';
 	import type { FileWatch } from './watch';
 	import type { FileTreeModel, IconKind, Row, TreeView } from './tree';
 
@@ -30,10 +33,10 @@
 		onopen: (path: string) => void;
 		/** The file operations (plan m2g step 3). */
 		ops: FileOps;
-		/** An entry was renamed: the open tabs follow it (D57). */
-		onmoved: (from: string, to: string) => void;
+		/** The project's id: the clipboard pastes only within it (D52). */
+		workspaceId: string;
 	}
-	let { model, watch, onopen, ops, onmoved }: Props = $props();
+	let { model, watch, onopen, ops, workspaceId }: Props = $props();
 
 	const OVERSCAN = 8;
 	const ICONS: Record<IconKind, Component<{ size?: number }>> = {
@@ -57,6 +60,15 @@
 	// The inline name field (D58): a new file or folder under `parent`, or the rename of `path`.
 	let edit = $state<{ mode: 'file' | 'dir' | 'rename'; parent: string; path: string; value: string; error: string } | null>(null);
 	let busy = false;
+	// Clipboard, collisions and the notice (plan m2g step 7; D51-D56).
+	const clip = new Clipboard();
+	let cut = $state.raw<ReadonlySet<string>>(new Set());
+	let notice = $state.raw<Notice | null>(untrack(() => ops.notice));
+	let pending = $state.raw<Collision | null>(untrack(() => ops.pending));
+	// The drag (D53): a candidate from the pointer down, then the ghost and the drop target.
+	let drag = $state.raw<{ x: number; y: number; label: string; mode: 'move' | 'copy' } | null>(null);
+	let dropDir = $state<string | null>(null);
+	let dropRoot = $state(false);
 	let revealSeen = 0;
 
 	const win = $derived(
@@ -64,6 +76,16 @@
 	);
 	const shown = $derived(view.rows.slice(win.start, win.end));
 	const selectedIndex = $derived(view.selected === null ? -1 : view.rows.findIndex((r) => r.path === view.selected));
+
+	$effect(() => {
+		const o = ops;
+		const sync = () => {
+			notice = o.notice;
+			pending = o.pending;
+		};
+		sync();
+		return o.subscribe(sync);
+	});
 
 	function measure() {
 		if (!scroller) return;
@@ -103,7 +125,16 @@
 		if (scroller) scrollTop = scroller.scrollTop;
 	}
 
-	function choose(row: Row) {
+	function choose(row: Row, e: MouseEvent) {
+		if (justDragged) return;
+		if (e.metaKey) {
+			model.toggleSelect(row.path);
+			return;
+		}
+		if (e.shiftKey) {
+			model.selectRange(row.path);
+			return;
+		}
 		model.select(row.path);
 		if (row.dir) void model.toggle(row.path);
 		else onopen(row.path);
@@ -125,6 +156,26 @@
 			if (row) beginRename(row.path);
 			return;
 		}
+		if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+			e.preventDefault();
+			model.extendSelection(e.key === 'ArrowUp' ? -1 : 1);
+			return;
+		}
+		if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+			const k = e.key.toLowerCase();
+			const run: Record<string, () => void> = {
+				x: () => cutSelection(),
+				c: () => copySelection(),
+				v: () => void pasteInto(selectedFolder()),
+				backspace: () => void deleteSelection(),
+				z: () => void ops.undo(),
+			};
+			if (run[k] !== undefined) {
+				e.preventDefault();
+				run[k]();
+				return;
+			}
+		}
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
 		const r = model.key(e.key);
 		if (!r.handled) return;
@@ -132,9 +183,40 @@
 		if (r.open !== undefined) onopen(r.open);
 	}
 
+	function syncCut() {
+		cut = new Set(clip.mode === 'cut' ? clip.paths : []);
+	}
+
+	function cutSelection() {
+		clip.put('cut', workspaceId, model.operands());
+		syncCut();
+	}
+
+	function copySelection() {
+		clip.put('copy', workspaceId, model.operands());
+		syncCut();
+	}
+
+	/** Where a paste goes for the selected row: a folder, or a file's parent. */
+	function selectedFolder(path: string | null = view.selected): string {
+		const row = path === null ? undefined : view.rows.find((r) => r.path === path);
+		return Clipboard.targetFor(path, row?.dir ?? false);
+	}
+
+	async function pasteInto(dir: string) {
+		const plan = clip.paste(workspaceId, dir);
+		syncCut();
+		if (plan === null) return;
+		await ops.paste(plan);
+	}
+
+	async function deleteSelection() {
+		await ops.delete(model.operands());
+	}
+
 	function openMenu(path: string, x: number, y: number) {
 		copied = '';
-		model.select(path);
+		if (!view.selection.has(path)) model.select(path);
 		menu = { x, y, path };
 		void tick().then(() => document.querySelector<HTMLElement>('.menu button')?.focus());
 	}
@@ -194,10 +276,7 @@
 					return;
 				}
 				edit = null;
-				if (r.path !== cur.path) {
-					onmoved(cur.path, r.path);
-					model.follow(r.path);
-				}
+				if (r.path !== cur.path) model.follow(r.path);
 				scroller?.focus();
 			} else {
 				const r = await ops.create(cur.parent, cur.value, cur.mode);
@@ -244,6 +323,132 @@
 	const anchorDepth = $derived(
 		edit === null || edit.parent === '' ? 0 : (view.rows.find((r) => r.path === anchorPath)?.depth ?? 0),
 	);
+
+	// --- drag (D53): pointer events on the window for the drag's life --------------------
+	let justDragged = false;
+	let session: {
+		down: { x: number; y: number };
+		path: string;
+		at: { x: number; y: number };
+		alt: boolean;
+		sources: string[] | null;
+		hover: Hover | null;
+		timer: ReturnType<typeof setInterval> | null;
+	} | null = null;
+
+	function rowAt(x: number, y: number): { row: Row | null; inside: boolean } {
+		const el = document.elementFromPoint(x, y);
+		if (!el || !scroller?.contains(el)) return { row: null, inside: false };
+		const path = el.closest<HTMLElement>('[data-path]')?.dataset.path;
+		return { row: path === undefined ? null : (view.rows.find((r) => r.path === path) ?? null), inside: true };
+	}
+
+	function target(): string | null {
+		if (!session?.sources) return null;
+		const { row, inside } = rowAt(session.at.x, session.at.y);
+		return inside ? dropTarget(row, session.sources) : null;
+	}
+
+	/** One step of an active drag: the highlight, the expand timer, the edge scroll, the ghost. */
+	function step() {
+		const s = session;
+		if (!s?.sources) return;
+		const { row } = rowAt(s.at.x, s.at.y);
+		const t = target();
+		dropDir = t !== null && t !== '' ? t : null;
+		dropRoot = t === '';
+		const h = hoverStep(s.hover, row?.dir && !row.expanded ? row.path : null, Date.now());
+		s.hover = h.state;
+		if (h.expand && row) void model.expand(row.path);
+		if (scroller) {
+			const box = scroller.getBoundingClientRect();
+			const d = edgeScroll(s.at.y, box.top, box.bottom);
+			if (d !== 0) scroller.scrollTop += d;
+		}
+		const n = s.sources.length;
+		drag = { x: s.at.x, y: s.at.y, label: n === 1 ? nameOf(s.sources[0]!) : `${n} items`, mode: dropMode(s.alt) };
+	}
+
+	function onpointerdown(e: PointerEvent, row: Row) {
+		if (e.button !== 0 || e.pointerType === 'touch' || edit !== null || session !== null) return;
+		session = { down: { x: e.clientX, y: e.clientY }, path: row.path, at: { x: e.clientX, y: e.clientY }, alt: e.altKey, sources: null, hover: null, timer: null };
+		window.addEventListener('pointermove', pointermove);
+		window.addEventListener('pointerup', pointerup);
+		window.addEventListener('pointercancel', cancelDrag);
+		window.addEventListener('keydown', dragKey, true);
+		window.addEventListener('blur', cancelDrag);
+	}
+
+	function pointermove(e: PointerEvent) {
+		const s = session;
+		if (!s) return;
+		s.at = { x: e.clientX, y: e.clientY };
+		s.alt = e.altKey;
+		if (!s.sources) {
+			if (!dragStarts(s.down, s.at, e.buttons)) return;
+			// A row of the selection drags the whole selection; any other row, itself.
+			s.sources = view.selection.has(s.path) ? model.operands() : [s.path];
+			if (!view.selection.has(s.path)) model.select(s.path);
+			s.timer = setInterval(step, 100);
+		}
+		step();
+	}
+
+	function pointerup(e: PointerEvent) {
+		const s = session;
+		if (!s) return;
+		s.alt = e.altKey;
+		s.at = { x: e.clientX, y: e.clientY };
+		const sources = s.sources;
+		const t = target();
+		const mode = dropMode(s.alt);
+		endDrag();
+		if (!sources) return;
+		// The click that follows a drag is not a click.
+		justDragged = true;
+		setTimeout(() => (justDragged = false), 0);
+		if (t === null) return;
+		const items = sources
+			.filter((p) => parentOf(p) !== t)
+			.map((p) => ({ from: p, to: t === '' ? nameOf(p) : `${t}/${nameOf(p)}` }));
+		if (items.length === 0) return;
+		void (mode === 'copy' ? ops.copy(items) : ops.move(items));
+	}
+
+	function dragKey(e: KeyboardEvent) {
+		if (session?.sources && e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			cancelDrag();
+		} else if (session) {
+			session.alt = e.altKey;
+			step();
+		}
+	}
+
+	function cancelDrag() {
+		const dragged = session?.sources != null;
+		endDrag();
+		if (dragged) {
+			justDragged = true;
+			setTimeout(() => (justDragged = false), 0);
+		}
+	}
+
+	function endDrag() {
+		window.removeEventListener('pointermove', pointermove);
+		window.removeEventListener('pointerup', pointerup);
+		window.removeEventListener('pointercancel', cancelDrag);
+		window.removeEventListener('keydown', dragKey, true);
+		window.removeEventListener('blur', cancelDrag);
+		if (session?.timer) clearInterval(session.timer);
+		session = null;
+		drag = null;
+		dropDir = null;
+		dropRoot = false;
+	}
+
+	$effect(() => endDrag);
 
 	/** Moves the keyboard focus to the tree (the palette's "Focus the file tree"). */
 	export function focus() {
@@ -333,6 +538,8 @@
 		class="viewport"
 		role="tree"
 		aria-label="Project files"
+		aria-multiselectable="true"
+		class:drop-root={dropRoot}
 		tabindex="0"
 		aria-activedescendant={selectedIndex >= win.start && selectedIndex < win.end ? `ft-${selectedIndex}` : undefined}
 		bind:this={scroller}
@@ -349,16 +556,22 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<div
 						class="row"
-						class:selected={row.path === view.selected}
+						class:selected={view.selection.has(row.path)}
+						class:cut={cut.has(row.path)}
+						class:drop={dropDir === row.path}
+						data-path={row.path}
+						data-cut={cut.has(row.path) ? 'true' : undefined}
+						data-drop={dropDir === row.path ? 'true' : undefined}
 						id="ft-{win.start + i}"
 						role="treeitem"
 						tabindex="-1"
 						aria-level={row.depth}
-						aria-selected={row.path === view.selected}
+						aria-selected={view.selection.has(row.path)}
 						aria-expanded={row.dir ? row.expanded : undefined}
 						style:--depth={row.depth}
 						title={row.path}
-						onclick={() => choose(row)}
+						onclick={(e) => choose(row, e)}
+						onpointerdown={(e) => onpointerdown(e, row)}
 						oncontextmenu={(e) => oncontextmenu(e, row)}
 					>
 						<span class="guides" aria-hidden="true"></span>
@@ -401,7 +614,25 @@
 	{#if view.more}
 		<p class="note">Some folders hold more entries than can be listed; use the filter.</p>
 	{/if}
+	{#if notice}
+		<p class="note notice" role="status" data-testid="file-notice">
+			<span class="notice-text">{notice.text}</span>
+			{#if notice.undoable}
+				<button type="button" class="bare undo" onclick={() => void ops.undo()}>Undo</button>
+			{/if}
+		</p>
+	{/if}
 </section>
+
+{#if pending}
+	<CollisionDialog {pending} onkeep={() => void ops.resolveCollision('keepBoth')} onskip={() => void ops.resolveCollision('skip')} />
+{/if}
+
+{#if drag}
+	<div class="drag-ghost" data-mode={drag.mode} aria-hidden="true" style:left="{drag.x + 12}px" style:top="{drag.y + 12}px">
+		{drag.mode === 'copy' ? '+ ' : ''}{drag.label}
+	</div>
+{/if}
 
 {#if menu}
 	{@const target = menu}
@@ -409,6 +640,12 @@
 		<button type="button" role="menuitem" onclick={() => void beginCreate('file', target.path)}>New file</button>
 		<button type="button" role="menuitem" onclick={() => void beginCreate('dir', target.path)}>New folder</button>
 		<button type="button" role="menuitem" onclick={() => beginRename(target.path)}>Rename</button>
+		<button type="button" role="menuitem" onclick={() => { cutSelection(); closeMenu(); }}>Cut</button>
+		<button type="button" role="menuitem" onclick={() => { copySelection(); closeMenu(); }}>Copy</button>
+		<button type="button" role="menuitem" disabled={!clip.canPaste(workspaceId)} onclick={() => { const dir = selectedFolder(target.path); closeMenu(); void pasteInto(dir); }}>Paste</button>
+		<button type="button" role="menuitem" onclick={() => { const p = model.operands(); closeMenu(); void ops.duplicate(p); }}>Duplicate</button>
+		<button type="button" role="menuitem" onclick={() => { closeMenu(); void deleteSelection(); }}>Delete</button>
+		<button type="button" role="menuitem" disabled={!ops.canUndo} onclick={() => { closeMenu(); void ops.undo(); }}>Undo</button>
 		<button type="button" role="menuitem" onclick={() => void copy(model.absolutePath(target.path))}>Copy path</button>
 		<button type="button" role="menuitem" onclick={() => void copy(model.relativePath(target.path))}>Copy relative path</button>
 		{#if copied !== ''}<p class="note error">Not copied: {copied}</p>{/if}
@@ -518,6 +755,47 @@
 	.row.selected {
 		background: var(--accent-soft);
 	}
+	.row.cut {
+		opacity: 0.5;
+	}
+	.row.drop {
+		background: var(--accent-soft);
+		outline: 1px solid var(--accent);
+		outline-offset: -1px;
+	}
+	.viewport.drop-root {
+		outline: 1px solid var(--accent);
+		outline-offset: -1px;
+	}
+	.notice {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+		border-top: 1px solid var(--border);
+	}
+	.notice-text {
+		flex: 1;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.undo {
+		color: var(--accent);
+	}
+	.drag-ghost {
+		position: fixed;
+		z-index: 20;
+		pointer-events: none;
+		max-width: 260px;
+		padding: var(--sp-1) var(--sp-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--overlay-solid);
+		color: var(--text);
+		box-shadow: var(--shadow);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
 	.guides {
 		position: absolute;
 		top: 0;
@@ -604,7 +882,10 @@
 		border: 0;
 		background: transparent;
 	}
-	.menu button:hover,
+	.menu button:disabled {
+		opacity: 0.5;
+	}
+	.menu button:hover:not(:disabled),
 	.menu button:focus-visible {
 		background: var(--accent);
 		color: var(--accent-text);
