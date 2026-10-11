@@ -34,3 +34,4 @@ the output.
 | [m2c-fixes-live-console-project-start.md](m2c-fixes-live-console-project-start.md) | 2c — a round of fixes, the build console live, and a traditional project start | Done |
 | [m2d-redesign-file-tree.md](m2d-redesign-file-tree.md) | 2d — a redesign, the projects and agents panel, and a read-only file tree | Done |
 | [m2e-ux-round.md](m2e-ux-round.md) | 2e — a UX round: collapsible panels, the sessions column, a status bar, a run toolbar and a Logcat query bar | Done |
+| [m2f-sessions-overlay-and-fixed-controls.md](m2f-sessions-overlay-and-fixed-controls.md) | 2f — the sessions column as an overlay on hover and at the left edge, and bottom panels whose controls do not scroll away | Done |

@@ -81,6 +81,7 @@ edits made before this rule and are not added to.
 | [0049](0049-file-watch-baseline.md) | `file.watch` returns its baseline and publishes its events, for the file tree | Accepted |
 | [0050](0050-sessions-column.md) | The sessions panel is a column docked left of the tree, toggled from the toolbar | Accepted |
 | [0051](0051-logcat-line-package.md) | `device.watchLogs` lines carry their application's package, from the line's uid | Accepted |
+| [0052](0052-sessions-overlay.md) | The sessions column also shows as an overlay, on hover and at the window's left edge | Accepted |
 
 ## Open decisions (not yet ADRs)
 

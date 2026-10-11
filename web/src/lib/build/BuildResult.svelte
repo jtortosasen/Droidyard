@@ -40,7 +40,27 @@
 			({view.last.request.tasks.join(' ')}), {view.last.durationMs ?? ''} ms
 		</p>
 		{#if view.problems}
-			<Problems problems={view.problems} />
+			<div class="scroll">
+				<Problems problems={view.problems} />
+			</div>
 		{/if}
 	{/if}
 </section>
+
+<style>
+	section {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	section > p {
+		flex: none;
+	}
+	.scroll {
+		flex: 1;
+		min-height: 54px;
+		overflow: auto;
+		overscroll-behavior: contain;
+	}
+</style>
