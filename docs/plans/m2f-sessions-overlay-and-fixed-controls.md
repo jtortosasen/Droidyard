@@ -1,0 +1,157 @@
+# Plan: Milestone 2f — the sessions column as an overlay on hover and at the left edge, and bottom panels whose controls do not scroll away
+
+- Status: Approved
+- Approved: 2026-10-11, Delegated (the owner's standing instruction: apply the recommended option). Q1 and D42–D46 applied as recommended; the owner can revert any Delegated choice.
+- Date: 2026-10-11
+- Milestone: the owner's three UI changes of 2026-10-11 after trying 2e (below). The file tree's operations become **2g** (step 1).
+- Phase: `docs/roadmap/mvp.md` §Phase 2 (in part; see Scope). Phase 2's acceptance is met (2b); 2f adds none.
+- Contract: ADR-0050 §1–§3 (§1 superseded in part by Q1's ADR); ADR-0047 §2, §3; ADR-0039; ADR-0040; `http-websocket.md` §Security baseline; m2a D5, D7; m2e D32, D33 in force except where Q1 changes D33's "no hover reveal, no Escape" (for the overlay only).
+
+**The owner's words (2026-10-11, translated; the requirement):** (1) "There should be a hover on the left sessions panel when the mouse is placed over it, and it does not displace anything but overlays." (2) "And there should be a kind of viscous surface: when the mouse approaches, it stimulates the button, and when you get almost next to the lateral edge (while it is hidden) it makes a feint of appearing, so it does not bother you if you are navigating the file tree, but if you get close enough, boom, it comes out." (3) "In Logcat, the search bar and the device selector must stay while you scroll through the log lines. That should be so in the other bottom panels too. Scrolling does not hide the control options." Of 2e: "I like it more"; 2e's choices stand except where these change them.
+
+**The owner should see:** Q1 (hover and edge reveal as an overlay; ADR-0050 §1 superseded in part), applied as recommended, Delegated; it becomes an ADR at step 1. No contract change, no Go change.
+
+## Scope
+
+| Item | Here? | Where, or why not |
+| --- | --- | --- |
+| Owner 1: hovering the sessions toggle shows the column as an overlay; nothing moves | yes | steps 3, 4 (Q1, D43) |
+| Owner 2: the viscous left edge: attract, feint, pop | yes | steps 3, 4 (D44, D45) |
+| Owner 3: Logcat's bar and device selector stay while its lines scroll; the same in App logs, Build output, Problems, Activity | yes | step 2 (D46) |
+| The left and centre panes | no change | they already keep their controls: the tree's filter sits above its own scroller (`FileTree.svelte` `.viewport`), the editor fills the centre absolutely and its viewer scrolls (`Editor.svelte`); step 2's level 4 checks the tree as a regression |
+| The right region | no change | one scroll over stacked sections (Devices, Live view, UI tree, Actions) by design since m2d; it has no single control bar |
+| File operations | no | 2g (step 1 renames it) |
+
+## Starting point
+
+Code at `bd74d27` (2e merged). API `0.18.0`. `web/src/lib/ui/Shell.svelte`: the toolbar opens with the `sessionsToggle` snippet; `.middle` (`position: relative`, a row) holds the docked `aside.sessions` (title, density, `sessions()`, a `Splitter`) only while `layout.sessions.open`, the left strip or `aside.left`, the centre, the right; panes are `.pane { overflow: auto; padding }`, `.pane.current { display: block }`. `ui/layout.ts`: `openSessions`, `closeSessions`, `setRegion` (ADR-0050 §2), saved whole to `droidyard.ui.layout` by an `$effect`. `projects/SessionsToggle.svelte`: click only (`ontoggle`), `aria-expanded`, badge and spinner. Bottom panels (`panels.ts`): `logcat` (`Logcat.svelte`: `.viewport { height: 60vh }`, `bind:clientHeight={viewportHeight}` feeding `rowWindow`, re-pinned to the bottom only in `changed()`), `applogs` (`AppLogs.svelte`: `pre.lines { max-height: 30rem }`), `console` (`Console.svelte`: `.viewport { height: 30rem }`, the same row window), `problems` (`BuildResult.svelte` + `Problems.svelte`, no scroller), `activity` (`Activity.svelte`: already `.filters` fixed over a `.stream` scroller, root `height: 100%`). So today the bottom pane scrolls as a whole and Logcat's bar leaves with it. No DOM test environment (`vite.config.ts`: `environment: 'node'`): components are checked at level 4.
+
+Baseline on 2026-10-11 at `bd74d27` (macOS): `go vet ./...` printed nothing; `go test ./...` green. With this draft present `TestPlansIndexMatchesFiles` fails (no index row): step 1. `pnpm -C web run verify` not run (the planner's command guard).
+
+## Run rules
+
+- K1–K9 are m2e's (`m2e-ux-round.md` §Run rules) with `m2f` for `m2e`: `B=~/Library/Caches/droidyard-dev/m2f`, fresh state per run, the adb guard, `ANDROID_SERIAL=droidyard-m2f-none`, the scratch AVD `droidyard_m2a` through `$B/avd`, headless captures only (the owner's screen never), a sample copy, nothing in `~/Documents/DopamineControl`.
+- K8 (front-end steps: the two vendored Svelte skills first, `pnpm -C web run verify`, the autofixer gate on every changed `.svelte`/`.svelte.ts`, logic in `.ts` with Vitest beside it) applies to steps 2–4.
+
+## Delegated decisions
+
+- D42. **Numbering**: this round is **2f**; the tree's file operations **2g**; "after 2g" for the rest.
+- D43. **The overlay** (owner 1). While the column is not docked, the same column (title, density, `sessions()`, plus a **Dock** button, no splitter) shows as an overlay: `position: absolute` over the left of `.middle`, full height, `layout.sessions.size` wide, a shadow, above the tree and the splitters. It opens after the pointer rests 150 ms on the toggle, or at the edge's pop (D44). Nothing in the layout moves and the right region is not collapsed; the overlay's state lives in the shell, never in `Layout`, so nothing is saved. Where the pointer is comes from geometry on each coalesced `pointermove`, not from enter and leave events (an overlay that appears under a still pointer gets no `pointerenter`): **inside** is `inBand && x < layout.sessions.size` (the overlay's columns, the toolbar's left part with the toggle included), **on the toggle** is the toggle's rect. It hides when the pointer has been outside for 300 ms (not while focus is inside the overlay: the project-root input keeps its text), on Escape (not consumed: other handlers still see it), or on a pointerdown outside the overlay and the toggle. A click on the toggle or on Dock docks the column (ADR-0050 §1, §2 unchanged) and the overlay goes; while docked there is no overlay and no edge. Undocking does not reopen it: `pointer()` keeps recording on-toggle while docked (only its decisions are suppressed), undocking sets a latch that only a pointer off the toggle clears, the hover delay starts only on arriving at the toggle from off it with the latch clear, and undocking disarms the edge (D44). A held pointer button (a splitter drag, a text selection) never opens it nor starts the delay. The command palette is a modal `<dialog>` (top layer, above the overlay); while a modal dialog is open the band is empty (D44). Focus on the toggle does not open it (Enter and click dock, as today). Only `pointerType === 'mouse'` events drive the overlay and the edge, so touch and pen devices get neither. With `prefers-reduced-motion: reduce` it appears and hides without a slide.
+- D44. **The viscous edge** (owner 2). A pure function of `d`, the pointer's `clientX` (the shell fills the window), live only while the column is hidden, no button is held, and the pointer's `clientY` lies in the band from the toolbar's top to `.middle`'s bottom (not over the bottom region or the status bar, so a Logcat selection at x≈0 never triggers it; no band while a modal dialog is open). Named constants: `ATTRACT_PX = 96`, `FEINT_PX = 24`, `POP_PX = 4`, `FEINT_MAX_PX = 14`. `d > 96` rest; `96 ≥ d > 24` **attract**: the toggle's `--attract` rises linearly from 0 to 1 as `d` falls (a tint and glow; nothing else changes); `24 ≥ d > 4` **feint**: `--attract` 1 and the overlay's edge out by `FEINT_MAX_PX · t²`, `t = (24 − d) / 20` (resistance: a quarter of the way at half the distance); `d ≤ 4` **pop**: the overlay shown, a 160 ms ease-out slide. Leaving the feint zone outward retracts it; once shown, D43's hide rules apply, not the distance. After any hide, and on undocking, the edge is **disarmed** until the pointer has been at `d > FEINT_PX`, so Escape at x = 2 does not pop it again on the next move and a click that undocks at the toggle (x ≈ 8–38) draws no feint. The pointer leaving the window (`pointerleave` on the document element) ends attract and feint and, when shown, counts as outside. Reduced motion: no feint (the feint zone reads as attract at 1); attract and pop only. One passive `pointermove` listener on the window, coalesced to one update per animation frame.
+- D45. **The edge and the tree coexist.** The feint is drawn only: `inert`, `aria-hidden`, `pointer-events: none`, so every click in the first 24 px, the tree's rows and the left strip's restore button included, reaches what is under it. Only the last 4 px pop. With the left region minimized, its strip's restore button is reachable at x > 4 through the drawn feint; a click at x ≤ 4 meets the popped overlay instead, and Escape or moving away gives the strip back.
+- D46. **Fixed controls in the bottom panels** (owner 3). The bottom region's current pane is a column (`display: flex; flex-direction: column; overflow-y: auto`); each bottom panel's root fills it (`flex: 1; min-height: 0`, a column), its controls `flex: none`, and one list is the scroller (`flex: 1; min-height: 54px` (three rows); `overflow: auto; overscroll-behavior: contain`, so a wheel at the list's end does not chain to the pane). The list absorbs every height above its floor, so the pane never scrolls; only when the region is smaller than the controls plus the floor (the 120 px minimum, `layout.ts` `BOUNDS.bottom`) does the pane scroll, and then only from a wheel over the controls, never clipping. Per panel: Logcat's `.frame` a column and `.viewport` `flex: 1` (no `60vh`), its status line and counts footer merged into one `flex: none` line under the list with `--sp-2` margins; Console's viewport (no `30rem`); App logs' error, notes, crashes and lines in one scroller under its controls (no `max-height` on `pre.lines`); Problems' summary over a scroller holding `Problems`; Activity's root `flex: 1; min-height: 0` instead of `height: 100%`. Logcat and Console react to a change of their viewport's height (a bottom-region resize, a tab shown again): following, they re-pin to the bottom; not following, they write their `scrollTop` state back to the scroller, so a tab shown again is not blank.
+
+## Acceptance
+
+- [ ] A1. While the column is not docked, resting on the toggle or reaching the window's left edge shows the sessions column as an overlay; the tree's, centre's and right region's boxes and `droidyard.ui.layout` are unchanged while it shows; it hides on leaving (300 ms), Escape or a click outside; a click on the toggle or Dock docks it by ADR-0050 §2's rule. Source: owner 1; Q1; D43. Proven by: step 3, step 4
+- [ ] A2. The edge attracts the toggle from 96 px, feints from 24 px without taking clicks, and pops at 4 px; none of it while docked, with a button held, for a non-mouse pointer, or (feint) with reduced motion. Source: owner 2; D44, D45. Proven by: step 3, step 4
+- [ ] A3. In Logcat, App logs, Build output, Problems and Activity the controls stay inside the pane while the list scrolls; at the default 260 px and above the pane itself never scrolls; at the 120 px minimum nothing is clipped and the list keeps three rows; Logcat and Build output keep their last line (following) or their place (not following) across a bottom-region resize and a tab shown again. Source: owner 3; D46. Proven by: step 2
+- [ ] A4. Same primitive: no schema diff, no Go change; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 2, step 4
+- [ ] A5. `mvp.md`, `docs/README.md`, the register and the plans index name 2f and 2g; Q1's ADR is indexed and ADR-0050 carries its line; the register records what 2f left. Source: `milestone-workflow` close. Proven by: step 1, step 5
+
+## Steps
+
+### 1. Renumbering, the index row and Q1's ADR
+
+- Builds: the main session: in `mvp.md` §Phase 2, **2f** is this round and **2g** the file operations ("After 2g"); `docs/README.md`'s status line; the register rows that plan file operations in 2f (today 137, 228, 229) → 2g; this plan's row in `docs/plans/README.md`; Q1's ADR (the next free number, `Supersedes: ADR-0050 §1 (in part: no hover reveal)`), its row in `docs/adr/README.md`, and ADR-0050's header line `- Superseded in part by: ADR-XXXX (§1)` with the new number.
+- Implements: D42; Q1; `milestone-plan` §Writing one 3.
+- Check: `go test ./internal/doccheck` (index, ADR mentions and supersession, links, budget) and `go test ./...` green.
+- Schema: no change.
+- Needs: nothing.
+- Not here: code.
+- Rests on: —
+- [x] Done. Evidence: ADR-0052 written and indexed, ADR-0050 carries `Superseded in part by: ADR-0052 (§1)`; `mvp.md`, `docs/README.md` and register rows 137, 228, 229 name 2g for the file operations; the index row added. `go test ./internal/doccheck` and `go test ./...` green (the budget met by trimming the two edited lines).
+
+### 2. Bottom panels with fixed controls (D46)
+
+- Builds: `ui/Shell.svelte`: `.bottom .pane.current` a column (D46; left and centre panes untouched). `logcat/Logcat.svelte`: the section a filling column; `.bar` and the error or hint `flex: none`; `.frame` a column, `flex: 1; min-height: 54px`, `.viewport` `flex: 1; min-height: 0; overscroll-behavior: contain` (the `60vh` goes); the status line and the counts footer one `flex: none` line under the frame (the same ids kept); an `$effect` on `viewportHeight` that, untracked otherwise, sets `scroller.scrollTop` to the bottom (and `pinned`) while following, or back to the `scrollTop` state when not. `build/Console.svelte`: the same shape and effect (the `30rem` goes). `devices/AppLogs.svelte`: the controls `<p>` fixed; error, notes, crashes and lines in one scroller. `build/BuildResult.svelte`: refusals and the summary fixed, `Problems` in a scroller. `ops/Activity.svelte`: root `flex: 1; min-height: 0`.
+- Implements: owner 3; D46; m2a D5 (rows stay text nodes).
+- Run by: the implementer (default effort); review: the main session's diff review; level 4 and 5 by the main session.
+- Check: `pnpm -C web run verify` and the autofixer gate on the five components (no logic in `.ts` changes, so no new Vitest). Level 4 (K1 daemon, headless Chrome 1280×900, a sample copy), in compact and comfortable: for Build output after a build, Activity after it, and Problems after a build of the copy with ten injected unresolved references, at the default 260 px: (a) the current pane's `scrollHeight ≤ clientHeight` (fails at `bd74d27`: Console's `30rem` overflows the pane); (b) after the list is scrolled to its top, its bottom and by a wheel over it, the controls' rect inside the pane's and the pane's `scrollTop` 0; at 120 px: (c) every control's rect and the list's within the pane's scroll area, the list's `clientHeight ≥ 54`, and (b) again. Re-pin with no lines arriving (a finished build's console): following, the splitter dragged 260 → 500 → 120 px, after each the last row's bottom within the viewport; scrolled up, Build output → Activity → Build output, rows drawn inside the viewport; both seen failing with the new `$effect` removed (if Chrome keeps a hidden scroller's offset, the second cannot fail: recorded so on the Done line). The left pane: the tree scrolled, its filter's rect unchanged. Level 5 (K1, K2, K9; `droidyard_m2a`): Logcat on the whole device with an empty query and ≥ 500 lines: (a)–(c) for its bar and device selector; App logs after ▶ (install and launch) and "Read the logs": (a)–(c). Logcat scrolled up while lines stream (the ring not yet full), Logcat → Console → Logcat: rows drawn inside the viewport. Then a quiet stream that keeps its lines: the K1 daemon stopped with the page open (the stream `ended`, the selection unchanged; shutting the AVD down would deselect the device and clear the panel), `#logcat-held` above 0 and unchanged across the assertions: Logcat's following resize assertions as Build output's, seen failing with the effect removed. If such a quiet stream cannot be shown, Logcat's resize rests on Build output's proof of the same effect and an Unverified row says so. Captures dark and light; `window.__csp` empty; network paths as A4.
+- Schema: no change.
+- Needs: step 1. May run in parallel with step 3 (different files).
+- Not here: a sticky table header in Problems; the right region (Scope); Logcat's own behaviour (query, follow, pause) unchanged.
+- Rests on: Svelte's `bind:clientHeight` reports every resize of the viewport, so the row window and the re-pin follow the bottom region (level 4, with no lines arriving so the stream's own re-pin cannot mask it).
+- [ ] Done. Evidence:
+
+### 3. The edge function and the overlay's model (pure)
+
+- Builds: `web/src/lib/ui/edge.ts`: D44's constants and `edgeZone({ d, inBand, buttons, docked, armed, reducedMotion }) → { zone: 'rest' | 'attract' | 'feint' | 'pop', intensity, offset }`. `web/src/lib/ui/peek.ts`: `PeekModel` over an injected scheduler (`setTimeout`/`clearTimeout`-shaped, so tests use fake time), constants `INTENT_MS = 150`, `GRACE_MS = 300`, and geometry-only inputs (no enter or leave events, D43): `pointer({ x, inBand, onToggle, buttons, pointerType })` where inside is `inBand && x < width`, `setWidth(px)`, `windowLeave()`, `escape()`, `pointerDownOutside()`, `setFocusInside(b)`, `setDocked(b)`, `setReducedMotion(b)`; `view { state: 'hidden' | 'feint' | 'shown', offset, attract }`; `subscribe`, `dispose` (clears its timers). It knows nothing of `Layout`.
+- Implements: owner 1, 2; Q1; D43, D44.
+- Run by: the implementer (default effort); review: the main session's diff review.
+- Check: Vitest `edge.test.ts`: d = 200, 97 → rest; 96 → attract 0; 60 → attract 0.5; 25 → attract ≈ 0.986; 24 → feint offset 0; 14 → offset 3.5 (t² at half, seen failing with a linear ease); 5 → offset ≈ 12.6; 4, 0 → pop; each of docked, `buttons ≠ 0`, `!inBand`, `!armed` → rest at d = 2; reduced motion: d = 14 → attract 1, no offset; d = 2 → pop. `peek.test.ts`: on the toggle, 149 ms → hidden, 150 ms → shown; on it and off at 100 ms → never shown; on it with `buttons: 1` → never shown; on it as `pointerType: 'touch'` → never shown; **pop at x = 2, no further input, 1 s → still shown** (seen failing with enter/leave-based inside); shown, the pointer at x = 600 for 299 ms → shown, 300 ms → hidden; out, then back to x = 100 at 200 ms → stays; out with `setFocusInside(true)`, 1 s → stays, then Escape → hidden; Escape and a pointerdown outside hide; hidden by Escape at x = 2, then x = 3 → hidden (disarmed), x = 30, x = 2 → shown; feint, then x = 40 → hidden; feint, then `windowLeave` → hidden; shown, `windowLeave`, 300 ms → hidden; `pointerType: 'pen'` at x = 2 changes nothing; `setDocked(true)` while shown → hidden and every input ignored; on the toggle at x = 20, docked, undocked with the pointer still there, 1 s → hidden and no feint (disarmed; seen failing without the undock disarm); `setDocked(true)` with no pointer seen, `pointer` on the toggle at x = 20, `setDocked(false)`, `pointer` on the toggle at x = 21, 1 s → hidden (seen failing without the latch), then off the toggle and back on, 150 ms → shown; `dispose` clears a pending timer (no callback after it). Each decision seen failing reversed (names on the Done line).
+- Schema: no change.
+- Needs: step 1.
+- Not here: the DOM (4); thresholds tuned by feel (Unverified).
+- Rests on: —
+- [ ] Done. Evidence:
+
+### 4. The overlay and the edge in the shell
+
+- Builds: `ui/Shell.svelte`: one `column` snippet (head with title and density, body `sessions()`) used by the docked aside and by the overlay; the overlay `aside.sessions.overlay` mounted while `PeekModel`'s state is not `hidden`, absolutely positioned in `.middle` (D43), `transform: translateX(calc(-100% + <offset>px))` in feint, `0` when shown, the slide only without reduced motion; in feint `inert`, `aria-hidden`, `pointer-events: none` (D45); a Dock button in its head (`toggleSessions`). The window wiring in one `$effect`: a passive `pointermove` coalesced per animation frame, the last event's `clientX`, `buttons` and `pointerType` with `inBand` (the toolbar's top to `.middle`'s bottom, false while `document.querySelector('dialog:modal')`) and `onToggle` (the toggle's rect) computed from rects; `pointerleave` on the document element → `windowLeave`; `pointerdown` (capture) outside the overlay and the toggle → `pointerDownOutside`; `keydown` Escape → `escape`; `focusin`/`focusout` on the overlay → `setFocusInside`; `matchMedia('(prefers-reduced-motion: reduce)')` and its changes; all removed and `dispose` called on teardown. `setDocked` follows `layout.sessions.open`, `setWidth` `layout.sessions.size`. `projects/SessionsToggle.svelte`: an `attract` prop as `style:--attract`, the tint and glow from it (accent mixed by `--attract`), an element reference for the rect, its comment updated (Q1: the overlay, Escape). The `sessionsToggle` snippet's argument type gains `attract` and the toggle element binding in all three places it is declared or defined: `Shell.svelte` Props, `Project.svelte` Props, `App.svelte`'s snippet.
+- Implements: owner 1, 2; Q1; D43–D45; ADR-0050 §1, §2 (docking unchanged).
+- Run by: the implementer (default effort); review: the main session's diff review.
+- Check: `pnpm -C web run verify`; the autofixer gate on `Shell.svelte`, `SessionsToggle.svelte` and any touched parent; `layout.test.ts` and `peek.test.ts` green. Level 4 (K1, headless Chrome 1280×900, column not docked, `Input.dispatchMouseEvent` at y = 300): x = 200 → no overlay, the toggle's `--attract` 0; x = 60 → `--attract` ≈ 0.5, no overlay; x = 12 → the overlay present and `inert`, its visible part 1–14 px, `elementFromPoint(12, 300)` inside `.left`; x = 2 → shown at 280 px wide after the slide, `elementFromPoint(100, 300)` inside it, and still shown after 1 s with no further event; the `getBoundingClientRect` of `.left`, `.centre` and `.right` and `localStorage['droidyard.ui.layout']` identical to before; x = 600 → gone after 300 ms; popped, then a `mouseMoved` to x = −5 (leaving the window) → gone after 300 ms. Pop, Escape → gone; x = 3 → still gone; x = 40, x = 2 → shown. Resting on the toggle 200 ms → shown; to the centre → gone. Shown, the toggle clicked → docked (the column in flow, the right region collapsed by ADR-0050 §2), no overlay; x = 2 while docked → none. Reloaded docked, the toggle clicked (undock), a 1 px `mouseMoved` on it, 1 s → no overlay, no feint. Pop, the Dock button → docked. The palette open (⇧⌘P dispatched), x = 2 → no overlay. Mouse pressed at x = 300 and moved to x = 2 with `buttons: 1` → none. `pointerType: 'pen'` at x = 2 → none. Reduced motion (`Emulation.setEmulatedMedia`): x = 12 → no overlay, `--attract` 1; x = 2 → shown. Left minimized: a click at the strip's button centre (x = 12) restores the left region. Captures of rest, attract, feint and shown in dark and light; `window.__csp` empty; network paths as A4.
+- Schema: no change.
+- Needs: step 3.
+- Not here: resizing the overlay (the docked column's splitter only); keyboard reveal or focus moving into the overlay; touch; an edge on the right or bottom.
+- Rests on: Chrome delivers `pointermove` events at `clientX` 0–4 when the pointer reaches the window's left edge (level 4 headless; the owner's headed window Unverified).
+- [ ] Done. Evidence:
+
+### 5. Close: documents and register
+
+- Builds: the main session: the register: a row for the owner's headed trial of the overlay and the edge (feel and thresholds) and the edge's reach in a window not at the screen edge, rows for Not in this milestone; `docs/README.md` names 2g next; the index `Done`.
+- Implements: A5.
+- Run by: the main session; review: **Opus verifier** over A1–A5 (steps 2 and 4's level-4 runs repeated on the final tree).
+- Check: `go test ./internal/doccheck` and `go test ./...` green; every Not-in-this-milestone item has a register row or a named milestone.
+- Schema: no change.
+- Needs: steps 2–4.
+- Not here: 2g's plan.
+- Rests on: —
+- [ ] Done. Evidence:
+
+## Not in this milestone
+
+- Resizing the overlay, keyboard reveal, touch and pen: register row (D43 keeps them on the docked column and the click).
+- A sticky header for Problems' table: register row, if the owner asks.
+- File operations: 2g.
+
+## Design questions
+
+Q1 is applied as recommended, Delegated; it becomes an ADR at step 1.
+
+### Q1. May the sessions column show on hover, and at the window's edge?
+
+- Blocks: steps 3, 4
+- The documents say: ADR-0050 §1: "No hover reveal and no rail"; its Alternatives reject "Keep hover reveal" (a docked column would shift the layout under the pointer) and "An overlay over the tree" (the owner's "not over the tree" then). The owner now asks for an overlay on hover that displaces nothing, which removes the first reason, and for the overlay over the tree while it is not docked.
+- Draft decision, an ADR superseding ADR-0050 §1 in part (the "no hover reveal" clause): while the column is not docked, resting on the toggle or reaching the window's left edge shows it as an overlay over the left of the middle row; nothing in the layout moves, the right region is not collapsed, and nothing is remembered. The edge is graded: approaching it stimulates the toggle, nearer it a drawn feint that takes no clicks, at the last pixels the overlay. It hides on leaving, Escape or a click outside. A click on the toggle or the overlay's Dock control docks it, and docking keeps ADR-0050 §1, §2, §3. Mouse pointers only; never while a button is held. Thresholds live in code (`ui/edge.ts`). "No rail" stands.
+- Alternatives considered: **click only (ADR-0050 as is)**: the owner asked for hover; **hover that docks the column**: the layout would shift under the pointer, ADR-0050's own reason; **an ungraded edge hot zone**: it would open while the user works on the tree's first pixels, which the owner's "feint" exists to prevent; **a dwell-time hot zone** (open after the pointer rests at the edge): no feint to warn the user, and the owner's "boom" is immediate; **a visible rail as the hover target**: the owner removed it in 2e.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| The viscosity reads as the owner meant: 96/24/4 px, the t² resistance, 150 ms intent, 300 ms grace | 3, 4 | the owner's headed trial; constants in `edge.ts` and `peek.ts` |
+| A flick toward the edge in a window not at the screen's edge reaches x ≤ 4 before leaving the window (then it only retracts) | 4 | the owner's trial; a register row |
+| Headless CDP mouse events stand for a real mouse and trackpad (both `pointerType: 'mouse'` in Chrome on macOS), and a move to x < 0 fires `pointerleave` on the document element | 4 | step 4's level 4 (the leave case); the owner's trial |
+| Chrome resets a scroller's offset when its tab is hidden with `display: none` (the not-following branch of D46's effect guards it) | 2 | step 2's level 4 records whether that check can fail |
+| The bottom panels' fixed parts fit a 120 px region in comfortable density with the list's floor (an estimate from the tokens, not a render) | 2 | step 2's level 4 at 120 px, both densities |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise | B1 blocking: a pop under a still pointer gets no `pointerenter`, so the grace hides it after 300 ms | D43: inside and on-toggle from geometry on each `pointer()` (no enter/leave inputs); peek test and level 4 hold 1 s after the pop |
+| 1 | | B2 blocking: at the 120 px minimum Logcat's and App logs' fixed parts exceed the pane; `overflow: hidden` clips | D46: lists floored at 3 rows, `overscroll-behavior: contain`, the pane scrolls only below controls + floor; Logcat's status and footer one line; App logs' error and notes in its scroller; 120 px checked in both densities |
+| 1 | | B3 blocking: the resize re-pin check cannot fail while lines stream (`changed()` re-pins on every batch) | Step 2: resize and show-again asserted on a finished build's console (level 4) and on Logcat with the AVD shut down; each seen failing with the effect removed |
+| 1 | | B4 blocking: undocking leaves the pointer on the toggle (x ≤ 24) with the edge armed, so the feint draws | D44: undocking disarms; the peek test at x = 20; a level-4 case |
+| 1 | | Important: enter/leave calls without `buttons`/`pointerType`; focus inside the overlay lost on leave; not-following tab shown again blank | Inputs are `pointer()` only, carrying both; `setFocusInside` keeps it open (Escape and outside click still hide), tested; D46's effect restores `scrollTop` when not following, Unverified row for Chrome's reset |
+| 1 | | Nits: D33's "no Escape"; the snippet's three sites; `.frame` a column; the palette's stacking; `windowLeave` unchecked; a dwell-time alternative | Header names both; step 4 names `Shell`, `Project`, `App`; step 2 says it; D43/D44: no band while a modal dialog is open, level-4 case; a level-4 leave case and Unverified row; Q1 lists it |
+| 2 | revise | B1, B2 answered; B3 in part, N1 blocking: shutting the AVD down deselects the device and clears Logcat, so no held lines to measure | Step 2: a quiet stream from stopping the K1 daemon with the page open, `#logcat-held` observed stable first; otherwise Build output's proof and an Unverified row; Logcat's scrolled-up show-again while streaming |
+| 2 | | B4 in part, N2 blocking: while docked the on-toggle state goes stale, so a 1 px move after an undock click opens the overlay; neither check could fail | D43: `pointer()` records on-toggle while docked and undocking sets a leave-the-toggle latch; the reviewer's peek test (no pointer before docking); level 4 adds a 1 px move after the undock click on a reload docked |
+
+Plan review: two rounds, both `revise`; blocking 6 (B1–B4 in round 1, N1 and N2 in round 2), important 3, nit 6; every blocking finding answered in the plan (`milestone-plan` §Writing one 7: no third round).
+
+## Changes
+
+Changes after approval: date, what changed, why, and the ADR if the change touches the design.
