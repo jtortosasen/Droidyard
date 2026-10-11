@@ -71,7 +71,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: none. A real Gradle (level 5); no daemon, no device.
 - Not here: no droidyard run; the error injection is step 3's. A missing artifact does not stop the milestone (K3: downloaded and recorded); a compatibility failure (the BOM, `kotlin-dsl` against KGP 2.4.20) is recorded under Changes with the smallest further rewrite, added to D1 before step 2.
 - Rests on: after this step every artifact of both cells is in `~/.gradle` (level 5, `--offline`).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11, `$B/s1/`: the rewrite replaced exactly three strings (`grep -c 2.4.20`: settings 2, build-logic 1; `2.0.21` left: 0); Gradle 8.13, JDK 17 (Zulu), `ANDROID_SERIAL=droidyard-m2h-none`, `--offline -p <copy> :app:assembleDebug`: KGP 2.0.21 `BUILD SUCCESSFUL in 13s`, KGP 2.4.20 `BUILD SUCCESSFUL in 28s` (61 tasks each), so no download was needed: `find … -newer stamp -type f` listed 0 files; the 2.4.20 build warns `Deprecated Gradle Version` (KGP 2.5 will want Gradle 8.14.4), recorded, not changed; the SDK stamp found nothing newer.
 
 ### 2. `samples/mvp-dod.sh errors <kgp> <outdir>`
 
