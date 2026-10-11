@@ -98,6 +98,21 @@
 		}
 	}
 
+	// The viewport's height changed (a bottom-region resize, a tab shown again): following, the
+	// last line is brought back into view; not following, the scroller gets its place back.
+	$effect(() => {
+		void viewportHeight;
+		const el = scroller;
+		untrack(() => {
+			if (!el) return;
+			if (snap.following) {
+				pinned = Math.max(0, snap.count * ROW_HEIGHT - el.clientHeight);
+				el.scrollTop = pinned;
+			} else {
+				el.scrollTop = scrollTop;
+			}
+		});
+	});
 	$effect(() => {
 		const off = session.onChange(changed);
 		return () => {
@@ -203,10 +218,6 @@
 		<p class="hint" id="logcat-mine-empty">no application id known yet: build or install once</p>
 	{/if}
 
-	<p class="status" id="logcat-status">
-		{deviceView.serial === '' ? idleText : `Stream: ${statusText(snap.status)}`}
-	</p>
-
 	<div class="frame">
 		<div
 			class="viewport"
@@ -236,6 +247,8 @@
 	</div>
 
 	<footer>
+		<span class="status" id="logcat-status">{deviceView.serial === '' ? idleText : `Stream: ${statusText(snap.status)}`}</span>
+		·
 		Held <span id="logcat-held">{snap.held}</span> of {snap.capacity} · dropped:
 		daemon <span id="logcat-dropped-daemon">{snap.drops.daemon}</span>, hidden tab
 		<span id="logcat-dropped-queue">{snap.drops.queue}</span>, over the cap
@@ -244,7 +257,14 @@
 </section>
 
 <style>
+	section {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
 	.bar {
+		flex: none;
 		display: flex;
 		gap: var(--sp-2);
 		align-items: center;
@@ -266,6 +286,7 @@
 	}
 	.error,
 	.hint {
+		flex: none;
 		margin: var(--sp-2) 0 0;
 		font-size: var(--fs-small);
 	}
@@ -275,15 +296,20 @@
 	.hint {
 		color: var(--text-2);
 	}
-	.status {
-		margin: 0.5rem 0;
-	}
 	.frame {
 		position: relative;
+		flex: 1;
+		/* Three rows and the viewport's border. */
+		min-height: 56px;
+		display: flex;
+		flex-direction: column;
+		margin-top: var(--sp-2);
 	}
 	.viewport {
-		height: 60vh;
+		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		background: var(--bg-window);
@@ -323,6 +349,7 @@
 		bottom: 0.75rem;
 	}
 	footer {
-		margin-top: 0.5rem;
+		flex: none;
+		margin: var(--sp-2) 0 0;
 	}
 </style>
