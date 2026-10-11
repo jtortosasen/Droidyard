@@ -118,7 +118,7 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 - Needs: none (may run beside step 2).
 - Not here: editing, highlighting (steps 4, 6); no CSP or Go change.
 - Rests on: constructed style sheets in a shadow root apply under `default-src 'self'` in Chrome (level 4). If not: stop, D2's design question.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `@codemirror/state` 6.7.6, `view` 6.43.14, `language` 6.13.1; the seam `editor/surface.ts` (`EditorHandle`, `LazyEditor`, the one `import('./cm/view')`); `boundary.test.ts` seen failing with a static `import { mount } from './cm/view'` in `Viewer.svelte`. Level 4 (K1, K4, `l4-s3-011630`, built from the step's tree, headless Chrome 1280×900, a fresh profile): the CM chunk not requested at page load, requested on opening `MainActivity.kt`; no `<style>` in `head`, one adopted sheet in the shadow root; `.cm-gutters`' background = the resolved `--bg-panel`, rgb(37,37,40) dark, rgb(255,255,255) light; `window.__csp` empty; the only console error the favicon 404; network paths `/`, `/assets/index-*.js`, `/assets/index-*.css`, `/assets/view-*.js`, `/favicon.ico`, `/v1/ws`. The editor's document, read through CM's view (`.cm-content` renders only the viewport), has the file's SHA-256 for `MainActivity.kt` and a 2.1 MB `big.txt`; Ctrl+End shows its last line. Reversal: an `EditorView` built on the document in the same page → `style-src-elem inline` in `window.__csp`, a CSP console error, `.cm-editor` unstyled (position static). `ui_test.go` and `httpapi.go` untouched. Bundle (raw / gzip) against `c7e5a4d`: entry 318.31 / 103.11 → 319.67 / 103.72 kB; CM chunk 259.28 / 84.20 kB (new); CSS 40.82 / 7.36 → 40.21 / 7.24 kB.
 
 ### 4. Highlighting (O3)
 
@@ -262,7 +262,7 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 | Step 2 | | [test] the FIFO test does not exercise `O_NONBLOCK` (mutation passes) | stated in the Evidence |
 | Step 2 | | [contract] `absent` against an existing file over 8 MiB answered `FILE_TOO_LARGE` | a conflict (§Changes) |
 | Step 2 | | Nits: "under the lock" in the early cause; the `absent` message; the error comment; `files.md` cuts | fixed; cuts kept (in the code) |
-| Step 3 | proceed | [bug] a re-read replaced the whole text, so the view jumps to the top (CM maps the anchor to 0) | step 4: `setDocument` replaces only the differing middle |
+| Step 3 | proceed | [bug] a re-read replaced the whole text, so the view jumps to the top (CM maps the anchor to 0) | fixed: `setDocument` replaces only the differing span (`cm/change.ts`, Vitest); the kept scroll seen at step 4's level 4 |
 | Step 3 | | Nits: the theme's CSP reason; "Unverified here"; the Evidence's SHA-256 check instead of `.cm-content`; two weak `surface` tests; `editorError` never cleared | fixed with step 3's commit |
 
 ## Changes
