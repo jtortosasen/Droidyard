@@ -370,7 +370,7 @@ count_orphans() {
 	done <"$E/$1.procs" >"$E/$1.survivors"
 	# K6: the Gradle and Kotlin daemons, the adb server and emulators are excluded, by what
 	# they are, never by widening a pattern: the sidecar's command matches none of these.
-	grep -E "org\.gradle\.launcher\.daemon\.bootstrap\.GradleDaemon|org\.jetbrains\.kotlin\.daemon\.KotlinCompileDaemon|${TAB}([^ ]*/)?(adb|emulator|qemu-system[^ ]*) " "$E/$1.survivors" >"$E/$1.excluded"
+	grep -E "org\.gradle\.launcher\.daemon\.bootstrap\.GradleDaemon|org\.jetbrains\.kotlin\.daemon\.KotlinCompileDaemon|${TAB}([^ ]*/)?adb .*fork-server server|${TAB}([^ ]*/)?(emulator|qemu-system[^ ]*) " "$E/$1.survivors" >"$E/$1.excluded"
 	grep -vxFf "$E/$1.excluded" "$E/$1.survivors" >"$E/$1.orphans"
 	wc -l <"$E/$1.orphans" | tr -d ' '
 }
@@ -490,6 +490,10 @@ footprint_mode() {
 		case ${ANDROID_ADB_SERVER_PORT:-} in "" | 5037) die "K5: ANDROID_ADB_SERVER_PORT must name the run's own adb server, not '${ANDROID_ADB_SERVER_PORT:-}'" ;; esac
 		[ -n "${ANDROID_AVD_HOME:-}" ] || die "K5: ANDROID_AVD_HOME must name the scratch AVD directory"
 		[ -x "${ADB:-}" ] || die "K5: ADB must name the guard script"
+		# K5: the guard protects nothing this run did not start only if nothing else runs:
+		# an emulator already up, or a server already on the run's port, stops the run.
+		! pgrep -f qemu-system >/dev/null || die "K5: an emulator is already running; stop it, or protect its serial in the guard, first"
+		[ -z "$(lsof -nP -iTCP:"$ANDROID_ADB_SERVER_PORT" -sTCP:LISTEN -t 2>/dev/null)" ] || die "K5: port $ANDROID_ADB_SERVER_PORT is in use: the run's adb server must be its own"
 		ADB_PORT_RUN=$ANDROID_ADB_SERVER_PORT
 	fi
 	prepare "$OLD_KGP" "$1"

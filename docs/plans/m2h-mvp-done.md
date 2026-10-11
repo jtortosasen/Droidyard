@@ -1,6 +1,6 @@
 # Plan: Milestone 2h — the MVP's three open Definition of done items
 
-- Status: Approved
+- Status: Done
 - Date: 2026-10-11
 - Approved: 2026-10-11, by the main session under the owner's standing instruction to apply the recommended option (Delegated); the owner approved the milestone and the download consent in writing the same day.
 - Milestone: "close the three unticked items of `docs/roadmap/mvp.md` §Definition of done so the MVP is closed. Nothing new beyond what those three need." (owner, 2026-10-11, approving the milestone; `docs/README.md` §Where the work stands does not name it yet, the close adds the line)
@@ -117,7 +117,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 4. Real daemon, Gradle, emulator (level 5).
 - Not here: a sidecar that does not exit is a defect handled as step 3's are (a step inserted, recorded under Changes); an RSS over budget is recorded for the owner and the box stays unticked.
 - Rests on: the sidecar stops on the supervisor's idle timer, not by a crash (level 5: the 10:00–11:00 window, no unexpected-exit line for its pid in `daemon.log`, then a build on a new sidecar pid).
-- [x] Done. Evidence: 2026-10-11, `$B/footprint-210610` at `cdbd44c` plus §Changes' `gcall` fix, `ANDROID_AVD_HOME` m2a's, `ADB` the m2h guard (`protected` empty: no emulator online at the start), `ANDROID_ADB_SERVER_PORT=5199`. Exit 0: `check-footprint: ok (core 25456 KiB; sidecar 48849 gone 604 s after its last build; restart on pid 64011)`. The golden path: three builds, `emulator.start` → `emulator-5554`, `adopted: false`, 14.7 s; install, launch, logs, screenshot, uiTree, inputText, tapElement `expect` `matched: true` (802 ms). `footprint.txt` (KiB; ours: the core and the sidecar):
+- [x] Done. Evidence: 2026-10-11, `$B/footprint-210610` at `565e3b6` with §Changes' `save_log` and `gcall` fixes uncommitted (`evidence/env`: `565e3b6-dirty`; the tree then equal to `cdbd44c` but for a comment), `ANDROID_AVD_HOME` m2a's, `ADB` the m2h guard (`protected` empty: no emulator online at the start), `ANDROID_ADB_SERVER_PORT=5199`. Exit 0: `check-footprint: ok (core 25456 KiB; sidecar 48849 gone 604 s after its last build; restart on pid 64011)`. The golden path: three builds, `emulator.start` → `emulator-5554`, `adopted: false`, 14.7 s; install, launch, logs, screenshot, uiTree, inputText, tapElement `expect` `matched: true` (802 ms). `footprint.txt` (KiB; ours: the core and the sidecar):
 
   | role | pid | ours | 30 s after | end | max | exited |
   | --- | --- | --- | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: steps 3, 5, 7.
 - Not here: no record edited (Done plans, research, reviews, accepted ADRs); the milestones after 2g that `mvp.md` lists under Phase 2 untouched.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11. `go build`, `go vet`, `gofmt -l .` clean and `go test ./...` ok at `0fb20b2`. The Opus close verifier: pass, no blocking finding; it reran `check-errors` on both cells (ok, and failing with the versions crossed) and `check-footprint` (ok, `footprint.txt` byte-identical), failed it with each forced-kill and unexpected-exit line injected for the old pid (closing step 4's labelled gap), and checked the table, the 244 s claim and A6. Its script findings fixed in the close: the orphan exclusion matched every `adb` (now the server's `fork-server server` only), and a footprint run with an AVD now refuses to start while an emulator runs or the run's adb port is taken; a reused Gradle daemon left out of the table and a failed `emulator.start` leaving the scratch emulator up are a register row. The merge commit is the evidence of the merge.
 
 ## Audit ledger
 
@@ -240,6 +240,7 @@ None. The steps rest on documented decisions (D1–D8 apply them); a step that w
 | 1 | revise | Nits: which D1 string matters; the guard is m2b's; the `nodump` label; ledger kind R | All taken (D1, K5, D4, ledger header) |
 | Steps 6–7 | revise | B1 [doc] blocking: ADR-0056 §3 said a newer `processes.json` starts no child; `Spawn` (adb's one-shot commands) still runs | Fixed: §3 names the refused starts and the short commands that run; `Supervisor.Load`'s comment too |
 | Steps 6–7 | revise | B2 [doc] blocking: ADR-0057's 50-note bound is per project | Fixed: "per project" |
+| Close | pass | Non-blocking: [test] the orphan exclusion matched every `adb`; [safety] the guard's protected list never set, the run's adb port never checked free; [test] a reused Gradle or Kotlin daemon dropped from the table; [safety] a failed `emulator.start` leaves the scratch emulator up; nits on the register's closed row, the DoD 6 wording and step 5's commit | The first two fixed in the script (an emulator running or the port taken refuses the run); the next two a register row; the nits taken where they cost no words (step 5's commit, the register row) |
 | Steps 6–7 | revise | Nits [doc] ADR-0055 cited a gone section; [plan] m1d C3 named no record, m1h D12's N reason missed its point, the totals did not say a linked pair counts once | All taken |
 
 ## Changes
