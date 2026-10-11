@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { BuildModel, BuildView } from './build';
+	import Hammer from '@lucide/svelte/icons/hammer';
 	import { failureShort, failureText } from './failure';
 
 	// The build panel (plan m2b step 3): module and variant from the daemon, Build, the
@@ -8,7 +9,7 @@
 	// Every field is a text node.
 	interface Props {
 		model: BuildModel;
-		/** One row for the toolbar (the status is BuildStatus's): errors as `Failed: CODE` with the text in a tooltip, in full in the Problems tab. */
+		/** The toolbar's hammer (the status is BuildStatus's, module and variant TargetMenu's): errors as `Failed: CODE` with the text in a tooltip, in full in the Problems tab. */
 		compact?: boolean;
 	}
 	let { model, compact = false }: Props = $props();
@@ -26,6 +27,14 @@
 
 	const building = $derived(view?.mirror.building ?? null);
 	const progress = $derived(building?.progress);
+	// Why Build does nothing, or null (the hammer's tooltip).
+	const buildReason = $derived.by(() => {
+		if (!view) return 'Loading';
+		if (building !== null) return 'A build is running';
+		if (view.starting) return 'The build is starting';
+		if (view.module === '' || view.variant === '') return 'No module and variant chosen';
+		return null;
+	});
 
 	function progressText(): string {
 		if (!progress) return '';
@@ -37,25 +46,18 @@
 {#if compact}
 	<section class="compact">
 		{#if view?.open}
-			<select aria-label="Module" title="Module" value={view.module} onchange={(e) => void model.selectModule(e.currentTarget.value)}>
-				{#each view.modules as m (m)}
-					<option value={m}>{m}</option>
-				{/each}
-			</select>
-			<select aria-label="Variant" title="Variant" value={view.variant} onchange={(e) => model.selectVariant(e.currentTarget.value)}>
-				{#each view.variants as v (v)}
-					<option value={v}>{v}</option>
-				{/each}
-			</select>
 			<button
 				type="button"
-				disabled={building !== null || view.starting || view.module === '' || view.variant === ''}
+				class="hammer"
+				title={buildReason ?? 'Build the chosen module and variant'}
+				aria-label="Build"
+				disabled={buildReason !== null}
 				onclick={() => void model.build()}
 			>
-				Build
+				<Hammer size={14} />
 			</button>
 			{#if building}
-				<!-- The toolbar's centre shows the build and Cancel (toolbar/BuildStatus.svelte). -->
+				<!-- The toolbar's build status shows the build and Cancel (toolbar/BuildStatus.svelte). -->
 			{:else if view.startError}
 				<span class="bad" title={failureText(view.startError)}>{failureShort(view.startError)}</span>
 			{:else if view.loadError}
@@ -127,6 +129,12 @@
 		align-items: center;
 		gap: var(--sp-3);
 		white-space: nowrap;
+	}
+	.hammer {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		padding: 0;
 	}
 	.bad {
 		color: var(--danger);

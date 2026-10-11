@@ -10,6 +10,10 @@
 	import BuildResult from '../build/BuildResult.svelte';
 	import { TasksModel } from '../build/tasks';
 	import TaskSelect from '../toolbar/TaskSelect.svelte';
+	import DeviceMenu from '../toolbar/DeviceMenu.svelte';
+	import TargetMenu from '../toolbar/TargetMenu.svelte';
+	import RunButton from '../toolbar/RunButton.svelte';
+	import { RunModel } from '../toolbar/run';
 	import BuildStatus from '../toolbar/BuildStatus.svelte';
 	import type { SessionsModel } from '../projects/sessions';
 	import type { ProjectsModel } from '../projects/projects';
@@ -88,6 +92,7 @@
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
+	let run = $state.raw<RunModel | null>(null);
 	let palette = $state.raw<PaletteModel | null>(null);
 	let treeView = $state<{ focus(): void } | undefined>();
 	// Logcat follows the devices model's selection unless a device is picked there (D40);
@@ -127,6 +132,7 @@
 			},
 			deviceList,
 		);
+		const runner = new RunModel(callOn, deviceList, builds, ws, installer);
 		// ADR-0046: the project file preselects once it is read and is written from the
 		// user's choices; nothing is written on load.
 		const file = new ProjectFileModel(callOn, ws);
@@ -163,6 +169,7 @@
 		devices = deviceList;
 		emulators = emulatorList;
 		install = installer;
+		run = runner;
 		uiTree = tree;
 		act = actions;
 		appLogs = logs;
@@ -205,6 +212,7 @@
 			logs.dispose();
 			actions.dispose();
 			tree.dispose();
+			runner.dispose();
 			installer.dispose();
 			emulatorList.dispose();
 			deviceList.dispose();
@@ -222,6 +230,7 @@
 			devices = null;
 			emulators = null;
 			install = null;
+			run = null;
 			uiTree = null;
 			act = null;
 			appLogs = null;
@@ -257,6 +266,18 @@
 	{:else if id === 'build'}
 		{#if build}
 			<Build model={build} compact />
+		{/if}
+	{:else if id === 'devicemenu'}
+		{#if devices && emulators}
+			<DeviceMenu {devices} {emulators} />
+		{/if}
+	{:else if id === 'target'}
+		{#if build}
+			<TargetMenu model={build} />
+		{/if}
+	{:else if id === 'run'}
+		{#if run}
+			<RunButton model={run} />
 		{/if}
 	{:else if id === 'files'}
 		{#if fileTree && fileWatch}
@@ -335,13 +356,14 @@
 {/snippet}
 
 {#snippet overlay(shell: ShellApi)}
-	{#if palette && workspace && build && tasks && emulators && fileTree && editorTabs}
+	{#if palette && workspace && build && tasks && emulators && fileTree && editorTabs && run}
 		{@const ws = workspace}
 		{@const builds = build}
 		{@const taskList = tasks}
 		{@const emus = emulators}
 		{@const files = fileTree}
 		{@const tabs = editorTabs}
+		{@const runner = run}
 		<Palette
 			model={palette}
 			commands={() =>
@@ -353,6 +375,8 @@
 					projects,
 					currentProject: workspaceId,
 					tree: files,
+					run: runner,
+					openSessions: shell.openSessions,
 					density: { get: shell.density, set: shell.setDensity },
 					focusTree: () => {
 						shell.showFiles();

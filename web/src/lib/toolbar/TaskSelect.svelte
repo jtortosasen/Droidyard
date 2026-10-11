@@ -1,8 +1,9 @@
 <script lang="ts">
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import Play from '@lucide/svelte/icons/play';
 	import { failureText } from '../build/failure';
 	import { MAX_TASKS, type TasksModel, type TasksView } from '../build/tasks';
+	import { placeBelow } from './popover';
 	import { selectionLabel, selectorState } from './selector';
 
 	// The toolbar's task selector (plan m2d step 8): a searchable list over `build.tasks`
@@ -34,9 +35,7 @@
 
 	function toggle() {
 		if (!pop || !anchor) return;
-		const r = anchor.getBoundingClientRect();
-		top = r.bottom + 4;
-		left = Math.min(r.left, Math.max(8, window.innerWidth - 360));
+		({ top, left } = placeBelow(anchor, 340));
 		pop.togglePopover();
 	}
 </script>
@@ -47,24 +46,14 @@
 		type="button"
 		class="trigger"
 		disabled={st.disabled}
-		title={st.reason ?? 'Choose Gradle tasks'}
-		aria-haspopup="listbox"
+		title={st.reason ?? `Tasks: ${selectionLabel(view?.selected ?? [])}`}
+		aria-label="Tasks"
+		aria-haspopup="dialog"
 		onclick={toggle}
 	>
-		<span class="label">{selectionLabel(view?.selected ?? [])}</span>
-		<ChevronDown size={12} />
+		<ListChecks size={14} />
+		{#if view && view.selected.length > 0}<span class="count">{view.selected.length}</span>{/if}
 	</button>
-	<button
-		type="button"
-		class="run"
-		disabled={st.runDisabled}
-		title={st.runReason ?? 'Run the chosen tasks'}
-		aria-label="Run the chosen tasks"
-		onclick={() => void model.run()}
-	>
-		<Play size={12} />
-	</button>
-	{#if st.reason}<span class="reason">{st.reason}</span>{/if}
 	{#if view?.runError}
 		<span class="bad" title={failureText(view.runError)}>{view.runError.code ?? 'Run refused'}</span>
 	{/if}
@@ -80,6 +69,16 @@
 			/>
 			<div class="bar">
 				<span>{view.selected.length} of {MAX_TASKS} chosen</span>
+				<button
+					type="button"
+					class="run"
+					disabled={st.runDisabled}
+					title={st.runReason ?? 'Run the chosen tasks'}
+					aria-label="Run the chosen tasks"
+					onclick={() => void model.run()}
+				>
+					<Play size={12} /> Run
+				</button>
 				<button type="button" disabled={view.loading} onclick={() => void model.load()}>Refresh</button>
 				<button type="button" disabled={view.selected.length === 0} onclick={() => model.clearSelection()}>Clear</button>
 			</div>
@@ -116,22 +115,21 @@
 	.trigger {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--sp-3);
-		max-width: 160px;
+		gap: var(--sp-2);
 	}
-	.label {
-		overflow: hidden;
-		text-overflow: ellipsis;
+	.count {
+		font-size: var(--fs-small);
+		color: var(--accent);
 	}
 	.run {
-		display: grid;
-		place-items: center;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
 		color: var(--success);
 	}
 	.run:disabled {
 		color: var(--text-3);
 	}
-	.reason,
 	.note {
 		margin: 0;
 		color: var(--text-3);

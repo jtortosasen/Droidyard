@@ -191,6 +191,15 @@ describe('the first change writes the file', () => {
 		expect(t.written().at(-1)?.device).toEqual({ avd: 'a3' });
 	});
 
+	// Decision (D36, ADR-0046 §1): an AVD picked in the toolbar that is not running is
+	// stored as the file's {avd} when picked, before any run starts it.
+	it('stores a pending AVD pick as the file\'s avd', async () => {
+		const t = await setup({ devices: [dev('R58M', { kind: 'physical' })], avds: [{ name: 'a3' }] });
+		t.devices.selectAvd('a3');
+		await settle();
+		expect(t.written().at(-1)?.device).toEqual({ avd: 'a3' });
+	});
+
 	// Decision (ADR-0046 §2): the choice is not a default's echo: re-choosing what the file
 	// already says writes nothing.
 	it('does not write when the choice is what the file already holds', async () => {

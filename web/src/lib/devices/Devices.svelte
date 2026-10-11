@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { DevicesModel, DevicesView, DeviceInfo } from './devices';
+	import type { DevicesModel, DevicesView } from './devices';
+	import { deviceLine } from '../toolbar/devicemenu';
 	import type { EmulatorsModel, EmulatorsView } from './emulators';
 	import type { InstallModel, InstallView } from './install';
 	import { failureText } from '../build/failure';
@@ -9,11 +10,11 @@
 	import Smartphone from '@lucide/svelte/icons/smartphone';
 	import Square from '@lucide/svelte/icons/square';
 
-	// The devices panel (plan m2b step 5): the devices and the selected one (shared with
-	// Logcat), the AVDs with Start and Stop, install and launch. Booting, stopping and
-	// installing are the mirror's, so any client's operation shows with its client kind and
-	// a Cancel (D11). Every field is a text node. Compact, at the top of the inspector (plan
-	// m2d step 10): the selector and Refresh on one line, one row per AVD with Start or Stop.
+	// The devices panel (plan m2b step 5): the toolbar's device as text (the choice is the
+	// toolbar's, m2e D36), the AVDs with Start and Stop, install and launch. Booting,
+	// stopping and installing are the mirror's, so any client's operation shows with its
+	// client kind and a Cancel (D11). Every field is a text node. Compact, at the top of
+	// the inspector (plan m2d step 10): the device and Refresh on one line, one row per AVD.
 	interface Props {
 		devices: DevicesModel;
 		emulators: EmulatorsModel;
@@ -51,11 +52,6 @@
 		return i.subscribe(read);
 	});
 
-	function deviceLabel(d: DeviceInfo): string {
-		const name = d.avdName ?? d.model ?? d.product ?? d.kind;
-		return `${d.device} (${name}, ${d.state})`;
-	}
-
 	function opText(verb: string, op: ActiveOp): string {
 		return `${verb} (${op.client ?? 'unknown client'}): ${op.capability}, ${op.state}.`;
 	}
@@ -71,12 +67,7 @@
 	{#if dv && ev && iv}
 		<div class="line">
 			<Smartphone size={14} />
-			<select class="grow" aria-label="Device" value={dv.selected} onchange={(e) => devices.select(e.currentTarget.value)}>
-				<option value="">none</option>
-				{#each dv.devices as d (d.device)}
-					<option value={d.device} disabled={!d.online}>{deviceLabel(d)}</option>
-				{/each}
-			</select>
+			<span class="grow device" title="The toolbar's device">{deviceLine(dv)}</span>
 			<button type="button" class="btn-icon" title="Refresh the device and emulator lists" aria-label="Refresh" disabled={!connected} onclick={refresh}>
 				<RefreshCw size={14} />
 			</button>
@@ -236,6 +227,9 @@
 	.grow {
 		flex: 1;
 		min-width: 0;
+	}
+	.device {
+		overflow-wrap: anywhere;
 	}
 	.head {
 		display: flex;

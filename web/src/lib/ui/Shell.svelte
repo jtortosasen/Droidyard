@@ -33,7 +33,7 @@
 		content: Snippet<[string, ShellApi]>;
 		/** The status bar's content, the shell's last row (D35). */
 		statusbar: Snippet;
-		/** The toolbar's centre (the build status). */
+		/** The toolbar's right-aligned group opens with it (the build status). */
 		centre?: Snippet;
 		/** Full-width strips under the toolbar (the trust banner). */
 		banners?: Snippet;
@@ -141,11 +141,14 @@
 <div class="shell" data-density={layout.density}>
 	<header class="toolbar">
 		{@render sessionsToggle({ open: layout.sessions.open, toggle: toggleSessions })}
-		{#each panelsIn('toolbar') as p (p.id)}
+		{#each panelsIn('toolbar').filter((p) => !p.end) as p (p.id)}
 			<div class="tool">{@render content(p.id, api)}</div>
 		{/each}
 		<span class="spacer"></span>
 		{#if centre}{@render centre()}{/if}
+		{#each panelsIn('toolbar').filter((p) => p.end) as p (p.id)}
+			<div class="tool">{@render content(p.id, api)}</div>
+		{/each}
 	</header>
 	{#if banners}{@render banners()}{/if}
 
@@ -275,8 +278,8 @@
 		flex: none;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-5);
-		padding: var(--sp-2) var(--sp-5);
+		gap: var(--sp-3);
+		padding: var(--sp-2) var(--sp-4);
 		height: 38px;
 		flex-wrap: nowrap;
 		overflow: hidden;
@@ -294,7 +297,7 @@
 	.tool :global(div) {
 		display: flex;
 		align-items: center;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		gap: var(--sp-3);
 	}
 	.tool :global(h2),
