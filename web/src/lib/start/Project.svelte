@@ -176,7 +176,8 @@
 		act = actions;
 		appLogs = logs;
 		fileTree = files;
-		fileOps = new FileOps(callOn, ws);
+		const opsModel = new FileOps(callOn, ws, { moved: (from, to) => tabs.moved(from, to) });
+		fileOps = opsModel;
 		fileWatch = watcher;
 		editorTabs = tabs;
 		viewers = readers;
@@ -208,6 +209,7 @@
 			offIndex();
 			readers.dispose();
 			tabs.dispose();
+			opsModel.reset();
 			watcher.dispose();
 			files.dispose();
 			unbind();
@@ -291,7 +293,7 @@
 				watch={fileWatch}
 				ops={fileOps}
 				onopen={(path) => editorTabs?.open(path)}
-				onmoved={(from, to) => editorTabs?.moved(from, to)}
+				{workspaceId}
 			/>
 		{/if}
 	{:else if id === 'editor'}
