@@ -15,6 +15,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import { copyToClipboard } from '../devices/copy';
 	import { rowWindow } from '../logcat/virtual';
+	import { nameOf, parentOf, type FileOps, refuseName } from './ops';
 	import type { FileWatch } from './watch';
 	import type { FileTreeModel, IconKind, Row, TreeView } from './tree';
 
@@ -27,8 +28,12 @@
 		watch: FileWatch;
 		/** A file was chosen (a click, Enter). */
 		onopen: (path: string) => void;
+		/** The file operations (plan m2g step 3). */
+		ops: FileOps;
+		/** An entry was renamed: the open tabs follow it (D57). */
+		onmoved: (from: string, to: string) => void;
 	}
-	let { model, watch, onopen }: Props = $props();
+	let { model, watch, onopen, ops, onmoved }: Props = $props();
 
 	const OVERSCAN = 8;
 	const ICONS: Record<IconKind, Component<{ size?: number }>> = {
@@ -49,6 +54,9 @@
 	let rowHeight = $state(22);
 	let menu = $state<{ x: number; y: number; path: string } | null>(null);
 	let copied = $state('');
+	// The inline name field (D58): a new file or folder under `parent`, or the rename of `path`.
+	let edit = $state<{ mode: 'file' | 'dir' | 'rename'; parent: string; path: string; value: string; error: string } | null>(null);
+	let busy = false;
 	let revealSeen = 0;
 
 	const win = $derived(
@@ -111,6 +119,12 @@
 			}
 			return;
 		}
+		if (e.key === 'F2') {
+			e.preventDefault();
+			const row = view.rows[selectedIndex];
+			if (row) beginRename(row.path);
+			return;
+		}
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
 		const r = model.key(e.key);
 		if (!r.handled) return;
@@ -136,6 +150,101 @@
 		if (r.ok) closeMenu();
 	}
 
+	async function beginCreate(mode: 'file' | 'dir', at: string) {
+		const row = view.rows.find((r) => r.path === at);
+		const parent = row === undefined || row.dir ? at : parentOf(at);
+		closeMenu();
+		if (parent !== '') {
+			await model.reveal(parent);
+			await model.expand(parent);
+		}
+		edit = { mode, parent, path: '', value: '', error: '' };
+	}
+
+	function beginRename(path: string) {
+		closeMenu();
+		model.select(path);
+		edit = { mode: 'rename', parent: parentOf(path), path, value: nameOf(path), error: '' };
+	}
+
+	function cancelEdit() {
+		edit = null;
+		scroller?.focus();
+	}
+
+	async function commit(fromBlur: boolean) {
+		const cur = edit;
+		if (cur === null || busy) return;
+		if (fromBlur && (cur.value === '' || (cur.mode === 'rename' && cur.value === nameOf(cur.path)))) {
+			edit = null;
+			return;
+		}
+		const why = refuseName(cur.value);
+		if (why !== null) {
+			cur.error = why;
+			return;
+		}
+		busy = true;
+		try {
+			if (cur.mode === 'rename') {
+				const r = await ops.rename(cur.path, cur.value);
+				if (edit !== cur) return;
+				if (!r.ok) {
+					cur.error = r.message;
+					return;
+				}
+				edit = null;
+				if (r.path !== cur.path) {
+					onmoved(cur.path, r.path);
+					model.follow(r.path);
+				}
+				scroller?.focus();
+			} else {
+				const r = await ops.create(cur.parent, cur.value, cur.mode);
+				if (edit !== cur) return;
+				if (!r.ok) {
+					cur.error = r.message;
+					return;
+				}
+				edit = null;
+				model.follow(r.path, cur.mode === 'dir');
+				if (cur.mode === 'file') onopen(r.path);
+				scroller?.focus();
+			}
+		} finally {
+			busy = false;
+		}
+	}
+
+	function nameKeydown(e: KeyboardEvent) {
+		// The field's keys are its own; the tree's type-ahead and shortcuts never see them.
+		e.stopPropagation();
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			void commit(false);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			cancelEdit();
+		}
+	}
+
+	/** Focuses the name field and selects the part of the name before its extension. */
+	function focusName(el: HTMLInputElement) {
+		el.focus();
+		const dot = el.value.lastIndexOf('.');
+		el.setSelectionRange(0, dot > 0 ? dot : el.value.length);
+	}
+
+	/** The row a new entry's field follows: the folder's own row, or the chain row holding it. */
+	const anchorPath = $derived.by(() => {
+		if (edit === null || edit.mode === 'rename' || edit.parent === '') return null;
+		const p = edit.parent;
+		return view.rows.find((r) => r.dir && (r.path === p || r.path.startsWith(`${p}/`)))?.path ?? null;
+	});
+	const anchorDepth = $derived(
+		edit === null || edit.parent === '' ? 0 : (view.rows.find((r) => r.path === anchorPath)?.depth ?? 0),
+	);
+
 	/** Moves the keyboard focus to the tree (the palette's "Focus the file tree"). */
 	export function focus() {
 		scroller?.focus();
@@ -153,6 +262,30 @@
 		return '';
 	}
 </script>
+
+{#snippet nameField(depth: number)}
+	{#if edit}
+		<div class="row editing" style:--depth={depth}>
+			<span class="guides" aria-hidden="true"></span>
+			<span class="chevron" aria-hidden="true"></span>
+			<span class="icon" aria-hidden="true">
+				{#if edit.mode === 'dir'}<Folder size={16} />{:else}<File size={16} />{/if}
+			</span>
+			<input
+				class="name"
+				type="text"
+				aria-label={edit.mode === 'dir' ? 'New folder name' : 'New file name'}
+				aria-invalid={edit.error !== ''}
+				bind:value={edit.value}
+				{@attach focusName}
+				onkeydown={nameKeydown}
+				onclick={(e) => e.stopPropagation()}
+				onblur={() => void commit(true)}
+			/>
+		</div>
+		{#if edit.error !== ''}<p class="name-error" role="alert" style:--depth={depth}>{edit.error}</p>{/if}
+	{/if}
+{/snippet}
 
 <svelte:document onvisibilitychange={() => watch.setHidden(document.hidden)} />
 <svelte:window onpointerdown={(e) => { if (menu && !(e.target as Element).closest('.menu')) menu = null; }} />
@@ -209,6 +342,9 @@
 	>
 		<div class="spacer" style:height="{win.totalHeight}px">
 			<div class="rows" style:transform="translateY({win.offset}px)">
+				{#if edit && edit.mode !== 'rename' && edit.parent === '' && win.start === 0}
+					{@render nameField(1)}
+				{/if}
 				{#each shown as row, i (row.path)}
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<div
@@ -233,8 +369,28 @@
 							{@const Icon = ICONS[row.icon]}
 							<span class="icon {row.icon}" aria-hidden="true"><Icon size={16} /></span>
 						{/if}
-						<span class="label">{row.label}</span>
+						{#if edit && edit.mode === 'rename' && edit.path === row.path}
+							<input
+								class="name"
+								type="text"
+								aria-label="New name"
+								aria-invalid={edit.error !== ''}
+								bind:value={edit.value}
+								{@attach focusName}
+								onkeydown={nameKeydown}
+								onclick={(e) => e.stopPropagation()}
+								onblur={() => void commit(true)}
+							/>
+						{:else}
+							<span class="label">{row.label}</span>
+						{/if}
 					</div>
+					{#if edit && edit.mode === 'rename' && edit.path === row.path && edit.error !== ''}
+						<p class="name-error" role="alert" style:--depth={row.depth}>{edit.error}</p>
+					{/if}
+					{#if edit && edit.mode !== 'rename' && anchorPath === row.path}
+						{@render nameField(anchorDepth + 1)}
+					{/if}
 				{/each}
 			</div>
 		</div>
@@ -250,6 +406,9 @@
 {#if menu}
 	{@const target = menu}
 	<div class="menu" role="menu" tabindex="-1" style:left="{target.x}px" style:top="{target.y}px" onkeydown={(e) => { if (e.key === 'Escape') closeMenu(); }}>
+		<button type="button" role="menuitem" onclick={() => void beginCreate('file', target.path)}>New file</button>
+		<button type="button" role="menuitem" onclick={() => void beginCreate('dir', target.path)}>New folder</button>
+		<button type="button" role="menuitem" onclick={() => beginRename(target.path)}>Rename</button>
 		<button type="button" role="menuitem" onclick={() => void copy(model.absolutePath(target.path))}>Copy path</button>
 		<button type="button" role="menuitem" onclick={() => void copy(model.relativePath(target.path))}>Copy relative path</button>
 		{#if copied !== ''}<p class="note error">Not copied: {copied}</p>{/if}
@@ -402,6 +561,27 @@
 	.label {
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.name {
+		flex: 1;
+		min-width: 0;
+		height: calc(var(--row) - 4px);
+		padding: 0 var(--sp-2);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-control);
+		background: var(--bg-window);
+		color: var(--text);
+		outline: none;
+	}
+	.name[aria-invalid='true'] {
+		border-color: var(--danger);
+	}
+	.name-error {
+		margin: 0 var(--sp-2);
+		padding: 0 var(--sp-3) 0 calc(var(--sp-3) + 28px + (var(--depth) - 1) * 12px);
+		font-size: var(--fs-small);
+		color: var(--danger);
+		white-space: normal;
 	}
 	.empty {
 		margin: var(--sp-4);
