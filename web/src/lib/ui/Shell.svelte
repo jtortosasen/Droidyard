@@ -525,6 +525,13 @@
 	.pane.current {
 		display: block;
 	}
+	/* The bottom panels keep their controls: the pane is a column and one list in the panel
+	   is the scroller; the pane itself scrolls only below the list's floor (plan m2f D46). */
+	.bottom .pane.current {
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+	}
 	/* A tab's name is already on the tab; the panel's own heading is for screen readers. */
 	.pane :global(h2) {
 		position: absolute;

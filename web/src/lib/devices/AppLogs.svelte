@@ -45,33 +45,46 @@
 				Reading...
 			{/if}
 		</p>
-		{#if view.error}
-			<p>device.logs failed: {failureText(view.error)}</p>
-		{/if}
-		{#each view.notes as note, i (i)}
-			<p>{note}</p>
-		{/each}
-		{#if view.crashes.length > 0}
-			<h3>Crashes</h3>
-			{#each view.crashes as crash, i (i)}
-				<pre>{crash.lines.join('\n')}</pre>
+		<div class="scroll">
+			{#if view.error}
+				<p>device.logs failed: {failureText(view.error)}</p>
+			{/if}
+			{#each view.notes as note, i (i)}
+				<p>{note}</p>
 			{/each}
-		{/if}
-		{#if view.lines.length > 0}
-			<h3>Lines</h3>
-			<pre class="lines">{view.lines.join('\n')}</pre>
-		{/if}
+			{#if view.crashes.length > 0}
+				<h3>Crashes</h3>
+				{#each view.crashes as crash, i (i)}
+					<pre>{crash.lines.join('\n')}</pre>
+				{/each}
+			{/if}
+			{#if view.lines.length > 0}
+				<h3>Lines</h3>
+				<pre class="lines">{view.lines.join('\n')}</pre>
+			{/if}
+		</div>
 	{/if}
 </section>
 
 <style>
+	section {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	section > p {
+		flex: none;
+	}
+	.scroll {
+		flex: 1;
+		min-height: 54px;
+		overflow: auto;
+		overscroll-behavior: contain;
+	}
 	pre {
 		font-size: 0.85rem;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
-	}
-	.lines {
-		max-height: 30rem;
-		overflow: auto;
 	}
 </style>
