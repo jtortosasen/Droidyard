@@ -56,7 +56,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - [x] A1. KGP 2.0.21 through the daemon: `build.errors` holds one error, `tool: kotlin`, `source: console`, `file: app/src/main/kotlin/dev/droidyard/golden/MainActivity.kt`, `line: 35`, `column: 9`, the message naming `droidyardAcceptanceMissing`, and no error record with `source: event`; the failed build's result says `kgp: 2.0.21`, `expectedSources.kotlin: console`. (A whole-build `extraction.sources` is not asserted: an AGP or Gradle warning event would add `event` for a reason unrelated to Kotlin; it is recorded.) Source: DoD 3; ADR-0022 §Decision 2. Proven by: step 3
 - [x] A2. KGP 2.4.20 through the daemon: the same file, line, column and named reference in one error, `source: event`, `problemId: UNRESOLVED_REFERENCE` (the console's `e:` line merged into it, not a second record); `kgp: 2.4.20`, `expectedSources.kotlin: problems`, `extraction.sources` holding `event` and `console`. Source: DoD 3; ADR-0022 §Decision 1, 3, §Consequences; F11. Proven by: step 3
 - [x] A3. Both cells built in scratch copies, every download recorded with its size (K3), and the restore building `success`. Source: AGENTS.md §Before touching the Gradle sidecar; owner's rules. Proven by: step 1, step 3
-- [ ] A4. A per-process footprint table (core, sidecar, Gradle daemon, Kotlin daemon, emulator processes, adb server; pid, ours or not, RSS 30 s after the last call or, for the Gradle and Kotlin daemons, after the last build, at the end or when it exited, the window's maximum); the core's final RSS under 48,828 KiB, with its 30 s and maximum figures stated against the budget; the sidecar gone between 10:00 and 11:00 after its last Gradle operation and its record gone from `processes.json`; no unexpected-exit or forced-kill line for the old pid in `daemon.log`; then a `build.assemble` succeeding on a new sidecar pid. Source: DoD 6; `mvp.md` §Other measures; `gradle.md` §Lifecycle; `process-lifecycle.md` §Idle shutdown. Proven by: step 5
+- [x] A4. A per-process footprint table (core, sidecar, Gradle daemon, Kotlin daemon, emulator processes, adb server; pid, ours or not, RSS 30 s after the last call or, for the Gradle and Kotlin daemons, after the last build, at the end or when it exited, the window's maximum); the core's final RSS under 48,828 KiB, with its 30 s and maximum figures stated against the budget; the sidecar gone between 10:00 and 11:00 after its last Gradle operation and its record gone from `processes.json`; no unexpected-exit or forced-kill line for the old pid in `daemon.log`; then a `build.assemble` succeeding on a new sidecar pid. Source: DoD 6; `mvp.md` §Other measures; `gradle.md` §Lifecycle; `process-lifecycle.md` §Idle shutdown. Proven by: step 5
 - [x] A5. §Audit ledger complete for the 23 Done plans under D6; every A unit names its record, every M unit its ADR written in step 7, every X unit its register row. Source: DoD 8. Proven by: step 6, step 7
 - [ ] A6. `mvp.md`'s three boxes ticked with evidence, DoD 8's naming D6's boundary and the register row for unrecorded divergences; register rows "`build.errors` on a KGP ≥ 2.4 fixture" and "Idle footprint per process" closed by 2h; the sidecar-memory row updated; the plans index row and the §Where the work stands line. Source: `milestone-workflow` §Close. Proven by: step 8
 
@@ -83,7 +83,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 1. No JVM, adb or emulator.
 - Not here: the `footprint` mode (step 4); no Go code; no MCP session (parity is Phase 0's, and m1l ran G3 over MCP).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11, `565e3b6`, implemented with step 4 in one run (§Changes): `sh -n` and `dash -n` clean; `check-errors` over hand-written sets: the A1 set passes for 2.0.21 and fails for 2.4.20, the A2 set the reverse, a console record duplicated beside the event one fails ("2 records at …MainActivity.kt:35:9"), a 2.0.21 set with an AGP warning event passes; the refusals (an unsupported kgp, an outdir inside the repository, a dirty `samples/golden` in a scratch clone, a copy with two occurrences of 2.0.21) each stop before anything is created. The level-5 runs of step 3 then passed.
 
 ### 3. Both fixtures through the daemon (level 5)
 
@@ -106,7 +106,7 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 2 (shares its launch and copy). No JVM, adb or emulator.
 - Not here: no UI tab or MCP session in the window (D4); no change to `gradle.IdleTimeout`.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11, `565e3b6`, with step 2: `check-footprint` over hand-written sets: a passing set passes; a core at 48,828 KiB fails and 48,827 passes; a sidecar gone at 9:50 fails, at 10:00 passes; one alive at 11:05 fails, one never seen gone fails; a restart on the same pid fails; `daemon.log` with `(pid 222) exited unexpectedly` for the old pid fails, for another pid passes. The forced-kill line's case ran only before a reordering fix, not after (labelled). The refusals with `ANDROID_ADB_SERVER_PORT` 5037 or unset, or no `ANDROID_AVD_HOME`, with an AVD named. Step 5's level-5 run then passed.
 
 ### 5. The idle footprint, golden path with an emulator (level 5)
 
@@ -117,7 +117,18 @@ Baseline on 2026-10-11 at `2296805` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 4. Real daemon, Gradle, emulator (level 5).
 - Not here: a sidecar that does not exit is a defect handled as step 3's are (a step inserted, recorded under Changes); an RSS over budget is recorded for the owner and the box stays unticked.
 - Rests on: the sidecar stops on the supervisor's idle timer, not by a crash (level 5: the 10:00–11:00 window, no unexpected-exit line for its pid in `daemon.log`, then a build on a new sidecar pid).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-11, `$B/footprint-210610` at `cdbd44c` plus §Changes' `gcall` fix, `ANDROID_AVD_HOME` m2a's, `ADB` the m2h guard (`protected` empty: no emulator online at the start), `ANDROID_ADB_SERVER_PORT=5199`. Exit 0: `check-footprint: ok (core 25456 KiB; sidecar 48849 gone 604 s after its last build; restart on pid 64011)`. The golden path: three builds, `emulator.start` → `emulator-5554`, `adopted: false`, 14.7 s; install, launch, logs, screenshot, uiTree, inputText, tapElement `expect` `matched: true` (802 ms). `footprint.txt` (KiB; ours: the core and the sidecar):
+
+  | role | pid | ours | 30 s after | end | max | exited |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | core | 48739 | yes | 55,504 | 25,456 | 70,576 | alive |
+  | sidecar | 48849 | yes | 33,712 | 24,400 (last alive) | 189,488 | 604 s after its last build |
+  | Gradle daemon | 48894 | no | 1,148,464 | 74,656 (last alive) | 1,148,464 | 90 s after the last build (the sample's 60 s idle timeout) |
+  | Kotlin daemon | 49031 | no | 706,112 | 35,440 (last alive) | 706,112 | 90 s after the last build |
+  | emulator | 50398 | no | 3,716,208 | 2,426,496 | 3,726,928 | stopped by `emulator.stop` |
+  | adb server (5199) | 50129 | no | 11,392 | 8,880 | 11,520 | killed at the end |
+
+  The core's final figure, 25,456 KiB (26.1 MB), is under 48,828 KiB; 30 s after the last call it was 55,504 KiB (56.8 MB) and its maximum 70,576 KiB (72.3 MB), both over the budget; it fell under it 244 s after the last call and to about 25 MB at 395 s, before the artifacts' 15-minute TTL (register row). The sidecar's record left `processes.json`; `daemon.log` holds no `exited unexpectedly` line; the restart build `success` on pid 64011. K2: 5037's pid 19285 and 15130 unchanged with their start times; K3 0 files downloaded; K4 the SDK stamp clean; K5 `refused.log` absent, no qemu left, no listener on 5199; K6 0 orphans. RSS is `ps -o rss=` on macOS (Unverified row).
 
 ### 6. The deviation audit: the ledger
 

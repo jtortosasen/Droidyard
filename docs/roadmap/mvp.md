@@ -185,7 +185,7 @@ Deliverables:
 - Panels: **Logcat**, streaming (2a); **build / Gradle tasks** with problems and
   **devices**, no stills (2b) ([m2a](../plans/m2a-minimal-web-ui.md)). Then (owner,
   2026-10-10): **2c**, fixes, the live build console and a project start without typed
-  paths; **2d**, a redesign and a read-only file tree; **2e**, a UX round (collapsible panels, the sessions column, a status bar, a run toolbar, a Logcat query bar); **2f**, a sessions overlay and fixed panel controls; **2g**, the tree's file operations. After 2g, a milestone each, each after a
+  paths; **2d**, a redesign and a read-only file tree; **2e**, a UX round; **2f**, a sessions overlay and fixed panel controls; **2g**, the tree's file operations. After 2g, a milestone each, each after a
   discussion (owner, 2026-10-10): **agent sessions** (a terminal the daemon hosts on a
   pseudo-terminal, the agents' chats in it, a worktree per session); a **live emulator
   view** (the stretch below); **Git** (the tree's Git view, a Diff tab, branches and
@@ -265,21 +265,22 @@ last and may slip.
 - [x] The golden path completes from an external agent with **zero stdout parsing by the
       agent** (m1l: OpenCode and Cursor, on the golden sample).
 - [x] The golden path completes from the browser (m2b step 7).
-- [ ] `build.errors` returns structured `{file, line, column, message}` for a real Kotlin
+- [x] `build.errors` returns structured `{file, line, column, message}` for a real Kotlin
       compile failure — on both fixtures, the KGP < 2.4 one going through the console
-      extractor.
+      extractor (m2h step 3).
 - [x] `device.tapElement` and `device.inputText` verify their effect in a single call
       (m1l, both clients, on Compose).
 - [x] `workspace.close` leaves no orphan processes of droidyard's (1c, on a supervised
       workspace-owned sidecar; the Gradle sidecar is global and ends with
       `droidyard stop`). **Not** the adb server, the Gradle daemon or emulators: those
       are not ours and are meant to survive.
-- [ ] Idle footprint reported **per process** (see Metrics), with the core under 50 MB
-      RSS and the Gradle sidecar stopped when idle.
+- [x] Idle footprint reported **per process** (see Metrics), with the core under 50 MB
+      RSS and the Gradle sidecar stopped when idle (m2h step 5: 26.1 MB at the end, 56.8 MB 30 s after the last call).
 - [x] A recorded comparison of agent steps, tokens and failures, our MCP vs raw shell,
       on the golden path: **supported** by the threshold below
       ([m1m](../plans/m1m-emulator-robustness.md); [m1o](../plans/m1o-tokens-and-harness.md), Cursor).
-- [ ] Every deviation from the design recorded as an ADR.
+- [x] Every deviation from the design recorded as an ADR: those the Done plans recorded
+      (m2h §Audit ledger); unrecorded ones are a register row.
 
 ## Metrics
 
