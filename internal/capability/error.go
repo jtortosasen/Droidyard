@@ -74,6 +74,9 @@ const (
 	// racing the call keeps its file (ADR-0053 §3). The file.* batches carry it as an
 	// item's code, file.create as the call's.
 	ErrFileExists ErrorCode = "FILE_EXISTS"
+	// ErrFileTooLarge: a copy's source has more entries or bytes than one item may carry
+	// (plan m2g D48), so nothing was written. An item's code in file.copy.
+	ErrFileTooLarge ErrorCode = "FILE_TOO_LARGE"
 
 	// ErrPolicyShellDisabled: shell.exec is not enabled for the root. Its message warns
 	// that enabling it gives the agent the user's full reach, and its nextStep names

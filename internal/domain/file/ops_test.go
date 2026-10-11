@@ -56,6 +56,9 @@ func tree(t *testing.T, dir string) map[string]string {
 		case d.Type()&fs.ModeSymlink != 0:
 			tgt, _ := os.Readlink(p)
 			out[rel] = "link:" + tgt
+		case !d.Type().IsRegular():
+			// Never open a FIFO or a device: a read would block.
+			out[rel] = "special:" + d.Type().String()
 		default:
 			b, _ := os.ReadFile(p)
 			out[rel] = "file:" + string(b)
@@ -723,7 +726,7 @@ func TestMoveTextLeadsWithTheFailures(t *testing.T) {
 // idempotent; file.move is not: a swap batch run twice swaps back (m2g §Changes).
 func TestOpsAnnotations(t *testing.T) {
 	f := newFixture(t)
-	for _, name := range []string{"file.create", "file.move"} {
+	for _, name := range []string{"file.create", "file.move", "file.copy"} {
 		d, ok := f.reg.Lookup(name)
 		if !ok {
 			t.Fatalf("%s is not registered", name)

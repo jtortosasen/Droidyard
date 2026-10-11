@@ -26,6 +26,10 @@ const escapeText = "path escapes from parent"
 type resolver struct {
 	root string
 	env  platform.Env
+	// maxCopyEntries and maxCopyBytes are file.copy's limits per item; 0 is the default
+	// (Options.CopyMaxEntries, CopyMaxBytes).
+	maxCopyEntries int
+	maxCopyBytes   int64
 }
 
 // resolve maps path to a slash-separated name relative to the root, per D2: "" and "."
