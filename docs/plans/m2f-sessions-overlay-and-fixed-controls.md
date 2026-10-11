@@ -43,11 +43,11 @@ Baseline on 2026-10-11 at `bd74d27` (macOS): `go vet ./...` printed nothing; `go
 
 ## Acceptance
 
-- [ ] A1. While the column is not docked, resting on the toggle or reaching the window's left edge shows the sessions column as an overlay; the tree's, centre's and right region's boxes and `droidyard.ui.layout` are unchanged while it shows; it hides on leaving (300 ms), Escape or a click outside; a click on the toggle or Dock docks it by ADR-0050 §2's rule. Source: owner 1; Q1; D43. Proven by: step 3, step 4
-- [ ] A2. The edge attracts the toggle from 96 px, feints from 24 px without taking clicks, and pops at 4 px; none of it while docked, with a button held, for a non-mouse pointer, or (feint) with reduced motion. Source: owner 2; D44, D45. Proven by: step 3, step 4
-- [ ] A3. In Logcat, App logs, Build output, Problems and Activity the controls stay inside the pane while the list scrolls; at the default 260 px and above the pane itself never scrolls; at the 120 px minimum nothing is clipped and the list keeps three rows; Logcat and Build output keep their last line (following) or their place (not following) across a bottom-region resize and a tab shown again. Source: owner 3; D46. Proven by: step 2
-- [ ] A4. Same primitive: no schema diff, no Go change; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 2, step 4
-- [ ] A5. `mvp.md`, `docs/README.md`, the register and the plans index name 2f and 2g; Q1's ADR is indexed and ADR-0050 carries its line; the register records what 2f left. Source: `milestone-workflow` close. Proven by: step 1, step 5
+- [x] A1. While the column is not docked, resting on the toggle or reaching the window's left edge shows the sessions column as an overlay; the tree's, centre's and right region's boxes and `droidyard.ui.layout` are unchanged while it shows; it hides on leaving (300 ms), Escape or a click outside; a click on the toggle or Dock docks it by ADR-0050 §2's rule. Source: owner 1; Q1; D43. Proven by: step 3, step 4
+- [x] A2. The edge attracts the toggle from 96 px, feints from 24 px without taking clicks, and pops at 4 px; none of it while docked, with a button held, for a non-mouse pointer, or (feint) with reduced motion. Source: owner 2; D44, D45. Proven by: step 3, step 4
+- [x] A3. In Logcat, App logs, Build output, Problems and Activity the controls stay inside the pane while the list scrolls; at the default 260 px and above the pane itself never scrolls; at the 120 px minimum nothing is clipped and the list keeps three rows; Logcat and Build output keep their last line (following) or their place (not following) across a bottom-region resize and a tab shown again. Source: owner 3; D46. Proven by: step 2
+- [x] A4. Same primitive: no schema diff, no Go change; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 2, step 4
+- [x] A5. `mvp.md`, `docs/README.md`, the register and the plans index name 2f and 2g; Q1's ADR is indexed and ADR-0050 carries its line; the register records what 2f left. Source: `milestone-workflow` close. Proven by: step 1, step 5
 
 ## Steps
 
@@ -108,7 +108,7 @@ Baseline on 2026-10-11 at `bd74d27` (macOS): `go vet ./...` printed nothing; `go
 - Needs: steps 2–4.
 - Not here: 2g's plan.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the register's two 2f rows (the owner's headed trial with the quiet-stream re-pin; the overlay's deferrals and Problems' header); `docs/README.md` names 2g next; the index `Done`. Opus verifier over A1–A5: approve, no blocking finding. Fixed before the merge: a touch or pen `pointerleave` no longer counts as the pointer leaving (D43's mouse-only rule), and only focus in a text field keeps the overlay open (a clicked button took focus in Chrome and pinned it); the shadow only when shown; `$state.raw` for the view. Step 4's level 4 repeated on the final tree (`droidyard.fin`): every case as on its Done line; a density pill clicked in the overlay, then the pointer away → hidden within 500 ms. The project-root input case not exercised in the browser (the form shows only without a folder dialog); the click on Open folder… in that run started the test daemon's native folder dialog on the owner's screen, closed 16 s later by its pid (a child of the run's daemon). `go test ./...` and `pnpm -C web run verify` green.
 
 ## Not in this milestone
 
@@ -151,8 +151,16 @@ Q1 is applied as recommended, Delegated; it becomes an ADR at step 1.
 | 2 | revise | B1, B2 answered; B3 in part, N1 blocking: shutting the AVD down deselects the device and clears Logcat, so no held lines to measure | Step 2: a quiet stream from stopping the K1 daemon with the page open, `#logcat-held` observed stable first; otherwise Build output's proof and an Unverified row; Logcat's scrolled-up show-again while streaming |
 | 2 | | B4 in part, N2 blocking: while docked the on-toggle state goes stale, so a 1 px move after an undock click opens the overlay; neither check could fail | D43: `pointer()` records on-toggle while docked and undocking sets a leave-the-toggle latch; the reviewer's peek test (no pointer before docking); level 4 adds a 1 px move after the undock click on a reload docked |
 
+| close verifier | approve | [bug] a touch's `pointerleave` hides a mouse-shown overlay; [bug, uncertain] any focused button pins the overlay; [plan] the close unrecorded; [plan] Check lines narrowed (quiet-stream Logcat, the left pane, 120 px compact, light rest and attract); [nit] ×5: ADR-0052 silent on the reversed "overlay over the tree", the shadow at offset 0, the tree's context menu under the overlay, the toggle re-registering per frame, `$state` for a replaced object | Both bugs fixed (§Changes); the close recorded; narrowing in §Changes; the shadow and `$state.raw` fixed; the other nits kept |
+
 Plan review: two rounds, both `revise`; blocking 6 (B1–B4 in round 1, N1 and N2 in round 2), important 3, nit 6; every blocking finding answered in the plan (`milestone-plan` §Writing one 7: no third round).
+
+Per layer: plan review blocking 6, important 3, nit 6 (untagged); step reviews (main session) bug 2, nit 2 (the 52 px floor, the hover slide; duplicate CSS ×2); level 4/5 nothing beyond those; close verifier bug 2, plan 2, nit 5.
 
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-11, step 2: the list floor is 56 px where the list has a border (three rows plus the border; 54 measured a 52 px list). Logcat's resize under a quiet stream was not attempted: it rests on Build output's proof of the same effect (register row). The left pane not re-measured (the change is scoped to `.bottom .pane.current`); at 120 px only comfortable density was measured (the taller case).
+- 2026-10-11, step 4: the shown overlay slides by a keyframe animation, so a hover open slides too.
+- 2026-10-11, close (verifier): D43's "while focus is inside" narrowed to focus in a text field (`input`, `textarea`, contenteditable): in Chrome a clicked button takes focus, and the density pills or an agent row pinned the overlay open. The window's `pointerleave` counts only for a mouse.
