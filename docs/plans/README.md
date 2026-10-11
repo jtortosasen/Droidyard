@@ -36,3 +36,4 @@ the output.
 | [m2e-ux-round.md](m2e-ux-round.md) | 2e — a UX round: collapsible panels, the sessions column, a status bar, a run toolbar and a Logcat query bar | Done |
 | [m2f-sessions-overlay-and-fixed-controls.md](m2f-sessions-overlay-and-fixed-controls.md) | 2f — the sessions column as an overlay on hover and at the left edge, and bottom panels whose controls do not scroll away | Done |
 | [m2g-file-operations.md](m2g-file-operations.md) | 2g — the file tree's operations | Done |
+| [m2h-mvp-done.md](m2h-mvp-done.md) | 2h — the MVP's three open Definition of done items | Approved |
