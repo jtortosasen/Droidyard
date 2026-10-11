@@ -109,7 +109,7 @@
 	// shell feeds it one coalesced pointer sample per frame and draws its view. The overlay
 	// never touches `layout`: nothing it does is saved.
 	const peek = new PeekModel();
-	let view = $state(peek.view);
+	let view = $state.raw(peek.view);
 	let toolbarEl: HTMLElement | undefined;
 	let middleEl: HTMLElement | undefined;
 	let overlayEl: HTMLElement | null = $state(null);
@@ -147,7 +147,9 @@
 			last = e;
 			if (frame === 0) frame = requestAnimationFrame(sample);
 		};
-		const onLeave = () => {
+		const onLeave = (e: PointerEvent) => {
+			// D43: only a mouse drives the overlay; a touch ends with a pointerleave after every tap.
+			if (e.pointerType !== 'mouse') return;
 			last = null;
 			if (frame !== 0) cancelAnimationFrame(frame);
 			frame = 0;
@@ -182,9 +184,14 @@
 		};
 	});
 
+	// D43: focus in a text field keeps the overlay (its typed text survives); a clicked button
+	// takes focus too in Chrome, and it must not pin the overlay open.
+	function textEntry(el: EventTarget | null): boolean {
+		return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
+	}
 	function focusChange(e: FocusEvent) {
-		const next = e.relatedTarget;
-		peek.setFocusInside(e.type === 'focusin' || (next instanceof Node && overlayEl !== null && overlayEl.contains(next)));
+		const now = e.type === 'focusin' ? e.target : e.relatedTarget;
+		peek.setFocusInside(textEntry(now) && now instanceof Node && overlayEl !== null && overlayEl.contains(now));
 	}
 </script>
 
@@ -445,13 +452,13 @@
 		bottom: 0;
 		left: 0;
 		z-index: 20;
-		box-shadow: 0 0 16px rgb(0 0 0 / 0.35);
 	}
 	.sessions.overlay:not(.shown) {
 		pointer-events: none;
 	}
 	/* Shown, from the feint or straight from a hover, it slides in (D44: 160 ms ease-out). */
 	.sessions.overlay.shown {
+		box-shadow: 0 0 16px rgb(0 0 0 / 0.35);
 		animation: slide-in 160ms ease-out;
 	}
 	@keyframes slide-in {
