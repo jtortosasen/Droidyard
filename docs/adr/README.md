@@ -87,6 +87,7 @@ edits made before this rule and are not added to.
 | [0055](0055-event-subscription-wire-shape.md) | An event frame names its subscription, and subscribing is a command | Accepted |
 | [0056](0056-newer-daemon-wide-state-file.md) | A daemon-wide state file of a newer version degrades no workspace | Accepted |
 | [0057](0057-probe-unread-field-omitted.md) | A probe field that could not be read is omitted, with a note | Accepted |
+| [0058](0058-file-write-revision-precondition.md) | `file.write` takes a revision precondition | Accepted |
 
 ## Open decisions (not yet ADRs)
 
