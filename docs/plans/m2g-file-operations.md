@@ -1,6 +1,6 @@
 # Plan: Milestone 2g — the file tree's operations
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-11, Delegated (the owner's standing instruction: apply the recommended option; the owner said "Continúa"). Q1, Q2 (with cross-volume deletes kept) and D47–D58 applied as recommended; they become ADR-0053 and ADR-0054. The owner can revert any Delegated choice.
 - Date: 2026-10-11
 - Milestone: "2g, the tree's file operations" (`docs/roadmap/mvp.md` §Phase 2; `docs/README.md` §Where the work stands), scoped by m2d's split (`m2d-redesign-file-tree.md`, the Split paragraph and Scope table): create (file, folder), rename, move (drag and drop, ⌘X/⌘V), copy and duplicate, delete to a trash with Undo, name collisions, multi-select, and the `file.*` capabilities they need.
@@ -55,14 +55,14 @@ Baseline on 2026-10-11 at `7958af5` (macOS): `go vet ./...` printed nothing; `go
 
 ## Acceptance
 
-- [ ] A1. `file.create`, `file.move`, `file.copy`, `file.delete` and `file.restore` are published at `0.19.0`, audience all, MCP tools under `--tools all` and absent from `core`, with `FILE_EXISTS`, `FILE_NOT_IN_TRASH` and `FILE_TOO_LARGE` as item codes; a batch's text rendering leads with its failures; the schema diff is that and the version; `tools/list` bytes before and after recorded. Source: Q1. Proven by: step 2, step 4, step 5
-- [ ] A2. No operation reaches outside the root or through a symlink: `..`, an absolute path outside, a parent symlink that leaves the root, an absolute-target link, the root itself and a destination inside its source are refused with nothing changed; a symlink is moved, copied or trashed as the link. Source: `files.md` §Paths and containment; Q1. Proven by: step 2, step 4, step 5
-- [ ] A3. The daemon decides collisions: no operation replaces an existing entry, a writer racing it keeps its file, `keepBoth` takes D49's names, and a batch reports each item, the failed ones beside the done ones. Source: Q1; D49. Proven by: step 2, step 4, step 5
-- [ ] A4. A delete moves the item to its workspace's trash (a rename on one volume, a complete copy then removal across volumes), bounded as D48; `file.restore` puts it back, also after a daemon restart, and refuses any id its workspace's trash does not hold. Source: Q2; D50. Proven by: step 5, step 7
-- [ ] A5. From the tree: new file, new folder and rename inline; tabs follow a rename. Source: m2d split; D57, D58. Proven by: step 3
-- [ ] A6. From the tree: multi-select, cut, copy and paste, duplicate, delete, drag and drop (⌥ copies), the collision dialog, and Undo of the last 20 operations. Source: m2d split; D51–D56. Proven by: step 6, step 7
-- [ ] A7. Same primitive: every `client=ui` call in the trace is a published capability; an MCP agent's `file_move` shows in the tree and in Activity; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 7
-- [ ] A8. Q1's and Q2's ADRs indexed, ADR-0021's header line, the plans index, `docs/README.md`, register rows 137 and 230 and the rows for what 2g left. Source: `milestone-workflow` close. Proven by: step 1, step 8
+- [x] A1. `file.create`, `file.move`, `file.copy`, `file.delete` and `file.restore` are published at `0.19.0`, audience all, MCP tools under `--tools all` and absent from `core`, with `FILE_EXISTS`, `FILE_NOT_IN_TRASH` and `FILE_TOO_LARGE` as item codes; a batch's text rendering leads with its failures; the schema diff is that and the version; `tools/list` bytes before and after recorded. Source: Q1. Proven by: step 2, step 4, step 5
+- [x] A2. No operation reaches outside the root or through a symlink: `..`, an absolute path outside, a parent symlink that leaves the root, an absolute-target link, the root itself and a destination inside its source are refused with nothing changed; a symlink is moved, copied or trashed as the link. Source: `files.md` §Paths and containment; Q1. Proven by: step 2, step 4, step 5
+- [x] A3. The daemon decides collisions: no operation replaces an existing entry, a writer racing it keeps its file, `keepBoth` takes D49's names, and a batch reports each item, the failed ones beside the done ones. Source: Q1; D49. Proven by: step 2, step 4, step 5
+- [x] A4. A delete moves the item to its workspace's trash (a rename on one volume, a complete copy then removal across volumes), bounded as D48; `file.restore` puts it back, also after a daemon restart, and refuses any id its workspace's trash does not hold. Source: Q2; D50. Proven by: step 5, step 7
+- [x] A5. From the tree: new file, new folder and rename inline; tabs follow a rename. Source: m2d split; D57, D58. Proven by: step 3
+- [x] A6. From the tree: multi-select, cut, copy and paste, duplicate, delete, drag and drop (⌥ copies), the collision dialog, and Undo of the last 20 operations. Source: m2d split; D51–D56. Proven by: step 6, step 7
+- [x] A7. Same primitive: every `client=ui` call in the trace is a published capability; an MCP agent's `file_move` shows in the tree and in Activity; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 7
+- [x] A8. Q1's and Q2's ADRs indexed, ADR-0021's header line, the plans index, `docs/README.md`, register rows 137 and 230 and the rows for what 2g left. Source: `milestone-workflow` close. Proven by: step 1, step 8
 
 ## Steps
 
@@ -160,7 +160,7 @@ Baseline on 2026-10-11 at `7958af5` (macOS): `go vet ./...` printed nothing; `go
 - Needs: steps 2–7.
 - Not here: the next milestone's plan.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: register: row 137 narrowed and a closed row "Delete, rename and mkdir" (2g); row 230's `file.*` part closed as its own row (2g); new rows for the leftover temporaries, the cross-volume delete's residual windows and the uncompared sweep, the forced-cancel trash ids, case-sensitive and non-APFS volumes, the fsync cost, cross-volume moves and moves between projects, the trash view, Undo after reload, redo, Replace and restore's `onCollision`, and the owner's headed trial; the Linux row names `renameat2`. `docs/README.md` names what follows 2g; the plans index `Done`. `go test ./...` green. Close verifier: below.
 
 ## Not in this milestone
 
