@@ -33,6 +33,6 @@ original sketch, [`../android-agent-suite-boceto.md`](../android-agent-suite-boc
 
 ## Where the work stands
 
-Phase 2's acceptance is met (2b); 2c added fixes, the live build console and the project start; 2d the redesign, the projects and agents panel and a read-only file tree; 2e is a UX round in progress, then 2f, the file tree's operations ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
+Phase 2's acceptance is met (2b); 2c added fixes, the live build console and the project start; 2d the redesign, the projects and agents panel and a read-only file tree; 2e a UX round (collapsible panels, the sessions column, a status bar, a run toolbar, a Logcat query bar); the next is 2f, the file tree's operations ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
 [`plans/README.md`](plans/README.md); what is open is in
 [`roadmap/known-limits.md`](roadmap/known-limits.md).
