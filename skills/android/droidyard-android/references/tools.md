@@ -24,6 +24,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `emulator_start` | core | changes state | Boots one AVD and returns {device, avd, adopted} once its device has finished booting. |
 | `emulator_stop` | core | changes state | Stops one running emulator with adb emu kill and returns once its serial leaves adb devices. |
 | `emulator_wipe` |  | changes state | Factory-resets one AVD's user data by booting it again with -wipe-data, stopping it first if it is running, and returns {device, avd} once it has ... |
+| `file_copy` |  | changes state | Copies up to 1000 files or folders, a folder whole and a symlink as a link; nothing is replaced, and a failed or cancelled copy leaves nothing. |
 | `file_create` |  | changes state | Creates an empty file or a folder in the project, making missing parent folders; it never replaces, and an existing path is FILE_EXISTS. |
 | `file_list` | core | read-only | Lists one level of a directory in the project, never recursively, with name, type, size and modification time per entry. |
 | `file_move` |  | changes state | Moves or renames up to 1000 files or folders, a rename being a move inside one folder; nothing is replaced. |

@@ -52,7 +52,7 @@ between deciding a path is inside and using it.
 
 ## Operations
 
-`file.create` and `file.move` change the tree and replace nothing
+`file.create`, `file.move` and `file.copy` change the tree and replace nothing
 ([ADR-0053](../adr/0053-file-operations.md)). A rename is a move inside one folder. A move
 opens each item's two parent folders through the `os.Root` and renames on their descriptors
 with the kernel's no-replace rename (`RENAME_EXCL` on macOS, `RENAME_NOREPLACE` on Linux), so
@@ -85,7 +85,7 @@ publishes nothing. A walk:
 - records at most 20 000 entries and never descends a symlink (recorded as one entry);
 - excludes `.git/`, `.gradle/`, `.idea/`, `.kotlin/`, `.cxx/`, a `build` directory whose parent
   holds a `build.gradle`/`build.gradle.kts` (a source package named `build` is kept), and
-  `file.write`'s temporary files;
+  `file.write`'s and `file.copy`'s temporary files and folders;
 - on a tick that reaches the cap, reports **no deletions at all** and marks its event
   `truncated`: it cannot tell a deleted entry from one pushed past the cap, so the client
   re-lists; one that later falls under the cap is reported `created`;

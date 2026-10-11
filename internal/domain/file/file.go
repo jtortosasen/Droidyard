@@ -47,6 +47,10 @@ type Options struct {
 	// Tick is the poller's interval between walks; <= 0 is watchInterval's one second. A
 	// test shortens it (plan m1j step 4).
 	Tick time.Duration
+	// CopyMaxEntries and CopyMaxBytes override file.copy's per-item limits (20,000
+	// entries, 1 GiB; plan m2g D48); <= 0 keeps them. A test scales them down.
+	CopyMaxEntries int
+	CopyMaxBytes   int64
 }
 
 // Register adds file.list, file.read and file.write to the registry.
@@ -206,6 +210,34 @@ func Register(reg *capability.Registry, opts Options) {
 		},
 	})
 
+	// A batch like file.move, and long-running: a copy takes as long as its bytes (ADR-0053
+	// §1). Not idempotent: each call makes a new copy, and keepBoth another free name.
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.copy",
+		Kind:        capability.Command,
+		Scope:       capability.Workspace,
+		LongRunning: true,
+		Since:       opsVersion,
+		Description: "Copies up to 1000 files or folders, a folder whole and a symlink as a link; nothing is replaced, and a failed or cancelled copy leaves nothing. A taken target is FILE_EXISTS, or a free name such as \"a copy.kt\" with onCollision keepBoth; an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
+		Params:      CopyParams{},
+		Result:      CopyResult{},
+		Errors: []capability.ErrorCode{
+			capability.ErrFileOutsideRoot, capability.ErrInvalidParams,
+		},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "never replaces an existing entry; deleting the copy undoes it",
+		},
+		Text: capability.TextOf(copyText),
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.copy(ctx, call.Params.(CopyParams))
+		},
+	})
+
 	// A watch creates a subscription, so it is a command, not a query (mcp.md
 	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
 	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
@@ -275,7 +307,7 @@ func (o Options) resolver(call *capability.Call) (*resolver, *capability.Error) 
 		return nil, capability.Errorf(capability.ErrWorkspaceNotOpen, "workspace %q is not open", call.Workspace).
 			WithNextStep("call workspace.open on it, then retry")
 	}
-	return &resolver{root: root, env: o.Env}, nil
+	return &resolver{root: root, env: o.Env, maxCopyEntries: o.CopyMaxEntries, maxCopyBytes: o.CopyMaxBytes}, nil
 }
 
 // openRoot opens the canonical root as an os.Root. Containment is the root's, so every
