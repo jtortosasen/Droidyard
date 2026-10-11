@@ -4,8 +4,9 @@ import { FileOps, refuseName, type OpsClient } from './ops';
 
 function setup() {
 	const calls = new FakeCalls();
-	const ops = new FileOps(calls as unknown as OpsClient, { root: '/proj/' });
-	return { calls, ops };
+	const moved: [string, string][] = [];
+	const ops = new FileOps(calls as unknown as OpsClient, { root: '/proj/' }, { moved: (f, t) => moved.push([f, t]) });
+	return { calls, ops, moved };
 }
 
 describe('FileOps', () => {
@@ -66,5 +67,116 @@ describe('FileOps', () => {
 		const { calls, ops } = setup();
 		expect(await ops.rename('a/b.kt', 'b.kt')).toEqual({ ok: true, path: 'a/b.kt' });
 		expect(calls.calls).toHaveLength(0);
+	});
+});
+
+type Pair = { from: string; to: string };
+const itemsOf = (p: unknown) => (p as { items: Pair[] }).items;
+
+describe('FileOps batches', () => {
+	// Decision (D54): items that come back FILE_EXISTS open one dialog naming them; the rest are done.
+	it('lists the two taken items in the dialog', async () => {
+		const { calls, ops } = setup();
+		calls.on('file.move', (p) => ({
+			items: itemsOf(p).map((i) => (i.from === 'b' ? i : { ...i, code: 'FILE_EXISTS', message: 'x' })),
+			done: 1,
+			failed: 2,
+		}));
+		await ops.move([
+			{ from: 'a', to: 'd/a' },
+			{ from: 'b', to: 'd/b' },
+			{ from: 'c', to: 'd/c' },
+		]);
+		expect(ops.pending?.names).toEqual(['a', 'c']);
+		expect(ops.pending?.items).toEqual([
+			{ from: 'a', to: 'd/a' },
+			{ from: 'c', to: 'd/c' },
+		]);
+	});
+
+	// Decision (D54): Keep both repeats the call for the taken items only, with keepBoth; Skip makes no call.
+	it('keeps both with one call for the taken items, and skips with none', async () => {
+		const { calls, ops } = setup();
+		let first = true;
+		calls.on('file.copy', (p) => {
+			const items = itemsOf(p);
+			if (first) {
+				first = false;
+				return { items: items.map((i) => (i.from === 'b' ? i : { ...i, code: 'FILE_EXISTS', message: 'x' })), done: 1, failed: 2 };
+			}
+			return { items: items.map((i) => ({ ...i, to: `${i.to} copy` })), done: items.length, failed: 0 };
+		});
+		const batch = [
+			{ from: 'a', to: 'd/a' },
+			{ from: 'b', to: 'd/b' },
+			{ from: 'c', to: 'd/c' },
+		];
+		await ops.copy(batch);
+		await ops.resolveCollision('keepBoth');
+		expect(calls.calls).toHaveLength(2);
+		expect(calls.calls[1]!.params).toEqual({
+			items: [
+				{ from: 'a', to: 'd/a' },
+				{ from: 'c', to: 'd/c' },
+			],
+			onCollision: 'keepBoth',
+		});
+		expect(ops.pending).toBeNull();
+
+		first = true;
+		await ops.copy(batch);
+		await ops.resolveCollision('skip');
+		expect(calls.calls).toHaveLength(3);
+		expect(ops.pending).toBeNull();
+	});
+
+	// Decision (D56): one line reports the operation: the count, then the failures as text.
+	it('writes the notice line', async () => {
+		const { calls, ops } = setup();
+		calls.on('file.delete', () => ({
+			items: [
+				{ path: 'a', trashId: '1' },
+				{ path: 'b', trashId: '2' },
+				{ path: 'c', trashId: '3' },
+				{ path: 'x/d.kt', code: 'FILE_NOT_FOUND', message: 'gone' },
+			],
+			done: 3,
+			failed: 1,
+		}));
+		await ops.delete(['a', 'b', 'c', 'x/d.kt']);
+		expect(ops.notice).toEqual({ text: 'Deleted 3 items · 1 failed: FILE_NOT_FOUND: gone', undoable: true });
+	});
+
+	// Decision (D57): a move with item 2 failed re-points the tabs of items 1 and 3 only, and so does its undo.
+	it('re-points tabs for the done items, forward and back', async () => {
+		const { calls, ops, moved } = setup();
+		calls.on('file.move', (p) => ({
+			items: itemsOf(p).map((i) => (i.from === 'b' ? { ...i, code: 'FILE_NOT_FOUND', message: 'gone' } : i)),
+			done: 2,
+			failed: 1,
+		}));
+		await ops.move([
+			{ from: 'a', to: 'd/a' },
+			{ from: 'b', to: 'd/b' },
+			{ from: 'c', to: 'd/c' },
+		]);
+		expect(moved).toEqual([
+			['a', 'd/a'],
+			['c', 'd/c'],
+		]);
+		moved.length = 0;
+		await ops.undo();
+		expect(moved).toEqual([
+			['d/c', 'c'],
+			['d/a', 'a'],
+		]);
+	});
+
+	// Decision (D52): a paste of duplicates is a copy with keepBoth, after the plain items.
+	it('sends a paste: items as they are, then duplicates with keepBoth', async () => {
+		const { calls, ops } = setup();
+		calls.on('file.copy', (p) => ({ items: itemsOf(p), done: itemsOf(p).length, failed: 0 }));
+		await ops.paste({ kind: 'copy', items: [{ from: 'l/b', to: 'a/b' }], duplicates: [{ from: 'a/c', to: 'a/c' }] });
+		expect(calls.calls.map((c) => c.params)).toEqual([{ items: [{ from: 'l/b', to: 'a/b' }] }, { items: [{ from: 'a/c', to: 'a/c' }], onCollision: 'keepBoth' }]);
 	});
 });
