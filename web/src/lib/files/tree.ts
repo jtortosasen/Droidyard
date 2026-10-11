@@ -135,6 +135,7 @@ export class FileTreeModel {
 	#generation = 0;
 	#typed = '';
 	#typedAt = 0;
+	#following: { path: string; expand: boolean } | null = null;
 
 	constructor(client: TreeClient, ws: TreeWorkspace) {
 		this.#client = client;
@@ -233,6 +234,7 @@ export class FileTreeModel {
 	applyChanges(list: readonly Change[]): void {
 		const before = this.rows;
 		const at = this.#selected === null ? -1 : before.findIndex((r) => this.#covers(r, this.#selected!));
+		let arrived: { path: string; expand: boolean } | null = null;
 		for (const c of list) {
 			const path = c.path;
 			if (c.kind === 'deleted') {
@@ -240,9 +242,14 @@ export class FileTreeModel {
 			} else if (c.kind === 'created') {
 				// (#add skips a folder a partial baseline never listed.)
 				this.#add({ name: nameOf(path), path, type: c.type ?? 'file' });
+				if (this.#following?.path === path) arrived = this.#following;
 			}
 		}
 		this.#changed();
+		if (arrived !== null) {
+			this.#following = null;
+			void this.#show(arrived.path, arrived.expand);
+		}
 		if (this.#selected !== null && at >= 0 && !this.rows.some((r) => this.#covers(r, this.#selected!))) {
 			// The selected row went: its neighbour in the old order that is still there.
 			const now = new Set(this.rows.map((r) => r.path));
@@ -380,6 +387,24 @@ export class FileTreeModel {
 		this.#sorted.clear();
 		this.#changed();
 		if (on && this.#complete) this.#relistExpanded();
+	}
+
+	/**
+	 * Selects and reveals `path` (and opens it when `expand`) once the watch reports it (D58);
+	 * at once when the tree already holds it. A path the watch never reports is not shown.
+	 */
+	follow(path: string, expand = false): void {
+		if (this.#kids.get(parentOf(path))?.has(nameOf(path))) {
+			this.#following = null;
+			void this.#show(path, expand);
+		} else {
+			this.#following = { path, expand };
+		}
+	}
+
+	async #show(path: string, expand: boolean): Promise<void> {
+		await this.reveal(path);
+		if (expand) await this.expand(path);
 	}
 
 	/** Opens the folders above `path` and selects it; the component scrolls to it. */

@@ -224,3 +224,28 @@ describe('listing', () => {
 		expect(labels(model)).toContain('c.kt');
 	});
 });
+
+describe('follow', () => {
+	// Decision (D58): a new or renamed path is selected and revealed when the watch reports
+	// it, a new folder also opened.
+	it('selects the path when the watch reports it, and opens a folder', async () => {
+		const { model } = setup([e('a', 'dir'), e('a/old.kt')]);
+		model.follow('a/new.kt');
+		expect(model.view.selected).toBeNull();
+		model.applyChanges([{ path: 'a/new.kt', kind: 'created', type: 'file' }]);
+		await settle();
+		expect(model.view.selected).toBe('a/new.kt');
+		model.follow('a/dir', true);
+		model.applyChanges([{ path: 'a/dir', kind: 'created', type: 'dir' }]);
+		await settle();
+		expect(model.view.selected).toBe('a/dir');
+		expect(model.rows.find((r) => r.path === 'a/dir')!.expanded).toBe(true);
+	});
+
+	it('selects at once a path the watch already reported', async () => {
+		const { model } = setup([e('a', 'dir'), e('a/x.kt')]);
+		model.follow('a/x.kt');
+		await settle();
+		expect(model.view.selected).toBe('a/x.kt');
+	});
+});

@@ -100,7 +100,7 @@ Baseline on 2026-10-11 at `7958af5` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 2. May run in parallel with step 4 (web against Go).
 - Not here: multi-select and the batch operations (6, 7).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `ops.test.ts` (a rename is a one-item `file.move` `{from: 'a/b.kt', to: 'a/c.kt'}`; `''`, `.`, `..`, `x/y`, NUL refused with no call; a `FILE_EXISTS` item, or thrown by `file.create`, reads "c.kt already exists"), `tabs.test.ts` (`moved` re-points a file's tab, the tabs under a moved folder and the active tab, never `src/ab` for `src/a`), `tree.test.ts` (`follow` selects when the watch reports the path, expands a new folder, at once if known); 9 mutations each seen failing. `pnpm -C web run verify` green (499 tests); the autofixer gate no issues. Level 4 (K1, K10, headless 1280×900, a sample copy): New folder `notes` from a root file's menu → its row 0.34 s after Enter, selected; New file `notes/a.md` → its row 0.22 s, a preview tab `a.md`; F2 → the field `a.md` with `a` selected, `b.md` → row and tab `b.md`, disk `notes/b.md`; a rename onto an existing `c.md` → "c.md already exists" inline (`aria-invalid`), disk unchanged, `c.md` still "keep me"; Escape closes the field; `x/y` refused inline. Daemon log: two `file.create` and two `file.move`, each `client=ui`. CSP empty; network `/`, `/assets/…`, `/favicon.ico` (its 404), `/v1/ws`.
 
 ### 4. `file.copy`
 
@@ -223,3 +223,4 @@ Plan review: two rounds, both `revise`; blocking 4 (B1–B3 in round 1, N1 in ro
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-11, step 2 (Delegated): `file.move` is **not** idempotent, against Q1's draft: the step verifier showed a swap batch `[a→t, b→a, t→b]` run twice swaps back, so a client retrying after a timeout would undo it. `file.create` stays idempotent. ADR-0053 does not name the hint; the descriptor carries it.
+- 2026-10-11, step 3 (Delegated): D58's "blur commits" except an empty or unchanged name, which a blur cancels with no call and no message (Enter on an empty name shows the message); a failed commit keeps the field open with its message. `FileTreeModel.follow` carries D58's "selected and revealed when the watch reports it".

@@ -42,6 +42,7 @@
 	import { AppLogsModel } from '../devices/applogs';
 	import AppLogs from '../devices/AppLogs.svelte';
 	import { FileTreeModel } from '../files/tree';
+	import { FileOps } from '../files/ops';
 	import { FileWatch } from '../files/watch';
 	import FileTree from '../files/FileTree.svelte';
 	import { TabsModel } from '../editor/tabs';
@@ -90,6 +91,7 @@
 	let appLogs = $state.raw<AppLogsModel | null>(null);
 	let fileTree = $state.raw<FileTreeModel | null>(null);
 	let fileWatch = $state.raw<FileWatch | null>(null);
+	let fileOps = $state.raw<FileOps | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	let run = $state.raw<RunModel | null>(null);
@@ -174,6 +176,7 @@
 		act = actions;
 		appLogs = logs;
 		fileTree = files;
+		fileOps = new FileOps(callOn, ws);
 		fileWatch = watcher;
 		editorTabs = tabs;
 		viewers = readers;
@@ -235,6 +238,7 @@
 			act = null;
 			appLogs = null;
 			fileTree = null;
+			fileOps = null;
 			fileWatch = null;
 			editorTabs = null;
 			viewers = null;
@@ -280,8 +284,15 @@
 			<RunButton model={run} />
 		{/if}
 	{:else if id === 'files'}
-		{#if fileTree && fileWatch}
-			<FileTree bind:this={treeView} model={fileTree} watch={fileWatch} onopen={(path) => editorTabs?.open(path)} />
+		{#if fileTree && fileWatch && fileOps}
+			<FileTree
+				bind:this={treeView}
+				model={fileTree}
+				watch={fileWatch}
+				ops={fileOps}
+				onopen={(path) => editorTabs?.open(path)}
+				onmoved={(from, to) => editorTabs?.moved(from, to)}
+			/>
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
