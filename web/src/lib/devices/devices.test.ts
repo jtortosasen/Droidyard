@@ -162,3 +162,35 @@ describe('install and launch', () => {
 		expect(t.install.view.launched).toMatchObject({ pid: null, reason: 'crashed on start' });
 	});
 });
+
+describe('the pending AVD (m2e D36)', () => {
+	// Decision (D36): an AVD picked in the toolbar is pending, the selection is empty, and a
+	// refresh does not fill it with the default device; select(serial) clears the pending AVD.
+	it('keeps the selection empty across a refresh while an AVD is pending, until a serial is picked', async () => {
+		const t = await setup();
+		t.devices.selectAvd('a1');
+		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a1' });
+		await t.devices.refresh();
+		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a1' });
+		t.devices.select('emulator-5554');
+		expect(t.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
+	});
+
+	// Decision (D36, ADR-0046): the file's AVD that is not running, restored by the binding,
+	// is pending rather than the default device; once its emulator runs, its serial is
+	// selected. A user's pick wins over a restore.
+	it('restores the file AVD as pending, then selects its emulator', async () => {
+		const t = await setup();
+		t.devices.setPreselect({ avd: 'a2' });
+		t.devices.restoreAvd('a2');
+		await t.devices.refresh();
+		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a2' });
+		t.calls.on('device.list', () => ({ devices: [dev('emulator-5554'), { ...dev('emulator-5556'), avdName: 'a2' }] }));
+		await t.devices.refresh();
+		expect(t.devices.view).toMatchObject({ selected: 'emulator-5556', pendingAvd: '' });
+		const picked = await setup();
+		picked.devices.select('emulator-5554');
+		picked.devices.restoreAvd('a2');
+		expect(picked.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
+	});
+});

@@ -3,11 +3,17 @@
 	import type { ActivityStore } from '../ops/activity';
 	import Activity from '../ops/Activity.svelte';
 	import Logcat from '../logcat/Logcat.svelte';
+	import { LogcatDevice } from '../logcat/device';
+	import { MineSet } from '../logcat/mine';
 	import { BuildModel } from '../build/build';
 	import Build from '../build/Build.svelte';
 	import BuildResult from '../build/BuildResult.svelte';
 	import { TasksModel } from '../build/tasks';
 	import TaskSelect from '../toolbar/TaskSelect.svelte';
+	import DeviceMenu from '../toolbar/DeviceMenu.svelte';
+	import TargetMenu from '../toolbar/TargetMenu.svelte';
+	import RunButton from '../toolbar/RunButton.svelte';
+	import { RunModel } from '../toolbar/run';
 	import BuildStatus from '../toolbar/BuildStatus.svelte';
 	import type { SessionsModel } from '../projects/sessions';
 	import type { ProjectsModel } from '../projects/projects';
@@ -61,14 +67,14 @@
 		workspaceId: string;
 		/** The daemon refused the id: the page shows the projects panel with the reason. */
 		onmissing: (why: Failure) => void;
-		/** "All projects": opens the projects panel. */
-		onprojects: () => void;
-		/** The connection and health line App owns, shown in the toolbar. */
+		/** The connection and health line App owns, shown in the status bar. */
 		status: Snippet;
-		/** The rail's projects icon, which App owns (it outlives the project view). */
-		rail: Snippet;
+		/** The sessions toggle, which App owns (it outlives the project view). */
+		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void }]>;
+		/** The sessions column's body (the projects and agents panel), which App owns. */
+		sessionsPanel: Snippet;
 	}
-	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, onprojects, status, rail }: Props = $props();
+	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -86,10 +92,13 @@
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
+	let run = $state.raw<RunModel | null>(null);
 	let palette = $state.raw<PaletteModel | null>(null);
 	let treeView = $state<{ focus(): void } | undefined>();
-	// The selected device is the devices model's; Logcat follows it.
-	let device = $state('');
+	// Logcat follows the devices model's selection unless a device is picked there (D40);
+	// "mine" is the application ids this tab saw built or installed (D39).
+	let logcatDevice = $state.raw<LogcatDevice | null>(null);
+	let mine = $state.raw<MineSet | null>(null);
 
 	$effect(() => {
 		const c = client;
@@ -123,6 +132,7 @@
 			},
 			deviceList,
 		);
+		const runner = new RunModel(callOn, deviceList, builds, ws, installer);
 		// ADR-0046: the project file preselects once it is read and is written from the
 		// user's choices; nothing is written on load.
 		const file = new ProjectFileModel(callOn, ws);
@@ -146,9 +156,10 @@
 		// The palette's file index reads the same stream (no second file.watch).
 		const index = new FileIndex();
 		const offIndex = watcher.listen(index);
-		const offDevice = deviceList.subscribe(() => {
-			device = deviceList.view.selected;
-		});
+		const logcatDevices = new LogcatDevice(deviceList);
+		const mineIds = new MineSet(builds, installer);
+		logcatDevice = logcatDevices;
+		mine = mineIds;
 		workspace = ws;
 		trust = trusting;
 		projectFile = file;
@@ -158,6 +169,7 @@
 		devices = deviceList;
 		emulators = emulatorList;
 		install = installer;
+		run = runner;
 		uiTree = tree;
 		act = actions;
 		appLogs = logs;
@@ -187,7 +199,8 @@
 		});
 		return () => {
 			gone = true;
-			offDevice();
+			mineIds.dispose();
+			logcatDevices.dispose();
 			offListen();
 			offIndex();
 			readers.dispose();
@@ -199,6 +212,7 @@
 			logs.dispose();
 			actions.dispose();
 			tree.dispose();
+			runner.dispose();
 			installer.dispose();
 			emulatorList.dispose();
 			deviceList.dispose();
@@ -216,6 +230,7 @@
 			devices = null;
 			emulators = null;
 			install = null;
+			run = null;
 			uiTree = null;
 			act = null;
 			appLogs = null;
@@ -224,7 +239,8 @@
 			editorTabs = null;
 			viewers = null;
 			palette = null;
-			device = '';
+			logcatDevice = null;
+			mine = null;
 		};
 	});
 
@@ -242,18 +258,26 @@
 	});
 </script>
 
-{#snippet panel(id: string, show: (id: string) => void)}
+{#snippet panel(id: string, shell: ShellApi)}
 	{#if id === 'workspace'}
 		{#if workspace && trust}
-			<Workspace model={workspace} {trust} {onprojects} compact />
-		{/if}
-	{:else if id === 'projectfile'}
-		{#if projectFile}
-			<ProjectFile model={projectFile} compact />
+			<Workspace model={workspace} {trust} onprojects={shell.openSessions} compact />
 		{/if}
 	{:else if id === 'build'}
 		{#if build}
 			<Build model={build} compact />
+		{/if}
+	{:else if id === 'devicemenu'}
+		{#if devices && emulators}
+			<DeviceMenu {devices} {emulators} />
+		{/if}
+	{:else if id === 'target'}
+		{#if build}
+			<TargetMenu model={build} />
+		{/if}
+	{:else if id === 'run'}
+		{#if run}
+			<RunButton model={run} />
 		{/if}
 	{:else if id === 'files'}
 		{#if fileTree && fileWatch}
@@ -265,7 +289,9 @@
 			<Editor tabs={editorTabs} {viewers} onactivate={(path) => void files.reveal(path)} copyPath={(path) => files.absolutePath(path)} />
 		{/if}
 	{:else if id === 'logcat'}
-		<Logcat {client} {connection} {device} />
+		{#if logcatDevice && mine}
+			<Logcat {client} {connection} devices={logcatDevice} {mine} {workspaceId} />
+		{/if}
 	{:else if id === 'applogs'}
 		{#if appLogs}
 			<AppLogs model={appLogs} connected={connection === 'open'} />
@@ -280,7 +306,7 @@
 		{/if}
 	{:else if id === 'activity'}
 		{#if buildConsole && build}
-			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => show('console')} />
+			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => shell.show('console')} />
 		{/if}
 	{:else if id === 'tasks'}
 		{#if tasks}
@@ -310,6 +336,13 @@
 	{/if}
 {/snippet}
 
+{#snippet statusbar()}
+	{@render status()}
+	{#if projectFile}
+		<span class="end"><ProjectFile model={projectFile} compact /></span>
+	{/if}
+{/snippet}
+
 {#snippet banners()}
 	{#if workspace && trust}
 		<Banners {workspace} {trust} />
@@ -323,13 +356,14 @@
 {/snippet}
 
 {#snippet overlay(shell: ShellApi)}
-	{#if palette && workspace && build && tasks && emulators && fileTree && editorTabs}
+	{#if palette && workspace && build && tasks && emulators && fileTree && editorTabs && run}
 		{@const ws = workspace}
 		{@const builds = build}
 		{@const taskList = tasks}
 		{@const emus = emulators}
 		{@const files = fileTree}
 		{@const tabs = editorTabs}
+		{@const runner = run}
 		<Palette
 			model={palette}
 			commands={() =>
@@ -341,6 +375,8 @@
 					projects,
 					currentProject: workspaceId,
 					tree: files,
+					run: runner,
+					openSessions: shell.openSessions,
 					density: { get: shell.density, set: shell.setDensity },
 					focusTree: () => {
 						shell.showFiles();
@@ -355,5 +391,11 @@
 	{/if}
 {/snippet}
 
-<Shell content={panel} {status} {centre} {banners} {rail} {overlay} />
+<Shell content={panel} {statusbar} {centre} {banners} {sessionsToggle} sessions={sessionsPanel} {overlay} />
+
+<style>
+	.end {
+		margin-left: auto;
+	}
+</style>
 

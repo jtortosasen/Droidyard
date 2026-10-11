@@ -5,21 +5,26 @@
 
 import type { Density } from './layout';
 
-export type PanelRegion = 'toolbar' | 'left' | 'centre' | 'bottom' | 'right';
+export type PanelRegion = 'toolbar' | 'status' | 'left' | 'centre' | 'bottom' | 'right';
 
 export interface PanelDef {
 	id: string;
 	region: PanelRegion;
 	label: string;
+	/** A toolbar panel in the right-aligned group (m2e D34), in registry order; the rest sit on the left. */
+	end?: true;
 	/** Set on a panel that does not exist yet: the milestone that builds it. */
 	disabled?: { milestone: string };
 }
 
 export const PANELS: readonly PanelDef[] = [
 	{ id: 'workspace', region: 'toolbar', label: 'Workspace' },
-	{ id: 'build', region: 'toolbar', label: 'Build' },
-	{ id: 'tasks', region: 'toolbar', label: 'Tasks' },
-	{ id: 'projectfile', region: 'toolbar', label: 'Project file' },
+	{ id: 'devicemenu', region: 'toolbar', label: 'Device', end: true },
+	{ id: 'target', region: 'toolbar', label: 'Module and variant', end: true },
+	{ id: 'run', region: 'toolbar', label: 'Run', end: true },
+	{ id: 'build', region: 'toolbar', label: 'Build', end: true },
+	{ id: 'tasks', region: 'toolbar', label: 'Tasks', end: true },
+	{ id: 'projectfile', region: 'status', label: 'Project file' },
 
 	{ id: 'files', region: 'left', label: 'Editor' },
 	{ id: 'git-side', region: 'left', label: 'Git', disabled: { milestone: 'Git' } },
@@ -70,6 +75,8 @@ export function activate(active: Record<PanelRegion, string>, id: string): Recor
 export interface ShellApi {
 	density: () => Density;
 	setDensity: (d: Density) => void;
+	/** Opens the sessions column (collapsing the right region by D33's rule). */
+	openSessions: () => void;
 	/** Opens the left panel on the file tree. */
 	showFiles: () => void;
 	/** Shows a panel's tab. */

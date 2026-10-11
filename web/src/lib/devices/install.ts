@@ -136,19 +136,26 @@ export class InstallModel {
 		return out ?? this.#stored;
 	}
 
-	async install(): Promise<void> {
+	/**
+	 * `device.install`. Without an argument: the build panel's module and variant on the
+	 * selected device. With one (the toolbar's run, m2e D37): that device and that build's
+	 * own output by `buildId` (ADR-0023 §5). Returns the result, or null when a guard
+	 * refused or the call failed (`view.installError` then says why, for a failure).
+	 */
+	async install(explicit?: {
+		device: string;
+		build: { buildId: string; module: string; variant: string };
+		onOperation?: (operationId: string) => void;
+	}): Promise<Result<'device.install'> | null> {
 		const b = this.#build.selection();
-		const device = this.#devices.view.selected;
-		if (this.#installing || this.mirror.view.installing !== null || b === null || device === '' || b.module === '' || b.variant === '') return;
+		const device = explicit?.device ?? this.#devices.view.selected;
+		const build = explicit?.build ?? (b === null ? null : { module: b.module, variant: b.variant });
+		if (this.#installing || this.mirror.view.installing !== null || b === null || device === '' || build === null || build.module === '' || build.variant === '') return null;
 		this.#installing = true;
 		this.#installError = null;
 		this.#changed();
 		try {
-			const r = await this.#client.call(
-				'device.install',
-				{ device, build: { module: b.module, variant: b.variant } },
-				{ workspace: b.root.trim() },
-			);
+			const r = await this.#client.call('device.install', { device, build }, { workspace: b.root.trim(), onOperation: explicit?.onOperation });
 			this.#installed = r;
 			this.#typed = null;
 			this.#stored = r.applicationId;
@@ -156,27 +163,32 @@ export class InstallModel {
 			for (const fn of [...this.#installs]) fn(r.applicationId);
 			this.#launched = null;
 			this.#launchError = null;
+			return r;
 		} catch (e) {
 			// A lost connection leaves the install running in the daemon; the mirror shows it.
 			if (e instanceof CapabilityError) this.#installError = failure(e);
+			return null;
 		} finally {
 			this.#installing = false;
 			this.#changed();
 		}
 	}
 
-	async launch(): Promise<void> {
-		const device = this.#devices.view.selected;
-		const applicationId = this.view.applicationId.trim();
-		if (this.#launching || device === '' || applicationId === '') return;
+	/** `device.launch`; with an argument (the run), that device and application id. Null on a guard or a failure. */
+	async launch(explicit?: { device: string; applicationId: string }): Promise<Result<'device.launch'> | null> {
+		const device = explicit?.device ?? this.#devices.view.selected;
+		const applicationId = (explicit?.applicationId ?? this.view.applicationId).trim();
+		if (this.#launching || device === '' || applicationId === '') return null;
 		this.#launching = true;
 		this.#launchError = null;
 		this.#changed();
 		try {
 			this.#launched = await this.#client.call('device.launch', { device, applicationId });
+			return this.#launched;
 		} catch (e) {
 			this.#launched = null;
 			if (e instanceof CapabilityError) this.#launchError = failure(e);
+			return null;
 		} finally {
 			this.#launching = false;
 			this.#changed();

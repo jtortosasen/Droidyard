@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { Entry } from './entry';
-import { compileFilter, NO_FILTER } from './filter';
+import { compileQuery } from './query';
 import { Ring } from './ring';
 import { line } from './testing';
 import { View } from './view';
 
 const text = (e: Entry | undefined) => (e && 'message' in e ? e.message : undefined);
 
-function make(capacity: number, f = NO_FILTER) {
+function make(capacity: number, query = '') {
 	const ring = new Ring<Entry>(capacity);
-	const view = new View(ring, compileFilter(f));
+	const view = new View(ring, compileQuery(query));
 	return { ring, view };
 }
 
 describe('View', () => {
 	it('lists the entries that pass the filter, in order', () => {
-		const { ring, view } = make(10, { ...NO_FILTER, text: 'keep' });
+		const { ring, view } = make(10, 'message:keep');
 		for (const m of ['keep 1', 'drop', 'keep 2']) ring.push(line(1, m));
 		view.sync();
 		expect(view.length).toBe(2);
@@ -56,7 +56,7 @@ describe('View', () => {
 		for (const m of ['x one', 'y two', 'x three']) ring.push(line(1, m));
 		view.sync();
 		expect(view.length).toBe(3);
-		view.setFilter(compileFilter({ ...NO_FILTER, text: 'x ' }));
+		view.setFilter(compileQuery('message:"x "'));
 		expect(view.length).toBe(2);
 		expect(text(view.entry(view.headSeq + 1))).toBe('x three');
 		ring.push(line(1, 'y later'));

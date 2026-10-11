@@ -191,6 +191,15 @@ describe('the first change writes the file', () => {
 		expect(t.written().at(-1)?.device).toEqual({ avd: 'a3' });
 	});
 
+	// Decision (D36, ADR-0046 §1): an AVD picked in the toolbar that is not running is
+	// stored as the file's {avd} when picked, before any run starts it.
+	it('stores a pending AVD pick as the file\'s avd', async () => {
+		const t = await setup({ devices: [dev('R58M', { kind: 'physical' })], avds: [{ name: 'a3' }] });
+		t.devices.selectAvd('a3');
+		await settle();
+		expect(t.written().at(-1)?.device).toEqual({ avd: 'a3' });
+	});
+
 	// Decision (ADR-0046 §2): the choice is not a default's echo: re-choosing what the file
 	// already says writes nothing.
 	it('does not write when the choice is what the file already holds', async () => {
@@ -264,6 +273,10 @@ describe('the file only preselects', () => {
 		expect(t.build.view).toMatchObject({ module: ':app', variant: 'debug', loadError: null });
 		expect(t.devices.view.selected).toBe('');
 		expect(t.emulators.view.preselected).toBe('');
+		// One device online and an AVD no list holds: the device stays selected and no AVD
+		// is pending (close verifier B1: the pending restore must not bypass §3).
+		const ghost = await setup({ file: fileOf({ schemaVersion: 1, device: { avd: 'nope' } }), devices: [dev('emulator-5554')], avds: [{ name: 'a1' }] });
+		expect(ghost.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
 		const serial = await setup({ file: fileOf({ schemaVersion: 1, device: { serial: 'ZZ' } }), devices: [dev('emulator-5554')] });
 		expect(serial.devices.view.selected).toBe('emulator-5554'); // only the default, not 'ZZ'
 		const early = await setup({
@@ -283,6 +296,8 @@ describe('the file only preselects', () => {
 			avds: [{ name: 'a1' }, { name: 'a2' }],
 		});
 		expect(t.emulators.view.preselected).toBe('a2');
+		// m2e D36: the toolbar holds it as the pending AVD, so ▶ starts it.
+		expect(t.devices.view).toMatchObject({ selected: '', pendingAvd: 'a2' });
 		const running = await setup({
 			file: fileOf({ schemaVersion: 1, device: { avd: 'a2' } }),
 			avds: [{ name: 'a2', running: { device: 'emulator-5556' } }],

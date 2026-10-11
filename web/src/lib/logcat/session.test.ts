@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ConnectionError } from '../api/client';
-import { NO_FILTER } from './filter';
+import { compileQuery } from './query';
+import { DEFAULT_QUERY, loadQuery, QueryBar, queryKey } from './bar';
+import type { KeyValueStorage } from '../ui/layout';
 import { LogcatSession } from './session';
 import { FakeClient, FakeFrames, line, settle } from './testing';
 
@@ -83,13 +85,26 @@ describe('LogcatSession', () => {
 		const t = await make();
 		t.client.lines(0, [line(1, 'keep'), line(2, 'other')], 3);
 		t.frames.tick();
-		t.session.setFilter({ ...NO_FILTER, text: 'keep' });
+		t.session.setFilter(compileQuery('message:keep'));
 		expect(t.text()).toEqual(['[dropped]', 'keep']);
 		t.client.lines(0, [line(3, 'other 2'), line(4, 'keep 2')]);
 		t.frames.tick();
 		expect(t.text()).toEqual(['[dropped]', 'keep', 'keep 2']);
-		t.session.setFilter(NO_FILTER);
+		t.session.setFilter(compileQuery(''));
 		expect(t.session.count).toBe(5);
+	});
+
+	// Decision (D41): crash runs are marked as lines arrive, before the view tests them.
+	it('marks crash lines at ingest', async () => {
+		const t = await make();
+		t.client.lines(0, [
+			line(1, 'FATAL EXCEPTION: main', { tag: 'AndroidRuntime', priority: 'error' }),
+			line(2, 'java.lang.Boom', { tag: 'AndroidRuntime', priority: 'error' }),
+			line(3, 'fine', { tag: 'Other' }),
+		]);
+		t.frames.tick();
+		t.session.setFilter(compileQuery('is:crash'));
+		expect(t.text()).toEqual(['FATAL EXCEPTION: main', 'java.lang.Boom']);
 	});
 
 	// Decision: when the user scrolled away from the bottom the list keeps growing but
@@ -117,7 +132,7 @@ describe('LogcatSession', () => {
 		t.feed(2, 7);
 		t.frames.tick();
 		expect(t.session.newCount).toBe(2);
-		t.session.setFilter({ ...NO_FILTER, text: 'm' });
+		t.session.setFilter(compileQuery('message:m'));
 		expect(t.session.following).toBe(true);
 		expect(t.session.newCount).toBe(0);
 	});
@@ -172,18 +187,19 @@ describe('LogcatSession', () => {
 		expect(t.session.takeShift()).toBe(0);
 	});
 
-	// Decision (D4): the application filter restarts the stream; the panel starts empty
-	// for the new stream, and the old subscription is ended.
-	it('restarts the stream, empty, when the application changes', async () => {
+	// Decision (m2e D40): the stream is always the whole device, filtered by the UI; the
+	// session has no application id to pass, and selecting the same device is no restart.
+	it('never passes an applicationId and does not restart for the same device', async () => {
 		const t = await make();
 		t.feed(3);
 		t.frames.tick();
-		t.session.select('emulator-5554', 'dev.app.id');
+		t.session.select('emulator-5554');
+		expect(t.client.watches).toHaveLength(1);
+		expect(t.client.watches[0]!.params).toEqual({ device: 'emulator-5554' });
+		t.session.select('emulator-5556');
 		expect(t.client.unsubscribed).toEqual(['sub1']);
-		expect(t.client.watches[1]!.params).toEqual({ device: 'emulator-5554', applicationId: 'dev.app.id' });
+		expect(t.client.watches[1]!.params).toEqual({ device: 'emulator-5556' });
 		expect(t.session.count).toBe(0);
-		t.session.select('emulator-5554', 'dev.app.id'); // the same selection is not a restart
-		expect(t.client.watches).toHaveLength(2);
 	});
 
 	it('stops the stream when no device is selected', async () => {
@@ -207,5 +223,91 @@ describe('LogcatSession', () => {
 		t.frames.tick();
 		expect(t.text()).toEqual(['m1', 'm2', 'm3', 'm4']);
 		expect(t.client.watches[1]!.params.since).toBe(line(3, '').time);
+	});
+});
+
+describe('the query bar (m2e D38)', () => {
+	const mem = (init: Record<string, string> = {}): KeyValueStorage & { data: Record<string, string> } => ({
+		data: init,
+		getItem(k) {
+			return this.data[k] ?? null;
+		},
+		setItem(k, v) {
+			this.data[k] = v;
+		},
+	});
+	async function withBar(storage: KeyValueStorage | null = mem()) {
+		const t = await make();
+		const mine = new Set<string>();
+		const bar = new QueryBar({ session: t.session, mine, storage, workspaceId: 'w1' });
+		const feedLines = (...ls: ReturnType<typeof line>[]) => {
+			t.client.lines(0, ls);
+			t.frames.tick();
+		};
+		return { ...t, bar, mine, feedLines };
+	}
+
+	// Decision (D38): a query with an error shows the error with its position and the last
+	// valid query stays applied (a typo must not silently change what is shown).
+	it('keeps the previous filter and its rows while the text has an error', async () => {
+		const t = await withBar();
+		t.bar.set('message:keep');
+		t.feedLines(line(1, 'keep this'), line(2, 'drop this'));
+		expect(t.text()).toEqual(['keep this']);
+		t.bar.set('message:keep level:loud');
+		expect(t.bar.view.error).toMatchObject({ at: expect.any(Number) });
+		expect(t.bar.view.error!.message).toContain('level');
+		expect(t.text()).toEqual(['keep this']);
+		t.feedLines(line(3, 'keep too'), line(4, 'nope'));
+		expect(t.text()).toEqual(['keep this', 'keep too']);
+		t.bar.set('message:drop');
+		expect(t.bar.view.error).toBeNull();
+		expect(t.text()).toEqual(['drop this']);
+	});
+
+	// Decision (D38): package:mine is the default, and what the bar shows tells when the set is empty.
+	it('starts at package:mine and reports that it uses mine', async () => {
+		const t = await withBar();
+		expect(t.bar.view).toMatchObject({ text: DEFAULT_QUERY, error: null, usesMine: true });
+		t.bar.set('tag:x');
+		expect(t.bar.view.usesMine).toBe(false);
+	});
+
+	// Decision (D39): the set is read live; reapply tests the held lines against the new ids.
+	it('shows a held line once its package joins mine', async () => {
+		const t = await withBar();
+		t.feedLines(line(1, 'a', { package: 'dev.app' }));
+		expect(t.text()).toEqual([]);
+		t.mine.add('dev.app');
+		t.bar.reapply();
+		expect(t.text()).toEqual(['a']);
+	});
+
+	// Decision (D38): the query is remembered per project under droidyard.ui.logcat.<id>.
+	it('restores the remembered query of its own project only', async () => {
+		const st = mem({ [queryKey('w1')]: 'tag:abc', [queryKey('w2')]: 'tag:other' });
+		const t = await withBar(st);
+		expect(t.bar.view.text).toBe('tag:abc');
+		t.bar.set('level:error');
+		expect(st.data[queryKey('w1')]).toBe('level:error');
+		expect(st.data[queryKey('w2')]).toBe('tag:other');
+		t.bar.set('level:bogus');
+		expect(st.data[queryKey('w1')]).toBe('level:error'); // an invalid text is not remembered
+	});
+
+	it('leaves package:mine when the storage throws or is absent', async () => {
+		const bad: KeyValueStorage = {
+			getItem() {
+				throw new Error('blocked');
+			},
+			setItem() {
+				throw new Error('blocked');
+			},
+		};
+		expect(loadQuery(bad, 'w1')).toBe(DEFAULT_QUERY);
+		expect(loadQuery(null, 'w1')).toBe(DEFAULT_QUERY);
+		const t = await withBar(bad);
+		expect(t.bar.view.text).toBe(DEFAULT_QUERY);
+		expect(() => t.bar.set('tag:x')).not.toThrow();
 	});
 });

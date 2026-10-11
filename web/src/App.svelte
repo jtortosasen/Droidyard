@@ -10,7 +10,7 @@
 	import { landing, ProjectsModel } from './lib/projects/projects';
 	import { SessionsModel } from './lib/projects/sessions';
 	import Projects from './lib/projects/Projects.svelte';
-	import Rail from './lib/projects/Rail.svelte';
+	import SessionsToggle from './lib/projects/SessionsToggle.svelte';
 	import Project from './lib/start/Project.svelte';
 	import Status from './lib/ui/Status.svelte';
 
@@ -46,8 +46,6 @@
 	let projectsView = $state.raw<ProjectsView | null>(null);
 	// A `w` the daemon refused: the panel stays up with the reason until a project is chosen.
 	let refused = $state(false);
-	// The panel, pinned from "All projects".
-	let pinned = $state(false);
 
 	$effect(() => {
 		if (token === null) return;
@@ -145,9 +143,15 @@
 	<Status {connection} {health} {healthError} />
 {/snippet}
 
-{#snippet rail()}
+{#snippet sessionsToggle(column: { open: boolean; toggle: () => void })}
+	{#if sessions}
+		<SessionsToggle {sessions} open={column.open} ontoggle={column.toggle} />
+	{/if}
+{/snippet}
+
+{#snippet sessionsPanel()}
 	{#if projects && sessions}
-		<Rail {projects} {sessions} selected={route.view === 'project' ? route.workspace : null} bind:pinned />
+		<Projects {projects} {sessions} selected={route.view === 'project' ? route.workspace : null} />
 	{/if}
 {/snippet}
 
@@ -173,13 +177,13 @@
 				{connection}
 				workspaceId={route.workspace}
 				onmissing={missing}
-				onprojects={() => (pinned = true)}
 				{status}
-				{rail}
+				{sessionsToggle}
+				{sessionsPanel}
 			/>
 		{/key}
 	{:else if lands.kind === 'panel'}
-		<!-- No project to show: the panel itself, pinned, with recents, "Open folder..." and any reason. -->
+		<!-- No project to show: the panel itself, with recents, "Open folder..." and any reason. -->
 		<main class="solo">
 			<h1>Droidyard {@render status()}</h1>
 			<Projects {projects} {sessions} selected={null} />
