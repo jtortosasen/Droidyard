@@ -53,7 +53,9 @@ to "run in the background". Every invocation is an operation, queries included.
   `workspace`, a workspace not open, a policy denial that needs no I/O) has an `error` and
   **no** `operation`.
 - **A failed build is `completed`**, with `outcome: "failed"` in its result. `failed` is
-  reserved for calls that could not be performed.
+  reserved for calls that could not be performed. A file batch whose items failed is
+  `completed` the same way, each item carrying its code
+  ([ADR-0053](../adr/0053-file-operations.md) §2).
 - The fields are `capability.ResponseEnvelope`.
 
 ### Error model

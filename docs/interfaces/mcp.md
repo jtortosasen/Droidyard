@@ -172,6 +172,9 @@ structured content stays the full result, for typed clients and the UI
 - A build that **ran and failed** is a *successful* call with `outcome: failed` and
   structured problems. A failed build is information, not an error.
 - A call **still running** is a *successful* call returning the operation view.
+- A **batch** (`file_move`) whose items failed is a *successful* call: each item carries its
+  own code and the text lists the failures first ([ADR-0053](../adr/0053-file-operations.md)
+  §2).
 
 ### Images and artifacts
 
