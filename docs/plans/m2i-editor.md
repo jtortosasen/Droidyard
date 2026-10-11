@@ -106,7 +106,7 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 1.
 - Not here: no `revision` on `file.watch` events (a hash per change per tick); `file.move`, `copy`, `delete` and `restore` do not take the mutex (a register row); no lock against writers outside the daemon (impossible; the window is a register row).
 - Rests on: the compare and the rename are not interleaved by another daemon write (level 3, the in-section seam test); a foreign writer's window stays a stated limit.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/domain/file/revision_test.go` (13 tests and `BenchmarkRevisionHash`); seen failing with the mutex removed (rerun by the verifier: "B finished while A held the section"), the no-op judged after the revision, the cause dropped, and, after the verifier's round, `WriteParams.UnmarshalJSON` removed (null decoded) and the absent-by-existence check removed (FILE_TOO_LARGE). The FIFO test proves the early type check, not `O_NONBLOCK` (the verifier's mutation: it passes without it); the non-blocking open between the `Lstat` and the open is proven by reading only. SHA-256 on an M3, warm cache: 512 KiB 0.25 ms, 8 MiB 4.5 ms. `tools/list` 34,637 → 34,786 B of 35,000; corpus 26,313 words, unchanged (cuts in `files.md`). Schema diff: exactly the Schema line. Level 5 (K1, `droidyard call`, `l4-s2-012139`): `system.health` 0.20.0; `file.read` revision = the file's SHA-256; `file.write` with it → ok, the returned revision = the new SHA-256; again with the old one → `FILE_REVISION_CONFLICT`, `details {path}`, next step "call file.read and apply the change again", the file's SHA-256 unchanged. `go test ./...` green.
 
 ### 3. CodeMirror in place of the viewer, under the CSP (D2, D3)
 
@@ -258,5 +258,13 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 | 2 | | [bug] a final line cut mid-rune returns U+FFFD, so the whole-file check fails although nothing changed | D6: equal page revisions with a whole-file mismatch open read-only |
 | 2 | | [test] the "never an echo" half untested | step 7 test line |
 | 2 | | Nits: distinct contents and a lock seam in the serialise test; `writeSeam` before the mutex; a move's `deleted` then `created`; the revision in `cause` | step 2 Builds and Check; D7; Q1 Alternatives |
+| Step 2 | proceed | [contract] an explicit `ifRevision: null` turned the check off (policy refuses it) | refused (§Changes) |
+| Step 2 | | [test] the FIFO test does not exercise `O_NONBLOCK` (mutation passes) | stated in the Evidence |
+| Step 2 | | [contract] `absent` against an existing file over 8 MiB answered `FILE_TOO_LARGE` | a conflict (§Changes) |
+| Step 2 | | Nits: "under the lock" in the early cause; the `absent` message; the error comment; `files.md` cuts | fixed; cuts kept (in the code) |
+| Step 3 | proceed | [bug] a re-read replaced the whole text, so the view jumps to the top (CM maps the anchor to 0) | step 4: `setDocument` replaces only the differing middle |
+| Step 3 | | Nits: the theme's CSP reason; "Unverified here"; the Evidence's SHA-256 check instead of `.cm-content`; two weak `surface` tests; `editorError` never cleared | fixed with step 3's commit |
 
 ## Changes
+
+- Step 2, the verifier's round (Delegated, before 0.20.0 ships since tightening later would break callers): an explicit `"ifRevision": null` is refused, as `policy.update` refuses it; `ifRevision: absent` against an existing file over 8 MiB is `FILE_REVISION_CONFLICT`, settled by existence, not `FILE_TOO_LARGE`.

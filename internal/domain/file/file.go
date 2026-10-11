@@ -55,10 +55,19 @@ type Options struct {
 	// Trash holds what file.delete removes and file.restore returns (ADR-0054). Nil (the
 	// golden registry's descriptors) makes both answer FILE_IO_FAILED.
 	Trash *Trash
+	// WriteLocks serialises file.write per project root (ADR-0058 §4). Nil (the golden
+	// registry's descriptors, a test) makes a set private to that Register.
+	WriteLocks *WriteLocks
+	// RevisionMax overrides the largest file that has a revision (8 MiB); <= 0 keeps it.
+	// A test scales it down.
+	RevisionMax int64
 }
 
 // Register adds file.list, file.read and file.write to the registry.
 func Register(reg *capability.Registry, opts Options) {
+	if opts.WriteLocks == nil {
+		opts.WriteLocks = NewWriteLocks()
+	}
 	reg.MustRegister(capability.Descriptor{
 		Name:        "file.list",
 		Kind:        capability.Query,
@@ -142,6 +151,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Errors: []capability.ErrorCode{
 			capability.ErrFileOutsideRoot, capability.ErrFileWrongType,
 			capability.ErrFileIOFailed, capability.ErrInvalidParams,
+			capability.ErrFileRevisionConflict, capability.ErrFileTooLarge,
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			r, err := opts.resolver(call)
@@ -367,7 +377,7 @@ func (o Options) resolver(call *capability.Call) (*resolver, *capability.Error) 
 			WithNextStep("call workspace.open on it, then retry")
 	}
 	return &resolver{root: root, env: o.Env, maxCopyEntries: o.CopyMaxEntries, maxCopyBytes: o.CopyMaxBytes,
-		workspace: call.Workspace, trash: o.Trash}, nil
+		workspace: call.Workspace, trash: o.Trash, writeLocks: o.WriteLocks, maxRevision: o.RevisionMax}, nil
 }
 
 // openRoot opens the canonical root as an os.Root. Containment is the root's, so every

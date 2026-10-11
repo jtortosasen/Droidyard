@@ -402,11 +402,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			}
 			return info.Root, true
 		},
-		Env:      env,
-		Bus:      bus,
-		Watchers: watchers,
-		Tick:     watchTick,
-		Trash:    trash,
+		Env:        env,
+		Bus:        bus,
+		Watchers:   watchers,
+		WriteLocks: file.NewWriteLocks(),
+		Tick:       watchTick,
+		Trash:      trash,
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)

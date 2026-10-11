@@ -34,6 +34,18 @@ type resolver struct {
 	// trash folder, and a nil trash (the golden registry) answers FILE_IO_FAILED.
 	workspace string
 	trash     *Trash
+	// writeLocks serialises file.write per root; maxRevision is the largest file with a
+	// revision, 0 meaning the default (Options.WriteLocks, RevisionMax).
+	writeLocks  *WriteLocks
+	maxRevision int64
+}
+
+// revisionMax is the largest file that has a revision.
+func (r *resolver) revisionMax() int64 {
+	if r.maxRevision > 0 {
+		return r.maxRevision
+	}
+	return maxRevision
 }
 
 // resolve maps path to a slash-separated name relative to the root, per D2: "" and "."
