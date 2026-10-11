@@ -143,9 +143,9 @@
 	<Status {connection} {health} {healthError} />
 {/snippet}
 
-{#snippet sessionsToggle(column: { open: boolean; toggle: () => void })}
+{#snippet sessionsToggle(column: { open: boolean; toggle: () => void; attract: number; register: (el: HTMLElement | null) => void })}
 	{#if sessions}
-		<SessionsToggle {sessions} open={column.open} ontoggle={column.toggle} />
+		<SessionsToggle {sessions} open={column.open} ontoggle={column.toggle} attract={column.attract} register={column.register} />
 	{/if}
 {/snippet}
 

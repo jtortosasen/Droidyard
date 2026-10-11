@@ -70,7 +70,7 @@
 		/** The connection and health line App owns, shown in the status bar. */
 		status: Snippet;
 		/** The sessions toggle, which App owns (it outlives the project view). */
-		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void }]>;
+		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void; attract: number; register: (el: HTMLElement | null) => void }]>;
 		/** The sessions column's body (the projects and agents panel), which App owns. */
 		sessionsPanel: Snippet;
 	}

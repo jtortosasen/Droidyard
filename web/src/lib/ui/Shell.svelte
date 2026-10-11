@@ -8,6 +8,7 @@
 	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import MonitorSmartphone from '@lucide/svelte/icons/monitor-smartphone';
 	import PanelBottomClose from '@lucide/svelte/icons/panel-bottom-close';
+	import Pin from '@lucide/svelte/icons/pin';
 	import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
 	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
 	import Smartphone from '@lucide/svelte/icons/smartphone';
@@ -19,6 +20,7 @@
 	import Hammer from '@lucide/svelte/icons/hammer';
 	import { browserStorage, clampSessionsSize, clampSize, closeSessions, loadLayout, openSessions, saveLayout, setRegion, type Region } from './layout';
 	import { activate, disabledTitle, initialActive, panelsIn, type PanelDef, type PanelRegion, type ShellApi } from './panels';
+	import { PeekModel } from './peek';
 	import Splitter from './Splitter.svelte';
 
 	// The window the owner described (plan m2d step 2, m2e step 5): a toolbar, the sessions
@@ -38,7 +40,7 @@
 		/** Full-width strips under the toolbar (the trust banner). */
 		banners?: Snippet;
 		/** The toolbar's first control: the sessions toggle (D33), given the column's state. */
-		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void }]>;
+		sessionsToggle: Snippet<[{ open: boolean; toggle: () => void; attract: number; register: (el: HTMLElement | null) => void }]>;
 		/** The sessions column's body, under its title and the density switch. */
 		sessions: Snippet;
 		/** Page-level overlays (the command palette), given what only the shell knows. */
@@ -102,6 +104,88 @@
 	function resize(region: Region, n: number) {
 		layout.size[region] = clampSize(region, n);
 	}
+
+	// The sessions overlay (ADR-0052, plan m2f D43-D45). PeekModel decides from geometry; the
+	// shell feeds it one coalesced pointer sample per frame and draws its view. The overlay
+	// never touches `layout`: nothing it does is saved.
+	const peek = new PeekModel();
+	let view = $state(peek.view);
+	let toolbarEl: HTMLElement | undefined;
+	let middleEl: HTMLElement | undefined;
+	let overlayEl: HTMLElement | null = $state(null);
+	let toggleEl: HTMLElement | null = null;
+	function registerToggle(el: HTMLElement | null) {
+		toggleEl = el;
+	}
+
+	$effect(() => {
+		peek.setDocked(layout.sessions.open);
+		peek.setWidth(layout.sessions.size);
+	});
+
+	$effect(() => {
+		const off = peek.subscribe(() => (view = peek.view));
+		const doc = document.documentElement;
+		let last: PointerEvent | null = null;
+		let frame = 0;
+
+		const sample = () => {
+			frame = 0;
+			const e = last;
+			if (!e || !toolbarEl || !middleEl) return;
+			const top = toolbarEl.getBoundingClientRect().top;
+			const bottom = middleEl.getBoundingClientRect().bottom;
+			const inBand = e.clientY >= top && e.clientY <= bottom && document.querySelector('dialog:modal') === null;
+			let onToggle = false;
+			if (toggleEl) {
+				const r = toggleEl.getBoundingClientRect();
+				onToggle = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+			}
+			peek.pointer({ x: e.clientX, inBand, onToggle, buttons: e.buttons, pointerType: e.pointerType });
+		};
+		const onMove = (e: PointerEvent) => {
+			last = e;
+			if (frame === 0) frame = requestAnimationFrame(sample);
+		};
+		const onLeave = () => {
+			last = null;
+			if (frame !== 0) cancelAnimationFrame(frame);
+			frame = 0;
+			peek.windowLeave();
+		};
+		const onDown = (e: PointerEvent) => {
+			const path = e.composedPath();
+			if ((overlayEl && path.includes(overlayEl)) || (toggleEl && path.includes(toggleEl))) return;
+			peek.pointerDownOutside();
+		};
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') peek.escape();
+		};
+		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+		const onMq = () => peek.setReducedMotion(mq.matches);
+		onMq();
+
+		window.addEventListener('pointermove', onMove, { passive: true });
+		doc.addEventListener('pointerleave', onLeave, { passive: true });
+		window.addEventListener('pointerdown', onDown, { capture: true, passive: true });
+		window.addEventListener('keydown', onKey);
+		mq.addEventListener('change', onMq);
+		return () => {
+			window.removeEventListener('pointermove', onMove);
+			doc.removeEventListener('pointerleave', onLeave);
+			window.removeEventListener('pointerdown', onDown, { capture: true });
+			window.removeEventListener('keydown', onKey);
+			mq.removeEventListener('change', onMq);
+			if (frame !== 0) cancelAnimationFrame(frame);
+			off();
+			peek.dispose();
+		};
+	});
+
+	function focusChange(e: FocusEvent) {
+		const next = e.relatedTarget;
+		peek.setFocusInside(e.type === 'focusin' || (next instanceof Node && overlayEl !== null && overlayEl.contains(next)));
+	}
 </script>
 
 {#snippet tabs(region: PanelRegion, label: string)}
@@ -130,6 +214,22 @@
 	</button>
 {/snippet}
 
+{#snippet column(overlay: boolean)}
+	<div class="column-head">
+		<div class="title-row">
+			<h2>Sessions</h2>
+			{#if overlay}
+				<button type="button" class="icon-button" title="Dock the sessions column" aria-label="Dock the sessions column" onclick={toggleSessions}><Pin size={14} /></button>
+			{/if}
+		</div>
+		<div class="segmented" role="group" aria-label="Density">
+			<button type="button" class="pill" class:current={layout.density === 'compact'} aria-pressed={layout.density === 'compact'} onclick={() => (layout.density = 'compact')}>Compact</button>
+			<button type="button" class="pill" class:current={layout.density === 'comfortable'} aria-pressed={layout.density === 'comfortable'} onclick={() => (layout.density = 'comfortable')}>Comfortable</button>
+		</div>
+	</div>
+	<div class="body scroll">{@render sessions()}</div>
+{/snippet}
+
 {#snippet panes(region: PanelRegion)}
 	{#each panelsIn(region).filter((p) => p.disabled === undefined) as p (p.id)}
 		<div class="pane" class:current={active[region] === p.id} role="tabpanel" aria-label={p.label}>
@@ -139,8 +239,8 @@
 {/snippet}
 
 <div class="shell" data-density={layout.density}>
-	<header class="toolbar">
-		{@render sessionsToggle({ open: layout.sessions.open, toggle: toggleSessions })}
+	<header class="toolbar" bind:this={toolbarEl}>
+		{@render sessionsToggle({ open: layout.sessions.open, toggle: toggleSessions, attract: view.attract, register: registerToggle })}
 		{#each panelsIn('toolbar').filter((p) => !p.end) as p (p.id)}
 			<div class="tool">{@render content(p.id, api)}</div>
 		{/each}
@@ -152,19 +252,27 @@
 	</header>
 	{#if banners}{@render banners()}{/if}
 
-	<div class="middle">
+	<div class="middle" bind:this={middleEl}>
 		{#if layout.sessions.open}
 			<aside class="sessions" style:width="{layout.sessions.size}px" aria-label="Sessions">
-				<div class="column-head">
-					<h2>Sessions</h2>
-					<div class="segmented" role="group" aria-label="Density">
-						<button type="button" class="pill" class:current={layout.density === 'compact'} aria-pressed={layout.density === 'compact'} onclick={() => (layout.density = 'compact')}>Compact</button>
-						<button type="button" class="pill" class:current={layout.density === 'comfortable'} aria-pressed={layout.density === 'comfortable'} onclick={() => (layout.density = 'comfortable')}>Comfortable</button>
-					</div>
-				</div>
-				<div class="body scroll">{@render sessions()}</div>
+				{@render column(false)}
 			</aside>
 			<Splitter axis="x" sign={1} value={layout.sessions.size} clamp={clampSessionsSize} onchange={(n) => (layout.sessions.size = clampSessionsSize(n))} label="Resize the sessions column" />
+		{:else if view.state !== 'hidden'}
+			<aside
+				class="sessions overlay"
+				class:shown={view.state === 'shown'}
+				bind:this={overlayEl}
+				style:width="{layout.sessions.size}px"
+				style:transform={view.state === 'shown' ? 'translateX(0)' : `translateX(calc(-100% + ${view.offset}px))`}
+				aria-label="Sessions"
+				aria-hidden={view.state === 'feint' ? 'true' : undefined}
+				inert={view.state === 'feint'}
+				onfocusin={focusChange}
+				onfocusout={focusChange}
+			>
+				{@render column(true)}
+			</aside>
 		{/if}
 
 		{#if !layout.open.left}
@@ -328,6 +436,45 @@
 		min-height: 0;
 		background: var(--bg-panel);
 		border-right: 1px solid var(--border);
+	}
+	/* The overlay floats over the tree and splitters without moving any box (D43); in the
+	   feint it is inert and takes no pointer. */
+	.sessions.overlay {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		z-index: 20;
+		box-shadow: 0 0 16px rgb(0 0 0 / 0.35);
+	}
+	.sessions.overlay:not(.shown) {
+		pointer-events: none;
+	}
+	/* Shown, from the feint or straight from a hover, it slides in (D44: 160 ms ease-out). */
+	.sessions.overlay.shown {
+		animation: slide-in 160ms ease-out;
+	}
+	@keyframes slide-in {
+		from {
+			transform: translateX(-100%);
+		}
+		to {
+			transform: translateX(0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.sessions.overlay.shown {
+			animation: none;
+		}
+	}
+	.title-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: var(--sp-3);
+	}
+	.title-row h2 {
+		margin: 0;
 	}
 	.column-head {
 		flex: none;
