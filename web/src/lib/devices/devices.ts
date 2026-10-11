@@ -108,13 +108,23 @@ export class DevicesModel {
 		if (this.#apply()) this.#changed();
 	}
 
-	/** Selects the preselected device if it is listed and online; whether the selection changed. */
+	/**
+	 * Selects the preselected device if it is listed and online; a preselected AVD that is not
+	 * running is the pending AVD (m2e D36), so ▶ starts it. Whether the selection changed.
+	 */
 	#apply(): boolean {
 		const p = this.#pref;
 		if (p === null || this.#touched) return false;
 		const hit = this.#devices.find((d) => d.online && ('avd' in p ? d.avdName === p.avd : d.device === p.serial));
-		if (hit === undefined || hit.device === this.#selected) return false;
+		if (hit === undefined) {
+			if (!('avd' in p) || this.#pendingAvd === p.avd) return false;
+			this.#selected = '';
+			this.#pendingAvd = p.avd;
+			return true;
+		}
+		if (hit.device === this.#selected && this.#pendingAvd === '') return false;
 		this.#selected = hit.device;
+		this.#pendingAvd = '';
 		return true;
 	}
 

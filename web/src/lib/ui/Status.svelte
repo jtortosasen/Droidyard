@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ConnectionState } from '../api/client';
 	import type { Result } from '../api/capabilities.gen';
+	import { formatUptime, liveUptime } from './uptime';
 
 	// The connection and the daemon's health, folded into one compact line for the toolbar
 	// or the projects page's header. Every field is a text node.
@@ -11,11 +12,15 @@
 	}
 	let { connection, health, healthError }: Props = $props();
 
-	function uptime(seconds: number): string {
-		const h = Math.floor(seconds / 3600);
-		const m = Math.floor((seconds % 3600) / 60);
-		return h > 0 ? `${h} h ${m} min` : m > 0 ? `${m} min ${seconds % 60} s` : `${seconds} s`;
-	}
+	// system.health answers once: the uptime shown advances from the moment it arrived.
+	let receivedAt = $state(Date.now());
+	let now = $state(Date.now());
+	$effect(() => {
+		if (health === null) return;
+		receivedAt = now = Date.now();
+		const timer = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(timer);
+	});
 </script>
 
 <span class="status">
@@ -24,7 +29,7 @@
 	{#if health}
 		<span class="muted">
 			daemon {health.version ?? 'unknown version'}, up
-			{health.uptimeSeconds === undefined ? 'unknown' : uptime(health.uptimeSeconds)}
+			{health.uptimeSeconds === undefined ? 'unknown' : formatUptime(liveUptime(health.uptimeSeconds, receivedAt, now))}
 		</span>
 	{/if}
 	{#if healthError}

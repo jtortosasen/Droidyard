@@ -5,7 +5,7 @@
 	import Spinner from '../projects/Spinner.svelte';
 	import { buildStatus } from './status';
 
-	// The build status in the toolbar's centre (plan m2d step 8): any client's build of this
+	// The build status, compact, opening the toolbar's right-aligned group (plan m2d step 8, m2e D34): any client's build of this
 	// workspace, from the build mirror, with Cancel. Every field is a text node.
 	interface Props {
 		build: BuildModel;
@@ -69,12 +69,9 @@
 		padding: 0 var(--sp-5);
 		height: calc(var(--row) + 2px);
 		border-radius: var(--radius-control);
-		background: var(--bg-window);
-		border: 1px solid var(--border);
 		font-size: var(--fs-small);
 		white-space: nowrap;
-		min-width: 160px;
-		justify-content: center;
+		justify-content: flex-end;
 	}
 	.text {
 		color: var(--text);

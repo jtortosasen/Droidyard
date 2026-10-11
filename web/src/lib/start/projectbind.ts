@@ -46,6 +46,8 @@ export function bindProjectFile(m: ProjectModels): () => void {
 			if (device !== null) m.file.update({ device });
 		}),
 	);
+	// D36: an AVD picked in the toolbar and not yet running is the file's {avd} at once.
+	offs.push(m.devices.subscribeAvdChoice((avd) => m.file.update({ device: { avd } })));
 	offs.push(m.emulators.subscribeChoice((avd) => m.file.update({ device: { avd } })));
 	offs.push(
 		m.install.subscribeInstalled((applicationId) => {
