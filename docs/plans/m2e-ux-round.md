@@ -1,6 +1,6 @@
 # Plan: Milestone 2e — a UX round: collapsible panels, the sessions panel beside the tree, a status bar, a run toolbar and a Logcat query bar
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-11, Delegated (owner: "hasta terminar el hito"). Q1, Q2 and D31–D41 applied as recommended; the owner can revert any Delegated choice.
 - Date: 2026-10-11
 - Milestone: the owner's six UX changes of 2026-10-11 after trying 2d, before the file operations (below). The file operations become **2f** (step 1).
@@ -50,14 +50,14 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 
 ## Acceptance
 
-- [ ] A1. Left, bottom and right each collapse from their own header to a strip that restores them; the top-right toggles and the rail are gone; the state survives a reload. Source: owner 1, 2; D32. Proven by: step 5, step 8
-- [ ] A2. One sessions toggle where the brand was, with the agent count; the column docks left of the tree; opening collapses the right panel and closing restores it unless the user acted on it; density at its top. Source: owner 2, 3; Q1; D33. Proven by: step 5, step 8
-- [ ] A3. A bottom status bar holds the connection, the daemon version and uptime. Source: owner 4; D35. Proven by: step 5, step 8
-- [ ] A4. The toolbar's right-aligned `[device ▾] [module · variant ▾] [▶]`: ▶ starts a chosen AVD, assembles, installs the build it made and launches; ■ cancels the running step and nothing follows; the build status, hammer and task selector kept; the right panel has no selector of its own. Source: owner 5; D34, D36, D37. Proven by: step 6, step 7, step 8
-- [ ] A5. `device.watchLogs` lines carry `package` when the line's uid has exactly one package, from the first line of a freshly installed app's first process; the schema diff is that and `0.18.0`; 34 MCP tools. Source: Q2. Proven by: step 2
-- [ ] A6. Logcat: one query bar filtering as typed (D38's keys, `package:mine` following a relaunch, `is:crash` showing the crash run), errors inline with the last query kept, the device selector on its left, Pause, Clear and Restart as icons. Source: owner 6; D38–D41. Proven by: step 3, step 4, step 8
-- [ ] A7. Same primitive: every `client=ui` call in the trace is published; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 8
-- [ ] A8. `mvp.md`, `docs/README.md`, the register and the plans index name 2e and 2f and record what 2e closed and left. Source: `milestone-workflow` step 6. Proven by: step 1, step 9
+- [x] A1. Left, bottom and right each collapse from their own header to a strip that restores them; the top-right toggles and the rail are gone; the state survives a reload. Source: owner 1, 2; D32. Proven by: step 5, step 8
+- [x] A2. One sessions toggle where the brand was, with the agent count; the column docks left of the tree; opening collapses the right panel and closing restores it unless the user acted on it; density at its top. Source: owner 2, 3; Q1; D33. Proven by: step 5, step 8
+- [x] A3. A bottom status bar holds the connection, the daemon version and uptime. Source: owner 4; D35. Proven by: step 5, step 8
+- [x] A4. The toolbar's right-aligned `[device ▾] [module · variant ▾] [▶]`: ▶ starts a chosen AVD, assembles, installs the build it made and launches; ■ cancels the running step and nothing follows; the build status, hammer and task selector kept; the right panel has no selector of its own. Source: owner 5; D34, D36, D37. Proven by: step 6, step 7, step 8
+- [x] A5. `device.watchLogs` lines carry `package` when the line's uid has exactly one package, from the first line of a freshly installed app's first process; the schema diff is that and `0.18.0`; 34 MCP tools. Source: Q2. Proven by: step 2
+- [x] A6. Logcat: one query bar filtering as typed (D38's keys, `package:mine` following a relaunch, `is:crash` showing the crash run), errors inline with the last query kept, the device selector on its left, Pause, Clear and Restart as icons. Source: owner 6; D38–D41. Proven by: step 3, step 4, step 8
+- [x] A7. Same primitive: every `client=ui` call in the trace is published; the CDP log only `/`, `/assets/…`, `/favicon.ico`, `/v1/ws`; no CSP violation. Source: `mvp.md` §Phase 2; `http-websocket.md` §Security baseline. Proven by: step 8
+- [x] A8. `mvp.md`, `docs/README.md`, the register and the plans index name 2e and 2f and record what 2e closed and left. Source: `milestone-workflow` step 6. Proven by: step 1, step 9
 
 ## Steps
 
@@ -166,7 +166,7 @@ Baseline on 2026-10-11 at `7f5ecc3` (macOS): `go vet ./...` printed nothing; `go
 - Needs: step 8.
 - Not here: 2f's plan.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the register: row 214's rail clause closed (ADR-0050); rows added for Not in this milestone (`process:`; match case, autocomplete, history, favourites, saved filters, split panes, format options; Run beyond ▶ and ■; `package` on `device.logs`) and for the open Unverified items (`pm -U` beyond API 31 and multi-user; appId reuse; Studio's semantics and the owner's headed trial; `age:` and clock skew) and the `pm` retry each second while it fails; `docs/README.md` names 2f next; the index `Done`. `go test ./internal/doccheck` and `go test ./...` green. Opus verifier over A1–A8: see Review.
 
 ## Not in this milestone
 
