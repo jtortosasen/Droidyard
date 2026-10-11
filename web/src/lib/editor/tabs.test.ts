@@ -95,6 +95,22 @@ describe('TabsModel', () => {
 		expect(t.view.tabs.map((x) => x.path)).toEqual(['a.kt', 'b.kt']);
 	});
 
+	// Decision (D57): a rename re-points the file's tab and the tabs under a moved folder by
+	// path prefix, never a sibling that shares the prefix (src/ab for src/a).
+	it('moved re-points a file, a folder\'s tabs and the active one, not a prefix sibling', () => {
+		const t = new TabsModel(null, 'w1');
+		for (const p of ['src/a/X.kt', 'src/a/deep/Y.kt', 'src/ab/Z.kt', 'src/a']) {
+			t.open(p);
+			t.keep(p);
+		}
+		t.activate('src/a/deep/Y.kt');
+		t.moved('src/a', 'src/c');
+		expect(t.view.tabs.map((x) => x.path)).toEqual(['src/c/X.kt', 'src/c/deep/Y.kt', 'src/ab/Z.kt', 'src/c']);
+		expect(t.view.active).toBe('src/c/deep/Y.kt');
+		t.moved('src/ab/Z.kt', 'src/ab/W.kt');
+		expect(t.view.tabs.map((x) => x.path)).toContain('src/ab/W.kt');
+	});
+
 	// Decision (D25): storage is a convenience: a refusing or garbage storage changes nothing.
 	it('survives a storage that throws or holds garbage', async () => {
 		const throwing: KeyValueStorage = {

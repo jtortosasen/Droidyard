@@ -365,9 +365,16 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The daemon's live file.watch pollers: a workspace close ends that workspace's
 	// watches, each publishing its stopped event (plan m1j, D9).
 	watchers := file.NewWatchers()
+	// The trash of file.delete, under the state root, swept when a workspace opens beside
+	// the build history's sweep (ADR-0054 §3). Without a state store there is none, and
+	// file.delete and file.restore answer FILE_IO_FAILED.
+	var trash *file.Trash
+	if st != nil {
+		trash = file.NewTrash(st)
+	}
 	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
 		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
-		OnOpen: func(id, _ string) { history.Sweep(id) }})
+		OnOpen: func(id, root string) { history.Sweep(id); trash.Sweep(id, root) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
 	authorize := pol.Authorize(func(call *capability.Call) (string, bool) {
@@ -399,6 +406,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		Bus:      bus,
 		Watchers: watchers,
 		Tick:     watchTick,
+		Trash:    trash,
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)

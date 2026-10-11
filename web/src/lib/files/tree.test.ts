@@ -34,6 +34,17 @@ describe('the file tree rows', () => {
 		expect(model.rows[1]!.depth).toBe(2);
 	});
 
+	// Decision (D51; the close verifier's finding): a folder selected inside a compacted chain
+	// is shown selected on the row that holds it, and an operation acts on that row's path.
+	// Seen failing with the raw selected path.
+	it('selects and acts on the compacted row that holds a selected folder', () => {
+		const { model } = setup([e('src', 'dir'), e('src/main', 'dir'), e('src/main/A.kt')]);
+		expect(model.rows[0]!.path).toBe('src/main');
+		model.select('src');
+		expect([...model.view.selection]).toEqual(['src/main']);
+		expect(model.operands()).toEqual(['src/main']);
+	});
+
 	// Decision: rows are those of expanded folders only, so an event under a collapsed
 	// folder changes no row, and one under an expanded folder adds one.
 	it('adds a created entry under an expanded folder and none under a collapsed one', async () => {
@@ -222,5 +233,48 @@ describe('listing', () => {
 		await model.reveal('a/b/c.kt');
 		expect(model.view.selected).toBe('a/b/c.kt');
 		expect(labels(model)).toContain('c.kt');
+	});
+});
+
+describe('follow', () => {
+	// Decision (D58): a new or renamed path is selected and revealed when the watch reports
+	// it, a new folder also opened.
+	it('selects the path when the watch reports it, and opens a folder', async () => {
+		const { model } = setup([e('a', 'dir'), e('a/old.kt')]);
+		model.follow('a/new.kt');
+		expect(model.view.selected).toBeNull();
+		model.applyChanges([{ path: 'a/new.kt', kind: 'created', type: 'file' }]);
+		await settle();
+		expect(model.view.selected).toBe('a/new.kt');
+		model.follow('a/dir', true);
+		model.applyChanges([{ path: 'a/dir', kind: 'created', type: 'dir' }]);
+		await settle();
+		expect(model.view.selected).toBe('a/dir');
+		expect(model.rows.find((r) => r.path === 'a/dir')!.expanded).toBe(true);
+	});
+
+	it('selects at once a path the watch already reported', async () => {
+		const { model } = setup([e('a', 'dir'), e('a/x.kt')]);
+		model.follow('a/x.kt');
+		await settle();
+		expect(model.view.selected).toBe('a/x.kt');
+	});
+});
+
+describe('the tree selection (D51)', () => {
+	// Decision (D51): ⇧-click selects in visible row order; operands are the top-most; a deleted row leaves the selection.
+	it('selects a range, acts on top-most paths, and prunes what the watch removed', async () => {
+		const { model } = setup([e('a', 'dir'), e('a/x'), e('a/y'), e('b.kt'), e('c.kt')]);
+		await model.expand('a');
+		model.select('a');
+		model.selectRange('b.kt');
+		expect([...model.view.selection]).toEqual(['a', 'a/x', 'a/y', 'b.kt']);
+		expect(model.operands()).toEqual(['a', 'b.kt']);
+		model.applyChanges([{ path: 'b.kt', kind: 'deleted', type: 'file' }]);
+		expect([...model.view.selection]).toEqual(['a', 'a/x', 'a/y']);
+		model.toggleSelect('c.kt');
+		expect(model.view.selection.has('c.kt')).toBe(true);
+		model.select('c.kt');
+		expect([...model.view.selection]).toEqual(['c.kt']);
 	});
 });

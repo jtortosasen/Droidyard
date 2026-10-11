@@ -1,7 +1,7 @@
 # Subsystem: files
 
-Reading, writing and watching project files: `file.list`, `file.read`, `file.write` and
-`file.watch`. All four are **workspace-scoped** and run against a workspace's project root
+Reading, writing, watching and changing project files: `file.list`, `file.read`,
+`file.write`, `file.watch`, and the tree's operations (§Operations). All are **workspace-scoped** and run against a workspace's project root
 without running project code. Decisions D2-D9 of [`plans/m1j-files.md`](../plans/m1j-files.md).
 Parameters, results, bounds and error lists are the descriptors' (`internal/domain/file`).
 
@@ -50,6 +50,24 @@ between deciding a path is inside and using it.
   the write is `FILE_IO_FAILED`). A retained (slimmed) result drops the list entries and the
   read text.
 
+## Operations
+
+`file.create`, `file.move` and `file.copy` change the tree and replace nothing
+([ADR-0053](../adr/0053-file-operations.md)). A rename is a move inside one folder. A move
+opens each item's two parent folders through the `os.Root` and renames on their descriptors
+with the kernel's no-replace rename (`RENAME_EXCL` on macOS, `RENAME_NOREPLACE` on Linux), so
+containment stays the root's, the final name is never followed, and a writer that takes the
+target first keeps its file: the item is `FILE_EXISTS`. `os.Root`'s `Rename` is not used,
+because `rename(2)` replaces a file and an empty folder. A volume that cannot refuse a replace
+fails the item `FILE_IO_FAILED`; there is no fallback. The one plain rename is a case-only or
+normalisation-only rename of the entry itself on a volume that folds names.
+
+A move is a batch: what the request's text alone decides (a path outside the root, the root
+itself, a source equal to its target or holding it) fails the whole call; what only the
+filesystem can say fails its item, and the call completes with every item's outcome.
+
+`file.delete` moves to a trash, `file.restore` puts back ([ADR-0054](../adr/0054-trash.md)).
+
 ## The watch
 
 `file.watch` creates a **subscription** (so it is a command, and streaming: WebSocket only,
@@ -68,7 +86,7 @@ publishes nothing. A walk:
 - records at most 20 000 entries and never descends a symlink (recorded as one entry);
 - excludes `.git/`, `.gradle/`, `.idea/`, `.kotlin/`, `.cxx/`, a `build` directory whose parent
   holds a `build.gradle`/`build.gradle.kts` (a source package named `build` is kept), and
-  `file.write`'s temporary files;
+  `file.write`'s and `file.copy`'s temporary files and folders;
 - on a tick that reaches the cap, reports **no deletions at all** and marks its event
   `truncated`: it cannot tell a deleted entry from one pushed past the cap, so the client
   re-lists; one that later falls under the cap is reported `created`;

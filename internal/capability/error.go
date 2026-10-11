@@ -69,6 +69,18 @@ const (
 	ErrFileOutsideRoot ErrorCode = "FILE_OUTSIDE_ROOT"
 	ErrFileWrongType   ErrorCode = "FILE_WRONG_TYPE"
 	ErrFileIOFailed    ErrorCode = "FILE_IO_FAILED"
+	// ErrFileExists: a create, move or copy found its target taken, and nothing was
+	// replaced. The kernel refused the replacement (a no-replace rename), so a writer
+	// racing the call keeps its file (ADR-0053 §3). The file.* batches carry it as an
+	// item's code, file.create as the call's.
+	ErrFileExists ErrorCode = "FILE_EXISTS"
+	// ErrFileTooLarge: a copy's source has more entries or bytes than one item may carry
+	// (plan m2g D48), so nothing was written. An item's code in file.copy.
+	ErrFileTooLarge ErrorCode = "FILE_TOO_LARGE"
+	// ErrFileNotInTrash: file.restore's trash id is not one this workspace's trash holds
+	// (never trashed, already restored, swept, or another workspace's). An item's code
+	// (ADR-0054 §4; plan m2g D50).
+	ErrFileNotInTrash ErrorCode = "FILE_NOT_IN_TRASH"
 
 	// ErrPolicyShellDisabled: shell.exec is not enabled for the root. Its message warns
 	// that enabling it gives the agent the user's full reach, and its nextStep names

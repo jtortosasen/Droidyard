@@ -115,6 +115,30 @@ export class TabsModel {
 		this.#changed();
 	}
 
+	/**
+	 * A file or folder was moved or renamed (D57): its tab, and the tabs under a moved folder
+	 * (by path prefix, never a sibling that merely shares the prefix), follow it.
+	 */
+	moved(from: string, to: string): void {
+		const re = (p: string): string => (p === from ? to : p.startsWith(`${from}/`) ? to + p.slice(from.length) : p);
+		let changed = false;
+		const next: Tab[] = [];
+		for (const t of this.#tabs) {
+			const path = re(t.path);
+			if (path !== t.path) changed = true;
+			// A tab already open at the target stays; the moved one is dropped.
+			if (path !== t.path && this.#tabs.some((o) => o.path === path)) continue;
+			next.push(path === t.path ? t : { path, preview: t.preview });
+		}
+		if (!changed) return;
+		this.#tabs = next;
+		if (this.#active !== null) {
+			const a = re(this.#active);
+			this.#active = next.some((t) => t.path === a) ? a : (next[0]?.path ?? null);
+		}
+		this.#changed();
+	}
+
 	/** Closes a tab; the one to its right (else left) becomes the active one. Returns the new active path. */
 	close(path: string): string | null {
 		const at = this.#tabs.findIndex((t) => t.path === path);
