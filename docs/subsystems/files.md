@@ -9,17 +9,15 @@ Parameters, results, bounds and error lists are the descriptors' (`internal/doma
 
 An agent that can read and write project files itself already edits a project; the value here
 is that the edits go through **one daemon**, are **contained** to the project root, and are
-**observable**: the UI's file panel and any agent can watch a directory change. `file.*` is
-the JVM-free half of that: it works on a device-less, Gradle-less daemon, and on trusted and
-untrusted roots alike.
+**observable**: the UI's file panel and any agent can watch a directory change. `file.*` needs
+no JVM, device or Gradle.
 
 ## Paths and containment
 
 `path` is slash-separated and **relative to the project root**; `""` and `"."` are the root,
 and an absolute path is accepted and treated the same. Every path is contained by an `os.Root`
 opened on the workspace's **canonical** root for the call (D2). Containment is the root's, not
-a check-then-open: an open, stat, read, mkdir or rename goes through it, so there is no race
-between deciding a path is inside and using it.
+a check-then-open, so no race separates deciding a path is inside from using it.
 
 - A relative path that `filepath.IsLocal` rejects after cleaning, an absolute path outside the
   root, `".."`, and any symlink whose target would leave the root are `FILE_OUTSIDE_ROOT`. A
@@ -45,10 +43,12 @@ between deciding a path is inside and using it.
   under `.git/` are allowed. A daemon killed between the temporary file and the rename leaves
   it in the project: a transient file, not state, named so a human recognises it and ignored by
   `file.watch`.
-- `file.read`, `file.list` and `file.watch` never return `FILE_IO_FAILED` for a missing path;
-  `file.write` has no `FILE_NOT_FOUND` (it creates a missing target, and any `ENOENT` during
-  the write is `FILE_IO_FAILED`). A retained (slimmed) result drops the list entries and the
-  read text.
+- **Conditional write** ([ADR-0058](../adr/0058-file-write-revision-precondition.md)): `file.read`
+  returns the whole file's SHA-256 as `revision` on every page, and `file.write`'s `ifRevision`
+  writes only if the file still has it. A hash, not mtime and size: coarse clocks and `cp -p`
+  hide a change. Daemon writes on one root hold a mutex from the compare to the rename; a
+  writer outside the daemon landing there is still overwritten; `file.move`, `copy`, `delete`
+  and `restore` take no mutex.
 
 ## Operations
 
@@ -125,4 +125,4 @@ ends.
 `file.*` runs no trust check and marks no result: project content is not
 [untrusted data](../adr/0015-untrusted-data-authorization.md) (ADR-0015 §1), and §5 lets
 `file.*`, `git.*` and `workspace.describe` work on an untrusted root, since the agent's own file
-tools read the same bytes. No `file.*` field is tagged.
+tools read the same bytes.

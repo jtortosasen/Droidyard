@@ -2,6 +2,9 @@ package file
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"time"
 	"unicode/utf8"
 
@@ -28,6 +31,33 @@ type ReadResult struct {
 	Text       *string   `json:"text,omitempty" jsonschema_description:"The bytes read; absent for a binary file."`
 	Truncated  bool      `json:"truncated" jsonschema_description:"True when a single line longer than limit was cut at a UTF-8 boundary."`
 	Binary     bool      `json:"binary" jsonschema_description:"True when the page read holds a NUL byte or invalid UTF-8; text is then absent, and offset and nextOffset still page past it."`
+	Revision   string    `json:"revision,omitempty" jsonschema_description:"The whole file's SHA-256, on every page; pass it as file.write's ifRevision. Absent for a file over 8 MiB."`
+}
+
+// maxRevision is the largest file that has a revision (ADR-0058): file.read hashes the
+// whole file on every page, and file.write hashes its target, so both read at most this
+// much. Options.RevisionMax overrides it for a test.
+const maxRevision = 8 << 20
+
+// revisionOf is the revision of a file's bytes: the lowercase SHA-256 hex.
+func revisionOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// hashFile returns the revision of f read from its start to its end, or ok false when
+// the file is over limit (a file that grew past it while being read counts). It reads
+// through ReadAt, so the descriptor's offset is not used.
+func hashFile(f io.ReaderAt, limit int64) (rev string, ok bool, err error) {
+	h := sha256.New()
+	n, err := io.Copy(h, io.NewSectionReader(f, 0, limit+1))
+	if err != nil {
+		return "", false, err
+	}
+	if n > limit {
+		return "", false, nil
+	}
+	return hex.EncodeToString(h.Sum(nil)), true, nil
 }
 
 // read serves file.read (D5): a regular file, opened through the root and paged exactly
@@ -63,6 +93,19 @@ func (r *resolver) read(p ReadParams) (ReadResult, error) {
 	defer f.Close()
 	size := fi.Size()
 	modTime := fi.ModTime()
+	// The revision is the whole file's, read to its end through the page's own descriptor
+	// (ADR-0058 §1), so every page of one unchanged file reports one value. A file over
+	// the cap has none.
+	var revision string
+	if size <= r.revisionMax() {
+		rev, ok, err := hashFile(f, r.revisionMax())
+		if err != nil {
+			return ReadResult{}, r.ioFailed(rel, err)
+		}
+		if ok {
+			revision = rev
+		}
+	}
 
 	// The binary check runs on the bytes the page actually returns, after a negative
 	// offset has moved forward to a line start, so the check and the text never look at
@@ -76,14 +119,14 @@ func (r *resolver) read(p ReadParams) (ReadResult, error) {
 		// kept, so the caller can page past it or stop.
 		return ReadResult{
 			Path: rel, Size: page.Size, ModTime: modTime,
-			Offset: page.Offset, NextOffset: page.NextOffset, Binary: true,
+			Offset: page.Offset, NextOffset: page.NextOffset, Binary: true, Revision: revision,
 		}, nil
 	}
 	text := page.Text
 	return ReadResult{
 		Path: rel, Size: page.Size, ModTime: modTime,
 		Offset: page.Offset, NextOffset: page.NextOffset,
-		Text: &text, Truncated: page.Truncated,
+		Text: &text, Truncated: page.Truncated, Revision: revision,
 	}, nil
 }
 
