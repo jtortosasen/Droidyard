@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import type { Attachment } from 'svelte/attachments';
 	import FileQuestion from '@lucide/svelte/icons/file-question';
 	import { copyToClipboard } from '../devices/copy';
-	import { rowWindow } from '../logcat/virtual';
+	import { LazyEditor } from './surface';
 	import { formatSize, CAP, type FileViewer, type ViewerView } from './viewer';
 
-	// The read-only viewer (plan m2d step 6): the lines of one file over the fixed-row
-	// virtual list, with a line-number gutter. No highlighting. The text is drawn as text
-	// nodes only, whatever the file holds.
+	// The read-only viewer (plan m2d step 6, m2i step 3): the header, banners and the binary
+	// placeholder are here; the text is shown by the code editor behind surface.ts, mounted by
+	// an attachment when this file's viewer is ready, so its chunk loads when a file opens.
 	interface Props {
 		viewer: FileViewer;
 		/** What Copy path copies (the tree's absolute path). */
@@ -15,29 +16,31 @@
 	}
 	let { viewer, copyPath }: Props = $props();
 
-	const ROW = 18;
-	const OVERSCAN = 10;
-
 	let view = $state.raw<ViewerView>(untrack(() => viewer.view));
-	let scrollTop = $state(0);
-	let viewportHeight = $state(300);
 	let copied = $state('');
+	let editorError = $state('');
 
 	$effect(() => {
 		const v = viewer;
 		view = v.view;
-		scrollTop = 0;
 		copied = '';
 		return v.subscribe(() => {
 			view = v.view;
 		});
 	});
 
-	const win = $derived(
-		rowWindow({ scrollTop, viewportHeight, rowHeight: ROW, overscan: OVERSCAN, count: view.lines.length, following: false }),
-	);
-	const shown = $derived(view.lines.slice(win.start, win.end));
-	const digits = $derived(String(Math.max(1, view.lines.length)).length);
+	// Mounts the editor once on its host and keeps its text current; the host goes (and the
+	// editor is destroyed) when the state leaves the text states.
+	const editor: Attachment<HTMLElement> = (host) => {
+		editorError = '';
+		const ed = new LazyEditor(host, { doc: untrack(() => view.text), readOnly: true }, (e) => {
+			editorError = e instanceof Error ? e.message : String(e);
+		});
+		$effect(() => {
+			ed.setDocument(view.text);
+		});
+		return () => ed.destroy();
+	};
 
 	async function copy() {
 		const r = await copyToClipboard(copyPath(view.path), typeof navigator === 'undefined' ? undefined : navigator.clipboard);
@@ -65,26 +68,10 @@
 	{:else if view.state === 'loading'}
 		<p class="note pad">Reading…</p>
 	{:else}
-		<div
-			class="scroll"
-			style:--row="{ROW}px"
-			style:--digits="{digits}ch"
-			bind:clientHeight={viewportHeight}
-			onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
-			tabindex="0"
-			role="textbox"
-			aria-readonly="true"
-			aria-multiline="true"
-			aria-label="File contents"
-		>
-			<div class="space" style:height="{win.totalHeight}px">
-				<div class="window" style:top="{win.offset}px">
-					{#each shown as line, i (win.start + i)}
-						<div class="line"><span class="no" aria-hidden="true">{win.start + i + 1}</span><span class="text">{line}</span></div>
-					{/each}
-				</div>
-			</div>
-		</div>
+		<div class="host" {@attach editor}></div>
+		{#if editorError}
+			<p class="banner error" role="alert">The editor could not be loaded: {editorError}</p>
+		{/if}
 		{#if view.capped}
 			<p class="banner" role="status">
 				Showing the first {formatSize(view.read)} of {view.size === null ? '' : formatSize(view.size)}; the viewer reads at most {formatSize(CAP)}.
@@ -122,47 +109,13 @@
 		flex: none;
 		color: var(--text-3);
 	}
-	.scroll {
+	/* The editor's host: a flex column its shadow root's editor fills. */
+	.host {
 		flex: 1;
 		min-height: 0;
-		overflow: auto;
-		font-family: var(--font-mono);
-		font-size: var(--fs-mono);
-		line-height: var(--row);
-		background: var(--bg-panel);
-		outline-offset: -2px;
-	}
-	.space {
-		position: relative;
-		min-width: 100%;
-	}
-	.window {
-		position: absolute;
-		left: 0;
-		min-width: 100%;
-		width: max-content;
-	}
-	.line {
+		min-width: 0;
 		display: flex;
-		height: var(--row);
-		white-space: pre;
-		tab-size: 4;
-	}
-	.no {
-		flex: none;
-		position: sticky;
-		left: 0;
-		box-sizing: content-box;
-		width: var(--digits);
-		padding: 0 var(--sp-4) 0 var(--sp-5);
-		text-align: right;
-		color: var(--text-3);
-		background: var(--bg-panel);
-		user-select: none;
-	}
-	.text {
-		padding: 0 var(--sp-5) 0 var(--sp-4);
-		color: var(--text);
+		flex-direction: column;
 	}
 	.banner {
 		flex: none;

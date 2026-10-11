@@ -53,7 +53,7 @@ describe('FileViewer', () => {
 		const v = new FileViewer(f, ws, 'a.txt');
 		await v.load();
 		expect(v.view.state).toBe('ready');
-		expect(v.view.lines.length).toBe(n);
+		expect(v.view.text).toBe(line.repeat(n));
 		expect(v.view.capped).toBe(false);
 		expect(f.calls.length).toBeGreaterThanOrEqual(3);
 		// Each page asked for starts where the previous one ended.
@@ -85,7 +85,7 @@ describe('FileViewer', () => {
 		const v = new FileViewer(f, ws, 'a.png');
 		await v.load();
 		expect(v.view.state).toBe('binary');
-		expect(v.view.lines).toEqual([]);
+		expect(v.view.text).toBe('');
 		expect(v.view.size).toBe(8);
 	});
 
@@ -130,14 +130,14 @@ describe('ViewerSet', () => {
 	// Decision (plan step 6): a `modified` event for the path reads it again.
 	it('re-reads a file the watch reports as modified, and no other', async () => {
 		const { f, set, v } = await open();
-		expect(v.view.lines).toEqual(['one', 'two']);
+		expect(v.view.text).toBe('one\ntwo\n');
 		f.files.set('a.kt', 'one\ntwo\nthree\n');
 		set.changes([{ path: 'other.kt', kind: 'modified', type: 'file' }]);
 		await settle();
-		expect(v.view.lines).toHaveLength(2);
+		expect(v.view.text).toBe('one\ntwo\n');
 		set.changes([{ path: 'a.kt', kind: 'modified', type: 'file' }]);
 		await settle();
-		expect(v.view.lines).toEqual(['one', 'two', 'three']);
+		expect(v.view.text).toBe('one\ntwo\nthree\n');
 	});
 
 	// Decision: a deleted file is marked and its last text stays; it comes back on `created`.
@@ -145,12 +145,12 @@ describe('ViewerSet', () => {
 		const { f, set, v } = await open();
 		set.changes([{ path: 'a.kt', kind: 'deleted', type: 'file' }]);
 		expect(v.view.state).toBe('deleted');
-		expect(v.view.lines).toEqual(['one', 'two']);
+		expect(v.view.text).toBe('one\ntwo\n');
 		f.files.set('a.kt', 'back\n');
 		set.changes([{ path: 'a.kt', kind: 'created', type: 'file' }]);
 		await settle();
 		expect(v.view.state).toBe('ready');
-		expect(v.view.lines).toEqual(['back']);
+		expect(v.view.text).toBe('back\n');
 	});
 
 	// Decision: an answer for a read that a deletion overtook is dropped.
@@ -161,7 +161,7 @@ describe('ViewerSet', () => {
 		set.changes([{ path: 'a.kt', kind: 'deleted', type: 'file' }]);
 		await settle();
 		expect(v.view.state).toBe('deleted');
-		expect(v.view.lines).toEqual(['one', 'two']);
+		expect(v.view.text).toBe('one\ntwo\n');
 	});
 
 	// Decision: after a re-sync (events may have been missed) every open file is read again.
@@ -170,7 +170,7 @@ describe('ViewerSet', () => {
 		f.files.set('a.kt', 'changed\n');
 		set.resync();
 		await settle();
-		expect(v.view.lines).toEqual(['changed']);
+		expect(v.view.text).toBe('changed\n');
 	});
 
 	it('forgets the viewers of closed tabs', async () => {

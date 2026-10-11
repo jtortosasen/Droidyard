@@ -1,5 +1,5 @@
 // The read-only viewer's model (plan m2d step 6; Q4, D26). One FileViewer per open file
-// reads it with `file.read` in pages and holds the text as lines; a ViewerSet owns the
+// reads it with `file.read` in pages and holds the text whole; a ViewerSet owns the
 // viewers and feeds them the root watch's events (files/watch.ts), so there is no second
 // `file.watch`.
 //
@@ -37,21 +37,14 @@ export interface ViewerView {
 	path: string;
 	/** The file's size in bytes, when known. */
 	size: number | null;
-	/** The text as lines (no line terminators); empty for a binary file. */
-	lines: readonly string[];
+	/** The text as read; empty for a binary file. */
+	text: string;
 	/** The text read stopped at CAP and the file is larger. */
 	capped: boolean;
 	/** Bytes of text held. */
 	read: number;
 	/** The failure as text (never markup), when state is 'error'. */
 	error: string | null;
-}
-
-export function splitLines(text: string): string[] {
-	if (text === '') return [];
-	const lines = text.split('\n');
-	if (lines[lines.length - 1] === '') lines.pop();
-	return lines;
 }
 
 export class FileViewer {
@@ -67,7 +60,7 @@ export class FileViewer {
 		this.#client = client;
 		this.#ws = ws;
 		this.path = path;
-		this.#view = { state: 'loading', path, size: null, lines: [], capped: false, read: 0, error: null };
+		this.#view = { state: 'loading', path, size: null, text: '', capped: false, read: 0, error: null };
 	}
 
 	get view(): ViewerView {
@@ -115,7 +108,7 @@ export class FileViewer {
 			}
 			if (run !== this.#run || this.#disposed) return;
 			if (page.binary) {
-				this.#set({ state: 'binary', size: page.size, lines: [], capped: false, read: 0, error: null });
+				this.#set({ state: 'binary', size: page.size, text: '', capped: false, read: 0, error: null });
 				return;
 			}
 			if (page.offset !== offset) {
@@ -134,7 +127,7 @@ export class FileViewer {
 			const done = page.nextOffset <= offset || page.nextOffset >= size;
 			offset = page.nextOffset;
 			if (done || offset >= CAP) {
-				this.#set({ state: 'ready', size, lines: splitLines(text), capped: offset < size, read: offset, error: null });
+				this.#set({ state: 'ready', size, text, capped: offset < size, read: offset, error: null });
 				return;
 			}
 		}
