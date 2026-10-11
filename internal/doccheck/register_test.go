@@ -113,7 +113,9 @@ func checkRegister(fsys fs.FS) []string {
 // and cannot be kept shorter than the points it carries (ADR-0036 Decision 1). Raised by 312
 // (to 26,067) in milestone 2c step 1: the 2026-10-10 Phase 2 reorganisation (12 words net
 // after cuts) and about 300 for the live documents 2c's steps 3, 4, 8, 9 and 11 change.
-const liveBudget = 26067
+// Raised by 250 (to 26,317) in milestone 2g step 1: files.md's section on the five new
+// operations, mcp.md's batch case and mvp.md's file row (ADR-0053, ADR-0054).
+const liveBudget = 26317
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
