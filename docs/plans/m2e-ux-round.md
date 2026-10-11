@@ -220,6 +220,13 @@ Each has a recommendation applied as Delegated; Q1 is ADR-0050, Q2 is ADR-0051 (
 | 2 | revise | B1, B2, B4, B5 answered; B3 in part: the pending AVD had no owner, and `DevicesModel.refresh` refills an empty selection | D36: the pending AVD in `DevicesModel` (`selectAvd`, `pendingAvd`, no refill while pending); step 4 builds it, with a `devices.test.ts` case seen failing with today's refill; "AVD not running" named in steps 4 and 7 |
 | 2 | | N1 blocking (from B1's answer): an appId first seen during a refresh could be entered as none for the stream's life | Step 2: only appIds seen before the refresh started are entered as none; a test where the second pm call names a uid first seen while pm hung |
 | 2 | | Important: `InstallModel.install` may return without calling; nits: the refresh's own context; `build` needs module and variant | A null result stops the run with its reason, tested; the refresh gets its own context, cancelled before the join; the signature named |
+| step 2 verifier | proceed | [bug] Important N1: after a failed `pm` read, later lines of that id held again for each retry | Fixed (792ac51), test seen failing |
+| | | [test] N2: the join's `Wait` unproven by a test; [nit] ×5: a long name beside another, the description, ADR wording, a test bound, a busy loop | N2 recorded as proven by reading; the long name and the description fixed; the rest kept |
+| level 4/5 (main session) | | [bug] ×3: the duplicate "All projects" button, a frozen uptime, ■ offered during the launch; [bug] the file `{avd}` not restored on reload; [nit] the target menu's layout | All fixed in steps 7 and 8, tests seen failing where a rule changed |
+| close verifier | merge after one fix | [contract] B1 blocking: the `{avd}` restore bypassed ADR-0046 §3 | Fixed: restored only while `emulator.list` lists it as not running; §3 test extended, seen failing |
+| | | [bug] a stale or generic install reason in a rare race; [plan] the palette's Switch project; [nit] ×4: menu placement, ▶ ignoring "headless", the crash marker across Restart, unquoted values ending at `(`/`)` | Register row; §Changes; placement fixed; the other nits kept (D37 and D38 as written) |
+
+Per layer: plan review, 6 blocking findings over two rounds (B1–B5, N1; untagged in this table) and its important points and nits; step 2 verifier bug 1, test 1, nit 5; level 4/5 bug 4, nit 1; close verifier contract 1, bug 1, plan 1, nit 4.
 
 ## Changes
 
@@ -228,4 +235,6 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-11, step 2 (verifier, N1): after a failed `pm` read, later lines of that application id waited again for every retry, and every line behind them. The ids a failed read was asked for now pass without a package until a read completes (792ac51). ADR-0051 §2's "a failed read releases held lines" is read as covering them.
 - 2026-10-11, steps 3–4: the pending AVD (D36) was built in step 6, where `RunModel` needed it; step 4 reused it.
 - 2026-10-11, step 7 (main session's level 4): a file `{avd}` of an AVD not running is restored as the pending AVD on reload (`DevicesModel`); the module · variant menu sized to its content.
+- 2026-10-11, step 7 (Delegated): D33's "the palette's Switch project opens it" became a separate ">Show sessions" command; "Switch project: X" keeps switching directly, one step instead of two.
+- 2026-10-11, close (verifier B1): the step 7 restore made any file `{avd}` the pending AVD, against ADR-0046 §3 for an AVD no list holds. The binding now restores it only while `emulator.list` lists it as not running (`EmulatorsModel.preselected`), through `DevicesModel.restoreAvd`; the §3 test gains a one-device case (seen failing with the restore read from the file). The module · variant menu is placed for its widest size.
 - 2026-10-11, step 8 (level 5): ■ was shown during the launch, which D37 does not cancel, and a press did nothing. `RunView.cancellable`: ■ is disabled during the launch with its reason (`run.test.ts`, seen failing with ■ cancellable in every running state).
