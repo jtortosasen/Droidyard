@@ -11,7 +11,7 @@
 // lives, and a view only shows it (plan m2i D7), so a tab switch that destroys the view keeps
 // the document, selection, undo history and scroll.
 import { EditorView } from '@codemirror/view';
-import type { BufferOptions, CompareOptions, EditorBuffer, EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
+import type { BufferOptions, CompareOptions, EditorBuffer, EditorDiagnostic, EditorHandle, EditorOptions, ReviewOptions } from '../surface';
 import { CmBuffer } from './buffer';
 import { offsetOf } from './diagnostics';
 import { isSaveKey } from './savekey';
@@ -79,6 +79,11 @@ export function mount(host: HTMLElement, opts: EditorOptions): EditorHandle {
 // Compare's code (the merge view) is its own chunk, fetched when Compare is first opened.
 export async function mountCompare(host: HTMLElement, opts: CompareOptions): Promise<EditorHandle> {
 	return (await import('./merge')).mountCompare(host, opts);
+}
+
+// Review's code is its own chunk too, fetched when Review is first opened.
+export async function mountReview(host: HTMLElement, opts: ReviewOptions): Promise<EditorHandle> {
+	return (await import('./review')).mountReview(host, opts);
 }
 
 export function createBuffer(opts: BufferOptions): EditorBuffer {

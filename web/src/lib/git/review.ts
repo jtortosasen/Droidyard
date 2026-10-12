@@ -214,6 +214,15 @@ export class Driver {
 		this.expected[side] = top;
 	}
 
+	/**
+	 * No scroll event followed the position code set on `side` at `top`: that pending echo is
+	 * dropped, so a later user scroll near it is not taken for one. Only that one: a newer
+	 * position set since (an easing sets one a frame) keeps its own.
+	 */
+	release(side: Side, top: number): void {
+		if (this.expected[side] === top) this.expected[side] = null;
+	}
+
 	/** A scroll event on `side` at `top`. True when it is the user's (which makes `side` the driver), false for an echo. */
 	scrolled(side: Side, top: number): boolean {
 		const e = this.expected[side];
