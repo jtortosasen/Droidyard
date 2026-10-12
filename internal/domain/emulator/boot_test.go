@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
+	"golang.org/x/sys/unix"
 )
 
 // The step-5 tests (plan m1i step 5, check (a)): the boot sequence over the stateful
@@ -170,8 +170,8 @@ func TestStartBootsDetachedWithTheDocumentedFlags(t *testing.T) {
 	if pid <= 0 {
 		t.Fatalf("no pid for %s", r.Device)
 	}
-	own, _ := syscall.Getsid(0)
-	if sid, err := syscall.Getsid(pid); err != nil || sid == own {
+	own, _ := unix.Getsid(0)
+	if sid, err := unix.Getsid(pid); err != nil || sid == own {
 		t.Errorf("launcher session %d (err %v); want a session of its own, not the test's %d", sid, err, own)
 	}
 }
