@@ -429,7 +429,9 @@ func TestTimeoutKillsTheGroup(t *testing.T) {
 	e.commit(dir)
 	e.appendConfig(dir, "[filter \"slow\"]\n\tclean = "+slow+"\n")
 	e.write(dir, "c.txt", "two\n")
-	e.r.timeout = 500 * time.Millisecond
+	// Long enough for git to reach the filter under a loaded `go test ./...` (500 ms
+	// was not), far shorter than the filter's sleep.
+	e.r.timeout = 3 * time.Second
 	_, err := e.r.run(context.Background(), dir, true, nil, statusArgs...)
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err = %v, want ErrTimeout", err)
