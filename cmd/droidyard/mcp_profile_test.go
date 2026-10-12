@@ -233,14 +233,28 @@ func TestCoreNextStepsNameCoreTools(t *testing.T) {
 		"system.capabilities": "the unknown-capability error, which an MCP session cannot send: an unknown tool name is refused by MCP first",
 	}
 
-	var found = map[string][]string{}
+	// Every published capability, exposed or not: a token naming one is a nextStep
+	// reference. The core-profile check below reads only the core domains' packages
+	// (shell_exec is not a core tool); the reachability check reads those plus
+	// internal/policy, whose POLICY_SHELL_DISABLED reaches agents through shell_exec.
+	all := map[string]string{}
+	for name := range published(t) {
+		all[name] = name
+	}
 	token := regexp.MustCompile(`\b[a-z]+\.[A-Za-z]+\b`)
 	fset := token0()
-	for _, dir := range []string{"build", "build/gradle", "device", "emulator", "file", "project"} {
-		scanNextSteps(t, fset, filepath.Join("..", "..", "internal", "domain", dir), token, exposed, found)
+	found := map[string][]string{}    // core packages
+	foundAll := map[string][]string{} // core packages and internal/policy
+	root := filepath.Join("..", "..", "internal")
+	for _, dir := range []string{"domain/build", "domain/build/gradle", "domain/device", "domain/emulator", "domain/file", "domain/project", "capability", "workspace", "artifact"} {
+		scanNextSteps(t, fset, filepath.Join(root, dir), token, all, found)
+		scanNextSteps(t, fset, filepath.Join(root, dir), token, all, foundAll)
 	}
-	for _, dir := range []string{"capability", "workspace", "artifact"} {
-		scanNextSteps(t, fset, filepath.Join("..", "..", "internal", dir), token, exposed, found)
+	scanNextSteps(t, fset, filepath.Join(root, "policy"), token, all, foundAll)
+	for canon := range found {
+		if _, ok := exposed[canon]; !ok {
+			delete(found, canon)
+		}
 	}
 	if len(found) < 10 {
 		t.Fatalf("found only %d tools named by nextSteps (%v); the scan is not reading them", len(found), found)
@@ -254,6 +268,30 @@ func TestCoreNextStepsNameCoreTools(t *testing.T) {
 			continue
 		}
 		t.Errorf("a nextStep names %s (%s), which the core profile does not list: add it to mcpadapter.CoreTools and nextStepJoins, or list it as unreachable with the reason", canon, strings.Join(where, ", "))
+	}
+
+	// A nextStep must not send an agent to a published capability that is no MCP tool
+	// (audience human, or not stateless), unless it is on this list with the reason.
+	notExposed := map[string]string{
+		"policy.update": "named in POLICY_SHELL_DISABLED as the user's channel: the agent asks the user",
+		"policy.get":    "only policy.update's own POLICY_REVISION_CONFLICT (update.go:296); an MCP session cannot call policy.update",
+	}
+	for canon, where := range foundAll {
+		if _, ok := exposed[canon]; ok {
+			continue
+		}
+		if _, ok := notExposed[canon]; ok {
+			continue
+		}
+		t.Errorf("a nextStep names %s (%s), a published capability that is not an MCP tool: name another route, or list it in notExposed with the reason", canon, strings.Join(where, ", "))
+	}
+	for canon := range notExposed {
+		if _, ok := exposed[canon]; ok {
+			t.Errorf("%s is an MCP tool; drop it from the notExposed list", canon)
+		}
+		if _, ok := foundAll[canon]; !ok {
+			t.Errorf("%s is no longer named by a nextStep; drop it from the notExposed list", canon)
+		}
 	}
 	// The exceptions must still be exceptions: one that has since joined the profile,
 	// or is no longer named, is stale.

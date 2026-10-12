@@ -12,7 +12,7 @@ import (
 // events and operation.watch's rows name the session that made a call, so the UI can tell
 // two agents of the same client kind apart. Two real MCP shims, named "agent-a" and
 // "agent-b" in initialize and bound to two project roots, a WebSocket session, a plain
-// POST /v1/call and a CLI call, all through one daemon. Each shim's file.list and
+// POST /v1/call and a CLI call, all through one daemon. Each shim's workspace.describe and
 // system.health events carry its own session id, its own name and the workspace of its
 // bound root; its bound workspace.open, which runs before initialize, carries the id and
 // no name; the WebSocket's carry its id and no name; the plain HTTP call carries no
@@ -57,9 +57,9 @@ func TestOperationStateCarriesTheSession(t *testing.T) {
 	b := startShimIn(t, p.state, rootB, "b", []string{"mcp", "--no-autostart"})
 	b.initialize("agent-b")
 	for i, s := range []*shim{a, b} {
-		s.callTool(10+i, "file_list", `{}`)
+		s.callTool(10+i, "workspace_describe", `{}`)
 		if v := response(t, s.recv(), 10+i); v == nil {
-			t.Fatalf("%s: file_list answered nothing", s.name)
+			t.Fatalf("%s: workspace_describe answered nothing", s.name)
 		}
 		s.callTool(20+i, "system_health", `{}`)
 		if v := response(t, s.recv(), 20+i); v == nil {
@@ -179,7 +179,7 @@ type sessionEvent struct {
 }
 
 // sessionEventsDone reports whether every call of the scenario has completed: the two
-// file.list calls, the five system.health calls (two shims, the WebSocket, the plain HTTP
+// workspace.describe calls, the five system.health calls (two shims, the WebSocket, the plain HTTP
 // call and the CLI), the last two named by operation id.
 func sessionEventsDone(events []sessionEvent, httpOp, cliOp string) bool {
 	completed := map[string]bool{}
@@ -190,5 +190,5 @@ func sessionEventsDone(events []sessionEvent, httpOp, cliOp string) bool {
 			byCap[e.payload.Capability]++
 		}
 	}
-	return completed[httpOp] && completed[cliOp] && byCap["file.list"] >= 2 && byCap["system.health"] >= 5
+	return completed[httpOp] && completed[cliOp] && byCap["workspace.describe"] >= 2 && byCap["system.health"] >= 5
 }
