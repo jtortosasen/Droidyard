@@ -24,6 +24,8 @@ export type BlockOutput =
 export interface Block {
 	id: string;
 	capability: string;
+	/** The workspace id; null for a global operation. */
+	workspace: string | null;
 	/** The capability in words ("Build", "Run tasks", "Tap"). */
 	title: string;
 	actor: string;
@@ -112,6 +114,7 @@ export function blockOf(op: Operation, ctx: BlockContext, message?: string): Blo
 	return {
 		id: op.id,
 		capability: op.capability,
+		workspace: op.workspace,
 		title: titleOf(op.capability),
 		actor: actorOf(op, ctx.labels),
 		you: op.client === 'ui' || op.client === 'cli',

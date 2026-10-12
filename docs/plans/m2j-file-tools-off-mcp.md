@@ -356,7 +356,7 @@ Everything in this step lands together: the audience change breaks the counts, t
 - Needs: step 3 (the UI's calls unchanged), independent of 7–9.
 - Not here: a trash view (register row 263).
 - Rests on: `operation.wait` returning any operation's result by id, register row 183's limit, staying as it is.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `ops/restore.ts` (`canRestore`: a completed `file.delete` row of this tab's workspace, from any client — Delegated: a row of another project would restore against the wrong root; `RestoreModel`: `operation.wait {timeoutMs: 0}` on click, then `file.restore` of the done items' trash ids; `OPERATION_NOT_FOUND` → the past-retention text naming the CLI), `Activity.svelte`'s Restore button and state lines as text, `blocks.ts` `Block.workspace`. Vitest: 5 tests; seen failing with `canRestore` limited to `client === 'ui'` (the workspace and done-item filters not isolated). Level 4: step 11's Restore click.
 
 ### 11. Level 5: an agent's `rm` lands in the trash, and the UI restores it
 
