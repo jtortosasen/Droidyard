@@ -115,7 +115,9 @@ func checkRegister(fsys fs.FS) []string {
 // after cuts) and about 300 for the live documents 2c's steps 3, 4, 8, 9 and 11 change.
 // Raised by 250 (to 26,317) in milestone 2g step 1: files.md's section on the five new
 // operations, mcp.md's batch case and mvp.md's file row (ADR-0053, ADR-0054).
-const liveBudget = 26317
+// Raised by 29 (to 26,346) in milestone 2k step 6: the `agent` domain's rows in mcp.md and
+// mvp.md (ADR-0063).
+const liveBudget = 26346
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
