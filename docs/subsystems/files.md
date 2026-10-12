@@ -7,10 +7,10 @@ Parameters, results, bounds and error lists are the descriptors' (`internal/doma
 
 ## Why this exists
 
-An agent that can read and write project files itself already edits a project; the value here
-is that the edits go through **one daemon**, are **contained** to the project root, and are
-**observable**: the UI's file panel and any agent can watch a directory change. `file.*` needs
-no JVM, device or Gradle.
+`file.*` serves the UI and the CLI; it is not on the agent surface
+([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)). Agents use their own tools, so
+their edits bypass the daemon: the tree sees them by polling, and the editor's `ifRevision`
+catches them. `file.*` needs no JVM, device or Gradle.
 
 ## Paths and containment
 
