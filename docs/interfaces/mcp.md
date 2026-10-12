@@ -57,6 +57,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
 | `policy.get`, `policy.update`, `workspace.chooseRoot` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4). The core rejects them from an MCP session: enforcement, not just omission. |
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
+| `agent.recordCommand` | Audience `human` ([ADR-0063](../adr/0063-hook-observes-android-commands.md) §5): it is the hook's channel for recording what an agent ran outside droidyard; the CLI calls it. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and
@@ -240,7 +241,7 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; one adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)) |
+| **Assistant-side hooks** | Not part of MCP; two adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md)) |
 
 **Elicitation** closes problems we have written down: SDK licence consent
 ([sdk](../subsystems/sdk.md); fallback: an explicit capability call and an error that
@@ -283,8 +284,8 @@ do with its model and context.
 are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forbids as a
 dependency, and largely redundant: "device data is not instructions" lives in
 `instructions`, "open the workspace" is a call the agent makes, and "build after editing"
-should not be automatic. `init` writes one, optional, for Claude Code and Cursor:
-a simple `rm` in the project is denied with the command that moves its targets to the trash ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)).
+should not be automatic. `init` writes optional ones for Claude Code and Cursor:
+a simple `rm` in the project is denied with `droidyard trash` and the same operands, which moves them to the trash from the agent's own shell ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0062](../adr/0062-agent-rm-handed-droidyard-trash.md)); and after a shell command, an Android one (`gradlew`, `adb` and four more) is hinted with the droidyard tool that does the same and recorded in Activity, never blocked ([ADR-0063](../adr/0063-hook-observes-android-commands.md)).
 
 ## Transports
 

@@ -165,17 +165,15 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
   }
 }
 `
-	// The hook entries (ADR-0061 §5); a temp root has no character shellArg quotes.
+	// The hook entries (ADR-0061 §5, ADR-0063 §7); a temp root has no character shellArg
+	// quotes.
 	claudeAllow := func(root string) string {
-		return fmt.Sprintf(`{
-  "permissions": {
-    "allow": [
-      "mcp__droidyard__device_list",
-      "mcp__droidyard__device_uiTree"
-    ]
-  },
-  "hooks": {
-    "PreToolUse": [
+		event := func(name string, last bool) string {
+			end := ","
+			if last {
+				end = ""
+			}
+			return fmt.Sprintf(`    %q: [
       {
         "matcher": "Bash",
         "hooks": [
@@ -185,10 +183,20 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
           }
         ]
       }
+    ]%s
+`, name, root, end)
+		}
+		return `{
+  "permissions": {
+    "allow": [
+      "mcp__droidyard__device_list",
+      "mcp__droidyard__device_uiTree"
     ]
-  }
+  },
+  "hooks": {
+` + event("PreToolUse", false) + event("PostToolUse", false) + event("PostToolUseFailure", true) + `  }
 }
-`, root)
+`
 	}
 	cursorHooks := func(root string) string {
 		return fmt.Sprintf(`{
@@ -203,6 +211,18 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
       {
         "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
         "matcher": "Delete"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
+        "matcher": "Shell"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
+        "matcher": "Shell"
       }
     ]
   }

@@ -1,6 +1,144 @@
 {
-  "version": "0.21.0",
+  "version": "0.22.0",
   "capabilities": [
+    {
+      "name": "agent.recordCommand",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.22.0",
+      "description": "Records that an agent ran Android commands outside droidyard: the client, and per command its program, at most three plain positional words and the droidyard tool that does the same. It is the hook's channel, never an MCP tool; it stores nothing, the record is the operation's result, shown in Activity.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client that ran the commands."
+          },
+          "commands": {
+            "items": {
+              "properties": {
+                "program": {
+                  "type": "string",
+                  "enum": [
+                    "gradlew",
+                    "gradle",
+                    "adb",
+                    "emulator",
+                    "sdkmanager",
+                    "avdmanager"
+                  ],
+                  "description": "The program's base name."
+                },
+                "words": {
+                  "items": {
+                    "type": "string",
+                    "pattern": "^:?[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$"
+                  },
+                  "type": "array",
+                  "maxItems": 3,
+                  "description": "At most three positional words (a Gradle task, an adb subcommand); never flags, assignments or known flag values."
+                },
+                "suggested": {
+                  "type": "string",
+                  "pattern": "^[a-z]{1,16}_[A-Za-z]{1,32}$",
+                  "description": "The MCP tool that does the same, when there is one."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "program",
+                "words"
+              ]
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "description": "The Android commands found in one shell command, in order; one to four."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "commands"
+        ]
+      },
+      "output": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client that ran the commands."
+          },
+          "commands": {
+            "items": {
+              "properties": {
+                "program": {
+                  "type": "string",
+                  "enum": [
+                    "gradlew",
+                    "gradle",
+                    "adb",
+                    "emulator",
+                    "sdkmanager",
+                    "avdmanager"
+                  ],
+                  "description": "The program's base name."
+                },
+                "words": {
+                  "items": {
+                    "type": "string",
+                    "pattern": "^:?[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$"
+                  },
+                  "type": "array",
+                  "maxItems": 3,
+                  "description": "At most three positional words (a Gradle task, an adb subcommand); never flags, assignments or known flag values."
+                },
+                "suggested": {
+                  "type": "string",
+                  "pattern": "^[a-z]{1,16}_[A-Za-z]{1,32}$",
+                  "description": "The MCP tool that does the same, when there is one."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "program",
+                "words"
+              ]
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "description": "The Android commands found in one shell command, in order; one to four."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "commands"
+        ]
+      }
+    },
     {
       "name": "artifact.read",
       "kind": "query",

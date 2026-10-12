@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
-// The hook entries init writes (ADR-0061 §5). Claude Code's go into the settings file
-// that already carries its allowlist; Cursor's have a file of their own. Both run
-// `droidyard hook`, which decides what an event is.
+// The hook entries init writes (ADR-0061 §5, ADR-0063 §7): one before a shell command,
+// for the trash, and one after it, for the observation, each client's own event names.
+// Claude Code's go into the settings file that already carries its allowlist; Cursor's
+// have a file of their own. All run the same `droidyard hook` command line, which
+// decides what an event is.
 
 // HookCommand is the command line of one client's hook entry: the absolute binary, the
 // project root and, when init's own state root came from DROIDYARD_STATE_DIR, that
@@ -30,7 +32,7 @@ type claudeHookCommand struct {
 	Command string `json:"command"`
 }
 
-// claudeHookEntry is one element of hooks.PreToolUse in .claude/settings.json.
+// claudeHookEntry is one element of an event's array under hooks in .claude/settings.json.
 type claudeHookEntry struct {
 	Matcher string              `json:"matcher"`
 	Hooks   []claudeHookCommand `json:"hooks"`
@@ -42,15 +44,21 @@ type cursorHookEntry struct {
 	Matcher string `json:"matcher,omitempty"`
 }
 
-// claudeHookArray is the array entry added to .claude/settings.json.
-func claudeHookArray(o Options) arrayEntry {
-	return arrayEntry{path: []string{"hooks"}, key: "PreToolUse", elems: []json.RawMessage{
-		rawJSON(claudeHookEntry{Matcher: "Bash", Hooks: []claudeHookCommand{{Type: "command", Command: HookCommand(o, Claude)}}}),
-	}}
+// claudeHookArrays are the array entries added to .claude/settings.json: a Bash command
+// before it runs, and after it (PostToolUse after an exit 0, PostToolUseFailure after a
+// non-zero exit).
+func claudeHookArrays(o Options) []arrayEntry {
+	elem := rawJSON(claudeHookEntry{Matcher: "Bash", Hooks: []claudeHookCommand{{Type: "command", Command: HookCommand(o, Claude)}}})
+	var out []arrayEntry
+	for _, event := range []string{"PreToolUse", "PostToolUse", "PostToolUseFailure"} {
+		out = append(out, arrayEntry{path: []string{"hooks"}, key: event, elems: []json.RawMessage{elem}})
+	}
+	return out
 }
 
 // cursorHookSpec is everything written into .cursor/hooks.json: a shell command before
-// it runs, and Cursor's own Delete tool. `version` is the file's format number; it is a
+// it runs, Cursor's own Delete tool, and a shell command after it (postToolUse, and
+// postToolUseFailure for a non-zero exit). `version` is the file's format number; it is a
 // sole key, so --uninstall keeps a user's while their hooks remain.
 func cursorHookSpec(o Options) jsonSpec {
 	cmd := HookCommand(o, Cursor)
@@ -59,6 +67,8 @@ func cursorHookSpec(o Options) jsonSpec {
 		arrays: []arrayEntry{
 			{path: []string{"hooks"}, key: "beforeShellExecution", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd})}},
 			{path: []string{"hooks"}, key: "preToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Delete"})}},
+			{path: []string{"hooks"}, key: "postToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}},
+			{path: []string{"hooks"}, key: "postToolUseFailure", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}},
 		},
 	}
 }
