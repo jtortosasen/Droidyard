@@ -89,6 +89,7 @@ edits made before this rule and are not added to.
 | [0057](0057-probe-unread-field-omitted.md) | A probe field that could not be read is omitted, with a note | Accepted |
 | [0058](0058-file-write-revision-precondition.md) | `file.write` takes a revision precondition | Accepted |
 | [0059](0059-file-write-revision-null-and-absent.md) | `ifRevision` null is refused, and `absent` is settled by existence | Accepted |
+| [0060](0060-file-capabilities-not-mcp-tools.md) | The file capabilities are not MCP tools | Accepted |
 
 ## Open decisions (not yet ADRs)
 
