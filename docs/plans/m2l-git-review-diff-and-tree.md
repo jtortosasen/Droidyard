@@ -267,7 +267,7 @@ m2k merged into `main` during the review (`8e7c0c8`, API `0.22.0`, ADRs up to 00
 - Needs: steps 4, 7, 8.
 - Not here: a real agent driving git; any `git` binary works the same, and the owner's (e) covers it.
 - Rests on: the lock fact of step 1, at level 5.
-- [ ] Done. Evidence:
+- [ ] Done. Evidence: (a)–(d) run, (e) pending the owner. K1–K3, `/private/tmp/dyl.Opuir3`, untrusted `$B/copy`, the Git tab (Changes) and a Review diff open in headless Chrome. (a) two edits listed in 1 s or less, `git add` of one 1 ms, `git mv` `R` with its origin in 428 ms, a deletion `D` in 969 ms, `git add -A` and commit: an empty list in 860 ms, and the open Review diff went from 1 changed row to 0 (the base read again); every git exited 0. (b) 300 edit-add-commit cycles beside the watching tab in 16.8 s: 0 failures, 0 `index.lock` mentions. (c) a sampler before the close saw git children of the daemon in 5 process groups (the probe works; `ps` shows an exiting child as `(git)`, which a first sampler missed); after the tab left and `workspace.close`, 3 s of sampling found no git child of the daemon and no process in those groups; after `droidyard stop`, the daemon had no descendant and the token file was gone. (d) `droidyard mcp`: 31 tools, none `git_*`; `tools/call` `git_read` and `git_watch`: `tool 'git_read' not found` (-32602). K2: the owner's adb server (pid 19285) unchanged throughout the milestone.
 
 ## Not in this milestone
 
