@@ -211,7 +211,7 @@ Everything in this step lands together: the audience change breaks the counts, t
 - Needs: steps 3, 4.
 - Not here: a real agent (step 11).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `l4-s5-114506` (R1–R4; built at `aed8aba` in a detached worktree, since the main tree held step 8's work). (1) `droidyard schema` equals `schema/capabilities.json`. (2) MCP: 31 tools, none `file_`; `--tools core` 22; `tools/call file_read` → -32602 "tool 'file_read' not found"; bytes without `outputSchema` 28,022 (Python, `<>&` unescaped) against the test's 28,032 (Go escapes them); core 22,294. (3) CLI: `workspace.open`, `file.list`, `file.read`, `file.write` with that `ifRevision`, `file.delete`, `file.restore` of its `trashId`, each exit 0 and `client=cli … completed` in `daemon.log`. (4) Headless Chrome: the tree lists the copy; `MainActivity.kt` edited and saved with Cmd+S, the disk changed; `s5-del.txt` deleted from the tree's menu (notice "Deleted 1 item"), Undo brought it back; `client=ui` `file.write`, `file.delete`, `file.restore`, `file.watch` completed; the one failed `file.read` is a `FILE_NOT_FOUND` at load, not an audience refusal; `window.__csp` empty, the only console error the favicon's. (5) `init --client claude --dry-run`: no `file_` rule (17 allow rules). (6) zero orphans; R2 unchanged.
 
 ### 6. What the clients' hooks do, then ADR-B
 
