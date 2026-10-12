@@ -5,24 +5,35 @@
 //   - `Lanes` is extended page by page (ADR-0070 §1);
 //   - nothing is read before the Git watch has a status (the project is open and is a
 //     repository); `retry()` reads again after a failure.
-// When it reloads (ADR-0070 §3; this step: the watch's `head.oid` changes; step 6 adds the refs'
-// tips): the history starts again from its first page, the rows being replaced when the page
-// arrives (what is shown stays until then). The selection stays when its oid is among the new
-// rows, else it clears; `restore` names the oid the scroll returns to (the one at the top of the
-// view when still loaded) or null for the top. A reload overtakes a page in flight; its answer
-// is dropped.
+// When it reloads (ADR-0070 §3): the history starts again from its first page, the rows being
+// replaced when the page arrives (what is shown stays until then). It does so when the watch's
+// `head.oid` changes and when the refs it holds differ in their `tips` from those it started
+// from. The selection stays when its oid is among the new rows, else it clears; `restore`
+// names the oid the scroll returns to (the one at the top of the view when still loaded) or
+// null for the top. A reload overtakes a page in flight; its answer is dropped.
+// The refs (`git.refs`, step 6) are read with the first status, again when `head.oid` changes,
+// when the tab is shown (`setVisible`) and when the window regains focus (`focused`). A refs
+// answer whose tips differ from the history's own reloads the history, unless a read of the
+// history is on its way (it asks git afresh).
 // The Uncommitted Changes row is the watch's entries (none: no row).
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
 import { failure, failureText } from '../build/failure';
 import { Lanes, type LaneRow } from './lanes';
+import { localRef, refNames } from './refs';
 import type { GitView } from './watch';
 
 export type Commit = Result<'git.log'>['commits'][number];
 
 export interface HistoryClient {
 	call(name: 'git.log', params: Params<'git.log'>, opts?: CallOptions): Promise<Result<'git.log'>>;
+	call(name: 'git.refs', params: Params<'git.refs'>, opts?: CallOptions): Promise<Result<'git.refs'>>;
 }
+
+/** How many more pages a click on a ref may load to find its commit. */
+export const REVEAL_PAGES = 5;
+/** What is said when the commit is not among the loaded ones. */
+export const NOT_LOADED = 'not in the loaded history; scroll to load more';
 
 export interface HistoryWorkspace {
 	readonly root: string;
@@ -60,6 +71,18 @@ export interface HistoryView {
 	headOid: string;
 	/** The widest row so far, in lane columns. */
 	width: number;
+	/** The refs the side panel and the badges show; null until the first read arrives. */
+	refs: Result<'git.refs'> | null;
+	/** `idle` until the first read; `loading` while the first is on its way; `error`: the first read failed (a later failure keeps `refs`). */
+	refsState: 'idle' | 'loading' | 'ready' | 'error';
+	/** The reason of a failed refs read, as text. */
+	refsProblem: string | null;
+	/** The ref picked in the side panel (its full name, refs/heads/x), or null. */
+	selectedRef: string | null;
+	/** A request to bring a row into view; `seq` makes each one new. */
+	scrollTo: { seq: number; oid: string } | null;
+	/** Why a click on a ref did not select a commit, as text. */
+	notice: string | null;
 	/** Set by each reload that finished: where the scroll goes (an oid, or null for the top). `seq` makes each one a new request. */
 	restore: { seq: number; oid: string | null } | null;
 }
@@ -76,6 +99,12 @@ const EMPTY: HistoryView = {
 	uncommittedTruncated: false,
 	headOid: '',
 	width: 0,
+	refs: null,
+	refsState: 'idle',
+	refsProblem: null,
+	selectedRef: null,
+	scrollTo: null,
+	notice: null,
 	restore: null,
 };
 
@@ -95,7 +124,14 @@ export class HistoryStore {
 	#anchor: string | null = null;
 	#seenOid: string | undefined;
 	#restoreSeq = 0;
+	#scrollSeq = 0;
 	#disposed = false;
+	/** Bumped by every refs read: an answer of an older read is dropped. */
+	#refsGen = 0;
+	/** The first page of a reload is on its way. */
+	#reading = false;
+	#visible = false;
+	#pageP: { gen: number; done: Promise<void> } | null = null;
 
 	constructor(client: HistoryClient, ws: HistoryWorkspace, watch: HistoryWatch) {
 		this.#client = client;
@@ -133,27 +169,115 @@ export class HistoryStore {
 
 	select(oid: string | null): void {
 		if (oid !== null && !this.#index.has(oid)) return;
-		if (oid === this.#view.selected) return;
-		this.#set({ selected: oid });
+		this.#set({ selected: oid, notice: null });
+	}
+
+	/** Selects a loaded commit and asks the table to bring its row into view. */
+	show(oid: string): boolean {
+		if (!this.#index.has(oid)) return false;
+		this.#set({ selected: oid, notice: null, scrollTo: { seq: ++this.#scrollSeq, oid } });
+		return true;
+	}
+
+	/**
+	 * Selects the commit `oid` and shows it, loading at most REVEAL_PAGES more pages to find it;
+	 * else says NOT_LOADED. Resolves to whether the commit was selected.
+	 */
+	async reveal(oid: string): Promise<boolean> {
+		this.#set({ notice: null });
+		const gen = this.#gen;
+		for (let pages = 0; ; pages++) {
+			if (this.#disposed || gen !== this.#gen) return false;
+			if (this.show(oid)) return true;
+			const v = this.#view;
+			if (pages >= REVEAL_PAGES || v.state !== 'ready' || !(v.more || v.loadingMore)) break;
+			await this.#nextPage();
+			if (this.#view.moreProblem) break;
+		}
+		this.#set({ notice: NOT_LOADED });
+		return false;
+	}
+
+	/** A ref picked in the side panel: it is the selected one, and its commit is revealed (a tag on a tree has none). */
+	async selectRef(ref: string, oid: string | undefined): Promise<boolean> {
+		this.#set({ selectedRef: ref, notice: null });
+		if (oid === undefined) return false;
+		return this.reveal(oid);
+	}
+
+	/** Navigate to HEAD: the current branch is the selected ref and HEAD's commit is revealed. */
+	async navigateToHead(): Promise<boolean> {
+		const head = this.#view.refs?.head;
+		const oid = head?.oid ?? (this.#view.headOid || undefined);
+		if (oid === undefined) return false;
+		this.#set({ selectedRef: head && !head.detached && head.branch !== undefined ? localRef(head.branch) : null });
+		return this.reveal(oid);
+	}
+
+	/** The History tab is shown (true) or hidden: showing it reads the refs again (ADR-0070 §3). */
+	setVisible(visible: boolean): void {
+		if (visible === this.#visible) return;
+		this.#visible = visible;
+		if (visible) this.refreshRefs();
+	}
+
+	/** The window regained focus: the refs are read again (ADR-0070 §3). */
+	focused(): void {
+		this.refreshRefs();
+	}
+
+	/** Reads the refs, unless the watch has no status yet (not a repository, or not read). */
+	refreshRefs(): void {
+		if (this.#disposed || this.#watch.view.head === null) return;
+		const gen = ++this.#refsGen;
+		if (this.#view.refs === null) this.#set({ refsState: 'loading', refsProblem: null });
+		this.#client.call('git.refs', {}, { workspace: this.#ws.root.trim() }).then(
+			(r) => {
+				if (gen !== this.#refsGen || this.#disposed) return;
+				const names = refNames(r);
+				const sel = this.#view.selectedRef;
+				this.#set({ refs: r, refsState: 'ready', refsProblem: null, selectedRef: sel !== null && names.has(sel) ? sel : null });
+				// The tips the history started from are no longer the refs': it starts again (ADR-0070 §3).
+				if (this.#view.state === 'ready' && !this.#reading && !sameList(r.tips, this.#tips)) this.reload();
+			},
+			(e: unknown) => {
+				if (gen !== this.#refsGen || this.#disposed) return;
+				// What was shown stays when a later read fails.
+				if (this.#view.refs === null) this.#set({ refsState: 'error', refsProblem: failureText(failure(e)) });
+			},
+		);
 	}
 
 	/** The next page, when there is one and none is on its way. */
 	loadMore(): void {
+		void this.#nextPage();
+	}
+
+	/** The page in flight, else a new one when there is one to read; resolves when it has been read or has failed. */
+	#nextPage(): Promise<void> {
+		if (this.#pageP && this.#pageP.gen === this.#gen) return this.#pageP.done;
 		const v = this.#view;
-		if (this.#disposed || v.state !== 'ready' || !v.more || v.loadingMore || this.#tips.length === 0) return;
+		if (this.#disposed || v.state !== 'ready' || !v.more || v.loadingMore || this.#tips.length === 0) return Promise.resolve();
 		const gen = this.#gen;
 		this.#set({ loadingMore: true, moreProblem: null });
-		this.#client.call('git.log', { from: this.#tips, skip: v.rows.length }, { workspace: this.#ws.root.trim() }).then(
-			(r) => {
-				if (gen !== this.#gen) return;
-				const rows = [...this.#view.rows, ...this.#lay(r.commits)];
-				this.#set({ rows, more: r.more, loadingMore: false, width: this.#lanes.width });
-			},
-			(e: unknown) => {
-				if (gen !== this.#gen) return;
-				this.#set({ loadingMore: false, moreProblem: failureText(failure(e)) });
-			},
-		);
+		const done: Promise<void> = this.#client
+			.call('git.log', { from: this.#tips, skip: v.rows.length }, { workspace: this.#ws.root.trim() })
+			.then(
+				(r) => {
+					if (gen !== this.#gen) return;
+					const rows = [...this.#view.rows, ...this.#lay(r.commits)];
+					this.#set({ rows, more: r.more, loadingMore: false, width: this.#lanes.width });
+				},
+				(e: unknown) => {
+					if (gen !== this.#gen) return;
+					this.#set({ loadingMore: false, moreProblem: failureText(failure(e)) });
+				},
+			)
+			.finally(() => {
+				if (this.#pageP?.done === done) this.#pageP = null;
+			});
+		this.#pageP = { gen, done };
+		return done;
 	}
 
 	/** Reads the history again from its first page (the Retry button, and the reload rule). */
@@ -161,10 +285,12 @@ export class HistoryStore {
 		if (this.#disposed || this.#watch.view.head === null) return;
 		this.#started = true;
 		const gen = ++this.#gen;
+		this.#reading = true;
 		if (this.#view.state !== 'ready') this.#set({ state: 'loading', problem: null });
 		this.#client.call('git.log', {}, { workspace: this.#ws.root.trim() }).then(
 			(r) => {
 				if (gen !== this.#gen) return;
+				this.#reading = false;
 				const keepScroll = this.#anchor;
 				const keepSelected = this.#view.selected;
 				this.#lanes = new Lanes();
@@ -187,6 +313,7 @@ export class HistoryStore {
 			},
 			(e: unknown) => {
 				if (gen !== this.#gen) return;
+				this.#reading = false;
 				// What was shown stays when a reload fails; a first read shows the reason.
 				const text = failureText(failure(e));
 				if (this.#view.state === 'ready') this.#set({ moreProblem: text, loadingMore: false });
@@ -198,6 +325,7 @@ export class HistoryStore {
 	dispose(): void {
 		this.#disposed = true;
 		this.#gen++;
+		this.#refsGen++;
 		this.#off();
 		this.#listeners.clear();
 	}
@@ -222,7 +350,10 @@ export class HistoryStore {
 		if (w.head === null) return;
 		const moved = this.#seenOid !== undefined && this.#seenOid !== headOid;
 		this.#seenOid = headOid;
-		if (!this.#started || moved) this.reload();
+		if (!this.#started || moved) {
+			this.reload();
+			this.refreshRefs();
+		}
 	}
 
 	#set(change: Partial<HistoryView>): void {
@@ -238,6 +369,10 @@ export class HistoryStore {
 		this.#view = { ...v, ...change };
 		for (const l of [...this.#listeners]) l();
 	}
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
 /** "5 min ago", "3 h ago"... for a commit time in Unix seconds; `nowMs` is the clock in ms. */

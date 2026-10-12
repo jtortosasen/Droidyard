@@ -1,24 +1,43 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronUp from '@lucide/svelte/icons/chevron-up';
+	import Search from '@lucide/svelte/icons/search';
+	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
+	import Tag from '@lucide/svelte/icons/tag';
+	import Splitter from '../ui/Splitter.svelte';
+	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
+	import GitToolbar from './GitToolbar.svelte';
 	import { avatarHue, initials, relativeTime, type HistoryStore, type HistoryView } from './history';
+	import { badgesByOid, type Badge } from './refs';
+	import RefsPanel from './RefsPanel.svelte';
 	import { rowTop, rowWindow } from './rows';
+	import { findCommits, stepMatch } from './search';
 	import type { GitWatch } from './watch';
 
-	// The bottom Git panel's History tab (plan m2n step 4; ADR-0070 §1): the commits newest
-	// first in a virtualised table, one inline <svg> per row for the graph. Columns: GRAPH &
-	// SUBJECT, AUTHOR (an initials avatar coloured from the e-mail: the CSP admits no remote
-	// image), SHA, COMMIT TIME (relative; the date in the title). The Uncommitted Changes (n)
-	// row sits on top while the work tree differs from HEAD; HEAD's node is hollow; a merge is
-	// dimmed. Every text from git (subject, name, e-mail, oid) is a text node in a cell with
-	// `unicode-bidi: isolate`; nothing from git becomes markup. The store keeps the rows, the
-	// pages and the reload rules; this component draws the window the scroll shows.
+	// The bottom Git panel's History tab (plan m2n steps 4 and 6; ADR-0070 §1, §3): the
+	// operations toolbar across the top, the side panel of refs at the left, and the commits
+	// newest first in a virtualised table, one inline <svg> per row for the graph. Columns: GRAPH
+	// & SUBJECT (the ref badges before the subject), AUTHOR (an initials avatar coloured from the
+	// e-mail: the CSP admits no remote image), SHA, COMMIT TIME (relative; the date in the title).
+	// The Uncommitted Changes (n) row sits on top while the work tree differs from HEAD; HEAD's
+	// node is hollow; a merge is dimmed. Above the table a search finds over the rows loaded
+	// (subject, author, SHA prefix); the filter-settings button is shown disabled. Every text from
+	// git (subject, name, e-mail, oid, ref) is a text node in a cell with `unicode-bidi: isolate`;
+	// nothing from git becomes markup. The store keeps the rows, the refs, the pages and the
+	// reload rules; this component draws the window the scroll shows. It tells the store when the
+	// tab is shown (its box has a height) and when the window regains focus.
 	interface Props {
 		store: HistoryStore;
 		/** Only for the reason when the status has not arrived (not a repository, no git). */
 		watch: GitWatch;
+		/** The project, for what is remembered per browser and project (the favourites). */
+		workspaceId: string;
 	}
-	let { store, watch }: Props = $props();
+	let { store, watch, workspaceId }: Props = $props();
+
+	const storage = browserStorage(window);
 
 	const OVERSCAN = 8;
 	/** Rows from the end of the loaded history at which the next page is read. */
@@ -57,6 +76,41 @@
 	const indices = $derived(Array.from({ length: win.end - win.start }, (_, k) => win.start + k));
 	const gw = $derived(graphWidth(view.width) + 6);
 	const headRow = $derived(view.headOid === '' ? undefined : view.rows.find((r) => r.commit.oid === view.headOid));
+
+	// The tab is shown when its box has a height (the pane is display:none otherwise, and the region collapsed).
+	let boxHeight = $state(0);
+	$effect(() => {
+		store.setVisible(boxHeight > 0);
+	});
+
+	let sideWidth = $state(220);
+	const clampSide = (n: number) => Math.min(420, Math.max(140, Math.round(n)));
+
+	const badges = $derived(view.refs === null ? new Map<string, Badge[]>() : badgesByOid(view.refs));
+	const MAX_BADGES = 4;
+
+	// The search over the rows loaded.
+	let query = $state('');
+	const matches = $derived(query.trim() === '' ? [] : findCommits(view.rows.map((r) => r.commit), query));
+	const selectedIndex = $derived(view.selected === null ? -1 : store.indexOf(view.selected));
+	const matchPos = $derived(matches.indexOf(selectedIndex));
+	function find(direction: 1 | -1) {
+		const k = stepMatch(matches, selectedIndex, direction);
+		if (k >= 0) store.show(view.rows[matches[k]].commit.oid);
+	}
+
+	// A row asked for (a ref clicked, Navigate to HEAD, a search hit): brought into view, centred when it is out of it.
+	let scrolled = -1;
+	$effect(() => {
+		const s = view.scrollTo;
+		const el = scroller;
+		if (!s || !el || s.seq === scrolled) return;
+		scrolled = s.seq;
+		const at = store.indexOf(s.oid);
+		if (at < 0) return;
+		const top = rowTop(at + off, ROW);
+		if (top < el.scrollTop || top + ROW > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - (el.clientHeight - ROW) / 2);
+	});
 
 	// The next page, when the window nears the end of what is loaded.
 	$effect(() => {
@@ -108,7 +162,16 @@
 	const uncommittedText = $derived(`Uncommitted Changes (${view.uncommitted}${view.uncommittedTruncated ? '+' : ''})`);
 </script>
 
-<section class="history" data-history>
+<svelte:window onfocus={() => store.focused()} />
+
+<section class="history" data-history bind:clientHeight={boxHeight}>
+	<GitToolbar head={view.refs?.head ?? null} onnavigate={() => void store.navigateToHead()} />
+	<div class="body">
+		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags and work trees">
+			<RefsPanel {view} {store} {workspaceId} {storage} />
+		</aside>
+		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
+		<div class="table-area">
 	{#if view.state === 'idle'}
 		<p class="note" role="status">{problem ?? 'Reading the status…'}</p>
 	{:else if view.state === 'loading'}
@@ -121,6 +184,32 @@
 	{:else if count === 0}
 		<p class="note" role="status">No commits yet.</p>
 	{:else}
+		<div class="find" role="search">
+			<Search size={13} />
+			<input
+				type="search"
+				bind:value={query}
+				placeholder="Find in the loaded commits"
+				aria-label="Find in the loaded commits"
+				data-find
+				onkeydown={(e) => {
+					if (e.key === 'Enter') {
+						find(e.shiftKey ? -1 : 1);
+						e.preventDefault();
+					}
+				}}
+			/>
+			{#if query.trim() !== ''}
+				<span class="found" role="status" data-found={matches.length}>{matches.length === 0 ? 'No match' : `${matchPos >= 0 ? matchPos + 1 : '–'} / ${matches.length}`}</span>
+			{/if}
+			<button type="button" class="icon" disabled={matches.length === 0} title="Previous match" aria-label="Previous match" data-find-prev onclick={() => find(-1)}><ChevronUp size={13} /></button>
+			<button type="button" class="icon" disabled={matches.length === 0} title="Next match" aria-label="Next match" data-find-next onclick={() => find(1)}><ChevronDown size={13} /></button>
+			<span class="fill"></span>
+			<button type="button" class="icon" disabled title="Filter settings: not available yet" aria-label="Filter settings" data-filter-settings><SlidersHorizontal size={13} /></button>
+		</div>
+		{#if view.notice}
+			<p class="notice" role="status" data-notice>{view.notice}</p>
+		{/if}
 		<div class="head" role="row">
 			<span class="cell main" role="columnheader">GRAPH &amp; SUBJECT</span>
 			<span class="cell" role="columnheader">AUTHOR</span>
@@ -190,6 +279,13 @@
 											{/if}
 										</svg>
 									</span>
+									{#each (badges.get(c.oid) ?? []).slice(0, MAX_BADGES) as b (b.ref)}
+										{@render badge(b)}
+									{/each}
+									{#if (badges.get(c.oid)?.length ?? 0) > MAX_BADGES}
+										{@const rest = (badges.get(c.oid) ?? []).slice(MAX_BADGES)}
+										<span class="badge more" title={rest.map((b) => b.label).join(', ')} data-badge-more={rest.length}>+{rest.length}</span>
+									{/if}
 									<span class="text subject" title={c.subject}>{c.subject}</span>
 								</div>
 								<div class="cell" role="gridcell">
@@ -215,7 +311,16 @@
 			</footer>
 		{/if}
 	{/if}
+		</div>
+	</div>
 </section>
+
+{#snippet badge(b: Badge)}
+	<span class="badge {b.kind}" class:current={b.current} data-badge={b.kind} data-badge-ref={b.ref} title={b.label}>
+		{#if b.kind === 'tag'}<Tag size={10} />{/if}
+		<span class="bt">{b.label}</span>
+	</span>
+{/snippet}
 
 <style>
 	.history {
@@ -224,6 +329,93 @@
 		display: flex;
 		flex-direction: column;
 		font-size: var(--fs-base);
+	}
+	.body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+	}
+	.side {
+		flex: none;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg-panel);
+	}
+	.table-area {
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.find {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--sp-3);
+		padding: var(--sp-2) var(--sp-4);
+		border-bottom: 1px solid var(--border);
+		color: var(--text-3);
+		font-size: var(--fs-small);
+	}
+	.find input {
+		width: 24ch;
+	}
+	.found {
+		color: var(--text-2);
+		font-family: var(--font-mono);
+	}
+	.fill {
+		flex: 1;
+	}
+	.icon {
+		display: inline-flex;
+		align-items: center;
+		border-color: transparent;
+		background: transparent;
+	}
+	.notice {
+		flex: none;
+		margin: 0;
+		padding: var(--sp-2) var(--sp-4);
+		font-size: var(--fs-small);
+		color: var(--warning);
+		border-bottom: 1px solid var(--border);
+	}
+	.badge {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		max-width: 22ch;
+		padding: 0 var(--sp-3);
+		border-radius: var(--radius-control);
+		font-size: var(--fs-small);
+		line-height: 16px;
+		background: var(--bg-active);
+		color: var(--text-2);
+		border: 1px solid var(--border);
+	}
+	.badge.branch {
+		color: var(--text);
+		background: var(--accent-soft);
+		border-color: transparent;
+	}
+	.badge.branch.current,
+	.badge.head {
+		font-weight: 600;
+		border-color: var(--accent);
+	}
+	.badge.tag {
+		color: var(--warning);
+	}
+	.bt {
+		unicode-bidi: isolate;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.note,
 	.problem {
@@ -289,6 +481,10 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.cell.main .subject {
+		flex: 1 1 0;
+		white-space: nowrap;
 	}
 	.sha {
 		font-family: var(--font-mono);
