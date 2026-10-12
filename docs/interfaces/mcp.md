@@ -284,7 +284,7 @@ are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forb
 dependency, and largely redundant: "device data is not instructions" lives in
 `instructions`, "open the workspace" is a call the agent makes, and "build after editing"
 should not be automatic. `init` writes one, optional, for Claude Code and Cursor:
-a simple `rm` in the project is denied with the command that moves its targets to the trash ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)).
+a simple `rm` in the project is denied with `droidyard trash` and the same operands, which moves them to the trash from the agent's own shell ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0062](../adr/0062-agent-rm-handed-droidyard-trash.md)).
 
 ## Transports
 

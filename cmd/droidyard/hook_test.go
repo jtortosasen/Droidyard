@@ -138,7 +138,7 @@ func reasonOf(t *testing.T, client, stdout string) string {
 // replacementOf is the command a deny hands the agent: what follows the sentence.
 func replacementOf(t *testing.T, reason string) string {
 	t.Helper()
-	_, cmd, ok := strings.Cut(reason, "which moves them to the trash: ")
+	_, cmd, ok := strings.Cut(reason, "in the same directory: ")
 	if !ok || cmd == "" {
 		t.Fatalf("the deny %q carries no command", reason)
 	}
@@ -262,14 +262,15 @@ func findLocks(t *testing.T, dir string) []string {
 	return found
 }
 
-// runReplacement runs the command a deny handed the agent, as the agent's shell would:
-// /bin/sh -c, a PATH that lacks droidyard, no DROIDYARD_STATE_DIR, and a scratch HOME
-// (returned), so a daemon the command started would leave its lock there.
-func runReplacement(t *testing.T, replacement string) (stdout, stderr, home string, err error) {
+// runReplacement runs the command a deny handed the agent, as the agent's shell would,
+// in dir, the directory the rm was typed in: /bin/sh -c, a PATH that lacks droidyard,
+// no DROIDYARD_STATE_DIR, and a scratch HOME (returned), so a daemon the command started
+// would leave its lock there.
+func runReplacement(t *testing.T, replacement, dir string) (stdout, stderr, home string, err error) {
 	t.Helper()
 	home = shortDir(t)
 	sh := exec.Command("/bin/sh", "-c", replacement)
-	sh.Dir = t.TempDir()
+	sh.Dir = dir
 	sh.Env = []string{reexec + "=1", testParentEnv + "=" + strconv.Itoa(os.Getpid()), "HOME=" + home, "PATH=/nonexistent"}
 	var out, errb bytes.Buffer
 	sh.Stdout, sh.Stderr = &out, &errb
@@ -277,76 +278,221 @@ func runReplacement(t *testing.T, replacement string) (stdout, stderr, home stri
 	return out.String(), errb.String(), home, err
 }
 
-// TestHookDeniesAndTheReplacementReachesTheSameDaemon holds ADR-0061 §3 end to end on a
-// real daemon, for each client's JSON: a routed rm is denied with one command and
+// cursorAgentMessage is the agent_message of a Cursor deny.
+func cursorAgentMessage(t *testing.T, stdout string) string {
+	t.Helper()
+	var out struct {
+		AgentMessage string `json:"agent_message"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.AgentMessage
+}
+
+// TestHookDeniesAndTheReplacementReachesTheSameDaemon holds ADR-0062 §4–§6 end to end on
+// a real daemon, for each client's event: a routed rm is denied with one command and
 // nothing is deleted by the hook; the hook opened the workspace; and that exact command,
-// run by /bin/sh with a PATH that lacks droidyard and no DROIDYARD_STATE_DIR in the
-// shell, reaches the daemon the hook dialled, moves the files to its trash and starts no
-// second daemon. A replacement that did not name the binary, the state root or
-// --no-autostart would fail here.
+// run by /bin/sh in the subdirectory where the rm was typed, with a PATH that lacks
+// droidyard and no DROIDYARD_STATE_DIR in the shell, reaches the daemon the hook
+// dialled, trashes exactly the files the typed operands name there, and starts no second
+// daemon. Claude Code's event carries that directory as cwd; Cursor's carries "", so
+// its relative operands route on their text and `trash` does the placing.
+//
+// Each case is a decision the replacement must keep: a name resolves in the shell's
+// directory and not the root (Obsolete.kt), a quoted star stays a literal name (a*b.kt,
+// with aXb.kt beside it), a star next to a quoted word expands as sh would ("my dir"/*.kt),
+// and -r reaches a relative directory. A replacement that did not name the state root
+// would fail on all of them; one that made the quoted star bare would trash aXb.kt;
+// one that quoted the unquoted star would find no file called *.kt.
 func TestHookDeniesAndTheReplacementReachesTheSameDaemon(t *testing.T) {
 	t.Parallel()
+	cases := []struct {
+		name, sub, cmd string
+		files          []string
+		gone, kept     []string
+		items          int
+	}{
+		{"a name that also exists at the root", "app/src", "rm Obsolete.kt",
+			[]string{"Obsolete.kt", "app/src/Obsolete.kt"}, []string{"app/src/Obsolete.kt"}, []string{"Obsolete.kt"}, 1},
+		{"a quoted star is a literal name", "app/src", "rm 'a*b.kt'",
+			[]string{"app/src/a*b.kt", "app/src/aXb.kt"}, []string{"app/src/a*b.kt"}, []string{"app/src/aXb.kt"}, 1},
+		{"a star beside a double-quoted directory", "app", `rm "my dir"/*.kt`,
+			[]string{"app/my dir/x.kt", "app/my dir/y.kt", "app/my dir/z.txt", "app/x.kt"},
+			[]string{"app/my dir/x.kt", "app/my dir/y.kt"}, []string{"app/my dir/z.txt", "app/x.kt"}, 2},
+		{"-rf of a relative directory", "app", "rm -rf src/old",
+			[]string{"app/src/old/x.kt", "app/src/keep.kt"}, []string{"app/src/old"}, []string{"app/src/keep.kt"}, 1},
+	}
 	for _, client := range []string{"claude", "cursor"} {
-		t.Run(client, func(t *testing.T) {
+		for _, c := range cases {
+			t.Run(client+": "+c.name, func(t *testing.T) {
+				t.Parallel()
+				p := startInProcess(t)
+				root := hookProject(t)
+				dir := filepath.Join(root, c.sub)
+				for _, f := range c.files {
+					full := filepath.Join(root, f)
+					if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(full, []byte(f), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				event := claudeBash(c.cmd, dir)
+				if client == "cursor" {
+					// Cursor carries no cwd while its shell keeps a cd [obs, m2j step 6].
+					event = cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{
+						"command": c.cmd, "cwd": "", "workspace_roots": []string{root}})
+				}
+
+				if env, code := p.call(t, "workspace.describe", "--workspace", root); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
+					t.Fatalf("before the hook, workspace.describe exited %d with %+v; want WORKSPACE_NOT_OPEN", code, env.Error)
+				}
+				res := runHook(t, p.state, event, nil, "--client", client, "--root", root)
+				if res.code != 0 || res.stderr != "" {
+					t.Fatalf("hook exited %d with stderr %q; want 0 and none", res.code, res.stderr)
+				}
+				reason := reasonOf(t, client, res.stdout)
+				if client == "cursor" && cursorAgentMessage(t, res.stdout) != reason {
+					t.Errorf("Cursor's agent_message is %q; want the text of user_message (ADR-0062 §6)", cursorAgentMessage(t, res.stdout))
+				}
+				replacement := replacementOf(t, reason)
+				if !strings.Contains(replacement, " trash --state-dir "+quoteArg(p.state)+" --root "+quoteArg(root)+" ") ||
+					strings.Contains(replacement, "file.delete") || strings.Contains(replacement, "DROIDYARD_STATE_DIR") {
+					t.Errorf("the replacement is %q; want droidyard trash with --state-dir and --root", replacement)
+				}
+				for _, f := range c.files {
+					if !exists(filepath.Join(root, f)) {
+						t.Fatalf("the hook deleted %s; it must delete nothing (ADR-0062 §4)", f)
+					}
+				}
+				if env, code := p.call(t, "workspace.describe", "--workspace", root); code != 0 || env.Error != nil {
+					t.Errorf("after the hook, workspace.describe exited %d with %+v; want the workspace open", code, env.Error)
+				}
+
+				stdout, stderr, shellHome, err := runReplacement(t, replacement, dir)
+				if err != nil {
+					t.Fatalf("the replacement failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+				}
+				if n := strings.Count(stdout, "trashed "); n != c.items {
+					t.Errorf("the replacement printed %q; want %d trashed lines", stdout, c.items)
+				}
+				for _, f := range c.gone {
+					if exists(filepath.Join(root, f)) {
+						t.Errorf("%s is still there after the replacement", f)
+					}
+				}
+				for _, f := range c.kept {
+					if !exists(filepath.Join(root, f)) {
+						t.Errorf("%s was trashed; the replacement must trash exactly what the typed rm named", f)
+					}
+				}
+				if n := trashed(t, p.state); n != c.items {
+					t.Errorf("the daemon's trash holds %d items; want %d", n, c.items)
+				}
+				if locks := findLocks(t, shellHome); len(locks) != 0 {
+					t.Errorf("the replacement started a daemon of its own: %v", locks)
+				}
+			})
+		}
+	}
+}
+
+// TestHookReplacementReadsAGlobsDashNameAsRmWould holds the step 2–3 verifier's N1 for
+// Cursor, whose relative glob the hook cannot expand: the replacement carries `--` only
+// when the rm did, so a name starting with `-` that the shell's expansion puts first is
+// a flag to `trash` as it is to rm. `rm *` over `-f` and A.kt deletes A.kt and keeps
+// `-f`; `rm *.kt` over `-x.kt` is a usage error that moves nothing. With `--` always
+// added, both would trash the dash-named file.
+func TestHookReplacementReadsAGlobsDashNameAsRmWould(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, cmd   string
+		files, gone []string
+		ok          bool
+	}{
+		{"a -f name is a flag", "rm *", []string{"d/-f", "d/A.kt"}, []string{"d/A.kt"}, true},
+		{"a -x.kt name is a usage error", "rm *.kt", []string{"d/-x.kt", "d/A.kt"}, nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			p := startInProcess(t)
 			root := hookProject(t)
-			a, b := filepath.Join(root, "a.kt"), filepath.Join(root, "dir", "b.kt")
-
-			var event string
-			if client == "claude" {
-				event = claudeBash("rm -f a.kt dir/b.kt", root)
-			} else {
-				// Cursor carries no cwd while its shell keeps a cd, so only absolute operands route.
-				event = cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{
-					"command": "rm -f " + a + " " + b, "workspace_roots": []string{root}})
+			for _, f := range c.files {
+				full := filepath.Join(root, f)
+				if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(full, []byte(f), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
-
-			if env, code := p.call(t, "workspace.describe", "--workspace", root); code == 0 || env.Error == nil || env.Error.Code != capability.ErrWorkspaceNotOpen {
-				t.Fatalf("before the hook, workspace.describe exited %d with %+v; want WORKSPACE_NOT_OPEN", code, env.Error)
+			event := cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{
+				"command": c.cmd, "cwd": "", "workspace_roots": []string{root}})
+			res := runHook(t, p.state, event, nil, "--client", "cursor", "--root", root)
+			replacement := replacementOf(t, reasonOf(t, "cursor", res.stdout))
+			if strings.Contains(replacement, " -- ") {
+				t.Fatalf("the replacement %q has --, which the rm did not", replacement)
 			}
-
-			res := runHook(t, p.state, event, nil, "--client", client, "--root", root)
-			if res.code != 0 || res.stderr != "" {
-				t.Fatalf("hook exited %d with stderr %q; want 0 and none", res.code, res.stderr)
+			_, stderr, _, err := runReplacement(t, replacement, filepath.Join(root, "d"))
+			if (err == nil) != c.ok {
+				t.Fatalf("the replacement's error is %v (stderr %s); want success %v", err, stderr, c.ok)
 			}
-			reason := reasonOf(t, client, res.stdout)
-			replacement := replacementOf(t, reason)
-			if !strings.Contains(replacement, "DROIDYARD_STATE_DIR="+p.state+" ") || !strings.Contains(replacement, " call --no-autostart --workspace ") ||
-				!strings.Contains(replacement, `file.delete --params '{"paths":["a.kt","dir/b.kt"]}'`) {
-				t.Errorf("the replacement is %q; want the state root inline, --no-autostart and the root-relative paths in order", replacement)
+			for _, f := range c.files {
+				gone := false
+				for _, g := range c.gone {
+					gone = gone || g == f
+				}
+				if exists(filepath.Join(root, f)) == gone {
+					t.Errorf("%s: exists %v; want %v", f, !gone, !gone)
+				}
 			}
-			if !exists(a) || !exists(b) {
-				t.Fatal("the hook deleted a file; it must delete nothing (ADR-0061 §3)")
-			}
-			if env, code := p.call(t, "workspace.describe", "--workspace", root); code != 0 || env.Error != nil {
-				t.Errorf("after the hook, workspace.describe exited %d with %+v; want the workspace open", code, env.Error)
-			}
-
-			stdout, stderr, shellHome, err := runReplacement(t, replacement)
-			if err != nil {
-				t.Fatalf("the replacement failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
-			}
-			var env capability.ResponseEnvelope
-			var deleted struct {
-				Done  int `json:"done"`
-				Items []struct {
-					TrashID string `json:"trashId"`
-				} `json:"items"`
-			}
-			if err := json.Unmarshal([]byte(stdout), &env); err != nil || env.Error != nil || json.Unmarshal(env.Result, &deleted) != nil || deleted.Done != 2 {
-				t.Fatalf("the replacement printed %q (%v); want file.delete done for both paths", stdout, err)
-			}
-			if exists(a) || exists(b) {
-				t.Error("after the replacement a file is still at its path")
-			}
-			if items, _ := filepath.Glob(filepath.Join(p.state, "ws", "*", "trash", "*", "item")); len(items) != 2 {
-				t.Errorf("the daemon's trash holds %d items %v; want the 2 deleted files", len(items), items)
-			}
-			if locks := findLocks(t, shellHome); len(locks) != 0 {
-				t.Errorf("the replacement started a daemon of its own: %v", locks)
+			if n := trashed(t, p.state); n != len(c.gone) {
+				t.Errorf("the daemon's trash holds %d items; want %d", n, len(c.gone))
 			}
 		})
+	}
+}
+
+// TestHookHandsCursorsDeleteToolTheAbsolutePath holds ADR-0062 §4 for Cursor's Delete
+// tool: its absolute file_path goes to `trash` in single quotes, a glob character in it
+// included, and the replacement trashes that file and no other.
+func TestHookHandsCursorsDeleteToolTheAbsolutePath(t *testing.T) {
+	t.Parallel()
+	p := startInProcess(t)
+	root := hookProject(t)
+	for _, f := range []string{"del/a*.kt", "del/aX.kt"} {
+		full := filepath.Join(root, f)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(f), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(root, "del", "a*.kt")
+	event := cursorFixture(t, "cursor-2-preToolUse", map[string]any{
+		"tool_input": map[string]any{"file_path": target}, "workspace_roots": []string{root}})
+	res := runHook(t, p.state, event, nil, "--client", "cursor", "--root", root)
+	if res.code != 0 || res.stderr != "" {
+		t.Fatalf("hook exited %d with stderr %q; want 0 and none", res.code, res.stderr)
+	}
+	reason := reasonOf(t, "cursor", res.stdout)
+	if cursorAgentMessage(t, res.stdout) != reason {
+		t.Error("Cursor's agent_message differs from user_message")
+	}
+	replacement := replacementOf(t, reason)
+	if !strings.HasSuffix(replacement, " '"+target+"'") {
+		t.Errorf("the replacement is %q; want the absolute path in single quotes", replacement)
+	}
+	stdout, stderr, _, err := runReplacement(t, replacement, root)
+	if err != nil {
+		t.Fatalf("the replacement failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	if exists(target) || !exists(filepath.Join(root, "del", "aX.kt")) {
+		t.Error("the replacement did not trash exactly the Delete tool's file")
 	}
 }
 
@@ -414,7 +560,8 @@ func TestHookPassesWhatItDoesNotRouteWithoutDialling(t *testing.T) {
 		{"claude: an empty object", "claude", "{}"},
 		{"cursor: the touch event, as observed", "cursor", cursorFixture(t, "cursor-0-beforeShellExecution", nil)},
 		{"cursor: the compound rm, as observed", "cursor", cursorFixture(t, "cursor-3-beforeShellExecution", nil)},
-		{"cursor: a relative rm, with no cwd", "cursor", cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{"command": "rm a.kt"})},
+		{"cursor: a relative rm leaving the root, with no cwd", "cursor", cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{"command": "rm ../a.kt"})},
+		{"cursor: a relative rm of a build output, with no cwd", "cursor", cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{"command": "rm -rf build/x"})},
 		{"cursor: the Delete tool outside the root, as observed", "cursor", cursorFixture(t, "cursor-2-preToolUse", nil)},
 		{"cursor: another event", "cursor", cursorFixture(t, "cursor-3-beforeShellExecution", map[string]any{"hook_event_name": "afterShellExecution", "command": "rm -f " + filepath.Join(root, "a.kt")})},
 		{"cursor: malformed", "cursor", "{"},
@@ -532,10 +679,10 @@ func TestHookNeverExitsTwoAndPrintsNothingElse(t *testing.T) {
 	}
 }
 
-// TestHookReplacementStartsNoDaemonWhenTheDaemonIsGone holds ADR-0061 §3's --no-autostart:
-// if the daemon the hook dialled is gone by the time the agent runs the replacement, the
-// command fails and starts none. Without the flag it would start a daemon at the shell's
-// own state root, a place the agent and the user never chose.
+// TestHookReplacementStartsNoDaemonWhenTheDaemonIsGone holds ADR-0062 §1: if the daemon
+// the hook dialled is gone by the time the agent runs the replacement, `trash` fails and
+// starts none. Were it to auto-start, it would start a daemon at the shell's own state
+// root, a place the agent and the user never chose.
 func TestHookReplacementStartsNoDaemonWhenTheDaemonIsGone(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
@@ -550,14 +697,14 @@ func TestHookReplacementStartsNoDaemonWhenTheDaemonIsGone(t *testing.T) {
 	}
 	// An auto-started daemon takes a moment to appear, so the command's own exit is the
 	// proof: it must fail at once, not wait for one.
-	stdout, stderr, home, err := runReplacement(t, replacement)
+	stdout, stderr, home, err := runReplacement(t, replacement, root)
 	if err == nil {
 		t.Fatalf("the replacement succeeded with the daemon gone; stdout %q", stdout)
 	}
 	if !strings.Contains(stderr, "no daemon answers") {
 		t.Errorf("the replacement said %q; want it to report that no daemon answers", stderr)
 	}
-	// The state root is inline in the command, so a daemon it started would hold that
+	// The state root is in the command (--state-dir), so a daemon it started would hold that
 	// state root's lock (the file stays after the first daemon's shutdown; the hold is
 	// the sign); the scratch HOME covers a command that lost the state root.
 	if _, held, _ := daemon.Holder(p.state); held {

@@ -97,11 +97,12 @@ func (a trashArgs) flags() string {
 	return "-" + f
 }
 
-// quoteArg single-quotes s for a POSIX shell, leaving a plain word as it is.
+// quoteArg single-quotes s for a POSIX shell, leaving a plain word as it is. `=` is not
+// plain: zsh replaces a word starting with it by a command's path.
 func quoteArg(s string) string {
 	plain := s != ""
 	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_@%+=:,./-", c)) {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("_@%+:,./-", c)) {
 			plain = false
 			break
 		}
@@ -191,6 +192,7 @@ func trashCmd(args []string, stdout, stderr io.Writer) int {
 	params, _ := json.Marshal(file.DeleteParams{Paths: paths})
 	var out bytes.Buffer
 	if _, err := (cli.Call{Capability: "file.delete", Workspace: id, Params: params}).Run(r, conn, cli.Streams{Out: &out, Err: stderr}, nil); err != nil {
+		// The call may have reached the daemon, so "nothing was moved" is not known here.
 		fmt.Fprintf(stderr, "droidyard trash: %v\n", err)
 		return 1
 	}

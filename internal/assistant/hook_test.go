@@ -85,6 +85,14 @@ func TestRmFormsTable(t *testing.T) {
 		{"-f of a file", "rm -f a.kt", "", []string{"a.kt"}},
 		{"absolute operand inside", "rm " + abs("a.kt"), "", []string{"a.kt"}},
 		{"absolute operand, no cwd (Cursor)", "rm " + abs("a.kt"), "none", []string{"a.kt"}},
+		// Cursor sends cwd "": a relative operand routes on its text alone (ADR-0062 §5),
+		// listed by its lexical path, a glob unexpanded.
+		{"Cursor: relative file", "rm a.kt", "none", []string{"a.kt"}},
+		{"Cursor: relative directory", "rm -rf src/old", "none", []string{"src/old"}},
+		{"Cursor: relative glob, not expanded", "rm src/*.kt", "none", []string{"src/*.kt"}},
+		{"Cursor: a name that is not there is trash's to refuse", "rm nothing.kt", "none", []string{"nothing.kt"}},
+		{"Cursor: a dot segment inside", "rm ./src/a.kt", "none", []string{"src/a.kt"}},
+		{"Cursor: relative and absolute together", "rm a.kt " + abs("b.kt"), "none", []string{"a.kt", "b.kt"}},
 		{"relative to a subdirectory cwd", "rm a.kt", abs("src"), []string{"src/a.kt"}},
 		{"parent of the cwd", "rm ../a.kt", abs("src"), []string{"a.kt"}},
 		{"a dot segment inside", "rm ./src/./a.kt", "", []string{"src/a.kt"}},
@@ -153,7 +161,6 @@ func TestRmFormsTable(t *testing.T) {
 		// Passes: where the target is, or what it is.
 		{"relative outside", "rm ../outside/o.kt", "", nil},
 		{"absolute outside", "rm " + filepath.Join(outside, "o.kt"), "", nil},
-		{"relative with Cursor's empty cwd", "rm a.kt", "none", nil},
 		{"relative with a relative cwd", "rm a.kt", "src", nil},
 		{"cwd outside the root", "rm o.kt", outside, nil},
 		{"a glob matching nothing", "rm src/*.java", "", nil},
@@ -197,6 +204,19 @@ func TestRmFormsTable(t *testing.T) {
 		{".kotlin", "rm -rf .kotlin", "", nil},
 		{".cxx", "rm -rf app/.cxx", "", nil},
 		{"build by a glob", "rm -rf bui*", "", nil},
+
+		// Passes: Cursor's relative operands, lexical checks only (ADR-0062 §5).
+		{"Cursor: a parent component", "rm ../x", "none", nil},
+		{"Cursor: a parent component inside", "rm src/../a.kt", "none", nil},
+		{"Cursor: under build", "rm build/x", "none", nil},
+		{"Cursor: build in another case", "rm -rf Build", "none", nil},
+		{"Cursor: .gradle", "rm -rf .gradle", "none", nil},
+		{"Cursor: nested .cxx", "rm -rf app/.cxx", "none", nil},
+		{"Cursor: dot", "rm .", "none", nil},
+		{"Cursor: dot slash", "rm -rf ./", "none", nil},
+		{"Cursor: ending in a dot", "rm -rf src/.", "none", nil},
+		{"Cursor: a relative operand beside one that leaves the root", "rm a.kt " + filepath.Join(outside, "o.kt"), "none", nil},
+		{"Cursor: an operator is still no rm", "rm a.kt; ls", "none", nil},
 	}
 	for _, r := range rows {
 		cwd := r.cwd
@@ -208,11 +228,11 @@ func TestRmFormsTable(t *testing.T) {
 		}
 		got, ok := RouteRm(HookEvent{Command: r.cmd, Cwd: cwd}, root)
 		if (r.want != nil) != ok {
-			t.Errorf("%s: %q: routed=%v paths=%v, want routed=%v %v", r.name, r.cmd, ok, got, r.want != nil, r.want)
+			t.Errorf("%s: %q: routed=%v paths=%v, want routed=%v %v", r.name, r.cmd, ok, got.Paths, r.want != nil, r.want)
 			continue
 		}
-		if ok && !reflect.DeepEqual(got, r.want) {
-			t.Errorf("%s: %q: paths %v, want %v", r.name, r.cmd, got, r.want)
+		if ok && !reflect.DeepEqual(got.Paths, r.want) {
+			t.Errorf("%s: %q: paths %v, want %v", r.name, r.cmd, got.Paths, r.want)
 		}
 	}
 }
@@ -227,38 +247,49 @@ func TestRmGlobSkipsDotNames(t *testing.T) {
 	if !ok {
 		t.Fatal("rm -r src/* did not route")
 	}
-	for _, p := range got {
+	for _, p := range got.Paths {
 		if strings.Contains(p, "/.") {
 			t.Errorf("rm -r src/* routed the dot-name %q", p)
 		}
 	}
 	got, ok = RouteRm(HookEvent{Command: "rm src/.h*", Cwd: root}, root)
-	if !ok || !reflect.DeepEqual(got, []string{"src/.hidden"}) {
+	if !ok || !reflect.DeepEqual(got.Paths, []string{"src/.hidden"}) {
 		t.Errorf("rm src/.h*: %v %v, want src/.hidden", got, ok)
 	}
 	for _, cmd := range []string{`rm "a*"`, `rm a\*`} {
 		got, ok = RouteRm(HookEvent{Command: cmd, Cwd: root}, root)
-		if !ok || !reflect.DeepEqual(got, []string{"a*"}) {
+		if !ok || !reflect.DeepEqual(got.Paths, []string{"a*"}) {
 			t.Errorf("%s: %v %v, want only a*", cmd, got, ok)
 		}
 	}
 }
 
-// TestRmRelativeNeedsTheEventsCwd pins ADR-0061 §2: a relative operand resolves against
-// the cwd the event carries and never against the hook process's own directory. Cursor
-// carries "" [obs, m2j step 6], so there only absolute operands route, even when the
-// hook happens to run inside the project.
-func TestRmRelativeNeedsTheEventsCwd(t *testing.T) {
+// TestRmRelativeNeverUsesTheHookProcessDirectory pins ADR-0061 §2 and ADR-0062 §5: a
+// relative operand is placed against the cwd the event carries, never against the hook
+// process's own directory, and with no cwd (Cursor, [obs, m2j step 6]) it is not placed
+// at all, so the file system is not read for it. The hook runs inside the project here,
+// and the operand names a file that exists only there: were the hook's directory used,
+// `rm a.kt` and the glob would be placed (and a missing name refused), not routed by
+// text.
+func TestRmRelativeNeverUsesTheHookProcessDirectory(t *testing.T) {
 	root, _ := hookProject(t)
 	t.Chdir(root)
-	if got, ok := RouteRm(HookEvent{Command: "rm a.kt"}, root); ok {
-		t.Errorf("a relative operand with no event cwd routed to %v", got)
+	// With an event cwd elsewhere, the operand is placed there and is not the root's file.
+	if got, ok := RouteRm(HookEvent{Command: "rm a.kt", Cwd: filepath.Join(root, "src", "sub")}, root); ok {
+		t.Errorf("a.kt placed in the process's directory instead of the event's cwd: %v", got.Paths)
 	}
-	if got, ok := RouteRm(HookEvent{Command: "rm *.kt"}, root); ok {
-		t.Errorf("a relative glob with no event cwd routed to %v", got)
+	// With no cwd, a glob matching nothing anywhere is still routed by text: `trash` sees
+	// what the shell expands, and a placed glob that matched nothing would pass.
+	got, ok := RouteRm(HookEvent{Command: "rm *.nothing"}, root)
+	if !ok || !reflect.DeepEqual(got.Paths, []string{"*.nothing"}) {
+		t.Errorf("a relative glob with no event cwd: %v %v; want it routed by its text", got.Paths, ok)
 	}
-	if got, ok := RouteRm(HookEvent{Command: "rm " + filepath.Join(root, "a.kt")}, root); !ok || !reflect.DeepEqual(got, []string{"a.kt"}) {
-		t.Errorf("an absolute operand with no event cwd: %v %v", got, ok)
+	// A relative cwd is no cwd to place against: it still passes.
+	if got, ok := RouteRm(HookEvent{Command: "rm a.kt", Cwd: "src"}, root); ok {
+		t.Errorf("a relative event cwd routed to %v", got.Paths)
+	}
+	if got, ok := RouteRm(HookEvent{Command: "rm " + filepath.Join(root, "a.kt")}, root); !ok || !reflect.DeepEqual(got.Paths, []string{"a.kt"}) {
+		t.Errorf("an absolute operand with no event cwd: %v %v", got.Paths, ok)
 	}
 }
 
@@ -280,14 +311,14 @@ func TestRmRootAliasAndTooMany(t *testing.T) {
 	if err := os.Symlink(real, alias); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := RouteRm(HookEvent{Command: "rm fx1", Cwd: alias}, alias); !ok || !reflect.DeepEqual(got, []string{"fx1"}) {
+	if got, ok := RouteRm(HookEvent{Command: "rm fx1", Cwd: alias}, alias); !ok || !reflect.DeepEqual(got.Paths, []string{"fx1"}) {
 		t.Errorf("through an alias root: %v %v", got, ok)
 	}
-	if got, ok := RouteRm(HookEvent{Command: "rm " + filepath.Join(real, "fx1")}, alias); !ok || !reflect.DeepEqual(got, []string{"fx1"}) {
+	if got, ok := RouteRm(HookEvent{Command: "rm " + filepath.Join(real, "fx1")}, alias); !ok || !reflect.DeepEqual(got.Paths, []string{"fx1"}) {
 		t.Errorf("real path under an alias root: %v %v", got, ok)
 	}
 	if got, ok := RouteRm(HookEvent{Command: "rm fx*", Cwd: alias}, alias); ok {
-		t.Errorf("%d targets routed; file.delete takes %d", len(got), maxRoutedPaths)
+		t.Errorf("%d targets routed; file.delete takes %d", len(got.Paths), maxRoutedPaths)
 	}
 	if _, ok := RouteRm(HookEvent{Command: "rm fx1", Cwd: alias}, "relative/root"); ok {
 		t.Error("a relative root routed")
@@ -317,8 +348,8 @@ func TestDeleteToolRoutes(t *testing.T) {
 		root:                               nil,
 	} {
 		got, ok := RouteRm(HookEvent{DeletePath: path}, root)
-		if (want != nil) != ok || (ok && !reflect.DeepEqual(got, want)) {
-			t.Errorf("Delete %q: %v %v, want %v", path, got, ok, want)
+		if (want != nil) != ok || (ok && !reflect.DeepEqual(got.Paths, want)) {
+			t.Errorf("Delete %q: %v %v, want %v", path, got.Paths, ok, want)
 		}
 	}
 }
@@ -395,8 +426,9 @@ func TestDecodeRefusesWhatItDoesNotRoute(t *testing.T) {
 	}
 }
 
-// TestHookAnswers pins each client's answers (ADR-0061 §4): pass is nothing for Claude
-// Code and {} for Cursor; a deny carries the reason where the model reads it.
+// TestHookAnswers pins each client's answers (ADR-0061 §4, ADR-0062 §6): pass is
+// nothing for Claude Code and {} for Cursor; a deny carries the reason where the model
+// reads it, and Cursor's in both user_message and agent_message.
 func TestHookAnswers(t *testing.T) {
 	if got := PassOutput(Claude); len(got) != 0 {
 		t.Errorf("Claude pass: %q, want no output", got)
@@ -422,8 +454,9 @@ func TestHookAnswers(t *testing.T) {
 	if err := json.Unmarshal(raw, &cu); err != nil {
 		t.Fatal(err)
 	}
-	// agent_message would hide the reason from the model [obs, m1o step 1 (a)].
-	if cu["permission"] != "deny" || cu["user_message"] != reason || len(cu) != 2 {
+	// user_message is the field that reaches the model [obs, plan m2k step 1 c1];
+	// agent_message carries the same text too (ADR-0062 §6).
+	if cu["permission"] != "deny" || cu["user_message"] != reason || cu["agent_message"] != reason || len(cu) != 3 {
 		t.Errorf("Cursor deny: %s", raw)
 	}
 	if DenyOutput(OpenCode, "x") != nil {
@@ -431,29 +464,58 @@ func TestHookAnswers(t *testing.T) {
 	}
 }
 
-// TestRedirectMessage pins ADR-0061 §3's replacement: the absolute binary, the call
-// with --no-autostart for the hook's own root, the state directory inline only when
-// given, and a refusal for what the quoting cannot carry.
+// routeOf is the Route of a command typed with an absolute cwd, for the message tests.
+func routeOf(t *testing.T, root, cmd string) Route {
+	t.Helper()
+	rt, ok := RouteRm(HookEvent{Command: cmd, Cwd: root}, root)
+	if !ok {
+		t.Fatalf("%q did not route", cmd)
+	}
+	return rt
+}
+
+// TestRedirectMessage pins ADR-0062 §4's replacement: the absolute binary, `trash`,
+// --state-dir only when the hook's state root came from the environment, --root, the
+// flags the `rm` had, `--` only when it was typed (step 2–3 verifier N1), and the
+// operands as typed; and a refusal for what the quoting cannot carry.
 func TestRedirectMessage(t *testing.T) {
+	root, _ := hookProject(t)
 	r := Redirect{Binary: "/usr/local/bin/droidyard", Root: "/p/my app"}
-	msg, ok := r.Message([]string{"src/a.kt", `we"ird.kt`})
+	msg, ok := r.Message(routeOf(t, root, "rm -rf src/sub a.kt"))
 	if !ok {
 		t.Fatal("refused")
 	}
-	want := `/usr/local/bin/droidyard call --no-autostart --workspace '/p/my app' file.delete --params '{"paths":["src/a.kt","we\"ird.kt"]}'`
-	if !strings.Contains(msg, want) {
-		t.Errorf("message lacks %s:\n%s", want, msg)
+	want := `/usr/local/bin/droidyard trash --root '/p/my app' -r -f 'src/sub' 'a.kt'`
+	if !strings.HasSuffix(msg, ": "+want) {
+		t.Errorf("message does not end with the command %s:\n%s", want, msg)
 	}
-	if strings.Contains(msg, "DROIDYARD_STATE_DIR") {
-		t.Errorf("state dir written though not given:\n%s", msg)
+	if strings.Contains(msg, "--state-dir") || strings.Contains(msg, "cd ") || strings.Contains(msg, "file.delete") {
+		t.Errorf("message has a state dir, a cd or the old call though none belongs:\n%s", msg)
+	}
+	// Flags: only what was typed.
+	msg, _ = r.Message(routeOf(t, root, "rm a.kt"))
+	if !strings.HasSuffix(msg, `trash --root '/p/my app' 'a.kt'`) {
+		t.Errorf("an rm without flags:\n%s", msg)
+	}
+	// `--` only when typed: without it, a glob that expands to a `-name` is a flag to
+	// rm, and must be one to trash too.
+	msg, _ = r.Message(routeOf(t, root, "rm -- a.kt"))
+	if !strings.HasSuffix(msg, `trash --root '/p/my app' -- 'a.kt'`) {
+		t.Errorf("an rm --:\n%s", msg)
+	}
+	msg, _ = r.Message(routeOf(t, root, "rm -f a.kt"))
+	if !strings.HasSuffix(msg, `trash --root '/p/my app' -f 'a.kt'`) {
+		t.Errorf("an rm -f:\n%s", msg)
 	}
 	r.StateDir = "/s/state dir"
-	msg, ok = r.Message([]string{"a.kt"})
-	if !ok || !strings.Contains(msg, `DROIDYARD_STATE_DIR='/s/state dir' /usr/local/bin/droidyard call --no-autostart`) {
-		t.Errorf("state dir not inline before the binary (%v):\n%s", ok, msg)
+	msg, ok = r.Message(routeOf(t, root, "rm a.kt"))
+	if !ok || !strings.HasSuffix(msg, `trash --state-dir '/s/state dir' --root '/p/my app' 'a.kt'`) {
+		t.Errorf("state dir not given before --root (%v):\n%s", ok, msg)
 	}
+
 	// The command is a POSIX shell command: a single quote or a control character in
 	// any part would break its quoting, so the command passes.
+	good := routeOf(t, root, "rm a.kt")
 	for _, bad := range []Redirect{
 		{Binary: "/b'in/droidyard", Root: "/p"},
 		{Binary: "/bin/droidyard", Root: "/p'q"},
@@ -462,16 +524,71 @@ func TestRedirectMessage(t *testing.T) {
 		{Binary: "droidyard", Root: "/p"},
 		{Binary: "/bin/droidyard", Root: "p"},
 	} {
-		if _, ok := bad.Message([]string{"a.kt"}); ok {
+		if _, ok := bad.Message(good); ok {
 			t.Errorf("%+v produced a command", bad)
 		}
 	}
-	for _, bad := range []string{"it's.kt", "a\tb.kt", "a\x7f.kt"} {
-		if _, ok := (Redirect{Binary: "/bin/droidyard", Root: "/p"}).Message([]string{bad}); ok {
-			t.Errorf("path %q produced a command", bad)
+	// A single quote or a control character in a typed operand, quoted or escaped so
+	// the parser carries it: the whole rm passes.
+	plain := Redirect{Binary: "/bin/droidyard", Root: "/p"}
+	for _, cmd := range []string{`rm "it's.kt"`, `rm a\'b`, "rm 'a\tb.kt'"} {
+		rt, ok := RouteRm(HookEvent{Command: cmd, Cwd: ""}, root)
+		if !ok {
+			t.Fatalf("%q did not route with no cwd", cmd)
+		}
+		if _, ok := plain.Message(rt); ok {
+			t.Errorf("%q produced a command", cmd)
 		}
 	}
-	if _, ok := (Redirect{Binary: "/bin/droidyard", Root: "/p"}).Message(nil); ok {
-		t.Error("no paths produced a command")
+	if _, ok := plain.Message(Route{}); ok {
+		t.Error("no operands produced a command")
+	}
+}
+
+// TestRedirectRequotesOperandsAsTyped pins ADR-0062 §4 and the plan-review's B2: the
+// replacement's operands expand in the shell as the typed ones would. A `*` or `?` that
+// was unquoted stays bare; a quoted or escaped one, and every other character, is
+// single-quoted. Made bare, a quoted glob would also trash its neighbours; quoted, a
+// real glob would match nothing.
+func TestRedirectRequotesOperandsAsTyped(t *testing.T) {
+	root, _ := hookProject(t)
+	r := Redirect{Binary: "/bin/droidyard", Root: "/p"}
+	for _, c := range []struct{ typed, operands string }{
+		{`rm 'a*b.kt'`, `'a*b.kt'`},
+		{`rm "a*b.kt"`, `'a*b.kt'`},
+		{`rm a\*b.kt`, `'a*b.kt'`},
+		{`rm a?b.kt`, `'a'?'b.kt'`},
+		{`rm src/*.kt`, `'src/'*'.kt'`},
+		{`rm "my dir"/*.kt`, `'my dir/'*'.kt'`},
+		{`rm 'a'*`, `'a'*`},
+		{`rm *`, `*`},
+		{`rm src/'*'*`, `'src/*'*`},
+		{`rm a\ b.kt`, `'a b.kt'`},
+		{`rm "a\"b"`, `'a"b'`},
+	} {
+		for _, cwd := range []string{root, ""} {
+			rt, ok := RouteRm(HookEvent{Command: c.typed, Cwd: cwd}, root)
+			if !ok {
+				// With the project's own files a placed glob can match nothing; the
+				// no-cwd run covers that form.
+				if cwd != "" {
+					continue
+				}
+				t.Fatalf("%q did not route with no cwd", c.typed)
+			}
+			msg, ok := r.Message(rt)
+			if !ok || !strings.HasSuffix(msg, " /p "+c.operands) {
+				t.Errorf("%q (cwd %q): message %q (%v); want operands %s", c.typed, cwd, msg, ok, c.operands)
+			}
+		}
+	}
+	// Cursor's Delete: the path is literal, a glob character in it included.
+	rt, ok := RouteRm(HookEvent{DeletePath: filepath.Join(root, "a*")}, root)
+	if !ok {
+		t.Fatal("Delete of a* did not route")
+	}
+	msg, _ := r.Message(rt)
+	if !strings.HasSuffix(msg, " /p '"+filepath.Join(root, "a*")+"'") {
+		t.Errorf("Delete message %q; want the absolute path in single quotes, the star included", msg)
 	}
 }
