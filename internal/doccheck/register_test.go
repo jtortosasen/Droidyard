@@ -119,8 +119,9 @@ func checkRegister(fsys fs.FS) []string {
 // mvp.md (ADR-0063). Raised by 31 (to 26,377) in milestone 2k step 7: mcp.md's hooks
 // paragraph and table row name the observation (ADR-0063). Raised by 24 (to 26,401) in
 // milestone 2l step 3: mvp.md's git row (`watch`, `read`, human-only) and mcp.md's
-// not-exposed row for git.read (ADR-0066).
-const liveBudget = 26401
+// not-exposed row for git.read (ADR-0066). Raised by 2 (to 26,403) in milestone 2l step 4:
+// capability-api.md names git.changes among the ring-less topics (ADR-0066 §1).
+const liveBudget = 26403
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

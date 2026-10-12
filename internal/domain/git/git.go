@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
@@ -53,11 +55,21 @@ type Options struct {
 	// LookPath finds the git executable at each call, so installing git needs no restart;
 	// nil is exec.LookPath. A failure is GIT_NOT_FOUND.
 	LookPath func(file string) (string, error)
+	// Bus is the daemon's event bus: git.watch publishes the status on it. Nil (the
+	// golden registry's descriptors) makes a watch answer SESSION_REQUIRED.
+	Bus *event.Bus
+	// Watchers is the daemon's live-poller set, so a workspace close can stop that
+	// workspace's watches. Nil makes a watch answer SESSION_REQUIRED, as Bus does.
+	Watchers *Watchers
+	// Tick is the poller's interval between statuses; <= 0 is watchInterval's one
+	// second. A test shortens it.
+	Tick time.Duration
 }
 
-// Register adds git.read to the registry.
+// Register adds git.read and git.watch to the registry.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
+	registerWatch(reg, opts)
 }
 
 // root resolves the call's workspace to its project root.
