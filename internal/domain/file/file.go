@@ -72,6 +72,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Name:        "file.list",
 		Kind:        capability.Query,
 		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
 		Since:       version,
 		Description: "Lists one level of a directory in the project, never recursively, with name, type, size and modification time per entry. The path is relative to the project root; a path that leaves it, or a symlink that would, is FILE_OUTSIDE_ROOT.",
 		Params:      ListParams{},
@@ -106,6 +107,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Name:        "file.read",
 		Kind:        capability.Query,
 		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
 		Since:       version,
 		Description: "Reads a byte range of a text file in the project, paging as artifact.read does: text ends at a complete line, nextOffset continues, a negative offset reads from the end. A binary file reports binary and no text, and a path outside the project root is FILE_OUTSIDE_ROOT.",
 		Params:      ReadParams{},
@@ -134,10 +136,11 @@ func Register(reg *capability.Registry, opts Options) {
 	})
 
 	reg.MustRegister(capability.Descriptor{
-		Name:  "file.write",
-		Kind:  capability.Command,
-		Scope: capability.Workspace,
-		Since: version,
+		Name:     "file.write",
+		Kind:     capability.Command,
+		Scope:    capability.Workspace,
+		Audience: capability.AudienceHuman,
+		Since:    version,
 		// Repeating the call with the same arguments has no additional effect beyond the
 		// first write (mcp.md §Annotations); it is destructive, which is a
 		// command's default, so no override and no reason are needed.
@@ -163,14 +166,16 @@ func Register(reg *capability.Registry, opts Options) {
 	})
 
 	// The tree's operations (ADR-0053). Neither replaces anything, so neither is destructive
-	// whatever else a command's default says; both are workspace-scoped commands for every
-	// audience, run no trust check, hold no build lock (as file.write) and mark nothing
-	// untrusted.
+	// whatever else a command's default says; both are workspace-scoped commands, run no
+	// trust check, hold no build lock (as file.write) and mark nothing untrusted. All nine
+	// file.* have audience human (ADR-0060): the UI and the CLI call them, no MCP profile
+	// lists them.
 	notDestructive := false
 	reg.MustRegister(capability.Descriptor{
 		Name:        "file.create",
 		Kind:        capability.Command,
 		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
 		Since:       opsVersion,
 		Idempotent:  true,
 		Description: "Creates an empty file or a folder in the project, making missing parent folders; it never replaces, and an existing path is FILE_EXISTS. The path is relative to the project root.",
@@ -198,10 +203,11 @@ func Register(reg *capability.Registry, opts Options) {
 	// A batch: Errors lists the codes that fail the whole call, decided from the text of
 	// the request alone; an item's own code is the enum of MovedItem.Code (ADR-0053 §2).
 	reg.MustRegister(capability.Descriptor{
-		Name:  "file.move",
-		Kind:  capability.Command,
-		Scope: capability.Workspace,
-		Since: opsVersion,
+		Name:     "file.move",
+		Kind:     capability.Command,
+		Scope:    capability.Workspace,
+		Audience: capability.AudienceHuman,
+		Since:    opsVersion,
 		// Not idempotent: a swap batch [a→t, b→a, t→b] run twice swaps back, so a client
 		// must not retry it blindly.
 		Description: "Moves or renames up to 1000 files or folders, a rename being a move inside one folder; nothing is replaced. The call completes with each item's outcome: a taken target is FILE_EXISTS, or a free name with onCollision keepBoth.",
@@ -214,7 +220,6 @@ func Register(reg *capability.Registry, opts Options) {
 			Destructive: &notDestructive,
 			Reason:      "never replaces an existing entry; a move back undoes it",
 		},
-		Text: capability.TextOf(moveText),
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			r, err := opts.resolver(call)
 			if err != nil {
@@ -230,6 +235,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Name:        "file.copy",
 		Kind:        capability.Command,
 		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
 		LongRunning: true,
 		Since:       opsVersion,
 		Description: "Copies up to 1000 files or folders, a folder whole and a symlink as a link; nothing is replaced, and a failed or cancelled copy leaves nothing. A taken target is FILE_EXISTS, or a free name such as \"a copy.kt\" with onCollision keepBoth; an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
@@ -242,7 +248,6 @@ func Register(reg *capability.Registry, opts Options) {
 			Destructive: &notDestructive,
 			Reason:      "never replaces an existing entry; deleting the copy undoes it",
 		},
-		Text: capability.TextOf(copyText),
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			r, err := opts.resolver(call)
 			if err != nil {
@@ -261,6 +266,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Name:        "file.delete",
 		Kind:        capability.Command,
 		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
 		LongRunning: true,
 		Since:       opsVersion,
 		Idempotent:  true,
@@ -270,7 +276,6 @@ func Register(reg *capability.Registry, opts Options) {
 		Errors: []capability.ErrorCode{
 			capability.ErrFileOutsideRoot, capability.ErrInvalidParams, capability.ErrFileIOFailed,
 		},
-		Text: capability.TextOf(deleteText),
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			r, err := opts.resolver(call)
 			if err != nil {
@@ -284,6 +289,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Name:        "file.restore",
 		Kind:        capability.Command,
 		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
 		LongRunning: true,
 		Since:       opsVersion,
 		Idempotent:  true,
@@ -297,7 +303,6 @@ func Register(reg *capability.Registry, opts Options) {
 			Destructive: &notDestructive,
 			Reason:      "never replaces an existing entry; deleting the item again undoes it",
 		},
-		Text: capability.TextOf(restoreText),
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			r, err := opts.resolver(call)
 			if err != nil {
@@ -317,6 +322,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Name:         "file.watch",
 		Kind:         capability.Command,
 		Scope:        capability.Workspace,
+		Audience:     capability.AudienceHuman,
 		Statefulness: capability.Streaming,
 		Since:        version,
 		Description:  "Watches a directory in the project (WebSocket sessions only) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",

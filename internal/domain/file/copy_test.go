@@ -593,24 +593,6 @@ func TestCopySkipsTemporaryNames(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0036 Decision 2; ADR-0053 §2): a copy batch renders as move's does, the
-// failures first.
-func TestCopyTextLeadsWithTheFailures(t *testing.T) {
-	f := newFixture(t)
-	d, _ := f.reg.Lookup("file.copy")
-	r := CopyResult{
-		Items: []CopiedItem{
-			{From: "a.kt", To: "a copy.kt"},
-			{From: "big", To: "big2", Code: "FILE_TOO_LARGE", Message: "too big"},
-		},
-		Done: 1, Failed: 1,
-	}
-	lines := strings.Split(d.Text(r), "\n")
-	if lines[0] != "failed 1 of 2 FILE_TOO_LARGE" || !strings.HasPrefix(lines[1], "FILE_TOO_LARGE big -> big2 ") || lines[2] != `copied a.kt -> "a copy.kt"` {
-		t.Errorf("rendering:\n%s", strings.Join(lines, "\n"))
-	}
-}
-
 // Decision (plan m2g step 4): the temporary a watch must not report is a folder as well as
 // a file. A watch of the target's folder, ticked while a copy of a folder is built and
 // complete but not renamed, reports nothing; after the rename it reports the final name

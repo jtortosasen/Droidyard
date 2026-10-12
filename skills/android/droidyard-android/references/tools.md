@@ -24,14 +24,6 @@ A session started with `--tools core` lists only the tools marked core.
 | `emulator_start` | core | changes state | Boots one AVD and returns {device, avd, adopted} once its device has finished booting. |
 | `emulator_stop` | core | changes state | Stops one running emulator with adb emu kill and returns once its serial leaves adb devices. |
 | `emulator_wipe` |  | changes state | Factory-resets one AVD's user data by booting it again with -wipe-data, stopping it first if it is running, and returns {device, avd} once it has ... |
-| `file_copy` |  | changes state | Copies up to 1000 files or folders, a folder whole and a symlink as a link; nothing is replaced, and a failed or cancelled copy leaves nothing. |
-| `file_create` |  | changes state | Creates an empty file or a folder in the project, making missing parent folders; it never replaces, and an existing path is FILE_EXISTS. |
-| `file_delete` |  | changes state | Deletes up to 1000 files or folders into the workspace's trash, kept up to 7 days within 2 GiB per project; an item's trashId restores it with ... |
-| `file_list` | core | read-only | Lists one level of a directory in the project, never recursively, with name, type, size and modification time per entry. |
-| `file_move` |  | changes state | Moves or renames up to 1000 files or folders, a rename being a move inside one folder; nothing is replaced. |
-| `file_read` | core | read-only | Reads a byte range of a text file in the project, paging as artifact_read does: text ends at a complete line, nextOffset continues, a negative offset ... |
-| `file_restore` |  | changes state | Puts trashed items back at their paths, making missing folders and replacing nothing: a taken path is FILE_EXISTS, and an id this workspace's trash ... |
-| `file_write` | core | changes state | Writes a whole UTF-8 text file (at most 512 KiB) into the project, atomically replacing any existing file and creating missing parent directories. |
 | `operation_cancel` | core | changes state | Asks a running operation to stop, whichever session started it; cancelling a finished one does nothing. |
 | `operation_wait` | core | read-only | Waits for an operation to finish, up to timeoutMs, and returns its state, progress and, once completed, its result. |
 | `project_modules` | core | read-only | Lists the Gradle projects of the workspace's root (the root and container projects included) with path, name and directory, from one cached ... |

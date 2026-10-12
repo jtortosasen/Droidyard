@@ -135,15 +135,6 @@ func (r *resolver) move(ctx context.Context, p MoveParams) (MoveResult, error) {
 	return res, nil
 }
 
-// moveText is file.move's rendering (batchText).
-func moveText(r MoveResult) string {
-	lines := make([]batchLine, len(r.Items))
-	for i, it := range r.Items {
-		lines[i] = batchLine{words: []string{it.From, "->", it.To}, code: it.Code, message: it.Message}
-	}
-	return batchText("moved", lines)
-}
-
 // openParent opens dir (a name relative to the root) as a directory descriptor through
 // the os.Root, so a symlink in it cannot leave the root, and checks, on the descriptor,
 // that it is a directory. A failure names dir.

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -14,14 +16,15 @@ import (
 	"testing"
 
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
+	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
-// goldenPath is plan m1o D3: the golden path's tools and the reopen ADR-0020 allows.
-// It is written out here, apart from mcpadapter.CoreTools, so a change to the profile
+// goldenPath is plan m1o D3 without the file tools (ADR-0060): the golden path's tools and
+// the reopen ADR-0020 allows. It is written out here, apart from mcpadapter.CoreTools, so a change to the profile
 // is a change to two places.
 var goldenPath = []string{
 	"workspace_open", "workspace_describe", "project_modules", "build_assemble", "build_errors",
-	"build_lastResult", "file_list", "file_read", "file_write", "emulator_list", "emulator_start",
+	"build_lastResult", "emulator_list", "emulator_start",
 	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
 	"device_inputText", "device_logs", "device_screenshot", "operation_wait", "operation_cancel",
 	"artifact_read",
@@ -125,31 +128,72 @@ func TestCoreProfileListsTheGoldenPath(t *testing.T) {
 
 func mcpadapterSorted() []string { return sorted(mcpadapter.CoreTools) }
 
-// TestFileOperationsAreNotCore: the tree's operations (ADR-0053 §1) are tools under
-// `--tools all`, the default, and under no other profile: the core profile stays the
-// golden path (ADR-0036 Decision 4), so a session that asked for it pays nothing for them.
-// Reversing the decision (a file tool in mcpadapter.CoreTools) fails the core half.
-func TestFileOperationsAreNotCore(t *testing.T) {
+// TestFileCapabilitiesAreNotTools: ADR-0060. No file.* is an MCP tool under any profile
+// (no flag, all, core), and mcp-go answers a call to one "tool not found"; the core also
+// refuses file.read from an MCP client (REQUEST_NOT_ALLOWED_HERE, with no operation), while
+// the CLI and the UI's HTTP side still run it. Reversing the decision (a file.* with
+// audience all) lists its tool and lets the MCP client in, so the first and third
+// assertions fail.
+func TestFileCapabilitiesAreNotTools(t *testing.T) {
 	t.Parallel()
-	p := startInProcess(t)
-	ops := []string{"file_create", "file_move", "file_copy", "file_delete", "file_restore"}
-	for _, profile := range []struct {
-		args []string
-		want bool
-	}{{[]string{"--tools", "core"}, false}, {[]string{"--tools", "all"}, true}, {nil, true}} {
-		c := startShim(t, p.state, "ops", profile.args...)
-		c.initialize("ops")
+	p, _ := startHTTP(t, "127.0.0.1:0")
+	for _, args := range [][]string{nil, {"--tools", "all"}, {"--tools", "core"}} {
+		c := startShim(t, p.state, "files", args...)
+		c.initialize("files")
 		names, _ := toolNames(t, c, 1)
-		c.exit()
-		for _, op := range ops {
-			listed := false
-			for _, n := range names {
-				listed = listed || n == op
-			}
-			if listed != profile.want {
-				t.Errorf("%v: %s listed = %v; want %v", profile.args, op, listed, profile.want)
+		if len(names) == 0 {
+			t.Errorf("%v lists no tools; the check below would pass vacuously", args)
+		}
+		for _, n := range names {
+			if strings.HasPrefix(n, "file_") {
+				t.Errorf("%v lists %s; no file.* is an MCP tool (ADR-0060)", args, n)
 			}
 		}
+		if len(args) == 0 {
+			c.callTool(2, "file_read", `{"path":"a.kt"}`)
+			var msg struct {
+				Error *struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(c.recv(), &msg); err != nil {
+				t.Fatal(err)
+			}
+			if msg.Error == nil || msg.Error.Code != -32602 || !strings.Contains(msg.Error.Message, "tool 'file_read' not found") {
+				t.Errorf("tools/call file_read answered %+v; want -32602 tool 'file_read' not found", msg.Error)
+			}
+		}
+		c.exit()
+	}
+
+	root, _ := projectWith(t, "settings.gradle")
+	if err := os.WriteFile(filepath.Join(root, "a.kt"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	openEnv, code := callIn(t, p.state, root, "workspace.open")
+	if code != 0 {
+		t.Fatalf("workspace.open exited %d: %+v", code, openEnv.Error)
+	}
+	ws := workspaceOf(t, openEnv).ID
+
+	id, err := p.ops.Start(context.Background(), capability.Request{Capability: "file.read", Workspace: ws,
+		Params: json.RawMessage(`{"path":"a.kt"}`), Client: capability.ClientMCP})
+	var e *capability.Error
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("file.read as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
+	env, code := callIn(t, p.state, root, "file.read", "--params", `{"path":"a.kt"}`)
+	if code != 0 || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateCompleted {
+		t.Errorf("file.read from the CLI: exit %d, error %+v, operation %+v; want it completed", code, env.Error, env.Operation)
+	}
+
+	resp := callRequest(portOf(t, p.d.HTTPAddr()), p.token,
+		`{"id":"r","capability":"file.read","workspace":"`+ws+`","params":{"path":"a.kt"}}`).send(t, p.d.HTTPAddr())
+	henv := envelopeOf(t, resp)
+	if resp.StatusCode != 200 || henv.Error != nil || henv.Operation == nil || henv.Operation.State != capability.StateCompleted {
+		t.Errorf("POST /v1/call file.read: %d, error %+v, operation %+v; want it completed", resp.StatusCode, henv.Error, henv.Operation)
 	}
 }
 
@@ -164,8 +208,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 39 {
-			t.Errorf("%v lists %d tools; want 39", args, len(names))
+		if len(names) != 31 {
+			t.Errorf("%v lists %d tools; want 31", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)
@@ -246,7 +290,7 @@ func TestCoreNextStepsNameCoreTools(t *testing.T) {
 	found := map[string][]string{}    // core packages
 	foundAll := map[string][]string{} // core packages and internal/policy
 	root := filepath.Join("..", "..", "internal")
-	for _, dir := range []string{"domain/build", "domain/build/gradle", "domain/device", "domain/emulator", "domain/file", "domain/project", "capability", "workspace", "artifact"} {
+	for _, dir := range []string{"domain/build", "domain/build/gradle", "domain/device", "domain/emulator", "domain/project", "capability", "workspace", "artifact"} {
 		scanNextSteps(t, fset, filepath.Join(root, dir), token, all, found)
 		scanNextSteps(t, fset, filepath.Join(root, dir), token, all, foundAll)
 	}
