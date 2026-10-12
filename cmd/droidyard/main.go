@@ -238,7 +238,7 @@ var (
 	// embedded jars on the discovered JVM: the fake sidecar of a test. Nil runs the
 	// real one.
 	gradleLaunch gradle.Launch
-	// watchTick, when > 0, is the file.watch poller's interval for the daemons this
+	// watchTick, when > 0, is the file.watch and git.watch pollers' interval for the daemons this
 	// process starts: the in-process WebSocket test shortens it to 50 ms so a change is
 	// seen at once (plan m1j step 4). Set under adbSeamMu, like adbEnviron.
 	watchTick time.Duration
@@ -396,9 +396,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		defer cancel()
 		gradleClient.Close(ctx, root)
 	}
-	// The daemon's live file.watch pollers: a workspace close ends that workspace's
-	// watches, each publishing its stopped event (plan m1j, D9).
+	// The daemon's live file.watch and git.watch pollers: a workspace close ends that
+	// workspace's watches, each publishing its stopped event (plan m1j, D9; ADR-0066 §1).
 	watchers := file.NewWatchers()
+	gitWatchers := gitdomain.NewWatchers()
 	// The trash of file.delete, under the state root, swept when a workspace opens beside
 	// the build history's sweep (ADR-0054 §3). Without a state store there is none, and
 	// file.delete and file.restore answer FILE_IO_FAILED.
@@ -407,7 +408,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		trash = file.NewTrash(st)
 	}
 	ws = workspace.New(workspace.Options{Store: st, Ops: ops, Policy: pol, Log: log, Drain: testDrain,
-		StopSidecars: stopSidecars, StopPollers: watchers.Stop, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
+		StopSidecars: stopSidecars, StopPollers: func(id string) { watchers.Stop(id); gitWatchers.Stop(id) }, CloseRoot: closeRoot, Publisher: bus, States: bus, Dialog: dialog,
 		OnOpen: func(id, root string) { history.Sweep(id); trash.Sweep(id, root) }})
 	// The trust hook: a call's root comes from its workspace, and an untrusted root
 	// fails WORKSPACE_UNTRUSTED before the handler runs (plan m1g step 3, R4).
@@ -443,9 +444,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		Tick:       watchTick,
 		Trash:      trash,
 	})
-	// git.read is the diff's HEAD side (ADR-0066): audience human, a query. Its git is
-	// started through the supervisor's spawner, in its own group, in the daemon's
-	// environment minus GIT_*, and the root's trust is read at every call (ADR-0015 §2).
+	// git.read is the diff's HEAD side and git.watch the status (ADR-0066): audience
+	// human, never an MCP tool. Their git is started through the supervisor's spawner,
+	// in its own group, in the daemon's environment minus GIT_*, and the root's trust is
+	// read at every call and every tick (ADR-0015 §2).
 	gitdomain.Register(reg, gitdomain.Options{
 		Root: func(id string) (string, bool) {
 			info, err := ws.Describe(id)
@@ -454,9 +456,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			}
 			return info.Root, true
 		},
-		Env:     env,
-		Trusted: pol.Trusted,
-		Starter: spawn,
+		Env:      env,
+		Trusted:  pol.Trusted,
+		Starter:  spawn,
+		Bus:      bus,
+		Watchers: gitWatchers,
+		Tick:     watchTick,
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)

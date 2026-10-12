@@ -99,10 +99,10 @@ type Options struct {
 	// StopSidecars stops the workspace's sidecars, after the drain and before the
 	// workspace is closed. Nil until the supervisor exists (step 7).
 	StopSidecars func(id string)
-	// StopPollers asks the workspace's live file.watch pollers to end, each publishing
-	// its stopped event (plan m1j, D9). It runs after the drain, beside StopSidecars,
-	// and must not block: it signals the pollers and returns. Nil until file.* is
-	// registered.
+	// StopPollers asks the workspace's live file.watch and git.watch pollers to end,
+	// each publishing its stopped event (plan m1j, D9). It runs after the drain, beside
+	// StopSidecars, and must not block: it signals the pollers and returns. Nil until
+	// file.* is registered.
 	StopPollers func(id string)
 	// CloseRoot releases the resources that belong to the workspace's project root,
 	// after the drain: the Gradle sidecar closes its connection to that root so
@@ -646,7 +646,7 @@ func (r *Registry) Close(target string) error {
 	if r.opts.StopSidecars != nil {
 		r.opts.StopSidecars(id)
 	}
-	// The workspace's file.watch pollers end here, each publishing its stopped event as
+	// The workspace's file.watch and git.watch pollers end here, each publishing its stopped event as
 	// its own last act; nothing follows it (plan m1j, D9).
 	if r.opts.StopPollers != nil {
 		r.opts.StopPollers(id)
