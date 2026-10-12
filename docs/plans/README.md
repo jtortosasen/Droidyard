@@ -41,3 +41,4 @@ the output.
 | [m2j-file-tools-off-mcp.md](m2j-file-tools-off-mcp.md) | 2j — the file capabilities leave the MCP surface, and an agent's `rm` goes to the trash | Done |
 | [m2k-cursor-parity-and-observation.md](m2k-cursor-parity-and-observation.md) | 2k — Cursor at Claude Code's level, and the agent's Android commands observed | Done |
 | [m2l-git-review-diff-and-tree.md](m2l-git-review-diff-and-tree.md) | 2l — Git: the review diff and the Git tree | Done |
+| [m2n-git-history.md](m2n-git-history.md) | 2n — Git history | Approved |
