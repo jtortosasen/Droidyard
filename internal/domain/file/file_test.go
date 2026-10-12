@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -164,10 +165,15 @@ func TestReadResolvesInsideSpellings(t *testing.T) {
 	want := "package dev.droidyard\n\nclass A\n"
 	canonicalAbs := filepath.Join(f.root, "src", "A.kt")
 	aliasAbs := filepath.Join(f.base, "root", "src", "A.kt")
-	if canonicalAbs == aliasAbs {
+	paths := []string{"src/A.kt", "./src/../src/A.kt", canonicalAbs}
+	if canonicalAbs != aliasAbs {
+		paths = append(paths, aliasAbs)
+	} else if runtime.GOOS == "darwin" {
 		t.Fatalf("the temp path is not under a symlinked /var; the alias row cannot run")
+	} else {
+		t.Logf("linux: the temp directory is not behind a symlink, so the alias spelling equals the canonical one and is not exercised")
 	}
-	for _, path := range []string{"src/A.kt", "./src/../src/A.kt", canonicalAbs, aliasAbs} {
+	for _, path := range paths {
 		res, err := f.read(ReadParams{Path: path})
 		if err != nil {
 			t.Fatalf("%q: %s", path, err.Message)

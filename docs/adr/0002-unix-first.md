@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-27
 - Revised: 2026-09-27 (previously "macOS-first, portable by design")
+- Superseded in part by: ADR-0068 (§Consequences)
 
 ## Context
 
