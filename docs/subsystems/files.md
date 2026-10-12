@@ -124,5 +124,6 @@ ends.
 
 `file.*` runs no trust check and marks no result: project content is not
 [untrusted data](../adr/0015-untrusted-data-authorization.md) (ADR-0015 §1), and §5 lets
-`file.*`, `git.*` and `workspace.describe` work on an untrusted root, since the agent's own file
-tools read the same bytes.
+`file.*`, `git.*` and `workspace.describe` work on an untrusted root (`git.*` barring
+[ADR-0066](../adr/0066-daemon-git-watch-and-read.md) §3), as agents read the same
+bytes.

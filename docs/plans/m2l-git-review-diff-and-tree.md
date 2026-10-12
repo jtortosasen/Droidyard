@@ -5,7 +5,7 @@
 - Date: 2026-10-12
 - Milestone: "2l — Git: the review diff and the Git tree". The owner, 2026-10-12, in a discussion session (the brief that handed it over is not a repository document; this plan replaces it): two diff modes behind a toggle, Classic (`@codemirror/merge`) and Review (the owner's own: the file on disk editable on the left, a magit-style unified rendering on the right, an elastic anchored scroll between them); a Git tree in the left panel with a Full view and an Affected-only view (grouped or flat); working tree against HEAD, the base kept a parameter; read-only; git not offered to agents over MCP; the daemon's git reads never take `.git/index.lock`.
 - Phase: `docs/roadmap/mvp.md` §Phase 2, the **Git** milestone after the Definition of done (in part: no branches or commits, see Scope).
-- Contract: Q1 (ADR-A) and Q2 (ADR-B), drafted below, Delegated under the owner's standing instruction; written at step 1 as 0066 and 0067, after m2k's four. Letters until those files exist, because `TestADRMentionsExist` refuses a number not on disk. Also: ADR-0009, ADR-0010, ADR-0015 §1 and §5, ADR-0020 §Retention, ADR-0049, ADR-0055, ADR-0060 §2; `capability-api.md` §Naming and namespaces, §Error model, §Discovery and versioning; `files.md` §Paths and containment, §The watch; `process-lifecycle.md`; plan m2i D3, D7, D8.
+- Contract: Q1 (ADR-0066) and Q2 (ADR-0067), drafted below, Delegated under the owner's standing instruction; written at step 1. Also: ADR-0009, ADR-0010, ADR-0015 §1 and §5, ADR-0020 §Retention, ADR-0049, ADR-0055, ADR-0060 §2; `capability-api.md` §Naming and namespaces, §Error model, §Discovery and versioning; `files.md` §Paths and containment, §The watch; `process-lifecycle.md`; plan m2i D3, D7, D8.
 
 **The owner should see:**
 - Two new capabilities, `git.watch` and `git.read`, human-only like `file.*`: no MCP tool, no tokens. API `0.23.0`.
@@ -63,7 +63,7 @@ m2k merged into `main` during the review (`8e7c0c8`, API `0.22.0`, ADRs up to 00
 
 ## Steps
 
-### 1. Spike: the hardened git runner, the lock, the filters, the cost; then ADR-A and ADR-B
+### 1. Spike: the hardened git runner, the lock, the filters, the cost; then ADR-0066 and ADR-0067
 
 - Builds:
   - (a) `internal/domain/git/run.go` (package doc comment: why the daemon polls git, the invocation), per Q1 §2: `run(ctx, root, trusted, stdin, args...)` with the fixed prefix, the scrubbed environment, the untrusted filter override (drivers re-read by `git config --name-only --get-regexp '^filter\.'` on every untrusted call), a `Starter` as `device.Starter` (own process group), a 10 s timeout, stdout capped at 4 MiB as read, and the **whole process group** killed on `ctx` end or timeout.
@@ -76,16 +76,16 @@ m2k merged into `main` during the review (`8e7c0c8`, API `0.22.0`, ADRs up to 00
     - `BenchmarkStatus` on a generated 5,000-file repository.
   - (c) The main session reruns (b) once with `/usr/bin` first on `PATH` (Apple's git) and records its version.
   - (d) The main session times Q1's status command, 20 runs, p50 and p95, on `$B/copy` and on a `git clone` of DopamineControl in `$B`, each twice: fresh, and after `touch`ing every tracked file. With no optional locks the daemon never refreshes the index, so every stat-dirty file is hashed again each second until some other git refreshes it; the second number is that cost.
-  - (e) The main session writes ADR-A and ADR-B (0066, 0067) from Q1 and Q2, amended by (b)–(d), Accepted, Delegated, with index rows and the back-pointer line in ADR-0015, then replaces the letters in this plan with the numbers.
+  - (e) The main session writes ADR-0066 and ADR-0067 from Q1 and Q2, amended by (b)–(d), Accepted, Delegated, with index rows and the back-pointer line in ADR-0015, then replaces the letters in this plan with the numbers.
   - (f) The spike's porcelain v2 outputs (`-z`) are saved as `internal/domain/git/testdata/status/*.z` for step 2.
 - Implements: risk first. Q1 §2 and ADR-0015 §5 rest on these facts.
-- Check: the five tests pass, and each is seen failing under its mutation. If the empty override does not stop the filter, ADR-A takes Q1 §2's refusal branch and step 3 adds its test. Timings recorded; a p50 over 100 ms, fresh or touched, on the clone becomes a register row.
+- Check: the five tests pass, and each is seen failing under its mutation. If the empty override does not stop the filter, ADR-0066 takes Q1 §2's refusal branch and step 3 adds its test. Timings recorded; a p50 over 100 ms, fresh or touched, on the clone becomes a register row.
 - Schema: no change.
 - Needs: `m2l` fast-forwarded to `main` (`8e7c0c8`); real git; no daemon.
 - Not here: no descriptor or capability.
 - Rests on: git's optional-lock switch keeps `status` from writing the index, at level 3 (real git, both builds).
 - Review: the Opus verifier (security fence), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/domain/git/run.go`, `run_test.go`, `harden_test.go`, nine `testdata/status/*.z`; 16 tests pass on Homebrew 2.51.2 and Apple 2.50.1 (`/usr/bin` first on `PATH`). Each test seen failing under its mutation (implementer's report; the main session reran the `GIT_ALLOW_PROTOCOL` one: `untrusted_older_git` fails with `status fetched: core.sshCommand ran`), except `TestStatusBesideAHeldIndexLock`, which git's status passes even without the switches (it guards, it cannot discriminate; step 4's commit stress does). Removing only one lock switch, or only `clean=`, fails nothing: redundant by design. (d): p50 18–43 ms, p95 ≤ 87.5 ms, fresh and touched, both gits, the sample and a DopamineControl clone (108 files); 23 ms/op on 5,000 files; no register row. (e): ADR-0066, ADR-0067. Verifier: round 1 fix first (B1 empty driver name ran, B2 driver past the cap ran, B3 lazy fetch ran `core.sshCommand`: [safety] ×3, B4 [doc]); round 2 fix first (R1 [safety]: `protocol.ssh.allow` overrides `protocol.allow=never` on a pre-2.45 git; [plan] the refusal branch unrecorded; 2 [nit]); R1 and the rest fixed by the main session (`GIT_ALLOW_PROTOCOL=none`, per-guard test cases, §Changes, `files.md` §Trust). Unverified: a real pre-2.45 git; Linux.
 
 ### 2. The status: parse and map
 
@@ -117,7 +117,7 @@ m2k merged into `main` during the review (`8e7c0c8`, API `0.22.0`, ADRs up to 00
   - `TestReadOutsideRoot`: `../x`, an absolute path outside, `a/../../x` are `FILE_OUTSIDE_ROOT` with zero starts on a counting `Starter`.
   - `TestReadDirectoryIsWrongType`; `TestReadOtherBaseRefused`.
   - A call from an MCP session is `REQUEST_NOT_ALLOWED_HERE`; `TestToolListModelFacingBytes` is unchanged; no `git` on `PATH` gives `GIT_NOT_FOUND`, and `system.capabilities` reports it unavailable with the reason.
-  - If step 1 took the refusal branch: an untrusted root with a configured driver is `WORKSPACE_UNTRUSTED`.
+  - An untrusted root whose driver read fails closed (an empty driver name) is `WORKSPACE_UNTRUSTED` (§Changes, step 1).
   - Level 5 (K1): `droidyard call git.read` after an edit returns HEAD's text; `system.health` says `0.23.0`.
 - Schema: `version` `0.23.0`, and a `git.read` block (params `path`, `base` enum `HEAD`; result `path`, `base`, `exists`, `size`, `binary`, `tooLarge`, `text`; its errors; audience `human`). Nothing else.
 - Needs: steps 1, 2.
@@ -287,7 +287,7 @@ Both drafted and Delegated under the owner's standing instruction (apply the rec
 
 - Blocks: steps 1–4
 - The documents say: `mvp.md` plans `git.status`, `diff`, `log` and `branches`, "a thin wrapper over the `git` CLI", the value "for the human UI". ADR-0015 §5: `git.*` works on an untrusted root with `core.fsmonitor` and `core.hooksPath` neutralised. ADR-0049 and `files.md` exclude `.git/` from the walk. Nothing says how the UI learns of a commit, or anything about repository filters.
-- Draft decision, ADR-A, superseding ADR-0015 §Decision in part (item 5's git bullet):
+- Draft decision, ADR-0066, superseding ADR-0015 §Decision in part (item 5's git bullet):
   1. **Two capabilities**, domain `git`, workspace-scoped, audience `human` (ADR-0060 §2's third reason: every agent has git), API `0.23.0`, both answering `GIT_NOT_FOUND` when git is missing (`RequiresGit`):
      - `git.watch`: a command, streaming, as `file.watch` (ADR-0049, ADR-0010).
        - Params: `base` (enum `HEAD`; absent means HEAD).
@@ -304,7 +304,7 @@ Both drafted and Delegated under the owner's standing instruction (apply the rec
      - gets the daemon's environment without `GIT_*`, plus `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0` and `LC_ALL=C`;
      - is started through the supervisor's spawner in its own process group, and the whole group is killed on cancel or after 10 s (a filter's child, such as `git-lfs filter-process`, must not outlive it); its stdout is capped at 4 MiB as read.
 
-     On a root that `policy.Trusted` says is not trusted, read before every invocation (each `git.read`, each tick: ADR-0015 §2), every configured filter driver, in any scope, is overridden empty and not required (`-c filter.<d>.clean= -c filter.<d>.smudge= -c filter.<d>.process= -c filter.<d>.required=false`; `required` because git dies on a required filter that produced nothing, and `git lfs install` sets it globally). So on an untrusted root a stat-dirty LFS file shows as modified. Overriding only drivers with a repository-scope key would keep the user's LFS working there, at the price of trusting `--show-scope` and include semantics; rejected for this milestone. If step 1 shows the override does not stop a filter, the branch is instead: `git.watch` and `git.read` refuse an untrusted root that configures any driver, with `WORKSPACE_UNTRUSTED`, and ADR-A then also supersedes ADR-0015 §5's restricted-mode bullet ("`git.*` … work") in part and corrects `files.md` §Trust. The commands are `rev-parse --show-prefix`; `status --porcelain=v2 -z --branch --no-ahead-behind --untracked-files=all --ignore-submodules=all --find-renames -- .` (paths from the repository's top, the workspace's prefix stripped); and `cat-file --batch`, which runs no filter. No parameter reaches argv.
+     On a root that `policy.Trusted` says is not trusted, read before every invocation (each `git.read`, each tick: ADR-0015 §2), every configured filter driver, in any scope, is overridden empty and not required (`-c filter.<d>.clean= -c filter.<d>.smudge= -c filter.<d>.process= -c filter.<d>.required=false`; `required` because git dies on a required filter that produced nothing, and `git lfs install` sets it globally). So on an untrusted root a stat-dirty LFS file shows as modified. Overriding only drivers with a repository-scope key would keep the user's LFS working there, at the price of trusting `--show-scope` and include semantics; rejected for this milestone. If step 1 shows the override does not stop a filter, the branch is instead: `git.watch` and `git.read` refuse an untrusted root that configures any driver, with `WORKSPACE_UNTRUSTED`, and ADR-0066 then also supersedes ADR-0015 §5's restricted-mode bullet ("`git.*` … work") in part and corrects `files.md` §Trust. The commands are `rev-parse --show-prefix`; `status --porcelain=v2 -z --branch --no-ahead-behind --untracked-files=all --ignore-submodules=all --find-renames -- .` (paths from the repository's top, the workspace's prefix stripped); and `cat-file --batch`, which runs no filter. No parameter reaches argv.
   3. **Codes**:
      - `GIT_NOT_FOUND`;
      - `GIT_NOT_A_REPOSITORY` (the root is in no work tree);
@@ -333,7 +333,7 @@ Both drafted and Delegated under the owner's standing instruction (apply the rec
 
 - Blocks: steps 5–8
 - The documents say: ADR-0009, CodeMirror with `@codemirror/merge` "adequate" for the Git diff, and a dedicated diff component as the escape hatch; m2i D8, Compare mirrors the buffer. Nothing on Review, the toggle or the Git tree.
-- Draft decision, ADR-B:
+- Draft decision, ADR-0067:
   1. **The browser computes the diff**: HEAD's text (`git.read`) against the editor's buffer, by `@codemirror/merge`'s `Chunk.build` and `Chunk.updateB` with one `DIFF_CONFIG`, in both modes. So unsaved edits show, there is one engine, and there is no new dependency. ADR-0009's escape hatch is not taken.
   2. **The Diff tab** (centre) shows the Editor's active file against HEAD; opening a file from the Git tree opens it as the Editor's preview tab and shows the Diff tab, so a file has one buffer. The Editor and Diff tabs stay mounted together, so the diff's buffer side **follows the buffer**: a change it did not make (an edit in the Editor tab, a clean buffer's silent reload) replaces its text by the smallest change, and only then can its own edits mirror back (m2i D8's guarantee kept). A segmented **Classic | Review** in its header, remembered per browser (`droidyard.ui.diffMode`, checked on the way in), default Review. A deleted file: Review's right pane alone, all red. Binary, too large or no repository: a message.
   3. **Classic**: MergeView, HEAD read-only, the buffer editable (m2i D8's mechanism), labelled `HEAD` and `Working tree`.
@@ -389,3 +389,6 @@ Both drafted and Delegated under the owner's standing instruction (apply the rec
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-12, step 1 (Delegated): Q1 §4 had no rule for `.R` (an intent-to-add file equal to a deleted tracked one, the `intent-rename` fixture): it is `renamed` with `origPath`, as `R.`; ADR-0066 §5. Step 2's `TestMarksFromPorcelain` covers it. The Unverified row on a plain `mv` is settled: deleted plus untracked (the `rename` fixture).
+- 2026-10-12, step 1, the verifier's two rounds (Delegated): Q1 §2's invocation gains `GIT_NO_LAZY_FETCH=1`, `GIT_ALLOW_PROTOCOL=none` and `-c protocol.allow=never` on every root (a partial clone's lazy fetch ran the repository's `core.sshCommand`; `protocol.allow` alone is overridden by a repository's `protocol.ssh.allow`). The driver read fails closed (`ErrUnsafeDriver`: an empty or unwritable driver name, a key without `filter.`, a list past the cap). Q1 §2's refusal branch is thereby taken in part: **step 3 maps `ErrUnsafeDriver` to `WORKSPACE_UNTRUSTED`** and tests it, and `git.watch` stops `failed` on it (step 4). ADR-0066 supersedes ADR-0015 §5's restricted-mode bullet in part; `files.md` §Trust says so. `diff.<d>.textconv` does not run in `status --find-renames` (tested, no override).
