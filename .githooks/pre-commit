@@ -82,7 +82,10 @@ else
 	changed=""
 	for f in $staged; do
 		d=$(dirname "$f")
-		case $f in schema/*) d=internal/schema ;; esac
+		case $f in
+			schema/*) d=internal/schema ;;
+			install.sh | .github/*) d=release ;; # the release package's tests read them (m2m)
+		esac
 		while [ "$d" != "." ] && ! ls "$d"/*.go >/dev/null 2>&1; do d=$(dirname "$d"); done
 		[ "$d" = "." ] && continue
 		changed="$changed $module/$d"

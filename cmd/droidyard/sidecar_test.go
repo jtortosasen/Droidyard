@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -516,12 +517,23 @@ func TestStopKillsSidecarsPastTheShutdownDeadline(t *testing.T) {
 	}
 }
 
+// withoutDeathSignal adds the dummy options for a killed-daemon test. On Linux a killed
+// daemon also delivers Pdeathsig SIGTERM (layer 2, process-lifecycle.md §Shutdown), which
+// would end the dummy before the layer under test acts; the dummy ignores it there, so the
+// test sees EOF (layer 1) or the pid record (layer 3) alone, as on macOS.
+func withoutDeathSignal(opts ...string) []string {
+	if runtime.GOOS == "linux" {
+		opts = append(opts, "ignore-term")
+	}
+	return opts
+}
+
 // TestKilledDaemonsSidecarExitsOnEOF: layer 1. A daemon killed outright closes the
 // dummy's stdin by dying, and a dummy that honours EOF exits by itself.
 func TestKilledDaemonsSidecarExitsOnEOF(t *testing.T) {
 	t.Parallel()
 	c := newSidecarCase(t, nil)
-	before := snap(t, c.sidecar(sidecarParams{IdleMs: 60_000, ShutdownMs: 300}))
+	before := snap(t, c.sidecar(sidecarParams{Options: withoutDeathSignal(), IdleMs: 60_000, ShutdownMs: 300}))
 	c.srv.cmd.Process.Signal(syscall.SIGKILL)
 	c.srv.wait(t)
 	eventually(t, "the dummy exits on EOF", func() bool { return len(before.survivors()) == 0 })
@@ -536,7 +548,7 @@ func TestKilledDaemonsSidecarExitsOnEOF(t *testing.T) {
 func TestKilledDaemonsStubbornSidecarIsReapedByTheNext(t *testing.T) {
 	t.Parallel()
 	c := newSidecarCase(t, nil)
-	before := snap(t, c.sidecar(sidecarParams{Options: []string{"ignore-eof"}, IdleMs: 60_000, ShutdownMs: 300}))
+	before := snap(t, c.sidecar(sidecarParams{Options: withoutDeathSignal("ignore-eof"), IdleMs: 60_000, ShutdownMs: 300}))
 	c.srv.cmd.Process.Signal(syscall.SIGKILL)
 	c.srv.wait(t)
 	time.Sleep(500 * time.Millisecond)

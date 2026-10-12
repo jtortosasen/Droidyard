@@ -1,9 +1,9 @@
-# ADR-0068: The history reads: `git.log`, `git.refs` and `git.show`, addressed by oid, with the history fence
+# ADR-0069: The history reads: `git.log`, `git.refs` and `git.show`, addressed by oid, with the history fence
 
 - Status: Accepted
 - Date: 2026-10-12
 - Supersedes: ADR-0066 §Decision (in part: item 2's invocation, which gains `GIT_NO_REPLACE_OBJECTS=1`, `GIT_GRAFT_FILE=/dev/null` and `-c advice.graftFileDeprecated=false` for every git the daemon runs)
-- Relates to: ADR-0015 §1; ADR-0020 §Retention; ADR-0060 §2; ADR-0066 §1, §2, §4, §6; ADR-0069; plan m2n Q1
+- Relates to: ADR-0015 §1; ADR-0020 §Retention; ADR-0060 §2; ADR-0066 §1, §2, §4, §6; ADR-0070; plan m2n Q1
 - Decided by the main session under the owner's standing instruction (apply the recommended option), Delegated, except the audience, which the owner decided on 2026-10-12: the history is for the UI, "the AI already uses git on its own".
 
 ## Context
@@ -46,7 +46,7 @@ On a generated repository of 100,000 commits, 40 merged branches and 142 refs, o
 ## Consequences
 
 - The guard is a list of what git executes on a history read, kept by `internal/domain/git/history_harden_test.go`, which runs each attack against real git; as with ADR-0066, a git that grows a new executable read path is not covered until a test names it.
-- Refs moved by another git between two pages do not reshape the history being paged; the UI reloads when the tip set changes (ADR-0069 §3).
+- Refs moved by another git between two pages do not reshape the history being paged; the UI reloads when the tip set changes (ADR-0070 §3).
 - More than 5,000 tips: the oldest tags drop out of the graph's starting points, and `tipsTruncated` says so. Past the runner's 4 MiB output cap (about 38,000 refs) `for-each-ref`'s list is cut in ref-name order, so what drops first is the alphabetical tail; `tipsTruncated` says so too.
 - A crafted `objects/info/commit-graph` can misstate parents and dates. It runs nothing, and turning it off would cost the commit-graph's 3–5x speed-up, so it is a stated limit.
 - Ahead and behind for branches other than the current one, a per-parent or combined merge diff, signatures, mailmap and notes are not read.

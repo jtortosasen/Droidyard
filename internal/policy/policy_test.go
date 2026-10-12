@@ -179,7 +179,14 @@ func TestCacheFollowsSizeAndMtime(t *testing.T) {
 		t.Fatal("/b is trusted before it is written")
 	}
 
-	write(t, dir, `{"schemaVersion":1,"trust":{"roots":["/b"]}}`)
+	path := write(t, dir, `{"schemaVersion":1,"trust":{"roots":["/b"]}}`)
+	// The kernel stamps a write with a coarse clock (a few ms on Linux), so two writes in
+	// one test tick can share an mtime; the rewrite is moved on by hand, as a real edit
+	// seconds later would be.
+	later := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
 	if ok, _ := p.Trusted("/b"); !ok {
 		t.Error("a same-size rewrite was not picked up: the cache never refreshed")
 	}

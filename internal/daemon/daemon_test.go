@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -230,7 +231,10 @@ func TestPeerUidMismatchIsRefused(t *testing.T) {
 		if len(got) != 0 {
 			t.Fatalf("a peer of an unexpected uid got an answer: %s", got)
 		}
-		if !errors.Is(err, io.EOF) {
+		// The daemon closes without reading the hello it was sent; Linux then resets the
+		// connection (ECONNRESET) where macOS ends it cleanly (EOF). Both are a close
+		// with no answer, which is the promise.
+		if !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
 			t.Fatalf("the connection was not closed by the daemon: %v", err)
 		}
 	})
@@ -457,6 +461,15 @@ func TestShutdownCancelsRunningOperations(t *testing.T) {
 // amended 2026-09-30). Real daemons, real binds in the real fallback.
 func TestLongStateRootsDoNotShareAFallbackSocket(t *testing.T) {
 	env := platform.Current()
+	// On Linux a set XDG_RUNTIME_DIR holds the socket instead of the state root, and is
+	// short; hidden here, so the long state root decides, as it does on macOS.
+	getenv := env.Getenv
+	env.Getenv = func(k string) string {
+		if k == "XDG_RUNTIME_DIR" {
+			return ""
+		}
+		return getenv(k)
+	}
 	var started []*harness
 	for _, name := range []string{"a", "b"} {
 		state := filepath.Join(t.TempDir(), strings.Repeat("x", 100), name)
