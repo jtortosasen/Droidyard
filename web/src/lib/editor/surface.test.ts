@@ -87,6 +87,16 @@ describe('LazyEditor', () => {
 		expect(l.mounted[0]!.calls).toEqual(['diag:2']);
 	});
 
+	// Decision: an empty list set before the mount is still applied (it clears a buffer's older marks).
+	it('applies an empty diagnostics list at the mount', async () => {
+		const l = loader();
+		const ed = new LazyEditor(host, opts, () => {}, l.load);
+		ed.setDiagnostics([]);
+		l.release();
+		await settle();
+		expect(l.mounted[0]!.calls).toEqual(['diag:0']);
+	});
+
 	// Decision: a file closed before the chunk arrived never mounts an editor on a detached host.
 	it('does not mount when destroyed before the code arrives', async () => {
 		const l = loader();

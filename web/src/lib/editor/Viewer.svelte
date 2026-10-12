@@ -3,7 +3,8 @@
 	import type { Attachment } from 'svelte/attachments';
 	import FileQuestion from '@lucide/svelte/icons/file-question';
 	import { copyToClipboard } from '../devices/copy';
-	import { LazyEditor, loadEditor } from './surface';
+	import { LazyEditor, loadEditor, type EditorDiagnostic } from './surface';
+	import type { Position } from '../build/locate';
 	import { formatSize, readOnlyText, CAP, type EditorModel, type ViewerView } from './viewer';
 
 	// The editor of one file (plan m2d step 6, m2i steps 3, 6 and 7): the header, banners, the
@@ -15,8 +16,13 @@
 		viewer: EditorModel;
 		/** What Copy path copies (the tree's absolute path). */
 		copyPath: (path: string) => string;
+		/** This file's build errors (plan m2i D10), marked in the editor. */
+		diagnostics: readonly EditorDiagnostic[];
+		/** Where a Problems row asked the editor to go; `ontarget` says it did. */
+		at: (Position & { id: number }) | null;
+		ontarget: (id: number) => void;
 	}
-	let { viewer, copyPath }: Props = $props();
+	let { viewer, copyPath, diagnostics, at, ontarget }: Props = $props();
 
 	let view = $state.raw<ViewerView>(untrack(() => viewer.view));
 	let copied = $state('');
@@ -45,8 +51,24 @@
 		const ed = new LazyEditor(host, { buffer: b, onSave: () => void viewer.save() }, (e) => {
 			editorError = e instanceof Error ? e.message : String(e);
 		});
-		return () => ed.destroy();
+		editing = ed;
+		return () => {
+			editing = null;
+			ed.destroy();
+		};
 	};
+
+	// The mounted editor, for the build errors and the position (the lazy editor remembers both until its code has loaded).
+	let editing = $state.raw<LazyEditor | null>(null);
+	$effect(() => {
+		editing?.setDiagnostics(diagnostics);
+	});
+	$effect(() => {
+		const target = at;
+		if (editing === null || target === null) return;
+		editing.reveal(target.line ?? 1, target.column ?? 1);
+		ontarget(target.id);
+	});
 
 	// The same host, the buffer beside the disk's text; the host is made again when the disk's version changes.
 	const compare: Attachment<HTMLElement> = (host) => {
