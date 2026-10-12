@@ -156,7 +156,7 @@ Part 1. Part 2 is outlined after these.
 - Not here: no rendering; no lane cap (Q2 §1).
 - Rests on: —
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `web/src/lib/git/lanes.ts` (`Lanes.extend` returns the new rows only; a row has the node's column and colour, `incoming`, `through` and one edge per parent, `straight`, `branch-out` or `merge-in`; `width`), written from ADR-0070 §1 and pvigier's article, no vscode-git-graph or BeardGit code read. `lanes.test.ts`, 12 tests: linear, branch and merge, merge-in, a first parent inheriting a lane another waits on, octopus, two roots, free-column reuse, a parent not loaded yet continued on the next page, the property test over 2,000 seeded DAGs of up to 300 commits (every edge ends at a lane waiting for its parent, no two lanes share a column on an edge, nothing left waiting), paged equal to whole over 200 DAGs (seen failing with the lane list reset per call), 100,000 rows of `Synthetic`'s shape in 15.6 ms. `pnpm -C web run verify` clean (797 tests); main session's diff review.
 
 ### 4. The History tab: the first end to end
 
