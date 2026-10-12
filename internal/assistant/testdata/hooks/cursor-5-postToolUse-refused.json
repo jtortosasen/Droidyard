@@ -1,0 +1,22 @@
+{
+ "conversation_id": "f06d733a-d87d-4656-80ec-626e95c527a8",
+ "generation_id": "f06d733a-d87d-4656-80ec-626e95c527a8",
+ "model": "grok-4.6",
+ "tool_name": "Shell",
+ "tool_input": {
+  "command": "adb version",
+  "cwd": "",
+  "timeout": 30000
+ },
+ "tool_output": "{\"output\":\"\",\"exitCode\":0}",
+ "duration": 1088.375,
+ "tool_use_id": "6070667d-d604-4703-9a86-6cba20e752b1",
+ "cwd": "",
+ "session_id": "f06d733a-d87d-4656-80ec-626e95c527a8",
+ "hook_event_name": "postToolUse",
+ "cursor_version": "2026.10.01-e373342",
+ "workspace_roots": [
+  "/Users/dev/m2k/probe"
+ ],
+ "transcript_path": null
+}

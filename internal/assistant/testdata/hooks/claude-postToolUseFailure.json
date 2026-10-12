@@ -1,0 +1,13 @@
+{
+ "_note": "Follows the shape in code.claude.com/docs/en/hooks; not recorded.",
+ "session_id": "s1",
+ "transcript_path": "/Users/dev/.claude/projects/p/s1.jsonl",
+ "cwd": "/Users/dev/proj",
+ "permission_mode": "default",
+ "hook_event_name": "PostToolUseFailure",
+ "tool_name": "Bash",
+ "tool_input": {"command": "adb -s emulator-5554 install -r out/app.apk", "description": "Install"},
+ "error": "Exit code 1\nadb: failed to install",
+ "is_interrupt": false,
+ "tool_use_id": "toolu_2"
+}
