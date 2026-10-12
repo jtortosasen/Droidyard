@@ -256,7 +256,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		spec.arrays = append(spec.arrays, claudeHookArray(o))
+		spec.arrays = append(spec.arrays, claudeHookArrays(o)...)
 		jobs = append(jobs, jsonJob(".claude/settings.json", spec))
 	}
 	if has(o.Clients, OpenCode) {
