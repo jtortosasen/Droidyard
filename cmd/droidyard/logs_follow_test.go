@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -123,6 +124,9 @@ func TestGracefulStopCancelsABoundedFollow(t *testing.T) {
 // the kill, or alive after the next start): either the record was not written, or the
 // next daemon never reconciled.
 func TestKilledDaemonLeavesTheFollowForTheNextStart(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("linux: Pdeathsig (process-lifecycle.md §Shutdown, layer 2) ends the follow client when the daemon is killed, so the orphan this test reaps never exists; the reap-by-record half runs on macOS only")
+	}
 	t.Parallel()
 	d := newFakeFollowDaemon(t)
 	srv := d.serve(t)

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -230,7 +231,10 @@ func TestPeerUidMismatchIsRefused(t *testing.T) {
 		if len(got) != 0 {
 			t.Fatalf("a peer of an unexpected uid got an answer: %s", got)
 		}
-		if !errors.Is(err, io.EOF) {
+		// The daemon closes without reading the hello it was sent; Linux then resets the
+		// connection (ECONNRESET) where macOS ends it cleanly (EOF). Both are a close
+		// with no answer, which is the promise.
+		if !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
 			t.Fatalf("the connection was not closed by the daemon: %v", err)
 		}
 	})

@@ -121,7 +121,7 @@ Read at `4c5514b` (`main`).
   - No `-race`: the hook does not run it.
 - Rests on: `go test ./...` passing on the GitHub runner, at level 5. Only step 2 reaches that level. This step is the cheap proxy.
 - Review: the main session's diff review. A domain fix goes to the Opus verifier.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) linux/arm64 containers, 2026-10-12: `pnpm run verify` passes (75 files, 785 tests, build); the darwin/arm64 cross-build shows `Signature=adhoc` and `version` runs on the Mac; `go vet` passes, `go test` had six failures. (b) all test-only: `unix.Getsid` for `syscall.Getsid` (cmd/droidyard, emulator); EOF or ECONNRESET for a refused peer (daemon); the `/var` alias row only where `/var` is a symlink (file); start time not after the first child's, Linux ticks are 10 ms (platform); the rewrite's mtime moved on by hand (policy); the dummy sidecar ignores Pdeathsig SIGTERM in the two killed-daemon tests; a 300 ms wait for the launch record (emulator, a 1-in-4 flake); one skip, `TestKilledDaemonLeavesTheFollowForTheNextStart` on Linux (Pdeathsig). Each was seen failing before. After: Linux `go test -v ./...` no FAIL, 33 skips (build-tools 37.0.0: 3; Gradle level 5: 22; case-sensitive volume: 4; `/tmp` not a symlink: 2; Pdeathsig: 1, plus one subtest); Mac green. `TestReaderClientSerialisesPerDeviceAndNotTwoDevices` failed once in five Linux runs, untouched.
 
 ### 2. CI on pull requests and `main`: the first run on GitHub
 
@@ -396,4 +396,5 @@ None. The ADR-0002 bookkeeping is a precondition (Starting point), not an open d
 
 ## Changes
 
-None.
+- Step 1: on Linux, Pdeathsig ends a killed daemon's follow client, so `TestKilledDaemonLeavesTheFollowForTheNextStart` is skipped there: the reap-by-record half of that path is tested on macOS only (register row at the close). `TestReaderClientSerialisesPerDeviceAndNotTwoDevices` failed once in five Linux runs; if CI shows it, it is skipped on Linux with a row.
+- Owner, 2026-10-12, after step 1: "solo me interesa ahora que se ejecute en la CI". Step 2 is cut to `ci.yml` and its first runner run; the `release/` package of static workflow tests and the hook mapping move out of step 2 (whether they come back with step 6 is decided there).
