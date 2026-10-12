@@ -12,7 +12,7 @@ import (
 // sinceLog is the API version that introduces git.log (plan m2n step 2).
 const sinceLog = "0.24.0"
 
-// The page, and what a caller may pass (ADR-0068 §2).
+// The page, and what a caller may pass (ADR-0069 §2).
 const (
 	// defaultLogLimit is a page's size when limit is absent.
 	defaultLogLimit = 500
@@ -33,7 +33,7 @@ type LogParams struct {
 }
 
 // LogCommit is one commit of the history. Names, e-mails and subjects are the
-// repository's own text (ADR-0068 §6): the raw author fields, never mailmapped.
+// repository's own text (ADR-0069 §6): the raw author fields, never mailmapped.
 type LogCommit struct {
 	Oid         string   `json:"oid" jsonschema:"required" jsonschema_description:"The commit's full object id."`
 	Parents     []string `json:"parents" jsonschema:"required" jsonschema_description:"The parents' object ids, first parent first; empty for a root commit."`
@@ -63,7 +63,7 @@ func registerLog(reg *capability.Registry, opts Options) {
 		Description:  "Reads one page of the repository's commit history for the UI's graph, newest first with every commit before its parents, whole even when the project is a subfolder. The first call starts from the tips now and returns them; later pages pass them back as from, so refs moving does not shift the history.",
 		Params:       LogParams{},
 		Result:       LogResult{},
-		// The codes the handler returns (ADR-0068 §4). WORKSPACE_NOT_OPEN comes from Start.
+		// The codes the handler returns (ADR-0069 §4). WORKSPACE_NOT_OPEN comes from Start.
 		// WORKSPACE_UNTRUSTED is an untrusted root whose git filter drivers cannot all be
 		// switched off (ADR-0066 §3). REQUEST_INVALID_PARAMS is a from that is not a list
 		// of full object ids of commits, or a page out of bounds.
@@ -89,7 +89,7 @@ func registerLog(reg *capability.Registry, opts Options) {
 
 // log serves git.log. No parameter reaches argv but the two validated integers: the
 // commits to walk from go to git on stdin, as full object ids checked here before any
-// git starts (ADR-0068 §2).
+// git starts (ADR-0069 §2).
 func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(LogParams)
 	skip, limit := 0, defaultLogLimit
@@ -174,7 +174,7 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 }
 
 // commitsExist refuses, as REQUEST_INVALID_PARAMS, a from that names an object the
-// repository does not hold or one that is not a commit (ADR-0068 §4). The oids go on
+// repository does not hold or one that is not a commit (ADR-0069 §4). The oids go on
 // stdin, as everywhere.
 func (o Options) commitsExist(ctx context.Context, r *runner, root string, trusted bool, oids []string) *capability.Error {
 	res, err := r.run(ctx, root, trusted, []byte(strings.Join(oids, "\n")+"\n"), hist("cat-file", "--batch-check")...)

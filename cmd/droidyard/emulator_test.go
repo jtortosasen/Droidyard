@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"syscall"
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"golang.org/x/sys/unix"
 )
 
 // emulatorSerial is the serial the fake launcher boots an AVD as by default.
@@ -113,7 +113,7 @@ func TestDaemonStopAndTheEmulatorLaunch(t *testing.T) {
 					return err == nil
 				})
 			}
-			daemonSid, err := syscall.Getsid(d.srv.cmd.Process.Pid)
+			daemonSid, err := unix.Getsid(d.srv.cmd.Process.Pid)
 			if err != nil {
 				t.Fatalf("the daemon's session: %v", err)
 			}
@@ -137,7 +137,7 @@ func TestDaemonStopAndTheEmulatorLaunch(t *testing.T) {
 				t.Errorf("processes.json records the launcher's pid: %v; the emulator is the one child that is not the daemon's", recs)
 			}
 			if tc.resolved {
-				if sid, err := syscall.Getsid(pid); err != nil || sid == daemonSid {
+				if sid, err := unix.Getsid(pid); err != nil || sid == daemonSid {
 					t.Errorf("the launcher's session is %d (err %v); want one of its own, not the daemon's %d", sid, err, daemonSid)
 				}
 			}

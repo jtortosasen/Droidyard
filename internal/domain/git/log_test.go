@@ -259,7 +259,7 @@ func TestLogTipsCapped(t *testing.T) {
 	}
 }
 
-// Decision (Q1 §2, ADR-0068 §2: "tips reach git on stdin"): no object id is on any git's
+// Decision (Q1 §2, ADR-0069 §2: "tips reach git on stdin"): no object id is on any git's
 // argv, whether the tips were resolved by the call or passed in as from, and the log
 // reads them from stdin.
 func TestLogTipsOnStdin(t *testing.T) {
@@ -300,7 +300,7 @@ func TestLogTipsOnStdin(t *testing.T) {
 	}
 }
 
-// Decision (Q1 §1: "from validated in Go before any git starts"; ADR-0068 §4): a from
+// Decision (Q1 §1: "from validated in Go before any git starts"; ADR-0069 §4): a from
 // that is not a list of at most 5,000 full lowercase hex object ids, and a page out of
 // bounds, are REQUEST_INVALID_PARAMS with no git started: a short id, a ref name, an
 // option, a revision expression, a line break (a second oid on stdin), 5,001 ids.
@@ -346,7 +346,7 @@ func TestLogFromRefused(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0068 §4): a from that names an object the repository does not hold, or
+// Decision (ADR-0069 §4): a from that names an object the repository does not hold, or
 // one that is not a commit (a tree, a blob, an annotated tag), is REQUEST_INVALID_PARAMS,
 // not git's error and not a page: the tips the caller passes back are commits.
 func TestLogFromNotACommit(t *testing.T) {
@@ -373,7 +373,7 @@ func TestLogFromNotACommit(t *testing.T) {
 	}
 }
 
-// Decision (Q1 §1, ADR-0068 §4): the 4 MiB output cap ends a page at a whole record.
+// Decision (Q1 §1, ADR-0069 §4): the 4 MiB output cap ends a page at a whole record.
 // Sixty commits of 100 KiB subjects pass the cap: the page holds whole commits (every
 // subject intact) and says more, and the next skip, counting the records returned,
 // continues without a gap or a repeat until the last commit. A single commit larger than
@@ -460,7 +460,7 @@ func TestLogNotARepository(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0068 §6; Q1 §1): commit text is project content that can hold anything.
+// Decision (ADR-0069 §6; Q1 §1): commit text is project content that can hold anything.
 // What the result carries is valid UTF-8 (invalid bytes become one U+FFFD per run, so the
 // JSON the browser parses is the commit's text and never an error), bidi controls arrive
 // untouched for the UI to isolate, and a 10 KiB subject is whole.
@@ -528,7 +528,7 @@ func TestLogRunsNoSignatureProgram(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0068 §1, ADR-0060 §2, ADR-0020 §Retention): git.log is a stateless
+// Decision (ADR-0069 §1, ADR-0060 §2, ADR-0020 §Retention): git.log is a stateless
 // workspace query for the human UI (audience human: the core refuses it over MCP), that
 // needs git, whose codes are listed, and a retained result drops the page and the tips
 // once delivered but keeps the flags the caller acts on. Reversing the audience would

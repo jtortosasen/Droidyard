@@ -97,8 +97,9 @@ edits made before this rule and are not added to.
 | [0065](0065-observed-word-leading-colon.md) | A recorded word may start with one `:` | Accepted |
 | [0066](0066-daemon-git-watch-and-read.md) | The daemon's git: `git.watch` and `git.read`, human-only, and a hardened invocation | Accepted |
 | [0067](0067-browser-diff-review-mode-git-tree.md) | The diff in the browser, its Classic and Review modes, and the Git tree | Accepted |
-| [0068](0068-git-history-reads.md) | The history reads: `git.log`, `git.refs` and `git.show`, addressed by oid, with the history fence | Accepted |
-| [0069](0069-history-graph-in-the-browser.md) | The history graph laid out in the browser, paged by oid, and a commit's file in the Diff tab | Accepted |
+| [0068](0068-release-builds-and-installer.md) | Release builds in GitHub Actions, and a one-line installer that uses `gh` while the repository is private | Accepted |
+| [0069](0069-git-history-reads.md) | The history reads: `git.log`, `git.refs` and `git.show`, addressed by oid, with the history fence | Accepted |
+| [0070](0070-history-graph-in-the-browser.md) | The history graph laid out in the browser, paged by oid, and a commit's file in the Diff tab | Accepted |
 
 ## Open decisions (not yet ADRs)
 

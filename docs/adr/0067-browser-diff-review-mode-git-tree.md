@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-12
-- Superseded in part by: ADR-0069 (§Decision)
+- Superseded in part by: ADR-0070 (§Decision)
 - Relates to: ADR-0009; ADR-0066; plan m2i D8; plan m2l Q2
 - Decided by the owner, 2026-10-12, for the two modes, the Review layout, the elastic anchored scroll and the Git tree's views (prior art for Review: matklad, "Unified vs split diff", 2023-10-23, a wish never implemented there). The engine, the toggle's form and the scroll's details are Delegated (the main session under the owner's standing instruction).
 
