@@ -94,6 +94,7 @@ edits made before this rule and are not added to.
 | [0062](0062-agent-rm-handed-droidyard-trash.md) | An agent's `rm` is handed `droidyard trash`, which resolves operands in the agent's shell | Accepted |
 | [0063](0063-hook-observes-android-commands.md) | The hook observes an agent's Android commands: a hint, and a record in Activity | Accepted |
 | [0064](0064-trash-replacement-dashdash-as-typed.md) | The `trash` replacement carries `--` only when the `rm` did | Accepted |
+| [0065](0065-observed-word-leading-colon.md) | A recorded word may start with one `:` | Accepted |
 
 ## Open decisions (not yet ADRs)
 

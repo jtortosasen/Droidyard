@@ -1,6 +1,7 @@
 # ADR-0063: The hook observes an agent's Android commands: a hint, and a record in Activity
 
 - Status: Accepted
+- Superseded in part by: ADR-0065 (§Decision)
 - Date: 2026-10-12
 - Supersedes: ADR-0061 §Decision (in part: §5, `init` also writes the after-command entries)
 - Relates to: ADR-0004, ADR-0015 §1, §6, ADR-0037 (the redirect stays rejected), ADR-0043 §2, ADR-0048; `docs/research/cli-vs-mcp-hooks-2026-10.md` §4, §5; plan m2k Q2

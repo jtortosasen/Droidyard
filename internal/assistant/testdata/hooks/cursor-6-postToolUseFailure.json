@@ -1,0 +1,24 @@
+{
+ "conversation_id": "8e4fd42f-5c20-469c-8749-39922f3ae4a0",
+ "generation_id": "8e4fd42f-5c20-469c-8749-39922f3ae4a0",
+ "model": "grok-4.6",
+ "tool_name": "Shell",
+ "tool_input": {
+  "command": "ls /nonexistent-m2k",
+  "cwd": "",
+  "timeout": 30000
+ },
+ "error_message": "ls: /nonexistent-m2k: No such file or directory",
+ "failure_type": "error",
+ "duration": 163.919,
+ "tool_use_id": "74967b7b-a3eb-44ef-a454-466dc5068233",
+ "is_interrupt": false,
+ "cwd": "",
+ "session_id": "8e4fd42f-5c20-469c-8749-39922f3ae4a0",
+ "hook_event_name": "postToolUseFailure",
+ "cursor_version": "2026.10.01-e373342",
+ "workspace_roots": [
+  "/Users/dev/m2k/probe"
+ ],
+ "transcript_path": null
+}

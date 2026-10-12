@@ -207,7 +207,7 @@ At `e3bb62f` (2j merged), API `0.21.0`, with no `agent` domain.
 - Needs: step 3; step 1's c4.
 - Not here: the IDE (step 10); the `Delete` tool, which `-p` refuses.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5, 2026-10-12, `$B/l5-s4-135425` (binary at `5e7a3bd`, scratch daemon with the `ADB` guard and port 5199, state `/tmp/dyk.eFWHyd`). `init --client cursor` under the run's environment wrote the entries with `DROIDYARD_STATE_DIR` inline; `cli.json` replaced by K3's lists; `cursor-agent mcp list` in the copy: `github`, `Figma` disabled, droidyard "not loaded (needs approval)". One `cursor-agent -p` run (2026.10.01, grok 4.6): `cd app/src/main/kotlin/dev/droidyard/golden`, then `rm Obsolete.kt` → rejected with "Command execution was blocked by a hook: droidyard keeps deletes … `<abs> trash --state-dir /private/tmp/dyk.eFWHyd/state --root <copy> 'Obsolete.kt'`" plus Cursor's "Do not suggest workarounds" note; the agent ran that command next, unprompted ("trashed Obsolete.kt", exit 0), then `ls` confirmed. `daemon.log`: `client=cli capability=file.delete … state=completed`. The package's `Obsolete.kt` is in `ws/golden-5e511bfba699/trash`; the root's `Obsolete.kt` is kept. The model quoted the `user_message` text (A4; `agent_message` not shown by Cursor, as step 1 c1). K2/K3: `k2.before` = `k2.after`, `cli-config.json` permissions and `approvalMode` equal to the copy, daemon gone, zero orphans.
 
 ### 5. The Android command reader and the hint
 
@@ -247,7 +247,7 @@ At `e3bb62f` (2j merged), API `0.21.0`, with no `agent` domain.
 - Needs: step 1.
 - Not here: the daemon and the hook's wiring (step 7).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 3, 2026-10-12. `internal/assistant/observe.go` (`ObserveCommands`, `Hint`, `HintTools`, `DecodeAfterEvent`, `AfterOutput`; `DecodeHookEvent` untouched); fixtures `cursor-4…7-*.json` from step 1 (`user_email` removed, paths anonymised) and `claude-postToolUse*.json` in the reference's shape, labelled so. `TestObserveTable` (every row of the check, plus `$(which adb)`, `$ADB`, a comment, and `adb exec-out run-as … cat files/token` → `[exec-out run-as]`; no secret in record or hint), `TestObserveBounds`, `TestHintShape`, `TestDecodeAfterEvents` (the `permission_denied` fixture does not decode), `TestAfterOutput`; `cmd/droidyard` `TestHintToolsAreExposed`. Seen failing: a misspelt tool (`TestHintToolsAreExposed`); `-p` removed from the flag-value table (`app` recorded). Main session's review: the word pattern takes one leading `:` ([ADR-0065](../adr/0065-observed-word-leading-colon.md), Delegated: `:app:installDebug`), and `adb exec-out` keeps one word as `adb shell` does.
 
 ### 6. `agent.recordCommand`
 
@@ -514,4 +514,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-12, step 1 (b), (c), ADR-0063 §1 (Delegated). Both clients' failure events are observed: Claude Code `PostToolUseFailure` (matcher `Bash`), Cursor `postToolUseFailure` (matcher `Shell`) skipping `failure_type: "permission_denied"`, which is a deny, not a run. Steps 5 and 7 decode and write them; step 7's `init` writes four entries in all (`PostToolUse`, `PostToolUseFailure`, `postToolUse`, `postToolUseFailure`). Cursor's hint stays (c2).
 - 2026-10-12, step 1 c4. A command Cursor's `cli.json` refuses fires `postToolUse` with `exitCode: 0` and empty output, indistinguishable from a silent run: it is recorded and hinted as run. Step 7 adds a register row (limit). The decoder never reads `user_email`, and fixtures replace it.
 - 2026-10-12, step 3, [ADR-0064](../adr/0064-trash-replacement-dashdash-as-typed.md) (Delegated). The replacement carries `--` only when the `rm` did (the verifier's N1: a Cursor glob expanding to a `-name`).
+- 2026-10-12, step 5, ADR-0065 (Delegated). A recorded word may start with one `:` (Gradle task paths); step 6 validates the same pattern. `adb exec-out` keeps one word, as `adb shell`.
 - 2026-10-12, step 1 c1. Cursor appends "Do not suggest workarounds to the blocked tool." to a hook's deny; whether its agent still runs `trash` is step 4's question (ADR-0062 §Consequences).
