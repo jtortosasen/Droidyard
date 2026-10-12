@@ -2,14 +2,17 @@
 	import type { BuildModel, BuildView } from './build';
 	import Problems from './Problems.svelte';
 	import { failureText } from './failure';
+	import type { Position } from './locate';
 
 	// The last build's result and its problems, the bottom Problems tab (plan m2d step 2):
 	// what the build panel showed under "Last build" before the redesign, unchanged.
 	// Every field is a text node.
 	interface Props {
 		model: BuildModel;
+		/** A row with a location in the project was chosen (plan m2i D10). */
+		onlocate?: (at: Position) => void;
 	}
-	let { model }: Props = $props();
+	let { model, onlocate }: Props = $props();
 
 	let view = $state.raw<BuildView | null>(null);
 
@@ -41,7 +44,7 @@
 		</p>
 		{#if view.problems}
 			<div class="scroll">
-				<Problems problems={view.problems} />
+				<Problems problems={view.problems} {onlocate} />
 			</div>
 		{/if}
 	{/if}

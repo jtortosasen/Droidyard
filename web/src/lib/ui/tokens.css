@@ -24,6 +24,19 @@
 	--overlay-glass: rgb(44 44 48 / 0.72);
 	--shadow: 0 8px 24px rgb(0 0 0 / 0.45);
 
+	--syn-keyword: #ff7ab2;
+	--syn-string: #ff8170;
+	--syn-comment: #7f8c98;
+	--syn-number: #d9c97c;
+	--syn-type: #6bdfff;
+	--syn-function: #4eb0cc;
+	--syn-property: #b98eff;
+	--syn-tag: #fc6a5d;
+	--syn-attribute: #d9c97c;
+	--syn-heading: #6bdfff;
+	--syn-link: #4eb0cc;
+	--syn-meta: #ffa14f;
+
 	--font-ui: system-ui, sans-serif;
 	--font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 	--fs-base: 13px;
@@ -65,6 +78,19 @@
 		--overlay-solid: #ffffff;
 		--overlay-glass: rgb(255 255 255 / 0.72);
 		--shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+
+		--syn-keyword: #ad3da4;
+		--syn-string: #d12f1b;
+		--syn-comment: #707f8c;
+		--syn-number: #272ad8;
+		--syn-type: #1f6f78;
+		--syn-function: #326d74;
+		--syn-property: #804fb8;
+		--syn-tag: #ad3da4;
+		--syn-attribute: #836c28;
+		--syn-heading: #0e0e82;
+		--syn-link: #0b4f99;
+		--syn-meta: #78492a;
 	}
 }
 

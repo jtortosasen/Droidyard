@@ -1,5 +1,5 @@
 {
-  "version": "0.19.0",
+  "version": "0.20.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -6270,6 +6270,10 @@
           "binary": {
             "type": "boolean",
             "description": "True when the page read holds a NUL byte or invalid UTF-8; text is then absent, and offset and nextOffset still page past it."
+          },
+          "revision": {
+            "type": "string",
+            "description": "The whole file's SHA-256, on every page; pass it as file.write's ifRevision. Absent for a file over 8 MiB."
           }
         },
         "additionalProperties": false,
@@ -6625,7 +6629,9 @@
         "FILE_OUTSIDE_ROOT",
         "FILE_WRONG_TYPE",
         "FILE_IO_FAILED",
-        "REQUEST_INVALID_PARAMS"
+        "REQUEST_INVALID_PARAMS",
+        "FILE_REVISION_CONFLICT",
+        "FILE_TOO_LARGE"
       ],
       "input": {
         "properties": {
@@ -6636,6 +6642,10 @@
           "content": {
             "type": "string",
             "description": "The file's new content, UTF-8, at most 524288 bytes. The whole file is replaced."
+          },
+          "ifRevision": {
+            "type": "string",
+            "description": "A revision file.read returned, or absent for a new file; if the file differs, FILE_REVISION_CONFLICT."
           }
         },
         "additionalProperties": false,
@@ -6658,13 +6668,18 @@
           "created": {
             "type": "boolean",
             "description": "True when the write created the file; false when it replaced an existing one."
+          },
+          "revision": {
+            "type": "string",
+            "description": "The SHA-256 of the content written, the revision file.read reports for it."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "path",
-          "size"
+          "size",
+          "revision"
         ]
       }
     },

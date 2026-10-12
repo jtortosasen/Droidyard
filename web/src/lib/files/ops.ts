@@ -17,6 +17,18 @@ export interface OpsClient {
 /** What the view does with a done move (D57): the open tabs follow. */
 export interface OpsHooks {
 	moved?(from: string, to: string): void;
+	/**
+	 * Whether `path`, or a file under it, is an open tab with unsaved changes (m2i D7). A move,
+	 * copy or paste whose target is one is refused before any call: the target's file is gone
+	 * (nothing replaces), and landing a file there would meet the user's unsaved text.
+	 */
+	unsaved?(path: string): boolean;
+	/**
+	 * Whether an open file directly in the folder `dir` ('' is the root) has been deleted on
+	 * disk but has unsaved changes. The daemon's free name for a Keep both or a duplicate can
+	 * be that file's path, since the file is gone (m2i D7).
+	 */
+	goneUnsaved?(dir: string): boolean;
 }
 
 /** Items that came back `FILE_EXISTS`, waiting for the dialog (D54): Keep both or Skip. */
@@ -132,6 +144,20 @@ export class FileOps {
 		for (const l of [...this.#listeners]) l();
 	}
 
+	/** D7: the text refusing an operation that would land on an open buffer with unsaved changes, or null. */
+	#unsaved(targets: readonly string[]): string | null {
+		const hit = targets.find((t) => this.#hooks.unsaved?.(t) === true);
+		return hit === undefined ? null : `${hit} is open with unsaved changes; save or close it first.`;
+	}
+
+	/** D7: the text refusing a Keep both or duplicate into a folder holding a deleted file's unsaved tab, or null. */
+	#goneUnsaved(dirs: readonly string[]): string | null {
+		const hit = dirs.find((d) => this.#hooks.goneUnsaved?.(d) === true);
+		return hit === undefined
+			? null
+			: `${hit === '' ? 'the project root' : hit} has an open file that was deleted and has unsaved changes, and the new name could be its path; save or close it first.`;
+	}
+
 	#opts(): CallOptions {
 		return { workspace: this.#ws.root.trim() };
 	}
@@ -164,6 +190,8 @@ export class FileOps {
 		if (why !== null) return { ok: false, message: why };
 		const to = join(parentOf(path), name);
 		if (to === path) return { ok: true, path };
+		const held = this.#unsaved([to]);
+		if (held !== null) return { ok: false, message: held };
 		try {
 			const r = await this.#client.call('file.move', { items: [{ from: path, to }] }, this.#opts());
 			const item = r.items[0];
@@ -205,6 +233,14 @@ export class FileOps {
 
 	async #batch(op: 'move' | 'copy', items: readonly Item[], keepBoth: boolean, retried = false): Promise<void> {
 		if (items.length === 0) return;
+		// A named target is checked as it stands. A duplicate or a Keep both lands on a free name the
+		// daemon picks in the target's folder, and the free name can be the path of an open tab
+		// whose file is gone and whose text is unsaved: those folders are checked instead.
+		const held = keepBoth ? this.#goneUnsaved(items.map((i) => parentOf(i.to))) : this.#unsaved(items.map((i) => i.to));
+		if (held !== null) {
+			this.#say(`${op === 'move' ? 'Move' : 'Copy'} refused: ${held}`, false);
+			return;
+		}
 		const params = { items: items as [Item, ...Item[]], ...(keepBoth ? { onCollision: 'keepBoth' as const } : {}) };
 		let res: Result<'file.move'> | Result<'file.copy'>;
 		try {
@@ -284,6 +320,12 @@ export class FileOps {
 			} else if (entry.kind === 'move') {
 				// Back in the opposite order, and no collision handling: an occupied origin is reported.
 				const back = entry.items.map((i) => ({ from: i.to, to: i.from })).reverse();
+				const held = this.#unsaved(back.map((i) => i.to));
+				if (held !== null) {
+					this.#undo.push(entry); // nothing was undone: it stays on the stack for after the save
+					this.#say(`Undo refused: ${held}`, true);
+					return;
+				}
 				const r = await this.#client.call('file.move', { items: back as [Item, ...Item[]] }, this.#opts());
 				const done = r.items.filter((i) => i.code === undefined);
 				this.#movedDone(done, false);
