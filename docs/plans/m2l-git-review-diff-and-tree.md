@@ -206,7 +206,7 @@ m2k merged into `main` during the review (`8e7c0c8`, API `0.22.0`, ADRs up to 00
 - Not here: no view.
 - Rests on: —
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `web/src/lib/git/review.ts` (`rows`, `rowOfLine`, `lineOfRow`, `gutter`, `ElasticMap` over measured spans, `alignRight`/`alignLeft` with `padTop`/`padBottom`, `anchorOf`, `Driver`), `review.test.ts` (13 tests: every row case of the Check; `toRight` exact at every line top; across a ten-row block in 1 px steps monotone with no step above 11 = (block + line) / line; `toLeft(toRight(y))` within 1e-6 on several layouts; measured unequal heights; the anchor; the padding; the Driver's echo and switch). `verify` and the Go suite pass; `boundary.test.ts` passes (no `@codemirror`). Mutation (implementer): a map that jumps at the line boundary fails three tests (`expected 201 to be less than or equal to 11.000000001`; the inverse off by 2.9; the measured-heights case). Main session's review: the map is the points (line top, its row's top) plus the ends, linear between them, so a deletion block is spread over the line before it. Implementer's decisions, kept (Delegated): slope 1 beyond the ends, so **a block deleted before line 1 sits above the right pane's top while the left is at its top, reached by scrolling the right pane** (for the owner's check at step 7); `lineOfRow` of a red row is the line the block was deleted before (click), `toLeft` lands in the line before (scroll); a hunk that removes lines marks its buffer lines `modified`; the Driver matches an echo within 1 px once (step 7 clears a pending one).
 
 ### 7. Review mode's view and the toggle
 
