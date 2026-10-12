@@ -17,7 +17,7 @@ var (
 	registerKinds = []string{"limit", "unverified", "deferred", "open question"}
 	// registerAreas are in case-insensitive alphabetical order, which is the order
 	// rows are sorted in.
-	registerAreas = []string{"build", "CLI", "code", "configuration", "device", "device/UI", "emulator", "files", "MCP/agents", "platform", "policy/security", "process", "SDK", "web UI"}
+	registerAreas = []string{"build", "CLI", "code", "configuration", "device", "device/UI", "emulator", "files", "git", "MCP/agents", "platform", "policy/security", "process", "SDK", "web UI"}
 
 	milestoneRE = regexp.MustCompile(`^\d+[a-z]$`)
 	closedByRE  = regexp.MustCompile(`^\d+[a-z]\b`)
@@ -117,8 +117,13 @@ func checkRegister(fsys fs.FS) []string {
 // operations, mcp.md's batch case and mvp.md's file row (ADR-0053, ADR-0054).
 // Raised by 29 (to 26,346) in milestone 2k step 6: the `agent` domain's rows in mcp.md and
 // mvp.md (ADR-0063). Raised by 31 (to 26,377) in milestone 2k step 7: mcp.md's hooks
-// paragraph and table row name the observation (ADR-0063).
-const liveBudget = 26377
+// paragraph and table row name the observation (ADR-0063). Raised by 24 (to 26,401) in
+// milestone 2l step 3: mvp.md's git row (`watch`, `read`, human-only) and mcp.md's
+// not-exposed row for git.read (ADR-0066). Raised by 2 (to 26,403) in milestone 2l step 4:
+// capability-api.md names git.changes among the ring-less topics (ADR-0066 §1). Raised by 23
+// (to 26,426) at 2l's close: the README's status, mvp.md's Git line and process-lifecycle.md's
+// git row (a watch's gits outlive its operation).
+const liveBudget = 26426
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

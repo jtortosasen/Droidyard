@@ -27,18 +27,18 @@ export const PANELS: readonly PanelDef[] = [
 	{ id: 'projectfile', region: 'status', label: 'Project file' },
 
 	{ id: 'files', region: 'left', label: 'Editor' },
-	{ id: 'git-side', region: 'left', label: 'Git', disabled: { milestone: 'Git' } },
+	{ id: 'git-side', region: 'left', label: 'Git' },
 
 	{ id: 'terminal', region: 'centre', label: 'Terminal', disabled: { milestone: 'agent sessions' } },
 	{ id: 'editor', region: 'centre', label: 'Editor' },
-	{ id: 'diff', region: 'centre', label: 'Diff', disabled: { milestone: 'Git' } },
+	{ id: 'diff', region: 'centre', label: 'Diff' },
 
 	{ id: 'logcat', region: 'bottom', label: 'Logcat' },
 	{ id: 'applogs', region: 'bottom', label: 'App logs' },
 	{ id: 'console', region: 'bottom', label: 'Build output' },
 	{ id: 'problems', region: 'bottom', label: 'Problems' },
 	{ id: 'activity', region: 'bottom', label: 'Activity' },
-	{ id: 'git', region: 'bottom', label: 'Git', disabled: { milestone: 'Git' } },
+	{ id: 'git', region: 'bottom', label: 'Git', disabled: { milestone: 'Git history' } },
 
 	{ id: 'devices', region: 'right', label: 'Devices' },
 	{ id: 'liveview', region: 'right', label: 'Live view', disabled: { milestone: 'live emulator view' } },

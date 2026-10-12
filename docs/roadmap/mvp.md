@@ -188,8 +188,8 @@ Deliverables:
   paths; **2d**, a redesign and a read-only file tree; **2e**, a UX round; **2f**, a sessions overlay and fixed panel controls; **2g**, the tree's file operations. After 2g, a milestone each, each after a
   discussion (owner, 2026-10-10): **agent sessions** (a terminal the daemon hosts on a
   pseudo-terminal, the agents' chats in it, a worktree per session); a **live emulator
-  view** (the stretch below); **Git** (the tree's Git view, a Diff tab, branches and
-  commits); the **editor** ([ADR-0009](../adr/0009-editor-component.md)).
+  view** (the stretch below); **Git** (the tree's Git view and a Diff tab in 2l; branches and
+  commits later); the **editor** ([ADR-0009](../adr/0009-editor-component.md)).
 - TypeScript client generated from the capability schema.
 - The loopback HTTP baseline (127.0.0.1, Host and Origin checks, a per-launch token),
   delivered early with the Phase 0 skeleton; Phase 2 adds no rule to it.
@@ -250,7 +250,7 @@ Two practical notes:
 | `sdk` | `status`, `requirements` | 1 |
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore` (human-only; never over MCP) | 1–2 |
-| `git` | `status`, `diff`, `log`, `branches` | last |
+| `git` | `watch`, `read` (human-only; never over MCP), `log`, `branches` | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
 | `shell` | `exec` (off by default) | 1 |

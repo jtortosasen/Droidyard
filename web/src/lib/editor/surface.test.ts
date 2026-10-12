@@ -36,6 +36,11 @@ function loader() {
 			mounted.push(f);
 			return f;
 		},
+		mountReview: async (_host, o) => {
+			const f = new Fake({ buffer: o.buffer ?? buffer, onSave: o.onSave });
+			mounted.push(f);
+			return f;
+		},
 		createBuffer: () => buffer,
 	};
 	const load = () =>

@@ -95,6 +95,8 @@ edits made before this rule and are not added to.
 | [0063](0063-hook-observes-android-commands.md) | The hook observes an agent's Android commands: a hint, and a record in Activity | Accepted |
 | [0064](0064-trash-replacement-dashdash-as-typed.md) | The `trash` replacement carries `--` only when the `rm` did | Accepted |
 | [0065](0065-observed-word-leading-colon.md) | A recorded word may start with one `:` | Accepted |
+| [0066](0066-daemon-git-watch-and-read.md) | The daemon's git: `git.watch` and `git.read`, human-only, and a hardened invocation | Accepted |
+| [0067](0067-browser-diff-review-mode-git-tree.md) | The diff in the browser, its Classic and Review modes, and the Git tree | Accepted |
 
 ## Open decisions (not yet ADRs)
 

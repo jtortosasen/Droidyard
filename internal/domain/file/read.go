@@ -130,6 +130,14 @@ func (r *resolver) read(p ReadParams) (ReadResult, error) {
 	}, nil
 }
 
+// LooksBinary is file.read's rule for another domain (git.read): the text is binary when
+// it holds a NUL byte or invalid UTF-8, a rune cut by the end of the window excepted.
+func LooksBinary(b []byte) bool { return looksBinary(b) }
+
+// EditableLimit is the largest text the editor saves and the diff reads (file.write's
+// limit, 512 KiB); git.read marks a larger blob tooLarge.
+const EditableLimit = maxWrite
+
 // looksBinary reports whether a window is binary: it holds a NUL byte, or invalid
 // UTF-8 other than a rune cut by the window's end (a read that ends mid-rune is not
 // binary).
