@@ -50,6 +50,7 @@
 	import { GitWatch } from '../git/watch';
 	import { HeadBase } from '../git/base';
 	import GitTree from '../git/GitTree.svelte';
+	import { GitTreeModel } from '../git/tree';
 	import DiffPanel from '../git/DiffPanel.svelte';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
@@ -108,6 +109,7 @@
 	let fileOps = $state.raw<FileOps | null>(null);
 	// The Git status the Git tree and the Diff tab read (plan m2l step 5), and HEAD's text of the file the Diff tab shows.
 	let gitWatch = $state.raw<GitWatch | null>(null);
+	let gitTree = $state.raw<GitTreeModel | null>(null);
 	let headBase = $state.raw<HeadBase | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
@@ -199,6 +201,9 @@
 		// The palette's file index reads the same stream (no second file.watch).
 		const index = new FileIndex();
 		const offIndex = watcher.listen(index);
+		// The Git tree's Tree view reads it too, with an expansion of its own.
+		const treeOfGit = new GitTreeModel();
+		const offGitTree = watcher.listen(treeOfGit);
 		const logcatDevices = new LogcatDevice(deviceList);
 		const mineIds = new MineSet(builds, installer);
 		logcatDevice = logcatDevices;
@@ -219,6 +224,7 @@
 		appLogs = logs;
 		fileTree = files;
 		gitWatch = gitStatus;
+		gitTree = treeOfGit;
 		headBase = headText;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
@@ -263,6 +269,7 @@
 			offListen();
 			offGuard();
 			offIndex();
+			offGitTree();
 			readers.dispose();
 			tabs.dispose();
 			opsModel.reset();
@@ -301,6 +308,7 @@
 			fileOps = null;
 			fileWatch = null;
 			gitWatch = null;
+			gitTree = null;
 			headBase = null;
 			editorTabs = null;
 			viewers = null;
@@ -361,9 +369,11 @@
 			/>
 		{/if}
 	{:else if id === 'git-side'}
-		{#if gitWatch}
+		{#if gitWatch && gitTree}
 			<GitTree
 				watch={gitWatch}
+				tree={gitTree}
+				{workspaceId}
 				onopen={(path) => {
 					// A changed file opens as the Editor's preview tab, so it has one buffer, and its diff shows.
 					target = null;
