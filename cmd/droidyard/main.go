@@ -23,6 +23,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/agent"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	"github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
@@ -432,6 +433,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
+	// agent.recordCommand is the hook's channel (ADR-0063): audience human, stateless, no
+	// dependency; the record is the operation's result.
+	agent.Register(reg)
 	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
 	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
 	// hook the project-code capabilities share; its command is spawned through the

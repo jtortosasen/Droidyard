@@ -1,12 +1,16 @@
 package assistant
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/agent"
 )
 
 // TestObserveTable pins ADR-0063 §1, §4 and the hint table: which commands are read,
@@ -191,5 +195,39 @@ func TestAfterOutput(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(AfterOutput(Cursor, "postToolUse", ""))); got != "{}" {
 		t.Errorf("Cursor without a hint: %q", got)
+	}
+}
+
+// TestObservationsAreWhatTheCapabilityAccepts pins the one-fact-one-place decision of
+// plan m2k step 6: the reader keeps the programs, the word pattern and the bounds of
+// internal/domain/agent, so every record it can make (a Gradle path from the root, an
+// `adb shell` command word, a bare program, four commands on one line) is accepted
+// by agent.recordCommand. A reader with its own looser pattern would fail on the
+// 65-character row.
+func TestObservationsAreWhatTheCapabilityAccepts(t *testing.T) {
+	reg := capability.NewRegistry()
+	agent.Register(reg)
+	d, _ := reg.Lookup("agent.recordCommand")
+	for _, line := range []string{
+		"./gradlew :app:installDebug --info",
+		"adb -s emulator-5554 shell am start -n com.example/.Main",
+		"adb exec-out screencap -p",
+		"emulator",
+		"sdkmanager a b c d e",
+		"adb push a b; adb devices; ./gradlew tasks; avdmanager list avd; adb logcat",
+		"./gradlew " + strings.Repeat("x", 64) + " :" + strings.Repeat("y", 64),
+		"./gradlew " + strings.Repeat("x", 65),
+	} {
+		obs := ObserveCommands(line)
+		if len(obs) == 0 {
+			t.Fatalf("%q: nothing observed", line)
+		}
+		rec := agent.Record{Client: "cursor"}
+		for _, o := range obs {
+			rec.Commands = append(rec.Commands, agent.Command{Program: o.Program, Words: o.Words, Suggested: o.Suggested})
+		}
+		if _, err := d.Handler(context.Background(), &capability.Call{Params: rec}); err != nil {
+			t.Errorf("%q: the capability refuses what the reader made: %v", line, err)
+		}
 	}
 }

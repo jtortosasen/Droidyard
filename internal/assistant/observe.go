@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"path"
-	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/jtortosasen/droidyard/internal/domain/agent"
 )
 
 // The reader behind the hook's after-command events (ADR-0063): the Android commands an
@@ -16,11 +17,9 @@ import (
 // command is bounded by ADR-0063 §4 (program, at most three plain positional words, the
 // suggested tool); flags, flag values, assignments and the line itself are dropped.
 
-// maxObserved is ADR-0063 §1's bound on commands read from one line.
-const maxObserved = 4
-
-// maxObservedWords is ADR-0063 §4's bound on the positional words kept per command.
-const maxObservedWords = 3
+// What a record may hold (the programs, the word pattern, the bounds) is
+// internal/domain/agent's: agent.recordCommand validates the same values, so the hook
+// can never produce a record the capability refuses.
 
 // maxHintBytes bounds the hint (plan m2k step 5).
 const maxHintBytes = 300
@@ -29,20 +28,15 @@ const maxHintBytes = 300
 type Observed struct {
 	// Program is the base name: gradlew, gradle, adb, emulator, sdkmanager or avdmanager.
 	Program string
-	// Words are the positional words kept: at most three matching observedWord and, for
+	// Words are the positional words kept: at most three matching agent.Word and, for
 	// `adb shell`, only the shell's command word.
 	Words []string
 	// Suggested is the droidyard MCP tool that does the same ("" when there is none).
 	Suggested string
 }
 
-// observedWord is the pattern for a positional word that may be recorded: ADR-0063 §4's,
-// with one optional leading ':' for a Gradle task path such as `:app:installDebug`
-// (ADR-0065).
-var observedWord = regexp.MustCompile(`^:?[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$`)
-
-// observedPrograms are the base names read (ADR-0063 §1).
-var observedPrograms = map[string]bool{"gradlew": true, "gradle": true, "adb": true, "emulator": true, "sdkmanager": true, "avdmanager": true}
+// observedPrograms are the base names read (ADR-0063 §1): agent.Programs.
+var observedPrograms = setOf(agent.Programs...)
 
 // skippedPrefixes are the words that run the next command (ADR-0063 §1).
 var skippedPrefixes = map[string]bool{"command": true, "exec": true, "env": true, "time": true, "nohup": true}
@@ -92,7 +86,7 @@ func HintTools() []string { return append([]string(nil), hintTools...) }
 func ObserveCommands(command string) []Observed {
 	var out []Observed
 	for _, seg := range shellSegments(command) {
-		if len(out) == maxObserved {
+		if len(out) == agent.MaxCommands {
 			break
 		}
 		if o, ok := observeSegment(seg); ok {
@@ -143,7 +137,7 @@ func observeSegment(words []string) (Observed, bool) {
 			continue
 		}
 		raw = append(raw, a)
-		if observedWord.MatchString(a) {
+		if agent.Word.MatchString(a) {
 			matching = append(matching, a)
 		}
 	}
@@ -151,13 +145,13 @@ func observeSegment(words []string) (Observed, bool) {
 	if prog == "adb" && len(raw) > 0 && (raw[0] == "shell" || raw[0] == "exec-out") {
 		// exec-out runs a device command as shell does: only its command word is kept.
 		o.Words = []string{raw[0]}
-		if len(raw) > 1 && observedWord.MatchString(raw[1]) {
+		if len(raw) > 1 && agent.Word.MatchString(raw[1]) {
 			o.Words = append(o.Words, raw[1])
 		}
 	} else {
 		o.Words = matching
-		if len(o.Words) > maxObservedWords {
-			o.Words = o.Words[:maxObservedWords]
+		if len(o.Words) > agent.MaxWords {
+			o.Words = o.Words[:agent.MaxWords]
 		}
 	}
 	return o, true
