@@ -295,7 +295,7 @@ Read at `4c5514b` (`main`).
   - No artifact attestation.
 - Rests on: `gh release create`, run with the job token, publishes on a private repository, at level 5 (step 7).
 - Review: the Opus verifier, for the supply chain: permissions, the token, injection.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the eight static tests pass, the plan's four mutations each fail one, and CI run 38289477093 is green. Opus verifier: no blocking finding. Its non-blocking ones were fixed in the same step: quoted and spaced `write` spellings, the token matched by value and `secrets: inherit` refused, `publish` restricted to an allowlist (the pinned download-artifact and `run:` steps), job keys with comments, the tag shape checked in a first `tag` job before `checks`, and no setup-go or setup-node cache in the release build. A limit was accepted for the register: the split guards the token, not the binaries' integrity, since npm code runs in `build`.
 
 ### 7. Level 5: a real release, installed on the owner's Mac
 
@@ -401,3 +401,4 @@ None. The ADR-0002 bookkeeping is a precondition (Starting point), not an open d
 - Owner, 2026-10-12, later the same day: the milestone is done in full and closed only when complete, nothing broken or partial merged into `main`. Step 2's (a) and (b), the `release/` static tests and the hook mapping, come back, implemented with step 3.
 - Step 3: `cmd/droidyard/main.go` imported `internal/domain/build` as `build`, which collides with `var build`; the import is aliased `builddomain` there and in `watchoutput_test.go`. The `-X main.build` symbol is as planned.
 - Step 5: wording the plan left open: `installed an unknown version, installing <tag>`; `now at <tag> (<dir>/droidyard)`; on a fresh install the daemon advice names no previous binary. The truncated-script mutation is the body run unwrapped (a call inside `main` would recurse). The sum-tool check runs just before the download, after the already-at short-circuit.
+- Owner, 2026-10-12, at step 7: yes to `v0.1.0`. If the run fails, the tag (and a release, if one was made) is deleted, the fix goes on `m2m`, and `v0.1.0` is pushed again, replacing the plan's "never moved, next is `v0.1.1`".
