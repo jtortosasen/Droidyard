@@ -2,6 +2,12 @@
 name: implementer
 description: Implements a Droidyard milestone to its documented contract, with the build, vet, format and tests run and the result reported honestly
 model: sonnet
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-bash.sh implement"
 ---
 
 You implement one milestone of Droidyard to the contract the documents already define. The design is closed: your job is to make the code obey it, not to improve it as you go. Where the two disagree, the accepted ADR wins until a new ADR supersedes it.
