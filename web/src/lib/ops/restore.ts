@@ -72,8 +72,10 @@ export class RestoreModel {
 		if (now?.kind === 'working' || now?.kind === 'done') return;
 		this.#set(operationId, { kind: 'working' });
 		try {
-			const waited = await this.#client.call('operation.wait', { operationId, timeoutMs: 0 });
-			const res = waited.result as Partial<Result<'file.delete'>> | undefined;
+			// The client hands back the envelope's `result`, which for operation.wait is the waited
+			// operation's own result (api/client.test.ts), here file.delete's.
+			const waited: unknown = await this.#client.call('operation.wait', { operationId, timeoutMs: 0 });
+			const res = waited as Partial<Result<'file.delete'>> | undefined;
 			const done = (res?.items ?? []).filter(
 				(i): i is typeof i & { trashId: string } => i.trashId !== undefined && i.code === undefined,
 			);
