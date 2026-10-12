@@ -112,7 +112,7 @@ Measured 2026-10-12:
 - Needs: step 1.
 - Not here: anything that changes what MCP lists.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the nextStep check (`TestCoreNextStepsNameCoreTools`) also fails on a published capability that is not a tool, scanning `internal/policy` with `policy.update` and `policy.get` as reasoned exceptions; seen failing with a build nextStep naming `file.watch`, with `policy.update` dropped from the list, and with a stale entry (an MCP tool; one no longer named). `operation_session_test.go` uses `workspace_describe`; `TestCLIBatchWithFailedItemsCompletes` (exit 0, `completed`, item 1 `FILE_EXISTS`, item 2 done; outside the root `FILE_OUTSIDE_ROOT`); `trust.go` no longer names `file.write`. `go test ./...` green.
 
 ### 3. `file.*` audience human
 

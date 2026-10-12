@@ -32,6 +32,6 @@ func trust(args []string) int {
 	fmt.Printf("trusted %s\n", canonical)
 	// The human makes this choice here, so here it is said what it means (ADR-0015 §6,
 	// Amended 2026-10-07; m1k close review B1).
-	fmt.Println("Its build scripts and code now run as you. An agent that can edit them (file.write) can run any command as you, droidyard's configuration and trust included.")
+	fmt.Println("Its build scripts and code now run as you. An agent that can edit them can run any command as you, droidyard's configuration and trust included.")
 	return 0
 }
