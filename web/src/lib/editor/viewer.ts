@@ -1,77 +1,191 @@
-// The read-only viewer's model (plan m2d step 6; Q4, D26). One FileViewer per open file
-// reads it with `file.read` in pages and holds the text as lines; a ViewerSet owns the
-// viewers and feeds them the root watch's events (files/watch.ts), so there is no second
-// `file.watch`.
+// The editor's models (plan m2d step 6, m2i step 6; D5-D8). One EditorModel per open file
+// reads it with `file.read` in pages, holds its editing buffer, and saves it with
+// `file.write`; an EditorSet (here `ViewerSet`) owns the models and feeds them the root
+// watch's events (files/watch.ts), so there is no second `file.watch`.
 //
-//   - D26's working default: at most CAP bytes are read, in PAGE-byte pages, and the view
-//     then says so. A page that is not the next one in the file (the file changed under
-//     the read) restarts the read from the top instead of joining text that never existed.
-//   - A binary page (a NUL byte or invalid UTF-8) makes the file a placeholder: no text is
-//     kept, only its size.
-//   - `modified` (or `created`, a file that came back) for the path reads it again and
-//     swaps the text in when it is complete; `deleted` marks the viewer and keeps the last
-//     text. A re-sync (the watch restarted: events may have been missed) re-reads all.
+//   - A read is consistent (D6): every page of one read must carry the same `revision`, and
+//     a complete read with a revision must hash to it (WebCrypto). A page at another offset
+//     or with another revision starts the read again, at most three times. A whole-file
+//     mismatch with equal page revisions (a final line cut mid-rune) opens the file read-only.
+//   - D26's working default: at most CAP bytes are read, in PAGE-byte pages.
+//   - Read-only, with the reason as text (D5): a binary file is a placeholder with no text;
+//     a file over 512 KiB, a capped read, a read without a revision, mixed line endings or a
+//     lone CR, and a hash mismatch are shown and never saved.
+//   - Save (D7): `file.write {path, content, ifRevision: base}`, one at a time; a save asked
+//     for during one waits and goes out with the new base. The content is hashed before the
+//     call, so the revision the daemon will report is known while it is in flight, and a
+//     watch event carrying it is our own echo. Nothing is sent over 512 KiB or ~1,000,000
+//     bytes of JSON.
+//   - External change (D8): `modified`/`created` and a re-sync re-read the file; a revision
+//     equal to the base or in flight is the echo of our own write and changes nothing; a
+//     clean buffer takes the disk's text; a dirty one is never reloaded: the disk's version
+//     is held (`view.external`, the bar of Reload / Keep mine / Compare) until the user
+//     chooses. A save answered FILE_REVISION_CONFLICT reads again into the same bar.
 //   - Text from a file is data: it reaches the page as text nodes only.
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
 import { failure, failureText } from '../build/failure';
 import type { Change, WatchListener } from '../files/watch';
+import { loadEditor, type EditorBuffer, type EditorModule } from './surface';
+import { detectSeparator, MAX_WRITE, saveRefusal, sha256Hex } from './text';
 
 /** D26: bytes of a file the viewer reads before it stops and says so. */
 export const CAP = 2 * 1024 * 1024;
 /** D26: the size of one `file.read` page (the capability's largest limit). */
 export const PAGE = 256 * 1024;
+/** D6: restarts of one read before it fails. */
+export const RESTARTS = 3;
 
 export interface ViewerClient {
 	call(name: 'file.read', params: Params<'file.read'>, opts?: CallOptions): Promise<Result<'file.read'>>;
+	call(name: 'file.write', params: Params<'file.write'>, opts?: CallOptions): Promise<Result<'file.write'>>;
 }
 
 export interface ViewerWorkspace {
 	readonly root: string;
 }
 
+/** Where buffers come from: the editor module, loaded when the first file opens. */
+export type LoadBuffers = () => Promise<Pick<EditorModule, 'createBuffer'>>;
+
 export type ViewerState = 'loading' | 'ready' | 'binary' | 'deleted' | 'error';
+
+/** Why a text is shown and not edited (D5). */
+export type ReadOnlyReason = 'large' | 'capped' | 'norevision' | 'mixed' | 'unverified';
+
+export function readOnlyText(reason: ReadOnlyReason): string {
+	switch (reason) {
+		case 'large':
+			return 'Read-only: the file is over 512 KiB, which the editor does not save.';
+		case 'capped':
+			return 'Read-only: the file is longer than the editor reads, so a save would cut it.';
+		case 'norevision':
+			return 'Read-only: the daemon gave this file no revision (it is over 8 MiB), so a save could not be checked.';
+		case 'mixed':
+			return 'Read-only: the file mixes line endings (or has a lone CR), which a save could not write back as read.';
+		case 'unverified':
+			return 'Read-only: the text read does not match the file\u2019s revision (a line was cut or the file changed while it was read).';
+	}
+}
 
 export interface ViewerView {
 	state: ViewerState;
 	path: string;
 	/** The file's size in bytes, when known. */
 	size: number | null;
-	/** The text as lines (no line terminators); empty for a binary file. */
-	lines: readonly string[];
 	/** The text read stopped at CAP and the file is larger. */
 	capped: boolean;
 	/** Bytes of text held. */
 	read: number;
 	/** The failure as text (never markup), when state is 'error'. */
 	error: string | null;
+	/** The editing buffer of a text file (also while it is marked deleted); null for the rest. */
+	buffer: EditorBuffer | null;
+	/** Why the buffer cannot be edited, or null when it can. */
+	readOnly: ReadOnlyReason | null;
+	/** The buffer holds changes the disk does not. */
+	dirty: boolean;
+	saving: boolean;
+	/** The last save's failure as text, or null. */
+	saveError: string | null;
+	/** The last save was answered FILE_REVISION_CONFLICT: the file changed on disk after it was read. */
+	conflict: boolean;
+	/** D8: the disk holds another version than a dirty buffer is based on, and the user has yet to choose. */
+	external: ExternalView | null;
 }
 
-export function splitLines(text: string): string[] {
-	if (text === '') return [];
-	const lines = text.split('\n');
-	if (lines[lines.length - 1] === '') lines.pop();
-	return lines;
+/**
+ * The disk's side of an external change (D8), as the bar and Compare need it. The text is
+ * held as text and reaches the page as text only.
+ */
+export interface ExternalView {
+	/** The file is gone (`absent`): there is no disk text to reload or compare. */
+	gone: boolean;
+	/** The file turned binary: no text to compare; Reload shows the placeholder. */
+	binary: boolean;
+	/** The disk's text (empty when gone or binary). */
+	text: string;
+	/** The disk's revision; undefined for a read without one (over 8 MiB). */
+	revision: string | undefined;
+	/** Reload takes the disk's version: not when the disk side is absent. */
+	canReload: boolean;
+	/** Keep mine makes the disk's revision (or `absent`) the base: never without one, since no write goes out without `ifRevision`. */
+	canKeep: boolean;
+	/** Compare shows both texts. */
+	canCompare: boolean;
+	/** A newer disk version replaced the one first held while the bar was up. */
+	updated: boolean;
 }
 
-export class FileViewer {
-	readonly path: string;
+/** What one consistent read found. */
+type Read =
+	| { kind: 'error'; message: string }
+	| { kind: 'gone'; message: string }
+	| { kind: 'binary'; size: number; revision: string | undefined }
+	| { kind: 'text'; text: string; size: number; read: number; capped: boolean; revision: string | undefined; matches: boolean };
+
+/** D5: the first reason a complete or capped read of text cannot be edited. */
+function reasonFor(r: Extract<Read, { kind: 'text' }>): ReadOnlyReason | null {
+	if (r.capped) return 'capped';
+	if (r.size > MAX_WRITE) return 'large';
+	if (r.revision === undefined) return 'norevision';
+	if (!r.matches) return 'unverified';
+	if (detectSeparator(r.text) === null) return 'mixed';
+	return null;
+}
+
+export class EditorModel {
+	path: string;
 	#client: ViewerClient;
 	#ws: ViewerWorkspace;
+	#loadBuffers: LoadBuffers;
 	#listeners = new Set<() => void>();
 	#view: ViewerView;
 	#run = 0;
 	#disposed = false;
+	#buffer: EditorBuffer | null = null;
+	#offBuffer: (() => void) | null = null;
+	/** The revision of the disk text the buffer is based on; undefined for a read without one. */
+	#base: string | undefined;
+	/** Bumped when a save starts and when it ends: a read begun before is out of date. */
+	#gen = 0;
+	#saving = false;
+	#inflight: string | null = null;
+	#queued = false;
+	#stale = false;
+	#saveDone: Promise<void> = Promise.resolve();
+	/** The disk's read behind `view.external`, to apply if the user reloads. */
+	#held: Read | null = null;
 
-	constructor(client: ViewerClient, ws: ViewerWorkspace, path: string) {
+	constructor(client: ViewerClient, ws: ViewerWorkspace, path: string, loadBuffers: LoadBuffers = loadEditor) {
 		this.#client = client;
 		this.#ws = ws;
 		this.path = path;
-		this.#view = { state: 'loading', path, size: null, lines: [], capped: false, read: 0, error: null };
+		this.#loadBuffers = loadBuffers;
+		this.#view = {
+			state: 'loading',
+			path,
+			size: null,
+			capped: false,
+			read: 0,
+			error: null,
+			buffer: null,
+			readOnly: null,
+			dirty: false,
+			saving: false,
+			saveError: null,
+			conflict: false,
+			external: null,
+		};
 	}
 
 	get view(): ViewerView {
 		return this.#view;
+	}
+
+	/** The revision the buffer is based on (the disk's text when it was read or last saved). */
+	get base(): string | undefined {
+		return this.#base;
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -84,6 +198,8 @@ export class FileViewer {
 	dispose(): void {
 		this.#disposed = true;
 		this.#run++;
+		this.#offBuffer?.();
+		this.#offBuffer = null;
 		this.#listeners.clear();
 	}
 
@@ -92,106 +208,487 @@ export class FileViewer {
 		for (const l of [...this.#listeners]) l();
 	}
 
-	/** The file was deleted: the last text stays, marked. */
+	/** The file was deleted: the buffer stays, marked. */
 	markDeleted(): void {
 		this.#run++; // a read under way is for a file that is gone
 		this.#set({ state: 'deleted' });
+		// A disk version held by the bar is of a file that is gone now: Reload must not take its text.
+		if (this.#held !== null) this.#hold({ kind: 'gone', message: 'the file was deleted' });
 	}
 
-	/** Reads the file; the text shown is replaced when the new read is complete. */
+	/** The file was renamed or moved in the tree (D7): the same buffer, base and history, under the new path. */
+	rename(to: string): void {
+		this.path = to;
+		this.#run++; // a read under way was for the old path
+		this.#buffer?.setPath(to);
+		// The move's own events may have reached this model before its reply did, marking it
+		// deleted at the old path: read the new one to see whether the mark still holds.
+		const reread = this.#view.state === 'loading' || this.#view.state === 'deleted';
+		this.#set({ path: to });
+		if (reread) void this.load();
+	}
+
+	/** Reads the file; what happens to the result depends on the buffer (see the header). */
 	async load(): Promise<void> {
 		const run = ++this.#run;
+		const gen = this.#gen;
+		const read = await this.#read(run);
+		if (read === null || run !== this.#run || this.#disposed) return;
+		if (gen !== this.#gen || this.#saving) {
+			// A save began or ended while this read was out: it may show the file from before it.
+			// Only the revision of the write in flight is our own echo. The base's bytes seen now
+			// are somebody writing the old text back during our save: read again after it.
+			if (this.#saving && read.kind === 'text' && read.revision !== undefined && read.revision === this.#inflight) return;
+			if (this.#saving) this.#stale = true;
+			else void this.load();
+			return;
+		}
+		await this.#apply(read, run);
+	}
+
+	/** One consistent read (D6); null when it was overtaken. */
+	async #read(run: number): Promise<Read | null> {
 		let text = '';
 		let offset = 0;
 		let size = 0;
 		let restarts = 0;
+		let revision: string | undefined;
 		for (;;) {
 			let page: Result<'file.read'>;
 			try {
 				page = await this.#client.call('file.read', { path: this.path, offset, limit: PAGE }, { workspace: this.#ws.root.trim() });
 			} catch (e) {
-				if (run === this.#run && !this.#disposed) this.#set({ state: 'error', error: failureText(failure(e)) });
-				return;
+				if (run !== this.#run || this.#disposed) return null;
+				const f = failure(e);
+				return { kind: f.code === 'FILE_NOT_FOUND' ? 'gone' : 'error', message: failureText(f) };
 			}
-			if (run !== this.#run || this.#disposed) return;
-			if (page.binary) {
-				this.#set({ state: 'binary', size: page.size, lines: [], capped: false, read: 0, error: null });
-				return;
-			}
-			if (page.offset !== offset) {
-				// Not the page asked for: the file changed under the read. Start over, a few times.
-				if (++restarts > 3) {
-					this.#set({ state: 'error', error: 'the file kept changing while it was read' });
-					return;
-				}
+			if (run !== this.#run || this.#disposed) return null;
+			if (page.binary) return { kind: 'binary', size: page.size, revision: page.revision };
+			// A page that is not the one asked for, or whose revision differs from the first
+			// page's: the file changed under the read. Start over, a few times.
+			if (page.offset !== offset || (offset > 0 && page.revision !== revision)) {
+				if (++restarts > RESTARTS) return { kind: 'error', message: 'the file kept changing while it was read' };
 				text = '';
 				offset = 0;
+				revision = undefined;
 				continue;
 			}
+			if (offset === 0) revision = page.revision;
 			text += page.text ?? '';
 			size = page.size;
 			// A page that moves nothing would loop for ever.
 			const done = page.nextOffset <= offset || page.nextOffset >= size;
 			offset = page.nextOffset;
 			if (done || offset >= CAP) {
-				this.#set({ state: 'ready', size, lines: splitLines(text), capped: offset < size, read: offset, error: null });
+				const capped = offset < size;
+				let matches = true;
+				if (!capped && revision !== undefined) {
+					try {
+						matches = (await sha256Hex(text)) === revision;
+					} catch {
+						matches = false; // no WebCrypto: the read cannot be verified
+					}
+					if (run !== this.#run || this.#disposed) return null;
+				}
+				return { kind: 'text', text, size, read: offset, capped, revision, matches };
+			}
+		}
+	}
+
+	async #apply(read: Read, run: number): Promise<void> {
+		if (read.kind === 'error') {
+			// A buffer on show is not replaced by a failed re-read; the next event tries again.
+			if (this.#buffer === null) this.#set({ state: 'error', error: read.message });
+			return;
+		}
+		if (read.kind === 'gone') {
+			const buffer = this.#buffer;
+			if (buffer === null) {
+				this.#set({ state: 'error', error: read.message });
 				return;
 			}
+			// The file is not on disk (a re-sync, a conflicting save, or a rename that found nothing).
+			this.#set({ state: 'deleted' });
+			if (this.#guarded(buffer)) this.#hold(read);
+			return;
+		}
+		if (read.kind === 'binary') {
+			if (this.#buffer !== null && this.#guarded(this.#buffer)) {
+				this.#hold(read); // the user's edits are not dropped for a file that turned binary
+				return;
+			}
+			this.#takeBinary(read);
+			return;
+		}
+		const reason = reasonFor(read);
+		const buffer = this.#buffer;
+		if (buffer === null) {
+			let made: EditorBuffer;
+			try {
+				made = (await this.#loadBuffers()).createBuffer({ text: read.text, readOnly: reason !== null, path: this.path });
+			} catch (e) {
+				if (run === this.#run && !this.#disposed) this.#set({ state: 'error', error: failureText(failure(e)) });
+				return;
+			}
+			if (run !== this.#run || this.#disposed) return;
+			this.#buffer = made;
+			this.#offBuffer = made.onChange(() => {
+				if (made.dirty !== this.#view.dirty) this.#set({ dirty: made.dirty });
+			});
+			this.#base = read.revision;
+			this.#set({ state: 'ready', size: read.size, capped: read.capped, read: read.read, error: null, buffer: made, readOnly: reason, dirty: false });
+			return;
+		}
+		// The echo of our own write, or of a move: the same bytes as the buffer is based on.
+		if (read.revision !== undefined && (read.revision === this.#base || read.revision === this.#inflight)) {
+			if (this.#view.state === 'deleted') this.#set({ state: 'ready' });
+			// The disk is what the buffer is based on again: the difference the bar showed is gone.
+			if (read.revision === this.#base) this.#release();
+			return;
+		}
+		if (this.#guarded(buffer)) {
+			// D8: never reloaded; the bar holds the disk's version. The file exists again, though: it is not "deleted".
+			if (this.#view.state === 'deleted') this.#set({ state: 'ready' });
+			this.#hold(read);
+			return;
+		}
+		this.#take(read);
+	}
+
+	/**
+	 * D8: a buffer is replaced silently only when it is clean, has nothing Redo would bring back,
+	 * and no disk version is held already (while the bar is up, a clean-looking buffer is one the
+	 * user undid, and the bar stays until they choose).
+	 */
+	#guarded(buffer: EditorBuffer): boolean {
+		return buffer.dirty || buffer.hasRedo || this.#held !== null;
+	}
+
+	/** D8: the clean buffer takes the disk's text, and nothing is held. */
+	#take(read: Extract<Read, { kind: 'text' }>): void {
+		const buffer = this.#buffer;
+		if (buffer === null) return;
+		this.#held = null;
+		buffer.load(read.text);
+		const reason = reasonFor(read);
+		buffer.setReadOnly(reason !== null);
+		this.#base = read.revision;
+		this.#set({
+			state: 'ready',
+			size: read.size,
+			capped: read.capped,
+			read: read.read,
+			error: null,
+			readOnly: reason,
+			dirty: buffer.dirty,
+			saveError: null, // a failed save of the text this replaces is moot
+			conflict: false,
+			external: null,
+		});
+	}
+
+	#takeBinary(read: Extract<Read, { kind: 'binary' }>): void {
+		this.#held = null;
+		this.#dropBuffer();
+		this.#base = undefined;
+		this.#set({
+			state: 'binary',
+			size: read.size,
+			capped: false,
+			read: 0,
+			error: null,
+			buffer: null,
+			readOnly: null,
+			dirty: false,
+			saveError: null,
+			conflict: false,
+			external: null,
+		});
+	}
+
+	/** D8: the dirty buffer meets a disk version it is not based on; the bar offers the choices. */
+	#hold(read: Exclude<Read, { kind: 'error' }>): void {
+		this.#held = read;
+		const gone = read.kind === 'gone';
+		const binary = read.kind === 'binary';
+		const text = read.kind === 'text' ? read.text : '';
+		const revision = read.kind === 'text' || read.kind === 'binary' ? read.revision : undefined;
+		const cur = this.#view.external;
+		// The same disk version as the bar already shows (a re-sync, a second event): nothing to tell.
+		if (cur !== null && cur.gone === gone && cur.binary === binary && cur.revision === revision && cur.text === text) return;
+		this.#set({
+			external: {
+				gone,
+				binary,
+				text,
+				revision,
+				canReload: !gone,
+				// The editor never sends file.write without ifRevision: no revision, no Keep mine.
+				canKeep: gone || revision !== undefined,
+				canCompare: !gone && !binary,
+				updated: cur !== null,
+			},
+		});
+	}
+
+	/** The bar is moot (the disk is what the buffer is based on again): drop it. */
+	#release(): void {
+		this.#held = null;
+		if (this.#view.external !== null) this.#set({ external: null });
+	}
+
+	/** D8 Reload: the disk's text and revision replace the buffer; its edits are given up, by the user's choice. */
+	reload(): void {
+		const held = this.#held;
+		const ext = this.#view.external;
+		if (held === null || ext === null || !ext.canReload || this.#saving) return;
+		if (held.kind === 'text') this.#take(held);
+		else if (held.kind === 'binary') this.#takeBinary(held);
+	}
+
+	/**
+	 * D8 Keep mine: the disk's revision (`absent` after a deletion) becomes the base, so the next
+	 * save replaces, or re-creates, the file knowingly. The buffer is untouched.
+	 */
+	keepMine(): void {
+		const ext = this.#view.external;
+		if (ext === null || !ext.canKeep || this.#saving) return;
+		const buffer = this.#buffer;
+		if (buffer === null) return;
+		this.#base = ext.gone ? 'absent' : ext.revision;
+		this.#held = null;
+		// The disk now holds its own text as far as the base goes, so the buffer counts as unsaved
+		// against it (also one the user had undone to clean), and the next save writes it knowingly.
+		buffer.setSaved(ext.gone || ext.binary ? null : ext.text);
+		this.#set({ external: null, saveError: null, conflict: false, dirty: buffer.dirty });
+	}
+
+	#dropBuffer(): void {
+		this.#offBuffer?.();
+		this.#offBuffer = null;
+		this.#buffer = null;
+	}
+
+	/**
+	 * Saves the buffer (D7). Resolves when this save, and any asked for during it, is done. A
+	 * save asked for during one is not lost and not concurrent: it goes out after, with the
+	 * new base, if the buffer is still dirty then.
+	 */
+	save(): Promise<void> {
+		if (this.#saving) {
+			this.#queued = true;
+			return this.#saveDone;
+		}
+		this.#saveDone = this.#saveLoop();
+		return this.#saveDone;
+	}
+
+	async #saveLoop(): Promise<void> {
+		this.#saving = true;
+		this.#gen++;
+		this.#set({ saving: true });
+		try {
+			do {
+				this.#queued = false;
+				if (!(await this.#saveOnce())) this.#queued = false; // a failed save is not repeated blindly
+			} while (this.#queued);
+		} finally {
+			this.#saving = false;
+			this.#inflight = null;
+			this.#gen++;
+			this.#set({ saving: false });
+			if (this.#stale && !this.#disposed) {
+				this.#stale = false;
+				void this.load();
+			}
+		}
+	}
+
+	/** One write; false when it failed (the reason is in the view). */
+	async #saveOnce(): Promise<boolean> {
+		const buffer = this.#buffer;
+		if (buffer === null || this.#view.readOnly !== null || !buffer.dirty) return true;
+		const base = this.#base;
+		if (base === undefined) {
+			this.#set({ saveError: 'The file has no revision to save against; read it again.', conflict: false });
+			return false;
+		}
+		const snap = buffer.snapshot();
+		const path = this.path;
+		const refusal = saveRefusal(path, snap.text, base);
+		if (refusal !== null) {
+			this.#set({ saveError: refusal, conflict: false });
+			return false;
+		}
+		let revision: string;
+		try {
+			revision = await sha256Hex(snap.text);
+		} catch (e) {
+			this.#set({ saveError: failureText(failure(e)), conflict: false });
+			return false;
+		}
+		this.#inflight = revision;
+		this.#set({ saveError: null, conflict: false });
+		try {
+			const r = await this.#client.call('file.write', { path, content: snap.text, ifRevision: base }, { workspace: this.#ws.root.trim() });
+			this.#base = r.revision;
+			snap.commit();
+			this.#held = null;
+			this.#set({ size: r.size, saveError: null, conflict: false, external: null, dirty: buffer.dirty, ...(this.#view.state === 'deleted' ? { state: 'ready' as const } : {}) });
+			return true;
+		} catch (e) {
+			const f = failure(e);
+			const conflict = f.code === 'FILE_REVISION_CONFLICT';
+			this.#set({ saveError: failureText(f), conflict });
+			// D8: the disk is not what the buffer is based on; read it again into the bar once the save loop ends.
+			if (conflict) this.#stale = true;
+			return false;
 		}
 	}
 }
 
-/** The viewers of the open files, kept current by the root watch. */
+/** What the set tells its owner. */
+export interface SetHooks {
+	/** A model's dirty flag changed (the tab's mark, and the first edit keeps a preview tab). */
+	dirty?(path: string, dirty: boolean): void;
+}
+
+const under = (path: string, dir: string): boolean => path === dir || path.startsWith(`${dir}/`);
+
+/** The models of the open files, kept current by the root watch. */
 export class ViewerSet implements WatchListener {
 	#client: ViewerClient;
 	#ws: ViewerWorkspace;
-	#viewers = new Map<string, FileViewer>();
+	#hooks: SetHooks;
+	#load: LoadBuffers;
+	#models = new Map<string, EditorModel>();
 
-	constructor(client: ViewerClient, ws: ViewerWorkspace) {
+	constructor(client: ViewerClient, ws: ViewerWorkspace, hooks: SetHooks = {}, load: LoadBuffers = loadEditor) {
 		this.#client = client;
 		this.#ws = ws;
+		this.#hooks = hooks;
+		this.#load = load;
 	}
 
-	/** The viewer of `path`, reading the file when it is first asked for. */
-	get(path: string): FileViewer {
-		let v = this.#viewers.get(path);
-		if (v === undefined) {
-			v = new FileViewer(this.#client, this.#ws, path);
-			this.#viewers.set(path, v);
-			void v.load();
+	/** The model of `path`, reading the file when it is first asked for. */
+	get(path: string): EditorModel {
+		let m = this.#models.get(path);
+		if (m === undefined) {
+			m = new EditorModel(this.#client, this.#ws, path, this.#load);
+			const model = m;
+			let dirty = false;
+			model.subscribe(() => {
+				if (model.view.dirty !== dirty) {
+					dirty = model.view.dirty;
+					this.#hooks.dirty?.(model.path, dirty);
+				}
+			});
+			this.#models.set(path, m);
+			void m.load();
 		}
-		return v;
+		return m;
 	}
 
-	/** Keeps only the viewers of these paths. */
+	/** Keeps only the models of these paths, and any model with unsaved changes (those go by `discard`). */
 	keep(paths: Iterable<string>): void {
 		const keep = new Set(paths);
-		for (const [p, v] of this.#viewers) {
-			if (!keep.has(p)) {
-				v.dispose();
-				this.#viewers.delete(p);
+		for (const [p, m] of this.#models) {
+			if (!keep.has(p) && !m.view.dirty) {
+				m.dispose();
+				this.#models.delete(p);
 			}
+		}
+	}
+
+	/** Drops the models of these paths with their unsaved changes (the user's "Don't save"). */
+	discard(paths: Iterable<string>): void {
+		for (const p of paths) {
+			const m = this.#models.get(p);
+			if (m === undefined) continue;
+			m.dispose();
+			this.#models.delete(p);
+			this.#hooks.dirty?.(p, false);
+		}
+	}
+
+	/** The paths of the models with unsaved changes. */
+	dirtyPaths(): string[] {
+		return [...this.#models].filter(([, m]) => m.view.dirty).map(([p]) => p);
+	}
+
+	/** Whether `path`, or a file under it, is open with unsaved changes (D7: a move or paste may not land there). */
+	holdsDirty(path: string): boolean {
+		for (const [p, m] of this.#models) if (m.view.dirty && under(p, path)) return true;
+		return false;
+	}
+
+	/** Whether an open file directly in `dir` ('' is the root) is marked deleted and has unsaved changes. */
+	goneDirtyIn(dir: string): boolean {
+		for (const [p, m] of this.#models) {
+			if (m.view.dirty && m.view.state === 'deleted' && p.slice(0, Math.max(0, p.lastIndexOf('/'))) === dir) return true;
+		}
+		return false;
+	}
+
+	/** Saves these paths in turn; the first failure's text, or null when all are saved. */
+	async saveAll(paths: readonly string[]): Promise<string | null> {
+		for (const p of paths) {
+			const m = this.#models.get(p);
+			if (m === undefined) continue;
+			await m.save();
+			if (m.view.dirty) return `${p}: ${m.view.saveError ?? 'not saved'}`;
+		}
+		return null;
+	}
+
+	/**
+	 * A file or folder was moved or renamed (D7), before the tabs follow: the models under it
+	 * are re-keyed (by path prefix, never a sibling sharing the prefix), keeping buffer, base and
+	 * history. A model at a target path is replaced by the moved one unless it has unsaved
+	 * changes (FileOps refuses a move onto one, so that is a safety net: both are kept, the
+	 * moved one under its old path).
+	 */
+	moved(from: string, to: string): void {
+		const re = (p: string): string => (p === from ? to : p.startsWith(`${from}/`) ? to + p.slice(from.length) : p);
+		const moving = [...this.#models].filter(([p]) => re(p) !== p);
+		if (moving.length === 0) return;
+		for (const [p] of moving) this.#models.delete(p);
+		for (const [p, m] of moving) {
+			const np = re(p);
+			const there = this.#models.get(np);
+			if (there?.view.dirty) {
+				// The model at the target has unsaved text and stays. A clean moved one gives way; one
+				// with unsaved text too (FileOps refuses that move, so this is the safety net) is kept
+				// under its old path rather than lose its edits.
+				if (m.view.dirty) this.#models.set(p, m);
+				else m.dispose();
+				continue;
+			}
+			there?.dispose();
+			this.#models.set(np, m);
+			m.rename(np);
 		}
 	}
 
 	changes(list: Change[]): void {
 		for (const c of list) {
-			const v = this.#viewers.get(c.path);
-			if (v === undefined) continue;
-			if (c.kind === 'deleted') v.markDeleted();
-			else if (c.type === undefined || c.type === 'file') void v.load();
+			const m = this.#models.get(c.path);
+			if (m === undefined) continue;
+			if (c.kind === 'deleted') m.markDeleted();
+			else if (c.type === undefined || c.type === 'file') void m.load();
 		}
 	}
 
 	resync(): void {
-		for (const v of this.#viewers.values()) {
-			// A viewer still reading its first answer has nothing out of date.
-			if (v.view.state !== 'loading') void v.load();
+		for (const m of this.#models.values()) {
+			// A model still reading its first answer has nothing out of date.
+			if (m.view.state !== 'loading') void m.load();
 		}
 	}
 
 	dispose(): void {
-		this.keep([]);
+		for (const m of this.#models.values()) m.dispose();
+		this.#models.clear();
 	}
 }
 

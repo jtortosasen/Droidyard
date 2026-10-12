@@ -75,8 +75,15 @@ const (
 	// item's code, file.create as the call's.
 	ErrFileExists ErrorCode = "FILE_EXISTS"
 	// ErrFileTooLarge: a copy's source has more entries or bytes than one item may carry
-	// (plan m2g D48), so nothing was written. An item's code in file.copy.
+	// (plan m2g D48), so nothing was written. An item's code in file.copy. file.write
+	// answers it when ifRevision is a hash and the target is over 8 MiB, which it does
+	// not hash (ADR-0058; `absent` against such a file is a conflict, ADR-0059).
 	ErrFileTooLarge ErrorCode = "FILE_TOO_LARGE"
+	// ErrFileRevisionConflict: the file under the root's write lock no longer has the
+	// revision file.write's ifRevision names (or ifRevision is not one file.read returns);
+	// nothing was written. nextStep: call file.read and
+	// apply the change again (ADR-0058).
+	ErrFileRevisionConflict ErrorCode = "FILE_REVISION_CONFLICT"
 	// ErrFileNotInTrash: file.restore's trash id is not one this workspace's trash holds
 	// (never trashed, already restored, swept, or another workspace's). An item's code
 	// (ADR-0054 §4; plan m2g D50).

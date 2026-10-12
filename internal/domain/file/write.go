@@ -1,13 +1,18 @@
 package file
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/text/unicode/norm"
@@ -24,24 +29,171 @@ const maxWrite = 512 << 10
 // intact, no temporary file, FILE_IO_FAILED (plan m1j step 2).
 var writeSeam func(temp string) error
 
+// lockSeam, when non-nil, runs just before file.write takes its root's mutex, so a test
+// knows a call is about to wait for it; revisionSeam runs inside the critical section,
+// after the revision is compared and before the rename, so a test can hold a writer
+// there deterministically (plan m2i step 2; as policy.update's seams). Production leaves
+// both nil.
+var lockSeam, revisionSeam atomic.Pointer[func()]
+
+func runSeam(p *atomic.Pointer[func()]) {
+	if f := p.Load(); f != nil {
+		(*f)()
+	}
+}
+
+// WriteLocks holds the mutex every file.write on one canonical root takes from the
+// revision compare to the rename (ADR-0058 §4), so no two daemon writes interleave there.
+// The daemon builds one; a Register without one gets its own.
+type WriteLocks struct {
+	mu     sync.Mutex
+	byRoot map[string]*sync.Mutex
+}
+
+// NewWriteLocks returns an empty set.
+func NewWriteLocks() *WriteLocks { return &WriteLocks{byRoot: map[string]*sync.Mutex{}} }
+
+// of returns the root's mutex. Entries stay for the daemon's life: one per root opened.
+func (l *WriteLocks) of(root string) *sync.Mutex {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	m, ok := l.byRoot[root]
+	if !ok {
+		m = &sync.Mutex{}
+		l.byRoot[root] = m
+	}
+	return m
+}
+
 // WriteParams is file.write's parameters.
 type WriteParams struct {
-	Path    string `json:"path" jsonschema:"required" jsonschema_description:"File to write, relative to the project root; missing parent directories are created."`
-	Content string `json:"content" jsonschema:"required" jsonschema_description:"The file's new content, UTF-8, at most 524288 bytes. The whole file is replaced."`
+	Path       string  `json:"path" jsonschema:"required" jsonschema_description:"File to write, relative to the project root; missing parent directories are created."`
+	Content    string  `json:"content" jsonschema:"required" jsonschema_description:"The file's new content, UTF-8, at most 524288 bytes. The whole file is replaced."`
+	IfRevision *string `json:"ifRevision,omitempty" jsonschema_description:"A revision file.read returned, or absent for a new file; if the file differs, FILE_REVISION_CONFLICT."`
+}
+
+// UnmarshalJSON refuses an explicit "ifRevision": null, which would silently turn the
+// check off (as policy.update refuses it); the rest is the strict decode decodeParams
+// applies.
+func (p *WriteParams) UnmarshalJSON(data []byte) error {
+	type wire WriteParams // no methods, so Decode does not recurse here
+	var w wire
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&w); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		for k, v := range raw {
+			if strings.EqualFold(k, "ifRevision") && bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+				return errors.New("ifRevision must be a string: omit it to write without the check")
+			}
+		}
+	}
+	*p = WriteParams(w)
+	return nil
 }
 
 // WriteResult is file.write's result (D6).
 type WriteResult struct {
-	Path    string `json:"path" jsonschema:"required" jsonschema_description:"The file written, relative to the project root, using the name it has on disk."`
-	Size    int64  `json:"size" jsonschema:"required" jsonschema_description:"The file's size in bytes after the write."`
-	Created bool   `json:"created" jsonschema_description:"True when the write created the file; false when it replaced an existing one."`
+	Path     string `json:"path" jsonschema:"required" jsonschema_description:"The file written, relative to the project root, using the name it has on disk."`
+	Size     int64  `json:"size" jsonschema:"required" jsonschema_description:"The file's size in bytes after the write."`
+	Created  bool   `json:"created" jsonschema_description:"True when the write created the file; false when it replaced an existing one."`
+	Revision string `json:"revision" jsonschema:"required" jsonschema_description:"The SHA-256 of the content written, the revision file.read reports for it."`
+}
+
+// absentRevision is ifRevision's value for a file that must not exist (policy's
+// AbsentRevision, spelled the same).
+const absentRevision = "absent"
+
+// wellFormedRevision reports whether s has the shape of a revision: 64 lowercase hex
+// digits, or "absent".
+func wellFormedRevision(s string) bool {
+	if s == absentRevision {
+		return true
+	}
+	b, err := hex.DecodeString(s)
+	return err == nil && len(b) == 32 && s == strings.ToLower(s)
+}
+
+// revisionConflict is FILE_REVISION_CONFLICT (ADR-0058 §2): the current revision is in
+// the cause only, never in details, so a blind retry with it cannot overwrite without a
+// read.
+func revisionConflict(rel, given, current string) *capability.Error {
+	msg := fmt.Sprintf("%q is not the revision file.read returned, so %q was not written", given, rel)
+	switch {
+	case given == absentRevision:
+		msg = fmt.Sprintf("%q exists and ifRevision is absent, so it was not written", rel)
+	case wellFormedRevision(given):
+		msg = fmt.Sprintf("%q changed since revision %s was read, so it was not written", rel, given)
+	}
+	return capability.Errorf(capability.ErrFileRevisionConflict, "%s", msg).
+		WithCause("the file's current revision is " + current).
+		WithDetails(map[string]any{"path": rel}).
+		WithNextStep("call file.read and apply the change again")
+}
+
+// currentRevision opens the target as openRegular does (non-blocking, the descriptor's
+// own fstat as the type check) and returns its revision, or absentRevision when it is
+// missing. Its size is checked before a byte is read: a target over the cap is
+// FILE_TOO_LARGE and is never hashed (ADR-0058 §2).
+func (r *resolver) currentRevision(root *os.Root, rel string) (string, *capability.Error) {
+	tooLarge := func() *capability.Error {
+		limit := fmt.Sprintf("%d bytes", r.revisionMax())
+		if r.revisionMax()%(1<<20) == 0 {
+			limit = fmt.Sprintf("%d MiB", r.revisionMax()>>20)
+		}
+		return capability.Errorf(capability.ErrFileTooLarge, "%q is too large for ifRevision: file.write compares files up to %s", rel, limit).
+			WithDetails(map[string]any{"path": rel})
+	}
+	fi, err := root.Lstat(rel)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return absentRevision, nil
+	case err != nil:
+		return "", r.classifyWrite(rel, err)
+	case fi.Mode()&fs.ModeSymlink != 0:
+		return "", wrongType(rel, "symlink")
+	case !fi.Mode().IsRegular():
+		return "", wrongType(rel, typeName(fi.Mode()))
+	case fi.Size() > r.revisionMax():
+		return "", tooLarge() // before any open or read
+	}
+	f, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return absentRevision, nil
+		}
+		return "", r.classifyWrite(rel, err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "", r.classifyWrite(rel, err)
+	}
+	if !st.Mode().IsRegular() {
+		return "", wrongType(rel, typeName(st.Mode()))
+	}
+	if st.Size() > r.revisionMax() {
+		return "", tooLarge()
+	}
+	rev, ok, err := hashFile(f, r.revisionMax())
+	if err != nil {
+		return "", r.classifyWrite(rel, err)
+	}
+	if !ok {
+		return "", tooLarge()
+	}
+	return rev, nil
 }
 
 // write serves file.write (D6): a whole-file replacement, atomic by ADR-0021 §Format's
 // recipe — a temporary file in the target's directory, fsynced, renamed over the target,
 // the directory fsynced — so a reader sees the old file or the new one, never a partial
 // write. An existing file keeps its on-disk name and exact mode; a new file is created
-// 0644 before umask; missing parents are created inside the root only.
+// 0644 before umask; missing parents are created inside the root only. With ifRevision the
+// replacement happens only if the target still has that revision (ADR-0058).
 func (r *resolver) write(p WriteParams) (WriteResult, error) {
 	if len(p.Content) > maxWrite {
 		return WriteResult{}, capability.Errorf(capability.ErrInvalidParams, "content is %d bytes; the most is %d", len(p.Content), maxWrite)
@@ -85,6 +237,11 @@ func (r *resolver) write(p WriteParams) (WriteResult, error) {
 		mode = fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
 	case errors.Is(lerr, fs.ErrNotExist):
 		created = true
+		// Nothing exists to match a revision: refuse before a parent directory is made.
+		// The decision is still taken again under the lock.
+		if p.IfRevision != nil && *p.IfRevision != absentRevision {
+			return WriteResult{}, revisionConflict(rel, *p.IfRevision, absentRevision)
+		}
 	case errors.Is(lerr, syscall.ENOTDIR):
 		// A parent component is a file where a directory is needed.
 		return WriteResult{}, r.parentFile(root, rel)
@@ -173,11 +330,50 @@ func (r *resolver) write(p WriteParams) (WriteResult, error) {
 		}
 	}
 
-	if err := root.Rename(tempRel, path.Join(dir, dest)); err != nil {
-		return WriteResult{}, r.classifyWrite(rel, err)
+	// From the compare to the rename, one writer per root (ADR-0058 §4): the revision
+	// checked is the revision replaced. A conditional write whose target already holds
+	// exactly content succeeds without writing, before the revision is judged, so a
+	// retried write whose first attempt landed does not conflict with itself (§2).
+	contentRev := revisionOf([]byte(p.Content))
+	target := path.Join(dir, dest)
+	noop, cerr := func() (bool, *capability.Error) {
+		mu := r.writeLocks.of(r.root)
+		runSeam(&lockSeam)
+		mu.Lock()
+		defer mu.Unlock()
+		if p.IfRevision != nil {
+			// absent is settled by existence alone: a file over the compare limit is a
+			// conflict, not FILE_TOO_LARGE, whose message would invite dropping the check.
+			if *p.IfRevision == absentRevision {
+				if fi, err := root.Lstat(target); err == nil && fi.Size() > r.revisionMax() {
+					return false, revisionConflict(rel, absentRevision, "not computed: the file is over the compare limit")
+				}
+			}
+			current, cerr := r.currentRevision(root, target)
+			if cerr != nil {
+				return false, cerr
+			}
+			if current == contentRev {
+				return true, nil
+			}
+			if current != *p.IfRevision {
+				return false, revisionConflict(rel, *p.IfRevision, current)
+			}
+			created = current == absentRevision
+		}
+		runSeam(&revisionSeam)
+		if err := root.Rename(tempRel, target); err != nil {
+			return false, r.classifyWrite(rel, err)
+		}
+		return false, nil
+	}()
+	if cerr != nil {
+		return WriteResult{}, cerr
 	}
-	committed = true
-	if err := dirf.Sync(); err != nil {
+	committed = !noop
+	if noop {
+		created = false
+	} else if err := dirf.Sync(); err != nil {
 		return WriteResult{}, r.classifyWrite(rel, err)
 	}
 
@@ -185,7 +381,7 @@ func (r *resolver) write(p WriteParams) (WriteResult, error) {
 	if dir != "." {
 		resultPath = dir + "/" + dest
 	}
-	return WriteResult{Path: resultPath, Size: int64(len(p.Content)), Created: created}, nil
+	return WriteResult{Path: resultPath, Size: int64(len(p.Content)), Created: created, Revision: contentRev}, nil
 }
 
 // tempName is the temporary file's name (D6): a dot-prefixed, recognisable name in the

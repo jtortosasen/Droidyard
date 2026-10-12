@@ -4,6 +4,8 @@
 //     preview replaces it (VS Code's preview tab). Opening the file that is already the
 //     preview again, or double-clicking its tab, makes it permanent; so does a second
 //     open of any open tab, which only focuses it. A tab is never silently duplicated.
+//   - A tab with unsaved changes carries a mark (`setDirty`); the first edit makes a preview
+//     tab permanent, and a mark follows its tab through a move (m2i D7).
 //   - The tabs are remembered per browser and project in localStorage (D25), every access
 //     in try/catch and every value checked on the way in. On restore a path that no longer
 //     exists is dropped; nothing is written until the restore has run, so a slow start
@@ -19,6 +21,8 @@ export interface Tab {
 	path: string;
 	/** A preview tab: italics, replaced by the next preview. */
 	preview: boolean;
+	/** The file has unsaved changes (m2i D7); present only when true, and never stored. */
+	dirty?: true;
 }
 
 export interface TabsView {
@@ -30,6 +34,7 @@ export class TabsModel {
 	#storage: KeyValueStorage | null;
 	#key: string;
 	#tabs: Tab[] = [];
+	#dirty = new Set<string>();
 	#active: string | null = null;
 	#view: TabsView | null = null;
 	#listeners = new Set<() => void>();
@@ -43,7 +48,7 @@ export class TabsModel {
 	}
 
 	get view(): TabsView {
-		this.#view ??= { tabs: this.#tabs, active: this.#active };
+		this.#view ??= { tabs: this.#tabs.map((t) => (this.#dirty.has(t.path) ? { ...t, dirty: true as const } : t)), active: this.#active };
 		return this.#view;
 	}
 
@@ -109,6 +114,26 @@ export class TabsModel {
 		this.#changed();
 	}
 
+	/** A file's unsaved-changes mark; the first edit also makes a preview tab permanent. */
+	setDirty(path: string, dirty: boolean): void {
+		const at = this.#tabs.findIndex((t) => t.path === path);
+		if (!dirty) {
+			if (this.#dirty.delete(path)) this.#changed();
+			return;
+		}
+		if (at < 0) return;
+		const had = this.#dirty.has(path);
+		this.#dirty.add(path);
+		if (this.#tabs[at]!.preview) this.#tabs[at] = { path, preview: false };
+		else if (had) return;
+		this.#changed();
+	}
+
+	/** Whether the tab at `path` has the unsaved-changes mark. */
+	isDirty(path: string): boolean {
+		return this.#dirty.has(path);
+	}
+
 	activate(path: string): void {
 		if (this.#active === path || !this.#tabs.some((t) => t.path === path)) return;
 		this.#active = path;
@@ -121,20 +146,41 @@ export class TabsModel {
 	 */
 	moved(from: string, to: string): void {
 		const re = (p: string): string => (p === from ? to : p.startsWith(`${from}/`) ? to + p.slice(from.length) : p);
-		let changed = false;
+		const movers = this.#tabs.filter((t) => re(t.path) !== t.path);
+		if (movers.length === 0) return;
+		const landing = new Set(movers.map((t) => re(t.path)));
+		const staying = new Set(this.#tabs.filter((t) => re(t.path) === t.path).map((t) => t.path));
 		const next: Tab[] = [];
+		const dirty = new Set<string>();
+		const at = new Map<string, string>(); // where each kept tab ended up
 		for (const t of this.#tabs) {
 			const path = re(t.path);
-			if (path !== t.path) changed = true;
-			// A tab already open at the target stays; the moved one is dropped.
-			if (path !== t.path && this.#tabs.some((o) => o.path === path)) continue;
-			next.push(path === t.path ? t : { path, preview: t.preview });
+			if (path === t.path) {
+				// A tab at a target is replaced by the moved one (the file there is gone, since a
+				// move never replaces), unless it has unsaved changes, which are never dropped.
+				if (landing.has(path) && !this.#dirty.has(path)) continue;
+				next.push(t);
+				at.set(t.path, path);
+				if (this.#dirty.has(path)) dirty.add(path);
+			} else if (staying.has(path) && this.#dirty.has(path)) {
+				// The tab at the target has unsaved text and stays. A clean moved tab gives way to it;
+				// a moved tab with unsaved text too (FileOps refuses such a move before it is made, so
+				// this is the safety net) keeps its old path and its mark rather than lose them.
+				if (!this.#dirty.has(t.path)) continue;
+				next.push(t);
+				at.set(t.path, t.path);
+				dirty.add(t.path);
+			} else {
+				next.push({ path, preview: t.preview });
+				at.set(t.path, path);
+				if (this.#dirty.has(t.path)) dirty.add(path);
+			}
 		}
-		if (!changed) return;
 		this.#tabs = next;
+		this.#dirty = dirty;
 		if (this.#active !== null) {
-			const a = re(this.#active);
-			this.#active = next.some((t) => t.path === a) ? a : (next[0]?.path ?? null);
+			const a = at.get(this.#active);
+			this.#active = a !== undefined ? a : (next[0]?.path ?? null);
 		}
 		this.#changed();
 	}
@@ -144,6 +190,7 @@ export class TabsModel {
 		const at = this.#tabs.findIndex((t) => t.path === path);
 		if (at < 0) return this.#active;
 		this.#tabs.splice(at, 1);
+		this.#dirty.delete(path);
 		if (this.#active === path) this.#active = (this.#tabs[at] ?? this.#tabs[at - 1])?.path ?? null;
 		this.#changed();
 		return this.#active;
