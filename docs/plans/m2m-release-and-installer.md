@@ -159,7 +159,7 @@ Read at `4c5514b` (`main`).
   - The build dry run comes in step 4.
 - Rests on: the runner takes Node and pnpm from `web/`'s pins and Go from `go.mod`, at level 5. Only the run log proves it.
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (cut to `ci.yml`, §Changes) run 38281599901 green on `ubuntu-24.04` (PR #1), logging go1.27.2 linux/amd64, Node v24.13.1, pnpm 12.10.1. Run 38280846547 had two runner-only failures, both test premises, fixed by step 1(b): `TestLongStateRootsDoNotShareAFallbackSocket` (the runner sets `XDG_RUNTIME_DIR`; the test hides it) and `TestBuildScriptReproducesTheDex` (the runner's javac is not 17.0.11; the test skips, as the sidecar's does). Not done: (a) and (b), the `release/` static tests and the hook mapping.
 
 ### 3. The build version: stamped at link time, shown beside the API version
 
