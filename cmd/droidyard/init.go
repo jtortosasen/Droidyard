@@ -216,7 +216,7 @@ func printInit(w io.Writer, root, command string, res assistant.Result, tools []
 	}
 	for _, c := range assistant.Clients() {
 		if cmd, ok := res.Hooks[c]; ok {
-			fmt.Fprintf(w, "The %s hook, which sends an agent's simple rm inside the project to droidyard's trash when a daemon runs, runs: %s\n", c, cmd)
+			fmt.Fprintf(w, "The %s hook, which, when a daemon runs, sends an agent's simple rm inside the project to droidyard's trash and records the agent's Android commands in Activity, and hints at the droidyard tool for them, runs: %s\n", c, cmd)
 		}
 	}
 	if len(res.Allowed) == 0 {

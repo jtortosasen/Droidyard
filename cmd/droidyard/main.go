@@ -84,7 +84,8 @@ Commands:
              droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
              Writes the droidyard-android skill and, per client, the MCP server entry and
              an allowlist of the read-only tools, naming this binary by its absolute path;
-             for claude and cursor also the entry that runs droidyard hook.
+             for claude and cursor also the entries that run droidyard hook, before a
+             shell command and after one.
              It merges into existing files, keeps an existing droidyard entry, and refuses
              a file it cannot parse. --uninstall removes what init would write; --dry-run
              prints the changes and writes none.
@@ -92,10 +93,14 @@ Commands:
              No daemon is involved or started.
   hook       Answer one coding assistant's hook event (run by an assistant's hook entry):
              droidyard hook --client claude|cursor --root <absolute project root>
-             A simple rm inside the root is denied with the command that moves the files
-             to droidyard's trash instead; anything else passes. It reads the event on
-             stdin, answers within 2 s, never starts a daemon, deletes nothing, and lets
-             the command through whenever it cannot decide.
+             Before a shell command, a simple rm inside the root is denied with the command
+             that moves the files to droidyard's trash instead; anything else passes.
+             After one, a gradlew, gradle, adb, emulator, sdkmanager or avdmanager command
+             gets a hint naming the droidyard tool that does the same, when there is one, and is recorded in
+             Activity if a daemon is running; nothing else is read or kept. It reads the
+             event on stdin, answers within 2 s, never starts a daemon, deletes nothing,
+             denies nothing after a command, and lets the command through whenever it
+             cannot decide.
   trash      Move files to the project's trash, where they can be restored (what a denied
              rm is handed; usable by hand):
              droidyard trash [--state-dir <dir>] [--root <abs>] [-r|-R|-f ...] [--] <path>...
