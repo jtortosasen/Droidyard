@@ -224,4 +224,25 @@ describe('the driver', () => {
 		expect(d.scrolled('left', 90.4)).toBe(false);
 		expect(d.scrolled('left', 90.4)).toBe(true);
 	});
+
+	// Decision (step 7): code that set a position the pane was already at gets no scroll event; the
+	// echo it recorded is released, so the user's next scroll to about that place is the user's.
+	it('releases a pending echo that no event followed', () => {
+		const d = new Driver();
+		d.expect('right', 300);
+		d.release('right', 300);
+		expect(d.scrolled('right', 300)).toBe(true);
+		expect(d.side).toBe('right');
+	});
+
+	// Decision (step 7, code-review): while a scroll eases in, each frame sets a newer position; a
+	// release from an earlier frame must not drop it, or the follower's own echo takes over the drive.
+	it('keeps a newer pending echo when an older one is released', () => {
+		const d = new Driver();
+		d.expect('right', 300);
+		d.expect('right', 310); // the next frame of the easing
+		d.release('right', 300); // the first frame's release, two frames late
+		expect(d.scrolled('right', 310)).toBe(false); // still the code's echo
+		expect(d.side).toBe('left');
+	});
 });

@@ -13,7 +13,7 @@
 //   - The disk's side is read-only and takes the disk's text as read. The diff is by line text
 //     (a Text joins its lines with "\n"), so a CRLF buffer against an LF disk is not "all changed".
 //   - Colours come from the UI's tokens (ui/tokens.css), in the theme below and nowhere else.
-import { MergeView } from '@codemirror/merge';
+import { MergeView, type DiffConfig, type DirectMergeConfig } from '@codemirror/merge';
 import { syntaxHighlighting } from '@codemirror/language';
 import { Annotation, EditorState, Transaction, type ChangeSet, type EditorStateConfig } from '@codemirror/state';
 import { EditorView, lineNumbers } from '@codemirror/view';
@@ -25,7 +25,7 @@ import { isSaveKey } from './savekey';
 import { theme } from './theme';
 
 // A mix of a token with transparency keeps the diff colours in the two schemes with no literal.
-const mix = (token: string, pct: number): string => `color-mix(in srgb, var(${token}) ${pct}%, transparent)`;
+export const mix = (token: string, pct: number): string => `color-mix(in srgb, var(${token}) ${pct}%, transparent)`;
 const underline = (token: string): string => `linear-gradient(${mix(token, 60)}, ${mix(token, 60)}) bottom/100% 2px no-repeat`;
 
 /** The merge view's colours over the tokens: the disk's side (a) in the danger colour, the buffer's (b) in the success one. */
@@ -40,11 +40,32 @@ export const mergeTheme = EditorView.theme({
 	'.cm-inlineChangedLineGutter': { background: 'var(--accent)' },
 });
 
+/**
+ * The one diff configuration of the Diff tab (ADR-0067 §1): MergeView in Classic and `Chunk.build` /
+ * `Chunk.updateB` in Review take this very object, so the two modes cannot disagree about what changed.
+ * It is the merge view's own default, written out.
+ */
+export const DIFF_CONFIG: DiffConfig = { scanLimit: 500 };
+
 const DISK_LABEL = 'File contents on disk';
 
 /** The two captions above the sides: the options' own, else `On disk` and `Yours`. */
 export function sideCaptions(opts: Pick<CompareOptions, 'labels'>): [string, string] {
 	return [opts.labels?.a ?? 'On disk', opts.labels?.b ?? 'Yours'];
+}
+
+/** The buffer's text as an editable side: its own separator, selection, history and keymap, plus the merge colours. Compare's `b` and Review's left. */
+export function bufferSide(buffer: CmBuffer): EditorStateConfig {
+	return {
+		doc: buffer.text(),
+		selection: buffer.state.selection,
+		extensions: [buffer.extensions(), EditorView.contentAttributes.of({ 'aria-label': 'Your version' }), mergeTheme],
+	};
+}
+
+/** The merge view's configuration over two side configs; its `diffConfig` is `DIFF_CONFIG`. */
+export function mergeConfig(a: EditorStateConfig, b: EditorStateConfig, root: ShadowRoot): DirectMergeConfig {
+	return { a, b, parent: root, root, diffConfig: DIFF_CONFIG };
 }
 
 /** The two documents of a Compare view: the disk's text read-only, the buffer's text editable with its own separator. */
@@ -63,11 +84,7 @@ export function compareSides(buffer: CmBuffer, disk: string, sideLabel = DISK_LA
 				mergeTheme,
 			],
 		},
-		b: {
-			doc: buffer.text(),
-			selection: buffer.state.selection,
-			extensions: [buffer.extensions(), EditorView.contentAttributes.of({ 'aria-label': 'Your version' }), mergeTheme],
-		},
+		b: bufferSide(buffer),
 	};
 }
 
@@ -118,13 +135,16 @@ export function follow(side: EditorState, buffer: CmBuffer): Transaction | 'remo
 	});
 }
 
-/** `.cm-mergeView` is the scroller (the merge view does not scroll by itself); a flex child of the host. */
-const SHEET = `
-.cm-mergeView { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+/** The captions above the sides, shared with Review. */
+export const SIDES_CSS = `
 .droidyard-sides { flex: none; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg-raised); border-bottom: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-small); }
 .droidyard-sides > span { padding: var(--sp-2) var(--sp-5); }
 .droidyard-sides > span + span { border-left: 1px solid var(--border); }
 `;
+/** `.cm-mergeView` is the scroller (the merge view does not scroll by itself); a flex child of the host. */
+const SHEET = `
+.cm-mergeView { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+${SIDES_CSS}`;
 
 class CmCompare implements EditorHandle {
 	#merge!: MergeView;
@@ -186,7 +206,7 @@ class CmCompare implements EditorHandle {
 		const mirrored = EditorView.updateListener.of((u) => {
 			if (u.docChanged && !u.transactions.some((t) => t.annotation(followed) === true)) mirror(buffer, u.startState, u.state, u.changes);
 		});
-		this.#merge = new MergeView({ a, b: { ...b, extensions: [b.extensions ?? [], mirrored] }, parent: this.#root, root: this.#root });
+		this.#merge = new MergeView(mergeConfig(a, { ...b, extensions: [b.extensions ?? [], mirrored] }, this.#root));
 	}
 
 	#follow(): void {

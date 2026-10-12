@@ -1,19 +1,23 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { Attachment } from 'svelte/attachments';
-	import { LazyEditor, loadEditor } from '../editor/surface';
+	import { LazyEditor, loadEditor, type EditorOptions, type ReviewOptions } from '../editor/surface';
 	import type { TabsModel } from '../editor/tabs';
 	import type { EditorModel, ViewerSet, ViewerView } from '../editor/viewer';
 	import type { HeadBase, BaseView } from './base';
 	import { LETTERS, MARK_WORDS } from './changes';
+	import { loadDiffMode, saveDiffMode, type DiffMode } from './diffmode';
+	import { browserStorage } from '../ui/layout';
 	import type { GitView, GitWatch } from './watch';
 
 	// The Diff tab (plan m2l step 5; ADR-0067 §1-§3): the Editor's active file against HEAD, in
-	// Classic (the merge view: HEAD read-only, the buffer editable). The buffer is the Editor
-	// tab's own, so the two tabs share one document, and the side follows it (editor/cm/merge.ts).
+	// Classic (the merge view: HEAD read-only, the buffer editable) or Review (the buffer on the
+	// left, HEAD's rows on the right; editor/cm/review.ts), by a toggle remembered per browser. The
+	// buffer is the Editor tab's own, so the two tabs share one document, and the side follows it
+	// (editor/cm/merge.ts). A deleted file has no buffer: Review's right pane shows HEAD's text alone,
+	// all red, and the toggle is disabled.
 	// HEAD's text comes from `git.read` and is read again when HEAD or the file's entry changes.
-	// A deleted, binary or too-large file, and no repository, are a message. Review arrives with
-	// step 7. Text from files and from git reaches the page as text nodes only.
+	// A binary or too-large file, and no repository, are a message. Text from files and from git reaches the page as text nodes only.
 	interface Props {
 		tabs: TabsModel;
 		viewers: ViewerSet;
@@ -27,6 +31,12 @@
 	let bview = $state.raw<BaseView>(untrack(() => base.view));
 	let vview = $state.raw<ViewerView | null>(null);
 	let editorError = $state('');
+	const storage = browserStorage(window);
+	let mode = $state<DiffMode>(loadDiffMode(storage));
+	const choose = (m: DiffMode) => {
+		mode = m;
+		saveDiffMode(storage, m);
+	};
 
 	$effect(() => {
 		const t = tabs;
@@ -67,14 +77,16 @@
 	const entry = $derived(active === null ? undefined : gview.entries.find((e) => e.path === active));
 	const oid = $derived(gview.head?.oid);
 	const buffer = $derived(vview?.buffer ?? null);
+	// Gone from the working tree, by the status or by the file's own read.
+	const deleted = $derived(entry?.mark === 'deleted' || vview?.state === 'deleted');
 
 	// Why there is nothing to compare yet, as text; null when the two texts can be compared.
 	const blocked = $derived.by((): string | null => {
 		if (active === null) return 'Open a file in the Editor tab to see it against HEAD.';
 		if ((gview.state === 'error' || gview.state === 'ended') && gview.problem) return gview.problem.text;
 		if (gview.head === null) return gview.state === 'paused' ? 'Paused while the page is hidden.' : 'Reading the status…';
+		if (deleted) return null;
 		if (vview === null || vview.state === 'loading') return 'Reading the file…';
-		if (entry?.mark === 'deleted' || vview.state === 'deleted') return 'This file is deleted from the working tree, so there is no text to put beside HEAD’s.';
 		if (vview.state === 'binary') return 'This file is binary; there is no text to compare.';
 		if (vview.state === 'error') return vview.error ?? 'The file could not be read.';
 		if (buffer === null) return 'There is no text to compare.';
@@ -97,22 +109,35 @@
 	const shown = $derived(blocked ?? (bview.kind === 'message' ? bview.text : bview.kind === 'text' ? null : 'Reading HEAD…'));
 	const headText = $derived(bview.kind === 'text' ? bview.text : null);
 	const readOnly = $derived(vview !== null && vview.readOnly !== null);
-	// What the compare view is made of; it is made again when any of it changes.
-	const mount = $derived(shown === null && buffer !== null && headText !== null && viewer !== null ? { buffer, viewer, text: headText, readOnly } : null);
+	// What the view is made of; it is made again when any of it changes.
+	type Made =
+		| { kind: 'deleted'; text: string; path: string }
+		| { kind: DiffMode; text: string; buffer: NonNullable<typeof buffer>; viewer: EditorModel; readOnly: boolean };
+	const mount = $derived.by((): Made | null => {
+		if (shown !== null || headText === null || active === null) return null;
+		if (deleted) return { kind: 'deleted', text: headText, path: active };
+		if (buffer === null || viewer === null) return null;
+		return { kind: mode, text: headText, buffer, viewer, readOnly };
+	});
 
-	const compare: Attachment<HTMLElement> = (host) => {
+	const view: Attachment<HTMLElement> = (host) => {
 		editorError = '';
 		const m = untrack(() => mount);
 		if (m === null) return;
-		const ed = new LazyEditor(
-			host,
-			{ buffer: m.buffer, onSave: () => void m.viewer.save() },
-			(e) => {
-				editorError = e instanceof Error ? e.message : String(e);
-			},
-			loadEditor,
-			(mod, h, o) => mod.mountCompare(h, { ...o, disk: m.text, labels: { a: 'HEAD', b: 'Working tree' }, sideLabel: 'File contents at HEAD' }),
-		);
+		const onError = (e: unknown) => {
+			editorError = e instanceof Error ? e.message : String(e);
+		};
+		if (m.kind === 'classic') {
+			const ed = new LazyEditor<EditorOptions>(host, { buffer: m.buffer, onSave: () => void m.viewer.save() }, onError, loadEditor, (mod, h, o) =>
+				mod.mountCompare(h, { ...o, disk: m.text, labels: { a: 'HEAD', b: 'Working tree' }, sideLabel: 'File contents at HEAD' }),
+			);
+			return () => ed.destroy();
+		}
+		const opts: ReviewOptions =
+			m.kind === 'deleted'
+				? { buffer: null, base: m.text, path: m.path, onSave: () => {} }
+				: { buffer: m.buffer, base: m.text, path: untrack(() => active) ?? undefined, onSave: () => void m.viewer.save() };
+		const ed = new LazyEditor<ReviewOptions>(host, opts, onError, loadEditor, (mod, h, o) => mod.mountReview(h, o));
 		return () => ed.destroy();
 	};
 </script>
@@ -126,13 +151,20 @@
 				<span class="word">{MARK_WORDS[entry.mark]}</span>
 			{/if}
 			<span class="vs">vs HEAD</span>
+			<div class="modes" role="group" aria-label="Diff mode">
+				{#each ['classic', 'review'] as const as m (m)}
+					<button type="button" data-mode={m} aria-pressed={(deleted ? 'review' : mode) === m} disabled={deleted} onclick={() => choose(m)}>
+						{m === 'classic' ? 'Classic' : 'Review'}
+					</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 	{#if shown !== null}
 		<p class="message" role="status">{shown}</p>
 	{:else if mount}
 		{#key mount}
-			<div class="host" {@attach compare}></div>
+			<div class="host" data-diff={mount.kind} {@attach view}></div>
 		{/key}
 	{/if}
 	{#if editorError}
@@ -190,7 +222,34 @@
 		flex: none;
 		color: var(--text-3);
 	}
-	/* The compare view's host: a flex column its shadow root's view fills. */
+	.modes {
+		flex: none;
+		display: flex;
+	}
+	.modes button {
+		font: inherit;
+		padding: 0 var(--sp-4);
+		color: var(--text-2);
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		cursor: pointer;
+	}
+	.modes button:first-child {
+		border-radius: var(--radius-control) 0 0 var(--radius-control);
+	}
+	.modes button:last-child {
+		border-radius: 0 var(--radius-control) var(--radius-control) 0;
+		border-left: 0;
+	}
+	.modes button[aria-pressed='true'] {
+		color: var(--text);
+		background: var(--bg-active);
+	}
+	.modes button:disabled {
+		cursor: default;
+		opacity: 0.6;
+	}
+	/* The diff view's host: a flex column its shadow root's view fills. */
 	.host {
 		flex: 1;
 		min-height: 0;

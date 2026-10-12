@@ -71,6 +71,21 @@ export interface CompareOptions extends EditorOptions {
 	sideLabel?: string;
 }
 
+/**
+ * What a Review view is given (ADR-0067 §4): the buffer on the left, editable, and HEAD's text
+ * rendered on the right. With no buffer (the file is deleted) the right pane shows HEAD's text
+ * alone, all red.
+ */
+export interface ReviewOptions {
+	buffer: EditorBuffer | null;
+	/** HEAD's text, as `git.read` gave it. */
+	base: string;
+	/** The file's path or name, for the highlighting of a view with no buffer. */
+	path?: string;
+	/** Mod-s was pressed in the left pane. */
+	onSave(): void;
+}
+
 /** A problem to underline: lines and columns are 1-based, `end*` are optional. */
 export interface EditorDiagnostic {
 	line: number;
@@ -103,6 +118,8 @@ export interface EditorModule {
 	 * are the buffer's (it is the same document, so Mod-s saves it and leaving keeps them).
 	 */
 	mountCompare(host: HTMLElement, opts: CompareOptions): Promise<EditorHandle>;
+	/** ADR-0067 §4: the buffer beside HEAD's rows, the panes held level by an elastic scroll. */
+	mountReview(host: HTMLElement, opts: ReviewOptions): Promise<EditorHandle>;
 	createBuffer(opts: BufferOptions): EditorBuffer;
 }
 
@@ -116,7 +133,7 @@ export const loadEditor: LoadEditor = () => import('./cm/view');
  * that are remembered (the last reveal and diagnostics) and applied at mount; a `destroy`
  * before it cancels the mount. A failure to load or to mount goes to `onError`.
  */
-export class LazyEditor implements EditorHandle {
+export class LazyEditor<O = EditorOptions> implements EditorHandle {
 	#handle: EditorHandle | null = null;
 	#gone = false;
 	#reveal: [number, number] | null = null;
@@ -124,10 +141,10 @@ export class LazyEditor implements EditorHandle {
 
 	constructor(
 		host: HTMLElement,
-		opts: EditorOptions,
+		opts: O,
 		onError: (e: unknown) => void,
 		load: LoadEditor = loadEditor,
-		mount: (m: EditorModule, host: HTMLElement, opts: EditorOptions) => EditorHandle | Promise<EditorHandle> = (m, h, o) => m.mount(h, o),
+		mount: (m: EditorModule, host: HTMLElement, opts: O) => EditorHandle | Promise<EditorHandle> = (m, h, o) => m.mount(h, o as EditorOptions),
 	) {
 		load().then(
 			async (m) => {
