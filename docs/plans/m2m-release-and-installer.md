@@ -269,7 +269,7 @@ Read at `4c5514b` (`main`).
   - No signature beyond the release's own checksums (ADR-0068 §7). The transport is HTTPS from the same repository.
 - Rests on: the script refuses before any write when the sum does not match, at level 2 (fakes). Step 7 adds a real download.
 - Review: the Opus verifier, at effort `high`: this is a downloader that replaces an executable.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `release/install_test.go` passes under `sh` and `dash` on the Mac (~30 s) and on Linux (25 tests, none skipped, in the container; CI run 38287594429 green). The plan's eight mutations each fail a case. Opus verifier: no blocking finding; its six non-blocking ones fixed in the same step, each seen failing on a mutated copy: no binary runs before its sum is checked (the reorder now fails four cases), `gh auth status --active`, `mktemp` beside the target, a symlink member refused and only `droidyard` extracted, `--repo github.com/…`, the PATH advice also when already current, trailing slashes stripped, fresh-install daemon wording. Not tested: INT/TERM through the trap.
 
 ### 6. The release workflow
 
@@ -400,3 +400,4 @@ None. The ADR-0002 bookkeeping is a precondition (Starting point), not an open d
 - Owner, 2026-10-12, after step 1: "solo me interesa ahora que se ejecute en la CI". Step 2 is cut to `ci.yml` and its first runner run; the `release/` package of static workflow tests and the hook mapping move out of step 2 (whether they come back with step 6 is decided there).
 - Owner, 2026-10-12, later the same day: the milestone is done in full and closed only when complete, nothing broken or partial merged into `main`. Step 2's (a) and (b), the `release/` static tests and the hook mapping, come back, implemented with step 3.
 - Step 3: `cmd/droidyard/main.go` imported `internal/domain/build` as `build`, which collides with `var build`; the import is aliased `builddomain` there and in `watchoutput_test.go`. The `-X main.build` symbol is as planned.
+- Step 5: wording the plan left open: `installed an unknown version, installing <tag>`; `now at <tag> (<dir>/droidyard)`; on a fresh install the daemon advice names no previous binary. The truncated-script mutation is the body run unwrapped (a call inside `main` would recurse). The sum-tool check runs just before the download, after the already-at short-circuit.
