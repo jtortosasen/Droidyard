@@ -11,11 +11,12 @@
 // The invocation. Every git the daemon runs is
 //
 //	git --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null \
-//	    -c protocol.allow=never <overrides> <args>
+//	    -c protocol.allow=never -c advice.graftFileDeprecated=false <overrides> <args>
 //
 // in the workspace root, with the daemon's environment minus every GIT_* variable and
 // plus GIT_OPTIONAL_LOCKS=0, GIT_NO_LAZY_FETCH=1, GIT_ALLOW_PROTOCOL=none,
-// GIT_TERMINAL_PROMPT=0 and LC_ALL=C:
+// GIT_NO_REPLACE_OBJECTS=1, GIT_GRAFT_FILE=/dev/null, GIT_TERMINAL_PROMPT=0 and
+// LC_ALL=C:
 //
 //   - The optional-lock switch (flag and variable, so a git that ignores one still
 //     honours the other) keeps `status` from rewriting a stale index and from taking
@@ -30,6 +31,15 @@
 //     .git. The daemon never fetches. GIT_NO_LAZY_FETCH needs git 2.45; an older git
 //     relies on GIT_ALLOW_PROTOCOL, which a repository's protocol.<name>.allow cannot
 //     override, as it does override protocol.allow.
+//   - GIT_NO_REPLACE_OBJECTS=1 and GIT_GRAFT_FILE=/dev/null: a refs/replace/ ref or a
+//     .git/info/grafts file lets a repository show another object's author, message,
+//     parents, tree or file content under an oid (git-replace(1)); the daemon reads what
+//     the repository really holds. The history builders also pass --no-replace-objects,
+//     which does not cover grafts; the graft file is only switched off by the variable.
+//     Naming a graft file, even /dev/null, makes git print an eight-line "hint: Support
+//     for <GIT_DIR>/info/grafts is deprecated" on stderr whenever it parses a commit,
+//     ahead of any "fatal:", where gitError reads the first line; -c
+//     advice.graftFileDeprecated=false keeps stderr git's own.
 //   - GIT_* from the daemon's environment (GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE ...)
 //     would point git at another repository.
 //   - On a root that is not trusted (ADR-0015 §2) every configured filter driver, in
@@ -120,7 +130,7 @@ func scrubEnv(environ []string) []string {
 		}
 		out = append(out, kv)
 	}
-	return append(out, "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	return append(out, "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none", "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE=/dev/null", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 }
 
 // run runs git with args in root and waits for it. stdin may be nil. trusted is
@@ -225,7 +235,7 @@ func firstLine(b []byte) string {
 // carries the timeout; when it ends the whole process group is killed.
 func (r *runner) exec(ctx context.Context, root string, overrides []string, stdin []byte, args []string) (result, error) {
 	argv := make([]string, 0, 8+len(overrides)+len(args))
-	argv = append(argv, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never")
+	argv = append(argv, "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "advice.graftFileDeprecated=false")
 	argv = append(argv, overrides...)
 	argv = append(argv, args...)
 	cmd := exec.CommandContext(ctx, r.git, argv...)
