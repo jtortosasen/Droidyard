@@ -338,3 +338,16 @@ func TestMalformedRecordIsSkipped(t *testing.T) {
 		t.Fatalf("entries = %+v, want only c.txt", st.Entries)
 	}
 }
+
+// Decision (ADR-0066 §4): the watch's status refuses a root inside the git directory
+// as the read does, rather than reporting the whole repository from its top.
+func TestStatusFromInsideTheGitDirectoryIsNotARepository(t *testing.T) {
+	e := needGit(t)
+	dir := e.repo()
+	e.write(dir, "top.txt", "top\n")
+	e.commit(dir)
+	_, err := e.r.status(context.Background(), filepath.Join(dir, ".git"), true)
+	if !errors.Is(err, ErrNotARepository) {
+		t.Fatalf("err = %v, want ErrNotARepository", err)
+	}
+}

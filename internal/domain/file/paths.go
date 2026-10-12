@@ -78,6 +78,17 @@ func (r *resolver) resolve(path string, needFile bool) (string, *capability.Erro
 	return filepath.ToSlash(cleaned), nil
 }
 
+// ResolveLexical is resolve(path, true) for another domain: the one containment rule of
+// every project path (files.md §Paths and containment), applied lexically. It touches no
+// file of the project (an absolute path outside the root has its directory canonicalised
+// to compare spellings), so a path that leaves the root is FILE_OUTSIDE_ROOT before
+// anything is opened or started. "." is the root; "" and a NUL byte are
+// REQUEST_INVALID_PARAMS. git.read uses it, because git has no os.Root to hold the
+// path inside the project (plan m2l step 3).
+func ResolveLexical(root string, env platform.Env, path string) (string, *capability.Error) {
+	return (&resolver{root: root, env: env}).resolve(path, true)
+}
+
 // resolveAbsolute strips the canonical root from an absolute path at a component
 // boundary; only when that fails does it canonicalise the path's directory (so the
 // "/var/…" and "/private/var/…" aliases of the root agree) and append the final

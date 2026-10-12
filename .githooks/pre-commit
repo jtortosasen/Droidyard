@@ -19,8 +19,14 @@ fail() {
 	exit 1
 }
 
+# The tests run without the GIT_* this hook is given (GIT_DIR, GIT_INDEX_FILE ...): a
+# test's own git would otherwise act on the repository being committed (m2l step 3: a
+# `git init` set core.bare in the shared config, a `git add` rewrote the index).
 run_tests() { # packages...
-	out=$(go test -count=1 "$@" 2>&1) || {
+	out=$(
+		for v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+		go test -count=1 "$@" 2>&1
+	) || {
 		printf '%s\n' "$out" | grep -v '^droidyard' | grep -E -A8 '^(--- FAIL|panic)' >&2
 		fail "go test failed"
 	}

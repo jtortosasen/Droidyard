@@ -1,5 +1,5 @@
 {
-  "version": "0.22.0",
+  "version": "0.23.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -6818,6 +6818,98 @@
           "path",
           "size",
           "revision"
+        ]
+      }
+    },
+    {
+      "name": "git.read",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.23.0",
+      "description": "Reads a file's whole text as committed at HEAD, for the diff: a file HEAD does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "FILE_OUTSIDE_ROOT",
+        "FILE_WRONG_TYPE",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file to read, relative to the project root. An absolute path inside the root is accepted."
+          },
+          "base": {
+            "type": "string",
+            "enum": [
+              "HEAD"
+            ],
+            "description": "What to read the file at. Only HEAD exists; absent means HEAD."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file read, relative to the project root."
+          },
+          "base": {
+            "type": "string",
+            "enum": [
+              "HEAD"
+            ],
+            "description": "What it was read at."
+          },
+          "exists": {
+            "type": "boolean",
+            "description": "False when the base holds no such file: a new file, an untracked one, or a repository with no commit yet."
+          },
+          "size": {
+            "type": "integer",
+            "description": "The file's size in bytes at the base; 0 when it does not exist."
+          },
+          "binary": {
+            "type": "boolean",
+            "description": "True when the file holds a NUL byte or invalid UTF-8; text is then absent."
+          },
+          "tooLarge": {
+            "type": "boolean",
+            "description": "True when the file is over 512 KiB, the editor's save limit; text is then absent."
+          },
+          "text": {
+            "type": "string",
+            "description": "The file's whole text at the base, exactly as committed."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "base",
+          "exists",
+          "size",
+          "binary",
+          "tooLarge"
         ]
       }
     },

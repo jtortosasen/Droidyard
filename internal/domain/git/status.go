@@ -57,15 +57,11 @@ type Status struct {
 // status reads the status of the repository holding root: the workspace's own paths,
 // relative to root. trusted is policy.Trusted's answer for root.
 func (r *runner) status(ctx context.Context, root string, trusted bool) (Status, error) {
-	res, err := r.run(ctx, root, trusted, nil, "rev-parse", "--show-prefix")
+	prefix, err := r.prefix(ctx, root, trusted)
 	if err != nil {
 		return Status{}, err
 	}
-	if res.ExitCode != 0 {
-		return Status{}, gitError(res)
-	}
-	prefix := strings.TrimSuffix(string(res.Stdout), "\n")
-	res, err = r.run(ctx, root, trusted, nil, statusArgs...)
+	res, err := r.run(ctx, root, trusted, nil, statusArgs...)
 	if err != nil {
 		return Status{}, err
 	}
@@ -73,6 +69,25 @@ func (r *runner) status(ctx context.Context, root string, trusted bool) (Status,
 		return Status{}, gitError(res)
 	}
 	return parseStatus(res.Stdout, prefix, maxEntries, res.Truncated), nil
+}
+
+// prefix is the workspace's path from the repository's top ("" or "app/"). A root
+// that is not in a work tree (inside .git/, a bare repository, outside a core.worktree
+// set elsewhere) is ErrNotARepository: there --show-prefix prints "", and a path read
+// from the top would leave the root.
+func (r *runner) prefix(ctx context.Context, root string, trusted bool) (string, error) {
+	res, err := r.run(ctx, root, trusted, nil, "rev-parse", "--is-inside-work-tree", "--show-prefix")
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", gitError(res)
+	}
+	inside, prefix, _ := strings.Cut(string(res.Stdout), "\n")
+	if inside != "true" {
+		return "", ErrNotARepository
+	}
+	return strings.TrimSuffix(prefix, "\n"), nil
 }
 
 // gitError maps a failed call: git's own "not a git repository" is ErrNotARepository.
