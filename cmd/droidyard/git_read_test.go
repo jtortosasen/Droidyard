@@ -89,6 +89,13 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
 		t.Errorf("git.watch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
+	// git.log is human-only as well (ADR-0068 §1).
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.log", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.log as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
 
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
@@ -100,6 +107,17 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	var got struct{ Path, Base, Text string }
 	if err := json.Unmarshal(env.Result, &got); err != nil || got.Text != "committed\n" || got.Path != "a.kt" || got.Base != "HEAD" {
 		t.Errorf("the result %s (%v); want HEAD's text, not the edited working copy", env.Result, err)
+	}
+
+	// git.log through the shipped registry: the one commit, its tip returned.
+	lenv, code := callIn(t, p.state, root, "git.log")
+	var page struct {
+		Commits []struct{ Subject string }
+		Tips    []string
+		More    bool
+	}
+	if code != 0 || lenv.Error != nil || json.Unmarshal(lenv.Result, &page) != nil || len(page.Commits) != 1 || page.Commits[0].Subject != "c" || len(page.Tips) != 1 || page.More {
+		t.Errorf("git.log from the CLI: exit %d, error %+v, result %s; want the one commit and its tip", code, lenv.Error, lenv.Result)
 	}
 
 	// No git on the PATH: unavailable with a reason, GIT_NOT_FOUND with a next step.
@@ -127,7 +145,7 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	}
 	// system.health reports the API version this step introduces.
 	henv, code := p.call(t, "system.health")
-	if code != 0 || health(t, henv).Version != "0.23.0" {
-		t.Errorf("system.health: exit %d, %+v; want API version 0.23.0", code, henv.Error)
+	if code != 0 || health(t, henv).Version != "0.24.0" {
+		t.Errorf("system.health: exit %d, %+v; want API version 0.24.0", code, henv.Error)
 	}
 }

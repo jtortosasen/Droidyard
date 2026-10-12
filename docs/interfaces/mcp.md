@@ -57,7 +57,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
 | `policy.get`, `policy.update`, `workspace.chooseRoot` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4). The core rejects them from an MCP session: enforcement, not just omission. |
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
-| `git.read`, `git.watch` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI's diff and tree use them. |
+| `git.read`, `git.watch`, `git.log` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0068](../adr/0068-git-history-reads.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI's diff, tree and history use them. |
 | `agent.recordCommand` | Audience `human` ([ADR-0063](../adr/0063-hook-observes-android-commands.md) §5): it is the hook's channel for recording what an agent ran outside droidyard; the CLI calls it. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed

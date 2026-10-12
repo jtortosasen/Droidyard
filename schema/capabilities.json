@@ -1,5 +1,5 @@
 {
-  "version": "0.23.0",
+  "version": "0.24.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -6818,6 +6818,130 @@
           "path",
           "size",
           "revision"
+        ]
+      }
+    },
+    {
+      "name": "git.log",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.24.0",
+      "description": "Reads one page of the repository's commit history for the UI's graph, newest first with every commit before its parents, whole even when the project is a subfolder. The first call starts from the tips now and returns them; later pages pass them back as from, so refs moving does not shift the history.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "from": {
+            "items": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "description": "The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."
+          },
+          "skip": {
+            "type": "integer",
+            "maximum": 2147483647,
+            "minimum": 0,
+            "description": "How many commits of the walk to skip: the number already received. Absent means 0."
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 1000,
+            "minimum": 1,
+            "description": "The most commits to return, 1 to 1000. Absent means 500."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "commits": {
+            "items": {
+              "properties": {
+                "oid": {
+                  "type": "string",
+                  "description": "The commit's full object id."
+                },
+                "parents": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "The parents' object ids, first parent first; empty for a root commit."
+                },
+                "authorName": {
+                  "type": "string",
+                  "description": "The author's name as the commit records it."
+                },
+                "authorEmail": {
+                  "type": "string",
+                  "description": "The author's e-mail as the commit records it."
+                },
+                "commitTime": {
+                  "type": "integer",
+                  "description": "When it was committed, in Unix seconds."
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "The first paragraph of the message, on one line."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "oid",
+                "parents",
+                "authorName",
+                "authorEmail",
+                "commitTime",
+                "subject"
+              ]
+            },
+            "type": "array",
+            "description": "The page: newest first by commit date, every commit before its parents. Empty in a result returned again after delivery, and for a repository with no commit."
+          },
+          "tips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The tip set the walk started from, as full object ids: HEAD, then branches, remote-tracking branches and tags, peeled to commits, at most 5000. Pass it back as from for the next page. Empty when from was given, and in a result returned again after delivery."
+          },
+          "tipsTruncated": {
+            "type": "boolean",
+            "description": "True when the repository has more tips than the 5000 returned; the oldest tags are left out. False when from was given."
+          },
+          "more": {
+            "type": "boolean",
+            "description": "True when the walk goes on past this page. The next page's skip is the number of commits received so far; a page cut short by the 4 MiB output cap holds whole commits only and says more."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commits",
+          "tips",
+          "tipsTruncated",
+          "more"
         ]
       }
     },
