@@ -50,7 +50,7 @@
                   },
                   "type": "array",
                   "maxItems": 3,
-                  "description": "At most three positional words (a Gradle task, an adb subcommand), never flags, flag values or assignments."
+                  "description": "At most three positional words (a Gradle task, an adb subcommand); never flags, assignments or known flag values."
                 },
                 "suggested": {
                   "type": "string",
@@ -110,7 +110,7 @@
                   },
                   "type": "array",
                   "maxItems": 3,
-                  "description": "At most three positional words (a Gradle task, an adb subcommand), never flags, flag values or assignments."
+                  "description": "At most three positional words (a Gradle task, an adb subcommand); never flags, assignments or known flag values."
                 },
                 "suggested": {
                   "type": "string",

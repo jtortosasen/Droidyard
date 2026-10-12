@@ -24,7 +24,9 @@ implement)
 		printf '%s\n' "$cmd" | grep -Eq '(^|[[:space:]])(add|commit|push|reset|checkout|restore|stash|clean|rebase|merge|switch|worktree|am|apply|cherry-pick|revert|update-ref|tag)([[:space:]]|$)'; then
 		block implement "staging, committing and discarding are the orchestrating session's"
 	fi
-	if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_.-])(adb|emulator)([[:space:]]|$)|kill-server|start-server|(^|[[:space:]])pm[[:space:]]+(uninstall|clear|disable)'; then
+	# Only as a command word (at the start, after an operator, or as a path's last
+	# component there), so `go test ./internal/domain/emulator` and `grep adb` pass.
+	if printf '%s\n' "$cmd" | grep -Eq '(^|[;&|(`][[:space:]]*|\$\([[:space:]]*)([^[:space:];&|]*/)?(adb|emulator)([[:space:]]|$)|kill-server|start-server|(^|[[:space:]])pm[[:space:]]+(uninstall|clear|disable)'; then
 		block implement "a device, the adb server and the emulator are the orchestrating session's (level-5 runs)"
 	fi
 	if printf '%s\n' "$cmd" | grep -Eq '(^|[;&|[:space:]])rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|(^|[;&|[:space:]])rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[rR]|(^|[[:space:]])sudo[[:space:]]'; then
@@ -32,7 +34,7 @@ implement)
 	fi
 	# Killing by name reaches the owner's own processes: `pkill -f 'serve --detach'` stopped
 	# the owner's daemon in m2k step 2. Tests clean up what they start, by pid.
-	if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_.-])(pkill|killall)([[:space:]]|$)|droidyard[^|;&]*[[:space:]](stop|serve)([[:space:]]|$)|[[:space:]]serve[[:space:]]+--detach'; then
+	if printf '%s\n' "$cmd" | grep -Eq '(^|[;&|(`][[:space:]]*|\$\([[:space:]]*)(sudo[[:space:]]+)?(pkill|killall|pgrep|pidof)([[:space:]]|$)|droidyard[^|;&]*[[:space:]](stop|serve)([[:space:]]|$)|serve[[:space:]]+--detach'; then
 		block implement "killing by name and starting or stopping a daemon are the orchestrating session's"
 	fi
 	;;

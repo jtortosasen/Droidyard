@@ -47,6 +47,19 @@ func TestObserveTable(t *testing.T) {
 		// A word over the pattern's length or with other characters is not kept.
 		{"adb push a/b.txt /sdcard/" + strings.Repeat("x", 80), []rec{{"adb", []string{"push"}, ""}}},
 		{"TOKEN=s3cret ./gradlew publish -Ppassword=hunter2 -Dx=y", []rec{{"gradlew", []string{"publish"}, "build_run"}}},
+		// Operands that can carry a secret are not kept (close verifier, m2k).
+		{"./gradlew run --args secretToken42", []rec{{"gradlew", []string{"run"}, "build_run"}}},
+		{"adb emu auth abcdef0123", []rec{{"adb", []string{"emu", "auth"}, ""}}},
+		{"adb pair 192.168.1.5:37123 482915", []rec{{"adb", []string{"pair"}, ""}}},
+		// Compound commands and prefixes.
+		{"for d in a b; do adb devices; done", []rec{{"adb", []string{"devices"}, "device_list"}}},
+		{"if adb devices; then echo ok; fi", []rec{{"adb", []string{"devices"}, "device_list"}}},
+		{"{ adb devices; }", []rec{{"adb", []string{"devices"}, "device_list"}}},
+		{"timeout 60 ./gradlew assembleDebug", []rec{{"gradlew", []string{"assembleDebug"}, "build_assemble"}}},
+		{"sudo -n adb devices", []rec{{"adb", []string{"devices"}, "device_list"}}},
+		// A here-document's body is text written, not run.
+		{"cat > build.sh <<EOF\n./gradlew assembleRelease\nadb install app.apk\nEOF", nil},
+		{"./gradlew assembleDebug && cat > notes.txt <<'EOF'\nadb devices\nEOF", []rec{{"gradlew", []string{"assembleDebug"}, "build_assemble"}}},
 		// Not observed: the program word is not one of the six.
 		{"echo adb", nil},
 		{"grep gradle build.gradle", nil},

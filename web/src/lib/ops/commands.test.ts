@@ -62,6 +62,7 @@ describe('CommandRecordsModel', () => {
 		await m.load('r1');
 		await m.load('r1');
 		expect(bad.calls).toHaveLength(1);
+		expect(m.recordOf('r1')).toBeUndefined();
 		const b = buildBlocks([op()], f('all'), ctx())[0]!;
 		expect(b.title).toBe('Record command');
 		expect(parseRecord('x')).toBeNull();
