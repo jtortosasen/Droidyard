@@ -66,11 +66,12 @@ type Options struct {
 	Tick time.Duration
 }
 
-// Register adds git.read, git.watch and git.log to the registry.
+// Register adds git.read, git.watch, git.log and git.refs to the registry.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
 	registerWatch(reg, opts)
 	registerLog(reg, opts)
+	registerRefs(reg, opts)
 }
 
 // root resolves the call's workspace to its project root.

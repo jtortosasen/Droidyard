@@ -126,38 +126,64 @@ func showArgs(oid, parent string) (details, files []string) {
 	return details, files
 }
 
-// tips resolves the tip set of root: HEAD and every branch, remote-tracking branch and
-// tag peeled to its commit (a tag on a tree or a blob has none and is dropped),
-// deduplicated, in this order: HEAD, local branches, remote-tracking branches, tags by
-// newest creation date, each group by ref name. At most maxTips are returned, and
-// truncated says there were more (or that git's output passed the runner's cap and the
-// rest was not read). The one place the tip set is decided; git.log and git.refs share it
-// (Q1 §2).
-func tips(ctx context.Context, r *runner, root string, trusted bool) (oids []string, truncated bool, err error) {
-	var ordered []string
+// headOid is HEAD as a commit, or "" in a repository with no commit yet (an unborn
+// branch). The one read of HEAD that git.log and git.refs make.
+func headOid(ctx context.Context, r *runner, root string, trusted bool) (string, error) {
 	res, err := r.run(ctx, root, trusted, nil, headArgs...)
 	if err != nil {
-		return nil, false, err
+		return "", err
 	}
 	switch res.ExitCode {
 	case 0:
-		if head := strings.TrimSpace(string(res.Stdout)); head != "" {
-			ordered = append(ordered, head)
-		}
+		return strings.TrimSpace(string(res.Stdout)), nil
 	case 1: // no commit yet
+		return "", nil
 	default:
-		return nil, false, gitError(res)
+		return "", gitError(res)
 	}
+}
 
-	res, err = r.run(ctx, root, trusted, nil, refsArgs()...)
+// refsOutput is `for-each-ref`'s output over the branches, remote-tracking branches and
+// tags, and whether the runner cut it at its cap. The one read of the refs that git.log
+// and git.refs make.
+func refsOutput(ctx context.Context, r *runner, root string, trusted bool) (out []byte, cut bool, err error) {
+	res, err := r.run(ctx, root, trusted, nil, refsArgs()...)
 	if err != nil {
 		return nil, false, err
 	}
 	if res.ExitCode != 0 {
 		return nil, false, gitError(res)
 	}
-	out := res.Stdout
-	if res.Truncated {
+	return res.Stdout, res.Truncated, nil
+}
+
+// tips resolves the tip set of root: HEAD, then the refs, by tipSet. git.log calls it;
+// git.refs reads HEAD and the refs once for its lists and calls tipSet on the same output.
+func tips(ctx context.Context, r *runner, root string, trusted bool) (oids []string, truncated bool, err error) {
+	head, err := headOid(ctx, r, root, trusted)
+	if err != nil {
+		return nil, false, err
+	}
+	out, cut, err := refsOutput(ctx, r, root, trusted)
+	if err != nil {
+		return nil, false, err
+	}
+	return tipSet(head, out, cut)
+}
+
+// tipSet builds the tip set from HEAD's commit (empty when there is none) and refsOutput's
+// output: HEAD and every branch, remote-tracking branch and tag peeled to its commit (a
+// tag on a tree or a blob has none and is dropped), deduplicated, in this order: HEAD,
+// local branches, remote-tracking branches, tags by newest creation date, each group by
+// ref name. At most maxTips are returned, and truncated says there were more (or that
+// git's output passed the runner's cap, cut, and the rest was not read). The one place
+// the tip set is decided; git.log and git.refs share it (Q1 §2).
+func tipSet(head string, out []byte, cut bool) (oids []string, truncated bool, err error) {
+	var ordered []string
+	if head != "" {
+		ordered = append(ordered, head)
+	}
+	if cut {
 		// The last line is cut at the cap: drop it, and never claim the list is whole.
 		truncated = true
 		if i := bytes.LastIndexByte(out, '\n'); i >= 0 {

@@ -7038,6 +7038,232 @@
       }
     },
     {
+      "name": "git.refs",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.24.0",
+      "description": "Reads what the repository's history view lists beside the graph: HEAD, with how far the current branch is ahead of and behind its upstream, the local and remote-tracking branches, the tags and the work trees, and the tip set git.log starts from. The refs are the repository's, whole even when the project is a subfolder.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "head": {
+            "properties": {
+              "oid": {
+                "type": "string",
+                "description": "HEAD's commit id; absent in a repository with no commit yet."
+              },
+              "branch": {
+                "type": "string",
+                "description": "The checked-out branch, also when it has no commit yet; absent when HEAD is detached."
+              },
+              "detached": {
+                "type": "boolean",
+                "description": "True when HEAD is detached: it points at a commit, not at a branch."
+              },
+              "upstream": {
+                "type": "string",
+                "description": "The current branch's upstream as configured, for example origin/main; absent when the branch has none or HEAD is detached."
+              },
+              "upstreamGone": {
+                "type": "boolean",
+                "description": "True when the current branch names an upstream that is not among the refs listed: deleted, or past the cut of git's output. Ahead and behind are zero then."
+              },
+              "ahead": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Commits on the current branch that its upstream lacks. Zero when there is no upstream or it is no longer a branch of this repository. Counted for the current branch only."
+              },
+              "behind": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Commits on the upstream that the current branch lacks; zero as ahead is."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "detached",
+              "upstreamGone",
+              "ahead",
+              "behind"
+            ],
+            "description": "What HEAD is."
+          },
+          "branches": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The branch's name without refs/heads/, folders included (feature/login)."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The object the branch points at."
+                },
+                "upstream": {
+                  "type": "string",
+                  "description": "The upstream as configured (origin/main); absent when the branch has none."
+                },
+                "upstreamGone": {
+                  "type": "boolean",
+                  "description": "True when the upstream is not among the refs listed: deleted, or past the cut of git's output. Omitted when false."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "oid"
+              ]
+            },
+            "type": "array",
+            "description": "Local branches by name; at most 5000. Empty in a result returned again after delivery."
+          },
+          "branchesTruncated": {
+            "type": "boolean",
+            "description": "True when there are more local branches than listed."
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "remote": {
+                  "type": "string",
+                  "description": "The remote's name, as configured, slashes included (team/origin). A ref no configured remote claims is split at its first slash."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The branch's name on that remote, folders included. A remote's default-branch pointer is listed as HEAD."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The object the ref points at."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "remote",
+                "name",
+                "oid"
+              ]
+            },
+            "type": "array",
+            "description": "Remote-tracking branches by name; at most 5000. Empty in a result returned again after delivery."
+          },
+          "remotesTruncated": {
+            "type": "boolean",
+            "description": "True when there are more remote-tracking branches than listed."
+          },
+          "tags": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The tag's name without refs/tags/."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The commit the tag finally points at, however many tags deep; absent for a tag on a tree or a blob."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name"
+              ]
+            },
+            "type": "array",
+            "description": "Tags, newest first; at most 5000: the oldest are left out at the cap, and when git's output is cut at 4 MiB the tags last in name order are missing too. Empty in a result returned again after delivery."
+          },
+          "tagsTruncated": {
+            "type": "boolean",
+            "description": "True when there are more tags than listed."
+          },
+          "worktrees": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The work tree's absolute path, as git records it."
+                },
+                "branch": {
+                  "type": "string",
+                  "description": "The branch checked out in it; absent when it is detached."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The commit it has checked out; absent when it has none yet."
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "True for the work tree that holds this workspace."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "current"
+              ]
+            },
+            "type": "array",
+            "description": "The repository's work trees, the main one first; at most 5000. Empty in a result returned again after delivery."
+          },
+          "worktreesTruncated": {
+            "type": "boolean",
+            "description": "True when there are more work trees than listed."
+          },
+          "tips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The tip set git.log starts from, as full object ids, the same list: HEAD, then branches, remote-tracking branches and tags, peeled to commits, at most 5000. Empty in a result returned again after delivery."
+          },
+          "tipsTruncated": {
+            "type": "boolean",
+            "description": "True when the repository has more tips than the 5000 returned, or git's refs were cut at 4 MiB; the oldest tags are left out at the cap, the tags last in name order at the cut."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "head",
+          "branches",
+          "branchesTruncated",
+          "remotes",
+          "remotesTruncated",
+          "tags",
+          "tagsTruncated",
+          "worktrees",
+          "worktreesTruncated",
+          "tips",
+          "tipsTruncated"
+        ]
+      }
+    },
+    {
       "name": "git.watch",
       "kind": "command",
       "scope": "workspace",
