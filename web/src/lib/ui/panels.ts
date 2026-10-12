@@ -38,7 +38,7 @@ export const PANELS: readonly PanelDef[] = [
 	{ id: 'console', region: 'bottom', label: 'Build output' },
 	{ id: 'problems', region: 'bottom', label: 'Problems' },
 	{ id: 'activity', region: 'bottom', label: 'Activity' },
-	{ id: 'git', region: 'bottom', label: 'Git', disabled: { milestone: 'Git history' } },
+	{ id: 'git', region: 'bottom', label: 'Git' },
 
 	{ id: 'devices', region: 'right', label: 'Devices' },
 	{ id: 'liveview', region: 'right', label: 'Live view', disabled: { milestone: 'live emulator view' } },

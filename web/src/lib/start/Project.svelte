@@ -52,6 +52,8 @@
 	import GitTree from '../git/GitTree.svelte';
 	import { GitTreeModel } from '../git/tree';
 	import DiffPanel from '../git/DiffPanel.svelte';
+	import HistoryPanel from '../git/HistoryPanel.svelte';
+	import { HistoryStore } from '../git/history';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
 	import type { UnsavedGuard } from '../editor/unsaved';
@@ -111,6 +113,7 @@
 	let gitWatch = $state.raw<GitWatch | null>(null);
 	let gitTree = $state.raw<GitTreeModel | null>(null);
 	let headBase = $state.raw<HeadBase | null>(null);
+	let gitHistory = $state.raw<HistoryStore | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -193,6 +196,8 @@
 			ws,
 		);
 		const headText = new HeadBase(callOn, ws);
+		// The History tab's commits: read once the watch has a status, and again when HEAD moves.
+		const history = new HistoryStore(callOn, ws, gitStatus);
 		// The viewer reads the same watch the tree does (no second file.watch).
 		const tabs = new TabsModel(browserStorage(window), workspaceId);
 		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
@@ -226,6 +231,7 @@
 		gitWatch = gitStatus;
 		gitTree = treeOfGit;
 		headBase = headText;
+		gitHistory = history;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -274,6 +280,7 @@
 			tabs.dispose();
 			opsModel.reset();
 			watcher.dispose();
+			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
 			files.dispose();
@@ -310,6 +317,7 @@
 			gitWatch = null;
 			gitTree = null;
 			headBase = null;
+			gitHistory = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -381,6 +389,10 @@
 					shell.show('diff');
 				}}
 			/>
+		{/if}
+	{:else if id === 'git'}
+		{#if gitHistory && gitWatch}
+			<HistoryPanel store={gitHistory} watch={gitWatch} />
 		{/if}
 	{:else if id === 'diff'}
 		{#if editorTabs && viewers && gitWatch && headBase}
