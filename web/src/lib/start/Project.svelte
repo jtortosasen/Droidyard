@@ -25,6 +25,7 @@
 	import type { EventsHub } from '../build/hub';
 	import type { Failure } from '../build/failure';
 	import { WorkspaceModel } from '../build/workspace';
+	import { RestoreModel, type RestoreClient } from '../ops/restore';
 	import Workspace from '../build/Workspace.svelte';
 	import { TrustModel } from './trust';
 	import { ProjectFileModel } from './projectfile';
@@ -83,6 +84,8 @@
 	let { client, activity, sessions, projects, hub, connection, workspaceId, guard, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
+	// Restore of a delete any client made (plan m2j step 10): the workspace root is read at click.
+	const restore = $derived(new RestoreModel({ call: ((n, p, o) => client.call(n, p, o)) as RestoreClient['call'] }, () => workspace?.root ?? ''));
 	let trust = $state.raw<TrustModel | null>(null);
 	let projectFile = $state.raw<ProjectFileModel | null>(null);
 	let build = $state.raw<BuildModel | null>(null);
@@ -369,7 +372,7 @@
 		{/if}
 	{:else if id === 'activity'}
 		{#if buildConsole && build}
-			<Activity store={activity} {sessions} console={buildConsole} {build} onopenoutput={() => shell.show('console')} />
+			<Activity store={activity} {sessions} console={buildConsole} {build} {restore} {workspaceId} onopenoutput={() => shell.show('console')} />
 		{/if}
 	{:else if id === 'tasks'}
 		{#if tasks}
