@@ -4,6 +4,7 @@
 - Superseded in part by: ADR-0037 (§Decision)
 - Date: 2026-09-29
 - Superseded in part by: ADR-0061 (§Decision)
+- Superseded in part by: ADR-0062 (§Decision)
 - Amended: 2026-09-29 — the name was revised from `AioDevAndroid` to `Droidyard`
   before any code existed. See §Revision.
 - Amended: 2026-10-06 — "beside the state directory on macOS" named:

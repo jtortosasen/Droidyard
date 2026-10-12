@@ -1,6 +1,8 @@
 # ADR-0061: An agent's `rm` is redirected to the trash by an optional assistant hook
 
 - Status: Accepted
+- Superseded in part by: ADR-0062 (§Decision, §Consequences)
+- Superseded in part by: ADR-0063 (§Decision)
 - Date: 2026-10-12
 - Supersedes: ADR-0037 §Decision (in part: item 2, `init` also writes a hook entry for `claude` and `cursor`)
 - Supersedes: ADR-0037 §Consequences (in part: assistant-side hooks "not adopted")
