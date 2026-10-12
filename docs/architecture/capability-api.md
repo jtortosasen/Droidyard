@@ -160,10 +160,10 @@ another's ids.
   (count and byte caps in `internal/event/event.go`), then continues live. If `since` is
   older than the buffer, or from another epoch, delivery starts with an `events.gap`
   marker. Events are never persisted.
-- `file.changes` and `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md))
+- `file.changes`, `git.changes` and `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md))
   are the exceptions: each takes a `seq` but never enters the ring, which a busy stream
   would flush for other subscribers. It is offered only to the subscription that
-  `file.watch` or `device.watchLogs` created, is not subscribable and accepts no `since`:
+  `file.watch`, `git.watch` or `device.watchLogs` created, is not subscribable and accepts no `since`:
   after a reconnect the client starts the stream again. `operation.state`
   ([ADR-0043](../adr/0043-operation-watch.md)) is ring-less, offered to **every**
   `operation.watch` subscription, and `build.output`

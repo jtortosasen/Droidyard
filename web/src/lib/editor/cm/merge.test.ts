@@ -1,10 +1,10 @@
-import { EditorState, type TransactionSpec } from '@codemirror/state';
+import { EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
 import { sha256Hex } from '../text';
 import { EditorModel, type LoadBuffers, type ViewerClient } from '../viewer';
 import { CmBuffer } from './buffer';
-import { compareSides, mirror } from './merge';
+import { compareSides, follow, followed, mirror, sideCaptions } from './merge';
 
 const make = (text: string, readOnly = false) => new CmBuffer({ text, readOnly });
 
@@ -89,6 +89,99 @@ describe('Compare’s two sides (D8)', () => {
 		expect(mirror(b, tr.startState, tr.state, tr.changes)).toBe(false);
 		expect(b.text()).toBe(tr.state.sliceDoc());
 		expect(b.text()).toBe('abcd\n');
+	});
+
+	// Decision (plan m2l step 5): the drift branch takes document positions, so a CRLF buffer
+	// that drifted comes back whole; string offsets from sliceDoc() count each CRLF as two.
+	it('resynchronises a CRLF buffer that drifted without corrupting it', () => {
+		const b = make('a\r\nb\r\nc\r\n');
+		const side = sideB(b, 'a\r\nb\r\nc\r\n');
+		b.dispatch({ changes: { from: 0, insert: 'X' } }); // the buffer moved on behind the side's back
+		const tr = side.update({ changes: { from: 3, insert: 'B' } }); // after "b": a break counts once
+		expect(mirror(b, tr.startState, tr.state, tr.changes)).toBe(false);
+		expect(b.text()).toBe(tr.state.sliceDoc());
+		expect(b.text()).toBe('a\r\nbB\r\nc\r\n');
+	});
+});
+
+describe('the Diff tab’s captions (plan m2l step 5)', () => {
+	const ariaLabels = (state: EditorState) =>
+		state
+			.facet(EditorView.contentAttributes)
+			.map((a) => (typeof a === 'function' ? null : (a as Record<string, string>)['aria-label']))
+			.filter((l): l is string => l !== null && l !== undefined);
+
+	// Decision: Compare as m2i built it keeps its captions; the Diff tab names its sides HEAD and Working tree.
+	it('captions the sides by the options, else On disk and Yours', () => {
+		expect(sideCaptions({})).toEqual(['On disk', 'Yours']);
+		expect(sideCaptions({ labels: { a: 'HEAD', b: 'Working tree' } })).toEqual(['HEAD', 'Working tree']);
+	});
+
+	// Decision: HEAD's text is not announced as "File contents on disk"; the read-only side takes the caller's name.
+	it('names the read-only side by the option, else File contents on disk', () => {
+		const b = make('x');
+		expect(ariaLabels(EditorState.create(compareSides(b, 'y').a))).toEqual(['File contents on disk']);
+		expect(ariaLabels(EditorState.create(compareSides(b, 'y', 'File contents at HEAD').a))).toEqual(['File contents at HEAD']);
+		expect(ariaLabels(EditorState.create(compareSides(b, 'y', 'File contents at HEAD').a))).not.toContain('File contents on disk');
+	});
+});
+
+/** What the merge view does with a follow: nothing, or the transaction on its side. */
+function followSide(b: CmBuffer, side: EditorState): EditorState {
+	const r = follow(side, b);
+	if (r === 'remount') throw new Error('expected a transaction, got a remount');
+	return r === null ? side : r.state;
+}
+
+describe('the buffer’s side follows the buffer (plan m2l Q2 §2, review B1)', () => {
+	// Decision: a change the side did not make (a silent reload, an edit in the Editor tab) reaches it, so its next
+	// keystroke mirrors onto the text the buffer holds; without it the stale side's drift branch writes its own
+	// stale text back over the buffer. LF and CRLF: the CRLF case fails if the follower takes string offsets
+	// (sliceDoc) where document positions are meant, since a break counts twice in the first and once in the second.
+	it.each([
+		['LF', '\n', 'a\nb\nc\n'],
+		['CRLF', '\r\n', 'a\r\nb\r\nc\r\n'],
+	])('keeps a %s buffer’s load, edit and the side’s keystroke', (_n, br, text) => {
+		const b = make(text);
+		let side = sideB(b, 'a\nb\nc\n');
+		b.load(`a${br}BB${br}c${br}`); // a clean buffer takes the disk's new text silently
+		b.dispatch({ changes: { from: 0, insert: '>>' }, userEvent: 'input.type' }); // an edit in the Editor tab
+		side = followSide(b, side);
+		expect(side.doc.toString()).toBe(b.state.doc.toString());
+		side = edit(b, side, { changes: { from: side.doc.length, insert: 'Z' }, userEvent: 'input.type' }); // a keystroke on the side
+		expect(b.text()).toBe(`>>a${br}BB${br}c${br}Z`);
+		expect(side.sliceDoc()).toBe(b.text());
+	});
+
+	// Decision: the change is not the user's on the side: it carries the mirror's skip mark and stays out of the side's undo history.
+	it('marks its transaction as followed and not undoable', () => {
+		const b = make('abc\n');
+		const side = sideB(b, 'abc\n');
+		b.dispatch({ changes: { from: 1, insert: 'X' } });
+		const tr = follow(side, b);
+		expect(tr).not.toBeNull();
+		expect(tr).not.toBe('remount');
+		const t = tr as Transaction;
+		expect(t.annotation(followed)).toBe(true);
+		expect(t.annotation(Transaction.addToHistory)).toBe(false);
+	});
+
+	// Decision: the side already holding the buffer's text is left alone (the buffer's own onChange fires for every edit, the side's included).
+	it('does nothing when the side holds the buffer’s text', () => {
+		const b = make('abc\r\n');
+		expect(follow(sideB(b, 'abc\n'), b)).toBeNull();
+	});
+
+	// Decision: a state made with the other separator, or with the other read-only, cannot be patched: the side is made again.
+	it('asks for a remount when the separator or read-only changed', () => {
+		const lf = make('a\nb\n');
+		const sideLf = sideB(lf, 'a\nb\n');
+		lf.load('a\r\nb\r\n');
+		expect(follow(sideLf, lf)).toBe('remount');
+		const ro = make('a\nb\n');
+		const sideRo = sideB(ro, 'a\nb\n');
+		ro.setReadOnly(true);
+		expect(follow(sideRo, ro)).toBe('remount');
 	});
 });
 

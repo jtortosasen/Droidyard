@@ -212,12 +212,12 @@ describe('TabsModel', () => {
 });
 
 describe('first-level tabs', () => {
-	// Decision (plan step 6): Terminal and Diff are disabled in the registry and cannot be
-	// made the active centre tab, so no file ever opens in them.
-	it('cannot activate Terminal or Diff', () => {
+	// Decision (plan step 6): Terminal is disabled in the registry and cannot be made the active
+	// centre tab, so no file ever opens in it. Plan m2l step 5: the Diff tab can be activated (a Git row shows it).
+	it('cannot activate Terminal, can activate Diff', () => {
 		const a = initialActive();
 		expect(a.centre).toBe('editor');
 		expect(activate(a, 'terminal').centre).toBe('editor');
-		expect(activate(a, 'diff').centre).toBe('editor');
+		expect(activate(a, 'diff').centre).toBe('diff');
 	});
 });

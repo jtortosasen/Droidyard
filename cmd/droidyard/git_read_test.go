@@ -1,0 +1,133 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/system"
+)
+
+// TestGitReadIsHumanOnlyAndNeedsGit: ADR-0066 §1, ADR-0060 §2. git.read has audience
+// human, so no MCP profile lists git_read (every agent has its own git) and the core
+// refuses it from an MCP client (REQUEST_NOT_ALLOWED_HERE, no operation). The CLI, which
+// the UI's client shares its wiring with, reads HEAD's text through the shipped
+// registry after the working copy changed; with no git on the PATH the capability is
+// listed unavailable with a reason, and the same call is GIT_NOT_FOUND with a next step,
+// and with git back on the PATH it works again with no restart. Setting the audience to
+// all would list the tool and let the MCP client in, so the first assertions fail.
+func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not on PATH")
+	}
+	p := startInProcess(t)
+
+	for _, args := range [][]string{nil, {"--tools", "all"}, {"--tools", "core"}} {
+		c := startShim(t, p.state, "git", args...)
+		c.initialize("git")
+		names, _ := toolNames(t, c, 1)
+		if len(names) == 0 {
+			t.Errorf("%v lists no tools; the check below would pass vacuously", args)
+		}
+		for _, n := range names {
+			if strings.HasPrefix(n, "git_") {
+				t.Errorf("%v lists %s; git is never offered to agents (ADR-0060 §2)", args, n)
+			}
+		}
+		c.exit()
+	}
+
+	root, _ := projectWith(t, "settings.gradle")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(gitPath, append([]string{"-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Dir = root
+		// Never the caller's GIT_*: inside a pre-commit hook GIT_DIR and GIT_INDEX_FILE
+		// name the repository being committed, and this git would init and add there.
+		cmd.Env = []string{"GIT_CONFIG_NOSYSTEM=1", "HOME=" + t.TempDir()}
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") {
+				cmd.Env = append(cmd.Env, kv)
+			}
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.kt"), []byte("committed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("init", "-q", "-b", "main")
+	git("add", "-A")
+	git("commit", "-q", "-m", "c")
+	if err := os.WriteFile(filepath.Join(root, "a.kt"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	openEnv, code := callIn(t, p.state, root, "workspace.open")
+	if code != 0 {
+		t.Fatalf("workspace.open exited %d: %+v", code, openEnv.Error)
+	}
+	ws := workspaceOf(t, openEnv).ID
+
+	id, err := p.ops.Start(context.Background(), capability.Request{Capability: "git.read", Workspace: ws,
+		Params: json.RawMessage(`{"path":"a.kt"}`), Client: capability.ClientMCP})
+	var e *capability.Error
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.read as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+	// git.watch is human-only too (ADR-0066 §1): no watch starts for an MCP client.
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.watch", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.watch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
+	read := func() (capability.ResponseEnvelope, int) {
+		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
+	}
+	env, code := read()
+	if code != 0 || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateCompleted {
+		t.Fatalf("git.read from the CLI: exit %d, error %+v, operation %+v; want it completed", code, env.Error, env.Operation)
+	}
+	var got struct{ Path, Base, Text string }
+	if err := json.Unmarshal(env.Result, &got); err != nil || got.Text != "committed\n" || got.Path != "a.kt" || got.Base != "HEAD" {
+		t.Errorf("the result %s (%v); want HEAD's text, not the edited working copy", env.Result, err)
+	}
+
+	// No git on the PATH: unavailable with a reason, GIT_NOT_FOUND with a next step.
+	t.Setenv("PATH", t.TempDir())
+	caps, code := p.call(t, "system.capabilities")
+	if code != 0 {
+		t.Fatalf("system.capabilities exited %d: %+v", code, caps.Error)
+	}
+	var list system.Capabilities
+	if err := json.Unmarshal(caps.Result, &list); err != nil {
+		t.Fatal(err)
+	}
+	if info := capInfo(t, list, "git.read"); info.Available || !strings.Contains(info.Unavailable, "git") || !strings.Contains(info.Unavailable, "PATH") {
+		t.Errorf("git.read with no git = %+v; want unavailable, with the reason", info)
+	}
+	env, code = read()
+	if code == 0 || env.Error == nil || env.Error.Code != "GIT_NOT_FOUND" || env.Error.NextStep == "" {
+		t.Errorf("git.read with no git: exit %d, error %+v; want GIT_NOT_FOUND with a next step", code, env.Error)
+	}
+
+	// Git back: no restart needed.
+	t.Setenv("PATH", filepath.Dir(gitPath))
+	if env, code := read(); code != 0 || env.Error != nil {
+		t.Errorf("git.read with git back: exit %d, error %+v; want it to work again", code, env.Error)
+	}
+	// system.health reports the API version this step introduces.
+	henv, code := p.call(t, "system.health")
+	if code != 0 || health(t, henv).Version != "0.23.0" {
+		t.Errorf("system.health: exit %d, %+v; want API version 0.23.0", code, henv.Error)
+	}
+}

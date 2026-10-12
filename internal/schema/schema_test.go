@@ -21,6 +21,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/file"
+	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
 	"github.com/jtortosasen/droidyard/internal/domain/shell"
@@ -84,6 +85,7 @@ func registry() *capability.Registry {
 	project.Register(reg, noSidecar{}, trustNothing)
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing})
 	file.Register(reg, file.Options{})
+	git.Register(reg, git.Options{})
 	agent.Register(reg)
 	// The shell descriptors only: no handler of the golden registry is ever run, so the
 	// policy, trust, starter and store are left nil.
