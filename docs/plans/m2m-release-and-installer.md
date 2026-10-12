@@ -214,7 +214,7 @@ Read at `4c5514b` (`main`).
   - No Go test of the script, because a Go test may not need Node (ADR-0040 §3). The CI dry run is its regression check.
 - Rests on: the binaries carry the built UI and the stamped version, at level 3. The script itself checks both on every run.
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: on the Mac, (i)–(vii) by the implementer; (i), (ii), (v) rerun by the main session (four archives and `checksums.txt`, every sum OK, `droidyard v0.0.0 (API 0.23.0)`, `Signature=adhoc`). CI run 38284160051 green, its dry run built on linux/amd64 (the native-version check ran there). The script removes `web/dist/app` before building, so a stale UI cannot pass its check.
 
 ### 5. `install.sh`: install, update, or nothing to do
 
