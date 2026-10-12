@@ -600,7 +600,9 @@ func TestWatchResultIsSlimmedAfterDelivery(t *testing.T) {
 // agent makes beside a fast watch never fails. 200 add-and-commit cycles beside a 5 ms
 // watch: every one exits 0 and none mentions index.lock. The count with the lock
 // switches removed (an -overlay of run.go) is recorded in the plan step's report, not
-// asserted here.
+// asserted here. A smoke test: it passed with both switches removed too (git's own lock
+// hold is too short to collide), so the no-lock promise rests on
+// TestStatusLeavesTheIndexAlone.
 func TestCommitsNeverFailBesideTheWatch(t *testing.T) {
 	if testing.Short() {
 		t.Skip("200 commits beside a watch")

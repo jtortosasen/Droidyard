@@ -82,6 +82,13 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
 		t.Errorf("git.read as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
+	// git.watch is human-only too (ADR-0066 §1): no watch starts for an MCP client.
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.watch", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.watch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
 
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
