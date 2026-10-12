@@ -30,7 +30,8 @@ var hookSeam func()
 
 // hook runs `droidyard hook` (ADR-0061): it reads one assistant hook event on stdin and
 // writes one answer on stdout, the client's pass-through or a deny that hands the agent
-// the command that moves the files to the trash. It never starts a daemon, deletes
+// `droidyard trash`, which moves the files to the trash from the agent's own shell
+// (ADR-0062). It never starts a daemon, deletes
 // nothing, and never exits 2, which Claude Code reads as a deny: it exits 0 with an
 // answer, or 1 with a note on stderr and nothing on stdout when it is misused. Anything
 // that goes wrong after the arguments are read (no daemon, an error, the deadline,
@@ -91,8 +92,9 @@ func hookAnswer(client assistant.Client, root string, stdin io.Reader, stderr io
 	}
 }
 
-// hookDecide is the answer for one event: the deny for a routed `rm` when a daemon
-// answers and opens the workspace, else the pass-through.
+// hookDecide is the answer for one event: the deny for a routed `rm`, handing the agent
+// `droidyard trash`, when a daemon answers and opens the workspace, else the
+// pass-through.
 func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline time.Time) []byte {
 	pass := assistant.PassOutput(client)
 	if hookSeam != nil {
@@ -106,13 +108,13 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 	if !ok {
 		return pass
 	}
-	paths, ok := assistant.RouteRm(ev, root)
+	route, ok := assistant.RouteRm(ev, root)
 	if !ok {
 		return pass
 	}
-	// The replacement names this binary, the project and, when the hook's state root came
-	// from the environment, that state root, so it reaches the daemon dialled below and
-	// never starts another (ADR-0061 §3).
+	// The replacement is `droidyard trash`, naming this binary, the project and, when the
+	// hook's state root came from the environment, that state root, so it reaches the
+	// daemon dialled below and never starts another (ADR-0062 §4).
 	exe, err := os.Executable()
 	if err != nil {
 		return pass
@@ -124,7 +126,7 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 			return pass
 		}
 	}
-	msg, ok := redirect.Message(paths)
+	msg, ok := redirect.Message(route)
 	if !ok {
 		return pass
 	}
