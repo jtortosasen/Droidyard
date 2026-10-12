@@ -25,7 +25,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/agent"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
-	"github.com/jtortosasen/droidyard/internal/domain/build"
+	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
@@ -44,6 +44,16 @@ import (
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
+// build is the release's version, set at link time with -ldflags "-X main.build=vX.Y.Z"
+// (ADR-0068 §2). A build made any other way is "dev". It is not the API version, which
+// system.Version holds and which health, the lock and MCP serverInfo keep.
+var build = "dev"
+
+// versionLine is what `version` prints: the build, then the API version.
+func versionLine(build, api string) string {
+	return "droidyard " + build + " (API " + api + ")"
+}
+
 const usage = `Droidyard — a lean Android development runtime for humans and agents.
 
 Usage:
@@ -54,7 +64,7 @@ With no command, droidyard runs ui.
 Commands:
   caps       List the capabilities this build exposes, with their annotations.
   schema     Print the generated JSON Schema that consumers are contracted to.
-  version    Print the API version.
+  version    Print the build version and the API version.
   serve      Run the core daemon in the foreground, until SIGTERM or SIGINT;
              --detach runs it in a session of its own, logging to daemon.log.
   call       Call one capability and print its response envelope:
@@ -129,7 +139,7 @@ func main() {
 			fail(err)
 		}
 	case "version":
-		fmt.Println(system.Version)
+		fmt.Println(versionLine(build, system.Version))
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	case "serve":
@@ -377,7 +387,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// The daemon's one build history (plan m1g step 7): the records, their index and
 	// the consoles they own. Without a state store it registers capabilities whose
 	// handlers report that nothing is configured.
-	history := build.NewRegistry(build.RegistryOptions{Store: st, Artifacts: artifacts, Log: log, Bus: bus})
+	history := builddomain.NewRegistry(builddomain.RegistryOptions{Store: st, Artifacts: artifacts, Log: log, Bus: bus})
 	device.Register(reg, adb, artifacts, history)
 	emulator.Register(reg, emulatorClient)
 	artifactcap.Register(reg, artifacts)
@@ -426,7 +436,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// only a trusted root is answered (D12).
 	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorize})
 	project.Register(reg, gradleClient, authorize)
-	build.Register(reg, build.Options{Client: gradleClient, History: history, Authorize: authorize})
+	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize})
 	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its
 	// only registry read is the workspace's canonical root (ADR-0015 §1, §5; plan m1j D2).
 	file.Register(reg, file.Options{
