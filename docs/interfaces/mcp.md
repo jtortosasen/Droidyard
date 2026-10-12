@@ -240,7 +240,7 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; not adopted |
+| **Assistant-side hooks** | Not part of MCP; one adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)) |
 
 **Elicitation** closes problems we have written down: SDK licence consent
 ([sdk](../subsystems/sdk.md); fallback: an explicit capability call and an error that
@@ -283,9 +283,8 @@ do with its model and context.
 are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forbids as a
 dependency, and largely redundant: "device data is not instructions" lives in
 `instructions`, "open the workspace" is a call the agent makes, and "build after editing"
-should not be automatic. They may return later as optional adapters for a specific
-assistant if a real need appears; our internal equivalent already exists, the authorization
-boundary re-checked immediately before execution.
+should not be automatic. `init` writes one, optional, for Claude Code and Cursor:
+a simple `rm` in the project is denied with the command that moves them to the trash ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)).
 
 ## Transports
 

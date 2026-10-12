@@ -1,7 +1,7 @@
 // Package assistant writes droidyard's integration with the coding assistants into a
 // user's project (ADR-0037, ADR-0038): the droidyard-android skill, and per client the
-// MCP server entry and an allowlist of the read-only tools. It writes no AGENTS.md or
-// CLAUDE.md. `droidyard init` is its only caller.
+// MCP server entry, an allowlist of the read-only tools and, for Claude Code and Cursor,
+// the entry that runs `droidyard hook` (ADR-0061). It writes no AGENTS.md or CLAUDE.md. `droidyard init` is its only caller.
 //
 // It edits files the user owns, so it follows one rule throughout: add what is absent,
 // keep what is there, and change nothing it cannot put back. JSON is merged by key, an
@@ -79,7 +79,11 @@ type Options struct {
 	// Command is the absolute path of the droidyard binary every entry runs: a client
 	// launched from a GUI has no shell PATH (ADR-0019 §Processes 8).
 	Command string
-	Clients []Client
+	// StateDir is the state root, an absolute path, when init's own came from
+	// DROIDYARD_STATE_DIR: the hook entries carry it inline (ADR-0061 §3). "" for the
+	// default root.
+	StateDir string
+	Clients  []Client
 	// Tools are the MCP names of the read-only tools to allowlist, chosen by the caller
 	// from the registry's readOnlyHint.
 	Tools []string
@@ -105,6 +109,8 @@ type Result struct {
 	Changes []Change
 	// Allowed are the permission strings written for each client that has an allowlist.
 	Allowed map[Client][]string
+	// Hooks are the hook command lines written for each client that has one.
+	Hooks map[Client]string
 }
 
 // Refused reports whether any file was refused: the run did everything else it could.
@@ -166,11 +172,19 @@ func Run(o Options) (Result, error) {
 	if o.Skill == nil {
 		return Result{}, fmt.Errorf("no skill to write")
 	}
+	if o.StateDir != "" && !strings.HasPrefix(o.StateDir, "/") {
+		return Result{}, fmt.Errorf("state dir %q is not an absolute path", o.StateDir)
+	}
 	jobs, allowed, err := plan(o, root)
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Allowed: allowed}
+	res := Result{Allowed: allowed, Hooks: map[Client]string{}}
+	for _, c := range o.Clients {
+		if hasHook(c) {
+			res.Hooks[c] = HookCommand(o, c)
+		}
+	}
 	for _, j := range jobs {
 		res.Changes = append(res.Changes, run(o, root, j))
 	}
@@ -234,6 +248,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		// when it is all that is left of permissions (plan m1o step 9, close review B1).
 		spec.keys = append(spec.keys, keyEntry{path: []string{"permissions"}, key: "deny", value: rawJSON([]string{}), sole: true})
 		jobs = append(jobs, jsonJob(".cursor/cli.json", spec))
+		jobs = append(jobs, jsonJob(".cursor/hooks.json", cursorHookSpec(o)))
 	}
 	if has(o.Clients, Claude) {
 		jobs = append(jobs, jsonJob(".mcp.json", serverSpec))
@@ -241,6 +256,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		spec.arrays = append(spec.arrays, claudeHookArray(o))
 		jobs = append(jobs, jsonJob(".claude/settings.json", spec))
 	}
 	if has(o.Clients, OpenCode) {

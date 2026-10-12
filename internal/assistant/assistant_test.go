@@ -165,15 +165,50 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
   }
 }
 `
-	claudeAllow := `{
+	// The hook entries (ADR-0061 §5); a temp root has no character shellArg quotes.
+	claudeAllow := func(root string) string {
+		return fmt.Sprintf(`{
   "permissions": {
     "allow": [
       "mcp__droidyard__device_list",
       "mcp__droidyard__device_uiTree"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/bin/droidyard hook --client claude --root %s"
+          }
+        ]
+      }
+    ]
   }
 }
-`
+`, root)
+	}
+	cursorHooks := func(root string) string {
+		return fmt.Sprintf(`{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
+        "matcher": "Delete"
+      }
+    ]
+  }
+}
+`, root)
+	}
 	server := func(root string) string {
 		return fmt.Sprintf(`{
   "mcpServers": {
@@ -220,9 +255,10 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".agents/skills/droidyard-android/SKILL.md":            skill,
 				".agents/skills/droidyard-android/references/":         "",
 				".agents/skills/droidyard-android/references/tools.md": tools,
-				".cursor/":         "",
-				".cursor/mcp.json": server(root),
-				".cursor/cli.json": cursorAllow,
+				".cursor/":           "",
+				".cursor/mcp.json":   server(root),
+				".cursor/cli.json":   cursorAllow,
+				".cursor/hooks.json": cursorHooks(root),
 			}
 		}},
 		{Claude, func(root string) map[string]string {
@@ -233,7 +269,7 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 				".claude/skills/droidyard-android/SKILL.md":            skill,
 				".claude/skills/droidyard-android/references/":         "",
 				".claude/skills/droidyard-android/references/tools.md": tools,
-				".claude/settings.json":                                claudeAllow,
+				".claude/settings.json":                                claudeAllow(root),
 				".mcp.json":                                            server(root),
 			}
 		}},

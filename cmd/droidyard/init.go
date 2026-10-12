@@ -139,11 +139,20 @@ func initCmd(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "droidyard init:", err)
 		return 1
 	}
+	// A client's hook environment lacks DROIDYARD_STATE_DIR, so a custom state root is
+	// written into the hook command (ADR-0061 §3).
+	stateDir := ""
+	if env := platform.Current(); env.Getenv("DROIDYARD_STATE_DIR") != "" {
+		if stateDir, err = env.StateDir(); err != nil {
+			fmt.Fprintln(errw, "droidyard init:", err)
+			return 1
+		}
+	}
 	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	tools := readOnlyTools(mcpTools(reg))
 
 	res, err := assistant.Run(assistant.Options{
-		Root: root, Command: command, Clients: clients, Tools: tools,
+		Root: root, Command: command, StateDir: stateDir, Clients: clients, Tools: tools,
 		Skill: skills.DroidyardAndroid(), DryRun: *dryRun, Uninstall: *uninstall,
 	})
 	if err != nil {
@@ -202,7 +211,15 @@ func printInit(w io.Writer, root, command string, res assistant.Result, tools []
 			fmt.Fprintf(w, "               add this yourself:\n%s\n", indent(c.Entry, "                 "))
 		}
 	}
-	if uninstall || len(res.Allowed) == 0 {
+	if uninstall {
+		return
+	}
+	for _, c := range assistant.Clients() {
+		if cmd, ok := res.Hooks[c]; ok {
+			fmt.Fprintf(w, "The %s hook, which sends an agent's simple rm inside the project to droidyard's trash when a daemon runs, runs: %s\n", c, cmd)
+		}
+	}
+	if len(res.Allowed) == 0 {
 		return
 	}
 	fmt.Fprintf(w, "The servers run %s.\n", command)
