@@ -37,4 +37,4 @@ the output.
 | [m2f-sessions-overlay-and-fixed-controls.md](m2f-sessions-overlay-and-fixed-controls.md) | 2f — the sessions column as an overlay on hover and at the left edge, and bottom panels whose controls do not scroll away | Done |
 | [m2g-file-operations.md](m2g-file-operations.md) | 2g — the file tree's operations | Done |
 | [m2h-mvp-done.md](m2h-mvp-done.md) | 2h — the MVP's three open Definition of done items | Done |
-| [m2i-editor.md](m2i-editor.md) | 2i — the editor | Approved |
+| [m2i-editor.md](m2i-editor.md) | 2i — the editor | Done |
