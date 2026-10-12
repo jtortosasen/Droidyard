@@ -122,8 +122,10 @@ func checkRegister(fsys fs.FS) []string {
 // not-exposed row for git.read (ADR-0066). Raised by 2 (to 26,403) in milestone 2l step 4:
 // capability-api.md names git.changes among the ring-less topics (ADR-0066 §1). Raised by 23
 // (to 26,426) at 2l's close: the README's status, mvp.md's Git line and process-lifecycle.md's
-// git row (a watch's gits outlive its operation).
-const liveBudget = 26426
+// git row (a watch's gits outlive its operation). Raised by 4 (to 26,430) in milestone 2n
+// step 2: mvp.md's git row (`log`, `refs`, `show`) and mcp.md's not-exposed row for git.log
+// (ADR-0068).
+const liveBudget = 26430
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -27,7 +27,7 @@ On a generated repository of 100,000 commits, 40 merged branches and 142 refs, o
 ## Decision
 
 1. **Three queries**, domain `git`, workspace-scoped, audience `human`, never MCP tools, `GIT_NOT_FOUND` when git is missing:
-   - **`git.log`**: one page of commits (oid, parents, author name, e-mail and time, committer time, subject, refs pointing at it).
+   - **`git.log`**: one page of commits (oid, parents, author name and e-mail, committer time, subject); the refs on each commit come from `git.refs`, joined in the browser.
    - **`git.refs`**: HEAD, with ahead and behind for the current branch only; local branches, remote-tracking branches, tags and worktrees; and the tip set.
    - **`git.show`**: one commit's details (author, committer, both times, the full message, parents) and its files with added and removed line counts.
    - `git.read`'s `base` widens to a full commit oid, as ADR-0066 §1 promised.

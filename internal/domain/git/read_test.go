@@ -20,8 +20,10 @@ import (
 // the gits it starts, so a test can say "none ran".
 type readFx struct {
 	*env
-	root     string
-	starts   atomic.Int32
+	root   string
+	starts atomic.Int32
+	// onStart, when set, sees every git before it starts (a test records its argv).
+	onStart  func(*exec.Cmd)
 	trusted  func(string) (bool, *capability.Error)
 	look     func(string) (string, error)
 	reg      *capability.Registry
@@ -53,6 +55,9 @@ func (f *readFx) register() {
 		Trusted: func(root string) (bool, *capability.Error) { return f.trusted(root) },
 		Starter: func(cmd *exec.Cmd) error {
 			f.starts.Add(1)
+			if f.onStart != nil {
+				f.onStart(cmd)
+			}
 			return groupStarter(cmd)
 		},
 		LookPath: func(name string) (string, error) {
