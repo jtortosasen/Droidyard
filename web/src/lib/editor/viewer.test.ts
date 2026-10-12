@@ -635,6 +635,249 @@ describe('ViewerSet fix round (step 6 verifier)', () => {
 	});
 });
 
+describe('external changes: the bar (D8, step 7)', () => {
+	async function open(text = 'one\ntwo\n') {
+		const d = new Daemon();
+		d.files.set('a.kt', text);
+		const set = new ViewerSet(d, ws, {}, cmBuffers);
+		const m = set.get('a.kt');
+		await ready(m);
+		return { d, set, m };
+	}
+	const modified = (set: ViewerSet) => set.changes([{ path: 'a.kt', kind: 'modified', type: 'file' }]);
+	const ext = (m: EditorModel) => m.view.external!;
+
+	// Decision (D8): a dirty buffer meets another disk version: never reloaded, the bar holds the
+	// disk's text and revision. From an event and from a re-sync alike.
+	it.each([
+		['an event', (set: ViewerSet) => modified(set)],
+		['a re-sync', (set: ViewerSet) => set.resync()],
+	])('holds the disk’s version behind the bar, from %s, and keeps the buffer and its base', async (_n, trigger) => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		const base = m.base;
+		d.files.set('a.kt', 'theirs\n');
+		trigger(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		expect(ext(m)).toMatchObject({ gone: false, binary: false, text: 'theirs\n', revision: await d.revision('a.kt'), canReload: true, canKeep: true, canCompare: true });
+		expect(text(m)).toBe('MINE one\ntwo\n');
+		expect(m.base).toBe(base);
+		expect(m.view.dirty).toBe(true);
+	});
+
+	// Decision: a clean buffer takes the new text with no bar.
+	it('shows no bar for a clean buffer, which takes the text', async () => {
+		const { d, set, m } = await open();
+		d.files.set('a.kt', 'new\n');
+		modified(set);
+		await vi.waitFor(() => expect(text(m)).toBe('new\n'));
+		expect(m.view.external).toBeNull();
+	});
+
+	// Decision: the same disk version again (a second event, a re-sync) is not news; the bar is not rebuilt.
+	it('does not rebuild the bar for the same disk version', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'theirs\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		const first = m.view.external;
+		const reads = d.reads.length;
+		modified(set);
+		set.resync();
+		await vi.waitFor(() => expect(d.reads.length).toBeGreaterThanOrEqual(reads + 2));
+		await new Promise((r) => setTimeout(r, 20));
+		expect(m.view.external).toBe(first);
+	});
+
+	// Decision: a newer disk version replaces the held one.
+	it('updates the bar when the disk changes again', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'second\n');
+		modified(set);
+		await vi.waitFor(() => expect(ext(m)?.text).toBe('second\n'));
+		d.files.set('a.kt', 'third\n');
+		modified(set);
+		await vi.waitFor(() => expect(ext(m).text).toBe('third\n'));
+	});
+
+	// Decision: Reload gives the buffer the disk's text and revision; a save after it is conditional on that revision.
+	it('Reload takes the disk’s text and revision, and a save after it names that revision', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'theirs\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		const rev = await d.revision('a.kt');
+		m.reload();
+		expect(text(m)).toBe('theirs\n');
+		expect(m.base).toBe(rev);
+		expect(m.view.dirty).toBe(false);
+		expect(m.view.external).toBeNull();
+		type(m, 6, ' more');
+		await m.save();
+		expect(d.writes).toHaveLength(1);
+		expect(d.writes[0]!.ifRevision).toBe(rev);
+		expect(d.files.get('a.kt')).toBe('theirs more\n');
+	});
+
+	// Decision: Keep mine makes the disk's revision the base, so the save replaces the disk's text knowingly (and with ifRevision).
+	// Seen failing when it kept the old base (the save then conflicted again).
+	it('Keep mine adopts the disk’s revision as the base, and the next save writes the buffer', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'theirs\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		const rev = await d.revision('a.kt');
+		m.keepMine();
+		expect(m.base).toBe(rev);
+		expect(m.view.external).toBeNull();
+		expect(text(m)).toBe('MINE one\ntwo\n');
+		expect(m.view.dirty).toBe(true);
+		await m.save();
+		expect(d.writes).toHaveLength(1);
+		expect(d.writes[0]!.ifRevision).toBe(rev);
+		expect(d.files.get('a.kt')).toBe('MINE one\ntwo\n');
+		expect(m.view.dirty).toBe(false);
+	});
+
+	// Decision: `deleted` keeps today's banner (no bar); the save then conflicts with `absent`
+	// and the bar offers Keep mine only, which makes `absent` the base, so the file is re-created knowingly.
+	it('after a deletion a save conflicts into a bar where Reload is off, and Keep mine re-creates the file with ifRevision absent', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.delete('a.kt');
+		set.changes([{ path: 'a.kt', kind: 'deleted', type: 'file' }]);
+		expect(m.view.state).toBe('deleted');
+		expect(m.view.external).toBeNull();
+		await m.save();
+		expect(m.view.conflict).toBe(true);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		expect(ext(m)).toMatchObject({ gone: true, canReload: false, canKeep: true, canCompare: false });
+		expect(m.view.state).toBe('deleted');
+		m.reload(); // disabled: nothing happens
+		expect(text(m)).toBe('MINE one\ntwo\n');
+		expect(m.view.external).not.toBeNull();
+		m.keepMine();
+		expect(m.base).toBe('absent');
+		expect(m.view.state).toBe('deleted'); // today's banner stays until the file exists
+		await m.save();
+		expect(d.writes.at(-1)!.ifRevision).toBe('absent');
+		expect(d.files.get('a.kt')).toBe('MINE one\ntwo\n');
+		expect(m.view.state).toBe('ready');
+		expect(m.view.dirty).toBe(false);
+	});
+
+	// Decision: a save answered FILE_REVISION_CONFLICT reads the file again and shows the same bar.
+	it('reads the disk again into the bar when a save conflicts, with no watch event', async () => {
+		const { d, m } = await open('abc\n');
+		d.files.set('a.kt', 'theirs\n'); // changed on disk; no event reached the page
+		type(m, 3, 'd');
+		await m.save();
+		expect(m.view.conflict).toBe(true);
+		await vi.waitFor(() => expect(ext(m)?.text).toBe('theirs\n'));
+		expect(text(m)).toBe('abcd\n');
+		expect(m.view.dirty).toBe(true);
+		// And the bar works from here: Keep mine, then the save goes through.
+		m.keepMine();
+		expect(m.view.conflict).toBe(false);
+		expect(m.view.saveError).toBeNull();
+		await m.save();
+		expect(d.files.get('a.kt')).toBe('abcd\n');
+	});
+
+	// Decision (safety, review round 2): the editor never sends file.write without ifRevision, so
+	// a disk read with no revision (over 8 MiB) cannot be kept; Reload still can.
+	it('disables Keep mine when the disk read has no revision, and does nothing if asked', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		const base = m.base;
+		d.files.set('a.kt', 'theirs\n');
+		d.noRevision.add('a.kt');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		expect(ext(m)).toMatchObject({ revision: undefined, canKeep: false, canReload: true });
+		m.keepMine();
+		expect(m.base).toBe(base);
+		expect(m.view.external).not.toBeNull();
+		await m.save();
+		expect(d.writes).toHaveLength(1);
+		expect(d.writes[0]!.ifRevision).toBe(base); // still the old base: a conflict, never an unconditional write
+		expect(d.files.get('a.kt')).toBe('theirs\n');
+	});
+
+	// Decision: a disk that goes back to what the buffer is based on needs no bar.
+	it('drops the bar when the disk returns to the base text', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'theirs\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		d.files.set('a.kt', 'one\ntwo\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).toBeNull());
+		expect(m.view.dirty).toBe(true);
+		expect(text(m)).toBe('MINE one\ntwo\n');
+	});
+
+	// Decision (D8, review B1): the bar is not given up when the buffer looks clean again (the
+	// user undid their typing, and Redo could bring it back): nothing is taken until they choose.
+	// Keep mine then counts the buffer as unsaved against the disk's text, so the save writes it.
+	it('keeps the bar when the buffer is taken back to clean, and Keep mine then makes it unsaved against the disk', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'theirs\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		type(m, 0, '', 5); // the typing taken back by hand
+		expect(m.view.dirty).toBe(false);
+		expect(m.view.external).not.toBeNull();
+		expect(text(m)).toBe('one\ntwo\n');
+		// A newer disk version while the bar is up updates the hold, not the buffer.
+		d.files.set('a.kt', 'theirs again\n');
+		modified(set);
+		await vi.waitFor(() => expect(ext(m).text).toBe('theirs again\n'));
+		expect(ext(m).updated).toBe(true);
+		expect(text(m)).toBe('one\ntwo\n');
+		m.keepMine();
+		expect(m.base).toBe(await d.revision('a.kt'));
+		expect(m.view.dirty).toBe(true);
+		await m.save();
+		expect(d.files.get('a.kt')).toBe('one\ntwo\n');
+	});
+
+	// Decision (review): a deletion while the bar holds a disk version makes it a `gone` hold, so Reload cannot take a deleted file's text.
+	it('turns the held version into a gone one when the file is deleted', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.files.set('a.kt', 'theirs\n');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		d.files.delete('a.kt');
+		set.changes([{ path: 'a.kt', kind: 'deleted', type: 'file' }]);
+		expect(ext(m)).toMatchObject({ gone: true, canReload: false, canKeep: true, text: '' });
+		m.reload();
+		expect(text(m)).toBe('MINE one\ntwo\n');
+	});
+
+	// Decision: a dirty file that turns binary is not dropped; Reload (the user's choice) shows the placeholder.
+	it('holds a binary disk version behind the bar, with Compare off', async () => {
+		const { d, set, m } = await open();
+		type(m, 0, 'MINE ');
+		d.binary.add('a.kt');
+		modified(set);
+		await vi.waitFor(() => expect(m.view.external).not.toBeNull());
+		expect(ext(m)).toMatchObject({ binary: true, canCompare: false, canReload: true, canKeep: true });
+		expect(m.view.state).toBe('ready');
+		expect(text(m)).toBe('MINE one\ntwo\n');
+		m.reload();
+		expect(m.view.state).toBe('binary');
+		expect(m.view.buffer).toBeNull();
+	});
+});
+
 describe('ViewerSet moves (D7)', () => {
 	async function twoOpen() {
 		const d = new Daemon();

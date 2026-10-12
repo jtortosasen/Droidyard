@@ -16,10 +16,11 @@
 //     call, so the revision the daemon will report is known while it is in flight, and a
 //     watch event carrying it is our own echo. Nothing is sent over 512 KiB or ~1,000,000
 //     bytes of JSON.
-//   - External change (D8, step 6 part): `modified`/`created` and a re-sync re-read the file;
-//     a revision equal to the base or in flight is the echo of our own write and changes
-//     nothing; a clean buffer takes the disk's text; a dirty one is never reloaded (the
-//     save's `ifRevision` catches the difference; step 7 adds the bar).
+//   - External change (D8): `modified`/`created` and a re-sync re-read the file; a revision
+//     equal to the base or in flight is the echo of our own write and changes nothing; a
+//     clean buffer takes the disk's text; a dirty one is never reloaded: the disk's version
+//     is held (`view.external`, the bar of Reload / Keep mine / Compare) until the user
+//     chooses. A save answered FILE_REVISION_CONFLICT reads again into the same bar.
 //   - Text from a file is data: it reaches the page as text nodes only.
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
@@ -89,12 +90,38 @@ export interface ViewerView {
 	saveError: string | null;
 	/** The last save was answered FILE_REVISION_CONFLICT: the file changed on disk after it was read. */
 	conflict: boolean;
+	/** D8: the disk holds another version than a dirty buffer is based on, and the user has yet to choose. */
+	external: ExternalView | null;
+}
+
+/**
+ * The disk's side of an external change (D8), as the bar and Compare need it. The text is
+ * held as text and reaches the page as text only.
+ */
+export interface ExternalView {
+	/** The file is gone (`absent`): there is no disk text to reload or compare. */
+	gone: boolean;
+	/** The file turned binary: no text to compare; Reload shows the placeholder. */
+	binary: boolean;
+	/** The disk's text (empty when gone or binary). */
+	text: string;
+	/** The disk's revision; undefined for a read without one (over 8 MiB). */
+	revision: string | undefined;
+	/** Reload takes the disk's version: not when the disk side is absent. */
+	canReload: boolean;
+	/** Keep mine makes the disk's revision (or `absent`) the base: never without one, since no write goes out without `ifRevision`. */
+	canKeep: boolean;
+	/** Compare shows both texts. */
+	canCompare: boolean;
+	/** A newer disk version replaced the one first held while the bar was up. */
+	updated: boolean;
 }
 
 /** What one consistent read found. */
 type Read =
 	| { kind: 'error'; message: string }
-	| { kind: 'binary'; size: number }
+	| { kind: 'gone'; message: string }
+	| { kind: 'binary'; size: number; revision: string | undefined }
 	| { kind: 'text'; text: string; size: number; read: number; capped: boolean; revision: string | undefined; matches: boolean };
 
 /** D5: the first reason a complete or capped read of text cannot be edited. */
@@ -127,6 +154,8 @@ export class EditorModel {
 	#queued = false;
 	#stale = false;
 	#saveDone: Promise<void> = Promise.resolve();
+	/** The disk's read behind `view.external`, to apply if the user reloads. */
+	#held: Read | null = null;
 
 	constructor(client: ViewerClient, ws: ViewerWorkspace, path: string, loadBuffers: LoadBuffers = loadEditor) {
 		this.#client = client;
@@ -146,6 +175,7 @@ export class EditorModel {
 			saving: false,
 			saveError: null,
 			conflict: false,
+			external: null,
 		};
 	}
 
@@ -182,6 +212,8 @@ export class EditorModel {
 	markDeleted(): void {
 		this.#run++; // a read under way is for a file that is gone
 		this.#set({ state: 'deleted' });
+		// A disk version held by the bar is of a file that is gone now: Reload must not take its text.
+		if (this.#held !== null) this.#hold({ kind: 'gone', message: 'the file was deleted' });
 	}
 
 	/** The file was renamed or moved in the tree (D7): the same buffer, base and history, under the new path. */
@@ -226,10 +258,12 @@ export class EditorModel {
 			try {
 				page = await this.#client.call('file.read', { path: this.path, offset, limit: PAGE }, { workspace: this.#ws.root.trim() });
 			} catch (e) {
-				return run === this.#run && !this.#disposed ? { kind: 'error', message: failureText(failure(e)) } : null;
+				if (run !== this.#run || this.#disposed) return null;
+				const f = failure(e);
+				return { kind: f.code === 'FILE_NOT_FOUND' ? 'gone' : 'error', message: failureText(f) };
 			}
 			if (run !== this.#run || this.#disposed) return null;
-			if (page.binary) return { kind: 'binary', size: page.size };
+			if (page.binary) return { kind: 'binary', size: page.size, revision: page.revision };
 			// A page that is not the one asked for, or whose revision differs from the first
 			// page's: the file changed under the read. Start over, a few times.
 			if (page.offset !== offset || (offset > 0 && page.revision !== revision)) {
@@ -267,11 +301,23 @@ export class EditorModel {
 			if (this.#buffer === null) this.#set({ state: 'error', error: read.message });
 			return;
 		}
+		if (read.kind === 'gone') {
+			const buffer = this.#buffer;
+			if (buffer === null) {
+				this.#set({ state: 'error', error: read.message });
+				return;
+			}
+			// The file is not on disk (a re-sync, a conflicting save, or a rename that found nothing).
+			this.#set({ state: 'deleted' });
+			if (this.#guarded(buffer)) this.#hold(read);
+			return;
+		}
 		if (read.kind === 'binary') {
-			if (this.#buffer?.dirty) return; // the user's edits are not dropped for a file that turned binary (step 7 asks)
-			this.#dropBuffer();
-			this.#base = undefined;
-			this.#set({ state: 'binary', size: read.size, capped: false, read: 0, error: null, buffer: null, readOnly: null, dirty: false });
+			if (this.#buffer !== null && this.#guarded(this.#buffer)) {
+				this.#hold(read); // the user's edits are not dropped for a file that turned binary
+				return;
+			}
+			this.#takeBinary(read);
 			return;
 		}
 		const reason = reasonFor(read);
@@ -296,14 +342,35 @@ export class EditorModel {
 		// The echo of our own write, or of a move: the same bytes as the buffer is based on.
 		if (read.revision !== undefined && (read.revision === this.#base || read.revision === this.#inflight)) {
 			if (this.#view.state === 'deleted') this.#set({ state: 'ready' });
+			// The disk is what the buffer is based on again: the difference the bar showed is gone.
+			if (read.revision === this.#base) this.#release();
 			return;
 		}
-		if (buffer.dirty) {
-			// D8: never reloaded (step 7 shows the bar). The file exists again, though: it is not "deleted".
+		if (this.#guarded(buffer)) {
+			// D8: never reloaded; the bar holds the disk's version. The file exists again, though: it is not "deleted".
 			if (this.#view.state === 'deleted') this.#set({ state: 'ready' });
+			this.#hold(read);
 			return;
 		}
+		this.#take(read);
+	}
+
+	/**
+	 * D8: a buffer is replaced silently only when it is clean, has nothing Redo would bring back,
+	 * and no disk version is held already (while the bar is up, a clean-looking buffer is one the
+	 * user undid, and the bar stays until they choose).
+	 */
+	#guarded(buffer: EditorBuffer): boolean {
+		return buffer.dirty || buffer.hasRedo || this.#held !== null;
+	}
+
+	/** D8: the clean buffer takes the disk's text, and nothing is held. */
+	#take(read: Extract<Read, { kind: 'text' }>): void {
+		const buffer = this.#buffer;
+		if (buffer === null) return;
+		this.#held = null;
 		buffer.load(read.text);
+		const reason = reasonFor(read);
 		buffer.setReadOnly(reason !== null);
 		this.#base = read.revision;
 		this.#set({
@@ -316,7 +383,84 @@ export class EditorModel {
 			dirty: buffer.dirty,
 			saveError: null, // a failed save of the text this replaces is moot
 			conflict: false,
+			external: null,
 		});
+	}
+
+	#takeBinary(read: Extract<Read, { kind: 'binary' }>): void {
+		this.#held = null;
+		this.#dropBuffer();
+		this.#base = undefined;
+		this.#set({
+			state: 'binary',
+			size: read.size,
+			capped: false,
+			read: 0,
+			error: null,
+			buffer: null,
+			readOnly: null,
+			dirty: false,
+			saveError: null,
+			conflict: false,
+			external: null,
+		});
+	}
+
+	/** D8: the dirty buffer meets a disk version it is not based on; the bar offers the choices. */
+	#hold(read: Exclude<Read, { kind: 'error' }>): void {
+		this.#held = read;
+		const gone = read.kind === 'gone';
+		const binary = read.kind === 'binary';
+		const text = read.kind === 'text' ? read.text : '';
+		const revision = read.kind === 'text' || read.kind === 'binary' ? read.revision : undefined;
+		const cur = this.#view.external;
+		// The same disk version as the bar already shows (a re-sync, a second event): nothing to tell.
+		if (cur !== null && cur.gone === gone && cur.binary === binary && cur.revision === revision && cur.text === text) return;
+		this.#set({
+			external: {
+				gone,
+				binary,
+				text,
+				revision,
+				canReload: !gone,
+				// The editor never sends file.write without ifRevision: no revision, no Keep mine.
+				canKeep: gone || revision !== undefined,
+				canCompare: !gone && !binary,
+				updated: cur !== null,
+			},
+		});
+	}
+
+	/** The bar is moot (the disk is what the buffer is based on again): drop it. */
+	#release(): void {
+		this.#held = null;
+		if (this.#view.external !== null) this.#set({ external: null });
+	}
+
+	/** D8 Reload: the disk's text and revision replace the buffer; its edits are given up, by the user's choice. */
+	reload(): void {
+		const held = this.#held;
+		const ext = this.#view.external;
+		if (held === null || ext === null || !ext.canReload || this.#saving) return;
+		if (held.kind === 'text') this.#take(held);
+		else if (held.kind === 'binary') this.#takeBinary(held);
+	}
+
+	/**
+	 * D8 Keep mine: the disk's revision (`absent` after a deletion) becomes the base, so the next
+	 * save replaces, or re-creates, the file knowingly. The buffer is untouched.
+	 */
+	keepMine(): void {
+		const ext = this.#view.external;
+		if (ext === null || !ext.canKeep || this.#saving) return;
+		const buffer = this.#buffer;
+		if (buffer === null) return;
+		this.#base = ext.gone ? 'absent' : ext.revision;
+		this.#held = null;
+		// The disk now holds its own text as far as the base goes, so the buffer counts as unsaved
+		// against it (also one the user had undone to clean), and the next save writes it knowingly.
+		buffer.setSaved(ext.gone || ext.binary ? null : ext.text);
+		this.#set({ external: null, saveError: null, conflict: false, dirty: buffer.dirty });
 	}
 
 	#dropBuffer(): void {
@@ -389,11 +533,15 @@ export class EditorModel {
 			const r = await this.#client.call('file.write', { path, content: snap.text, ifRevision: base }, { workspace: this.#ws.root.trim() });
 			this.#base = r.revision;
 			snap.commit();
-			this.#set({ size: r.size, saveError: null, conflict: false, dirty: buffer.dirty, ...(this.#view.state === 'deleted' ? { state: 'ready' as const } : {}) });
+			this.#held = null;
+			this.#set({ size: r.size, saveError: null, conflict: false, external: null, dirty: buffer.dirty, ...(this.#view.state === 'deleted' ? { state: 'ready' as const } : {}) });
 			return true;
 		} catch (e) {
 			const f = failure(e);
-			this.#set({ saveError: failureText(f), conflict: f.code === 'FILE_REVISION_CONFLICT' });
+			const conflict = f.code === 'FILE_REVISION_CONFLICT';
+			this.#set({ saveError: failureText(f), conflict });
+			// D8: the disk is not what the buffer is based on; read it again into the bar once the save loop ends.
+			if (conflict) this.#stale = true;
 			return false;
 		}
 	}

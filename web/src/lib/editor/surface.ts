@@ -32,8 +32,20 @@ export interface EditorBuffer {
 	/** The whole text, with the file's line separator. */
 	text(): string;
 	snapshot(): BufferSnapshot;
-	/** Replaces the document and the saved text with `text` (a clean buffer taking the disk's); history stays when it can. */
+	/**
+	 * Replaces the document and the saved text with `text` (the disk's, taken by a clean buffer or
+	 * by Reload). The replacement is one undoable history event of its own: Undo brings back the
+	 * text as it was as a whole. When the line separator changes the state is rebuilt instead
+	 * and the history starts again.
+	 */
 	load(text: string): void;
+	/** The undo history holds something Redo would bring back: such a buffer is not clean enough to be replaced silently. */
+	readonly hasRedo: boolean;
+	/**
+	 * Declares what the disk holds (`null`: nothing, the file is gone or not text) without touching
+	 * the document, so the buffer counts as unsaved against it (D8 Keep mine).
+	 */
+	setSaved(text: string | null): void;
 	setReadOnly(readOnly: boolean): void;
 	/** Sets the file's path or name, and so the language; the highlighting follows once its code has loaded. */
 	setPath(path: string): void;
@@ -47,6 +59,12 @@ export interface EditorOptions {
 	buffer: EditorBuffer;
 	/** Mod-s was pressed in the editor. */
 	onSave(): void;
+}
+
+/** What a Compare view is given (plan m2i D8): the buffer, editable, beside the disk's text, read-only. */
+export interface CompareOptions extends EditorOptions {
+	/** The disk's text, as the file read gave it. */
+	disk: string;
 }
 
 /** A problem to underline: lines and columns are 1-based, `end*` are optional. */
@@ -71,6 +89,11 @@ export interface EditorHandle {
 /** The module `cm/view.ts` exports; the only thing `loadEditor` must return. */
 export interface EditorModule {
 	mount(host: HTMLElement, opts: EditorOptions): EditorHandle;
+	/**
+	 * D8: the buffer beside the disk's text, in the same host. Edits made on the buffer's side
+	 * are the buffer's (it is the same document, so Mod-s saves it and leaving keeps them).
+	 */
+	mountCompare(host: HTMLElement, opts: CompareOptions): Promise<EditorHandle>;
 	createBuffer(opts: BufferOptions): EditorBuffer;
 }
 
@@ -90,17 +113,27 @@ export class LazyEditor implements EditorHandle {
 	#reveal: [number, number] | null = null;
 	#diagnostics: readonly EditorDiagnostic[] = [];
 
-	constructor(host: HTMLElement, opts: EditorOptions, onError: (e: unknown) => void, load: LoadEditor = loadEditor) {
+	constructor(
+		host: HTMLElement,
+		opts: EditorOptions,
+		onError: (e: unknown) => void,
+		load: LoadEditor = loadEditor,
+		mount: (m: EditorModule, host: HTMLElement, opts: EditorOptions) => EditorHandle | Promise<EditorHandle> = (m, h, o) => m.mount(h, o),
+	) {
 		load().then(
-			(m) => {
+			async (m) => {
 				if (this.#gone) return;
 				try {
-					const h = m.mount(host, opts);
+					const h = await mount(m, host, opts);
+					if (this.#gone) {
+						h.destroy(); // closed while a further chunk (Compare's) was arriving
+						return;
+					}
 					this.#handle = h;
 					if (this.#diagnostics.length > 0) h.setDiagnostics(this.#diagnostics);
 					if (this.#reveal !== null) h.reveal(...this.#reveal);
 				} catch (e) {
-					onError(e);
+					if (!this.#gone) onError(e);
 				}
 			},
 			(e: unknown) => {

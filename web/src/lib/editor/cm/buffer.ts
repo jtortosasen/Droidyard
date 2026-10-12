@@ -13,10 +13,10 @@
 //   - Dirty (D7): the document differs from the saved one (`snapshot().commit()` moves it),
 //     so undoing back to the saved text is clean again, and an edit made while a save was in
 //     flight stays dirty because the saved document is the snapshot's, not the latest.
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redoDepth } from '@codemirror/commands';
 import { foldGutter, foldKeymap, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorState, Transaction, type Extension, type StateEffect, type Text, type TransactionSpec } from '@codemirror/state';
+import { Compartment, EditorState, type Extension, type StateEffect, type Text, type TransactionSpec } from '@codemirror/state';
 import {
 	EditorView,
 	drawSelection,
@@ -79,7 +79,8 @@ export class CmBuffer implements EditorBuffer {
 	/** Called when Mod-s is pressed in an attached view. */
 	onSave: (() => void) | null = null;
 
-	#saved: Text;
+	/** The document the disk is taken to hold; null when it holds none (a gone or non-text file): always unsaved. */
+	#saved: Text | null;
 	#dirty = false;
 	#sep: Separator | null;
 	#readOnly: boolean;
@@ -100,6 +101,16 @@ export class CmBuffer implements EditorBuffer {
 
 	get dirty(): boolean {
 		return this.#dirty;
+	}
+
+	get hasRedo(): boolean {
+		return redoDepth(this.state) > 0;
+	}
+
+	setSaved(text: string | null): void {
+		// toText splits by this buffer's separator, so a disk whose breaks differ is not "the same".
+		this.#saved = text === null ? null : this.state.toText(text);
+		this.#recompute();
 	}
 
 	text(): string {
@@ -135,13 +146,15 @@ export class CmBuffer implements EditorBuffer {
 	#replace(text: string, sep: Separator | null): void {
 		if (sep !== null && sep === this.#sep) {
 			// The same separator: only the span that differs is replaced, so the cursor and the
-			// scroll outside it stay and the history is kept (the change is not an edit of the user's).
+			// scroll outside it stay. The replacement is a history event of its own (isolated from
+			// the edits around it), so Undo brings back the text before it as a whole and never a
+			// mapped mixture. Another separator rebuilds the state below, and the history starts again.
 			const next = this.state.toText(text);
 			const change = minimalChange(this.state.doc.toString(), next.toString());
 			if (change !== null) {
 				this.dispatch({
 					changes: { from: change.from, to: change.to, insert: next.slice(change.from, change.from + change.insert.length) },
-					annotations: Transaction.addToHistory.of(false),
+					annotations: isolateHistory.of('full'),
 				});
 			}
 			this.#saved = this.state.doc;
@@ -195,48 +208,67 @@ export class CmBuffer implements EditorBuffer {
 	}
 
 	#create(text: string): EditorState {
-		const sep = this.#sep;
 		return EditorState.create({
 			doc: text,
-			extensions: [
-				sep === null ? [] : EditorState.lineSeparator.of(sep),
-				EditorState.allowMultipleSelections.of(true),
-				readOnlySlot.of(EditorState.readOnly.of(this.#readOnly)),
-				EditorState.tabSize.of(4),
-				indentUnit.of('    '),
-				history(),
-				lineNumbers(),
-				foldGutter(),
-				highlightActiveLine(),
-				highlightActiveLineGutter(),
-				drawSelection(),
-				rectangularSelection(),
-				highlightSelectionMatches(),
-				search({ top: true }),
-				keymap.of([
-					{
-						key: 'Mod-s',
-						preventDefault: true,
-						run: () => {
-							this.onSave?.();
-							return true;
-						},
-					},
-					...defaultKeymap,
-					...historyKeymap,
-					...searchKeymap,
-					...foldKeymap,
-					indentWithTab,
-				]),
-				EditorView.clipboardInputFilter.of(pasted),
-				separatorFilter,
-				EditorView.contentAttributes.of({ 'aria-label': 'File contents', 'aria-multiline': 'true' }),
-				EditorView.updateListener.of((u) => this.#updated(u)),
-				syntaxHighlighting(highlightStyle),
-				languageSlot.of(this.#lang),
-				theme,
-			],
+			extensions: [this.extensions(), EditorView.updateListener.of((u) => this.#updated(u))],
 		});
+	}
+
+	/** The file's separator, or null for a mixed file (shown with CM's own splitting). */
+	get separator(): Separator | null {
+		return this.#sep;
+	}
+
+	/** The language extension on show now (plain text until its chunk has loaded). */
+	get language(): Extension {
+		return this.#lang;
+	}
+
+	/**
+	 * Everything a view of this buffer needs but the link to the buffer: the file's separator,
+	 * history, keymap with Mod-s, the paste and separator filters, the language and the theme.
+	 * A state made from it behaves as the buffer does, which is how Compare's editable side
+	 * (m2i D8) is built; it does not report its changes here, its owner mirrors them.
+	 */
+	extensions(): Extension[] {
+		const sep = this.#sep;
+		return [
+			sep === null ? [] : EditorState.lineSeparator.of(sep),
+			EditorState.allowMultipleSelections.of(true),
+			readOnlySlot.of(EditorState.readOnly.of(this.#readOnly)),
+			EditorState.tabSize.of(4),
+			indentUnit.of('    '),
+			history(),
+			lineNumbers(),
+			foldGutter(),
+			highlightActiveLine(),
+			highlightActiveLineGutter(),
+			drawSelection(),
+			rectangularSelection(),
+			highlightSelectionMatches(),
+			search({ top: true }),
+			keymap.of([
+				{
+					key: 'Mod-s',
+					preventDefault: true,
+					run: () => {
+						this.onSave?.();
+						return true;
+					},
+				},
+				...defaultKeymap,
+				...historyKeymap,
+				...searchKeymap,
+				...foldKeymap,
+				indentWithTab,
+			]),
+			EditorView.clipboardInputFilter.of(pasted),
+			separatorFilter,
+			EditorView.contentAttributes.of({ 'aria-label': 'File contents', 'aria-multiline': 'true' }),
+			syntaxHighlighting(highlightStyle),
+			languageSlot.of(this.#lang),
+			theme,
+		];
 	}
 
 	#updated(u: ViewUpdate): void {
@@ -257,7 +289,7 @@ export class CmBuffer implements EditorBuffer {
 
 	#recompute(): void {
 		const doc = this.state.doc;
-		this.#dirty = doc.length !== this.#saved.length || !doc.eq(this.#saved);
+		this.#dirty = this.#saved === null || doc.length !== this.#saved.length || !doc.eq(this.#saved);
 		for (const l of [...this.#listeners]) l();
 	}
 }
