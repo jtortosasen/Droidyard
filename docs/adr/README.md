@@ -90,6 +90,7 @@ edits made before this rule and are not added to.
 | [0058](0058-file-write-revision-precondition.md) | `file.write` takes a revision precondition | Accepted |
 | [0059](0059-file-write-revision-null-and-absent.md) | `ifRevision` null is refused, and `absent` is settled by existence | Accepted |
 | [0060](0060-file-capabilities-not-mcp-tools.md) | The file capabilities are not MCP tools | Accepted |
+| [0061](0061-agent-rm-to-trash-hook.md) | An agent's `rm` is redirected to the trash by an optional assistant hook | Accepted |
 
 ## Open decisions (not yet ADRs)
 
