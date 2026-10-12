@@ -51,6 +51,32 @@ func publishedNames(fsys fs.FS) ([]string, error) {
 	return out, nil
 }
 
+// notAgentTools returns the published capabilities no agent can call: audience
+// `human`, or not stateless (a streaming or stateful capability is not a tool).
+func notAgentTools(fsys fs.FS) ([]string, error) {
+	raw, err := fs.ReadFile(fsys, schemaPath)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Capabilities []struct {
+			Name         string `json:"name"`
+			Statefulness string `json:"statefulness"`
+			Audience     string `json:"audience"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("%s: %v", schemaPath, err)
+	}
+	var out []string
+	for _, c := range doc.Capabilities {
+		if c.Audience == "human" || c.Statefulness != "stateless" {
+			out = append(out, c.Name)
+		}
+	}
+	return out, nil
+}
+
 // TestCapabilityNamesAgree checks that every place a capability name is written by
 // hand names the same set. It asserts the registry as single source of truth
 // (ADR-0016) and closes the drift the pre-implementation review found as N2, "the
@@ -61,6 +87,11 @@ func TestCapabilityNamesAgree(t *testing.T) {
 		t.Fatal(err)
 	}
 	report(t, checkCapabilityNames(repo(), published))
+	hidden, err := notAgentTools(repo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	report(t, checkNotExposed(repo(), hidden))
 }
 
 func set(names []string) map[string]bool {
@@ -243,6 +274,33 @@ func checkCapabilityNames(fsys fs.FS, published []string) []string {
 				if capabilityName.MatchString(c) && !pub[c] {
 					add("%s:%d: `%s` is listed as not exposed but is not published in %s. Correct the name, or remove the row", mcpPath, lineNo(lines[i]), c, schemaPath)
 				}
+			}
+		}
+	}
+	return problems
+}
+
+// checkNotExposed is the reverse check: a capability no agent can call must be named
+// in the not-exposed table, so a new human-audience or streaming capability cannot go
+// undocumented (ADR-0060).
+func checkNotExposed(fsys fs.FS, hidden []string) []string {
+	var problems []string
+	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	mcp, err := readDoc(fsys, mcpPath)
+	if err != nil {
+		return append(problems, err.Error())
+	}
+	if from, to, ok := findSection(mcp, "What is exposed, and what is not", &problems); ok {
+		rows, _ := mcp.table(from, to)
+		named := map[string]bool{}
+		for _, row := range rows {
+			for _, c := range codeSpans(row[0]) {
+				named[c] = true
+			}
+		}
+		for _, n := range hidden {
+			if !named[n] {
+				add("%s §What is exposed, and what is not: `%s` has audience human or is not stateless in %s but is not in the not-exposed table. Add it, with the reason", mcpPath, n, schemaPath)
 			}
 		}
 	}

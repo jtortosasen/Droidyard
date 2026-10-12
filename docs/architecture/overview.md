@@ -44,8 +44,10 @@ client of the same capabilities ([ADR-0003](../adr/0003-unified-capability-api.m
 
 - Adapters translate protocols; they hold no domain logic.
 - The capability API is the single contract for every consumer. The one deliberate
-  exception: policy changes are human-only and never reach MCP
-  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
+  exception: the human-audience capabilities never reach MCP
+  ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6,
+  [ADR-0045](../adr/0045-project-start-flow.md) §4,
+  [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)).
 - Domain services own state and orchestration.
 - Integrations call external tools and are the only place where tool-specific parsing
   lives. Gradle output is parsed in Go only where the Tooling API gives no structure

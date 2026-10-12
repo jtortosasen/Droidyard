@@ -124,6 +124,14 @@ var capabilityFixture = tree{
 `,
 }
 
+// The reverse check holds a decision: a capability no agent can call (audience human,
+// or not stateless) must be in the not-exposed table, or the document hides it.
+func TestNotExposedTableNamesEveryHiddenCapability(t *testing.T) {
+	expectClean(t, checkNotExposed(capabilityFixture.fs(), []string{"policy.get"}))
+	expect(t, checkNotExposed(capabilityFixture.fs(), []string{"policy.get", "file.read"}),
+		mcpPath, "`file.read`", "not-exposed table")
+}
+
 func TestCapabilityCheckCatchesDrift(t *testing.T) {
 	published := []string{"system.health", "policy.get"}
 	expectClean(t, checkCapabilityNames(capabilityFixture.fs(), published))

@@ -151,7 +151,7 @@ Everything in this step lands together: the audience change breaks the counts, t
   - `REQUEST_NOT_ALLOWED_HERE`'s generic text stays as it is. No MCP client can reach the core with a `file.*` call, because mcp-go refuses the unlisted tool first.
   - `Instructions` stays unchanged; it names no file tool.
 - Rests on: the UI and the CLI have no audience gate. Level 3 here; level 5 in step 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the nine descriptors `AudienceHuman`, the four batch renderings removed, `Version` 0.21.0, `CoreTools` 22 tools, `goldenPath` without file tools; `TestEveryFileCapabilityIsHumanAudience`, `TestFileCapabilitiesAreNotTools` (none listed under no flag, `all`, `core`; `tools/call file_read` → -32602 "tool 'file_read' not found"; `ClientMCP` → `REQUEST_NOT_ALLOWED_HERE`; the CLI's `callIn` and `POST /v1/call` with the token complete); `TestFileWatchNeedsASession`'s MCP leg → `REQUEST_NOT_ALLOWED_HERE`. Reversal (`file.read` back to `all`): both new tests and `TestToolListModelFacingBytes` (32 tools) fail, rerun by the Opus verifier. `tools/list` 34,786 → 28,032 B (39 → 31 tools); `maxToolListBytes` 35,000 → 29,000 (the 968 B slack alone may not catch one small tool; the count does). Schema diff: the version and nine audience lines. Opus verifier: proceed, no blocking or Important finding.
 
 ### 4. The documents and the register, for the removal
 
@@ -180,7 +180,7 @@ Everything in this step lands together: the audience change breaks the counts, t
 - Needs: step 3.
 - Not here: `docs/README.md` and `docs/plans/README.md` (the main session). Frozen records stay untouched.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `mcp.md` (the not-exposed row naming the nine, `file.watch` out of the streaming row, the batch bullet gone; the instructions block unchanged), `files.md`, `vision/vision.md`, `architecture/overview.md`, `mvp.md`'s row, register rows (three added; two reworded); the reverse doccheck (`checkNotExposed`, `TestNotExposedTableNamesEveryHiddenCapability`) seen failing with eight `file.*` missing before the row; `grep file_` over the live interface, subsystem, architecture and vision documents prints nothing; corpus 26,317 of 26,317 by cuts, `liveBudget` unchanged.
 
 ### 5. Level 5: the removal on the shipped binary
 
@@ -540,5 +540,7 @@ The substance is the owner's: removing the tools, and having an agent's deletes 
 | 2 | — | N6 the departure confirmed by the reference; N7 the trash cap; N8 retention; N9 `version` sole and the mutation; N10 the run limits; N11 Cursor's `Delete`; N12 split; nits | ADR-B costs added and 6(a) widened; build outputs pass; Restore on click with a past-retention message; `version` sole, real mutations, a register row; `settings*.json` byte-identical, the `ls` line dropped; 6(b) asks which tool; split offered to the owner; comments, `mcp.md:245`, rows 158/162, ADR-B's open-before-approval and parser answer |
 
 ## Changes
+
+- Step 7: `rm -rf build/x` passes, as ADR-0061 §2 says ("is or lies under `build`"); the Route list's `build/x` example was inconsistent with the pass list's `app/build/tmp`.
 
 None yet.
