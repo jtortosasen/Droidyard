@@ -11,7 +11,7 @@
 // lives, and a view only shows it (plan m2i D7), so a tab switch that destroys the view keeps
 // the document, selection, undo history and scroll.
 import { EditorView } from '@codemirror/view';
-import type { BufferOptions, EditorBuffer, EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
+import type { BufferOptions, CompareOptions, EditorBuffer, EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
 import { CmBuffer } from './buffer';
 import { isSaveKey } from './savekey';
 
@@ -22,6 +22,8 @@ function clamp(n: number, lo: number, hi: number): number {
 class CmEditor implements EditorHandle {
 	#view: EditorView;
 	#buffer: CmBuffer;
+	#save: () => void;
+	#prevSave: (() => void) | null;
 	#root: ShadowRoot;
 	#onKey: (e: KeyboardEvent) => void;
 
@@ -43,7 +45,11 @@ class CmEditor implements EditorHandle {
 		};
 		root.addEventListener('keydown', this.#onKey as EventListener);
 		this.#view = new EditorView({ state: buffer.state, parent: root, root });
-		buffer.onSave = opts.onSave;
+		// Each mount installs its own handler and puts back the one it found, so a late mount
+		// destroyed at once cannot leave the buffer with none (step 7 re-review N1).
+		this.#prevSave = buffer.onSave;
+		this.#save = () => opts.onSave();
+		buffer.onSave = this.#save;
 		buffer.attach(this.#view);
 		if (buffer.scroll !== null) this.#view.dispatch({ effects: buffer.scroll });
 	}
@@ -65,7 +71,7 @@ class CmEditor implements EditorHandle {
 
 	destroy(): void {
 		this.#root.removeEventListener('keydown', this.#onKey as EventListener);
-		this.#buffer.onSave = null;
+		if (this.#buffer.onSave === this.#save) this.#buffer.onSave = this.#prevSave;
 		this.#buffer.detach(this.#view);
 		this.#view.destroy();
 	}
@@ -73,6 +79,11 @@ class CmEditor implements EditorHandle {
 
 export function mount(host: HTMLElement, opts: EditorOptions): EditorHandle {
 	return new CmEditor(host, opts);
+}
+
+// Compare's code (the merge view) is its own chunk, fetched when Compare is first opened.
+export async function mountCompare(host: HTMLElement, opts: CompareOptions): Promise<EditorHandle> {
+	return (await import('./merge')).mountCompare(host, opts);
 }
 
 export function createBuffer(opts: BufferOptions): EditorBuffer {

@@ -31,6 +31,11 @@ function loader() {
 			mounted.push(f);
 			return f;
 		},
+		mountCompare: async (_host, o) => {
+			const f = new Fake(o);
+			mounted.push(f);
+			return f;
+		},
 		createBuffer: () => buffer,
 	};
 	const load = () =>
@@ -103,6 +108,30 @@ describe('LazyEditor', () => {
 		ed.destroy();
 		ed.reveal(1, 1);
 		expect(l.mounted[0]!.calls).toEqual(['destroy']);
+	});
+
+	// Decision (D8): Compare's code is a further chunk, so its mount is asynchronous; a file closed
+	// while it arrives must not leave a mounted view behind, and one that stays gets its calls.
+	it('destroys a Compare view that arrives after the editor was closed, and keeps one that does not', async () => {
+		const l = loader();
+		let arrive!: () => void;
+		const late = new Fake(opts);
+		const pending = new Promise<EditorHandle>((r) => (arrive = () => r(late)));
+		const ed = new LazyEditor(host, opts, () => {}, l.load, () => pending);
+		l.release();
+		await settle();
+		ed.destroy(); // closed while the mount is still arriving
+		arrive();
+		await settle();
+		expect(late.calls).toEqual(['destroy']);
+
+		const l2 = loader();
+		const kept = new Fake(opts);
+		const ed2 = new LazyEditor(host, opts, () => {}, l2.load, async () => kept);
+		ed2.reveal(2, 3);
+		l2.release();
+		await settle();
+		expect(kept.calls).toEqual(['reveal:2:3']);
 	});
 
 	// Decision: a chunk that fails to load is reported, not swallowed (the viewer says so).

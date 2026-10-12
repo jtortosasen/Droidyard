@@ -3,11 +3,11 @@
 	import type { Attachment } from 'svelte/attachments';
 	import FileQuestion from '@lucide/svelte/icons/file-question';
 	import { copyToClipboard } from '../devices/copy';
-	import { LazyEditor } from './surface';
+	import { LazyEditor, loadEditor } from './surface';
 	import { formatSize, readOnlyText, CAP, type EditorModel, type ViewerView } from './viewer';
 
-	// The editor of one file (plan m2d step 6, m2i steps 3 and 6): the header, banners and the
-	// binary placeholder are here; the text is shown by the code editor behind surface.ts,
+	// The editor of one file (plan m2d step 6, m2i steps 3, 6 and 7): the header, banners, the
+	// bar of an external change (D8: Reload, Keep mine, Compare) and the binary placeholder are here; the text is shown by the code editor behind surface.ts,
 	// mounted by an attachment once the model has a buffer, so its chunk loads when a file
 	// opens. The buffer lives in the model, not here: switching tabs destroys this component
 	// and keeps the document, selection and undo history.
@@ -21,7 +21,10 @@
 	let view = $state.raw<ViewerView>(untrack(() => viewer.view));
 	let copied = $state('');
 	let editorError = $state('');
+	// Compare is open (D8); it only shows while the bar does.
+	let comparing = $state(false);
 	const buffer = $derived(view.buffer);
+	const external = $derived(view.external);
 
 	$effect(() => {
 		const v = viewer;
@@ -29,6 +32,7 @@
 		copied = '';
 		return v.subscribe(() => {
 			view = v.view;
+			if (!view.external?.canCompare) comparing = false;
 		});
 	});
 
@@ -43,6 +47,39 @@
 		});
 		return () => ed.destroy();
 	};
+
+	// The same host, the buffer beside the disk's text; the host is made again when the disk's version changes.
+	const compare: Attachment<HTMLElement> = (host) => {
+		editorError = '';
+		const b = untrack(() => buffer);
+		const ext = untrack(() => external);
+		if (b === null || ext === null) return;
+		const ed = new LazyEditor(
+			host,
+			{ buffer: b, onSave: () => void viewer.save() },
+			(e) => {
+				editorError = e instanceof Error ? e.message : String(e);
+			},
+			loadEditor,
+			(m, h, o) => m.mountCompare(h, { ...o, disk: ext.text }),
+		);
+		return () => ed.destroy();
+	};
+
+	function reload() {
+		comparing = false;
+		viewer.reload();
+	}
+	function keepMine() {
+		comparing = false;
+		viewer.keepMine();
+	}
+
+	function externalText(ext: NonNullable<ViewerView['external']>, dirty: boolean): string {
+		const mine = dirty ? 'you have unsaved changes' : 'your editor still holds changes you undid, which Redo would bring back';
+		const what = ext.gone ? 'is gone from the disk' : ext.binary ? 'changed on the disk and is now binary' : 'changed on the disk';
+		return `This file ${what}, and ${mine}.${ext.updated ? ' It changed again after this message appeared.' : ''}`;
+	}
 
 	async function copy() {
 		const r = await copyToClipboard(copyPath(view.path), typeof navigator === 'undefined' ? undefined : navigator.clipboard);
@@ -75,10 +112,26 @@
 		{#if view.readOnly && view.readOnly !== 'capped'}
 			<p class="banner" role="status">{readOnlyText(view.readOnly)}</p>
 		{/if}
+		{#if external}
+			<div class="banner bar" role="alert">
+				<span class="why">{externalText(external, view.dirty)}</span>
+				<button type="button" disabled={!external.canReload || view.saving} onclick={reload}>Reload</button>
+				<button type="button" disabled={!external.canKeep || view.saving} onclick={keepMine}>Keep mine</button>
+				<button type="button" disabled={!external.canCompare} aria-pressed={comparing} onclick={() => (comparing = !comparing)}>
+					{comparing ? 'Back to the editor' : 'Compare'}
+				</button>
+			</div>
+		{/if}
 		{#if buffer}
-			{#key buffer}
-				<div class="host" {@attach editor}></div>
-			{/key}
+			{#if comparing && external?.canCompare}
+				{#key external}
+					<div class="host" {@attach compare}></div>
+				{/key}
+			{:else}
+				{#key buffer}
+					<div class="host" {@attach editor}></div>
+				{/key}
+			{/if}
 		{/if}
 		{#if editorError}
 			<p class="banner error" role="alert">The editor could not be loaded: {editorError}</p>
@@ -144,6 +197,16 @@
 	}
 	.banner.error {
 		color: var(--danger);
+	}
+	.bar {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--sp-4);
+	}
+	.why {
+		flex: 1;
+		min-width: 12em;
 	}
 	.placeholder {
 		flex: 1;

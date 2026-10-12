@@ -164,8 +164,9 @@ describe('CmBuffer dirty flag (D7)', () => {
 
 describe('CmBuffer load', () => {
 	// Decision (D8): a clean buffer takes the disk's text without becoming dirty, without a
-	// flicker of "dirty" in between, and keeps its undo history and selection outside the change.
-	it('takes new text clean, keeping the history and a cursor outside the change', () => {
+	// flicker of "dirty" in between, keeps a cursor outside the change, and the take is one undoable
+	// event of its own: Undo brings back the text before it as a whole (never a mapped mixture).
+	it('takes new text clean as one undoable event, keeping a cursor outside the change', () => {
 		const b = make('one\ntwo\nthree\n');
 		type(b, 0, 'X');
 		run(b, undo);
@@ -180,8 +181,43 @@ describe('CmBuffer load', () => {
 		expect(b.text()).toBe('Yone\ntwo\nthree\nfour\n');
 		expect(b.dirty).toBe(false);
 		expect(seen).toEqual([false]);
-		expect(undoDepth(b.state)).toBe(1);
+		expect(undoDepth(b.state)).toBe(2); // the typing, and the take
 		expect(b.state.selection.main.head).toBe(2);
+		run(b, undo);
+		expect(b.text()).toBe('Yone\ntwo\nthree\n');
+		expect(b.dirty).toBe(true); // against the disk's text it was loaded from
+		run(b, redo);
+		expect(b.text()).toBe('Yone\ntwo\nthree\nfour\n');
+		expect(b.dirty).toBe(false);
+	});
+
+	// Decision (D8, review): a buffer undone to its saved text has a redo stack, which a silent take would garble.
+	it('reports a redo stack, and setSaved(text) makes the buffer unsaved against that text', () => {
+		const b = make('one\n');
+		expect(b.hasRedo).toBe(false);
+		type(b, 0, 'X');
+		run(b, undo);
+		expect(b.dirty).toBe(false);
+		expect(b.hasRedo).toBe(true);
+		b.setSaved('other\n');
+		expect(b.dirty).toBe(true);
+		expect(b.text()).toBe('one\n');
+		b.setSaved('one\n');
+		expect(b.dirty).toBe(false);
+		b.setSaved(null);
+		expect(b.dirty).toBe(true);
+		const snap = b.snapshot();
+		snap.commit();
+		expect(b.dirty).toBe(false);
+	});
+
+	// Decision: a disk whose breaks differ from the buffer's separator is not the same bytes.
+	it('counts a disk with another separator as different from a CRLF buffer', () => {
+		const b = make('a\r\nb\r\n');
+		b.setSaved('a\nb\n');
+		expect(b.dirty).toBe(true);
+		b.setSaved('a\r\nb\r\n');
+		expect(b.dirty).toBe(false);
 	});
 
 	// Decision: a CRLF file read again stays CRLF byte for byte, including the span replaced.
