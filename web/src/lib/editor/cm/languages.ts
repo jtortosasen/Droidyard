@@ -1,7 +1,7 @@
 // File name -> language (plan m2i O3, D3). Each language is its own dynamic import, so its
 // chunk is requested only when a file of that kind opens; an unknown extension is plain
 // text. Kotlin here is the legacy clike mode; step 5 decides whether a Lezer grammar replaces it.
-import { StreamLanguage, type StreamParser } from '@codemirror/language';
+import { StreamLanguage, foldService, matchBrackets, type StreamParser } from '@codemirror/language';
 import type { Extension } from '@codemirror/state';
 
 export interface LanguageEntry {
@@ -12,8 +12,22 @@ export interface LanguageEntry {
 
 const stream = async (mode: () => Promise<StreamParser<unknown>>): Promise<Extension> => StreamLanguage.define(await mode());
 
-const kotlin: LanguageEntry = { id: 'kotlin', load: () => stream(async () => (await import('@codemirror/legacy-modes/mode/clike')).kotlin) };
-const groovy: LanguageEntry = { id: 'groovy', load: () => stream(async () => (await import('@codemirror/legacy-modes/mode/groovy')).groovy) };
+/**
+ * Folding for the brace languages' legacy modes, which give none (m2i step 6, Delegated): a
+ * line whose last `{` has its match on a later line folds to just inside it.
+ */
+export const braceFold = foldService.of((state, lineStart, lineEnd) => {
+	const at = state.sliceDoc(lineStart, lineEnd).lastIndexOf('{');
+	if (at < 0) return null;
+	const m = matchBrackets(state, lineStart + at, 1);
+	if (m === null || !m.matched || m.end === undefined || m.end.from <= lineEnd) return null;
+	return { from: lineStart + at + 1, to: m.end.from };
+});
+
+const braces = async (mode: () => Promise<StreamParser<unknown>>): Promise<Extension> => [await stream(mode), braceFold];
+
+const kotlin: LanguageEntry = { id: 'kotlin', load: () => braces(async () => (await import('@codemirror/legacy-modes/mode/clike')).kotlin) };
+const groovy: LanguageEntry = { id: 'groovy', load: () => braces(async () => (await import('@codemirror/legacy-modes/mode/groovy')).groovy) };
 const toml: LanguageEntry = { id: 'toml', load: () => stream(async () => (await import('@codemirror/legacy-modes/mode/toml')).toml) };
 const properties: LanguageEntry = {
 	id: 'properties',

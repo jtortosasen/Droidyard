@@ -7,11 +7,15 @@
 	import type { ProjectsView } from './lib/projects/projects';
 	import { bootstrapToken, forgetToken } from './lib/api/token';
 	import { browserRouteEnv, Router, type Route } from './lib/start/route';
+	import { Navigation } from './lib/start/navigate';
+	import { StaleSession } from './lib/start/stale';
 	import { landing, ProjectsModel } from './lib/projects/projects';
 	import { SessionsModel } from './lib/projects/sessions';
 	import Projects from './lib/projects/Projects.svelte';
 	import SessionsToggle from './lib/projects/SessionsToggle.svelte';
 	import Project from './lib/start/Project.svelte';
+	import UnsavedDialog from './lib/editor/UnsavedDialog.svelte';
+	import { UnsavedGuard, type Pending } from './lib/editor/unsaved';
 	import Status from './lib/ui/Status.svelte';
 
 	// The token comes from the fragment `droidyard ui` opened, once; a tab without one,
@@ -27,14 +31,36 @@
 	// shows the newest open project, else the projects panel.
 	const router = new Router(browserRouteEnv(window));
 	let route = $state.raw<Route>(router.route);
+	let refused = $state(false);
+
+	// Unsaved text is never lost by leaving (m2i D7): the open project's models attach to the
+	// guard, and every way out of the project asks it first.
+	const guard = new UnsavedGuard();
+	let asking = $state.raw<Pending | null>(guard.pending);
+	$effect(() => guard.subscribe(() => (asking = guard.pending)));
+
+	// The route on show moves only when the answer lets it (navigate.ts).
+	const nav = new Navigation(router, guard);
+	const go = (target: Route) => nav.go(target);
 	$effect(() =>
 		router.subscribe(() => {
-			route = router.route;
+			route = nav.onAddress();
 			if (route.view === 'project') refused = false;
 		}),
 	);
 
+	// A tab closed or reloaded with unsaved text asks the browser's own question.
+	function beforeunload(e: BeforeUnloadEvent) {
+		if (!guard.hasDirty()) return;
+		e.preventDefault();
+		e.returnValue = '';
+	}
+
 	let connection = $state<ConnectionState>('connecting');
+
+	// A refused token with unsaved text keeps the project on screen under a banner (stale.ts).
+	const stale = new StaleSession(guard);
+	const staleMode = $derived(stale.decide(connection));
 	let health = $state.raw<Result<'system.health'> | null>(null);
 	let healthError = $state<string | null>(null);
 
@@ -44,8 +70,7 @@
 	let projects = $state.raw<ProjectsModel | null>(null);
 	let sessions = $state.raw<SessionsModel | null>(null);
 	let projectsView = $state.raw<ProjectsView | null>(null);
-	// A `w` the daemon refused: the panel stays up with the reason until a project is chosen.
-	let refused = $state(false);
+	// `refused` (above): a `w` the daemon refused; the panel stays up with the reason until a project is chosen.
 
 	$effect(() => {
 		if (token === null) return;
@@ -65,7 +90,7 @@
 			},
 			(id) => {
 				refused = false;
-				router.go({ view: 'project', workspace: id });
+				go({ view: 'project', workspace: id });
 			},
 		);
 		const agents = new SessionsModel(store);
@@ -155,17 +180,28 @@
 	{/if}
 {/snippet}
 
+<svelte:window onbeforeunload={beforeunload} />
+
+{#if asking}
+	<UnsavedDialog pending={asking} onanswer={(a) => void guard.answer(a)} />
+{/if}
+
 {#if token === null}
 	<main class="solo">
 		<h1>Droidyard</h1>
 		<p>No token in this tab: run <code>droidyard ui</code>.</p>
 	</main>
-{:else if connection === 'unauthorized'}
+{:else if staleMode === 'solo'}
 	<main class="solo">
 		<h1>Droidyard</h1>
 		<p>The daemon restarted: run <code>droidyard ui</code>.</p>
 	</main>
 {:else if client && activity && hub && projects && sessions}
+	{#if staleMode === 'banner'}
+		<p class="stale" role="alert">
+			The daemon restarted, so this tab can no longer save: run <code>droidyard ui</code>. Your unsaved text is still here; copy it out first.
+		</p>
+	{/if}
 	{#if route.view === 'project'}
 		{#key route.workspace}
 			<Project
@@ -176,6 +212,7 @@
 				{hub}
 				{connection}
 				workspaceId={route.workspace}
+				{guard}
 				onmissing={missing}
 				{status}
 				{sessionsToggle}
@@ -192,6 +229,20 @@
 {/if}
 
 <style>
+	/* Over the project, not in its layout: the shell fills the viewport. */
+	.stale {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 100;
+		margin: 0;
+		padding: var(--sp-3) var(--sp-5);
+		background: var(--bg-raised);
+		color: var(--danger);
+		border-bottom: 1px solid var(--danger);
+		font-size: var(--fs-small);
+	}
 	.solo {
 		height: 100%;
 		overflow: auto;

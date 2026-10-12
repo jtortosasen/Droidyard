@@ -154,7 +154,7 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 - Needs: steps 2, 3.
 - Not here: the bar and Compare (step 7: until then a dirty buffer only shows the conflict's message on save); autosave (O5).
 - Rests on: CDP's key events stand for headed Chrome's Cmd+S, Cmd+F and Cmd-click (level 4; Unverified).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `@codemirror/commands` 6.11.1, `@codemirror/search` 6.7.2. A CM-free `EditorModel` (`viewer.ts`) holds an opaque `EditorBuffer` (`surface.ts`) that `cm/buffer.ts` implements over an `EditorState` with history, reached by the dynamic import, so tabs keep state and undo across switches; separators by `text.ts`, `lineSeparator`, `clipboardInputFilter` and a `transactionFilter` for every other insert; `UnsavedGuard`, `UnsavedDialog.svelte`, `start/navigate.ts`, `beforeunload`. Vitest 62 files, 641 tests: every Check item; seen failing: the save without `ifRevision`, the rename with `ViewerSet.moved` a no-op, the dirty reload, the in-flight echo, and each fix-round item (below). Level 4 (`l4-s6-015531`, `l4-s6b-020915`): typing in `MainActivity.kt` marks the tab, Cmd+S clears it and the file's SHA-256 equals the buffer's; Cmd+F replace-all, Cmd+Z back to the saved text (clean again), Cmd+Alt+G to line 10, Cmd-click two cursors; a fold in `AndroidManifest.xml` and, after `braceFold`, in Kotlin; Cmd+S from the search field saves with no browser dialog; closing a dirty tab opens the dialog, Cancel keeps it dirty, Don't save closes it with the disk untouched; `window.__csp` empty. A daemon restart with a dirty buffer (through a Host-rewriting proxy on a fixed port, so the page meets the new token's 4401): the banner "…your unsaved text is still here…" over a still-mounted project, the text kept, the disk untouched.
 
 ### 7. External changes and Compare (O6, D8)
 
@@ -264,7 +264,13 @@ Baseline on 2026-10-12 at `c7e5a4d` (macOS): `go vet ./...` printed nothing; `go
 | Step 2 | | Nits: "under the lock" in the early cause; the `absent` message; the error comment; `files.md` cuts | fixed; cuts kept (in the code) |
 | Step 3 | proceed | [bug] a re-read replaced the whole text, so the view jumps to the top (CM maps the anchor to 0) | fixed: `setDocument` replaces only the differing span (`cm/change.ts`, Vitest); the kept scroll seen at step 4's level 4 |
 | Step 3 | | Nits: the theme's CSP reason; "Unverified here"; the Evidence's SHA-256 check instead of `.cm-content`; two weak `surface` tests; `editorError` never cleared | fixed with step 3's commit |
+| Step 6 | proceed | [safety] a daemon restart (4401) unmounted the project and dropped dirty buffers | `start/stale.ts`: the project stays with a banner; level 4 through a proxy |
+| Step 6 | | [bug] an agent's write of the old bytes during our save was taken for our echo | only the in-flight revision is the echo; test |
+| Step 6 | | [safety] Keep both or duplicate could land on an open, dirty, deleted tab's path | refused before any call (deleted dirty tabs in the target folder); both tabs and marks kept in the safety net; tests |
+| Step 6 | | [bug] replace with `\n` in a CRLF file inserted a lone break | `separatorFilter` (transaction filter); tests with CM's `replaceAll` |
+| Step 6 | | Nits: a clean reload kept the error line; a returned file stayed `deleted`; rename's stale `deleted`; Mod-s in the search field | fixed; tests; Mod-s seen at level 4 |
 
 ## Changes
 
+- Step 6 (Delegated): Kotlin and Groovy fold at braces (`braceFold` in `cm/languages.ts`): the legacy modes give no folding, so O5's folding would have worked only in XML, JSON and Markdown. Keep both and duplicate are refused only for an open dirty tab marked deleted in the target folder (a live tab's path is taken, so the daemon's free name cannot be it); a deletion whose event has not yet arrived is the residual window.
 - Step 2, the verifier's round (Delegated, before 0.20.0 ships since tightening later would break callers): an explicit `"ifRevision": null` is refused, as `policy.update` refuses it; `ifRevision: absent` against an existing file over 8 MiB is `FILE_REVISION_CONFLICT`, settled by existence, not `FILE_TOO_LARGE`.

@@ -4,13 +4,49 @@
 // reached by a dynamic `import()` so its chunk is requested when a file opens, not at page
 // load. A replacement editor implements `EditorHandle` and changes `loadEditor` and nothing else.
 
-/** What a mounted editor is given at the start. */
-export interface EditorOptions {
-	/** The text to show. */
-	doc: string;
+/** What a buffer is made from. */
+export interface BufferOptions {
+	/** The file's text, byte for byte as read (its line separators included). */
+	text: string;
 	readOnly: boolean;
 	/** The file's path or name: its extension picks the language to highlight; none or unknown is plain text. */
 	path?: string;
+}
+
+/** The document as it was at one moment, and the means to call it the saved one. */
+export interface BufferSnapshot {
+	/** The whole text, with the file's line separator: the bytes a save writes. */
+	readonly text: string;
+	/** Makes this document the saved one; a no-op once `load` has replaced the document. */
+	commit(): void;
+}
+
+/**
+ * One file's editing state (plan m2i D7): its document, selection and undo history. It lives
+ * as long as the file's tab, outside any mounted editor, so switching tabs keeps it; the
+ * editor module makes it and shows it, and the app holds it as a value with this interface.
+ */
+export interface EditorBuffer {
+	/** The document differs from the saved text. */
+	readonly dirty: boolean;
+	/** The whole text, with the file's line separator. */
+	text(): string;
+	snapshot(): BufferSnapshot;
+	/** Replaces the document and the saved text with `text` (a clean buffer taking the disk's); history stays when it can. */
+	load(text: string): void;
+	setReadOnly(readOnly: boolean): void;
+	/** Sets the file's path or name, and so the language; the highlighting follows once its code has loaded. */
+	setPath(path: string): void;
+	/** Calls `listener` whenever the document changes (the dirty flag may have flipped). */
+	onChange(listener: () => void): () => void;
+}
+
+/** What a mounted editor is given at the start. */
+export interface EditorOptions {
+	/** The buffer to show, made by the same module's `createBuffer`. */
+	buffer: EditorBuffer;
+	/** Mod-s was pressed in the editor. */
+	onSave(): void;
 }
 
 /** A problem to underline: lines and columns are 1-based, `end*` are optional. */
@@ -23,13 +59,8 @@ export interface EditorDiagnostic {
 	message: string;
 }
 
-/** A mounted editor. Steps 4 (languages), 6 (editing, one state per tab) and 8 (diagnostics) extend it. */
+/** A mounted editor, showing one buffer. Step 8 (diagnostics) extends it. */
 export interface EditorHandle {
-	/** Replaces the whole text; nothing happens when it is the text already shown. */
-	setDocument(text: string): void;
-	setReadOnly(readOnly: boolean): void;
-	/** Sets the file's path or name, and so the language; the highlighting follows once its code has loaded. */
-	setPath(path: string): void;
 	/** Moves the cursor to a 1-based line and column (clamped to the text) and scrolls it into view. */
 	reveal(line: number, col: number): void;
 	setDiagnostics(list: readonly EditorDiagnostic[]): void;
@@ -40,6 +71,7 @@ export interface EditorHandle {
 /** The module `cm/view.ts` exports; the only thing `loadEditor` must return. */
 export interface EditorModule {
 	mount(host: HTMLElement, opts: EditorOptions): EditorHandle;
+	createBuffer(opts: BufferOptions): EditorBuffer;
 }
 
 export type LoadEditor = () => Promise<EditorModule>;
@@ -49,28 +81,21 @@ export const loadEditor: LoadEditor = () => import('./cm/view');
 
 /**
  * An editor that is usable at once and mounted when its code has loaded: calls made before
- * that are remembered (the last text, the last read-only flag, the last path, the last reveal and diagnostics)
- * and applied at mount; a `destroy` before it cancels the mount. A failure to load or to mount
- * goes to `onError`.
+ * that are remembered (the last reveal and diagnostics) and applied at mount; a `destroy`
+ * before it cancels the mount. A failure to load or to mount goes to `onError`.
  */
 export class LazyEditor implements EditorHandle {
 	#handle: EditorHandle | null = null;
 	#gone = false;
-	#doc: string;
-	#readOnly: boolean;
-	#path: string | undefined;
 	#reveal: [number, number] | null = null;
 	#diagnostics: readonly EditorDiagnostic[] = [];
 
 	constructor(host: HTMLElement, opts: EditorOptions, onError: (e: unknown) => void, load: LoadEditor = loadEditor) {
-		this.#doc = opts.doc;
-		this.#readOnly = opts.readOnly;
-		this.#path = opts.path;
 		load().then(
 			(m) => {
 				if (this.#gone) return;
 				try {
-					const h = m.mount(host, { doc: this.#doc, readOnly: this.#readOnly, path: this.#path });
+					const h = m.mount(host, opts);
 					this.#handle = h;
 					if (this.#diagnostics.length > 0) h.setDiagnostics(this.#diagnostics);
 					if (this.#reveal !== null) h.reveal(...this.#reveal);
@@ -82,21 +107,6 @@ export class LazyEditor implements EditorHandle {
 				if (!this.#gone) onError(e);
 			},
 		);
-	}
-
-	setDocument(text: string): void {
-		this.#doc = text;
-		this.#handle?.setDocument(text);
-	}
-
-	setReadOnly(readOnly: boolean): void {
-		this.#readOnly = readOnly;
-		this.#handle?.setReadOnly(readOnly);
-	}
-
-	setPath(path: string): void {
-		this.#path = path;
-		this.#handle?.setPath(path);
 	}
 
 	reveal(line: number, col: number): void {
