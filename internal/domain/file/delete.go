@@ -122,19 +122,6 @@ func limitCodes(e *capability.Error, allowed ...capability.ErrorCode) *capabilit
 	return &out
 }
 
-// deleteText is file.delete's rendering (batchText).
-func deleteText(r DeleteResult) string {
-	lines := make([]batchLine, len(r.Items))
-	for i, it := range r.Items {
-		words := []string{it.Path}
-		if it.TrashID != "" {
-			words = append(words, "->", it.TrashID)
-		}
-		lines[i] = batchLine{words: words, code: it.Code, message: it.Message}
-	}
-	return batchText("trashed", lines)
-}
-
 // measure counts what a delete takes into the trash for entry.json: the item's entries
 // and the bytes of its regular files, by a walk through the os.Root that never follows a
 // link and stops at the entry cap (D48), reporting that it was cut. A folder it cannot

@@ -1,5 +1,5 @@
 {
-  "version": "0.20.0",
+  "version": "0.21.0",
   "capabilities": [
     {
       "name": "artifact.read",
@@ -5604,7 +5604,7 @@
       "scope": "workspace",
       "statefulness": "stateless",
       "longRunning": true,
-      "audience": "all",
+      "audience": "human",
       "since": "0.19.0",
       "description": "Copies up to 1000 files or folders, a folder whole and a symlink as a link; nothing is replaced, and a failed or cancelled copy leaves nothing. A taken target is FILE_EXISTS, or a free name such as \"a copy.kt\" with onCollision keepBoth; an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
       "annotations": {
@@ -5775,7 +5775,7 @@
       "kind": "command",
       "scope": "workspace",
       "statefulness": "stateless",
-      "audience": "all",
+      "audience": "human",
       "since": "0.19.0",
       "description": "Creates an empty file or a folder in the project, making missing parent folders; it never replaces, and an existing path is FILE_EXISTS. The path is relative to the project root.",
       "annotations": {
@@ -5841,7 +5841,7 @@
       "scope": "workspace",
       "statefulness": "stateless",
       "longRunning": true,
-      "audience": "all",
+      "audience": "human",
       "since": "0.19.0",
       "description": "Deletes up to 1000 files or folders into the workspace's trash, kept up to 7 days within 2 GiB per project; an item's trashId restores it with file.restore. A symlink goes as the link, and across volumes an item over 20000 entries or 1 GiB is FILE_TOO_LARGE.",
       "annotations": {
@@ -5987,7 +5987,7 @@
       "kind": "query",
       "scope": "workspace",
       "statefulness": "stateless",
-      "audience": "all",
+      "audience": "human",
       "since": "0.9.0",
       "description": "Lists one level of a directory in the project, never recursively, with name, type, size and modification time per entry. The path is relative to the project root; a path that leaves it, or a symlink that would, is FILE_OUTSIDE_ROOT.",
       "annotations": {
@@ -6081,7 +6081,7 @@
       "kind": "command",
       "scope": "workspace",
       "statefulness": "stateless",
-      "audience": "all",
+      "audience": "human",
       "since": "0.19.0",
       "description": "Moves or renames up to 1000 files or folders, a rename being a move inside one folder; nothing is replaced. The call completes with each item's outcome: a taken target is FILE_EXISTS, or a free name with onCollision keepBoth.",
       "annotations": {
@@ -6198,7 +6198,7 @@
       "kind": "query",
       "scope": "workspace",
       "statefulness": "stateless",
-      "audience": "all",
+      "audience": "human",
       "since": "0.9.0",
       "description": "Reads a byte range of a text file in the project, paging as artifact.read does: text ends at a complete line, nextOffset continues, a negative offset reads from the end. A binary file reports binary and no text, and a path outside the project root is FILE_OUTSIDE_ROOT.",
       "annotations": {
@@ -6293,7 +6293,7 @@
       "scope": "workspace",
       "statefulness": "stateless",
       "longRunning": true,
-      "audience": "all",
+      "audience": "human",
       "since": "0.19.0",
       "description": "Puts trashed items back at their paths, making missing folders and replacing nothing: a taken path is FILE_EXISTS, and an id this workspace's trash lacks is FILE_NOT_IN_TRASH. It works after a daemon restart.",
       "annotations": {
@@ -6441,7 +6441,7 @@
       "kind": "command",
       "scope": "workspace",
       "statefulness": "streaming",
-      "audience": "all",
+      "audience": "human",
       "since": "0.9.0",
       "description": "Watches a directory in the project (WebSocket sessions only) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
       "annotations": {
@@ -6616,7 +6616,7 @@
       "kind": "command",
       "scope": "workspace",
       "statefulness": "stateless",
-      "audience": "all",
+      "audience": "human",
       "since": "0.9.0",
       "description": "Writes a whole UTF-8 text file (at most 512 KiB) into the project, atomically replacing any existing file and creating missing parent directories. The path is relative to the project root; a path that leaves it, or a symlink as the final component, is refused.",
       "annotations": {

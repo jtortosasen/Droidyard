@@ -96,19 +96,6 @@ func (r *resolver) restore(ctx context.Context, p RestoreParams) (RestoreResult,
 	return res, nil
 }
 
-// restoreText is file.restore's rendering (batchText).
-func restoreText(r RestoreResult) string {
-	lines := make([]batchLine, len(r.Items))
-	for i, it := range r.Items {
-		words := []string{it.TrashID}
-		if it.Path != "" {
-			words = append(words, "->", it.Path)
-		}
-		lines[i] = batchLine{words: words, code: it.Code, message: it.Message}
-	}
-	return batchText("restored", lines)
-}
-
 // notInTrash is the item error of an id this workspace's trash does not hold.
 func notInTrash(id string) *capability.Error {
 	return capability.Errorf(capability.ErrFileNotInTrash, "%q is not in this workspace's trash", id).

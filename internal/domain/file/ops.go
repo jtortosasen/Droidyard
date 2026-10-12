@@ -191,45 +191,5 @@ func (r *resolver) classifyOp(path string, err error) *capability.Error {
 	}
 }
 
-// batchLine is one item of a batch as its text rendering shows it: the words that name
-// it (a path, or two with an arrow between), and its code and message when it failed.
-type batchLine struct {
-	words         []string
-	code, message string
-}
-
-// batchText renders a batch (ADR-0036 Decision 2): the first line counts the failures and
-// names their codes, then each failed item with its code and message, then the done
-// items under verb. A batch with failed items is a successful call, so the failures lead,
-// where an agent cannot read past them.
-func batchText(verb string, lines []batchLine) string {
-	var failed []batchLine
-	var codes []string
-	for _, l := range lines {
-		if l.code == "" {
-			continue
-		}
-		failed = append(failed, l)
-		seen := false
-		for _, c := range codes {
-			seen = seen || c == l.code
-		}
-		if !seen {
-			codes = append(codes, l.code)
-		}
-	}
-	var t capability.Text
-	t.W("failed").Int(int64(len(failed))).W("of").Int(int64(len(lines))).List(codes).Nl()
-	for _, l := range failed {
-		t.W(l.code).W(l.words...).Q(l.message).Nl()
-	}
-	for _, l := range lines {
-		if l.code == "" {
-			t.W(verb).W(l.words...).Nl()
-		}
-	}
-	return t.String()
-}
-
 // itemWhere names an item's parameter in a message.
 func itemWhere(i int, field string) string { return fmt.Sprintf("items[%d].%s", i, field) }
