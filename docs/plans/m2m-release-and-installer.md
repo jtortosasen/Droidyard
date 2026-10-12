@@ -159,7 +159,7 @@ Read at `4c5514b` (`main`).
   - The build dry run comes in step 4.
 - Rests on: the runner takes Node and pnpm from `web/`'s pins and Go from `go.mod`, at level 5. Only the run log proves it.
 - Review: the main session's diff review.
-- [x] Done. Evidence: (cut to `ci.yml`, §Changes) run 38281599901 green on `ubuntu-24.04` (PR #1), logging go1.27.2 linux/amd64, Node v24.13.1, pnpm 12.10.1. Run 38280846547 had two runner-only failures, both test premises, fixed by step 1(b): `TestLongStateRootsDoNotShareAFallbackSocket` (the runner sets `XDG_RUNTIME_DIR`; the test hides it) and `TestBuildScriptReproducesTheDex` (the runner's javac is not 17.0.11; the test skips, as the sidecar's does). Not done: (a) and (b), the `release/` static tests and the hook mapping.
+- [x] Done. Evidence: (cut to `ci.yml`, §Changes) run 38281599901 green on `ubuntu-24.04` (PR #1), logging go1.27.2 linux/amd64, Node v24.13.1, pnpm 12.10.1. Run 38280846547 had two runner-only failures, both test premises, fixed by step 1(b): `TestLongStateRootsDoNotShareAFallbackSocket` (the runner sets `XDG_RUNTIME_DIR`; the test hides it) and `TestBuildScriptReproducesTheDex` (the runner's javac is not 17.0.11; the test skips, as the sidecar's does). (a), added after the owner's second word: the five `release/` tests pass, each seen failing on a mutated copy of `ci.yml` (a tag-pinned `uses:`, `macos-latest`, no `go vet`, no `persist-credentials`, `contents: write`). (b): with a placeholder `install.sh` staged, `sh -x .githooks/pre-commit` ran `go test -count=1 github.com/jtortosasen/droidyard/release`; placeholder unstaged and removed.
 
 ### 3. The build version: stamped at link time, shown beside the API version
 
@@ -181,7 +181,7 @@ Read at `4c5514b` (`main`).
   - No `git describe` stamp on a dev build.
 - Rests on: —
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestVersionLine`, `TestVersionCommand` pass; `TestVersionCommand` seen failing with `version` printing `system.Version` alone ("0.23.0\n"). The `-X` symbol's effect is step 4's check.
 
 ### 4. `release/build.sh`: the release, built anywhere
 
@@ -399,3 +399,4 @@ None. The ADR-0002 bookkeeping is a precondition (Starting point), not an open d
 - Step 1: on Linux, Pdeathsig ends a killed daemon's follow client, so `TestKilledDaemonLeavesTheFollowForTheNextStart` is skipped there: the reap-by-record half of that path is tested on macOS only (register row at the close). `TestReaderClientSerialisesPerDeviceAndNotTwoDevices` failed once in five Linux runs; if CI shows it, it is skipped on Linux with a row.
 - Owner, 2026-10-12, after step 1: "solo me interesa ahora que se ejecute en la CI". Step 2 is cut to `ci.yml` and its first runner run; the `release/` package of static workflow tests and the hook mapping move out of step 2 (whether they come back with step 6 is decided there).
 - Owner, 2026-10-12, later the same day: the milestone is done in full and closed only when complete, nothing broken or partial merged into `main`. Step 2's (a) and (b), the `release/` static tests and the hook mapping, come back, implemented with step 3.
+- Step 3: `cmd/droidyard/main.go` imported `internal/domain/build` as `build`, which collides with `var build`; the import is aliased `builddomain` there and in `watchoutput_test.go`. The `-X main.build` symbol is as planned.
