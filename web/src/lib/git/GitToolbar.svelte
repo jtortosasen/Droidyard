@@ -1,0 +1,179 @@
+<script lang="ts">
+	import type { Component } from 'svelte';
+	import Archive from '@lucide/svelte/icons/archive';
+	import ArrowDown from '@lucide/svelte/icons/arrow-down';
+	import ArrowDownToLine from '@lucide/svelte/icons/arrow-down-to-line';
+	import ArrowUp from '@lucide/svelte/icons/arrow-up';
+	import ArrowUpFromLine from '@lucide/svelte/icons/arrow-up-from-line';
+	import Download from '@lucide/svelte/icons/download';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
+	import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
+	import LocateFixed from '@lucide/svelte/icons/locate-fixed';
+	import { activate, TOOLBAR, type ToolbarId } from './controls';
+	import { headDisplay, type RefsHead } from './refs';
+
+	// The History tab's operations toolbar, after SourceGit's (plan m2n step 6; the owner's item
+	// 10): Fetch, Pull, Push, Stash, a separator, Create Branch; at the right end the current
+	// branch's name with its ahead and behind badge, and Navigate to HEAD. Every write control is
+	// shown disabled until the part that enables it (controls.ts); a click goes through
+	// `activate`, so a disabled control reaches nothing. Pull and Push carry a dot when the
+	// branch is behind or ahead. The branch name is git's text, in an isolated text node.
+	interface Props {
+		/** HEAD as the refs read it; null until they arrive. */
+		head: RefsHead | null;
+		/** Navigate to HEAD was pressed. */
+		onnavigate: () => void;
+		/** Part 2's seam: an enabled control was pressed. */
+		onrun?: (id: ToolbarId) => void;
+	}
+	let { head, onnavigate, onrun }: Props = $props();
+
+	const ICONS: Record<ToolbarId, Component> = {
+		fetch: Download,
+		pull: ArrowDownToLine,
+		push: ArrowUpFromLine,
+		stash: Archive,
+		'create-branch': GitBranchPlus,
+	};
+
+	const shown = $derived(head === null ? null : headDisplay(head));
+	const dot = (id: ToolbarId) => (id === 'pull' ? (shown?.behind ?? 0) > 0 : id === 'push' ? (shown?.ahead ?? 0) > 0 : false);
+	const upstreamTitle = $derived(
+		shown === null
+			? ''
+			: shown.upstream === undefined
+				? 'No upstream'
+				: shown.upstreamGone
+					? `Upstream ${shown.upstream} is gone`
+					: `Upstream ${shown.upstream}: ${shown.ahead} ahead, ${shown.behind} behind`,
+	);
+</script>
+
+<div class="toolbar" role="toolbar" aria-label="Git operations">
+	{#each TOOLBAR as c (c.id)}
+		{@const Icon = ICONS[c.id]}
+		{#if c.id === 'create-branch'}<span class="sep" role="separator" aria-orientation="vertical"></span>{/if}
+		<button
+			type="button"
+			class="tool"
+			data-toolbar={c.id}
+			data-dot={dot(c.id) ? '' : undefined}
+			disabled={!c.enabled}
+			title={c.title}
+			onclick={() => activate(c, () => onrun?.(c.id))}
+		>
+			<Icon size={14} />
+			<span>{c.label}</span>
+			{#if dot(c.id)}<span class="dot" aria-hidden="true"></span>{/if}
+		</button>
+	{/each}
+	<span class="fill"></span>
+	{#if shown}
+		<span
+			class="branch"
+			data-branch-display
+			data-ahead={shown.ahead}
+			data-behind={shown.behind}
+			data-detached={shown.detached ? '' : undefined}
+			title={upstreamTitle}
+		>
+			<GitBranch size={14} />
+			<span class="name">{shown.name}</span>
+			{#if shown.upstream !== undefined && !shown.upstreamGone}
+				<span class="counts">
+					<span class="count" class:zero={shown.ahead === 0} data-ahead-badge><ArrowUp size={11} />{shown.ahead}</span>
+					<span class="count" class:zero={shown.behind === 0} data-behind-badge><ArrowDown size={11} />{shown.behind}</span>
+				</span>
+			{:else if shown.upstreamGone}
+				<span class="counts gone" data-upstream-gone>gone</span>
+			{/if}
+		</span>
+	{/if}
+	<button
+		type="button"
+		class="tool"
+		data-toolbar="navigate-head"
+		disabled={head === null}
+		title={head === null ? 'Reading the refs…' : 'Navigate to HEAD'}
+		onclick={onnavigate}
+	>
+		<LocateFixed size={14} />
+		<span>Navigate to HEAD</span>
+	</button>
+</div>
+
+<style>
+	.toolbar {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+		padding: var(--sp-2) var(--sp-4);
+		border-bottom: 1px solid var(--border);
+		font-size: var(--fs-small);
+		min-width: 0;
+	}
+	.tool {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		border-color: transparent;
+		background: transparent;
+		white-space: nowrap;
+	}
+	.sep {
+		align-self: stretch;
+		width: 1px;
+		margin: var(--sp-1) var(--sp-3);
+		background: var(--border);
+	}
+	.fill {
+		flex: 1;
+	}
+	.dot {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--warning);
+	}
+	.branch {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-3);
+		min-width: 0;
+		padding: 0 var(--sp-3);
+		color: var(--text);
+	}
+	.name {
+		unicode-bidi: isolate;
+		min-width: 0;
+		max-width: 28ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.counts {
+		display: inline-flex;
+		gap: var(--sp-2);
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
+	}
+	.count {
+		display: inline-flex;
+		align-items: center;
+		padding: 0 var(--sp-2);
+		border-radius: var(--radius-control);
+		background: var(--accent-soft);
+	}
+	.count.zero {
+		background: transparent;
+		color: var(--text-3);
+	}
+	.gone {
+		color: var(--warning);
+	}
+</style>

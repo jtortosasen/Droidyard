@@ -392,7 +392,7 @@
 		{/if}
 	{:else if id === 'git'}
 		{#if gitHistory && gitWatch}
-			<HistoryPanel store={gitHistory} watch={gitWatch} />
+			<HistoryPanel store={gitHistory} watch={gitWatch} {workspaceId} />
 		{/if}
 	{:else if id === 'diff'}
 		{#if editorTabs && viewers && gitWatch && headBase}

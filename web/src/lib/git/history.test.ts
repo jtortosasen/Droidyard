@@ -1,54 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { settle, capError } from '../build/testing';
-import { HistoryStore, avatarHue, initials, relativeTime, type Commit, type HistoryClient, type HistoryWatch } from './history';
-import type { GitView } from './watch';
-
-const commit = (oid: string, parents: string[] = []): Commit => ({
-	oid,
-	parents,
-	authorName: 'Ada Lovelace',
-	authorEmail: 'ada@example.org',
-	commitTime: 1_700_000_000,
-	subject: `commit ${oid}`,
-});
-
-/** A linear history c0 (newest) .. c{n-1}. */
-function chain(n: number, prefix = 'c'): Commit[] {
-	return Array.from({ length: n }, (_, i) => commit(`${prefix}${i}`, i + 1 < n ? [`${prefix}${i + 1}`] : []));
-}
-
-class FakeWatch implements HistoryWatch {
-	view: GitView = { state: 'watching', problem: null, head: { oid: 'c0', branch: 'main' }, entries: [], truncated: false };
-	#l = new Set<() => void>();
-	subscribe(l: () => void) {
-		this.#l.add(l);
-		return () => this.#l.delete(l);
-	}
-	set(over: Partial<GitView>) {
-		this.view = { ...this.view, ...over };
-		for (const l of [...this.#l]) l();
-	}
-}
-
-type LogParams = { from?: string[]; skip?: number; limit?: number };
-
-function setup(all: () => Commit[] = () => chain(5), pageSize = 2, tips = ['c0']) {
-	const calls: { params: LogParams; workspace?: string }[] = [];
-	let fail: Error | null = null;
-	const client = {
-		call: async (_n: string, params: LogParams, o?: { workspace?: string }) => {
-			calls.push({ params, workspace: o?.workspace });
-			if (fail) throw fail;
-			const skip = params.skip ?? 0;
-			const list = all();
-			const commits = list.slice(skip, skip + pageSize);
-			return { commits, tips: params.from ? [] : tips, tipsTruncated: false, more: skip + pageSize < list.length };
-		},
-	} as unknown as HistoryClient;
-	const watch = new FakeWatch();
-	const store = new HistoryStore(client, { root: ' /proj ' }, watch);
-	return { calls, watch, store, failWith: (e: Error | null) => (fail = e) };
-}
+import { HistoryStore, avatarHue, initials, relativeTime, type HistoryClient } from './history';
+import { FakeWatch, chain, commit, refsOf, setup } from './historytesting';
 
 describe('HistoryStore', () => {
 	// Decision (ADR-0069 §2): the first page has no `from`; the next passes the first page's tips with `skip` = the commits received, so pages stay one walk.
@@ -104,7 +57,8 @@ describe('HistoryStore', () => {
 	it('waits for the first status and reads once', async () => {
 		let n = 0;
 		const client = {
-			call: async () => {
+			call: async (name: string) => {
+				if (name === 'git.refs') return refsOf([]);
 				n++;
 				return { commits: [], tips: [], tipsTruncated: false, more: false };
 			},
@@ -196,7 +150,9 @@ describe('HistoryStore', () => {
 	// Decision: an answer of a read that a newer reload overtook is dropped.
 	it('drops the answer of a read that a reload overtook', async () => {
 		const resolvers: ((r: unknown) => void)[] = [];
-		const client = { call: () => new Promise((res) => resolvers.push(res)) } as unknown as HistoryClient;
+		const client = {
+			call: (name: string) => (name === 'git.refs' ? Promise.resolve(refsOf([])) : new Promise((res) => resolvers.push(res))),
+		} as unknown as HistoryClient;
 		const w = new FakeWatch();
 		const s = new HistoryStore(client, { root: '/p' }, w);
 		w.set({ head: { oid: 'b' } });
