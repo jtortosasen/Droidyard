@@ -13,6 +13,7 @@
 	import type { SessionsModel, SessionsView } from '../projects/sessions';
 	import type { ActivityStore, Operation, WatchStatus } from './activity';
 	import { buildBlocks, elapsedText, type ActorFilter, type Block } from './blocks';
+	import { RECORD_COMMAND, type CommandRecord, type CommandRecordsModel } from './commands';
 	import { canRestore, EXPIRED_TEXT, itemText, type RestoreModel, type RestoreState } from './restore';
 
 	// The activity stream (plan m2d step 8, direction C): a block per operation, newest at
@@ -26,11 +27,13 @@
 		build: BuildModel;
 		/** Restore of a completed file.delete (plan m2j step 10); `workspaceId` is the project this tab shows. */
 		restore: RestoreModel;
+		/** The hook's records of an agent's Android commands (ADR-0063 §6). */
+		records: CommandRecordsModel;
 		workspaceId: string;
 		/** Shows the Build output tab. */
 		onopenoutput: () => void;
 	}
-	let { store, sessions, console: buildConsole, build, restore, workspaceId, onopenoutput }: Props = $props();
+	let { store, sessions, console: buildConsole, build, restore, records, workspaceId, onopenoutput }: Props = $props();
 
 	/** How many console lines an expanded block draws: the newest ones. */
 	const LINES = 200;
@@ -44,6 +47,7 @@
 	let actor = $state<ActorFilter>('all');
 	let open = $state<Record<string, boolean>>({});
 	let restores = $state.raw<ReadonlyMap<string, RestoreState>>(new Map());
+	let recorded = $state.raw<ReadonlyMap<string, CommandRecord>>(new Map());
 	let now = $state(Date.now());
 	let following = $state(true);
 	let scroller = $state<HTMLDivElement>();
@@ -91,6 +95,21 @@
 		read();
 		return m.subscribe(read);
 	});
+	// A completed `agent.recordCommand` row has its result read once; the model caches it.
+	$effect(() => {
+		const m = records;
+		for (const o of operations) if (o.capability === RECORD_COMMAND && o.state === 'completed') void m.load(o.id);
+		const read = () => {
+			recorded = new Map(
+				operations.flatMap((o) => {
+					const r = m.recordOf(o.id);
+					return r === undefined ? [] : [[o.id, r] as const];
+				}),
+			);
+		};
+		read();
+		return m.subscribe(read);
+	});
 	// Durations tick while anything is live.
 	$effect(() => {
 		const timer = setInterval(() => (now = Date.now()), 1000);
@@ -103,7 +122,7 @@
 		buildBlocks(
 			operations,
 			{ actor, agentKey },
-			{ labels, heldBuild: consoleView?.hasBuild ? consoleView.buildId : null, ownFailure: startError },
+			{ labels, records: recorded, heldBuild: consoleView?.hasBuild ? consoleView.buildId : null, ownFailure: startError },
 		),
 	);
 
@@ -204,6 +223,9 @@
 					<p class="why">
 						Waiting for {b.blockedBy.capability ?? 'another operation'}{b.blockedBy.reason ? `: ${b.blockedBy.reason}` : ''}
 					</p>
+				{/if}
+				{#if b.command?.suggested}
+					<p class="why">droidyard: {b.command.suggested}</p>
 				{/if}
 				{#if canRestore(b, workspaceId)}
 					{@const r = restores.get(b.id)}
