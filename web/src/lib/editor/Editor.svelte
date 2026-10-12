@@ -9,19 +9,23 @@
 	import { fileIcon, type IconKind } from '../files/tree';
 	import Viewer from './Viewer.svelte';
 	import type { TabsModel, TabsView } from './tabs';
+	import type { UnsavedGuard } from './unsaved';
 	import type { ViewerSet } from './viewer';
 
 	// The Editor tab's content (plan m2d step 6): the second-level tabs of the open files
 	// over a read-only viewer. A single click on a tree file is a preview tab (italics);
 	// a double-click on a tab keeps it. Choosing or closing a tab reveals the file in the tree.
+	// A tab with unsaved changes has a dot, and closing it asks first (m2i D7).
 	interface Props {
 		tabs: TabsModel;
 		viewers: ViewerSet;
 		/** A tab was chosen or the active one changed by closing: the tree reveals the file. */
 		onactivate: (path: string) => void;
 		copyPath: (path: string) => string;
+		/** Asks before a tab with unsaved changes is closed. */
+		guard: UnsavedGuard;
 	}
-	let { tabs, viewers, onactivate, copyPath }: Props = $props();
+	let { tabs, viewers, onactivate, copyPath, guard }: Props = $props();
 
 	const ICONS: Record<IconKind, Component<{ size?: number }>> = {
 		folder: File,
@@ -52,8 +56,10 @@
 		onactivate(path);
 	}
 	function close(path: string) {
-		const next = tabs.close(path);
-		if (next !== null) onactivate(next);
+		guard.confirm(() => {
+			const next = tabs.close(path);
+			if (next !== null) onactivate(next);
+		}, [path]);
 	}
 	function onkeydown(e: KeyboardEvent, path: string) {
 		if (e.key === 'Enter' || e.key === ' ') {
@@ -86,6 +92,7 @@
 					>
 						<Icon size={13} />
 						<span>{name(t.path)}</span>
+						{#if t.dirty}<span class="dirty" role="img" aria-label="unsaved changes" title="Unsaved changes"></span>{/if}
 					</button>
 					<button type="button" class="close" aria-label="Close {name(t.path)}" title="Close" onclick={() => close(t.path)}><X size={12} /></button>
 				</div>
@@ -148,6 +155,13 @@
 	}
 	.file.preview .label span {
 		font-style: italic;
+	}
+	.dirty {
+		flex: none;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--text-2);
 	}
 	.label,
 	.close {

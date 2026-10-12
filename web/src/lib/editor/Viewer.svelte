@@ -4,13 +4,15 @@
 	import FileQuestion from '@lucide/svelte/icons/file-question';
 	import { copyToClipboard } from '../devices/copy';
 	import { LazyEditor } from './surface';
-	import { formatSize, CAP, type FileViewer, type ViewerView } from './viewer';
+	import { formatSize, readOnlyText, CAP, type EditorModel, type ViewerView } from './viewer';
 
-	// The read-only viewer (plan m2d step 6, m2i step 3): the header, banners and the binary
-	// placeholder are here; the text is shown by the code editor behind surface.ts, mounted by
-	// an attachment when this file's viewer is ready, so its chunk loads when a file opens.
+	// The editor of one file (plan m2d step 6, m2i steps 3 and 6): the header, banners and the
+	// binary placeholder are here; the text is shown by the code editor behind surface.ts,
+	// mounted by an attachment once the model has a buffer, so its chunk loads when a file
+	// opens. The buffer lives in the model, not here: switching tabs destroys this component
+	// and keeps the document, selection and undo history.
 	interface Props {
-		viewer: FileViewer;
+		viewer: EditorModel;
 		/** What Copy path copies (the tree's absolute path). */
 		copyPath: (path: string) => string;
 	}
@@ -19,6 +21,7 @@
 	let view = $state.raw<ViewerView>(untrack(() => viewer.view));
 	let copied = $state('');
 	let editorError = $state('');
+	const buffer = $derived(view.buffer);
 
 	$effect(() => {
 		const v = viewer;
@@ -29,18 +32,14 @@
 		});
 	});
 
-	// Mounts the editor once on its host and keeps its text current; the host goes (and the
-	// editor is destroyed) when the state leaves the text states.
+	// Mounts the editor once on its host for the buffer on show; the host goes (and the editor
+	// is destroyed) when the buffer does.
 	const editor: Attachment<HTMLElement> = (host) => {
 		editorError = '';
-		const ed = new LazyEditor(host, { doc: untrack(() => view.text), readOnly: true, path: untrack(() => view.path) }, (e) => {
+		const b = untrack(() => buffer);
+		if (b === null) return;
+		const ed = new LazyEditor(host, { buffer: b, onSave: () => void viewer.save() }, (e) => {
 			editorError = e instanceof Error ? e.message : String(e);
-		});
-		$effect(() => {
-			ed.setDocument(view.text);
-		});
-		$effect(() => {
-			ed.setPath(view.path);
 		});
 		return () => ed.destroy();
 	};
@@ -54,10 +53,12 @@
 <div class="viewer">
 	<div class="head">
 		<span class="path" title={view.path}>{view.path}</span>
+		{#if view.saving}<span class="size">saving…</span>{/if}
+		{#if view.readOnly}<span class="size">read-only</span>{/if}
 		{#if view.size !== null}<span class="size">{formatSize(view.size)}</span>{/if}
 	</div>
 	{#if view.state === 'deleted'}
-		<p class="banner" role="status">This file was deleted from the project. The text below is the last version read.</p>
+		<p class="banner" role="status">This file was deleted from the project.{buffer ? ' The text below is the last version read.' : ''}</p>
 	{/if}
 	{#if view.state === 'binary'}
 		<div class="placeholder">
@@ -71,13 +72,25 @@
 	{:else if view.state === 'loading'}
 		<p class="note pad">Reading…</p>
 	{:else}
-		<div class="host" {@attach editor}></div>
+		{#if view.readOnly && view.readOnly !== 'capped'}
+			<p class="banner" role="status">{readOnlyText(view.readOnly)}</p>
+		{/if}
+		{#if buffer}
+			{#key buffer}
+				<div class="host" {@attach editor}></div>
+			{/key}
+		{/if}
 		{#if editorError}
 			<p class="banner error" role="alert">The editor could not be loaded: {editorError}</p>
 		{/if}
+		{#if view.saveError}
+			<p class="banner error" role="alert">
+				Not saved: {view.conflict ? 'the file changed on disk after it was read, so nothing was written. ' : ''}{view.saveError}
+			</p>
+		{/if}
 		{#if view.capped}
 			<p class="banner" role="status">
-				Showing the first {formatSize(view.read)} of {view.size === null ? '' : formatSize(view.size)}; the viewer reads at most {formatSize(CAP)}.
+				Showing the first {formatSize(view.read)} of {view.size === null ? '' : formatSize(view.size)}; the editor reads at most {formatSize(CAP)}.
 			</p>
 		{/if}
 	{/if}

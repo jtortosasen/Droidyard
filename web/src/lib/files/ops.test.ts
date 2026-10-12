@@ -199,3 +199,100 @@ describe('FileOps batches', () => {
 		expect(calls.calls.map((c) => c.params)).toEqual([{ items: [{ from: 'l/b', to: 'a/b' }] }, { items: [{ from: 'a/c', to: 'a/c' }], onCollision: 'keepBoth' }]);
 	});
 });
+
+describe('FileOps and open buffers with unsaved changes (m2i D7)', () => {
+	function guarded(dirty: string[]) {
+		const calls = new FakeCalls();
+		const moved: [string, string][] = [];
+		const ops = new FileOps(
+			calls as unknown as OpsClient,
+			{ root: '/proj/' },
+			{ moved: (f, t) => moved.push([f, t]), unsaved: (p) => dirty.some((d) => d === p || d.startsWith(`${p}/`)) },
+		);
+		return { calls, ops, moved };
+	}
+
+	// Decision (D7): a move, copy or rename whose target is, or holds, an open dirty tab is
+	// refused before any call; nothing replaces, so the target's file is gone and the buffer is the user's.
+	it('refuses a rename, move, copy and paste onto an open dirty tab with no call', async () => {
+		const { calls, ops, moved } = guarded(['dir/b.kt']);
+		const r = await ops.rename('dir/a.kt', 'b.kt');
+		expect(r.ok).toBe(false);
+		expect(r.ok === false && r.message).toMatch(/dir\/b\.kt.*unsaved/);
+		await ops.move([{ from: 'x.kt', to: 'dir/b.kt' }]);
+		expect(ops.notice?.text).toMatch(/Move refused.*unsaved/);
+		await ops.copy([{ from: 'x.kt', to: 'dir/b.kt' }]);
+		expect(ops.notice?.text).toMatch(/Copy refused.*unsaved/);
+		await ops.paste({ kind: 'move', items: [{ from: 'y.kt', to: 'dir/b.kt' }], duplicates: [] });
+		// A folder target that holds the dirty file is refused too.
+		await ops.move([{ from: 'folder', to: 'dir' }]);
+		expect(calls.calls).toEqual([]);
+		expect(moved).toEqual([]);
+	});
+
+	it('lets an operation onto a free path through, and tells the tabs', async () => {
+		const { calls, ops, moved } = guarded(['dir/b.kt']);
+		calls.on('file.move', () => ({ items: [{ from: 'dir/a.kt', to: 'dir/c.kt' }], done: 1, failed: 0 }));
+		expect(await ops.rename('dir/a.kt', 'c.kt')).toEqual({ ok: true, path: 'dir/c.kt' });
+		expect(moved).toEqual([['dir/a.kt', 'dir/c.kt']]);
+	});
+
+	// Decision (D7): Undo of a move whose way back lands on an open dirty tab is refused, and
+	// stays on the stack for after the save.
+	it('refuses an Undo that would land on a dirty tab, and keeps it on the stack', async () => {
+		const dirty: string[] = [];
+		const calls = new FakeCalls();
+		const ops = new FileOps(calls as unknown as OpsClient, { root: '/proj/' }, { unsaved: (p) => dirty.includes(p) });
+		calls.on('file.move', () => ({ items: [{ from: 'a.kt', to: 'b.kt' }], done: 1, failed: 0 }));
+		await ops.rename('a.kt', 'b.kt');
+		dirty.push('a.kt'); // a new file was opened at the old name and edited
+		const before = calls.calls.length;
+		await ops.undo();
+		expect(calls.calls.length).toBe(before);
+		expect(ops.notice?.text).toMatch(/Undo refused.*unsaved/);
+		expect(ops.canUndo).toBe(true);
+		dirty.length = 0;
+		calls.on('file.move', () => ({ items: [{ from: 'b.kt', to: 'a.kt' }], done: 1, failed: 0 }));
+		await ops.undo();
+		expect(calls.calls.length).toBe(before + 1);
+	});
+
+	// Decision: Keep both and a duplicate land on a free name the daemon picks: not asked.
+	it('does not check a duplicate', async () => {
+		const { calls, ops } = guarded(['a.kt']);
+		calls.on('file.copy', () => ({ items: [{ from: 'a.kt', to: 'a copy.kt' }], done: 1, failed: 0 }));
+		await ops.duplicate(['a.kt']);
+		expect(calls.names()).toEqual(['file.copy']);
+	});
+
+	// Decision (D7, verifier): Keep both and a duplicate land on a free name the daemon picks in
+	// the target's folder, and with a file gone that name can be the path of an open tab with
+	// unsaved text. Refused before any call when such a tab lies directly in that folder.
+	it('refuses a duplicate or a Keep both into a folder holding a deleted file’s unsaved tab', async () => {
+		const calls = new FakeCalls();
+		const ops = new FileOps(calls as unknown as OpsClient, { root: '/proj/' }, { goneUnsaved: (dir) => dir === 'dir' });
+		await ops.duplicate(['dir/a.kt']);
+		expect(ops.notice?.text).toMatch(/Copy refused: dir has an open file that was deleted/);
+		await ops.paste({ kind: 'copy', items: [], duplicates: [{ from: 'x.kt', to: 'dir/x.kt' }] });
+		expect(calls.calls).toEqual([]);
+
+		// A folder without one is not asked, and neither is the root.
+		calls.on('file.copy', () => ({ items: [{ from: 'other/a.kt', to: 'other/a copy.kt' }], done: 1, failed: 0 }));
+		await ops.duplicate(['other/a.kt']);
+		await ops.duplicate(['top.kt']);
+		expect(calls.names()).toEqual(['file.copy', 'file.copy']);
+	});
+
+	it('refuses the Keep both answer into such a folder, and keeps nothing pending', async () => {
+		const calls = new FakeCalls();
+		let gone = false;
+		const ops = new FileOps(calls as unknown as OpsClient, { root: '/proj/' }, { goneUnsaved: () => gone });
+		calls.on('file.copy', () => ({ items: [{ from: 'a.kt', to: 'dir/a.kt', code: 'FILE_EXISTS', message: 'exists' }], done: 0, failed: 1 }));
+		await ops.copy([{ from: 'a.kt', to: 'dir/a.kt' }]);
+		expect(ops.pending).not.toBeNull();
+		gone = true; // the tab appeared while the dialog was open
+		await ops.resolveCollision('keepBoth');
+		expect(calls.names()).toEqual(['file.copy']); // only the first, refused one retried: no second call
+		expect(ops.notice?.text).toMatch(/refused/);
+	});
+});

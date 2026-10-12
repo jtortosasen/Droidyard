@@ -32,3 +32,19 @@ describe('languageFor', () => {
 		expect(id('Main.KT')).toBe('kotlin');
 	});
 });
+
+describe('braceFold', () => {
+	// Decision (m2i step 6, Delegated): Kotlin and Groovy fold at braces; the legacy modes give no folding.
+	it('folds a Kotlin block from its { to its }, and not a one-line block', async () => {
+		const { foldable } = await import('@codemirror/language');
+		const { EditorState } = await import('@codemirror/state');
+		const text = 'class A {\n    fun f() { }\n    val s = "{"\n}\n';
+		const state = EditorState.create({ doc: text, extensions: [await languageFor('A.kt')!.load()] });
+		const first = state.doc.line(1);
+		expect(foldable(state, first.from, first.to)).toEqual({ from: 9, to: text.lastIndexOf('}') });
+		const second = state.doc.line(2);
+		expect(foldable(state, second.from, second.to)).toBeNull();
+		const md = EditorState.create({ doc: 'a {\n}\n', extensions: [await languageFor('a.toml')!.load()] });
+		expect(foldable(md, 0, 3)).toBeNull();
+	});
+});

@@ -47,6 +47,7 @@
 	import FileTree from '../files/FileTree.svelte';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
+	import type { UnsavedGuard } from '../editor/unsaved';
 	import Editor from '../editor/Editor.svelte';
 	import { browserStorage } from '../ui/layout';
 	import Banners from './Banners.svelte';
@@ -66,6 +67,8 @@
 		hub: EventsHub;
 		connection: ConnectionState;
 		workspaceId: string;
+		/** Asks before unsaved text is lost; the open files attach to it. */
+		guard: UnsavedGuard;
 		/** The daemon refused the id: the page shows the projects panel with the reason. */
 		onmissing: (why: Failure) => void;
 		/** The connection and health line App owns, shown in the status bar. */
@@ -75,7 +78,7 @@
 		/** The sessions column's body (the projects and agents panel), which App owns. */
 		sessionsPanel: Snippet;
 	}
-	let { client, activity, sessions, projects, hub, connection, workspaceId, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
+	let { client, activity, sessions, projects, hub, connection, workspaceId, guard, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	let trust = $state.raw<TrustModel | null>(null);
@@ -153,8 +156,9 @@
 		);
 		// The viewer reads the same watch the tree does (no second file.watch).
 		const tabs = new TabsModel(browserStorage(window), workspaceId);
-		const readers = new ViewerSet(callOn, ws);
+		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
 		const offListen = watcher.listen(readers);
+		const offGuard = guard.attach(readers);
 		// The palette's file index reads the same stream (no second file.watch).
 		const index = new FileIndex();
 		const offIndex = watcher.listen(index);
@@ -176,7 +180,15 @@
 		act = actions;
 		appLogs = logs;
 		fileTree = files;
-		const opsModel = new FileOps(callOn, ws, { moved: (from, to) => tabs.moved(from, to) });
+		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
+		const opsModel = new FileOps(callOn, ws, {
+			moved: (from, to) => {
+				readers.moved(from, to);
+				tabs.moved(from, to);
+			},
+			unsaved: (path) => readers.holdsDirty(path),
+			goneUnsaved: (dir) => readers.goneDirtyIn(dir),
+		});
 		fileOps = opsModel;
 		fileWatch = watcher;
 		editorTabs = tabs;
@@ -206,6 +218,7 @@
 			mineIds.dispose();
 			logcatDevices.dispose();
 			offListen();
+			offGuard();
 			offIndex();
 			readers.dispose();
 			tabs.dispose();
@@ -299,7 +312,7 @@
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
 			{@const files = fileTree}
-			<Editor tabs={editorTabs} {viewers} onactivate={(path) => void files.reveal(path)} copyPath={(path) => files.absolutePath(path)} />
+			<Editor tabs={editorTabs} {viewers} {guard} onactivate={(path) => void files.reveal(path)} copyPath={(path) => files.absolutePath(path)} />
 		{/if}
 	{:else if id === 'logcat'}
 		{#if logcatDevice && mine}

@@ -111,6 +111,79 @@ describe('TabsModel', () => {
 		expect(t.view.tabs.map((x) => x.path)).toContain('src/ab/W.kt');
 	});
 
+	// Decision (m2i D7): a tab with unsaved changes has a mark; the first edit makes a preview
+	// tab permanent; the mark is never stored; closing the tab clears it.
+	it('marks a tab dirty, keeps a preview on the first edit, and does not store the mark', async () => {
+		const s = new Mem();
+		const t = new TabsModel(s, 'w1');
+		await t.restore(yes);
+		t.open('a.kt');
+		expect(t.view.tabs).toEqual([{ path: 'a.kt', preview: true }]);
+		t.setDirty('a.kt', true);
+		expect(t.view.tabs).toEqual([{ path: 'a.kt', preview: false, dirty: true }]);
+		// A new preview does not replace it any more.
+		t.open('b.kt');
+		expect(t.view.tabs.map((x) => x.path)).toEqual(['a.kt', 'b.kt']);
+		expect(s.data.get(STORAGE_PREFIX + 'w1')).not.toContain('dirty');
+		t.setDirty('a.kt', false);
+		expect(t.view.tabs[0]).toEqual({ path: 'a.kt', preview: false });
+		t.setDirty('a.kt', true);
+		t.close('a.kt');
+		expect(t.isDirty('a.kt')).toBe(false);
+		t.setDirty('gone.kt', true); // no tab: no mark
+		expect(t.isDirty('gone.kt')).toBe(false);
+	});
+
+	// Decision (m2i D7, review N-B1): a dirty tab follows its file through a move and is never
+	// the one dropped when two tabs meet at a target.
+	it('moved keeps the dirty mark with its tab, and a dirty tab at a collision', () => {
+		const t = new TabsModel(null, 'w1');
+		for (const p of ['dir/a.kt', 'dir/b.kt', 'other.kt']) {
+			t.open(p);
+			t.keep(p);
+		}
+		t.setDirty('dir/a.kt', true);
+		t.moved('dir', 'moved');
+		expect(t.view.tabs.map((x) => `${x.path}${x.dirty ? '*' : ''}`)).toEqual(['moved/a.kt*', 'moved/b.kt', 'other.kt']);
+
+		// A clean tab at the target is replaced by the moved one: the dirty one wins.
+		t.moved('moved/a.kt', 'moved/b.kt');
+		expect(t.view.tabs.map((x) => `${x.path}${x.dirty ? '*' : ''}`)).toEqual(['moved/b.kt*', 'other.kt']);
+
+		// A dirty tab at the target stays; the clean moved tab goes.
+		t.open('c.kt');
+		t.keep('c.kt');
+		t.moved('c.kt', 'moved/b.kt');
+		expect(t.view.tabs.map((x) => `${x.path}${x.dirty ? '*' : ''}`)).toEqual(['moved/b.kt*', 'other.kt']);
+	});
+
+	// Decision (m2i D7, verifier): the safety net never drops a dirty mark. Two dirty tabs meeting at
+	// a target (FileOps refuses that move, so this is the net under it) both stay, marks included.
+	it('moved keeps both tabs and both marks when two dirty tabs meet', () => {
+		const t = new TabsModel(null, 'w1');
+		for (const p of ['a.kt', 'b.kt']) {
+			t.open(p);
+			t.keep(p);
+			t.setDirty(p, true);
+		}
+		t.activate('a.kt');
+		t.moved('a.kt', 'b.kt');
+		expect(t.view.tabs.map((x) => `${x.path}${x.dirty ? '*' : ''}`)).toEqual(['a.kt*', 'b.kt*']);
+		expect(t.view.active).toBe('a.kt');
+	});
+
+	it('moved replaces a clean tab at the target by the moved one', () => {
+		const t = new TabsModel(null, 'w1');
+		for (const p of ['a.kt', 'gone.kt', 'z.kt']) {
+			t.open(p);
+			t.keep(p);
+		}
+		t.activate('a.kt');
+		t.moved('a.kt', 'gone.kt');
+		expect(t.view.tabs.map((x) => x.path)).toEqual(['gone.kt', 'z.kt']);
+		expect(t.view.active).toBe('gone.kt');
+	});
+
 	// Decision (D25): storage is a convenience: a refusing or garbage storage changes nothing.
 	it('survives a storage that throws or holds garbage', async () => {
 		const throwing: KeyValueStorage = {

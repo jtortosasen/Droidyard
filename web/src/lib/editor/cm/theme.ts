@@ -58,6 +58,48 @@ export const theme = EditorView.theme({
 		color: 'var(--text-3)',
 		cursor: 'pointer',
 	},
+	// The search panel and the matches (D9): CM's own panel, in the UI's tokens (its default is a light grey).
+	'.cm-panels': {
+		color: 'var(--text)',
+		backgroundColor: 'var(--bg-raised)',
+		borderColor: 'var(--border)',
+	},
+	'.cm-panels-top': {
+		borderBottom: '1px solid var(--border)',
+	},
+	'.cm-panel.cm-search': {
+		fontSize: 'var(--fs-small)',
+	},
+	'.cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label': {
+		fontSize: 'inherit',
+		color: 'var(--text)',
+	},
+	'.cm-panel.cm-search input.cm-textfield': {
+		backgroundColor: 'var(--bg-panel)',
+		border: '1px solid var(--border)',
+		borderRadius: 'var(--radius-control)',
+	},
+	'.cm-panel.cm-search button.cm-button': {
+		backgroundColor: 'var(--bg-hover)',
+		backgroundImage: 'none',
+		border: '1px solid var(--border)',
+		borderRadius: 'var(--radius-control)',
+	},
+	'.cm-panel.cm-search [name=close]': {
+		color: 'var(--text-2)',
+		backgroundColor: 'transparent',
+	},
+	'.cm-searchMatch': {
+		backgroundColor: 'var(--accent-soft)',
+		outline: '1px solid var(--accent)',
+	},
+	'.cm-searchMatch.cm-searchMatch-selected': {
+		backgroundColor: 'var(--accent-soft)',
+		outline: '2px solid var(--accent)',
+	},
+	'.cm-selectionMatch': {
+		backgroundColor: 'var(--bg-active)',
+	},
 	'.cm-foldPlaceholder': {
 		color: 'var(--text-2)',
 		backgroundColor: 'var(--bg-raised)',

@@ -7,55 +7,13 @@
 // `default-src 'self'` would refuse. The theme values are inherited custom properties.
 // Seen at level 4 in Chrome (m2i step 3): no violation; mounted on the document, refused.
 //
-// Read-only for now (editing is step 6, which adds per-tab state to the interface).
-import { foldGutter, syntaxHighlighting } from '@codemirror/language';
-import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state';
-import {
-	EditorView,
-	drawSelection,
-	highlightActiveLine,
-	highlightActiveLineGutter,
-	keymap,
-	lineNumbers,
-} from '@codemirror/view';
-import type { EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
-import { minimalChange } from './change';
-import { highlightStyle } from './highlight';
-import { languageFor } from './languages';
-import { theme } from './theme';
-
-const readOnlySlot = new Compartment();
-const languageSlot = new Compartment();
-
-/** Ctrl/Cmd+End and +Home jump to the ends of the text (the default keymap arrives with editing). */
-function jump(to: 'start' | 'end') {
-	return (view: EditorView): boolean => {
-		view.dispatch({ selection: { anchor: to === 'start' ? 0 : view.state.doc.length }, scrollIntoView: true });
-		return true;
-	};
-}
-
-function extensions(readOnly: boolean): Extension[] {
-	return [
-		readOnlySlot.of(EditorState.readOnly.of(readOnly)),
-		EditorState.tabSize.of(4),
-		lineNumbers(),
-		foldGutter(),
-		highlightActiveLine(),
-		highlightActiveLineGutter(),
-		drawSelection(),
-		keymap.of([
-			{ key: 'Mod-End', run: jump('end') },
-			{ key: 'Ctrl-End', run: jump('end') },
-			{ key: 'Mod-Home', run: jump('start') },
-			{ key: 'Ctrl-Home', run: jump('start') },
-		]),
-		EditorView.contentAttributes.of({ 'aria-label': 'File contents', 'aria-multiline': 'true' }),
-		syntaxHighlighting(highlightStyle),
-		languageSlot.of([]),
-		theme,
-	];
-}
+// The state is not made here: a `CmBuffer` (buffer.ts) owns it for as long as the file's tab
+// lives, and a view only shows it (plan m2i D7), so a tab switch that destroys the view keeps
+// the document, selection, undo history and scroll.
+import { EditorView } from '@codemirror/view';
+import type { BufferOptions, EditorBuffer, EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
+import { CmBuffer } from './buffer';
+import { isSaveKey } from './savekey';
 
 function clamp(n: number, lo: number, hi: number): number {
 	return Math.min(hi, Math.max(lo, n));
@@ -63,54 +21,31 @@ function clamp(n: number, lo: number, hi: number): number {
 
 class CmEditor implements EditorHandle {
 	#view: EditorView;
-	#gone = false;
-	#language = 0;
+	#buffer: CmBuffer;
+	#root: ShadowRoot;
+	#onKey: (e: KeyboardEvent) => void;
 
 	constructor(host: HTMLElement, opts: EditorOptions) {
+		if (!(opts.buffer instanceof CmBuffer)) throw new Error('the buffer was not made by this editor');
+		const buffer = opts.buffer;
 		// An open shadow root, reused if the host had one (a root cannot be detached).
 		const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
 		root.replaceChildren();
-		this.#view = new EditorView({
-			state: EditorState.create({ doc: opts.doc, extensions: extensions(opts.readOnly) }),
-			parent: root,
-			root,
-		});
-		if (opts.path !== undefined) this.setPath(opts.path);
-	}
-
-	// The language's code arrives by its own dynamic import; until then (and for a path with
-	// no language, or if the chunk fails) the text is plain, which is a lesser result and not
-	// an error worth the viewer's banner. A later path wins over an earlier one still loading.
-	setPath(path: string): void {
-		const ticket = ++this.#language;
-		const entry = languageFor(path);
-		if (entry === null) {
-			this.#view.dispatch({ effects: languageSlot.reconfigure([]) });
-			return;
-		}
-		entry.load().then(
-			(ext) => {
-				if (this.#gone || ticket !== this.#language) return;
-				this.#view.dispatch({ effects: languageSlot.reconfigure(ext) });
-			},
-			() => {
-				if (this.#gone || ticket !== this.#language) return;
-				this.#view.dispatch({ effects: languageSlot.reconfigure([]) });
-			},
-		);
-	}
-
-	// Replaces only the span that differs, so a re-read (an agent's write, a re-sync) keeps
-	// the scroll position and the cursor outside the change: CM maps them through the
-	// change, and a whole-text replacement would map both to the start (step 3 verifier).
-	setDocument(text: string): void {
-		const change = minimalChange(this.#view.state.doc.toString(), text);
-		if (change === null) return;
-		this.#view.dispatch({ changes: change, annotations: Transaction.addToHistory.of(false) });
-	}
-
-	setReadOnly(readOnly: boolean): void {
-		this.#view.dispatch({ effects: readOnlySlot.reconfigure(EditorState.readOnly.of(readOnly)) });
+		this.#buffer = buffer;
+		this.#root = root;
+		// The content's keymap saves with Mod-s; the search panel's inputs are not content, and
+		// there the browser would open its Save dialog. The keymap prevents the default when it
+		// saves, so a chord that reaches the root unhandled is the panel's.
+		this.#onKey = (e) => {
+			if (!isSaveKey(e)) return;
+			e.preventDefault();
+			opts.onSave();
+		};
+		root.addEventListener('keydown', this.#onKey as EventListener);
+		this.#view = new EditorView({ state: buffer.state, parent: root, root });
+		buffer.onSave = opts.onSave;
+		buffer.attach(this.#view);
+		if (buffer.scroll !== null) this.#view.dispatch({ effects: buffer.scroll });
 	}
 
 	reveal(line: number, col: number): void {
@@ -129,11 +64,17 @@ class CmEditor implements EditorHandle {
 	}
 
 	destroy(): void {
-		this.#gone = true;
+		this.#root.removeEventListener('keydown', this.#onKey as EventListener);
+		this.#buffer.onSave = null;
+		this.#buffer.detach(this.#view);
 		this.#view.destroy();
 	}
 }
 
 export function mount(host: HTMLElement, opts: EditorOptions): EditorHandle {
 	return new CmEditor(host, opts);
+}
+
+export function createBuffer(opts: BufferOptions): EditorBuffer {
+	return new CmBuffer(opts);
 }
