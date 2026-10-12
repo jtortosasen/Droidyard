@@ -155,7 +155,7 @@ At `e3bb62f` (2j merged), API `0.21.0`, with no `agent` domain.
 - Needs: step 1.
 - Not here: the hook's message (step 3). An `init` allow rule for `trash`: ADR-0037 §3 allowlists MCP tools only.
 - Rests on: the process cwd is the agent shell's directory. Level 3 here, level 5 at step 4.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 3, 2026-10-12. `cmd/droidyard/trash.go`; `PlaceTarget` and `ErrTargetMissing` exported from `internal/assistant/hook.go` with a reason per refusal (the hook's tests unchanged and green). `trash_cmd_test.go`: `TestTrashResolvesOperandsInTheShellsDirectory`, `TestTrashReadsRmFlagsAndAGlobExpandedByTheShell`, `TestTrashRefusesAllOrNothing` (six refusals, each beside a good operand that stays), `TestTrashWithoutADaemonMovesNothingAndStartsNone`, `TestTrashStateDirFlagReachesTheDaemon`, `TestTrashReadsFlagsAsRmDoes`, run with `PATH=/nonexistent`. Seen failing: auto-start dialling (no-daemon test); operands against the root (the two resolution tests); the build-output check removed (`TestTrashRefusesAllOrNothing/build_output`). Not tested: the per-item failure lines of a partial `file.delete`. `trash` dials twice (open, then delete): a `cli.Call` reads its connection through a goroutine that outlives it. Review: the Opus verifier with step 3.
 
 ### 3. The hook hands over `trash`; Cursor's relative operands; `agent_message`
 

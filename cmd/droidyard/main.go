@@ -5,7 +5,8 @@
 // `trust` writes the user configuration directly, with no daemon involved, and so does
 // `init`, which writes the assistant integration into a project (ADR-0037). `hook`
 // answers an assistant's hook event and dials the daemon only if one is running
-// (ADR-0061).
+// (ADR-0061). `trash` moves files to the trash through a running daemon and starts none
+// (ADR-0062).
 package main
 
 import (
@@ -94,6 +95,13 @@ Commands:
              to droidyard's trash instead; anything else passes. It reads the event on
              stdin, answers within 2 s, never starts a daemon, deletes nothing, and lets
              the command through whenever it cannot decide.
+  trash      Move files to the project's trash, where they can be restored (what a denied
+             rm is handed; usable by hand):
+             droidyard trash [--state-dir <dir>] [--root <abs>] [-r|-R|-f ...] [--] <path>...
+             Paths resolve against the current directory; the root is --root, else the
+             project root of the current directory. Every path is checked before any moves.
+             It needs a running daemon and never starts one. Exits 0 only when every path
+             is trashed; a refusal prints the rm command that deletes without the trash.
 `
 
 func main() {
@@ -135,6 +143,8 @@ func main() {
 		os.Exit(initCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "hook":
 		os.Exit(hook(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	case "trash":
+		os.Exit(trashCmd(os.Args[2:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
