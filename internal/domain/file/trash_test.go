@@ -1238,9 +1238,8 @@ func TestDeleteRefusesEscapes(t *testing.T) {
 }
 
 // Decision (ADR-0053 §2, §4): a delete is a batch whose items report each: a missing one
-// is FILE_NOT_FOUND beside the done ones, the text leads with the failure, a cancel after
-// the first item completes it with the rest OPERATION_CANCELLED, and a cancel before the
-// first ends it cancelled. A daemon built without a trash deletes nothing.
+// is FILE_NOT_FOUND beside the done ones, a cancel after the first item completes it with
+// the rest OPERATION_CANCELLED, and a cancel before the first ends it cancelled. A daemon built without a trash deletes nothing.
 func TestDeleteItemsReportEach(t *testing.T) {
 	f := newTrashFixture(t, nil)
 	f.write("m/a.kt", "a")
@@ -1250,18 +1249,12 @@ func TestDeleteItemsReportEach(t *testing.T) {
 		res.Items[0].TrashID == "" || res.Items[2].TrashID == "" || res.Items[0].TrashID == res.Items[2].TrashID {
 		t.Fatalf("delete: %+v %v; want 1 and 3 done with distinct ids and 2 FILE_NOT_FOUND", res, err)
 	}
-	d, _ := f.reg.Lookup("file.delete")
-	text := d.Text(res)
-	if !strings.HasPrefix(text, "failed 1 of 3 FILE_NOT_FOUND\nFILE_NOT_FOUND m/missing.kt ") || !strings.Contains(text, "trashed m/a.kt -> "+res.Items[0].TrashID) {
-		t.Errorf("the rendering is %q; want the failure first, then the done items with their ids", text)
-	}
-	rd, _ := f.reg.Lookup("file.restore")
 	rres, rerr := f.restore(res.Items[0].TrashID, "0123456789abcdef")
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	if rt := rd.Text(rres); !strings.HasPrefix(rt, "failed 1 of 2 FILE_NOT_IN_TRASH\nFILE_NOT_IN_TRASH 0123456789abcdef ") || !strings.Contains(rt, "restored "+res.Items[0].TrashID+" -> m/a.kt") {
-		t.Errorf("the restore rendering is %q", rt)
+	if rres.Done != 1 || rres.Failed != 1 || rres.Items[1].Code != "FILE_NOT_IN_TRASH" {
+		t.Errorf("restore: %+v; want the first id done and the unknown one FILE_NOT_IN_TRASH", rres)
 	}
 
 	t.Run("cancel", func(t *testing.T) {
@@ -1409,7 +1402,7 @@ func TestCopyDoesNotFsync(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0053 §1, ADR-0054): file.delete is for every audience, the one
+// Decision (ADR-0053 §1, ADR-0054, ADR-0060): file.delete is for the human audience, the one
 // destructive file command (the trash forgets), idempotent (a repeat is FILE_NOT_FOUND
 // items) and long-running; file.restore never replaces. The trash id's schema pattern is
 // the pattern the handler checks.
@@ -1422,7 +1415,7 @@ func TestTrashDescriptors(t *testing.T) {
 		t.Errorf("annotations: delete %+v, restore %+v; want delete destructive and restore not, both idempotent", da, ra)
 	}
 	for _, d := range []capability.Descriptor{del, rst} {
-		if d.Audience != capability.AudienceAll || d.Untrusted() || d.Resource != nil || d.Since != "0.19.0" || !d.LongRunning {
+		if d.Audience != capability.AudienceHuman || d.Untrusted() || d.Resource != nil || d.Since != "0.19.0" || !d.LongRunning {
 			t.Errorf("%s: audience %v, untrusted %v, resource %v, since %s, long-running %v", d.Name, d.Audience, d.Untrusted(), d.Resource != nil, d.Since, d.LongRunning)
 		}
 	}

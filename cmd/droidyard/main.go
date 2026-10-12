@@ -3,7 +3,9 @@
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
 // daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it, and
 // `trust` writes the user configuration directly, with no daemon involved, and so does
-// `init`, which writes the assistant integration into a project (ADR-0037).
+// `init`, which writes the assistant integration into a project (ADR-0037). `hook`
+// answers an assistant's hook event and dials the daemon only if one is running
+// (ADR-0061).
 package main
 
 import (
@@ -79,12 +81,19 @@ Commands:
   init       Set a project up for coding assistants (optional; every tool works without it):
              droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
              Writes the droidyard-android skill and, per client, the MCP server entry and
-             an allowlist of the read-only tools, naming this binary by its absolute path.
+             an allowlist of the read-only tools, naming this binary by its absolute path;
+             for claude and cursor also the entry that runs droidyard hook.
              It merges into existing files, keeps an existing droidyard entry, and refuses
              a file it cannot parse. --uninstall removes what init would write; --dry-run
              prints the changes and writes none.
              The root is --root, else the project root of the current directory.
              No daemon is involved or started.
+  hook       Answer one coding assistant's hook event (run by an assistant's hook entry):
+             droidyard hook --client claude|cursor --root <absolute project root>
+             A simple rm inside the root is denied with the command that moves the files
+             to droidyard's trash instead; anything else passes. It reads the event on
+             stdin, answers within 2 s, never starts a daemon, deletes nothing, and lets
+             the command through whenever it cannot decide.
 `
 
 func main() {
@@ -124,6 +133,8 @@ func main() {
 		os.Exit(trust(os.Args[2:]))
 	case "init":
 		os.Exit(initCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "hook":
+		os.Exit(hook(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

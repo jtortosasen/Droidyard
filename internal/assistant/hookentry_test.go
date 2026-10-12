@@ -1,0 +1,250 @@
+package assistant
+
+import (
+	"encoding/json"
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+// hookCase is one client's hook file, with a user's own hooks already in it.
+type hookCase struct {
+	client  Client
+	rel     string
+	mine    string // the user's file: their own hooks beside other keys
+	only    string // the user's file with nothing of init's in the way: just their hooks
+	entries int    // how many elements init adds to it
+}
+
+var hookCases = []hookCase{
+	{Claude, ".claude/settings.json",
+		`{"env": {"A": "b"}, "hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}], "PostToolUse": [{"hooks": [{"type": "command", "command": "after"}]}]}}`,
+		`{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}]}}`, 1},
+	{Cursor, ".cursor/hooks.json",
+		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}], "preToolUse": [{"command": "mine", "matcher": "Write"}], "afterFileEdit": [{"command": "after"}]}}`,
+		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}]}}`, 2},
+}
+
+// ADR-0061 §5: init writes the hook entry into the project's file, the second run
+// writes nothing (the array merge compares elements, so a duplicate would show here),
+// the user's own entries and keys survive both runs and --uninstall, and --uninstall
+// puts the file back as it was.
+func TestInitWritesTheHookEntry(t *testing.T) {
+	for _, c := range hookCases {
+		t.Run(string(c.client), func(t *testing.T) {
+			root := projectRoot(t)
+			write(t, root, c.rel, c.mine)
+			before := snapshot(t, root)
+			o := opts(root, c.client)
+
+			first := statusOf(t, mustRun(t, o), c.rel)
+			if first.Status != Updated {
+				t.Fatalf("first run: %s (%s); want updated", first.Status, notesOf(first))
+			}
+			afterFirst := snapshot(t, root)
+			second := statusOf(t, mustRun(t, o), c.rel)
+			if second.Status != Unchanged {
+				t.Errorf("second run: %s (%s); want unchanged", second.Status, notesOf(second))
+			}
+			sameText(t, afterFirst, snapshot(t, root))
+
+			got := read(t, root, c.rel)
+			if n := strings.Count(got, "hook --client "+string(c.client)); n != c.entries {
+				t.Errorf("%s holds init's hook entry %d times; want %d:\n%s", c.rel, n, c.entries, got)
+			}
+			if !strings.Contains(got, `"command": "mine"`) || !strings.Contains(got, `"command": "after"`) {
+				t.Errorf("a user's entry is gone after init:\n%s", got)
+			}
+
+			mustRun(t, uninstall(o))
+			sameTree(t, before, snapshot(t, root))
+		})
+	}
+
+	t.Run("a file init creates is deleted by --uninstall", func(t *testing.T) {
+		for _, c := range hookCases {
+			root := projectRoot(t)
+			o := opts(root, c.client)
+			if st := statusOf(t, mustRun(t, o), c.rel).Status; st != Created {
+				t.Errorf("%s: first run %s; want created", c.client, st)
+			}
+			mustRun(t, uninstall(o))
+			if exists(root, c.rel) {
+				t.Errorf("%s is left after --uninstall of a file init created:\n%s", c.rel, read(t, root, c.rel))
+			}
+		}
+	})
+}
+
+// The entry's shape is each client's own format (ADR-0061 §5): Claude Code's is a Bash
+// matcher on PreToolUse, Cursor's covers a shell command and, by matcher, its Delete tool.
+func TestHookEntryShape(t *testing.T) {
+	root := projectRoot(t)
+	mustRun(t, opts(root, Claude, Cursor))
+
+	var claude struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string
+				Hooks   []struct{ Type, Command string }
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(read(t, root, ".claude/settings.json")), &claude); err != nil {
+		t.Fatal(err)
+	}
+	pre := claude.Hooks.PreToolUse
+	want := testCommand + " hook --client claude --root " + root
+	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 || pre[0].Hooks[0].Type != "command" || pre[0].Hooks[0].Command != want {
+		t.Errorf("claude PreToolUse = %+v; want one Bash matcher running %q", pre, want)
+	}
+
+	var cursor struct {
+		Version float64
+		Hooks   map[string][]struct{ Command, Matcher string }
+	}
+	if err := json.Unmarshal([]byte(read(t, root, ".cursor/hooks.json")), &cursor); err != nil {
+		t.Fatal(err)
+	}
+	want = testCommand + " hook --client cursor --root " + root
+	b, p := cursor.Hooks["beforeShellExecution"], cursor.Hooks["preToolUse"]
+	if cursor.Version != 1 || len(cursor.Hooks) != 2 ||
+		len(b) != 1 || b[0].Command != want || b[0].Matcher != "" ||
+		len(p) != 1 || p[0].Command != want || p[0].Matcher != "Delete" {
+		t.Errorf("cursor hooks.json = %+v; want version 1, beforeShellExecution and preToolUse(Delete) running %q", cursor, want)
+	}
+
+	// OpenCode has no hook (a register row), so its run writes neither file.
+	other := projectRoot(t)
+	mustRun(t, opts(other, OpenCode))
+	for _, rel := range []string{".claude/settings.json", ".cursor/hooks.json"} {
+		if exists(other, rel) {
+			t.Errorf("an OpenCode run wrote %s", rel)
+		}
+	}
+}
+
+// Cursor's `version` is init's only while nothing else is in the file: a user who has
+// hooks of their own keeps it through --uninstall (a removed version would make Cursor
+// drop their file), and a file of init's alone is deleted whole.
+func TestUninstallKeepsCursorsVersionWhileTheUsersHooksRemain(t *testing.T) {
+	root := projectRoot(t)
+	write(t, root, ".cursor/hooks.json", hookCases[1].only)
+	o := opts(root, Cursor)
+	mustRun(t, o)
+	mustRun(t, uninstall(o))
+	got := read(t, root, ".cursor/hooks.json")
+	if !strings.Contains(got, `"version": 1`) || !strings.Contains(got, `"command": "mine"`) || strings.Contains(got, "droidyard") {
+		t.Errorf("after --uninstall: %s; want version and the user's hook kept, init's gone", got)
+	}
+}
+
+// --uninstall removes what init would write now (ADR-0037 §2): an entry written for
+// another binary path is the user's as far as it can tell, and stays (the register row).
+func TestUninstallRemovesOnlyTheEntryItWouldWriteNow(t *testing.T) {
+	for _, c := range hookCases {
+		t.Run(string(c.client), func(t *testing.T) {
+			root := projectRoot(t)
+			write(t, root, c.rel, c.only)
+			old := opts(root, c.client)
+			old.Command = "/old/bin/droidyard"
+			mustRun(t, old)
+			now := opts(root, c.client)
+			mustRun(t, uninstall(now))
+			if got := read(t, root, c.rel); !strings.Contains(got, "/old/bin/droidyard hook") {
+				t.Errorf("--uninstall removed an entry that is not the one it would write now:\n%s", got)
+			}
+			mustRun(t, uninstall(old))
+			if got := read(t, root, c.rel); strings.Contains(got, "droidyard") {
+				t.Errorf("--uninstall with the same options left init's entry:\n%s", got)
+			}
+		})
+	}
+}
+
+// A custom state root travels in the command (the client's hook environment lacks it),
+// and any path quotes to one shell word.
+func TestHookCommandCarriesTheStateRootAndQuotesPaths(t *testing.T) {
+	o := Options{Root: "/p/my app", Command: "/b/droidyard", StateDir: "/s/it's here"}
+	got := HookCommand(o, Cursor)
+	want := `DROIDYARD_STATE_DIR='/s/it'\''s here' /b/droidyard hook --client cursor --root '/p/my app'`
+	if got != want {
+		t.Errorf("HookCommand = %s\nwant %s", got, want)
+	}
+	if plain := HookCommand(Options{Root: "/p/app", Command: "/b/droidyard"}, Claude); strings.Contains(plain, "DROIDYARD_STATE_DIR") {
+		t.Errorf("a default state root is written inline: %s", plain)
+	}
+	if sh, err := exec.LookPath("sh"); err == nil {
+		for _, s := range []string{"/p/my app", "it's", `a"b$c`, "", "x\ny"} {
+			out, err := exec.Command(sh, "-c", "printf %s "+shellArg(s)).Output()
+			if err != nil || string(out) != s {
+				t.Errorf("shellArg(%q) read back as %q (%v)", s, out, err)
+			}
+		}
+	}
+
+	root := projectRoot(t)
+	o = opts(root, Claude)
+	o.StateDir = "/s/state"
+	mustRun(t, o)
+	if got := read(t, root, ".claude/settings.json"); !strings.Contains(got, "DROIDYARD_STATE_DIR=/s/state /opt/bin/droidyard hook") {
+		t.Errorf("settings.json lacks the state root:\n%s", got)
+	}
+	o.StateDir = "state"
+	if _, err := Run(o); err == nil {
+		t.Error("a relative state dir was accepted")
+	}
+}
+
+// A file init cannot merge into is refused and left as it is (ADR-0037 §2), and the
+// other files are still written; --dry-run computes the same outcome and writes none.
+func TestHookFilesThatCannotBeMergedAreRefused(t *testing.T) {
+	cases := []struct {
+		hookCase
+		bad string
+	}{
+		{hookCases[0], `{"hooks": {"PreToolUse": `},
+		{hookCases[0], `{"hooks": {"PreToolUse": {"matcher": "Bash"}}}`},
+		{hookCases[1], `{"version": 1, "hooks": [`},
+		{hookCases[1], `{"version": 1, "hooks": {"preToolUse": "x"}}`},
+	}
+	for _, c := range cases {
+		t.Run(string(c.client)+" "+c.bad, func(t *testing.T) {
+			root := projectRoot(t)
+			write(t, root, c.rel, c.bad)
+			res := mustRun(t, opts(root, c.client))
+			ch := statusOf(t, res, c.rel)
+			if ch.Status != Refused || !strings.Contains(ch.Entry, "hook --client") {
+				t.Errorf("%s: %s, entry %q; want refused with the entry to add", c.rel, ch.Status, ch.Entry)
+			}
+			if got := read(t, root, c.rel); got != c.bad {
+				t.Errorf("a refused file was changed: %q", got)
+			}
+			mustRun(t, uninstall(opts(root, c.client)))
+			if got := read(t, root, c.rel); got != c.bad {
+				t.Errorf("--uninstall changed a file it cannot parse: %q", got)
+			}
+		})
+	}
+}
+
+func TestHookEntriesAreNotWrittenByADryRun(t *testing.T) {
+	for _, c := range hookCases {
+		root := projectRoot(t)
+		write(t, root, c.rel, c.mine)
+		before := snapshot(t, root)
+		o := opts(root, c.client)
+		o.DryRun = true
+		if st := statusOf(t, mustRun(t, o), c.rel).Status; st != Updated {
+			t.Errorf("%s dry run reports %s; want updated", c.rel, st)
+		}
+		sameText(t, before, snapshot(t, root))
+	}
+	root := projectRoot(t)
+	o := opts(root, Cursor, Claude)
+	o.DryRun = true
+	mustRun(t, o)
+	if left := snapshot(t, root); len(left) != 0 {
+		t.Errorf("a dry run wrote %v", left)
+	}
+}

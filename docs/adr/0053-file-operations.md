@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-11
+- Superseded in part by: ADR-0060 (§Consequences)
+- Superseded in part by: ADR-0060 (§Decision)
 - Relates to: ADR-0015 §1, §5, §6, ADR-0020 §States, ADR-0036 Decision 4, ADR-0054; plan m2g Q1, D47–D50
 - Decided by the main session under the owner's standing instruction (apply the recommended
   option), Delegated; the owner asked for the operations in 2d (plan m2d, the split). The

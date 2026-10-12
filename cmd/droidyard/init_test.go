@@ -377,3 +377,44 @@ func TestInitOnTheCommandLine(t *testing.T) {
 		}
 	})
 }
+
+// TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot: the hook entry runs this
+// binary with --root, and writes the state root inline when init's own came from
+// DROIDYARD_STATE_DIR (set here by droidyardIn), since a client's hook environment lacks
+// it and the hook would otherwise dial another daemon (ADR-0061 §3, §5). init prints it.
+func TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot(t *testing.T) {
+	t.Parallel()
+	state := shortDir(t)
+	proj := projectDir(t)
+	out, code := initRun(t, state, proj, "--client", "claude,cursor", "--root", proj)
+	if code != 0 {
+		t.Fatalf("init exited %d:\n%s", code, out)
+	}
+	exe, _ := filepath.Abs(os.Args[0])
+	for _, c := range []struct{ client, file string }{{"claude", ".claude/settings.json"}, {"cursor", ".cursor/hooks.json"}} {
+		raw, err := os.ReadFile(filepath.Join(proj, c.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var found string
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.Contains(line, "hook --client "+c.client) {
+				found = line
+				break
+			}
+		}
+		prefix := "DROIDYARD_STATE_DIR=" + filepath.Clean(state) + " "
+		i := strings.Index(found, prefix)
+		if i < 0 || !strings.HasSuffix(strings.TrimRight(found, `",`), " hook --client "+c.client+" --root "+proj) {
+			t.Fatalf("%s: %q; want %s<binary> hook --client %s --root %s", c.file, found, prefix, c.client, proj)
+		}
+		bin := strings.TrimPrefix(strings.TrimRight(found, `",`)[i+len(prefix):], "")
+		bin = strings.Fields(bin)[0]
+		if !sameFile(bin, exe) {
+			t.Errorf("%s: the hook runs %s; want this binary %s", c.file, bin, exe)
+		}
+		if !strings.Contains(out, "The "+c.client+" hook") {
+			t.Errorf("init does not print the %s hook it wrote:\n%s", c.client, out)
+		}
+	}
+}

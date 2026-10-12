@@ -13,6 +13,7 @@
 	import type { SessionsModel, SessionsView } from '../projects/sessions';
 	import type { ActivityStore, Operation, WatchStatus } from './activity';
 	import { buildBlocks, elapsedText, type ActorFilter, type Block } from './blocks';
+	import { canRestore, EXPIRED_TEXT, itemText, type RestoreModel, type RestoreState } from './restore';
 
 	// The activity stream (plan m2d step 8, direction C): a block per operation, newest at
 	// the bottom, following the stream unless the user scrolled up. Every field is a text
@@ -23,10 +24,13 @@
 		sessions: SessionsModel;
 		console: ConsoleModel;
 		build: BuildModel;
+		/** Restore of a completed file.delete (plan m2j step 10); `workspaceId` is the project this tab shows. */
+		restore: RestoreModel;
+		workspaceId: string;
 		/** Shows the Build output tab. */
 		onopenoutput: () => void;
 	}
-	let { store, sessions, console: buildConsole, build, onopenoutput }: Props = $props();
+	let { store, sessions, console: buildConsole, build, restore, workspaceId, onopenoutput }: Props = $props();
 
 	/** How many console lines an expanded block draws: the newest ones. */
 	const LINES = 200;
@@ -39,6 +43,7 @@
 	let startError = $state.raw<{ code?: string; message: string } | null>(null);
 	let actor = $state<ActorFilter>('all');
 	let open = $state<Record<string, boolean>>({});
+	let restores = $state.raw<ReadonlyMap<string, RestoreState>>(new Map());
 	let now = $state(Date.now());
 	let following = $state(true);
 	let scroller = $state<HTMLDivElement>();
@@ -74,6 +79,14 @@
 		const read = () => {
 			const e = m.view.startError;
 			startError = e === null ? null : { code: e.code, message: failureText(e) };
+		};
+		read();
+		return m.subscribe(read);
+	});
+	$effect(() => {
+		const m = restore;
+		const read = () => {
+			restores = new Map(operations.map((o) => [o.id, m.stateOf(o.id)] as const).filter((e): e is [string, RestoreState] => e[1] !== undefined));
 		};
 		read();
 		return m.subscribe(read);
@@ -191,6 +204,27 @@
 					<p class="why">
 						Waiting for {b.blockedBy.capability ?? 'another operation'}{b.blockedBy.reason ? `: ${b.blockedBy.reason}` : ''}
 					</p>
+				{/if}
+				{#if canRestore(b, workspaceId)}
+					{@const r = restores.get(b.id)}
+					<div class="restore">
+						{#if r === undefined || r.kind === 'failed'}
+							<button type="button" class="link" onclick={() => void restore.restore(b.id)}>Restore</button>
+						{/if}
+						{#if r?.kind === 'working'}
+							<p class="why">Restoring…</p>
+						{:else if r?.kind === 'nothing'}
+							<p class="why">Nothing to restore: no item of this delete was done.</p>
+						{:else if r?.kind === 'expired'}
+							<p class="why">{EXPIRED_TEXT}</p>
+						{:else if r?.kind === 'failed'}
+							<p class="why err">{r.code}: {r.message}</p>
+						{:else if r?.kind === 'done'}
+							{#each r.items as item (item.path)}
+								<p class="why" class:err={item.code !== undefined}>{itemText(item)}</p>
+							{/each}
+						{/if}
+					</div>
 				{/if}
 				{#if open[b.id]}
 					{#if b.output.kind === 'console'}
@@ -353,6 +387,9 @@
 		margin: var(--sp-2) 0 0;
 		color: var(--text-2);
 		font-size: var(--fs-small);
+	}
+	.restore {
+		margin-top: var(--sp-2);
 	}
 	.out {
 		margin: var(--sp-3) 0 0;

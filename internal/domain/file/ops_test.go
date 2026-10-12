@@ -687,41 +687,7 @@ func TestCancelStopsBetweenItems(t *testing.T) {
 	})
 }
 
-// Decision (ADR-0036 Decision 2; ADR-0053 §2): a batch with failed items is a successful
-// call, so its text rendering leads with the failures: the first line counts them and
-// names their codes, then each failed item with its code and message, then the done ones.
-func TestMoveTextLeadsWithTheFailures(t *testing.T) {
-	f := newFixture(t)
-	d, _ := f.reg.Lookup("file.move")
-	one := MoveResult{
-		Items:  []MovedItem{{From: "a.kt", To: "b.kt", Code: "FILE_EXISTS", Message: `"b.kt" already exists`}},
-		Failed: 1,
-	}
-	if got, want := d.Text(one), "failed 1 of 1 FILE_EXISTS\nFILE_EXISTS a.kt -> b.kt \"\\\"b.kt\\\" already exists\""; got != want {
-		t.Errorf("a one-item FILE_EXISTS result renders\n%s\nwant\n%s", got, want)
-	}
-	mixed := MoveResult{
-		Items: []MovedItem{
-			{From: "p.kt", To: "p2.kt"},
-			{From: "q.kt", To: "x y.kt", Code: "FILE_NOT_FOUND", Message: "gone"},
-			{From: "r.kt", To: "r2.kt", Code: "OPERATION_CANCELLED", Message: "cancelled"},
-			{From: "s.kt", To: "s2.kt", Code: "FILE_NOT_FOUND", Message: "gone too"},
-		},
-		Done: 1, Failed: 3,
-	}
-	lines := strings.Split(d.Text(mixed), "\n")
-	if lines[0] != "failed 3 of 4 FILE_NOT_FOUND,OPERATION_CANCELLED" {
-		t.Errorf("first line %q", lines[0])
-	}
-	if len(lines) != 5 || !strings.HasPrefix(lines[1], "FILE_NOT_FOUND q.kt -> \"x y.kt\" ") || lines[4] != "moved p.kt -> p2.kt" {
-		t.Errorf("rendering:\n%s", strings.Join(lines, "\n"))
-	}
-	if all := (MoveResult{Items: []MovedItem{{From: "a", To: "b"}}, Done: 1}); d.Text(all) != "failed 0 of 1\nmoved a -> b" {
-		t.Errorf("an all-done result renders %q", d.Text(all))
-	}
-}
-
-// Decision (ADR-0053 §1): the operations are for every audience and not destructive (they
+// Decision (ADR-0053 §1, ADR-0060): the operations are for the human audience and not destructive (they
 // replace nothing), and their results carry no untrusted mark (ADR-0015 §1). file.create is
 // idempotent; file.move is not: a swap batch run twice swaps back (m2g §Changes).
 func TestOpsAnnotations(t *testing.T) {
@@ -735,8 +701,29 @@ func TestOpsAnnotations(t *testing.T) {
 		if a.ReadOnly || a.Destructive || a.Idempotent != (name == "file.create") || a.OpenWorld {
 			t.Errorf("%s annotations %+v; want a non-destructive command, idempotent only for file.create", name, a)
 		}
-		if d.Audience != capability.AudienceAll || d.Untrusted() || d.Resource != nil || d.Since != "0.19.0" {
+		if d.Audience != capability.AudienceHuman || d.Untrusted() || d.Resource != nil || d.Since != "0.19.0" {
 			t.Errorf("%s: audience %v, untrusted %v, resource %v, since %s", name, d.Audience, d.Untrusted(), d.Resource != nil, d.Since)
 		}
+	}
+}
+
+// Decision (ADR-0060 §1): every file.* capability has audience human, so no MCP profile
+// lists it and the core refuses it from an MCP session. The test counts the nine in the
+// registry, so a tenth file.* that forgets the audience, or a descriptor that loses it,
+// fails here rather than appearing in tools/list.
+func TestEveryFileCapabilityIsHumanAudience(t *testing.T) {
+	f := newFixture(t)
+	var names []string
+	for _, d := range f.reg.All() {
+		if !strings.HasPrefix(d.Name, "file.") {
+			continue
+		}
+		names = append(names, d.Name)
+		if d.Audience != capability.AudienceHuman {
+			t.Errorf("%s has audience %v; every file.* is human (ADR-0060 §1)", d.Name, d.Audience)
+		}
+	}
+	if len(names) != 9 {
+		t.Errorf("found %d file.* descriptors %v; want the nine", len(names), names)
 	}
 }

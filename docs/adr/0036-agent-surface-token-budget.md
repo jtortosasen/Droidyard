@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-08
+- Superseded in part by: ADR-0060 (§Decision)
 - Supersedes: ADR-0020 §Adapter projections (in part: the text a completed operation renders)
 - Supersedes: ADR-0019 §Processes (in part: item 7, the hello gains an optional `tools` field)
 - Relates to: ADR-0015 §1, ADR-0025 §Decision, `mcp.md` (§Descriptions, §Server instructions,

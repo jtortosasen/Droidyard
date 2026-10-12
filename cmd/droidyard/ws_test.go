@@ -1090,10 +1090,10 @@ func TestWSFileWatchWorkspaceClose(t *testing.T) {
 	}
 }
 
-// TestFileWatchNeedsASession: file.watch is streaming, so through plain HTTP, a CLI call
-// and the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET /v1/ws, with
-// no operation (plan m1j step 4 (a); ADR-0010). The MCP adapter lists no file.watch tool
-// (TestMCPTranscript).
+// TestFileWatchNeedsASession: file.watch is streaming, so through plain HTTP and a CLI call
+// it is SESSION_REQUIRED at Start, naming GET /v1/ws, with no operation (plan m1j step 4
+// (a); ADR-0010). From the core's MCP client kind it is REQUEST_NOT_ALLOWED_HERE: its
+// audience is human (ADR-0060), checked before statefulness.
 func TestFileWatchNeedsASession(t *testing.T) {
 	t.Parallel()
 	p, _ := startHTTP(t, "127.0.0.1:0")
@@ -1121,8 +1121,8 @@ func TestFileWatchNeedsASession(t *testing.T) {
 
 	out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "file.watch", Params: json.RawMessage(params), Client: capability.ClientMCP})
 	var e *capability.Error
-	if !errors.As(err, &e) || e.Code != capability.ErrSessionRequired || out.OperationID != "" {
-		t.Errorf("file.watch as client mcp: (%+v, %v); want SESSION_REQUIRED", out, err)
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || out.OperationID != "" {
+		t.Errorf("file.watch as client mcp: (%+v, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", out, err)
 	}
 	if n := p.bus.Subscriptions(); n != 0 {
 		t.Errorf("the rejected calls left %d subscriptions on the bus", n)
