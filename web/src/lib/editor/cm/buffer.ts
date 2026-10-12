@@ -27,9 +27,10 @@ import {
 	rectangularSelection,
 	type ViewUpdate,
 } from '@codemirror/view';
-import type { BufferOptions, BufferSnapshot, EditorBuffer } from '../surface';
+import type { BufferOptions, BufferSnapshot, EditorBuffer, EditorDiagnostic } from '../surface';
 import { detectSeparator, normalizeBreaks, type Separator } from '../text';
 import { minimalChange } from './change';
+import { diagnosticsExtension, diagnosticsSpec } from './diagnostics';
 import { highlightStyle } from './highlight';
 import { languageFor } from './languages';
 import { theme } from './theme';
@@ -89,6 +90,8 @@ export class CmBuffer implements EditorBuffer {
 	#epoch = 0;
 	#loading = false;
 	#view: EditorView | null = null;
+	/** The list last applied (by identity): the same build result is not drawn again over positions the edits have since moved. */
+	#diagnostics: readonly EditorDiagnostic[] | null = null;
 	#listeners = new Set<() => void>();
 
 	constructor(opts: BufferOptions) {
@@ -162,9 +165,23 @@ export class CmBuffer implements EditorBuffer {
 		}
 		// Another separator, or a mixed file: the document is made again.
 		this.#sep = sep;
+		this.#diagnostics = null; // the new document's positions are not the build's
 		this.state = this.#create(text);
 		this.#saved = this.state.doc;
 		this.#view?.setState(this.state);
+	}
+
+	/**
+	 * D10: the last build's errors in this file, kept in the state so they follow its edits. The
+	 * same list again is a no-op (a tab reopened after edits keeps the marks where the edits moved
+	 * them); a new list replaces the old, an empty one clears.
+	 */
+	setDiagnostics(list: readonly EditorDiagnostic[]): void {
+		if (list === this.#diagnostics) return;
+		const first = this.#diagnostics === null;
+		this.#diagnostics = list;
+		if (first && list.length === 0) return;
+		this.dispatch(diagnosticsSpec(this.state, list));
 	}
 
 	setReadOnly(readOnly: boolean): void {
@@ -241,6 +258,7 @@ export class CmBuffer implements EditorBuffer {
 			history(),
 			lineNumbers(),
 			foldGutter(),
+			diagnosticsExtension,
 			highlightActiveLine(),
 			highlightActiveLineGutter(),
 			drawSelection(),

@@ -13,11 +13,8 @@
 import { EditorView } from '@codemirror/view';
 import type { BufferOptions, CompareOptions, EditorBuffer, EditorDiagnostic, EditorHandle, EditorOptions } from '../surface';
 import { CmBuffer } from './buffer';
+import { offsetOf } from './diagnostics';
 import { isSaveKey } from './savekey';
-
-function clamp(n: number, lo: number, hi: number): number {
-	return Math.min(hi, Math.max(lo, n));
-}
 
 class CmEditor implements EditorHandle {
 	#view: EditorView;
@@ -55,18 +52,16 @@ class CmEditor implements EditorHandle {
 	}
 
 	reveal(line: number, col: number): void {
-		const doc = this.#view.state.doc;
-		const l = doc.line(clamp(Math.trunc(line), 1, doc.lines));
-		const pos = l.from + clamp(Math.trunc(col) - 1, 0, l.length);
+		const pos = offsetOf(this.#view.state.doc, line, col);
 		this.#view.dispatch({
 			selection: { anchor: pos },
 			effects: EditorView.scrollIntoView(pos, { y: 'center' }),
 		});
 	}
 
-	// Diagnostics arrive with step 8 (@codemirror/lint); until then they are accepted, not drawn.
+	// D10: kept by the buffer, so they outlive this view.
 	setDiagnostics(list: readonly EditorDiagnostic[]): void {
-		void list;
+		this.#buffer.setDiagnostics(list);
 	}
 
 	destroy(): void {

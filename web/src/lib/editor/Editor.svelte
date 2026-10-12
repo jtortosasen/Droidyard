@@ -11,6 +11,8 @@
 	import type { TabsModel, TabsView } from './tabs';
 	import type { UnsavedGuard } from './unsaved';
 	import type { ViewerSet } from './viewer';
+	import type { EditorDiagnostic } from './surface';
+	import type { Position } from '../build/locate';
 
 	// The Editor tab's content (plan m2d step 6): the second-level tabs of the open files
 	// over a read-only viewer. A single click on a tree file is a preview tab (italics);
@@ -24,8 +26,13 @@
 		copyPath: (path: string) => string;
 		/** Asks before a tab with unsaved changes is closed. */
 		guard: UnsavedGuard;
+		/** The last build's errors by file (plan m2i D10); one array per file and build result. */
+		marks: ReadonlyMap<string, EditorDiagnostic[]>;
+		/** A Problems row asked for a position; `ontarget(id)` says the editor has moved there. */
+		target: (Position & { id: number }) | null;
+		ontarget: (id: number) => void;
 	}
-	let { tabs, viewers, onactivate, copyPath, guard }: Props = $props();
+	let { tabs, viewers, onactivate, copyPath, guard, marks, target, ontarget }: Props = $props();
 
 	const ICONS: Record<IconKind, Component<{ size?: number }>> = {
 		folder: File,
@@ -48,6 +55,8 @@
 			viewers.keep(view.tabs.map((t) => t.path));
 		});
 	});
+
+	const NONE: readonly EditorDiagnostic[] = [];
 
 	const name = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
@@ -100,7 +109,13 @@
 		</div>
 		{#if view.active !== null}
 			{#key view.active}
-				<Viewer viewer={viewers.get(view.active)} {copyPath} />
+				<Viewer
+					viewer={viewers.get(view.active)}
+					{copyPath}
+					diagnostics={marks.get(view.active) ?? NONE}
+					at={target?.path === view.active ? target : null}
+					{ontarget}
+				/>
 			{/key}
 		{/if}
 	{/if}

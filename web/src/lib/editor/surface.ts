@@ -77,10 +77,15 @@ export interface EditorDiagnostic {
 	message: string;
 }
 
-/** A mounted editor, showing one buffer. Step 8 (diagnostics) extends it. */
+/** A mounted editor, showing one buffer. */
 export interface EditorHandle {
 	/** Moves the cursor to a 1-based line and column (clamped to the text) and scrolls it into view. */
 	reveal(line: number, col: number): void;
+	/**
+	 * Replaces the build errors marked in the buffer (D10); the marks belong to the buffer and
+	 * follow its edits. The same array again changes nothing, so a caller passes one array per
+	 * build result and not a copy per call.
+	 */
 	setDiagnostics(list: readonly EditorDiagnostic[]): void;
 	/** Removes the editor from its host. */
 	destroy(): void;
@@ -111,7 +116,7 @@ export class LazyEditor implements EditorHandle {
 	#handle: EditorHandle | null = null;
 	#gone = false;
 	#reveal: [number, number] | null = null;
-	#diagnostics: readonly EditorDiagnostic[] = [];
+	#diagnostics: readonly EditorDiagnostic[] | null = null;
 
 	constructor(
 		host: HTMLElement,
@@ -130,7 +135,7 @@ export class LazyEditor implements EditorHandle {
 						return;
 					}
 					this.#handle = h;
-					if (this.#diagnostics.length > 0) h.setDiagnostics(this.#diagnostics);
+					if (this.#diagnostics !== null) h.setDiagnostics(this.#diagnostics);
 					if (this.#reveal !== null) h.reveal(...this.#reveal);
 				} catch (e) {
 					if (!this.#gone) onError(e);
