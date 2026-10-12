@@ -461,6 +461,15 @@ func TestShutdownCancelsRunningOperations(t *testing.T) {
 // amended 2026-09-30). Real daemons, real binds in the real fallback.
 func TestLongStateRootsDoNotShareAFallbackSocket(t *testing.T) {
 	env := platform.Current()
+	// On Linux a set XDG_RUNTIME_DIR holds the socket instead of the state root, and is
+	// short; hidden here, so the long state root decides, as it does on macOS.
+	getenv := env.Getenv
+	env.Getenv = func(k string) string {
+		if k == "XDG_RUNTIME_DIR" {
+			return ""
+		}
+		return getenv(k)
+	}
 	var started []*harness
 	for _, name := range []string{"a", "b"} {
 		state := filepath.Join(t.TempDir(), strings.Repeat("x", 100), name)
