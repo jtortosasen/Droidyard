@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +37,10 @@ func TestBuildScriptReproducesTheDex(t *testing.T) {
 	}
 	if _, err := exec.LookPath("javac"); err != nil {
 		t.Skip("level 2 only: no javac")
+	}
+	// The pinned bytes are javac 17.0.11's (build.sh); another javac emits other bytes.
+	if v, _ := exec.Command("javac", "-version").CombinedOutput(); strings.TrimSpace(string(v)) != "javac 17.0.11" {
+		t.Skipf("level 2 only: host %s, reader.dex was built with javac 17.0.11", strings.TrimSpace(string(v)))
 	}
 	out := filepath.Join(t.TempDir(), "reader.dex")
 	cmd := exec.Command("sh", "build.sh")

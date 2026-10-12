@@ -112,7 +112,12 @@ func TestLaunchIsRecordedUntilResolution(t *testing.T) {
 		if pid := f.launcherPid(t, serial); pid != 0 {
 			t.Fatalf("the fake registered %s before the test looked; lengthen the launch delay", serial)
 		}
+		// The launch is visible to launchFor a moment before the record hook runs, so the
+		// record is awaited, but only while the fake still has no serial.
 		e, ok := rec.has(l.pid)
+		for end := time.Now().Add(300 * time.Millisecond); !ok && time.Now().Before(end); e, ok = rec.has(l.pid) {
+			time.Sleep(time.Millisecond)
+		}
 		if !ok {
 			t.Fatal("no record while the launch has no serial")
 		}

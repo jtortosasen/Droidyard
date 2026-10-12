@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/build"
+	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 )
@@ -102,7 +102,7 @@ func TestWSWatchOutputSeesAnMCPBuild(t *testing.T) {
 		t.Fatalf("build.watchOutput: %+v", f.Error)
 	}
 	sub := subscriptionOf(t, f)
-	var watch build.WatchOutputResult
+	var watch builddomain.WatchOutputResult
 	if err := json.Unmarshal(f.Result, &watch); err != nil || len(watch.Builds) != 0 {
 		t.Fatalf("the watch result %s: %v; want no build running", f.Result, err)
 	}
@@ -118,7 +118,7 @@ func TestWSWatchOutputSeesAnMCPBuild(t *testing.T) {
 
 	// The lines events were all published before the operation ended; read until the
 	// socket is quiet.
-	var lines []build.LinesEvent
+	var lines []builddomain.LinesEvent
 	var ref string
 	for {
 		fr, ok := w.next(500 * time.Millisecond)
@@ -128,10 +128,10 @@ func TestWSWatchOutputSeesAnMCPBuild(t *testing.T) {
 		if fr.Event == nil || fr.SubscriptionID != sub {
 			t.Fatalf("a frame that is not an event of %s: %+v", sub, fr)
 		}
-		if fr.Event.Topic != build.TopicOutput || fr.Event.Type != build.EventLines || fr.Event.Operation != buildID {
+		if fr.Event.Topic != builddomain.TopicOutput || fr.Event.Type != builddomain.EventLines || fr.Event.Operation != buildID {
 			t.Fatalf("the watch received %s/%s for %q; want build.output/lines for %s", fr.Event.Topic, fr.Event.Type, fr.Event.Operation, buildID)
 		}
-		var le build.LinesEvent
+		var le builddomain.LinesEvent
 		if err := json.Unmarshal(fr.Event.Payload, &le); err != nil {
 			t.Fatal(err)
 		}

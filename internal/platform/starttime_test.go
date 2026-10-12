@@ -42,8 +42,10 @@ func TestStartTimeTellsProcessesApart(t *testing.T) {
 	if a1 == b {
 		t.Errorf("two processes started 20 ms apart have one start time, %d", a1)
 	}
-	if self, err := StartTime(os.Getpid()); err != nil || self == 0 || self >= a1 {
-		t.Errorf("own start time %d (%v); want non-zero and before its children's, %d", self, err, a1)
+	if self, err := StartTime(os.Getpid()); err != nil || self == 0 || self > a1 {
+		// Not strictly before: Linux counts in clock ticks (10 ms), and the test binary
+		// can start in the same tick as its first child.
+		t.Errorf("own start time %d (%v); want non-zero and not after its children's, %d", self, err, a1)
 	}
 
 	first.Process.Kill()
