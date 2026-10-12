@@ -3,7 +3,11 @@ package assistant
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,7 +21,9 @@ import (
 // `find -delete` pass.
 //
 // The only I/O is reading the file system under the root: ReadDir to expand a glob,
-// Lstat and EvalSymlinks to place a target. Nothing is written.
+// Lstat and EvalSymlinks to place a target. Nothing is written. What the reader hands
+// back is the operand words as typed, for `droidyard trash` to resolve in the agent's
+// own shell (ADR-0062); the placing here only decides whether the `rm` is routed.
 
 // maxRoutedPaths is file.delete's batch bound; a command with more targets passes.
 const maxRoutedPaths = 1000
@@ -34,7 +40,8 @@ type HookEvent struct {
 	// Cursor `beforeShellExecution`.
 	Command string
 	// Cwd is the shell's directory as the client reports it; "" when it does not (Cursor
-	// carries "" [obs, m2j step 6]), and relative operands then pass.
+	// carries "" [obs, m2j step 6]), and a relative operand then routes on lexical checks
+	// only (ADR-0062 §5).
 	Cwd string
 	// DeletePath is the absolute path of a Cursor `Delete` tool call; Command is "" then.
 	DeletePath string
@@ -73,65 +80,119 @@ func DecodeHookEvent(c Client, stdin []byte) (ev HookEvent, ok bool) {
 	return HookEvent{}, false
 }
 
+// Route is a delete the hook redirects to `droidyard trash`: the operands as typed and
+// the flags `rm` was given.
+type Route struct {
+	// Paths are the targets, root-relative and slash-separated, in the order `rm` would
+	// receive them, without duplicates. An operand the hook could not place (a relative
+	// one with no cwd, ADR-0062 §5) is listed as its lexical path relative to the
+	// shell's directory, a glob unexpanded.
+	Paths []string
+	// Recursive and Force are whether -r/-R and -f were typed.
+	Recursive, Force bool
+
+	operands []word
+	// endOptions is whether `--` was typed. The replacement carries `--` only then, so
+	// a glob that expands to a `-name` is read by `trash` as `rm` reads it: a flag, or a
+	// usage error that moves nothing (step 2–3 verifier N1).
+	endOptions bool
+}
+
+// rmOperand is one typed operand, with where the hook placed it: the absolute paths it
+// expands to, or, when there is no cwd to place a relative operand, its lexical path.
+type rmOperand struct {
+	w       word
+	targets []string
+	lexical string
+	// afterDashDash is whether `--` came before it.
+	afterDashDash bool
+}
+
 // RouteRm decides whether the event is a delete the hook redirects to the trash. ok is
-// false for a pass; otherwise paths are the targets, relative to root, slash-separated,
-// in the order `rm` would receive them, without duplicates. root is an absolute path.
-func RouteRm(ev HookEvent, root string) (paths []string, ok bool) {
+// false for a pass. root is an absolute path. Where the hook can place a target (an
+// absolute cwd or operand) every target must be one `rm` itself would delete inside the
+// root; a relative operand of an event with no cwd routes when it has no `..` or build
+// output component and is not `.`, and `trash` checks the rest (ADR-0062 §5).
+func RouteRm(ev HookEvent, root string) (rt Route, ok bool) {
 	if !filepath.IsAbs(root) {
-		return nil, false
+		return Route{}, false
 	}
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return nil, false
+		return Route{}, false
 	}
-	var targets []string
-	recursive := false
+	var ops []rmOperand
 	if ev.DeletePath != "" {
 		// The Delete tool is not a shell: the path is literal, with no glob. Without
 		// -r semantics, a directory passes.
 		if !filepath.IsAbs(ev.DeletePath) {
-			return nil, false
+			return Route{}, false
 		}
-		targets = []string{ev.DeletePath}
+		w := make(word, 0, len(ev.DeletePath))
+		for _, r := range ev.DeletePath {
+			w = append(w, wordRune{r, true})
+		}
+		ops = []rmOperand{{w: w, targets: []string{ev.DeletePath}}}
 	} else {
-		targets, recursive, ok = parseRm(ev.Command, ev.Cwd)
+		ops, rt.Recursive, rt.Force, ok = parseRm(ev.Command, ev.Cwd)
 		if !ok {
-			return nil, false
+			return Route{}, false
+		}
+		// `--` after an operand is refused by parseRm, so the first operand says it.
+		rt.endOptions = ops[0].afterDashDash
+	}
+	n := 0
+	for _, op := range ops {
+		n += len(op.targets)
+		if op.lexical != "" {
+			n++
 		}
 	}
-	if len(targets) == 0 || len(targets) > maxRoutedPaths {
-		return nil, false
+	if n == 0 || n > maxRoutedPaths {
+		return Route{}, false
 	}
 	seen := map[string]bool{}
-	for _, t := range targets {
-		rel, isDir, ok := placeTarget(t, realRoot)
-		if !ok || (isDir && !recursive) {
-			return nil, false
-		}
+	add := func(rel string) {
 		if !seen[rel] {
 			seen[rel] = true
-			paths = append(paths, rel)
+			rt.Paths = append(rt.Paths, rel)
 		}
 	}
-	return paths, true
+	for _, op := range ops {
+		rt.operands = append(rt.operands, op.w)
+		if op.lexical != "" {
+			add(op.lexical)
+			continue
+		}
+		for _, t := range op.targets {
+			rel, isDir, ok := placeTarget(t, realRoot)
+			if !ok || (isDir && !rt.Recursive) {
+				return Route{}, false
+			}
+			add(rel)
+		}
+	}
+	return rt, true
 }
 
 // parseRm reads a command as a simple `rm`: the word `rm`, flags among -r -R -f and
-// `--`, and operands. targets are absolute and uncleaned (a `..` or a link in them is
-// still the shell's to resolve, which placeTarget does). ok is false for anything else.
-func parseRm(command, cwd string) (targets []string, recursive, ok bool) {
+// `--`, and operands. Each operand's targets are absolute and uncleaned (a `..` or a
+// link in them is still the shell's to resolve, which placeTarget does); with cwd ""
+// a relative operand has its lexical path instead. ok is false for anything else.
+func parseRm(command, cwd string) (ops []rmOperand, recursive, force, ok bool) {
 	words, ok := splitWords(command)
 	if !ok || len(words) < 2 || words[0].String() != "rm" || words[0].quoted() {
-		return nil, false, false
+		return nil, false, false, false
 	}
 	// Flags end at `--` or at the first operand: BSD rm's getopt does not permute, so a
 	// later `-r` is a file name to it, and a word that expands to a name starting with
 	// `-` before `--` is a flag to it. Either passes (step 7–8 verifier N2).
 	endOpts, seenOperand := false, false
+	total := 0
 	for _, w := range words[1:] {
 		s := w.String()
 		if !endOpts && seenOperand && strings.HasPrefix(s, "-") {
-			return nil, false, false
+			return nil, false, false, false
 		}
 		if !endOpts && strings.HasPrefix(s, "-") {
 			if s == "--" {
@@ -139,97 +200,149 @@ func parseRm(command, cwd string) (targets []string, recursive, ok bool) {
 				continue
 			}
 			if len(s) < 2 {
-				return nil, false, false
+				return nil, false, false, false
 			}
 			for _, r := range s[1:] {
 				switch r {
 				case 'r', 'R':
 					recursive = true
 				case 'f':
+					force = true
 				default:
-					return nil, false, false
+					return nil, false, false, false
 				}
 			}
 			continue
 		}
 		if len(w) == 0 {
-			return nil, false, false // rm '' : an error of rm's, not a delete
+			return nil, false, false, false // rm '' : an error of rm's, not a delete
 		}
 		seenOperand = true
-		got, ok := expandWord(w, cwd)
-		if !ok {
-			return nil, false, false
-		}
-		if !endOpts && !strings.HasPrefix(s, "/") {
-			for _, g := range got {
-				if r, err := filepath.Rel(cwd, g); err != nil || strings.HasPrefix(r, "-") {
-					return nil, false, false
+		op := rmOperand{w: w, afterDashDash: endOpts}
+		if cwd == "" && !strings.HasPrefix(s, "/") {
+			// Cursor carries no cwd: nothing to place a relative operand against, and no
+			// file system access for it (ADR-0062 §5).
+			if op.lexical, ok = lexicalOperand(s); !ok {
+				return nil, false, false, false
+			}
+			total++
+		} else {
+			if op.targets, ok = expandWord(w, cwd); !ok {
+				return nil, false, false, false
+			}
+			if !endOpts && !strings.HasPrefix(s, "/") {
+				for _, g := range op.targets {
+					if r, err := filepath.Rel(cwd, g); err != nil || strings.HasPrefix(r, "-") {
+						return nil, false, false, false
+					}
 				}
 			}
+			total += len(op.targets)
 		}
-		targets = append(targets, got...)
-		if len(targets) > maxRoutedPaths {
-			return nil, false, false
+		ops = append(ops, op)
+		if total > maxRoutedPaths {
+			return nil, false, false, false
 		}
 	}
-	return targets, recursive, len(targets) > 0
+	return ops, recursive, force, len(ops) > 0
 }
 
-// placeTarget locates one absolute operand the way the shell would: `..` and links
-// resolved on the real tree. rel is the target's path under the real root. ok is false
-// for a target that is not an existing thing `rm` itself would delete inside the root:
-// outside it, the root, `.` or `..`, a regenerable output, a link that leaves the
-// root, or a trailing slash on a non-directory.
+// lexicalOperand checks a relative operand by its text alone: no `..` component, no
+// build-output component (case-folded, as in PlaceTarget), not `.`. rel is its cleaned
+// path.
+func lexicalOperand(s string) (rel string, ok bool) {
+	last := ""
+	for _, c := range strings.Split(s, "/") {
+		if c == ".." || regenerable[strings.ToLower(c)] {
+			return "", false
+		}
+		if c != "" {
+			last = c
+		}
+	}
+	if last == "" || last == "." {
+		return "", false
+	}
+	return path.Clean(s), true
+}
+
+// ErrTargetMissing is what PlaceTarget wraps when the operand names nothing that exists
+// (or its parent directory does not): `rm -f` skips such an operand.
+var ErrTargetMissing = errors.New("no such file or directory")
+
+// placeTarget is PlaceTarget for the hook, which only needs to know whether the target
+// is one `rm` itself would delete inside the root.
 func placeTarget(p, realRoot string) (rel string, isDir, ok bool) {
+	rel, isDir, err := PlaceTarget(p, realRoot)
+	return rel, isDir, err == nil
+}
+
+// PlaceTarget locates one absolute operand the way the shell would: `..` and links
+// resolved on the real tree. rel is the target's path under realRoot, the real root.
+// The error is nil for an existing thing `rm` itself would delete inside the root, and
+// otherwise says why not, in words an agent can read: outside the root, the root, `.` or
+// `..`, a regenerable output, a link that leaves the root, a trailing slash on a
+// non-directory, or (ErrTargetMissing) nothing there. `trash` (ADR-0062 §2) and the
+// hook (ADR-0061 §2) share these rules.
+func PlaceTarget(p, realRoot string) (rel string, isDir bool, err error) {
 	slash := strings.HasSuffix(p, "/")
 	p = strings.TrimRight(p, "/")
 	i := strings.LastIndex(p, "/")
 	if i < 0 {
-		return "", false, false
+		return "", false, errors.New("is not an absolute path")
 	}
 	parent, name := p[:i], p[i+1:]
 	if parent == "" {
 		parent = "/"
 	}
 	if name == "" || name == "." || name == ".." {
-		return "", false, false
+		return "", false, errors.New("is the project root, `.` or `..`, which is never deleted")
 	}
 	realParent, err := filepath.EvalSymlinks(parent)
 	if err != nil {
-		return "", false, false
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, ErrTargetMissing
+		}
+		return "", false, fmt.Errorf("cannot be resolved: %w", err)
 	}
 	full := filepath.Join(realParent, name)
-	rel, ok = under(realRoot, full)
+	rel, ok := under(realRoot, full)
 	if !ok {
-		return "", false, false
+		if full == realRoot {
+			return "", false, errors.New("is the project root, which is never deleted")
+		}
+		return "", false, errors.New("is outside the project root")
 	}
 	fi, err := os.Lstat(full)
 	if err != nil {
-		return "", false, false
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, ErrTargetMissing
+		}
+		return "", false, fmt.Errorf("cannot be read: %w", err)
 	}
 	switch {
 	case fi.Mode()&os.ModeSymlink != 0:
 		if slash {
-			return "", false, false
+			return "", false, errors.New("is a link written with a trailing slash, which names its target")
 		}
 		target, err := filepath.EvalSymlinks(full)
 		if err != nil {
-			return "", false, false
+			return "", false, errors.New("is a link whose target cannot be resolved")
 		}
 		if _, in := under(realRoot, target); !in {
-			return "", false, false
+			return "", false, errors.New("is a link that leaves the project root")
 		}
 	case fi.IsDir():
 		isDir = true
 	case slash:
-		return "", false, false
+		return "", false, errors.New("has a trailing slash but is not a directory")
 	}
 	for _, c := range strings.Split(rel, "/") {
 		if regenerable[strings.ToLower(c)] {
-			return "", false, false
+			return "", false, fmt.Errorf("is or lies under %s, a build output that droidyard does not trash", c)
 		}
 	}
-	return rel, isDir, true
+	return rel, isDir, nil
 }
 
 // under returns p relative to root, slash-separated, when p lies strictly inside it.
@@ -514,8 +627,9 @@ func PassOutput(c Client) []byte {
 }
 
 // DenyOutput is the client's deny with reason as the text the model reads: Claude
-// Code's `hookSpecificOutput.permissionDecisionReason`, Cursor's `user_message` (m1o:
-// `agent_message` does not reach the model).
+// Code's `hookSpecificOutput.permissionDecisionReason`, Cursor's `user_message` (m1o,
+// re-checked in plan m2k step 1: that is the field that reaches the model) and, as
+// ADR-0062 §6 has it, `agent_message` too.
 func DenyOutput(c Client, reason string) []byte {
 	var v any
 	switch c {
@@ -526,7 +640,7 @@ func DenyOutput(c Client, reason string) []byte {
 			"permissionDecisionReason": reason,
 		}}
 	case Cursor:
-		v = map[string]any{"permission": "deny", "user_message": reason}
+		v = map[string]any{"permission": "deny", "user_message": reason, "agent_message": reason}
 	default:
 		return nil
 	}
@@ -537,45 +651,91 @@ func DenyOutput(c Client, reason string) []byte {
 	return b.Bytes()
 }
 
-// Redirect names the daemon a replacement command must reach (ADR-0061 §3).
+// Redirect names what a replacement command must reach (ADR-0062 §4).
 type Redirect struct {
 	// Binary is the absolute path the hook itself was started as.
 	Binary string
-	// Root is the project root, the --workspace of the call.
+	// Root is the project root, the --root of the command.
 	Root string
-	// StateDir is the state root, written inline as DROIDYARD_STATE_DIR when the hook's
-	// own came from that variable; "" otherwise.
+	// StateDir is the state root, written as --state-dir when the hook's own came from
+	// DROIDYARD_STATE_DIR; "" otherwise.
 	StateDir string
 }
 
-// Message is the deny reason for a routed `rm`: the one command that moves paths
-// (root-relative) to droidyard's trash. ok is false when any part holds a single quote
-// or a control character, which this quoting does not carry; the command then passes.
-func (r Redirect) Message(paths []string) (msg string, ok bool) {
-	parts := append([]string{r.Binary, r.Root, r.StateDir}, paths...)
-	for _, s := range parts {
-		for _, c := range s {
-			if c == '\'' || c < 0x20 || c == 0x7f {
-				return "", false
-			}
+// Message is the deny reason for a routed `rm`: the one command, to run in the shell
+// the `rm` was typed in, that moves the operands to droidyard's trash. ok is false when
+// any part holds a single quote or a control character, which this quoting does not
+// carry; the command then passes.
+func (r Redirect) Message(rt Route) (msg string, ok bool) {
+	if !filepath.IsAbs(r.Binary) || !filepath.IsAbs(r.Root) || len(rt.operands) == 0 {
+		return "", false
+	}
+	if !plainText(r.Binary) || !plainText(r.Root) || !plainText(r.StateDir) {
+		return "", false
+	}
+	parts := []string{shQuote(r.Binary), "trash"}
+	if r.StateDir != "" {
+		parts = append(parts, "--state-dir", shQuote(r.StateDir))
+	}
+	parts = append(parts, "--root", shQuote(r.Root))
+	if rt.Recursive {
+		parts = append(parts, "-r")
+	}
+	if rt.Force {
+		parts = append(parts, "-f")
+	}
+	if rt.endOptions {
+		parts = append(parts, "--")
+	}
+	for _, w := range rt.operands {
+		q, ok := w.shell()
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, q)
+	}
+	return "droidyard keeps deletes in this project restorable: run this instead, in the same directory: " + strings.Join(parts, " "), true
+}
+
+// plainText is whether s has no single quote and no control character.
+func plainText(s string) bool {
+	for _, c := range s {
+		if c == '\'' || c < 0x20 || c == 0x7f {
+			return false
 		}
 	}
-	if !filepath.IsAbs(r.Binary) || !filepath.IsAbs(r.Root) || len(paths) == 0 {
-		return "", false
+	return true
+}
+
+// shell renders the word for a POSIX shell so that it expands as it was typed
+// (ADR-0062 §4): a `*` or `?` that was unquoted stays bare, so the shell globs it
+// again; every other character is single-quoted. ok is false for a single quote or a
+// control character.
+func (w word) shell() (string, bool) {
+	var b strings.Builder
+	open := false
+	for _, c := range w {
+		if c.r == '\'' || c.r < 0x20 || c.r == 0x7f {
+			return "", false
+		}
+		if !c.quoted && (c.r == '*' || c.r == '?') {
+			if open {
+				b.WriteByte('\'')
+				open = false
+			}
+			b.WriteRune(c.r)
+			continue
+		}
+		if !open {
+			b.WriteByte('\'')
+			open = true
+		}
+		b.WriteRune(c.r)
 	}
-	var params bytes.Buffer
-	enc := json.NewEncoder(&params)
-	enc.SetEscapeHTML(false)
-	if enc.Encode(map[string][]string{"paths": paths}) != nil {
-		return "", false
+	if open {
+		b.WriteByte('\'')
 	}
-	cmd := ""
-	if r.StateDir != "" {
-		cmd = "DROIDYARD_STATE_DIR=" + shQuote(r.StateDir) + " "
-	}
-	cmd += shQuote(r.Binary) + " call --no-autostart --workspace " + shQuote(r.Root) +
-		" file.delete --params '" + strings.TrimSpace(params.String()) + "'"
-	return "This deletes files; droidyard's trash keeps them restorable. Run this instead, which moves them to the trash: " + cmd, true
+	return b.String(), true
 }
 
 // shQuote quotes a string with no single quote or control character for a POSIX shell,

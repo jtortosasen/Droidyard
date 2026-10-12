@@ -64,7 +64,7 @@ trips, fewer tokens, no image interpretation.
 - **Invocation contract**: `Start` / `Wait` / `Cancel`, with `operation.wait` and
   `operation.cancel` ([ADR-0020](../adr/0020-operation-contract.md)).
 - **Capability domains**: `system`, `workspace`, `project`, `build`, `device`,
-  `emulator`, `sdk`, `file`, `git`, `artifact`, `policy`, `operation`, `events`,
+  `emulator`, `sdk`, `file`, `git`, `artifact`, `policy`, `agent`, `operation`, `events`,
   `shell`. `file` is a first-class domain.
 - **Sample app** as the acceptance target.
 - **Minimal web UI** (phase 2), grown as needed rather than built to a fixed spec.
@@ -256,6 +256,7 @@ Two practical notes:
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |
+| `agent` | `recordCommand` (human-only; never over MCP) | 2 |
 
 `build.test` and `code.*` are **not** part of the MVP. `git.*` is included but scheduled
 last and may slip.

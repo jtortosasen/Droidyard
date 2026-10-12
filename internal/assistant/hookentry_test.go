@@ -19,13 +19,14 @@ type hookCase struct {
 var hookCases = []hookCase{
 	{Claude, ".claude/settings.json",
 		`{"env": {"A": "b"}, "hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}], "PostToolUse": [{"hooks": [{"type": "command", "command": "after"}]}]}}`,
-		`{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}]}}`, 1},
+		`{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}]}}`, 3},
 	{Cursor, ".cursor/hooks.json",
-		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}], "preToolUse": [{"command": "mine", "matcher": "Write"}], "afterFileEdit": [{"command": "after"}]}}`,
-		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}]}}`, 2},
+		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}], "preToolUse": [{"command": "mine", "matcher": "Write"}], "afterFileEdit": [{"command": "after"}], "postToolUse": [{"command": "after", "matcher": "Shell"}]}}`,
+		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}]}}`, 4},
 }
 
-// ADR-0061 §5: init writes the hook entry into the project's file, the second run
+// ADR-0061 §5, ADR-0063 §7: init writes the hook entries (before a shell command, and
+// after it, on success and on failure) into the project's file, the second run
 // writes nothing (the array merge compares elements, so a duplicate would show here),
 // the user's own entries and keys survive both runs and --uninstall, and --uninstall
 // puts the file back as it was.
@@ -76,27 +77,34 @@ func TestInitWritesTheHookEntry(t *testing.T) {
 	})
 }
 
-// The entry's shape is each client's own format (ADR-0061 §5): Claude Code's is a Bash
-// matcher on PreToolUse, Cursor's covers a shell command and, by matcher, its Delete tool.
+// The entries' shape is each client's own format (ADR-0061 §5, ADR-0063 §7): Claude Code's
+// are a Bash matcher on PreToolUse, PostToolUse and PostToolUseFailure; Cursor's cover a
+// shell command before it runs, its Delete tool by matcher, and a shell command after it,
+// on success and on failure, by the Shell matcher (the tool name its events carry). A
+// postToolUse entry without the matcher would run on every Cursor tool; one with another
+// matcher would never see a shell command.
 func TestHookEntryShape(t *testing.T) {
 	root := projectRoot(t)
 	mustRun(t, opts(root, Claude, Cursor))
 
 	var claude struct {
-		Hooks struct {
-			PreToolUse []struct {
-				Matcher string
-				Hooks   []struct{ Type, Command string }
-			}
+		Hooks map[string][]struct {
+			Matcher string
+			Hooks   []struct{ Type, Command string }
 		}
 	}
 	if err := json.Unmarshal([]byte(read(t, root, ".claude/settings.json")), &claude); err != nil {
 		t.Fatal(err)
 	}
-	pre := claude.Hooks.PreToolUse
 	want := testCommand + " hook --client claude --root " + root
-	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 || pre[0].Hooks[0].Type != "command" || pre[0].Hooks[0].Command != want {
-		t.Errorf("claude PreToolUse = %+v; want one Bash matcher running %q", pre, want)
+	if len(claude.Hooks) != 3 {
+		t.Errorf("claude hooks = %+v; want PreToolUse, PostToolUse and PostToolUseFailure", claude.Hooks)
+	}
+	for _, event := range []string{"PreToolUse", "PostToolUse", "PostToolUseFailure"} {
+		e := claude.Hooks[event]
+		if len(e) != 1 || e[0].Matcher != "Bash" || len(e[0].Hooks) != 1 || e[0].Hooks[0].Type != "command" || e[0].Hooks[0].Command != want {
+			t.Errorf("claude %s = %+v; want one Bash matcher running %q", event, e, want)
+		}
 	}
 
 	var cursor struct {
@@ -107,11 +115,16 @@ func TestHookEntryShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	want = testCommand + " hook --client cursor --root " + root
-	b, p := cursor.Hooks["beforeShellExecution"], cursor.Hooks["preToolUse"]
-	if cursor.Version != 1 || len(cursor.Hooks) != 2 ||
-		len(b) != 1 || b[0].Command != want || b[0].Matcher != "" ||
-		len(p) != 1 || p[0].Command != want || p[0].Matcher != "Delete" {
-		t.Errorf("cursor hooks.json = %+v; want version 1, beforeShellExecution and preToolUse(Delete) running %q", cursor, want)
+	if cursor.Version != 1 || len(cursor.Hooks) != 4 {
+		t.Errorf("cursor hooks.json = %+v; want version 1 and four events", cursor)
+	}
+	for event, matcher := range map[string]string{
+		"beforeShellExecution": "", "preToolUse": "Delete", "postToolUse": "Shell", "postToolUseFailure": "Shell",
+	} {
+		e := cursor.Hooks[event]
+		if len(e) != 1 || e[0].Command != want || e[0].Matcher != matcher {
+			t.Errorf("cursor %s = %+v; want one entry with matcher %q running %q", event, e, matcher, want)
+		}
 	}
 
 	// OpenCode has no hook (a register row), so its run writes neither file.

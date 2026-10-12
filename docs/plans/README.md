@@ -39,3 +39,4 @@ the output.
 | [m2h-mvp-done.md](m2h-mvp-done.md) | 2h — the MVP's three open Definition of done items | Done |
 | [m2i-editor.md](m2i-editor.md) | 2i — the editor | Done |
 | [m2j-file-tools-off-mcp.md](m2j-file-tools-off-mcp.md) | 2j — the file capabilities leave the MCP surface, and an agent's `rm` goes to the trash | Done |
+| [m2k-cursor-parity-and-observation.md](m2k-cursor-parity-and-observation.md) | 2k — Cursor at Claude Code's level, and the agent's Android commands observed | Done |

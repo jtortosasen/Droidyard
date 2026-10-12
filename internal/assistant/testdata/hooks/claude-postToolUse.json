@@ -1,0 +1,12 @@
+{
+ "_note": "Follows the shape in code.claude.com/docs/en/hooks; not recorded.",
+ "session_id": "s1",
+ "transcript_path": "/Users/dev/.claude/projects/p/s1.jsonl",
+ "cwd": "/Users/dev/proj",
+ "permission_mode": "default",
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Bash",
+ "tool_input": {"command": "./gradlew assembleDebug", "description": "Build the debug APK"},
+ "tool_response": {"stdout": "BUILD SUCCESSFUL", "stderr": "", "interrupted": false, "isImage": false},
+ "tool_use_id": "toolu_1"
+}

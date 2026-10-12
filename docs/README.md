@@ -33,6 +33,6 @@ original sketch, [`../android-agent-suite-boceto.md`](../android-agent-suite-boc
 
 ## Where the work stands
 
-Phase 2's acceptance is met (2b); 2c–2g UI rounds and file operations; 2h closed the Definition of done; 2i the editor; 2j took the file capabilities off MCP and sends an agent's `rm` to the trash; next, each milestone by discussion ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
+Phase 2 accepted (2b); 2c–2g UI, files; 2h the Definition of done; 2i the editor; 2j file capabilities off MCP, an agent's `rm` to the trash; 2k Cursor on par, agents' Android commands in Activity; next, each milestone by discussion ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
 [`plans/README.md`](plans/README.md); what is open is in
 [`roadmap/known-limits.md`](roadmap/known-limits.md).

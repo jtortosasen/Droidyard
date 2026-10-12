@@ -33,7 +33,8 @@ silently.
 The project runs on Claude Code. Agents are in `.claude/agents/`, skills in
 `.claude/skills/`, and their tool limits in each agent's frontmatter: `disallowedTools`,
 plus `PreToolUse` hooks in `.claude/hooks/` (`guard-bash.sh observe` is an allowlist of
-observation commands, `readonly` a denylist of tree-changing ones;
+observation commands, `readonly` a denylist of tree-changing ones, `implement` a denylist
+of staging, devices, killing by name and starting or stopping a daemon;
 `guard-plans-only.sh` keeps the planner to `docs/plans/*.md`). The `milestone-workflow`
 skill says who does what.
 
@@ -49,7 +50,8 @@ skill says who does what.
   2026-10-08): the model's default, `high` for a step the Opus verifier reviews (contract,
   security, untrusted text, concurrency, process lifetime) or one that under-delivered. A review's fix round goes to the
   same agent (SendMessage). Limits: the `implementer-run.md` rules in its prompt (no
-  verifier or other agent, no staging or committing, no adb, emulator or device). The main
+  verifier or other agent, no staging or committing, no adb, emulator or device), enforced
+  in part by `guard-bash.sh implement`. The main
   session reviews the diff and commits. `ds-implement.sh` (DeepSeek through OpenCode Go;
   effort `high` unless `CLAUDE_CODE_EFFORT_LEVEL` says otherwise) stays usable when the
   owner asks to spare the Claude quota.
