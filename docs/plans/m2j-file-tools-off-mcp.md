@@ -339,7 +339,7 @@ Everything in this step lands together: the audience change breaks the counts, t
 - Needs: step 8.
 - Not here: user-level files (house rule).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/assistant/hookentry.go` (`HookCommand`: the absolute binary, `--client`, `--root`, `DROIDYARD_STATE_DIR` inline when init's came from it; POSIX quoting round-tripped through `sh -c`), Claude's `hooks.PreToolUse` element (matcher `Bash`) in the project's `.claude/settings.json`, Cursor's `.cursor/hooks.json` (`version` 1 as a sole key, `beforeShellExecution`, `preToolUse` with matcher `Delete`); `init` prints the hook line. Tests: second run unchanged, the user's entries and keys kept, `--uninstall` restores the tree and removes only what init would write now, unmergeable files refused with the entry printed, `--dry-run` writes nothing, an OpenCode run writes neither file, a real `init` subprocess names this binary, the root and the state dir. Seen failing: `containsJSON` forced false; the Claude element, Cursor's sole `version` or the `Delete` matcher dropped. Documents: `mcp.md` §Features beyond tools; register rows (complex forms and `/bin/rm` pass; a moved binary leaves a stale entry; an OpenCode hook deferred); corpus at the budget by a cut. Main session's diff review.
 
 ### 10. Restore from Activity
 
