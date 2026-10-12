@@ -38,4 +38,4 @@ the output.
 | [m2g-file-operations.md](m2g-file-operations.md) | 2g — the file tree's operations | Done |
 | [m2h-mvp-done.md](m2h-mvp-done.md) | 2h — the MVP's three open Definition of done items | Done |
 | [m2i-editor.md](m2i-editor.md) | 2i — the editor | Done |
-| [m2j-file-tools-off-mcp.md](m2j-file-tools-off-mcp.md) | 2j — the file capabilities leave the MCP surface, and an agent's `rm` goes to the trash | Approved |
+| [m2j-file-tools-off-mcp.md](m2j-file-tools-off-mcp.md) | 2j — the file capabilities leave the MCP surface, and an agent's `rm` goes to the trash | Done |

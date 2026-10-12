@@ -1,9 +1,9 @@
 # Plan: Milestone 2j — the file capabilities leave the MCP surface, and an agent's `rm` goes to the trash
 
-- Status: Approved
+- Status: Done
 - Date: 2026-10-12
 - Approved: 2026-10-12, by the main session under the owner's standing instruction to apply the recommended option (Delegated); the owner asked for the milestone in full ("procede con quitar y hacer el hito 2j"), so the plan stays one milestone. Q1 (as [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)), Q2 (the hook denies and hands over the command; written as ADR-B at step 6) and Q3 applied, Delegated.
-- Milestone: "2j — the file capabilities leave the MCP surface". The owner, 2026-10-12, in Spanish: "No quiero gastar tokens en definiciones para algo que todos los agentes a día de hoy soportan", then "quítalos, sí": all nine `file.*` capabilities stop being MCP tools, stay in the capability API for the web UI (tree, editor, trash) and the CLI, and agents read, edit and delete with their own tools. Then, the same day: "analiza cómo es con cursor para meterlo también": 2j also ships a delete-to-trash hook for Claude Code and Cursor, so an agent's deletes land in droidyard's trash, undoable in the UI, with no MCP tool. (`docs/README.md` §Where the work stands does not name 2j yet; the close adds the line.)
+- Milestone: "2j — the file capabilities leave the MCP surface". The owner, 2026-10-12, in Spanish: "No quiero gastar tokens en definiciones para algo que todos los agentes a día de hoy soportan", then "quítalos, sí": all nine `file.*` capabilities stop being MCP tools, stay in the capability API for the web UI (tree, editor, trash) and the CLI, and agents read, edit and delete with their own tools. Then, the same day: "analiza cómo es con cursor para meterlo también": 2j also ships a delete-to-trash hook for Claude Code and Cursor, so an agent's deletes land in droidyard's trash, undoable in the UI, with no MCP tool. (`docs/README.md` §Where the work stands names it since the close.)
 - Phase: `docs/roadmap/mvp.md` §Phase 2, a milestone after the Definition of done, by discussion (owner, 2026-10-10). No phase deliverable is added.
 - Contract: Q1's ADR-A and Q2's ADR-B (the next free numbers, 0060 and 0061 today; the plan names them A and B until they exist, because `TestADRMentionsExist` refuses a number not on disk). ADR-A supersedes in part ADR-0053 §Decision and §Consequences, ADR-0036 §Decision (item 4), ADR-0058 §Consequences. ADR-B supersedes in part ADR-0037 §Decision (item 2) and §Consequences, ADR-0019 §Processes (items 3, 4), ADR-0024 §Decision. Also ADR-0015 §6, ADR-0045 §4 (audience `human`); ADR-0004 (hooks are optional adapters); ADR-0054 (the trash); `mcp.md` §What is exposed, §Results, §Annotations, §Features beyond tools; `capability-api.md` §Discovery and versioning; plan m1o step 1 (a) and §Changes (Cursor's hooks, observed).
 
@@ -64,15 +64,15 @@ Measured 2026-10-12:
 
 ## Acceptance
 
-- [ ] A1. No MCP session lists a `file_*` tool: 31 tools by default and under `--tools all`, 22 under `core`. The `tools/list` bytes are recorded before (34,786 B) and after, and `maxToolListBytes` drops to the after size rounded up to the next 1,000 B. Source: the owner; Q1 §1, §4. Proven by: steps 3, 5.
-- [ ] A2. An MCP `tools/call file_read` gets `-32602`, tool not found. The core refuses every `file.*` (`file.watch` included) from `ClientMCP` with `REQUEST_NOT_ALLOWED_HERE` and creates no operation. Source: Q1 §1. Proven by: step 3.
-- [ ] A3. `droidyard call file.*` and the UI's calls work as before, at level 3 and, in a real browser, at level 5. Source: the owner. Proven by: steps 2, 3, 5.
-- [ ] A4. The schema diff is the version, `0.21.0`, plus nine `"audience": "all"` → `"human"` lines, and nothing else. Source: Q1 §4. Proven by: step 3.
-- [ ] A5. A test fails if a nextStep in the packages `TestCoreNextStepsNameCoreTools` scans (`internal/policy` added) names a published capability that is not a tool, outside a reasoned exception list. Source: the brief. Proven by: step 2.
-- [ ] A6. The live documents and the register say it. `mcp.md`'s not-exposed table is checked both ways. Source: Q1, Q2 §Consequences. Proven by: steps 4, 9.
-- [ ] A7. A simple `rm` inside the project, sent by Claude Code (and by Cursor, if step 6 clears it), is denied with the exact `droidyard call … file.delete` command. Anything else passes untouched, including when no daemon answers. Source: the owner; Q2 §1–§4. Proven by: steps 7, 8, 11.
-- [ ] A8. `droidyard init --client claude|cursor` writes the hook entry into the project only, idempotently, and `--uninstall` removes it. Source: Q2 §5. Proven by: step 9.
-- [ ] A9. A delete an agent made through that command is restored from the UI's Activity. Source: the owner ("undo in the UI"); Q3. Proven by: steps 10, 11.
+- [x] A1. No MCP session lists a `file_*` tool: 31 tools by default and under `--tools all`, 22 under `core`. The `tools/list` bytes are recorded before (34,786 B) and after, and `maxToolListBytes` drops to the after size rounded up to the next 1,000 B. Source: the owner; Q1 §1, §4. Proven by: steps 3, 5.
+- [x] A2. An MCP `tools/call file_read` gets `-32602`, tool not found. The core refuses every `file.*` (`file.watch` included) from `ClientMCP` with `REQUEST_NOT_ALLOWED_HERE` and creates no operation. Source: Q1 §1. Proven by: step 3.
+- [x] A3. `droidyard call file.*` and the UI's calls work as before, at level 3 and, in a real browser, at level 5. Source: the owner. Proven by: steps 2, 3, 5.
+- [x] A4. The schema diff is the version, `0.21.0`, plus nine `"audience": "all"` → `"human"` lines, and nothing else. Source: Q1 §4. Proven by: step 3.
+- [x] A5. A test fails if a nextStep in the packages `TestCoreNextStepsNameCoreTools` scans (`internal/policy` added) names a published capability that is not a tool, outside a reasoned exception list. Source: the brief. Proven by: step 2.
+- [x] A6. The live documents and the register say it. `mcp.md`'s not-exposed table is checked both ways. Source: Q1, Q2 §Consequences. Proven by: steps 4, 9.
+- [ ] A7. A simple `rm` inside the project, sent by Claude Code (and by Cursor, if step 6 clears it), is denied with the exact `droidyard call … file.delete` command. Anything else passes untouched, including when no daemon answers. Source: the owner; Q2 §1–§4. Proven by: steps 7, 8, 11. — In part: Claude Code at level 5 (step 11); Cursor at level 3 (decoding three recorded events, the answer shapes, step 6's probes); Cursor's end to end is a register row.
+- [x] A8. `droidyard init --client claude|cursor` writes the hook entry into the project only, idempotently, and `--uninstall` removes it. Source: Q2 §5. Proven by: step 9.
+- [ ] A9. A delete an agent made through that command is restored from the UI's Activity. Source: the owner ("undo in the UI"); Q3. Proven by: steps 10, 11. — In part: Restore restored a delete made by the agent's exact replacement command with the tab open; the agent's own earlier delete had no row, since Activity lists operations from the page's load on (a register row).
 
 ## Steps
 
@@ -538,8 +538,14 @@ The substance is the owner's: removing the tools, and having an agent's deletes 
 | 2 | revise | B4: the reader could trash dot-files, a directory without `-r`, `.`, `..` or the root | `sh` glob rules, `[` passes, and those operands pass (step 7 rows; ADR-B §2) |
 | 2 | revise | B5: `cwd` after a `cd` is unproven, so the wrong file could be trashed | step 6 asks it of both clients; only absolute operands route until it is shown; step 7's `Rests on` |
 | 2 | — | N6 the departure confirmed by the reference; N7 the trash cap; N8 retention; N9 `version` sole and the mutation; N10 the run limits; N11 Cursor's `Delete`; N12 split; nits | ADR-B costs added and 6(a) widened; build outputs pass; Restore on click with a past-retention message; `version` sole, real mutations, a register row; `settings*.json` byte-identical, the `ls` line dropped; 6(b) asks which tool; split offered to the owner; comments, `mcp.md:245`, rows 158/162, ADR-B's open-before-approval and parser answer |
+| Step 3 | proceed | Nits: the byte budget's slack (the count catches a restored tool); long comment lines; `mcp_fileops_test.go`'s name | kept |
+| Steps 7–8 | proceed | N1 [bug] `Build`, `.Gradle` routed on a case-insensitive volume; N2 [bug] flags after an operand and a glob to a dash-name routed; N3 [plan] Claude's relative operands on level-2 evidence; N4 Cursor's `Delete` deny unseen | N1, N2 fixed by the main session with rows seen failing; N3 settled at step 11; N4 a register row |
+| Close | proceed after documents | B1 [plan] §Unverified and §Not-in items missing from the register; B2 [plan] A7's Cursor half ticked at level 5 | rows added; A7 and A9 in part; §Changes |
 
 ## Changes
+
+- Step 11: the Cursor run was not done (Delegated): step 6's probes showed Cursor's shell deletes compound and relative, which the reader passes, and `-p` refuses its `Delete` tool whatever the hook says, so a headless run could not show a routed delete; A7 stays in part and a register row holds it.
+- Step 10 (Delegated): Restore is offered only on rows of this tab's workspace, since `file.restore` is workspace-scoped.
 
 - Step 11 (Delegated): step 10's `restore.ts` read `operation.wait` as the schema's `OperationView`; the wire carries the waited operation's result in `result`. Fixed with the fake corrected; the schema/wire mismatch is a register row.
 
@@ -547,4 +553,3 @@ The substance is the owner's: removing the tools, and having an agent's deletes 
 
 - Step 7: `rm -rf build/x` passes, as ADR-0061 §2 says ("is or lies under `build`"); the Route list's `build/x` example was inconsistent with the pass list's `app/build/tmp`.
 
-None yet.
