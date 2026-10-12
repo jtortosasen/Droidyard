@@ -143,15 +143,6 @@ func (r *resolver) copy(ctx context.Context, p CopyParams) (CopyResult, error) {
 	return res, nil
 }
 
-// copyText is file.copy's rendering (batchText).
-func copyText(r CopyResult) string {
-	lines := make([]batchLine, len(r.Items))
-	for i, it := range r.Items {
-		lines[i] = batchLine{words: []string{it.From, "->", it.To}, code: it.Code, message: it.Message}
-	}
-	return batchText("copied", lines)
-}
-
 // freeCopyName is the nth candidate name of a copy that asked for keepBoth (plan m2g
 // D49): "name copy.ext", then "name copy 2.ext", "name copy 3.ext"… The extension is
 // freeName's.

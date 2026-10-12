@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-12
+- Superseded in part by: ADR-0060 (§Consequences)
 - Superseded in part by: ADR-0059 (§Decision)
 - Relates to: ADR-0032 §5 (`policy.update`'s `ifRevision`, the precedent); ADR-0021 §Format
   (the atomic write); ADR-0036 Decision 1; plan m2i Q1

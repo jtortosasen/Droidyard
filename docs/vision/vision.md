@@ -95,8 +95,9 @@ order.
 1. **One capability API, two consumers.** The UI and the agent reach every capability
    through the same internal primitive; never a human API and a separate agent API for
    the same thing ([ADR-0003](../adr/0003-unified-capability-api.md)). The one
-   deliberate exception: policy changes are capabilities too, but human-only and never
-   exposed to agents ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
+   deliberate exception: the human-audience capabilities (policy, the project chooser, the
+   file operations) are never exposed to agents ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6,
+   [ADR-0045](../adr/0045-project-start-flow.md) §4, [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)).
 2. **The core is AI-agnostic.** Fully useful with no agent attached. The AI is a
    consumer, not a dependency; the core does not know what a "prompt" is.
 3. **Lean by default.** Small footprint, fast startup, no unnecessary long-lived

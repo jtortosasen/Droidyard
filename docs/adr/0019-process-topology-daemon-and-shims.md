@@ -5,6 +5,7 @@
 - Superseded in part by: ADR-0037 (§Processes)
 - Superseded in part by: ADR-0045 (§Processes)
 - Date: 2026-09-29
+- Superseded in part by: ADR-0061 (§Processes)
 - Amended: 2026-09-29. What changed: the complete subcommand list (`ui`, `trust`); the
   MCP session opens its bound root at start (verification pass); and an explicit
   `DROIDYARD_STATE_DIR` wins over the XDG runtime location for the socket

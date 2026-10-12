@@ -54,8 +54,9 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `file.watch`, `device.watchLogs`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
 | `policy.get`, `policy.update`, `workspace.chooseRoot` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4). The core rejects them from an MCP session: enforcement, not just omission. |
+| `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and
@@ -107,7 +108,7 @@ drifted. They are approval hints, never enforcement
   emulator's in-memory state, in-flight operations **including other sessions'**).
   `workspace_close` and `operation_cancel` keep the command default for that last reason.
 - `idempotentHint` is MCP's meaning: repeating the call with the same arguments has no
-  additional effect. It is not harmless: `workspace_close` and `file_write` are
+  additional effect. It is not harmless: `workspace_close` is
   idempotent *and* destructive.
 - `openWorldHint`: the call reaches beyond the core's own state and the workspace's files
   (a device or emulator, the network, the project's build logic; Gradle configuration
@@ -172,9 +173,6 @@ structured content stays the full result, for typed clients and the UI
 - A build that **ran and failed** is a *successful* call with `outcome: failed` and
   structured problems. A failed build is information, not an error.
 - A call **still running** is a *successful* call returning the operation view.
-- A **batch** (`file_*` operations) whose items failed is a *successful* call: each item carries its
-  own code and the text lists the failures first ([ADR-0053](../adr/0053-file-operations.md)
-  §2).
 
 ### Images and artifacts
 
@@ -242,7 +240,7 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; not adopted |
+| **Assistant-side hooks** | Not part of MCP; one adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)) |
 
 **Elicitation** closes problems we have written down: SDK licence consent
 ([sdk](../subsystems/sdk.md); fallback: an explicit capability call and an error that
@@ -285,9 +283,8 @@ do with its model and context.
 are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forbids as a
 dependency, and largely redundant: "device data is not instructions" lives in
 `instructions`, "open the workspace" is a call the agent makes, and "build after editing"
-should not be automatic. They may return later as optional adapters for a specific
-assistant if a real need appears; our internal equivalent already exists, the authorization
-boundary re-checked immediately before execution.
+should not be automatic. `init` writes one, optional, for Claude Code and Cursor:
+a simple `rm` in the project is denied with the command that moves its targets to the trash ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md)).
 
 ## Transports
 

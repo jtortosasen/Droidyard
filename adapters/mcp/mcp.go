@@ -66,7 +66,6 @@ const (
 var CoreTools = []string{
 	"workspace_open", "workspace_describe", "project_modules", "project_variants",
 	"build_assemble", "build_run", "build_errors", "build_lastResult",
-	"file_list", "file_read", "file_write",
 	"emulator_list", "emulator_start", "emulator_stop",
 	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
 	"device_inputText", "device_logs", "device_screenshot",
