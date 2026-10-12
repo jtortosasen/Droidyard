@@ -18,12 +18,6 @@ import (
 
 var update = flag.Bool("update", false, "rewrite testdata/status/*.z from real git")
 
-// statusArgs is the status command of plan m2l Q1 §2, run from the workspace root.
-var statusArgs = []string{
-	"status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind",
-	"--untracked-files=all", "--ignore-submodules=all", "--find-renames", "--", ".",
-}
-
 // groupStarter is the supervisor's contract: the child in a process group of its own.
 func groupStarter(cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

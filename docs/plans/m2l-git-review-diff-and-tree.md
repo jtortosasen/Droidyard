@@ -100,7 +100,7 @@ m2k merged into `main` during the review (`8e7c0c8`, API `0.22.0`, ADRs up to 00
 - Needs: step 1.
 - Not here: no capability. A plain `mv` is git's own `deleted` plus `untracked` (Unverified row 3).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/domain/git/status.go`, `status_test.go`; `statusArgs` has one definition. `TestMarksFromPorcelain` (every Q1 §4 row and ADR-0066 §5's `.R`, from the real fixtures; `T`, `C.`, `CD` hand-written), `TestHeadFromPorcelain`, `TestPrefix`, `TestAwkwardPaths`, `TestStatusCaps`, `TestStatusOfARealRepository` (unborn, staged `git mv`, linked worktree, non-repository, nested repository, subdirectory workspace, 5,001 untracked → 5,000 and `truncated`) pass on Homebrew 2.51.2 and Apple 2.50.1. Mutation: `AD` not special-cased fails `AD must be nothing, got "deleted"` (the `D` rule matches first, so the plan's "mapped to added" shows as deleted). Implementer's decisions, kept (Delegated): `CD` is nothing as `AD`; a status cut at the byte cap drops its last record and is `truncated`; any duplicate path other than deleted plus untracked keeps the first entry. Main session's review: a record with a malformed `XY` panicked the parser; guarded, `TestMalformedRecordIsSkipped` seen failing (index out of range) without the guard. Full `go test ./...` passes.
 
 ### 3. `git.read`, the domain's registration, API `0.23.0`
 
