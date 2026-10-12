@@ -1,6 +1,6 @@
 # Plan: Milestone 2m — Release builds and the one-line installer
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-12 by the main session under the owner's standing instruction (apply the recommended option), Delegated. Step 7's tag push still waits for the owner's explicit yes.
 - Date: 2026-10-12
 - Milestone: "2m — release builds and the one-line installer". The owner, 2026-10-12: a GitHub CI that produces a release build the owner can run on their Mac, and a one-line installer like other tools have; through `gh` while `jtortosasen/Droidyard` is private, a plain `curl | sh` once public, only the command changing. Owner addition, same day: updating is re-running the same one-liner, no separate updater.
@@ -56,16 +56,16 @@ Read at `4c5514b` (`main`).
 
 ## Acceptance
 
-- [ ] A1. CI on a Linux runner runs `pnpm -C web install --frozen-lockfile`, `pnpm -C web run verify`, `go build ./...`, `gofmt -l .` (empty), `go vet ./...` and `go test ./...` on the pull request, and passes. Its log shows Go from `go.mod`, Node `v24.13.1` and pnpm `12.10.1`. Source: ADR-0068 §3. Proven by: steps 1, 2.
-- [ ] A2. On the runner, every test passes or skips with its reason. Each Linux-only or runner-only failure is fixed, or is skipped with a reason and a register row. Source: ADR-0068 §Consequences. Proven by: steps 1, 2.
-- [ ] A3. `droidyard version` prints `droidyard <build> (API <system.Version>)`. `<build>` is the stamped tag, or `dev`. The schema, the API version and `system.health` do not change. Source: ADR-0068 §2. Proven by: steps 3, 7.
-- [ ] A4. `release/build.sh vX.Y.Z <out>` on the Mac does the following:
+- [x] A1. CI on a Linux runner runs `pnpm -C web install --frozen-lockfile`, `pnpm -C web run verify`, `go build ./...`, `gofmt -l .` (empty), `go vet ./...` and `go test ./...` on the pull request, and passes. Its log shows Go from `go.mod`, Node `v24.13.1` and pnpm `12.10.1`. Source: ADR-0068 §3. Proven by: steps 1, 2.
+- [x] A2. On the runner, every test passes or skips with its reason. Each Linux-only or runner-only failure is fixed, or is skipped with a reason and a register row. Source: ADR-0068 §Consequences. Proven by: steps 1, 2.
+- [x] A3. `droidyard version` prints `droidyard <build> (API <system.Version>)`. `<build>` is the stamped tag, or `dev`. The schema, the API version and `system.health` do not change. Source: ADR-0068 §2. Proven by: steps 3, 7.
+- [x] A4. `release/build.sh vX.Y.Z <out>` on the Mac does the following:
   - It builds the UI, then the four targets, as `droidyard_vX.Y.Z_<os>_<arch>.tar.gz`, each holding only `droidyard`, and a `checksums.txt` that verifies.
   - The native binary prints the stamped version, and every binary embeds the built UI.
   - A second run gives byte-identical binaries.
   - It refuses a malformed version, and a missing UI build.
   - Source: ADR-0068 §1, §4; ADR-0040 §Consequences. Proven by: step 4.
-- [ ] A5. `install.sh` does the following:
+- [x] A5. `install.sh` does the following:
   - It maps `uname` to the four pairs, and refuses any other pair before any download.
   - It uses `gh` when that is authenticated, and `curl` otherwise.
   - It shape-checks every tag, given or discovered.
@@ -77,14 +77,14 @@ Read at `4c5514b` (`main`).
   - It says `droidyard stop` when a daemon answers to the old binary or the new one, and stops nothing.
   - It is idempotent. When the version is already there, it prints `already at Y` and exits 0 without downloading. An update prints `installed X, installing Y`.
   - Source: ADR-0068 §5; owner, 2026-10-12. Proven by: step 5.
-- [ ] A6. The workflows meet these conditions:
+- [x] A6. The workflows meet these conditions:
   - Third-party actions are pinned by a 40-hex SHA.
   - Every checkout sets `persist-credentials: false`.
   - Only the publish job holds `contents: write`, and it runs no code from the repository or npm.
   - Every job runs on Linux.
   - The release runs the CI checks first, and publishes only after them.
   - Source: ADR-0068 §3. Proven by: steps 2, 6, 7.
-- [ ] A7. A tag pushed to GitHub produces a release with five assets, built by CI. Installed by the `gh` path on the owner's Mac into a scratch directory, it gives the following:
+- [x] A7. A tag pushed to GitHub produces a release with five assets, built by CI. Installed by the `gh` path on the owner's Mac into a scratch directory, it gives the following:
   - `version`, `serve`, `status` and `stop` work against an isolated state.
   - The UI served is the built app.
   - The darwin/arm64 binary is ad-hoc signed and carries no `com.apple.quarantine`.
@@ -214,7 +214,7 @@ Read at `4c5514b` (`main`).
   - No Go test of the script, because a Go test may not need Node (ADR-0040 §3). The CI dry run is its regression check.
 - Rests on: the binaries carry the built UI and the stamped version, at level 3. The script itself checks both on every run.
 - Review: the main session's diff review.
-- [x] Done. Evidence: on the Mac, (i)–(vii) by the implementer; (i), (ii), (v) rerun by the main session (four archives and `checksums.txt`, every sum OK, `droidyard v0.0.0 (API 0.23.0)`, `Signature=adhoc`). CI run 38284160051 green, its dry run built on linux/amd64 (the native-version check ran there). The script removes `web/dist/app` before building, so a stale UI cannot pass its check.
+- [x] Done. Evidence: on the Mac, (i)–(vii) by the implementer; (i), (ii), (v) rerun by the main session (four archives and `checksums.txt`, every sum OK, `droidyard v0.0.0 (API 0.23.0)`, `Signature=adhoc`). CI run 38284160051 green, its dry run built on linux/amd64 (the native-version check ran there). The script removes `web/dist/app` before building, so a stale UI cannot pass its check. (vi) and (vii) rerun by the main session at the close: four binaries byte-identical between two runs; `v0.0` and a non-empty outdir refused (the pnpm-shim refusal rests on the implementer's run).
 
 ### 5. `install.sh`: install, update, or nothing to do
 
@@ -325,7 +325,7 @@ Read at `4c5514b` (`main`).
   - Pointing the owner's `init` entries at the installed binary: that is the owner's choice (ADR-0037 §2).
 - Rests on: the darwin/arm64 binary, cross-compiled on Linux, runs on Apple Silicon with no prompt, at level 5.
 - Review: the main session runs it. The close verifier rereads `$E`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `$E` = `/private/tmp/dy.rjIRqE/evidence`, 2026-10-12. (a) Run 38290235257 succeeded with jobs `tag`, `checks`, `build` and `publish` all green; release `v0.1.0` (not a draft, not a prerelease) lists the five assets. (b) `gh release download` of the darwin_arm64 archive carries `com.apple.provenance` and no `com.apple.quarantine`. (c) The one-liner with `?ref=m2m` and `DROIDYARD_INSTALL_DIR` exited 0: `installing v0.1.0`, `now at v0.1.0`, and the PATH line, with no profile touched. (d) The installed binary has no quarantine, shows `Signature=adhoc`, and `version` prints `droidyard v0.1.0 (API 0.23.0)`. The Doctor passed (`pre-health` exit 1; the lock, socket and HTTP listener are all held by the launched pid). The UI port fell back to 53804 because another session's daemon held 7317. The tokenised URL returned 200 with the built app (`/assets/index-CGMjD6Wr.js`), not the placeholder. (e) With the binary deleted and the daemon answering, the run printed `a droidyard daemon is running; run: droidyard stop, …`. (f) A rerun printed `already at v0.1.0` with the same inode. (g) `stop` exited 0, 0 orphans, no token file left; the owner's adb server and daemon list are unchanged. (h) The release's linux/arm64 binary prints `droidyard v0.1.0 (API 0.23.0)` in `debian:bookworm-slim`, as does darwin/amd64 under Rosetta.
 
 ### 8. The close: documents, then the exact one-liner
 
@@ -348,7 +348,7 @@ Read at `4c5514b` (`main`).
 - Not here: no release procedure in `AGENTS.md`. ADR-0068 §Consequences gives the two commands, and `release/build.sh`'s header holds the rest.
 - Rests on: —
 - Review: the close verifier, over the Acceptance items.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the close commit changes `mvp.md` §Out of scope, `known-limits.md` (the rows closed and added) and `docs/README.md` (the install line and §Where the work stands); `go test ./internal/doccheck` passes. The post-merge one-liner and CI on `main` are in the close report (A8).
 
 ## Not in this milestone
 
@@ -393,6 +393,10 @@ None. The ADR-0002 bookkeeping is a precondition (Starting point), not an open d
 | 2 | approve | [bug] `publish` never defined `$TAG` | `publish` declares its own `TAG`; `TestNoExpressionInRun` asserts it per job |
 | 2 | approve | [test] the `neither` mutation was equivalent (same message as a curl failure) | its own wording, asserted in the case |
 | 2 | approve | [plan] `golang:1.27` may be trixie, with no `openjdk-17` | `golang:1.27-bookworm` |
+| step 5 verifier | proceed | [test][safety] no test caught a downloaded binary run before its sum; [bug] `gh auth status` fails on any bad github.com account; [safety] a predictable name beside the target; [test] three extraction guards untested; [nit] ×5 | all fixed in step 5, each seen failing on a mutated copy |
+| step 6 verifier | proceed | [test] the static rules bypassed by spelling (quoted `write`, the token by another name, any action in `publish`, `secrets: inherit`, a commented job key); [safety] the job split guards the token, not the binaries; [nit] ×4 | fixed in step 6; the integrity limit is a register row |
+| close verifier | close | [doc] ×2 (`-race` left the register; the Linux row's successor dropped Pdeathsig); [plan] ×2 (departures only in Evidence; the runner SKIP list unrecorded); [test] A4 (vi)–(vii) not rerun; [nit] ×5 | register rows added and reworded; a §Changes line; A4 rerun at the close; the SKIP list stated as not done |
+| level 5 (step 7) | pass | no finding | — |
 
 ## Changes
 
@@ -402,3 +406,4 @@ None. The ADR-0002 bookkeeping is a precondition (Starting point), not an open d
 - Step 3: `cmd/droidyard/main.go` imported `internal/domain/build` as `build`, which collides with `var build`; the import is aliased `builddomain` there and in `watchoutput_test.go`. The `-X main.build` symbol is as planned.
 - Step 5: wording the plan left open: `installed an unknown version, installing <tag>`; `now at <tag> (<dir>/droidyard)`; on a fresh install the daemon advice names no previous binary. The truncated-script mutation is the body run unwrapped (a call inside `main` would recurse). The sum-tool check runs just before the download, after the already-at short-circuit.
 - Owner, 2026-10-12, at step 7: yes to `v0.1.0`. If the run fails, the tag (and a release, if one was made) is deleted, the fix goes on `m2m`, and `v0.1.0` is pushed again, replacing the plan's "never moved, next is `v0.1.1`".
+- Departures recorded in their steps' Evidence: step 4's `build.sh` removes `web/dist/app` before building; step 5 uses `gh auth status --hostname github.com --active`, `--repo github.com/…` and `mktemp` beside the target (verifier findings); step 6 adds a first `tag` job (the shape check moves out of `build`) and builds with no setup-go or setup-node cache. Not done: step 2(c)'s runner SKIP list was not recorded (plain `go test` shows no skips); step 1's container list stands as its proxy. `-race` runs nowhere (register row).

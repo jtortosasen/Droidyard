@@ -31,8 +31,18 @@ A document is written when a milestone needs it; none is listed ahead of its wor
 original sketch, [`../android-agent-suite-boceto.md`](../android-agent-suite-boceto.md)
 (Spanish), is superseded by `docs/` and kept for history.
 
+## Installing
+
+Install, or update by re-running ([ADR-0068](adr/0068-release-builds-and-installer.md));
+`curl -fsSL https://raw.githubusercontent.com/jtortosasen/Droidyard/main/install.sh | sh`
+replaces it once the repository is public:
+
+```sh
+gh api -H 'Accept: application/vnd.github.raw' repos/jtortosasen/Droidyard/contents/install.sh | sh
+```
+
 ## Where the work stands
 
-Phase 2 accepted (2b); 2c–2g UI, files; 2h the Definition of done; 2i the editor; 2j file capabilities off MCP, an agent's `rm` to the trash; 2k Cursor on par, agents' Android commands in Activity; 2l the Git tab and a Review diff; next, each milestone by discussion ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
+Phase 2 accepted (2b); 2c–2g UI, files; 2h the Definition of done; 2i the editor; 2j file capabilities off MCP, an agent's `rm` to the trash; 2k Cursor on par, agents' Android commands in Activity; 2l the Git tab and a Review diff; 2m CI, release builds and the one-line installer; next, each milestone by discussion ([`roadmap/mvp.md`](roadmap/mvp.md) §Phase 2). Every milestone's status is in
 [`plans/README.md`](plans/README.md); what is open is in
 [`roadmap/known-limits.md`](roadmap/known-limits.md).

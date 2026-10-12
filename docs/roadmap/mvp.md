@@ -87,8 +87,11 @@ trips, fewer tokens, no image interpretation.
 - **Live screen streaming** to the UI: a stretch 2b weighs; no stills (owner,
   2026-10-09).
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
-- **Distribution**: binaries ([ADR-0014](../adr/0014-agent-distribution-model.md));
-  the skill and `init` are in ([ADR-0037](../adr/0037-assistant-integration-by-init.md)).
+- **Distribution** beyond the binaries and the one-line installer
+  ([ADR-0014](../adr/0014-agent-distribution-model.md)): registries, `llms-install.md`,
+  signing. The binaries and the installer are in
+  ([ADR-0068](../adr/0068-release-builds-and-installer.md)), as are the skill and `init`
+  ([ADR-0037](../adr/0037-assistant-integration-by-init.md)).
 - **Windows** ([ADR-0002](../adr/0002-unix-first.md)).
 - **SDK provisioning and AVD creation.** `sdk.packages`, `sdk.install`, `sdk.licenses`,
   `emulator.create` and `emulator.delete` are post-MVP: the golden path needs only an
