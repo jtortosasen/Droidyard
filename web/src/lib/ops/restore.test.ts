@@ -12,7 +12,10 @@ function fake(opts: { items?: Item[]; waitErr?: unknown; restore?: Result<'file.
 			calls.push({ name, params, ws: o?.workspace });
 			if (name === 'operation.wait') {
 				if (opts.waitErr) return Promise.reject(opts.waitErr);
-				return Promise.resolve({ operationId: 'o1', capability: 'file.delete', state: 'completed', result: { items: opts.items ?? [] } });
+				// The wire answer of operation.wait is the waited operation's own result, in the
+				// envelope's `result` (api/client.test.ts), not the OperationView the schema names:
+				// a fake in that shape hid this from the first version (m2j step 11).
+				return Promise.resolve({ items: opts.items ?? [], done: (opts.items ?? []).length, failed: 0 });
 			}
 			return Promise.resolve({ items: opts.restore ?? [], done: 0, failed: 0 });
 		},
