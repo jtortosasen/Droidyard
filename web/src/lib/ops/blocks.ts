@@ -12,6 +12,7 @@
 import { BUILD_CAPABILITIES } from '../build/mirror';
 import { duration, keyOf } from '../projects/sessions';
 import { isTerminal, type Operation } from './activity';
+import { RECORD_COMMAND, type CommandRecord } from './commands';
 
 export type BlockTone = 'running' | 'queued' | 'success' | 'failure' | 'cancelled' | 'unseen';
 
@@ -40,6 +41,8 @@ export interface Block {
 	ticking: boolean;
 	blockedBy?: Operation['blockedBy'];
 	output: BlockOutput;
+	/** An `agent.recordCommand` row once its record was read: the command and the tool that does the same. */
+	command?: { text: string; suggested?: string };
 }
 
 export interface BlockContext {
@@ -49,6 +52,8 @@ export interface BlockContext {
 	heldBuild: string | null;
 	/** The tab's own last refused call, with its message (the activity feed carries a code only). */
 	ownFailure: { code?: string; message: string } | null;
+	/** Records read for `agent.recordCommand` rows, by operation id (ADR-0063 §6). */
+	records?: ReadonlyMap<string, CommandRecord>;
 }
 
 export type ActorFilter = 'all' | 'you' | 'agents';
@@ -81,6 +86,7 @@ export function actorOf(op: Pick<Operation, 'client' | 'session'>, labels: Reado
 
 /** The user's reads (the tab's own, and the CLI's) are not activity: m2b D16. */
 function hidden(op: Operation): boolean {
+	if (op.capability === RECORD_COMMAND) return false; // an agent's record, whatever client carried it
 	return keyOf(op) === null && (op.client === 'ui' || op.client === 'cli');
 }
 
@@ -111,6 +117,7 @@ export function outputOf(op: Operation, ctx: Pick<BlockContext, 'heldBuild'>, me
 
 /** The block of one operation; `message` is the tab's own failure text for it, when it has one. */
 export function blockOf(op: Operation, ctx: BlockContext, message?: string): Block {
+	if (op.capability === RECORD_COMMAND) return recordBlock(op, ctx);
 	return {
 		id: op.id,
 		capability: op.capability,
@@ -128,8 +135,30 @@ export function blockOf(op: Operation, ctx: BlockContext, message?: string): Blo
 	};
 }
 
+/** The hook's record: an agent's, never the user's, whichever client carried the call. */
+function recordBlock(op: Operation, ctx: BlockContext): Block {
+	const rec = ctx.records?.get(op.id);
+	return {
+		id: op.id,
+		capability: op.capability,
+		workspace: op.workspace,
+		title: rec ? `ran \`${rec.command}\` outside droidyard` : titleOf(op.capability),
+		actor: rec?.actor ?? 'Agent',
+		you: false,
+		tone: toneOf(op),
+		stateText: op.state === 'unseen' ? 'ended unseen' : op.state,
+		startedAt: op.startedAt,
+		durationMs: op.durationMs,
+		ticking: !isTerminal(op.state),
+		blockedBy: op.blockedBy,
+		output: { kind: 'none' },
+		command: rec ? { text: rec.command, suggested: rec.suggested } : undefined,
+	};
+}
+
 function admitted(op: Operation, f: BlockFilter): boolean {
 	if (hidden(op)) return false;
+	if (op.capability === RECORD_COMMAND) return f.actor !== 'you' && f.agentKey === null;
 	if (f.actor === 'you' && op.client !== 'ui' && op.client !== 'cli') return false;
 	if (f.actor === 'agents' && op.client !== 'mcp') return false;
 	return f.agentKey === null || keyOf(op) === f.agentKey;

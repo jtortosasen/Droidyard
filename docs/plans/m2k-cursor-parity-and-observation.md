@@ -324,7 +324,7 @@ At `e3bb62f` (2j merged), API `0.21.0`, with no `agent` domain.
 - Needs: step 6.
 - Not here: records from before the tab loaded (register row 244).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 2 (Vitest and svelte-check; the rendering is step 9's), 2026-10-12. `web/src/lib/ops/commands.ts` (`CommandRecordsModel`, `parseRecord`: one `operation.wait {timeoutMs: 0}` per row in `restore.ts`'s wire shape, cached, a failed read cached too; "Claude Code"/"Cursor"; a second command shown as "(+N more)"); `blocks.ts` (the row's title "ran `<program words>` outside droidyard", `you` false, `hidden` exempt whatever the client, `admitted` under All and Agents only); `sessions.ts` `keyOf` null; `Activity.svelte` shows "droidyard: <tool>" as text; `Project.svelte` wires the model. `commands.test.ts`: actor, title and tool from a wire-shape fake; All and Agents shown, You hidden, for clients `cli`, `ui`, `mcp`; `keyOf` null; one read per row; a failed or malformed read keeps the default title. Seen failing: the result read as `OperationView`; `hidden` not exempting the row. `pnpm -C web run verify` green (710 tests); the autofixer gate clean on `Activity.svelte`. Review: the main session's diff review.
 
 ### 9. Level 5: both clients, the trash and the observation
 

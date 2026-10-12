@@ -191,6 +191,9 @@ export function keyOf(op: Operation): string | null {
 	// workspace is open and would place it under "No project", and it would mark the row
 	// unread (ADR-0048 §3: an agent that has run nothing is not listed).
 	if (op.capability === 'workspace.open') return null;
+	// The hook's record of an agent's command is shown in Activity but is no one's session
+	// (ADR-0063 §6): no "You" row lights up, and no agent row appears.
+	if (op.capability === 'agent.recordCommand') return null;
 	if (op.client === 'ui' || op.client === 'cli') {
 		// A read, or one of the tab's own subscriptions (a streaming watch), is not activity.
 		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean; statefulness: string } | undefined;
