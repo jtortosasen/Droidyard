@@ -65,6 +65,10 @@ export interface EditorOptions {
 export interface CompareOptions extends EditorOptions {
 	/** The disk's text, as the file read gave it. */
 	disk: string;
+	/** The two captions above the sides; default `On disk` and `Yours`. The Diff tab says `HEAD` and `Working tree`. */
+	labels?: { a: string; b: string };
+	/** The read-only side's accessible name; default `File contents on disk`, so HEAD's text is not announced as the disk's. */
+	sideLabel?: string;
 }
 
 /** A problem to underline: lines and columns are 1-based, `end*` are optional. */

@@ -47,6 +47,10 @@
 	import { FileOps } from '../files/ops';
 	import { FileWatch } from '../files/watch';
 	import FileTree from '../files/FileTree.svelte';
+	import { GitWatch } from '../git/watch';
+	import { HeadBase } from '../git/base';
+	import GitTree from '../git/GitTree.svelte';
+	import DiffPanel from '../git/DiffPanel.svelte';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
 	import type { UnsavedGuard } from '../editor/unsaved';
@@ -102,6 +106,9 @@
 	let fileTree = $state.raw<FileTreeModel | null>(null);
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let fileOps = $state.raw<FileOps | null>(null);
+	// The Git status the Git tree and the Diff tab read (plan m2l step 5), and HEAD's text of the file the Diff tab shows.
+	let gitWatch = $state.raw<GitWatch | null>(null);
+	let headBase = $state.raw<HeadBase | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -175,6 +182,15 @@
 			ws,
 			files.sink,
 		);
+		// One git.watch for the Git tree and the Diff tab, beside the file watch.
+		const gitStatus = new GitWatch(
+			{
+				call: callOn.call,
+				subscribe: (name, params, handlers, opts) => c.subscribe(name, params, handlers, opts),
+			},
+			ws,
+		);
+		const headText = new HeadBase(callOn, ws);
 		// The viewer reads the same watch the tree does (no second file.watch).
 		const tabs = new TabsModel(browserStorage(window), workspaceId);
 		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
@@ -202,6 +218,8 @@
 		act = actions;
 		appLogs = logs;
 		fileTree = files;
+		gitWatch = gitStatus;
+		headBase = headText;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -249,6 +267,8 @@
 			tabs.dispose();
 			opsModel.reset();
 			watcher.dispose();
+			gitStatus.dispose();
+			headText.dispose();
 			files.dispose();
 			unbind();
 			file.dispose();
@@ -280,6 +300,8 @@
 			fileTree = null;
 			fileOps = null;
 			fileWatch = null;
+			gitWatch = null;
+			headBase = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -294,6 +316,7 @@
 		buildConsole?.onConnection(connection);
 		projectFile?.onConnection(connection);
 		fileWatch?.onConnection(connection);
+		gitWatch?.onConnection(connection);
 	});
 	$effect(() => {
 		if (connection !== 'open' || !devices || !emulators) return;
@@ -336,6 +359,22 @@
 				}}
 				{workspaceId}
 			/>
+		{/if}
+	{:else if id === 'git-side'}
+		{#if gitWatch}
+			<GitTree
+				watch={gitWatch}
+				onopen={(path) => {
+					// A changed file opens as the Editor's preview tab, so it has one buffer, and its diff shows.
+					target = null;
+					editorTabs?.open(path);
+					shell.show('diff');
+				}}
+			/>
+		{/if}
+	{:else if id === 'diff'}
+		{#if editorTabs && viewers && gitWatch && headBase}
+			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} />
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
