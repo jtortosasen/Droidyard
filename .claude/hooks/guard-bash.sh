@@ -4,9 +4,10 @@
 #
 #   guard-bash.sh observe    allowlist: plan-reviewer, planner (observation only)
 #   guard-bash.sh readonly   denylist: verifier (any command that does not change the tree)
-#   guard-bash.sh implement  denylist: the DeepSeek implementer run by ds-implement.sh
-#                            (edits and tests; never stages, commits or discards, never
-#                            touches a device, the adb server or the emulator)
+#   guard-bash.sh implement  denylist: the implementer, in its frontmatter and in
+#                            ds-implement.sh (edits and tests; never stages, commits or
+#                            discards, never touches a device, the adb server or the
+#                            emulator, never kills by name or starts or stops a daemon)
 set -u
 cmd=$(jq -r '.tool_input.command // empty')
 
@@ -28,6 +29,11 @@ implement)
 	fi
 	if printf '%s\n' "$cmd" | grep -Eq '(^|[;&|[:space:]])rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|(^|[;&|[:space:]])rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[rR]|(^|[[:space:]])sudo[[:space:]]'; then
 		block implement "rm -rf and sudo are not allowed"
+	fi
+	# Killing by name reaches the owner's own processes: `pkill -f 'serve --detach'` stopped
+	# the owner's daemon in m2k step 2. Tests clean up what they start, by pid.
+	if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_.-])(pkill|killall)([[:space:]]|$)|droidyard[^|;&]*[[:space:]](stop|serve)([[:space:]]|$)|[[:space:]]serve[[:space:]]+--detach'; then
+		block implement "killing by name and starting or stopping a daemon are the orchestrating session's"
 	fi
 	;;
 readonly)
