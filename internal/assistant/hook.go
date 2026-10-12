@@ -3,6 +3,9 @@ package assistant
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -175,61 +178,83 @@ func parseRm(command, cwd string) (targets []string, recursive, ok bool) {
 	return targets, recursive, len(targets) > 0
 }
 
-// placeTarget locates one absolute operand the way the shell would: `..` and links
-// resolved on the real tree. rel is the target's path under the real root. ok is false
-// for a target that is not an existing thing `rm` itself would delete inside the root:
-// outside it, the root, `.` or `..`, a regenerable output, a link that leaves the
-// root, or a trailing slash on a non-directory.
+// ErrTargetMissing is what PlaceTarget wraps when the operand names nothing that exists
+// (or its parent directory does not): `rm -f` skips such an operand.
+var ErrTargetMissing = errors.New("no such file or directory")
+
+// placeTarget is PlaceTarget for the hook, which only needs to know whether the target
+// is one `rm` itself would delete inside the root.
 func placeTarget(p, realRoot string) (rel string, isDir, ok bool) {
+	rel, isDir, err := PlaceTarget(p, realRoot)
+	return rel, isDir, err == nil
+}
+
+// PlaceTarget locates one absolute operand the way the shell would: `..` and links
+// resolved on the real tree. rel is the target's path under realRoot, the real root.
+// The error is nil for an existing thing `rm` itself would delete inside the root, and
+// otherwise says why not, in words an agent can read: outside the root, the root, `.` or
+// `..`, a regenerable output, a link that leaves the root, a trailing slash on a
+// non-directory, or (ErrTargetMissing) nothing there. `trash` (ADR-0062 §2) and the
+// hook (ADR-0061 §2) share these rules.
+func PlaceTarget(p, realRoot string) (rel string, isDir bool, err error) {
 	slash := strings.HasSuffix(p, "/")
 	p = strings.TrimRight(p, "/")
 	i := strings.LastIndex(p, "/")
 	if i < 0 {
-		return "", false, false
+		return "", false, errors.New("is not an absolute path")
 	}
 	parent, name := p[:i], p[i+1:]
 	if parent == "" {
 		parent = "/"
 	}
 	if name == "" || name == "." || name == ".." {
-		return "", false, false
+		return "", false, errors.New("is the project root, `.` or `..`, which is never deleted")
 	}
 	realParent, err := filepath.EvalSymlinks(parent)
 	if err != nil {
-		return "", false, false
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, ErrTargetMissing
+		}
+		return "", false, fmt.Errorf("cannot be resolved: %w", err)
 	}
 	full := filepath.Join(realParent, name)
-	rel, ok = under(realRoot, full)
+	rel, ok := under(realRoot, full)
 	if !ok {
-		return "", false, false
+		if full == realRoot {
+			return "", false, errors.New("is the project root, which is never deleted")
+		}
+		return "", false, errors.New("is outside the project root")
 	}
 	fi, err := os.Lstat(full)
 	if err != nil {
-		return "", false, false
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, ErrTargetMissing
+		}
+		return "", false, fmt.Errorf("cannot be read: %w", err)
 	}
 	switch {
 	case fi.Mode()&os.ModeSymlink != 0:
 		if slash {
-			return "", false, false
+			return "", false, errors.New("is a link written with a trailing slash, which names its target")
 		}
 		target, err := filepath.EvalSymlinks(full)
 		if err != nil {
-			return "", false, false
+			return "", false, errors.New("is a link whose target cannot be resolved")
 		}
 		if _, in := under(realRoot, target); !in {
-			return "", false, false
+			return "", false, errors.New("is a link that leaves the project root")
 		}
 	case fi.IsDir():
 		isDir = true
 	case slash:
-		return "", false, false
+		return "", false, errors.New("has a trailing slash but is not a directory")
 	}
 	for _, c := range strings.Split(rel, "/") {
 		if regenerable[strings.ToLower(c)] {
-			return "", false, false
+			return "", false, fmt.Errorf("is or lies under %s, a build output that droidyard does not trash", c)
 		}
 	}
-	return rel, isDir, true
+	return rel, isDir, nil
 }
 
 // under returns p relative to root, slash-separated, when p lies strictly inside it.
