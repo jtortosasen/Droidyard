@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-12
 - Supersedes: ADR-0067 §Decision (in part: items 2–4, that the Diff tab shows only the active file against HEAD and that its buffer side is always editable)
+- Superseded in part by: ADR-0072 (§Decision)
 - Relates to: ADR-0067 §1; ADR-0069; plan m2n Q2
 - Decided by the main session under the owner's standing instruction (apply the recommended option), Delegated. The owner set the look on 2026-10-12: vscode-git-graph's table and in-place expansion, SourceGit's side panel and toolbar, and a commit's file opening in the Diff tab against the commit before it.
 

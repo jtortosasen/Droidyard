@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-12
 - Supersedes: ADR-0066 §Decision (in part: item 2's invocation, which gains `GIT_NO_REPLACE_OBJECTS=1`, `GIT_GRAFT_FILE=/dev/null` and `-c advice.graftFileDeprecated=false` for every git the daemon runs)
+- Superseded in part by: ADR-0072 (§Decision)
 - Relates to: ADR-0015 §1; ADR-0020 §Retention; ADR-0060 §2; ADR-0066 §1, §2, §4, §6; ADR-0070; plan m2n Q1
 - Decided by the main session under the owner's standing instruction (apply the recommended option), Delegated, except the audience, which the owner decided on 2026-10-12: the history is for the UI, "the AI already uses git on its own".
 

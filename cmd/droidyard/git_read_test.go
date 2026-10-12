@@ -97,6 +97,14 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 		t.Errorf("git.log as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
 
+	// git.refs is human-only as well (ADR-0069 §1).
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.refs", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.refs as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
 	}
@@ -118,6 +126,17 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	}
 	if code != 0 || lenv.Error != nil || json.Unmarshal(lenv.Result, &page) != nil || len(page.Commits) != 1 || page.Commits[0].Subject != "c" || len(page.Tips) != 1 || page.More {
 		t.Errorf("git.log from the CLI: exit %d, error %+v, result %s; want the one commit and its tip", code, lenv.Error, lenv.Result)
+	}
+
+	// git.refs through the shipped registry: HEAD on main, the one branch, its tip.
+	renv, code := callIn(t, p.state, root, "git.refs")
+	var refs struct {
+		Head     struct{ Branch string }
+		Branches []struct{ Name string }
+		Tips     []string
+	}
+	if code != 0 || renv.Error != nil || json.Unmarshal(renv.Result, &refs) != nil || refs.Head.Branch != "main" || len(refs.Branches) != 1 || refs.Branches[0].Name != "main" || len(refs.Tips) != 1 {
+		t.Errorf("git.refs from the CLI: exit %d, error %+v, result %s; want HEAD on main, its branch and its tip", code, renv.Error, renv.Result)
 	}
 
 	// No git on the PATH: unavailable with a reason, GIT_NOT_FOUND with a next step.

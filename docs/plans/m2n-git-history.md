@@ -5,7 +5,7 @@
 - Date: 2026-10-12
 - Milestone: "2n — Git history". Picks up the rows 2l left open in `docs/roadmap/known-limits.md` (history, the bottom Git panel; `log` and `branches`; in part the Git actions row) and the owner's requirements below.
 - Phase: `docs/roadmap/mvp.md` §Phase 2, the **Git** milestone ("branches and commits later"), in part; see Scope.
-- Contract: Q1–Q3 below, Delegated; Q1's and Q2's ADRs written at step 1, Q3's at the part boundary. Also: ADR-0066 (§1 widening `base`, §2 invocation, §3 untrusted drivers, §6 no untrusted mark), ADR-0067 §2–§4, ADR-0060 §2, ADR-0015 §1, §2, §5, ADR-0020 §Retention, ADR-0053 §2 (per-item results); `capability-api.md` §Error model, §Discovery and versioning; `overview.md` §Concurrency; `http-websocket.md` rule 7 (CSP `default-src 'self'`); plan m2l.
+- Contract: Q1–Q3 below, Delegated; Q1's and Q2's ADRs written at step 1, Q3's at the part boundary (ADR-0071, part 2's contract with Q5 for P9). Also: `process-lifecycle.md` §Crash recovery (part 2's recorded write gits); ADR-0066 (§1 widening `base`, §2 invocation, §3 untrusted drivers, §6 no untrusted mark), ADR-0067 §2–§4, ADR-0060 §2, ADR-0015 §1, §2, §5, ADR-0020 §Retention, ADR-0053 §2 (per-item results); `capability-api.md` §Error model, §Discovery and versioning; `overview.md` §Concurrency; `http-websocket.md` rule 7 (CSP `default-src 'self'`); plan m2l.
 
 **The owner should see:**
 - The work is cut in two parts of about ten steps: part 1 is the history you read (graph, side panel, the expanded commit, its diff); part 2 is fetch, checkout, new branch, submodule update, submodules as roots and synchronised branches (Q4).
@@ -187,7 +187,7 @@ Part 1. Part 2 is outlined after these.
 - Not here: no ahead and behind for other branches (Q1 §1); no submodules (part 2); no stashes (a later milestone with stash).
 - Rests on: —
 - Review: the Opus verifier (contract), effort default.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/domain/git/refs.go` (one `rev-parse HEAD`, one `for-each-ref`, one `git remote`, `symbolic-ref`, `rev-parse --show-toplevel`, `worktree list`, and ahead/behind by `rev-list --stdin --left-right --count`, all through `hist()`; no ref name or oid on argv); `history.go`'s `tips()` split into `headOid`, `refsOutput` and the pure `tipSet`, the one place the tip set is decided, shared by `git.log` and `git.refs`. Schema: the `git.refs` block only, within 0.24.0. Tests all pass on both gits: `TestRefsOfARealRepository`, `TestRefsUpstreamKinds` (local upstream; vanished upstream `upstreamGone`), `TestRefsRemoteNames` (a remote named `team/origin` beside `team`), `TestRefsReadsOnce`, `TestRefsUnborn`, `TestRefsNotARepository`, `TestRefsTipsEqualLogTips` (equal to `git.log`'s and to an independent oracle; seen failing with tags unpeeled and with the cap on one side), `TestRefsAwkwardNames` (argv checks never skipped), `TestRefsCaps`, `TestRefsOutputCap`, `TestParseWorktrees`, `TestRefsFence` (replace ref and graft leave the counts true), `TestRefsDescriptor`, `TestRefsSlim`; the MCP refusal in `cmd/droidyard`. Level 5 (K1, `/private/tmp/dy.XneivV`, a copy of `$B/hist`): 6 branches, 8 remote-tracking refs, 4 tags, 2 worktrees, as `git for-each-ref` and `worktree list`; HEAD `main`, 1 ahead 1 behind `origin/main` as `rev-list`; `tips` equal `git.log`'s; 0 orphans; the owner's adb server untouched. Verifier: proceed; its contract notes applied within 0.24.0 (`upstreamGone`, remote names from `git remote` by longest prefix, one read of HEAD and the refs); `origin/HEAD` is listed (remote `origin`, name `HEAD`), for step 6 to filter.
 
 ### 6. The side panel, the ref badges, the toolbar and the branch menu
 
@@ -259,9 +259,231 @@ Part 1. Part 2 is outlined after these.
 - Rests on: —
 - [ ] Done. Evidence:
 
-## Part 2 (outline; its steps are written when Q3 and Q4 are settled)
+## Part 2
 
-About nine steps, each later written in full and reviewed: P1, a spike of the writes from the daemon (credentials through the daemon's environment, SSH with no terminal, a cancelled fetch leaving no `ssh`, a checkout over a dirty tree, a partial clone's checkout); P2, the write runner and `git.fetch`, the toolbar's Fetch; P3, `git.checkout` and `git.createBranch`, the toolbar's Create Branch and the menu's Checkout and New branch from; P4, `git.submodules` and the Submodules section; P5, `git.updateSubmodules`; P6, submodules as roots (a `root` parameter on the reads, the mixed log, the stripe, the root filter); P7, synchronised branches; P8, Compare with current (read-only: commits each way and the files between the two tips); P9, level 5 and the owner's check.
+Written 2026-10-13 from ADR-0071 (Q3, Accepted, Delegated) and Q4, on part 1's steps 1–4 Done and step 5 in progress. Approval: part 2 is approved by the main session under the owner's standing instruction (Delegated), as part 1 was, once its review rounds below leave no blocking finding open; the planner records it here at the main session's request of 2026-10-13. Two questions no ADR answers remain, each with a draft for the main session (Delegated), to be settled before P2 starts so that part 2's one minor is known whole: Q5 (Compare with current; blocks P9) and Q6 (gaps in ADR-0071; blocks P2 and P3). Steps are numbered P1–P10; `plan-step.sh <plan> P3` extracts one. The API takes one more minor for all of part 2, at P2 (part 1's may have merged into `main` by then, Q4).
+
+**Run rule K4** (P2–P10): K1's instance (its own `DROIDYARD_STATE_DIR` and `DROIDYARD_CONFIG_DIR` under `/tmp`), plus P1's fixtures under `$B`: `$B/w-origin.git` (bare), `$B/w` (a clone of it) and `$B/w-other` (a second clone that pushes, standing in for a colleague); `$B/s`, a superproject with submodules `lib` and `lib/nested` and one left uninitialised, cloned from bares `$B/s-*.git`; and `$B/hist`, still untrusted, for the refusals. `$B/w` and `$B/s` are trusted with `droidyard trust` against that instance's config directory, never the owner's. Remotes are local paths or loopback only (P1 item 10 says which the submodules need); no network, no remote or repository of the owner's. Each fixture has a `post-checkout` and a `reference-transaction` hook that writes a marker, and an empty `credential.helper` (both macOS gits ship `osxkeychain` at system scope). The instance runs under `verify-daemon` §Launch's `env -i HOME="$R/home"`, so the owner's global git configuration and credential helpers stay out of it; a global setting P1 item 10 finds necessary goes in `$R/home/.gitconfig`. A process started for a run is stopped by its pid (K2).
+
+**Acceptance (part 2)**
+
+- [ ] B1. On an untrusted root every write answers `WORKSPACE_UNTRUSTED` with the trust nextStep and starts no git; the UI shows the refusal. Source: ADR-0071 §2. Proven by: P2, P3, P5, P10.
+- [ ] B2. Fetch brings a remote's new commits into the graph; a cancel, a timeout, a workspace close and a killed daemon each leave no process of the fetch; a credential that needs a prompt fails at once with a nextStep. Source: ADR-0071 §1, §3; `process-lifecycle.md` §Crash recovery. Proven by: P1, P2, P10.
+- [ ] B3. Checkout of a local or remote-tracking branch, and a new branch from any commit, with or without checkout; a checkout git refuses changes nothing and reports git's cause; the UI refuses while a buffer is dirty, naming the files. Source: ADR-0071 §1, §5. Proven by: P3, P10.
+- [ ] B4. No name, oid or path reaches a write git's argv unvalidated; no hook runs. Source: ADR-0071 §3, §5. Proven by: P1, P3, P5.
+- [ ] B5. Writes on one repository run one at a time in order; reads never wait for them. Source: ADR-0071 §4. Proven by: P2, P8.
+- [ ] B6. The Submodules section shows each submodule's path, recorded and checked-out commit and state; update brings them to the recorded commit. Source: ADR-0071 §1; items 3, 4. Proven by: P4, P5.
+- [ ] B7. The reads take a submodule `root`, refused outside the gitlinks, fenced on an untrusted root; one log mixes the roots with a stripe and a filter. Source: ADR-0071 §7; item 7. Proven by: P6, P7.
+- [ ] B8. Checkout and new branch apply to the chosen roots in order, stop at the first failure with an outcome per root and no rollback; the toggle's default follows §6. Source: ADR-0071 §6. Proven by: P8, P10.
+- [ ] B9. Compare with current lists the commits each way and the files between the two tips, a file opening read-only in the Diff tab. Source: item 7; Q5. Proven by: P9.
+- [ ] B10. The schema diff is one minor: the five ADR-0071 capabilities, `root` on the four reads, Q5's two parameters; none is an MCP tool. Source: item 11. Proven by: P2–P6, P9, P10.
+- [ ] B11. The owner confirms the workflow. Source: items 6, 7, 10. Proven by: P10.
+
+### P1. Spike: the writes from the daemon
+
+- Builds:
+  - (a) `internal/domain/git/write.go`, builders only: `fetchArgs`, `switchArgs`, `trackArgs`, `branchArgs`, `updateArgs`, `refFormatArgs`, each with the write prefix `-c gc.auto=0 -c maintenance.auto=false` (no detached `gc --auto` or maintenance outlives the call), `--no-recurse-submodules` on `switch` and `fetch`, `--no-prune --no-prune-tags` on `fetch`, names after `--end-of-options`, paths after `--` with the global `--literal-pathspecs` (a gitlink path holding `*` or `:(` is a path, not a pattern); `writeEnv(environ, network)`: `scrubEnv` without `GIT_ALLOW_PROTOCOL=none` (and the prefix without `protocol.allow=never`) when `network`, unchanged otherwise; `validName` (no leading `-`, no control character, no `@{`, not `HEAD`, at most 255 bytes).
+  - (b) `gittest.Remote(t, dir)` (K4's `w-origin.git`, `w`, `w-other`; `main`, `feature/x`, `y` only on the remote) and `gittest.Submodules(t, dir)` (K4's `s`); `TestMakeFixture` writes them.
+  - (c) `write_spike_test.go`, real git, `HOME` temporary, each fact with a control showing plain git doing the opposite:
+    1. fetch through `writeEnv(network)` brings `w-other`'s pushed commit; the read environment refuses it.
+    2. no `post-checkout` or `reference-transaction` hook runs, in the repository or in a submodule's git directory under `submodule update --init --recursive` (the `-c` reaching child gits).
+    3. with `gc.auto=1` and loose objects, no `gc` or `maintenance` process or `gc.pid` remains after a fetch; if no control fires, recorded as a belt.
+    4. a fetch hung on `remote.origin.uploadpack` set to a sleeping script: after SIGTERM to the group, then SIGKILL after a 2 s grace, `kill(-pgid, 0)` is `ESRCH` within 3 s.
+    5. an HTTP remote on a loopback `httptest` server answering 401, the fixture's `credential.helper` empty: git fails within 5 s with `GIT_TERMINAL_PROMPT=0`; stderr's first line recorded.
+    6. no terminal: run under `script -q /dev/null` (a controlling terminal for the test), git spawned with exactly `SysProcAttr{Setsid: true}` (no `Setpgid`: `setpgid` fails on a session leader) has `getpgid(pid) == getsid(pid) == pid`, and a `core.sshCommand` script that opens `/dev/tty` fails; spawned with `Setpgid` only (the control) it succeeds.
+    7. `switch` over a conflicting local change: exit, which stderr lines carry the cause and the files, the work tree byte-identical after; whether a refused `switch -c` leaves the branch behind.
+    8. a partial clone (`--filter=blob:none`, `uploadpack.allowFilter` on the bare): `switch` to a branch with missing blobs under the non-network environment; outcome recorded (expected: refused, nothing changed).
+    9. `--end-of-options` accepted by `fetch`, `switch`, `branch` and `submodule update` on both gits (else the builder's alternative, recorded); `check-ref-format --branch` on `-x`, `@{-1}`, `HEAD`, `a..b`, `a b`, `x.lock`, `refs/heads/x`, 300 bytes: each outcome recorded, `validName` refusing what git would expand.
+    10. `submodule update --init` from local-path URLs under git's default `protocol.file.allow=user`: refused or not, and whether the superproject's own config admits it or only a global one (else a loopback `git daemon`); K4's fixtures follow.
+    11. no lock left: a fetch hung in `uploadpack` and a checkout held mid-write by a slow smudge filter (trusted fixture), each ended by item 4's SIGTERM-then-SIGKILL, leave no `*.lock` under `.git`; the control, SIGKILL alone, leaves one (git removes its lock files from its signal handlers, which SIGKILL skips).
+  - (d) The main session records the outcomes in §Changes. A fact against ADR-0071 (a hook `core.hooksPath` cannot stop, a prompt that waits) stops part 2 for a new ADR.
+- Implements: risk first; ADR-0071 §3, §5; `process-lifecycle.md` §Shutdown, cancellation and no-orphans.
+- Check: every item passes on both gits with its control seen firing, or is recorded as unable to discriminate, as step 1 did; item 6 is run under `script`, the others by `go test`.
+- Schema: no change.
+- Needs: step 1's `gittest`; real git; a loopback server inside the test. No daemon, no network.
+- Not here: no capability, no starter change.
+- Rests on: git's write commands, under ADR-0071 §3's invocation, run no hook, leave no process and no lock file when ended, and never wait on a prompt, at level 3 (both gits).
+- Review: the Opus verifier (process lifetime, security), effort `high`.
+- [ ] Done. Evidence:
+
+### P2. The write runner and `git.fetch`; the toolbar's Fetch
+
+- Builds:
+  - `internal/process`: a kind `git-write`, recorded and reaped by `Reconcile`, treated as `ShellCommand` is: `deathSignal` false (Pdeathsig would kill only the leader, and `Reconcile`, keyed on a live leader, would then leave its `ssh` or `uploadpack` running), the whole group killed when the record cannot be written, and `SysProcAttr{Setsid: true}` without `Setpgid` (P1 item 6: no terminal, and its own group), a per-kind branch in both `sysproc_other.go` and `sysproc_linux.go`, which set `Setpgid` for every kind today. `process-lifecycle.md`: the per-operation row says a write git is recorded, and layer 2's exceptions name it. Why recorded: a fetch may run 5 minutes, and a daemon killed meanwhile on macOS leaves it unseen (`process-lifecycle.md` §Crash recovery, "every long-running child").
+  - `git.Options` gains `Authorize` (the trust hook `main.go` already builds) and `Recorded` (as `shellStarter`), wired in `cmd/droidyard/main.go`.
+  - `write.go`: `writeRunner`, P1's prefix and environment, spawned through `Recorded`, its `Wait` removing the record. At cancel or timeout the group gets SIGTERM, then SIGKILL after 2 s (P1 items 4, 11: git removes its locks only on a signal it can catch). After git exits by itself the group is killed too: a write's record is removed at `Wait`, so a child left in the group would be unrecorded (a read leaves a filter child to finish, ADR-0066 §Consequences). 5 minutes for `fetch` and `submodule update`, 60 s for the rest. `GIT_FAILED`'s cause per Q6 (2); `CodeFailed`'s doc comment follows.
+  - Every write descriptor: `Command`, `LongRunning` (each takes `Resource` and can queue behind a 5-minute fetch, past ADR-0020's 20 s queue bound for a call not so flagged; `registry.go` enforces the pairing), audience `human`, `RequiresGit`, `Authorize` (an untrusted root is `WORKSPACE_UNTRUSTED` with `policy.UntrustedError`'s nextStep before the handler runs), `Resource` `git.write:<common dir>`: from the workspace root up to the first `.git` entry, read lexically, and when it is a file, its `gitdir:` and then that directory's `commondir`, so linked worktrees of one repository share one key (ADR-0071 §4, "per repository"); reads take no key. A ref lock another git holds is `GIT_FAILED` with git's line (§4).
+  - `fetch.go`: `git.fetch` (`remote` optional, one of `git remote`'s names, else `REQUEST_INVALID_PARAMS` before the fetch starts; result `remotes`, the names fetched): `fetch --all` or the one remote. P1 item 5's line gets the nextStep "run `git fetch` once in a terminal in <root>, then retry".
+  - `system.Version` the next free minor (`sinceWrites`); `mvp.md`'s git row and `mcp.md`'s not-exposed row gain each part 2 name as its step lands; `liveBudget`.
+  - Web: step 6's Fetch enabled (all remotes), and a Fetch action on each remote of step 6's Remotes section (`git.fetch {remote}`): runs it, shows it queued or running with a cancel (`operation.cancel`), an error's message and nextStep; on success the refs reload. That reload follows the UI's own write, not "another git" (ADR-0070 §3), so it adds no signal. On an untrusted root the button stays enabled and shows the refusal (ADR-0071 §2).
+- Implements: ADR-0071 §1 (`git.fetch`), §2–§4; `process-lifecycle.md` §Crash recovery; items 6, 10, 11.
+- Check:
+  - `TestFetchFromALocalRemote`: `w-other`'s pushed commit becomes `origin/main`.
+  - `TestWritesUntrustedStartNothing`: `WORKSPACE_UNTRUSTED`, zero starts (counting starter).
+  - `TestFetchCancelKillsTheGroup` (hung `uploadpack`; seen failing with a pid-only kill), `TestFetchTimeout` (timeout shortened: `GIT_FAILED`, group gone), `TestWriteCancelLeavesNoLock` (a cancelled fetch leaves no `*.lock` under `.git`; seen failing with SIGKILL alone).
+  - `TestFetchPromptFails`: loopback 401, `GIT_FAILED` within 5 s with the terminal nextStep.
+  - `TestFetchRemoteRefused`: `-x`, `--all`, `a b`, NUL, an unknown name: `REQUEST_INVALID_PARAMS`, no fetch started.
+  - `TestWritesAreLongRunning`: every `git.*` descriptor with a `Resource` is `LongRunning` (seen failing with it removed from one, and `OPERATION_QUEUE_TIMEOUT` added to its Errors so it registers); the scheduler's side is `internal/capability`'s existing `TestLongRunningHasNoQueueBound`.
+  - `TestWritesQueuePerRepository`: two writes on one repository, the second `blockedBy` the first and started after it ends; a write from a linked worktree of it queues too; a `git.log` meanwhile completes; two repositories run together.
+  - `TestWriteIsRecorded`: kind `git-write`, record gone after; the spawned git has `getpgid == getsid == pid`; `internal/process`: `git-write` has no death signal and an unrecordable spawn kills its group (as `ShellCommand`'s tests).
+  - MCP: `REQUEST_NOT_ALLOWED_HERE`; `TestToolListModelFacingBytes` unchanged.
+  - Vitest: Fetch calls `git.fetch` once; cancel calls `operation.cancel`; a refusal shows its nextStep; success reloads the refs.
+  - Level 5 (K1, K4): `git.fetch` on `$B/w` brings `$B/w-other`'s commit; on `$B/hist`, `WORKSPACE_UNTRUSTED`; a hung fetch ended by `operation.cancel`, another by `workspace.close`: `pgrep -g <pgid>` empty within 3 s each and no `*.lock` under `$B/w/.git`; another with the daemon `kill -9 <pid>` (its pid, never a name), restarted: its reconcile log reaps the `git-write` group, `pgrep -g` shows none and no `*.lock` remains. Level 4 (K3): the toolbar's Fetch shows the new commit with its `origin/main` badge within 2 s of the fetch ending.
+- Schema: `version` one minor up; a `git.fetch` block (param `remote`; result `remotes`; `GIT_NOT_FOUND`, `GIT_NOT_A_REPOSITORY`, `GIT_FAILED`, `WORKSPACE_UNTRUSTED`, `REQUEST_INVALID_PARAMS`; audience `human`, long-running). Nothing else.
+- Needs: P1; Q6 (2); step 6 (the toolbar, the Remotes section).
+- Not here: no prune, no submodule fetch (ADR-0071 §1); no progress lines (none without a terminal: a spinner and cancel); no pull.
+- Rests on: a write git ends with its whole group at every end of the call, the daemon's death included, and never waits on a terminal: level 5.
+- Review: the Opus verifier (process lifetime, security, contract), effort `high`.
+- [ ] Done. Evidence:
+
+### P3. `git.checkout` and `git.createBranch`; Create Branch, Checkout and New branch from
+
+- Builds:
+  - `checkout.go`, both `LongRunning` (P2's descriptor rule). `git.checkout {name, remote?, roots?}`: per root, a local `name` is switched to (`switch --no-guess`); else, with `remote`, `refs/remotes/<remote>/<name>` becomes a local `name` tracking it. `git.createBranch` takes Q6 (1)'s shape (draft: `{name, checkout, from, roots?, fromIn?}`): `branch --no-track` at `from`, or `switch -c` with `checkout`. `roots` admits only `"."` until P8.
+  - The result of both, `outcomes [{root, status: done | failed | skipped, error?}]` (ADR-0053 §2's pattern, ADR-0071 §6). Everything readable before the first write fails the whole call with nothing applied: a name, an oid, a remote, a root, a branch that a root lacks for a checkout, and for a new branch a root that already has the name (`REQUEST_INVALID_PARAMS`). Only what git says while writing (a refused checkout, a branch created meanwhile by another git) fails its root with `GIT_FAILED` and Q6 (2)'s cause.
+  - Validation, in every root before any write git: `validName`, then `check-ref-format --branch` through the read runner (it runs nothing); `remote` as P2; the branch's presence (`rev-parse --verify --quiet` on the full ref name, read runner); `from` a full oid that `cat-file --batch-check` says is a commit (as `git.log`'s `from`).
+  - Web: `git/branchops.ts`, pure: what each enabled entry calls, and the dirty-buffer gate over `UnsavedSource.dirtyPaths()` (ADR-0071 §5) for Checkout and for New branch with checkout; `CreateBranchDialog.svelte` (name; from, the menu's branch or HEAD, with its short oid; Check out, on by default). The toolbar's Create Branch (from HEAD) and the menu's Checkout and New branch from are enabled on local and remote-tracking branches; a remote-tracking one proposes its name without the remote. After the call, a failed outcome shows git's cause and the refs reload. A clean buffer whose file the checkout rewrote reloads through m2i's external-change path.
+- Implements: ADR-0071 §1, §2, §3, §5; items 6, 7 (menu), 10.
+- Check:
+  - `TestCheckoutLocal`; `TestCheckoutRemoteCreatesTracking` (upstream `origin/y`); `TestCheckoutExistingLocalWithRemote` (switches, creates nothing); `TestCheckoutRefusedOverLocalChanges` (failed outcome, `GIT_FAILED`, the cause names the file; HEAD and the file unchanged); `TestCheckoutNoRecurse` (a submodule's HEAD unchanged); `TestCheckoutRunsNoHook`.
+  - `TestCreateBranch` (at `from`; `checkout: false` keeps HEAD, `true` moves it; an existing name is `REQUEST_INVALID_PARAMS` with no write git); `TestCreateBranchFromRefused` (short oid, ref name, a tree's oid: `REQUEST_INVALID_PARAMS`, no write started).
+  - `TestBranchNamesRefused`: `-b`, `--orphan`, `@{-1}`, `HEAD`, `a..b`, `a b`, `x.lock`, NUL, newline, 256 bytes and P1's list: `REQUEST_INVALID_PARAMS`, no write git (counting starter); seen failing with `validName` removed (`@{-1}`).
+  - `TestCheckoutMissingBranch` (neither local nor remote-tracking: `REQUEST_INVALID_PARAMS`, no write git).
+  - `TestCheckoutQueuedBehindFetch`: a checkout started during a hung fetch is `blockedBy` it and runs after the fetch is cancelled; `TestWritesAreLongRunning` (P2) now covers `git.checkout` and `git.createBranch`.
+  - `TestWriteCancelLeavesNoLock` for a checkout held by a slow smudge filter (P1 item 11).
+  - `TestSubmoduleRootsBeforeP8` (`roots: ["lib"]` refused); untrusted, as P2; MCP refused.
+  - Vitest `branchops.test.ts`: a dirty buffer blocks Checkout and New branch with checkout, names the files and calls nothing; New branch without checkout is not blocked; the remote-tracking name; the other five menu entries stay disabled.
+  - Level 5 (K1, K4) on `$B/w`: `git.checkout feature/x`, then `git rev-parse --abbrev-ref HEAD` says it; `{remote: origin, name: y}` creates `y` tracking `origin/y`; with a conflicting edit made by a script, a failed outcome and `git status` unchanged. Level 4 (K3): Checkout moves the HEAD badge and the branch display within 2 s; a dirty buffer blocks it, naming the file; Create Branch creates and checks out; no hook marker.
+- Schema: a `git.checkout` block (params `name`, `remote`, `roots`; result `outcomes`) and a `git.createBranch` block (params by Q6 (1); the same result); their errors; audience `human`, long-running. Nothing else.
+- Needs: P2; Q6 (1); steps 5, 6.
+- Not here: no force, stash, rename, delete, or checkout of a tag or commit (items 6, 8; ADR-0071 §5); submodule roots (P8).
+- Rests on: no name, oid or remote reaches a write git's argv unvalidated, at level 3.
+- Review: the Opus verifier (contract, security), effort `high`.
+- [ ] Done. Evidence:
+
+### P4. `git.submodules` and the Submodules section
+
+- Builds:
+  - `submodules.go`: `git.submodules`, a query, no params; result `submodules [{path, recorded, checkedOut?, state}]` depth-first, at most 1,000 with `truncated`; `Slim` drops the list. A read, so it runs on untrusted roots under ADR-0066's fence: ADR-0071 §2 restricts the writes, and §7 runs the reads "under the workspace's trust". How, bounded by the submodules rather than by the index: the candidate paths from `config --file .gitmodules --no-includes -z --get-regexp '^submodule\..*\.path$'` (a file read, runs nothing), then `--literal-pathspecs ls-files --stage -z -- <candidates>` keeps those that are gitlinks (mode 160000) and gives `recorded`, both run at the repository top (where `.gitmodules` paths are rooted) and kept only below the workspace; a gitlink with no `.gitmodules` entry is not listed (git's own `submodule` commands refuse it too). Past the 1,000 cap or the 4 MiB output cap the list stops at whole entries with `truncated: true`. Each path, workspace-relative, resolved by `file.ResolveDir` and kept only if that equals its lexical join (no symlink on the way); there, step 2's `prefix`: not its own top is `uninitialised`; else `rev-parse HEAD` gives `checkedOut`, and m2l's status (`--ignore-submodules=all`) non-empty is `dirty`; `outdated` when `checkedOut` differs from `recorded`; `dirty` wins. Every git runs through the runner in the submodule's own directory with the workspace's trust, so an untrusted submodule's own filter drivers are read and switched off there. Nested submodules by the same walk, depth at most 8.
+  - Web: `git/SubmodulesSection.svelte` in step 6's side panel, with its count; a row shows path, state and short oid (both when outdated); step 6's filter applies; reloaded with the refs and after a write.
+- Implements: ADR-0071 §1 (`git.submodules`), §7 (containment); ADR-0066 §3; items 3, 4.
+- Check: `TestSubmodulesStates` (clean, outdated, dirty, uninitialised, nested); `TestSubmodulesFence` (untrusted root; a filter driver and a signature program in a submodule's own config, a dirty file there: no marker; seen failing with the driver read run in the superproject only); `TestSubmodulesContainment` (a gitlink whose directory is a symlink out of the root, and one outside a subdirectory workspace: skipped, no git started there); `TestSubmodulesNone`; `TestSubmodulesTruncated` (1,001 gitlinks: 1,000 and `truncated`); `TestSubmodulesOddPaths` (a path holding `*` and one holding `:(`, matched literally); `TestSubmodulesSlim`; MCP refused; the time on 20 submodules, untrusted, recorded. Vitest for the section's rows and count. Level 4 (K3) on `$B/s`: each row's state matches `git submodule status` there for uninitialised, outdated and clean, and `git -C <path> status --porcelain` for dirty (which `submodule status` never reports).
+- Schema: a `git.submodules` block. Nothing else.
+- Needs: P1 (fixture); step 6 (the panel).
+- Not here: no update (P5); no submodule's branches (P6's `root`); no `.gitmodules` names or URLs; the status keeps ignoring submodules (register row kept).
+- Rests on: no git runs in a directory outside the workspace, and each submodule git on an untrusted root has that submodule's drivers switched off, at level 3.
+- Review: the Opus verifier (security), effort `high`.
+- [ ] Done. Evidence:
+
+### P5. `git.updateSubmodules`
+
+- Builds: `git.updateSubmodules {paths?}`, `LongRunning`, a network command (5 minutes): each path one that a fresh gitlink read (P4's walk) lists, else `REQUEST_INVALID_PARAMS` before anything starts; `submodule update --init --recursive -- <paths from the top>`; result `paths`. Web: the section's Update (all, or a row's), running and cancel as Fetch, behind the dirty-buffer gate for buffers under the paths: an update is a checkout in each submodule (git's default update mode), so ADR-0071 §5's reason applies.
+- Implements: ADR-0071 §1–§3, §5; item 3.
+- Check: `TestUpdateInitialises` (uninitialised becomes clean at `recorded`); `TestUpdateOutdated`; `TestUpdateRunsNoHook` (nested); `TestUpdatePathsRefused` (`..`, a plain directory, `-x`: no write started); `TestUpdateCancel` (a nested remote's hung `uploadpack`: group gone); untrusted and MCP refused. Vitest: the gate, Update's call. Level 5 (K4) on `$B/s` after a superproject bump: `git.submodules` says `clean` everywhere. Level 4 (K3): the states turn clean in the section.
+- Schema: a `git.updateSubmodules` block. Nothing else.
+- Needs: P2, P4.
+- Not here: no `--remote`, no fetch-only, no update-mode choice (a trusted root's `submodule.<n>.update` is the user's, ADR-0071 §2).
+- Rests on: P2's (the group, the record, no terminal) for a git that starts child gits, at level 3; P10 at level 5.
+- Review: the Opus verifier (process lifetime, security), effort `high`.
+- [ ] Done. Evidence:
+
+### P6. Submodules as roots: `root` on the reads
+
+- Builds: `roots.go`, `resolveRoot(call, root)`: absent or `"."` is the workspace root; else a workspace-relative path, resolved level by level, each level a gitlink of the level above by one bounded `--literal-pathspecs ls-files --stage -z -- <that level's path>` (no whole-index walk on each read), initialised, and its directory resolved with no symlink (P4's rule); otherwise `REQUEST_INVALID_PARAMS` before any git runs there. `git.log`, `git.refs`, `git.show` and `git.read` gain `root`; git runs in that directory under the workspace's trust; paths in and out stay workspace-relative (`git.show`'s files and `git.read`'s `path` carry the root's prefix; a `git.read` path outside the root is refused).
+- Implements: ADR-0071 §7; ADR-0069 §2, §3 per root.
+- Check: `TestRootLog` (equals `git -C lib log --date-order` there), `TestRootRefs`, `TestRootShowPaths`, `TestRootReadAtCommit`; `TestRootRefused` (`..`, absolute, a plain directory, a file, a symlink to the submodule, an uninitialised submodule, a nested path whose middle is no gitlink: no git started there); `TestRootFence` (step 1's attacks in a submodule's config, untrusted root, through each of the four reads: no marker); part 1's tests unchanged. MCP refused. Level 5 (K1): `git.log {root: lib}` on `$B/s` equals git's.
+- Schema: an optional `root` param on `git.log`, `git.refs`, `git.show`, `git.read`. Nothing else.
+- Needs: P4; steps 2, 5, 7.
+- Not here: no `git.watch` per root (a submodule's commits are seen at ADR-0070 §3's signals); no root on the writes (P8).
+- Rests on: `root` names only a directory of the workspace's gitlink tree, at level 3.
+- Review: the Opus verifier (contract, security), effort `high`.
+- [ ] Done. Evidence:
+
+### P7. One log for every root
+
+- Builds: the two Svelte skills first. `git/mixed.ts`, pure: merges per-root page streams by commit time, always taking a stream's head, so each root keeps its own order (children before parents); a row is emitted only when every root with pages left has a loaded head behind it, so an arriving page never inserts above shown rows. Rows, lanes, selection and expansion keyed `root:oid` (a submodule may share an oid with its superproject). `history.ts` keeps one tip set per root (`git.log`, `git.refs` with `root`), reloaded per root on ADR-0070 §3's signals. `HistoryPanel`: a colour stripe per root, a root filter (all, or chosen roots) above the list, lanes laid out again from the filtered rows; the expansion and the Diff tab pass `root`. Roots are the workspace and its initialised submodules; the Uncommitted row is the workspace root's; a repository with no submodule looks as in part 1.
+- Implements: ADR-0071 §7; ADR-0070 §1, §3 per root; item 7.
+- Check: Vitest `mixed.test.ts`: two roots interleave by time; a property test over random per-root sequences with clock skew, the merge restricted to one root equals that root's sequence; one root paging while another is exhausted; no shown row moves when a page arrives (seen failing with emission before the other heads load); one oid in two roots is two rows; the filter. `verify` and the autofixer gate. Level 4 (K3) on `$B/s`: three stripes; filtered to `lib`, the rows equal `git -C lib log --date-order`; a `lib` commit's file opens in the Diff tab.
+- Schema: no change.
+- Needs: P6; steps 4, 6, 8, 9.
+- Not here: no per-root branch tree; the side panel stays the workspace root's, and each root's refs badge its own rows.
+- Rests on: —
+- Review: the main session's diff review.
+- [ ] Done. Evidence:
+
+### P8. Synchronised branches
+
+- Builds: `roots` on `git.checkout` and `git.createBranch` admits submodule paths (P6's `resolveRoot`, all checked before any write), applied `"."` first, then depth-first by path, whatever order was given; the first failed root stops the call, the rest `skipped`; nothing rolled back; one repository key for the whole call (P2). Web: with initialised submodules, Checkout and New branch show a confirmation with "Synchronise submodules", on by default when every initialised root has the branch (the checked-out one, or the source of New branch; HEAD for the toolbar's Create Branch), off otherwise (ADR-0071 §6); each submodule root's start (Q6 (1)'s `fromIn`) is that branch's oid in that root (`git.refs {root}`); the outcomes listed per root.
+- Implements: ADR-0071 §6; item 7.
+- Check: `TestSyncOrder` (roots given shuffled, applied `.`, `lib`, `lib/nested`); `TestSyncStopsAtFirstFailure` (a conflicting change in `lib`: `.` done, `lib` failed with git's cause, `lib/nested` skipped, `.` left on the new branch); `TestSyncCreateBranchPerRootFrom`; `TestSyncRootRefused` (a non-gitlink root: whole call refused, no write); `TestSyncBranchMissingInARoot` (`lib` lacks the branch: `REQUEST_INVALID_PARAMS`, nothing applied, zero write gits); `TestSyncOneKey` (a fetch started meanwhile waits for the whole call). Vitest: the toggle's default both ways, the per-root `from`, the outcomes view. Level 5 (K4) on `$B/s`: a synchronised checkout of `feature/x` (present in every root): each root's `rev-parse --abbrev-ref HEAD` says it; with a conflict in `lib`, the partial state of `TestSyncStopsAtFirstFailure`. Level 4 (K3): the toggle and the outcomes.
+- Schema: no change (P3 published `roots`).
+- Needs: P3, P6.
+- Not here: no rollback (ADR-0071 §6); no synchronised fetch or update.
+- Rests on: a synchronised call checks every root before its first write and holds one key throughout, at level 3.
+- Review: the Opus verifier (contract, concurrency), effort default.
+- [ ] Done. Evidence:
+
+### P9. Compare with current (after Q5)
+
+- Builds, by Q5's draft; rewritten if its ADR differs: `git.log` gains `exclude` (full oids, at most 5,000, validated as `from`, written to stdin as `^<oid>`); `git.show` gains `base` (a full commit oid: files between `base` and `oid`, `diff-tree <base> <oid>` under the same fence). Web: the menu's Compare with current opens a view in the bottom tab with "In <branch>, not in <current>" and the reverse (each `git.log` with `from` and `exclude`, paged) and the files between the two tips (`git.show {oid: branch tip, base: HEAD}`); a file opens in the Diff tab, both sides read-only (`git.read` at each tip).
+- Implements: item 7 (Compare with current); Q5.
+- Check: `TestLogExclude` (equals `git rev-list --date-order B ^A`; seen failing with `exclude` ignored); `TestLogExcludeRefused`; `TestShowBase` (equals `git diff --numstat A B`); part 1's tests unchanged; MCP refused; Vitest for the view's calls. Level 4 (K1, K3) on `$B/hist`: comparing `feature/a` with `main` lists exactly `git log main..feature/a` and `git log feature/a..main`, and the files of `git diff --numstat main feature/a`.
+- Schema: `git.log` param `exclude`; `git.show` param `base`. Nothing else.
+- Needs: Q5's ADR; steps 2, 6, 7, 9.
+- Not here: no three-dot (merge-base) diff; no compare of two arbitrary branches; no Merge into current.
+- Rests on: no parameter reaches argv but validated oids, on stdin, at level 3.
+- Review: the Opus verifier (contract), effort default.
+- [ ] Done. Evidence:
+
+### P10. Level 5 and the owner's check
+
+- Builds: nothing. Under K1–K4, the UI in headless Chrome:
+  - (a) `$B/w`: Fetch, Create Branch, Checkout of `origin/y`, New branch from `feature/x`; after each, no hook marker, `processes.json` empty, `ps` shows no process of the instance's write groups.
+  - (b) `$B/s`: Update, the mixed log and its filter, a synchronised checkout.
+  - (c) `$B/hist` (untrusted): each write control shows the refusal with `droidyard trust`; `git for-each-ref` and `HEAD` there unchanged.
+  - (d) `droidyard mcp`: no `git_fetch`, `git_checkout`, `git_createBranch`, `git_updateSubmodules`, `git_submodules`; `tools/call` on each is tool not found.
+  - (e) The owner's checklist, in Spanish, on their own project (the owner's own actions; no agent writes there):
+    1. ¿Fetch trae las ramas remotas nuevas y las ves en el grafo? (solo actualiza `origin/*`)
+    2. ¿Create Branch y New branch from crean la rama donde esperas, con y sin checkout?
+    3. ¿Checkout de una rama local y de una remota (crea la local que la sigue) funciona, y con un fichero sin guardar se niega y lo nombra?
+    4. ¿Un checkout que git rechaza muestra un motivo que entiendes?
+    5. Submódulos (en `$B/s` si tu proyecto no tiene): ¿estados correctos, y Update los deja limpios?
+    6. ¿El log mixto, la franja de color y el filtro por raíz se leen bien?
+    7. ¿El interruptor de ramas sincronizadas, su valor por defecto y el resultado por raíz tienen sentido?
+    8. ¿Compare with current muestra lo que esperas?
+    Each item not confirmed becomes a register row.
+- Implements: B1–B3, B8, B10, B11 at level 5.
+- Check: (a)–(d) observed with their evidence; (e) answered or recorded as not confirmed.
+- Schema: no change.
+- Needs: P2–P9.
+- Not here: pull, push, stash, merge, rebase, rename, delete (items 6, 8).
+- Rests on: —
+- Review: the Opus verifier at the close (`milestone-workflow`).
+- [ ] Done. Evidence:
+
+**Not in part 2** (beyond §Not in this milestone): prune and submodule fetch (ADR-0071 §1); fetch progress lines; force checkout, automatic stash, checkout of a tag or a commit (§5); a rollback of a synchronised operation (§6); `git.watch` per submodule; a per-root branch tree in the side panel; `--remote` submodule updates; a three-dot compare.
+
+### Q5. Compare with current: what the reads return for two tips
+
+- Decided: ADR-0072, as drafted below (Delegated, 2026-10-13).
+- Blocks: P9 (and P10 (e) 8). The rest of part 2 does not depend on it, which is why P9 comes last; its ADR is still written before P2, since its two parameters fall in the minor P2 opens (B10).
+- The documents say: item 7 puts Compare with current in 2n ("only reads"); ADR-0069 §1 fixes `git.log` to a walk from tips with nothing excluded and `git.show` to a commit against its first parent (§5); ADR-0070 §4 gives the Diff tab two sources, the working tree against HEAD and a commit's file against its first parent. Nothing reads the commits of one tip not in another, or the files between two tips; the browser cannot derive either without walking both whole histories and listing trees no capability returns.
+- Draft decision, a new ADR (Delegated), superseding ADR-0069 §Decision in part (§1's parameters) and ADR-0070 §Decision in part (§4's two sources):
+  1. `git.log` gains `exclude`: full commit oids, at most 5,000, validated as `from` and written to its stdin as `^<oid>`, so `from: [B], exclude: [A]` is `A..B`, paged as before.
+  2. `git.show` gains `base`, a full commit oid: `files` are then `diff-tree <base> <oid>` under ADR-0069 §3's fence, the commit's details unchanged; absent, the first parent as now.
+  3. The Diff tab's second source is a file at one commit against the same file at another, both read-only; a commit against its first parent is the case `base` = first parent.
+  4. Read-only, audience `human`, no new code.
+- Alternatives: a new `git.compare` query (one more capability for what two parameters give); the three-dot diff from the merge base (what a pull request shows, not what "compare with current" shows in IntelliJ: the two tips' trees); moving Compare with current to the later milestone with the other branch-menu items (item 7 put it in 2n).
+
+### Q6. Two gaps in ADR-0071 that part 2's review found
+
+- Decided: folded into ADR-0071 (§1, §5, §6) before its first commit, as drafted below (Delegated, 2026-10-13).
+- Blocks: P2 (item 2), P3 (items 1, 2). Found by part 2's review round 1 (S3, S5).
+- The documents say: ADR-0071 §1 gives `git.createBranch` one `from` (a commit oid) and §6 gives it `roots` (paths); an oid names a commit of one repository, so a synchronised new branch has no `from` for the submodules. ADR-0066 §4 makes `GIT_FAILED`'s cause "git's first stderr line", and ADR-0071 supersedes only ADR-0066's item 2; for a refused checkout that line does not name the files (P1 item 7 records which lines do), and B3 wants them named.
+- Draft decision, Delegated; ADR-0071 is still uncommitted, so the main session may fold both into it before its first commit (as ADR-0069's field list was corrected before its merge: this plan's §Changes, step 2), else a short ADR superseding ADR-0071 §1, §6 and ADR-0066 §Decision item 4 in part:
+  1. `git.createBranch {name, checkout, from, roots?}`: `from` is the oid in `"."`, as §1 says; `roots`, as `git.checkout`'s, is a list of paths, and for each submodule root the new branch starts at the same-named source the UI chose, given as `fromIn: {<path>: <oid>}` (one oid per submodule root, validated as `from`). A submodule root in `roots` with no entry in `fromIn` refuses the whole call. Every write is `LongRunning` (ADR-0020's queue bound), which §1 says only of `git.fetch`. Both capabilities then take `roots` as paths.
+  2. A write's `GIT_FAILED` cause is git's stderr from its first `fatal:` or `error:` line, at most 20 lines and 4 KiB; the reads keep ADR-0066 §4's first line.
+- Alternatives: (1) `roots: [{path, from}]` with no top-level `from` (the first draft of P3): one shape, but `roots` then differs between the two capabilities and §1's `from` disappears; a submodule branching from its own HEAD: not what New branch from <branch> means in IntelliJ when every root has that branch. (2) The first line only: the user is not told which files block the checkout.
 
 ## Not in this milestone
 
@@ -336,7 +558,13 @@ About nine steps, each later written in full and reviewed: P1, a spike of the wr
 | SourceGit's toolbar names come from its source read on the web, not rendered; the filter-settings button's function and the expansion strip's second button are unknown | 6, 8 | the owner at step 10 |
 | An initials avatar and relative time are what the owner expects | 4 | step 10's check |
 | A ref moved by another git while the window keeps focus and HEAD does not move is seen late | 6 | stated in Q2 §3; the owner at step 10 |
-| Part 2: credentials and SSH from the daemon's environment work with no prompt and never hang | part 2 | P1 |
+| Part 2: a real remote's credentials (keychain helper, SSH agent) work from the daemon's environment, and whether `osxkeychain` can raise a GUI dialog from it; P1 settles only a loopback 401 with no helper and the absence of a terminal | P2 | the owner's Fetch on their project at P10 (e) 1; otherwise a register row |
+| Part 2: `core.hooksPath=/dev/null`, `gc.auto=0` and `maintenance.auto=false` reach the child gits `submodule update` starts | P1, P5 | P1 items 2, 3 |
+| Part 2: a partial clone's checkout with missing blobs fails under the non-network environment (ADR-0071 §3 counts only fetch and update as network) | P3 | P1 item 8; a register row if it fails |
+| Part 2: `--end-of-options` is accepted by `fetch`, `switch`, `branch` and `submodule update` on both gits | P1–P5 | P1 item 9 |
+| Part 2: `git.submodules` stays fast on an untrusted root with many submodules (two gits each, plus the driver reads) | P4 | P4's timing on 20 |
+| Part 2: the mixed log's emission rule keeps shown rows still while roots page at different rates | P7 | P7's property test; the owner at P10 |
+| Part 2: `Setsid` and the group kill of a write git on Linux | P2 | not run (macOS only) |
 | Linux | all | not run (macOS only) |
 
 ## Review
@@ -349,6 +577,15 @@ About nine steps, each later written in full and reviewed: P1, a spike of the wr
 | 1 | revise | [should] S4 ahead/behind cost; S5 prefix for the log; S6 author time under COMMIT TIME; S7 fields; S8 no favourite control; S9 owner questions on dirty buffers and untrusted Fetch | current branch only, `BenchmarkRefs`; Q1 §2 whole repository, alternative recorded; `commitTime`; every step has the six fields; a star per branch row; Q3 (e), (f) |
 | 1 | revise | nits: level-5 tips; `diff.<d>.command`; mailmap; git's counts vs the engine's; scroll on reload; name the commands | all taken (step 2, step 1 (c), Q1 §3, §5, step 9, Q2 §3, step 1's Rests on) |
 | 2 | proceed | B1 resolved; B2 resolved; [should] the "tips differ" comparison must use one tip function (annotated tags, the cap) | `tips` shared by `git.log` and `git.refs`; `TestRefsTipsEqualLogTips`; fixtures through `fast-import`; tag-on-a-tree case in step 2 |
+| P-1 | revise | [blocking] B1: a write git killed by SIGKILL leaves `.git` lock files (git cleans them only from catchable signals) | P2: SIGTERM to the group, SIGKILL after 2 s; P1 item 11 with a SIGKILL-only control; `TestWriteCancelLeavesNoLock` in P2 and P3; level 5 checks `*.lock` |
+| P-1 | revise | [blocking] B2: checkout and createBranch take `Resource` but were not `LongRunning`, so they hit ADR-0020's 20 s queue bound behind a fetch | P2: every write descriptor `LongRunning` (ADR-0020, `registry.go`); `TestCheckoutQueuedBehindFetch` seen failing without it; P3 schema says long-running |
+| P-1 | revise | [should] S1 `git-write` needs no death signal, a group kill on an unrecordable spawn, `Setsid` without `Setpgid` | P2 treats it as `ShellCommand`; layer 2's exceptions; P1 item 6 and `TestWriteIsRecorded` assert `getpgid == getsid == pid` |
+| P-1 | revise | [should] S2 key per work tree is not "per repository"; S3 createBranch's per-root `from` undeclared; S5 multi-line cause against ADR-0066 §4 | S2: key on the common git directory (`gitdir:`, `commondir`), a linked-worktree case in the queue test; S3, S5: Q6 with drafts, blocking P2 and P3 |
+| P-1 | revise | [should] S4 a missing branch per root vs whole call; S6 the whole-index gitlink walk; S7 Q5's ADR before P2 | S4: whole-call refusal before any write, `TestCheckoutMissingBranch`, `TestSyncBranchMissingInARoot`; S6: candidates from `.gitmodules`, bounded `ls-files`, `truncated`, P6 per level; S7: Q5 and Q6 settled before P2 |
+| P-1 | revise | nits: `dirty` vs `submodule status`; `--literal-pathspecs` on update; a caller for `fetch {remote}`; why writes kill the group at exit; the keychain helper | all taken (P4 level 4, P1 (a), P2 Remotes action, P2 runner, K4 and P1 item 5 empty `credential.helper`, Unverified row) |
+| P-2 | proceed | B1 resolved (SIGTERM then SIGKILL, as `shell/run.go`'s `killGroup` and `Reconcile`); B2 resolved (`LongRunning` is the scheduler's only exemption) | — |
+| P-2 | proceed | [should] the "bound shortened" checks cannot run outside `internal/capability`, and removing `LongRunning` fails registration, not the queue | `TestWritesAreLongRunning` at the descriptor level (mutation: `LongRunning` removed, the code added to Errors); the scheduler's side cited (`TestLongRunningHasNoQueueBound`); P3's queue test no longer claims the bound |
+| P-2 | proceed | nits: an existing branch is readable before the write; `fromIn` and `"."`; where `.gitmodules` is read; `pgrep -g` over `ps -g`; locks after `kill -9`; ADR-0071 §1 says long-running of fetch only; the per-kind `sysProcAttr` | all taken (P3 whole-call refusal and `TestCreateBranch`; Q6 (1) "a submodule root" and the long-running line; P4 "at the repository top"; P2 level 5; P2 `internal/process`) |
 
 ## Changes
 

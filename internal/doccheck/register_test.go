@@ -125,8 +125,9 @@ func checkRegister(fsys fs.FS) []string {
 // git row (a watch's gits outlive its operation). Raised by 55 (to 26,481) at 2m's close: the
 // README's install section and status, and mvp.md's Distribution line (ADR-0068). Raised by 4
 // (to 26,485) in milestone 2n step 2: mvp.md's git row (`log`, `refs`, `show`) and mcp.md's
-// not-exposed row for git.log (ADR-0069).
-const liveBudget = 26485
+// not-exposed row for git.log (ADR-0069). Raised by 1 (to 26,486) in milestone 2n step 5:
+// the same row names git.refs.
+const liveBudget = 26486
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
