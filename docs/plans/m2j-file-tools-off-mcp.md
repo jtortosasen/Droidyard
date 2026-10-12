@@ -284,7 +284,7 @@ Everything in this step lands together: the audience change breaks the counts, t
 - Needs: step 6.
 - Not here: talking to the daemon (step 8).
 - Rests on: what the event's `cwd` means after a `cd`, which step 6 must show at level 5 before relative operands route; a wrong reading would trash the wrong file. Also the clients' input shapes: level 5 for Cursor (step 6), level 2 for Claude Code until step 11.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/assistant/hook.go` (`DecodeHookEvent`, `RouteRm`, `PassOutput`, `DenyOutput`, `Redirect.Message`), `TestRmFormsTable` (routes; passes for other commands and prefixes, operators and expansions, locations, build outputs) on a real temp tree, three recorded Cursor events and a labelled synthetic Claude Code event in `testdata/hooks`. Seen failing with a rule reversed: operator characters, the root check, the dot-name rule, the build names, the `-r` requirement, the link-target check, an absolute event `cwd`, a quoted or escaped `rm`; after the verifier's round, the case-folded build names (`Build`, `.Gradle` route) and BSD rm's flag order (`rm a.kt -r dir`, `rm a.kt -f`, `rm *.kt` over a `-x.kt` route). Opus verifier (with step 8): proceed.
 
 ### 8. `droidyard hook`
 
@@ -314,7 +314,7 @@ Everything in this step lands together: the audience change breaks the counts, t
 - Needs: step 7.
 - Not here: writing the entries (step 9).
 - Rests on: the hook never starts a daemon, never sends the agent to another daemon, and never blocks a command on its own failure. Level 3 here; level 5 in step 11.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `cmd/droidyard/hook.go`, `main.go`'s `hook`: decision in a goroutine under a 2 s bound, stdin capped at 1 MiB, the dial without auto-start, `workspace.open`, then the deny; every failure passes; exits only 0 or 1; a panic recovered. `hook_test.go` runs the re-executed binary with both clients' JSON: the deny's replacement run through `/bin/sh -c` with no `PATH` or state variable reaches the same daemon and trashes both files, no second lock anywhere; no daemon → pass and none started; 17 non-routed forms make no dial; an open held past 2 s and a stdin that never closes pass at about 2 s; misuse exits 1 with nothing on stdout. Seen failing: the dial with auto-start; `--no-autostart` dropped from the replacement; the recover removed (exit 2; rerun by the verifier). Opus verifier: proceed; N1 and N2 fixed by the main session (step 7's evidence); N3 below; N4 (Cursor's `Delete` deny reaching the model) stays Unverified.
 
 ### 9. `init` writes the hook entry; documents and register
 
@@ -540,6 +540,8 @@ The substance is the owner's: removing the tools, and having an agent's deletes 
 | 2 | — | N6 the departure confirmed by the reference; N7 the trash cap; N8 retention; N9 `version` sole and the mutation; N10 the run limits; N11 Cursor's `Delete`; N12 split; nits | ADR-B costs added and 6(a) widened; build outputs pass; Restore on click with a past-retention message; `version` sole, real mutations, a register row; `settings*.json` byte-identical, the `ls` line dropped; 6(b) asks which tool; split offered to the owner; comments, `mcp.md:245`, rows 158/162, ADR-B's open-before-approval and parser answer |
 
 ## Changes
+
+- Steps 7–8 (the verifier's N3, Delegated): Claude Code's relative operands route on its reference's statement that `cwd` follows a `cd` (ADR-0061 §2), not on a step 6 run; step 11 adds a `cd` into a subdirectory in one Bash call and a relative `rm` in the next, and checks the routed path.
 
 - Step 7: `rm -rf build/x` passes, as ADR-0061 §2 says ("is or lies under `build`"); the Route list's `build/x` example was inconsistent with the pass list's `app/build/tmp`.
 
