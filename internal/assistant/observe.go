@@ -39,7 +39,10 @@ type Observed struct {
 var observedPrograms = setOf(agent.Programs...)
 
 // skippedPrefixes are the words that run the next command (ADR-0063 §1).
-var skippedPrefixes = map[string]bool{"command": true, "exec": true, "env": true, "time": true, "nohup": true}
+var skippedPrefixes = map[string]bool{"command": true, "exec": true, "env": true, "time": true, "nohup": true,
+	// Words that open a compound command or run the next one (close verifier, m2k).
+	"if": true, "then": true, "else": true, "elif": true, "while": true, "until": true, "do": true,
+	"{": true, "!": true, "sudo": true, "timeout": true}
 
 // valueFlags lists, per program, the flags that take the next word as their value, so
 // that the value is not read as a positional word (`-p app`, `-s emulator-5554`). A flag
@@ -60,7 +63,7 @@ var valueFlags = map[string]map[string]bool{
 var gradleValueFlags = setOf("-p", "--project-dir", "-g", "--gradle-user-home", "-c", "--settings-file", "-b",
 	"--build-file", "-I", "--init-script", "-x", "--exclude-task", "-M", "--write-verification-metadata", "-F",
 	"--dependency-verification", "--include-build", "--max-workers", "--warning-mode", "--console", "--priority",
-	"--project-cache-dir", "--project-prop", "--system-prop", "--tests")
+	"--project-cache-dir", "--project-prop", "--system-prop", "--tests", "--args")
 
 func setOf(s ...string) map[string]bool {
 	m := make(map[string]bool, len(s))
@@ -103,9 +106,17 @@ func observeSegment(words []string) (Observed, bool) {
 		switch {
 		case skippedPrefixes[w] || isAssignment(w):
 			i++
-			if w == "env" {
+			switch w {
+			case "env", "sudo":
 				for i < len(words) && (isAssignment(words[i]) || strings.HasPrefix(words[i], "-")) {
 					i++
+				}
+			case "timeout":
+				for i < len(words) && strings.HasPrefix(words[i], "-") {
+					i++
+				}
+				if i < len(words) {
+					i++ // the duration
 				}
 			}
 			continue
@@ -142,8 +153,12 @@ func observeSegment(words []string) (Observed, bool) {
 		}
 	}
 	o := Observed{Program: prog, Suggested: suggest(prog, flags, raw, matching)}
-	if prog == "adb" && len(raw) > 0 && (raw[0] == "shell" || raw[0] == "exec-out") {
-		// exec-out runs a device command as shell does: only its command word is kept.
+	if prog == "adb" && len(raw) > 0 && raw[0] == "pair" {
+		// Its operands are an address and a pairing code: neither is kept.
+		o.Words = []string{"pair"}
+	} else if prog == "adb" && len(raw) > 0 && (raw[0] == "shell" || raw[0] == "exec-out" || raw[0] == "emu") {
+		// exec-out runs a device command as shell does, and emu a console command (whose
+		// operands can be its auth token): only that command's first word is kept.
 		o.Words = []string{raw[0]}
 		if len(raw) > 1 && agent.Word.MatchString(raw[1]) {
 			o.Words = append(o.Words, raw[1])
@@ -291,7 +306,7 @@ func shellSegments(s string) [][]string {
 	var segs [][]string
 	var words []string
 	var cur []rune
-	started, skipNext, digitsOnly := false, false, true
+	started, skipNext, digitsOnly, heredoc := false, false, true, false
 	endWord := func() {
 		if started {
 			w := string(cur)
@@ -324,7 +339,13 @@ func shellSegments(s string) [][]string {
 		switch r {
 		case ' ', '\t', '\r':
 			endWord()
-		case '\n', ';', '(', ')':
+		case '\n':
+			endSeg()
+			if heredoc {
+				// A here-document's body is text, not commands: the reading stops.
+				return segs
+			}
+		case ';', '(', ')':
 			endSeg()
 		case '|':
 			endSeg()
@@ -350,6 +371,9 @@ func shellSegments(s string) [][]string {
 				endWord()
 			} else {
 				cur, started, digitsOnly = nil, false, true // an fd number: `2>&1`
+			}
+			if r == '<' && strings.HasPrefix(s[i:], "<") && !strings.HasPrefix(s[i:], "<<") {
+				heredoc = true // `<<` or `<<-`, not the here-string `<<<`
 			}
 			for i < len(s) && (s[i] == '>' || s[i] == '<' || s[i] == '&' || s[i] == '|') {
 				i++

@@ -193,6 +193,7 @@ count_orphans final
 echo "$R"
 ```
 
+- **Compare against the milestone's first baseline.** Snapshot the owner's daemon and adb server (pids and start times) once, before a milestone's first run, and check every later snapshot against that one, not only a run's own before and after: in m2k a pid lost between runs went unseen for two hours.
 - **Never kill by name.** No `pkill`, no `killall`: the owner's daemon and shims are also called `droidyard`. Kill only a pid this run started (`$PID`, `$SHIM`) or read from this state's `daemon.lock`. `droidyard stop` under the scratch environment targets that lock's holder.
 - **The orphan count is the acceptance evidence.** A survivor is a pid from the snapshot, taken just before the stop, that is still alive with the same start time. That means the daemon, its descendants and every pid recorded in `processes.json`; the start time guards against pid reuse. The Definition of done excludes the `adb` server, the Gradle daemon and emulators. Move those lines to `$E/final.excluded` by hand, each with its command line, and never widen that exclusion to hide a sidecar. Report other survivors as findings before you stop them by pid.
 - **Delete nothing.** `$R` holds the evidence and the state it describes. The verifier cannot `rm`, and the recipe never needs to.

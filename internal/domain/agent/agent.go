@@ -50,7 +50,7 @@ var (
 // Command is one Android command found in an agent's shell command.
 type Command struct {
 	Program   string   `json:"program" jsonschema:"required,enum=gradlew,enum=gradle,enum=adb,enum=emulator,enum=sdkmanager,enum=avdmanager" jsonschema_description:"The program's base name."`
-	Words     []string `json:"words" jsonschema:"required,maxItems=3,pattern=^:?[A-Za-z0-9][A-Za-z0-9:._-]{0\\,63}$" jsonschema_description:"At most three positional words (a Gradle task, an adb subcommand), never flags, flag values or assignments."`
+	Words     []string `json:"words" jsonschema:"required,maxItems=3,pattern=^:?[A-Za-z0-9][A-Za-z0-9:._-]{0\\,63}$" jsonschema_description:"At most three positional words (a Gradle task, an adb subcommand); never flags, assignments or known flag values."`
 	Suggested string   `json:"suggested,omitempty" jsonschema:"pattern=^[a-z]{1\\,16}_[A-Za-z]{1\\,32}$" jsonschema_description:"The MCP tool that does the same, when there is one."`
 }
 
