@@ -253,7 +253,7 @@ Two practical notes:
 | `sdk` | `status`, `requirements` | 1 |
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore` (human-only; never over MCP) | 1–2 |
-| `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch` (human-only; never over MCP) | last |
+| `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch`, `checkout`, `createBranch` (human-only; never over MCP) | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
 | `shell` | `exec` (off by default) | 1 |

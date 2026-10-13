@@ -82,8 +82,8 @@ type Options struct {
 	writeTimeout time.Duration
 }
 
-// Register adds git.read, git.watch, git.log, git.refs, git.show and git.fetch to the
-// registry.
+// Register adds git.read, git.watch, git.log, git.refs, git.show, git.fetch, git.checkout
+// and git.createBranch to the registry.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
 	registerWatch(reg, opts)
@@ -91,6 +91,7 @@ func Register(reg *capability.Registry, opts Options) {
 	registerRefs(reg, opts)
 	registerShow(reg, opts)
 	registerFetch(reg, opts)
+	registerCheckout(reg, opts)
 }
 
 // root resolves the call's workspace to its project root.

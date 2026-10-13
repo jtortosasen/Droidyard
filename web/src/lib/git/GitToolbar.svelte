@@ -11,6 +11,7 @@
 	import LocateFixed from '@lucide/svelte/icons/locate-fixed';
 	import X from '@lucide/svelte/icons/x';
 	import Spinner from '../projects/Spinner.svelte';
+	import { headSource } from './branchops';
 	import { activate, TOOLBAR, type ToolbarId } from './controls';
 	import type { FetchView } from './fetch';
 	import { headDisplay, type RefsHead } from './refs';
@@ -19,7 +20,8 @@
 	// 10): Fetch, Pull, Push, Stash, a separator, Create Branch; at the right end the current
 	// branch's name with its ahead and behind badge, and Navigate to HEAD. A write control is
 	// shown disabled until the part that enables it (controls.ts); a click goes through
-	// `activate`, so a disabled control reaches nothing. Fetch (step P2) is enabled: while a fetch
+	// `activate`, so a disabled control reaches nothing. Create Branch (step P3) starts at HEAD and
+	// waits for the refs to say where HEAD is. Fetch (step P2) is enabled: while a fetch
 	// is in flight it shows a spinner with Queued or Fetching, is disabled, and a Cancel beside it
 	// ends the operation (`data-op-state`, `data-op-cancel`). Pull and Push carry a dot when the
 	// branch is behind or ahead. The branch name is git's text, in an isolated text node.
@@ -38,6 +40,8 @@
 	let { head, onnavigate, onrun, fetchView, oncancel }: Props = $props();
 
 	const fetching = $derived(fetchView?.busy ?? false);
+	/** Create Branch needs HEAD's commit: unknown until the refs arrive, absent in a repository with no commit yet. */
+	const noHead = $derived(headSource(head) === null);
 	const fetchLabel = $derived(fetchView?.state === 'queued' ? 'Queued…' : fetching ? 'Fetching…' : 'Fetch');
 
 	const ICONS: Record<ToolbarId, Component> = {
@@ -71,8 +75,16 @@
 			data-toolbar={c.id}
 			data-dot={dot(c.id) ? '' : undefined}
 			data-op-state={c.id === 'fetch' ? (fetchView?.state ?? 'idle') : undefined}
-			disabled={!c.enabled || (c.id === 'fetch' && fetching)}
-			title={c.id === 'fetch' && fetching ? (fetchView?.remote == null ? 'Fetching every remote' : `Fetching ${fetchView.remote}`) : c.title}
+			disabled={!c.enabled || (c.id === 'fetch' && fetching) || (c.id === 'create-branch' && noHead)}
+			title={c.id === 'fetch' && fetching
+				? fetchView?.remote == null
+					? 'Fetching every remote'
+					: `Fetching ${fetchView.remote}`
+				: c.id === 'create-branch' && noHead
+					? head === null
+						? 'Reading the refs…'
+						: 'HEAD has no commit yet'
+					: c.title}
 			onclick={() => activate(c, () => onrun?.(c.id))}
 		>
 			{#if c.id === 'fetch' && fetching}<Spinner size={12} />{:else}<Icon size={14} />{/if}

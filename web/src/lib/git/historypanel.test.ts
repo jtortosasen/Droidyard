@@ -1,7 +1,7 @@
 import { render } from 'svelte/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { settle } from '../build/testing';
-import { chain, refsOf, setup } from './historytesting';
+import { chain, idleBranches, refsOf, setup } from './historytesting';
 import { FetchModel, type FetchClient } from './fetch';
 import HistoryPanel from './HistoryPanel.svelte';
 import type { GitWatch } from './watch';
@@ -32,7 +32,7 @@ async function panel(bad = false) {
 	t.store.refreshRefs();
 	await settle();
 	t.store.select('c2');
-	const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher: new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {}) } }).body;
+	const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher: new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {}), branches: idleBranches() } }).body;
 	return { body, t };
 }
 

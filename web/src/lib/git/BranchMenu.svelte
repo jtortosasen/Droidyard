@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { activate, BRANCH_MENU } from './controls';
+	import { activate, BRANCH_MENU, type MenuId } from './controls';
 
-	// The entries of a local branch's menu, IntelliJ's eight (plan m2n step 6; the owner's items 7
-	// and 8). Each is shown disabled until the part that enables it (controls.ts), with a title
-	// that says which; a click goes through `activate`. The branch name is git's text.
+	// The entries of a branch's menu, a local or a remote-tracking one, IntelliJ's eight (plan m2n
+	// step 6; the owner's items 7 and 8). Each is shown disabled until the part that enables it
+	// (controls.ts), with a title that says which; a click goes through `activate`, and an enabled
+	// entry reports its id (branchops.ts says what it calls). The branch name is git's text.
 	interface Props {
-		/** The branch the menu is of. */
+		/** The branch the menu is of, as the list shows it. */
 		name: string;
-		/** An enabled entry was chosen (part 2's seam). */
-		onchoose: (id: string) => void;
+		/** An enabled entry was chosen. */
+		onchoose: (id: MenuId) => void;
 	}
 	let { name, onchoose }: Props = $props();
 </script>

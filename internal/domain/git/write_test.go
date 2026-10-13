@@ -655,12 +655,12 @@ func TestWriteIsRecorded(t *testing.T) {
 func TestWritesAreLongRunning(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, Options{})
-	writes := 0
+	var writes []string
 	for _, d := range reg.All() {
 		if !strings.HasPrefix(d.Name, "git.") || d.Resource == nil {
 			continue
 		}
-		writes++
+		writes = append(writes, d.Name)
 		if !d.LongRunning {
 			t.Errorf("%s takes a Resource and is not LongRunning: it could fail at the queue bound behind a five-minute fetch", d.Name)
 		}
@@ -680,8 +680,11 @@ func TestWritesAreLongRunning(t *testing.T) {
 			t.Errorf("%s does not list WORKSPACE_UNTRUSTED", d.Name)
 		}
 	}
-	if writes == 0 {
-		t.Fatal("no git descriptor takes a Resource: the test would pass vacuously")
+	// The writes the loop must have covered, so that it cannot pass over a write that lost its Resource.
+	for _, want := range []string{"git.fetch", "git.checkout", "git.createBranch"} {
+		if !slices.Contains(writes, want) {
+			t.Errorf("%s takes no Resource: the loop did not cover it (covered %v)", want, writes)
+		}
 	}
 	// The reads take none.
 	for _, name := range []string{"git.read", "git.watch", "git.log", "git.refs", "git.show"} {

@@ -121,6 +121,19 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 		t.Errorf("git.fetch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
 
+	// So are the writes that move or add a branch (ADR-0071 §1).
+	for name, params := range map[string]string{
+		"git.checkout":     `{"name":"main"}`,
+		"git.createBranch": `{"name":"n","checkout":false,"from":"` + strings.Repeat("a", 40) + `"}`,
+	} {
+		id, err = p.ops.Start(context.Background(), capability.Request{Capability: name, Workspace: ws,
+			Params: json.RawMessage(params), Client: capability.ClientMCP})
+		e = nil
+		if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+			t.Errorf("%s as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", name, id, err)
+		}
+	}
+
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
 	}

@@ -1,5 +1,6 @@
 // Fakes for the History store's tests: commits, a Git watch, and a client that answers
 // git.log from a list and git.refs from `state.refs`.
+import { BranchModel, type BranchClient } from './branch';
 import type { Show } from './files';
 import type { Commit, HistoryClient, HistoryWatch } from './history';
 import { HistoryStore } from './history';
@@ -101,4 +102,10 @@ export function setup(all: () => Commit[] = () => chain(5), pageSize = 2, tips =
 	const watch = new FakeWatch();
 	const store = new HistoryStore(client, { root: ' /proj ' }, watch);
 	return { calls, refsCalls, showCalls, failShowWith: (e: Error | null) => (failShow = e), state, watch, store, failWith: (e: Error | null) => (fail = e), failRefsWith: (e: Error | null) => (failRefs = e) };
+}
+
+/** The tab's Checkout and Create Branch over a client that answers every call done; `dirty` are the editor's unsaved files. */
+export function idleBranches(dirty: string[] = []): BranchModel {
+	const client = { call: () => Promise.resolve({ outcomes: [{ root: '.', status: 'done' }] }) } as unknown as BranchClient;
+	return new BranchModel(client, { root: '/p' }, { dirtyPaths: () => dirty }, () => {});
 }
