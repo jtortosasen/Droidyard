@@ -82,8 +82,11 @@ type Options struct {
 	writeTimeout time.Duration
 }
 
-// Register adds git.read, git.watch, git.log, git.refs, git.show, git.fetch, git.checkout,
-// git.createBranch, git.submodules and git.updateSubmodules to the registry.
+// Register adds git.read, git.watch, git.log, git.refs, git.show, git.fetch, git.pull,
+// git.checkout, git.createBranch, git.submodules and git.updateSubmodules to the registry.
+// The writes (fetch, pull, checkout, createBranch, updateSubmodules) are commands for the
+// human UI on the one write runner (write.go): never an MCP tool, trusted roots only, one
+// at a time per repository.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
 	registerWatch(reg, opts)
@@ -91,6 +94,7 @@ func Register(reg *capability.Registry, opts Options) {
 	registerRefs(reg, opts)
 	registerShow(reg, opts)
 	registerFetch(reg, opts)
+	registerPull(reg, opts)
 	registerCheckout(reg, opts)
 	registerSubmodules(reg, opts)
 	registerUpdateSubmodules(reg, opts)

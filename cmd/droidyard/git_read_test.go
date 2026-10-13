@@ -123,6 +123,7 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 
 	// So are the writes that move or add a branch, and the submodules query (ADR-0071 §1).
 	for name, params := range map[string]string{
+		"git.pull":             `{}`,
 		"git.checkout":         `{"name":"main"}`,
 		"git.createBranch":     `{"name":"n","checkout":false,"from":"` + strings.Repeat("a", 40) + `"}`,
 		"git.submodules":       `{}`,

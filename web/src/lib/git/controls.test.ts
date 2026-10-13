@@ -8,9 +8,9 @@ import BranchMenu from './BranchMenu.svelte';
 import GitToolbar from './GitToolbar.svelte';
 
 describe('the write controls', () => {
-	const ENABLED = ['fetch', 'create-branch', 'checkout', 'new-branch-from', 'compare'];
+	const ENABLED = ['fetch', 'pull', 'create-branch', 'checkout', 'new-branch-from', 'compare'];
 
-	// Decision (owner's items 6, 7, 8, 10): the toolbar and the branch menu list exactly SourceGit's and IntelliJ's entries; part 2 enabled Fetch (P2), Create Branch, Checkout and New branch from (P3) and Compare with current (P9); every other one is disabled with the milestone that enables it.
+	// Decision (owner's items 6, 7, 8, 10): the toolbar and the branch menu list exactly SourceGit's and IntelliJ's entries; part 2 enabled Fetch (P2), Create Branch, Checkout and New branch from (P3) and Compare with current (P9), part 3 Pull (R3); every other one is disabled with the milestone that enables it.
 	it('lists the toolbar and the branch menu, all disabled but the ones part 2 enabled, each with a reason', () => {
 		expect(TOOLBAR.map((c) => c.id)).toEqual(['fetch', 'pull', 'push', 'stash', 'create-branch']);
 		expect(BRANCH_MENU.map((c) => c.label)).toEqual([
@@ -24,9 +24,9 @@ describe('the write controls', () => {
 			'Delete',
 		]);
 		expect([...TOOLBAR, ...BRANCH_MENU].filter((c) => c.enabled).map((c) => c.id)).toEqual(ENABLED);
-		// The other six entries of the menu and Pull, Push and Stash stay disabled, each saying when.
+		// The other six entries of the menu and Push and Stash stay disabled, each saying when.
 		const rest = [...TOOLBAR, ...BRANCH_MENU].filter((c) => !c.enabled);
-		expect(rest.map((c) => c.id)).toEqual(['pull', 'push', 'stash', 'merge', 'rebase', 'push', 'rename', 'delete']);
+		expect(rest.map((c) => c.id)).toEqual(['push', 'stash', 'merge', 'rebase', 'push', 'rename', 'delete']);
 		for (const c of rest) expect(c.title, c.id).toMatch(/milestone/);
 	});
 
@@ -53,12 +53,13 @@ describe('the toolbar markup', () => {
 	const html = (head: Parameters<typeof GitToolbar>[1]['head']) => render(GitToolbar, { props: { head, onnavigate: () => {} } }).body;
 	const tag = (body: string, id: string) => new RegExp(`<button[^>]*data-toolbar="${id}"[^>]*>`).exec(body)?.[0] ?? '';
 
-	// Decision: every write control that is not enabled carries the `disabled` attribute and a title in the markup itself; Fetch, Create Branch (once HEAD's commit is known) and Navigate to HEAD are the ones that work.
-	it('renders the write controls disabled but Fetch and Create Branch, and Navigate to HEAD enabled once HEAD is known', () => {
+	// Decision: every write control that is not enabled carries the `disabled` attribute and a title in the markup itself; Fetch, Pull, Create Branch (once HEAD's commit is known) and Navigate to HEAD are the ones that work.
+	it('renders the write controls disabled but Fetch, Pull and Create Branch, and Navigate to HEAD enabled once HEAD is known', () => {
 		const body = html(refsOf(['a']).head);
 		expect(tag(body, 'fetch')).not.toMatch(/\sdisabled/);
 		expect(tag(body, 'create-branch')).not.toMatch(/\sdisabled/);
-		for (const id of ['pull', 'push', 'stash']) {
+		expect(tag(body, 'pull')).not.toMatch(/\sdisabled/);
+		for (const id of ['push', 'stash']) {
 			const b = tag(body, id);
 			expect(b, id).toMatch(/\sdisabled(=""|\s|>)/);
 			expect(b, id).toMatch(/title="[^"]*milestone/);

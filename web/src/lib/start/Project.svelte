@@ -56,6 +56,7 @@
 	import HistoryPanel from '../git/HistoryPanel.svelte';
 	import { BranchModel } from '../git/branch';
 	import { FetchModel } from '../git/fetch';
+	import { PullModel } from '../git/pull';
 	import { CompareModel } from '../git/compare';
 	import { HistoryStore } from '../git/history';
 	import { SubmodulesModel, initialisedRoots } from '../git/submodules';
@@ -124,6 +125,7 @@
 	let commitText = $state.raw<CommitText | null>(null);
 	let gitHistory = $state.raw<HistoryStore | null>(null);
 	let gitFetch = $state.raw<FetchModel | null>(null);
+	let gitPull = $state.raw<PullModel | null>(null);
 	let gitBranches = $state.raw<BranchModel | null>(null);
 	let gitCompare = $state.raw<CompareModel | null>(null);
 	let gitSubmodules = $state.raw<SubmodulesModel | null>(null);
@@ -236,6 +238,11 @@
 		// reloads through the file watch above (m2i D8).
 		const comparer = new CompareModel(callOn, ws);
 		const brancher = new BranchModel(callOn, ws, readers, () => history.refreshRefs());
+		// Pull (plan m2n R3) is gated on the same unsaved files and reads the refs again when it succeeds; the log follows HEAD.
+		const puller = new PullModel(callOn, ws, readers, () => history.refreshRefs(), {
+			stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+			subscribe: (listener) => store.subscribe(listener),
+		});
 		// The Submodules section (plan m2n P4) is read whenever the History store has a new answer of the refs.
 		const submodules = new SubmodulesModel(callOn, ws);
 		const offSubmodules = submodules.follow(history);
@@ -299,6 +306,7 @@
 		commitText = commitTexts;
 		gitHistory = history;
 		gitFetch = fetcher;
+		gitPull = puller;
 		gitBranches = brancher;
 		gitCompare = comparer;
 		gitSubmodules = submodules;
@@ -353,6 +361,7 @@
 			opsModel.reset();
 			watcher.dispose();
 			fetcher.dispose();
+			puller.dispose();
 			brancher.dispose();
 			comparer.dispose();
 			offSubmodules();
@@ -402,6 +411,7 @@
 			commitText = null;
 			gitHistory = null;
 			gitFetch = null;
+			gitPull = null;
 			gitBranches = null;
 			gitCompare = null;
 			gitSubmodules = null;
@@ -485,6 +495,7 @@
 			<HistoryPanel
 				store={gitHistory}
 				fetcher={gitFetch}
+				puller={gitPull ?? undefined}
 				branches={gitBranches}
 				compare={gitCompare}
 				submodules={gitSubmodules}
