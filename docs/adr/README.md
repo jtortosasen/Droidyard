@@ -103,6 +103,7 @@ edits made before this rule and are not added to.
 | [0071](0071-git-writes-for-the-ui.md) | The UI's Git writes: fetch, checkout, new branch and submodule update, on a trusted root | Accepted |
 | [0072](0072-compare-two-commits.md) | Compare with current: `git.log` excludes, `git.show` takes a base, and the Diff tab compares two commits | Accepted |
 | [0073](0073-git-writes-never-ask.md) | A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root | Accepted |
+| [0074](0074-pull-fast-forward-and-roots-with-the-branch.md) | Pull is a fast-forward only, and a synchronised branch applies to the roots that have it | Accepted |
 
 ## Open decisions (not yet ADRs)
 

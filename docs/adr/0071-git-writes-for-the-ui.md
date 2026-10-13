@@ -4,6 +4,7 @@
 - Date: 2026-10-13
 - Supersedes: ADR-0066 §Decision (in part: item 2's "fetching is off on every root, because the daemon never fetches" and its 10 s limit, and item 4's `GIT_FAILED` cause, for the write capabilities here only)
 - Superseded in part by: ADR-0073 (§Decision)
+- Superseded in part by: ADR-0074 (§Decision)
 - Relates to: ADR-0015 §2, §5; ADR-0020; ADR-0053 §2; ADR-0058; ADR-0060 §2; ADR-0069; ADR-0070; plan m2n Q3
 - Decided by the owner, 2026-10-12, for the scope (reading plus the safe writes: fetch, checkout of a branch, a new branch, submodule update; pull, push, merge, rebase, stash, rename and delete later), the audience (the UI only: "the AI already uses git on its own"), submodules as roots in one log, and synchronised branches as IntelliJ has them. The rest is Delegated (the main session under the owner's standing instruction to apply the recommended option), including the six questions plan m2n Q3 put to the owner, each at its draft.
 
