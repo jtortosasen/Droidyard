@@ -172,3 +172,8 @@ export function submoduleRows(list: readonly Submodule[], filter: string): Submo
 	}
 	return rows;
 }
+
+/** The roots of the log besides the workspace (plan m2n P7): the submodules that are checked out, by path. */
+export function initialisedRoots(list: readonly Submodule[]): string[] {
+	return list.filter((s) => s.state !== 'uninitialised').map((s) => s.path);
+}

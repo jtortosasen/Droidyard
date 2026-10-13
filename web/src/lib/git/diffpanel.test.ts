@@ -13,7 +13,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const C = 'c'.repeat(40);
 const P = '1'.repeat(40);
-const file = (over: Partial<CommitFile> = {}): CommitFile => ({ oid: C, parent: P, path: 'src/A.kt', status: 'modified', binary: false, ...over });
+const file = (over: Partial<CommitFile> = {}): CommitFile => ({ root: '.', oid: C, parent: P, path: 'src/A.kt', status: 'modified', binary: false, ...over });
 
 function panel(source: DiffSource, active: string | null, cview: CommitTextView = { kind: 'loading' }) {
 	vi.stubGlobal('window', {});

@@ -57,7 +57,7 @@
 	import { BranchModel } from '../git/branch';
 	import { FetchModel } from '../git/fetch';
 	import { HistoryStore } from '../git/history';
-	import { SubmodulesModel } from '../git/submodules';
+	import { SubmodulesModel, initialisedRoots } from '../git/submodules';
 	import { SubmoduleUpdateModel } from '../git/subupdate';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
@@ -236,6 +236,8 @@
 		// The Submodules section (plan m2n P4) is read whenever the History store has a new answer of the refs.
 		const submodules = new SubmodulesModel(callOn, ws);
 		const offSubmodules = submodules.follow(history);
+		// The log mixes the workspace with its initialised submodules (plan m2n P7).
+		const offRoots = submodules.subscribe(() => history.setRoots(initialisedRoots(submodules.view.list)));
 		// The section's Update (plan m2n P5): an update is a checkout in each submodule, so the editor's unsaved files
 		// under them stop it, and the submodules are read again when it has ended, however it ended.
 		const submoduleUpdater = new SubmoduleUpdateModel(callOn, ws, readers, () => void submodules.load(), {
@@ -337,6 +339,7 @@
 			fetcher.dispose();
 			brancher.dispose();
 			offSubmodules();
+			offRoots();
 			submodules.dispose();
 			submoduleUpdater.dispose();
 			history.dispose();

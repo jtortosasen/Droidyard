@@ -33,7 +33,7 @@
 	const rows = $derived(show === null ? [] : mode === 'tree' ? treeRows(show.files, collapsed) : listRows(show.files));
 
 	function openFile(r: { path: string; origPath?: string; status: 'added' | 'modified' | 'deleted' | 'renamed'; binary: boolean }) {
-		if (show !== null) onopenfile?.(commitFileOf(show, r));
+		if (show !== null) onopenfile?.(commitFileOf(show, r, expanded.root));
 	}
 
 	function toggleDir(path: string) {

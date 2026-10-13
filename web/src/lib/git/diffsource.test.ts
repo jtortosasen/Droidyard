@@ -15,7 +15,7 @@ const C = 'c'.repeat(40);
 const P1 = '1'.repeat(40);
 const P2 = '2'.repeat(40);
 
-const file = (over: Partial<CommitFile> = {}): CommitFile => ({ oid: C, parent: P1, path: 'src/A.kt', status: 'modified', binary: false, ...over });
+const file = (over: Partial<CommitFile> = {}): CommitFile => ({ root: '.', oid: C, parent: P1, path: 'src/A.kt', status: 'modified', binary: false, ...over });
 
 const read = (text: string | undefined, over: Record<string, unknown> = {}) => ({
 	path: 'x',
@@ -213,7 +213,7 @@ describe('commitFileOf', () => {
 	// Decision: the parent is the first of `parents` (git.show's own base), and an origPath is kept only for a rename.
 	it('takes the first parent and the rename’s origPath', () => {
 		const f = commitFileOf({ oid: C, parents: [P1, P2] }, { path: 'n.kt', origPath: 'o.kt', status: 'renamed', binary: false });
-		expect(f).toEqual({ oid: C, parent: P1, path: 'n.kt', origPath: 'o.kt', status: 'renamed', binary: false });
+		expect(f).toEqual({ root: '.', oid: C, parent: P1, path: 'n.kt', origPath: 'o.kt', status: 'renamed', binary: false });
 		expect('origPath' in commitFileOf({ oid: C, parents: [P1] }, { path: 'n.kt', status: 'modified', binary: false })).toBe(false);
 	});
 });

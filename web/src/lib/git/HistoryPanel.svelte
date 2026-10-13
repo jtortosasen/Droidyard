@@ -149,7 +149,9 @@
 	let scrollTop = $state(0);
 	let viewportHeight = $state(0);
 
-	const off = $derived(view.uncommitted > 0 ? 1 : 0);
+	// The Uncommitted Changes row is the workspace root's: a filter that leaves it out hides the row.
+	const off = $derived(view.uncommitted > 0 && (view.filter === null || view.filter.includes('.')) ? 1 : 0);
+	const multi = $derived(view.roots.length > 1);
 	const count = $derived(view.rows.length + off);
 	// The opened commit (step 8): its panel is a fixed height that fits the viewport, and the row
 	// above it is taller by that much for rowWindow, so the rows below move down by exactly it.
@@ -165,7 +167,7 @@
 	const win = $derived(rowWindow({ scrollTop, viewportHeight, rowHeight: ROW, overscan: OVERSCAN, count, expanded: expandedRow }));
 	const indices = $derived(Array.from({ length: win.end - win.start }, (_, k) => win.start + k));
 	const gw = $derived(graphWidth(view.width) + 6);
-	const headRow = $derived(view.headOid === '' ? undefined : view.rows.find((r) => r.commit.oid === view.headOid));
+	const headRow = $derived(view.headOid === '' ? undefined : view.rows.find((r) => r.key === view.headOid));
 
 	// The tab is shown when its box has a height (the pane is display:none otherwise, and the region collapsed).
 	let boxHeight = $state(0);
@@ -177,6 +179,11 @@
 	const clampSide = (n: number) => Math.min(420, Math.max(140, Math.round(n)));
 
 	const badges = $derived(view.refs === null ? new Map<string, Badge[]>() : badgesByOid(view.refs));
+	// Each root's refs badge its own rows (plan m2n P7).
+	const rootBadges = $derived(new Map([...view.rootRefs].map(([root, refs]) => [root, badgesByOid(refs)])));
+	const badgesOf = (root: string, oid: string): Badge[] => (root === '.' ? badges : rootBadges.get(root))?.get(oid) ?? [];
+	/** A commit is its root's HEAD: the workspace's by the status, a submodule's by its own refs. */
+	const isHeadOf = (root: string, oid: string): boolean => (root === '.' ? oid === view.headOid : view.rootRefs.get(root)?.head.oid === oid);
 	const MAX_BADGES = 4;
 
 	// The search over the rows loaded.
@@ -186,7 +193,7 @@
 	const matchPos = $derived(matches.indexOf(selectedIndex));
 	function find(direction: 1 | -1) {
 		const k = stepMatch(matches, selectedIndex, direction);
-		if (k >= 0) store.show(view.rows[matches[k]].commit.oid);
+		if (k >= 0) store.show(view.rows[matches[k]].key);
 	}
 
 	// A row asked for (a ref clicked, Navigate to HEAD, a search hit): brought into view, centred when it is out of it.
@@ -225,7 +232,7 @@
 		scrollTop = scroller.scrollTop;
 		// The commit at the top of the view; at the very top none, so a new commit shows.
 		const i = rowAt(scrollTop + ROW / 2, { rowHeight: ROW, count, expanded: expandedRow }) - off;
-		store.setAnchor(scrollTop < ROW / 2 || i < 0 ? null : (view.rows[i]?.commit.oid ?? null));
+		store.setAnchor(scrollTop < ROW / 2 || i < 0 ? null : (view.rows[i]?.key ?? null));
 	}
 
 	// A commit just opened: its panel is brought into view when it hangs below the viewport.
@@ -248,7 +255,7 @@
 		if (rows.length === 0) return;
 		const cur = view.selected === null ? -1 : store.indexOf(view.selected);
 		const next = Math.min(rows.length - 1, Math.max(0, cur < 0 ? (delta > 0 ? 0 : rows.length - 1) : cur + delta));
-		store.select(rows[next].commit.oid);
+		store.select(rows[next].key);
 		const el = scroller;
 		if (!el) return;
 		const top = rowTop(next + off, ROW, expandedRow);
@@ -263,6 +270,8 @@
 		e.preventDefault();
 	}
 
+	/** What the filter and a stripe's title call a root: the workspace is `.` for the hooks and "workspace" for the eye. */
+	const rootLabel = (root: string): string => (root === '.' ? 'workspace' : root);
 	const when = (t: number) => new Date(t * 1000).toLocaleString();
 	const uncommittedText = $derived(`Uncommitted Changes (${view.uncommitted}${view.uncommittedTruncated ? '+' : ''})`);
 </script>
@@ -356,6 +365,18 @@
 			<span class="fill"></span>
 			<button type="button" class="icon" disabled title="Filter settings: not available yet" aria-label="Filter settings" data-filter-settings><SlidersHorizontal size={13} /></button>
 		</div>
+		{#if multi}
+			<div class="roots" role="group" aria-label="Repositories in the log" data-root-filter>
+				<span class="roots-label">Repositories</span>
+				<button type="button" class="root-option" class:on={view.filter === null} aria-pressed={view.filter === null} data-root-option-all onclick={() => store.setFilter(null)}>All</button>
+				{#each view.roots as root, k (root)}
+					{@const on = view.filter === null || view.filter.includes(root)}
+					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} data-root-option={root} title={root} onclick={() => store.toggleRoot(root)}>
+						<span class="swatch" aria-hidden="true"></span><span class="text">{rootLabel(root)}</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
 		{#if view.notice}
 			<p class="notice" role="status" data-notice>{view.notice}</p>
 		{/if}
@@ -378,7 +399,7 @@
 		>
 			<div class="spacer" style:height="{win.totalHeight}px">
 				<div class="rows" style:transform="translateY({win.offset}px)">
-					{#each indices as i (i < off ? 'uncommitted' : view.rows[i - off].commit.oid)}
+					{#each indices as i (i < off ? 'uncommitted' : view.rows[i - off].key)}
 						{#if i < off}
 							<div class="row uncommitted" role="row" aria-rowindex={i + 1} data-row="uncommitted">
 								<div class="cell main" role="gridcell">
@@ -399,24 +420,30 @@
 						{:else}
 							{@const r = view.rows[i - off]}
 							{@const c = r.commit}
-							{@const isHead = c.oid === view.headOid}
+							{@const isHead = isHeadOf(r.root, c.oid)}
+							{@const rowBadges = badgesOf(r.root, c.oid)}
 							<div
 								class="row"
 								class:merge={c.parents.length > 1}
-								class:selected={view.selected === c.oid}
+								class:selected={view.selected === r.key}
 								role="row"
 								tabindex="-1"
 								aria-rowindex={i + 1}
-								aria-selected={view.selected === c.oid}
+								aria-selected={view.selected === r.key}
 								data-row="commit"
 								data-oid={c.oid}
-								aria-expanded={view.expanded?.oid === c.oid}
-								data-expanded={view.expanded?.oid === c.oid}
-								onclick={() => store.toggleExpand(c.oid)}
+								data-root={r.root}
+								aria-expanded={view.expanded?.key === r.key}
+								data-expanded={view.expanded?.key === r.key}
+								onclick={() => store.toggleExpand(r.key)}
 								onkeydown={(e) => {
-									if (e.key === 'Enter') store.toggleExpand(c.oid);
+									if (e.key === 'Enter') store.toggleExpand(r.key);
 								}}
 							>
+								{#if multi}
+									<!-- The root's colour, down the row's left edge: the position of the root in the log. -->
+									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} data-root-stripe={view.roots.indexOf(r.root)} title={rootLabel(r.root)} aria-hidden="true"></span>
+								{/if}
 								<div class="cell main" role="gridcell">
 									<span class="graph" style:width="{gw}px">
 										<svg width={graphWidth(view.width)} height={ROW} viewBox="0 0 {graphWidth(view.width)} {ROW}" aria-hidden="true">
@@ -430,11 +457,11 @@
 											{/if}
 										</svg>
 									</span>
-									{#each (badges.get(c.oid) ?? []).slice(0, MAX_BADGES) as b (b.ref)}
+									{#each rowBadges.slice(0, MAX_BADGES) as b (b.ref)}
 										{@render badge(b)}
 									{/each}
-									{#if (badges.get(c.oid)?.length ?? 0) > MAX_BADGES}
-										{@const rest = (badges.get(c.oid) ?? []).slice(MAX_BADGES)}
+									{#if rowBadges.length > MAX_BADGES}
+										{@const rest = rowBadges.slice(MAX_BADGES)}
 										<span class="badge more" title={rest.map((b) => b.label).join(', ')} data-badge-more={rest.length}>+{rest.length}</span>
 									{/if}
 									<span class="text subject" title={c.subject}>{c.subject}</span>
@@ -446,13 +473,13 @@
 								<div class="cell" role="gridcell"><span class="text sha" title={c.oid}>{c.oid.slice(0, 7)}</span></div>
 								<div class="cell" role="gridcell"><span class="text" title={when(c.commitTime)}>{relativeTime(c.commitTime, now)}</span></div>
 							</div>
-							{#if view.expanded?.oid === c.oid}
+							{#if view.expanded?.key === r.key}
 								<CommitView
 									expanded={view.expanded}
 									height={panelHeight}
 									onclose={() => store.collapse()}
 									onparent={(p) => void store.openParent(p)}
-									onretry={() => store.expand(c.oid)}
+									onretry={() => store.expand(r.key)}
 									{onopenfile}
 								/>
 							{/if}
@@ -541,6 +568,48 @@
 		align-items: center;
 		border-color: transparent;
 		background: transparent;
+	}
+	.roots {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: var(--sp-3);
+		padding: var(--sp-2) var(--sp-4);
+		border-bottom: 1px solid var(--border);
+		font-size: var(--fs-small);
+		color: var(--text-3);
+		overflow-x: auto;
+	}
+	.root-option {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		max-width: 26ch;
+		padding: 0 var(--sp-3);
+		line-height: 18px;
+		color: var(--text-2);
+		background: transparent;
+	}
+	.root-option.on {
+		color: var(--text);
+		background: var(--accent-soft);
+	}
+	.swatch,
+	.stripe {
+		background: hsl(calc(var(--ri) * 137.5) 55% 50%);
+	}
+	.swatch {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+	}
+	.stripe {
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		width: 3px;
 	}
 	.notice {
 		flex: none;
@@ -662,6 +731,7 @@
 		overflow: hidden;
 	}
 	.row {
+		position: relative;
 		height: 24px;
 		cursor: default;
 	}
