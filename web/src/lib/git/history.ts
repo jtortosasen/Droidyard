@@ -34,6 +34,7 @@ import { failure, failureText } from '../build/failure';
 import { Lanes, type LaneRow } from './lanes';
 import { Merge, WORKSPACE_ROOT, filterRows, laneInput, rowKey, toggleRoot, type MixedRow } from './mixed';
 import { localRef, refNames } from './refs';
+import { narrowFilter, type RootFilterMemory } from './rootfilter';
 import type { Show } from './files';
 import type { GitView } from './watch';
 
@@ -125,6 +126,8 @@ export interface HistoryView {
 	filter: readonly string[] | null;
 	/** The refs of each submodule root (the workspace's are `refs`), for the badges of its own rows. */
 	rootRefs: ReadonlyMap<string, Result<'git.refs'>>;
+	/** The subject of commits asked for with `readSubjects` (a submodule's HEAD), by `rowKey(root, oid)`. */
+	subjects: ReadonlyMap<string, string>;
 }
 
 const EMPTY: HistoryView = {
@@ -150,6 +153,7 @@ const EMPTY: HistoryView = {
 	roots: [WORKSPACE_ROOT],
 	filter: null,
 	rootRefs: new Map(),
+	subjects: new Map(),
 };
 
 /** One root's pages: what was received and where its walk goes on. */
@@ -183,6 +187,12 @@ export class HistoryStore {
 	/** Every row the merge let out, in order, before the filter. */
 	#emitted: MixedRow<Commit>[] = [];
 	#filter: ReadonlySet<string> | null = null;
+	/** Where the filter's choice is kept, and the choice it held when asked; the person's own click supersedes it. */
+	#memory: RootFilterMemory | null = null;
+	#remembered: readonly string[] | null = null;
+	#chose = false;
+	/** The commits whose subject was asked for (read once each; a failed read is asked again). */
+	#asked = new Set<string>();
 	/** Bumped by every full reload: an answer of an older generation is dropped. */
 	#gen = 0;
 	/** Per root, bumped by every read of its first page: an older answer is dropped. */
@@ -358,11 +368,55 @@ export class HistoryStore {
 		this.#sync();
 	}
 
-	/** Chooses the roots the log shows (null or all of them: every root); the lanes are laid out again from those rows. */
+	/** Chooses the roots the log shows (null or all of them: every root); the lanes are laid out again from those rows. The choice is remembered. */
 	setFilter(roots: readonly string[] | null): void {
 		const loaded = this.#view.roots;
 		const chosen = roots === null ? [] : loaded.filter((r) => roots.includes(r));
 		const next = chosen.length === 0 || chosen.length >= loaded.length ? null : chosen;
+		this.#chose = true;
+		this.#memory?.save(next);
+		this.#applyFilter(next);
+	}
+
+	/**
+	 * Keeps the root filter in `memory` (plan m2n R1): what it holds is applied to the roots loaded now and to the roots
+	 * that arrive later, until the person's own click chooses; the choice is then written back.
+	 */
+	remember(memory: RootFilterMemory): void {
+		this.#memory = memory;
+		this.#remembered = memory.load();
+		if (this.#chose || this.#view.state !== 'ready') return;
+		this.#applyFilter(narrowFilter(this.#remembered, this.#view.roots));
+	}
+
+	/** The workspace's absolute root, as the calls address it. */
+	get workspaceRoot(): string {
+		return this.#ws.root.trim();
+	}
+
+	/**
+	 * The subject of each commit given (a submodule's HEAD), read once with `git.log` from that oid, limit 1, and kept in
+	 * `view.subjects`. A read that fails is asked again by the next call.
+	 */
+	readSubjects(items: readonly { root: string; oid: string }[]): void {
+		for (const { root, oid } of items) {
+			const key = rowKey(root, oid);
+			if (this.#disposed || this.#asked.has(key)) continue;
+			this.#asked.add(key);
+			this.#client.call('git.log', { ...rootArg(root), from: [oid], limit: 1 }, { workspace: this.#ws.root.trim() }).then(
+				(r) => {
+					const c = r.commits.find((x) => x.oid === oid);
+					if (this.#disposed || c === undefined) return;
+					this.#set({ subjects: new Map(this.#view.subjects).set(key, c.subject) });
+				},
+				() => {
+					this.#asked.delete(key);
+				},
+			);
+		}
+	}
+
+	#applyFilter(next: readonly string[] | null): void {
 		const cur = this.#view.filter;
 		if (next === null ? cur === null : cur !== null && sameList(next, cur)) return;
 		this.#filter = next === null ? null : new Set(next);
@@ -591,7 +645,10 @@ export class HistoryStore {
 			const s = streams.get(r)!;
 			for (const m of this.#merge.push(r, s.commits, s.more)) this.#emitted.push(m);
 		}
-		if (this.#filter !== null) {
+		if (!this.#chose && this.#remembered !== null) {
+			const n = narrowFilter(this.#remembered, roots);
+			this.#filter = n === null ? null : new Set(n);
+		} else if (this.#filter !== null) {
 			const kept = roots.filter((r) => this.#filter!.has(r));
 			this.#filter = kept.length === 0 || kept.length >= roots.length ? null : new Set(kept);
 		}

@@ -12,6 +12,10 @@
 //     a failure;
 //   - when the call has ended, however it ended, `onDone` reads the submodules again: a failed or cancelled
 //     update may still have moved some of them. That follows the UI's own write and not "another git";
+//   - a run that did not fail says what it did (plan m2n R1): `onDone` resolves when the submodules have been read
+//     again, and the checked-out commits before and after are compared (`summarise`): the submodules that moved,
+//     or that all of them were already at the recorded commits. A read that did not happen (the list is the same
+//     array) says nothing rather than something false. It is kept until the next run or `dismiss`;
 //   - a failure is kept, as the daemon said it (code, message, git's words as the cause, next step), until
 //     the next run or `dismiss`. An untrusted root is one: the button stays enabled and the refusal says
 //     why (ADR-0071 §2).
@@ -21,6 +25,7 @@ import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { failure } from '../build/failure';
 import type { DirtySource } from './branchops';
+import { shortOid, type Submodule } from './submodules';
 
 type Calls = 'git.updateSubmodules' | 'operation.cancel';
 
@@ -68,6 +73,45 @@ export function updateBlockText(files: readonly string[]): string {
 	return `Save or close ${files.length === 1 ? 'this file' : 'these files'} first: ${files.length} ${files.length === 1 ? 'has' : 'have'} unsaved changes inside a submodule that the update would check out again.`;
 }
 
+/** What an update did: the submodules whose checked-out commit changed. */
+export interface UpdateSummary {
+	/** The submodule the update was for; null: every one. */
+	scope: string | null;
+	/** The submodules checked out after it (what "all" counts). */
+	total: number;
+	/** The ones that moved, with the short commit before (absent: not checked out) and after. */
+	moved: readonly { path: string; from?: string; to: string }[];
+}
+
+/** The summary of an update from the list before it and the list after it. */
+export function summarise(before: readonly Submodule[], after: readonly Submodule[], scope: string | null): UpdateSummary {
+	const was = new Map(before.map((s) => [s.path, s.checkedOut]));
+	const moved: { path: string; from?: string; to: string }[] = [];
+	let total = 0;
+	for (const s of after) {
+		if (s.checkedOut === undefined) continue;
+		total++;
+		const from = was.get(s.path);
+		if (from !== s.checkedOut) moved.push({ path: s.path, ...(from !== undefined ? { from: shortOid(from) } : {}), to: shortOid(s.checkedOut) });
+	}
+	return { scope, total, moved };
+}
+
+/** How many moved submodules the text names before "and N more". */
+const SUMMARY_SHOWN = 6;
+
+/** The summary as text; `name` is what the panel calls a submodule (its path when no name is known). */
+export function summaryText(s: UpdateSummary, name: (path: string) => string = (p) => p): string {
+	if (s.moved.length === 0) {
+		if (s.scope !== null) return `${name(s.scope)} is already at the recorded commit`;
+		if (s.total === 0) return 'No submodule is checked out; nothing to update';
+		return s.total === 1 ? 'The only submodule is already at the recorded commit' : `All ${s.total} submodules already at the recorded commits`;
+	}
+	const shown = s.moved.slice(0, SUMMARY_SHOWN).map((m) => `${name(m.path)} (${m.from === undefined ? 'now ' : `${m.from} → `}${m.to})`);
+	const more = s.moved.length - shown.length;
+	return `Updated ${s.moved.length} submodule${s.moved.length === 1 ? '' : 's'}: ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+}
+
 export interface UpdateView {
 	state: UpdateState;
 	/** The submodule being updated while `queued` or `running`; null: every one (or nothing is in flight). */
@@ -84,13 +128,16 @@ export interface UpdateView {
 	blocked: readonly string[];
 	/** The message of the block, as text. */
 	blockedText: string;
+	/** What the last update that did not fail did; null before one, after `dismiss` and while the next runs. */
+	summary: UpdateSummary | null;
 }
 
 export class SubmoduleUpdateModel {
 	#client: UpdateClient;
 	#ws: UpdateWorkspace;
 	#dirty: DirtySource;
-	#onDone: () => void;
+	#onDone: () => void | Promise<void>;
+	#list: () => readonly Submodule[];
 	#activity: UpdateActivity | null;
 	#listeners = new Set<() => void>();
 	#view: UpdateView | null = null;
@@ -99,16 +146,30 @@ export class SubmoduleUpdateModel {
 	#all = false;
 	#failure: UpdateFailure | null = null;
 	#blocked: readonly string[] = [];
+	#summary: UpdateSummary | null = null;
+	#runs = 0;
 	#opId: string | null = null;
 	#cancelRequested = false;
 	#off: (() => void) | null = null;
 	#disposed = false;
 
-	constructor(client: UpdateClient, ws: UpdateWorkspace, dirty: DirtySource, onDone: () => void, activity: UpdateActivity | null = null) {
+	/**
+	 * `onDone` reads the submodules again (and may return the promise of that read); `list` is the list held now, which
+	 * the summary compares before and after the run (without it an update says nothing of what it did).
+	 */
+	constructor(
+		client: UpdateClient,
+		ws: UpdateWorkspace,
+		dirty: DirtySource,
+		onDone: () => void | Promise<void>,
+		activity: UpdateActivity | null = null,
+		list: () => readonly Submodule[] = () => [],
+	) {
 		this.#client = client;
 		this.#ws = ws;
 		this.#dirty = dirty;
 		this.#onDone = onDone;
+		this.#list = list;
 		this.#activity = activity;
 	}
 
@@ -122,6 +183,7 @@ export class SubmoduleUpdateModel {
 			cancelling: this.#cancelRequested,
 			blocked: this.#blocked,
 			blockedText: this.#blocked.length === 0 ? '' : updateBlockText(this.#blocked),
+			summary: this.#summary,
 		};
 		return this.#view;
 	}
@@ -155,9 +217,10 @@ export class SubmoduleUpdateModel {
 		if (this.#opId !== null) void this.#sendCancel(this.#opId);
 	}
 
-	/** Forgets a failure or a block. */
+	/** Forgets a failure, a block or the summary. */
 	dismiss(): void {
-		if (this.#state !== 'failed' && this.#blocked.length === 0) return;
+		if (this.#state !== 'failed' && this.#blocked.length === 0 && this.#summary === null) return;
+		this.#summary = null;
 		this.#failure = null;
 		this.#blocked = [];
 		if (this.#state === 'failed') this.#state = 'idle';
@@ -184,6 +247,9 @@ export class SubmoduleUpdateModel {
 		}
 		this.#blocked = [];
 		this.#failure = null;
+		this.#summary = null;
+		const run = ++this.#runs;
+		const before = this.#list();
 		this.#path = path;
 		this.#all = all;
 		this.#opId = null;
@@ -204,11 +270,25 @@ export class SubmoduleUpdateModel {
 		}
 		this.#end();
 		if (this.#disposed) return;
+		const cancelled = this.#cancelRequested;
 		this.#failure = failed;
 		this.#opId = null;
 		this.#cancelRequested = false;
 		this.#set(failed === null ? 'idle' : 'failed');
-		this.#onDone();
+		try {
+			await this.#onDone();
+		} catch {
+			// The read of the list failed: the list is the same array, which says nothing below.
+		}
+		if (this.#disposed || failed !== null || run !== this.#runs) return;
+		const after = this.#list();
+		// The list was not read again (the read failed): nothing is said rather than something false.
+		if (after === before) return;
+		const summary = summarise(before, after, path);
+		// A cancelled run that moved nothing did not "find everything already there".
+		if (cancelled && summary.moved.length === 0) return;
+		this.#summary = summary;
+		this.#changed();
 	}
 
 	async #sendCancel(operationId: string): Promise<void> {

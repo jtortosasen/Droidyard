@@ -6,7 +6,8 @@ import { settle } from '../build/testing';
 import { FetchModel, type FetchClient } from './fetch';
 import HistoryPanel from './HistoryPanel.svelte';
 import { chain, idleBranches, refsOf, setup, submodulesOf, idleUpdater } from './historytesting';
-import { SubmodulesModel, shortOid, submoduleRows, type Submodule, type SubmodulesClient } from './submodules';
+import type { RefsResult } from './refs';
+import { SubmodulesModel, shortOid, submoduleBranch, submoduleRows, type Submodule, type SubmodulesClient } from './submodules';
 import type { GitWatch } from './watch';
 
 // The Submodules section (plan m2n P4): the model, the rows and the markup the level-4 checks meet.
@@ -167,6 +168,42 @@ describe('submoduleRows', () => {
 		expect(submoduleRows(LIST, 'lib').map((r) => r.path)).toEqual(['lib', 'lib/nested']);
 		expect(submoduleRows(LIST, 'nothing')).toEqual([]);
 	});
+
+	const head = (over: Partial<RefsResult['head']>): RefsResult['head'] => ({ oid: R, branch: 'main', detached: false, upstreamGone: false, ahead: 0, behind: 0, ...over });
+
+	// Decision (R1): a row shows its display name, its branch from its own refs, and the subject of the commit checked out.
+	it('shows the display name, the branch and the subject of the commit checked out', () => {
+		const rows = submoduleRows(LIST, '', {
+			names: new Map([['lib', 'LIB']]),
+			refs: new Map([['lib', refsOf([R], { head: head({ branch: 'feature/x' }) })]]),
+			subjects: new Map([[`lib:${R}`, 'Fix the thing']]),
+		});
+		expect(rows[1]).toMatchObject({ path: 'lib', name: 'LIB', branch: 'feature/x', subject: 'Fix the thing' });
+		expect(rows[0]).toMatchObject({ path: 'extra', name: 'extra' }); // no name known: the path
+		expect(rows[0].branch).toBeUndefined();
+		expect(rows[0].subject).toBeUndefined();
+	});
+
+	// Decision (R1): a detached HEAD says "detached" and the local and remote-tracking branches at its commit, if any.
+	it('says detached and the branches whose tip is the commit', () => {
+		const detached = head({ branch: undefined, detached: true });
+		const refs = refsOf([R], {
+			head: detached,
+			branches: [{ name: 'main', oid: R }, { name: 'other', oid: C }, { name: 'dev', oid: R }],
+			remotes: [{ remote: 'origin', name: 'main', oid: R }, { remote: 'origin', name: 'HEAD', oid: R }, { remote: 'origin', name: 'far', oid: C }],
+		});
+		expect(submoduleBranch(refs, R)).toEqual({ text: 'detached (main, dev, origin/main)', title: 'detached at main, dev, origin/main' });
+		expect(submoduleBranch(refsOf([R], { head: detached, branches: [], remotes: [] }), R)).toEqual({ text: 'detached', title: 'detached' });
+		const many = refsOf([R], { head: detached, branches: ['a', 'b', 'c', 'd', 'e'].map((name) => ({ name, oid: R })), remotes: [] });
+		expect(submoduleBranch(many, R)?.text).toBe('detached (a, b, c, +2)');
+	});
+
+	// Decision (R1): refs older than the list (another commit than the one shown) or missing show no branch, rather than a wrong one.
+	it('shows no branch without refs or when they describe another commit', () => {
+		expect(submoduleBranch(undefined, R)).toBeUndefined();
+		expect(submoduleBranch(refsOf([C], { head: head({ oid: C }) }), R)).toBeUndefined();
+		expect(submoduleBranch(refsOf([R], { head: head({}) }), undefined)).toBeUndefined();
+	});
 });
 
 async function panel(list: Submodule[], over: { truncated?: boolean; filter?: boolean } = {}) {
@@ -195,6 +232,34 @@ describe('the Submodules section markup', () => {
 		expect(/data-submodule="extra"[^>]*data-checked-out/.test(body), 'an uninitialised row has no checked-out commit').toBe(false);
 		expect(body).toContain(`${shortOid(C)} → ${shortOid(R)}`);
 		expect(body).toContain('Filter Branches/Tags/Submodules');
+	});
+
+	// Decision (R1): a row is shown by its display name with the full path in its title; the section's button reads "Update submodules".
+	it('names a row by its last segment, keeps the path in the title, and labels the button', async () => {
+		const body = await panel(LIST);
+		expect(body).toMatch(/data-submodule-name[^>]*>nested</);
+		expect(body).toMatch(/title="lib\/nested: checked out at another commit[^"]*"[^>]*data-submodule="lib\/nested"/);
+		expect(body).toMatch(/data-submodules-update="all"[\s\S]*?<span>Update submodules<\/span>/);
+		expect(body).not.toContain('data-update-summary');
+	});
+
+	// Decision (R1): the filter and the stripes name the workspace by the project folder and two submodules with the same last segment by
+	// the parents that tell them apart; the full path stays in the title.
+	it('labels the root filter with the folder name and the shortest unique names', async () => {
+		vi.stubGlobal('window', {});
+		const t = setup(() => chain(3), 10);
+		t.store.setRoots(['x/hev-server/src/core', 'x/hev-tunnel/src/core']);
+		await settle();
+		const submodules = await submodulesOf([
+			{ path: 'x/hev-server/src/core', recorded: R, checkedOut: R, state: 'clean' },
+			{ path: 'x/hev-tunnel/src/core', recorded: R, checkedOut: R, state: 'clean' },
+		]);
+		const fetcher = new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/work/android-kids-app' }, () => {});
+		const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules, updater: idleUpdater() } }).body;
+		expect(body).toMatch(/data-root-option="\."[^>]*title="\/proj"[^>]*>[\s\S]*?<span class="text[^"]*">proj</);
+		expect(body).toMatch(/data-root-option="x\/hev-server\/src\/core"[^>]*title="x\/hev-server\/src\/core"[^>]*>[\s\S]*?<span class="text[^"]*">hev-server\/src\/core</);
+		expect(body).toMatch(/data-root-option="x\/hev-tunnel\/src\/core"[\s\S]*?<span class="text[^"]*">hev-tunnel\/src\/core</);
+		expect(body).toMatch(/data-submodule-name[^>]*>hev-server\/src\/core</);
 	});
 
 	// Decision: a path is git's text. A markup-looking one is escaped, never a tag or an attribute that opens.

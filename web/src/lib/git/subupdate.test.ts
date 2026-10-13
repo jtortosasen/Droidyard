@@ -7,7 +7,7 @@ import { FetchModel, type FetchClient } from './fetch';
 import HistoryPanel from './HistoryPanel.svelte';
 import { chain, idleBranches, refsOf, setup, submodulesOf } from './historytesting';
 import type { Submodule } from './submodules';
-import { SubmoduleUpdateModel, dirtyUnder, updateBlockText, type UpdateActivity, type UpdateClient } from './subupdate';
+import { SubmoduleUpdateModel, dirtyUnder, summaryText, updateBlockText, type UpdateActivity, type UpdateClient } from './subupdate';
 import type { GitWatch } from './watch';
 
 // The Submodules section's Update (plan m2n P5): the dirty-buffer gate, the model and the markup the
@@ -334,10 +334,133 @@ describe('the Update controls', () => {
 		expect(tag(body, 'data-submodule-update="lib"')).not.toMatch(/\sdisabled/);
 	});
 
+	// Decision (R1): after a run the section says what it did, as text, with a Dismiss; the button stays available.
+	it('shows the summary of the last run, dismissible', async () => {
+		const f = fake();
+		let list: readonly Submodule[] = LIST;
+		const m = new SubmoduleUpdateModel(f.client, { root: '/p' }, { dirtyPaths: () => [] }, () => void (list = [...LIST]), null, () => list);
+		const run = m.updateAll(['lib']);
+		f.ok();
+		await run;
+		const body = await panel(m);
+		expect(body).toMatch(/data-update-summary[\s\S]*?All 2 submodules already at the recorded commits/);
+		expect(tag(body, 'data-submodules-update="all"')).not.toMatch(/\sdisabled/);
+		m.dismiss();
+		expect(await panel(m)).not.toContain('data-update-summary');
+	});
+
 	// Decision: a path is git's text; a markup-looking one is escaped in the Update's label too.
 	it('renders a hostile path in an Update label as text', async () => {
 		const bad = '<img src=x onerror=alert(1)>';
 		const body = await panel(model(fake()), [{ path: bad, recorded: R, state: 'clean', checkedOut: R }]);
 		expect(body).not.toContain('<img');
+	});
+});
+
+describe('what an update says it did (R1)', () => {
+	const sm = (path: string, checkedOut: string | undefined, state: Submodule['state'] = 'clean'): Submodule => ({ path, recorded: 'r'.repeat(40), ...(checkedOut ? { checkedOut } : {}), state });
+	const o = (c: string) => c.repeat(40);
+
+	// A list the test replaces the way a read of the submodules does: with a new array.
+	function held(first: Submodule[]) {
+		let list: readonly Submodule[] = first;
+		return { get: () => list, read: (next: Submodule[]) => (list = next) };
+	}
+	function withList(f: ReturnType<typeof fake>, h: ReturnType<typeof held>, after: Submodule[] | null) {
+		return new SubmoduleUpdateModel(f.client, { root: '/p' }, { dirtyPaths: () => [] }, async () => void (after !== null && h.read([...after])), null, h.get);
+	}
+
+	// Decision (R1): when no checked-out commit changed, the section says everything was already at the recorded commits, with the count.
+	it('says that all were already at the recorded commits when nothing moved', async () => {
+		const f = fake();
+		const h = held([sm('a', o('1')), sm('b', o('2')), sm('c', undefined, 'uninitialised')]);
+		const m = withList(f, h, [sm('a', o('1')), sm('b', o('2')), sm('c', undefined, 'uninitialised')]);
+		const run = m.updateAll(['a', 'b']);
+		f.ok();
+		await run;
+		expect(m.view.summary).toEqual({ scope: null, total: 2, moved: [] });
+		expect(summaryText(m.view.summary!)).toBe('All 2 submodules already at the recorded commits');
+	});
+
+	// Decision (R1): the ones that moved are named with the short commits before and after; the rest are not.
+	it('names the submodules that moved, with the commits before and after', async () => {
+		const f = fake();
+		const h = held([sm('a', o('1')), sm('b', o('2'), 'outdated'), sm('c', undefined, 'uninitialised')]);
+		const m = withList(f, h, [sm('a', o('1')), sm('b', o('3')), sm('c', o('4'))]);
+		const run = m.updateAll([]);
+		f.ok();
+		await run;
+		expect(m.view.summary?.moved).toEqual([
+			{ path: 'b', from: '2222222', to: '3333333' },
+			{ path: 'c', to: '4444444' },
+		]);
+		expect(summaryText(m.view.summary!, (p) => p.toUpperCase())).toBe('Updated 2 submodules: B (2222222 → 3333333), C (now 4444444)');
+	});
+
+	// Decision (R1): one row's update says that submodule is already there, by its display name.
+	it('says a single submodule was already at the recorded commit', async () => {
+		const f = fake();
+		const h = held([sm('a', o('1'))]);
+		const m = withList(f, h, [sm('a', o('1'))]);
+		const run = m.update('a');
+		f.ok();
+		await run;
+		expect(summaryText(m.view.summary!, () => 'lib')).toBe('lib is already at the recorded commit');
+	});
+
+	// Decision (R1): nothing false is said: a failed update has its failure and no summary, and a read that did not happen no summary.
+	it('says nothing after a failure, a read that did not happen, or a cancel that moved nothing', async () => {
+		const f = fake();
+		const h = held([sm('a', o('1'))]);
+		const failing = withList(f, h, [sm('a', o('9'))]);
+		const bad = failing.update('a');
+		f.fail(refused());
+		await bad;
+		expect(failing.view.summary).toBeNull();
+		expect(failing.view.failure).not.toBeNull();
+
+		const f2 = fake();
+		const unread = withList(f2, h, null);
+		const run = unread.update('a');
+		f2.ok();
+		await run;
+		expect(unread.view.summary).toBeNull();
+
+		const f3 = fake();
+		const cancelled = withList(f3, held([sm('a', o('1'))]), [sm('a', o('1'))]);
+		const c = cancelled.update('a');
+		f3.started('op');
+		cancelled.cancel();
+		f3.fail(new CapabilityError({ code: 'OPERATION_CANCELLED', message: 'cancelled' }, false));
+		await c;
+		expect(cancelled.view.summary).toBeNull();
+	});
+
+	// Decision (R1): the summary is dismissible, and the next run clears it.
+	it('is forgotten on dismiss and by the next run', async () => {
+		const f = fake();
+		const h = held([sm('a', o('1'))]);
+		const m = withList(f, h, [sm('a', o('1'))]);
+		let run = m.update('a');
+		f.ok();
+		await run;
+		expect(m.view.summary).not.toBeNull();
+		m.dismiss();
+		expect(m.view.summary).toBeNull();
+		run = m.update('a');
+		f.ok();
+		await run;
+		expect(m.view.summary).not.toBeNull();
+		const next = m.update('a');
+		expect(m.view.summary).toBeNull();
+		f.ok();
+		await next;
+	});
+
+	it('words the summaries', () => {
+		expect(summaryText({ scope: null, total: 0, moved: [] })).toBe('No submodule is checked out; nothing to update');
+		expect(summaryText({ scope: null, total: 1, moved: [] })).toBe('The only submodule is already at the recorded commit');
+		const many = Array.from({ length: 8 }, (_, i) => ({ path: `m${i}`, from: 'aaaaaaa', to: 'bbbbbbb' }));
+		expect(summaryText({ scope: null, total: 8, moved: many })).toMatch(/^Updated 8 submodules: m0 \(aaaaaaa → bbbbbbb\), .*m5 \(aaaaaaa → bbbbbbb\) and 2 more$/);
 	});
 });

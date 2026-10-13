@@ -94,6 +94,7 @@ describe('the History tab’s branch controls', () => {
 		const t = setup(() => chain(3), 10);
 		await settle();
 		t.state.refs = refsOf(['c0'], {
+			head: { oid: 'c1', branch: 'feature/x', detached: false, upstreamGone: false, ahead: 0, behind: 0 },
 			branches: [
 				{ name: 'main', oid: 'c0' },
 				{ name: 'feature/x', oid: 'c1' },
@@ -112,10 +113,14 @@ describe('the History tab’s branch controls', () => {
 	}
 
 	// Decision (plan P3): the branch menu opens on a local and on a remote-tracking branch, not on a tag or on origin/HEAD.
-	it('gives a menu button to every local and remote-tracking branch, and to nothing else', async () => {
+	it('gives a menu button to every branch listed, and to nothing else', async () => {
 		const body = await panel(model(done));
-		expect([...body.matchAll(/data-branch-menu/g)]).toHaveLength(3);
-		for (const ref of ['refs/heads/main', 'refs/heads/feature/x', 'refs/remotes/origin/feature/y']) {
+		// The folders start closed (plan R1) except the current branch's: `feature/` holds it, `origin/` is closed, so the
+		// remote-tracking branch is not listed here (its menu is reached at level 4).
+		expect([...body.matchAll(/data-branch-menu/g)]).toHaveLength(2);
+		expect(body).toMatch(/aria-expanded="false"[^>]*data-folder="remotes:origin"/);
+		expect(body).not.toContain('data-ref="refs/remotes/origin/feature/y"');
+		for (const ref of ['refs/heads/main', 'refs/heads/feature/x']) {
 			const row = new RegExp(`data-ref="${ref}"[\\s\\S]*?</div>`).exec(body)?.[0] ?? '';
 			expect(row, ref).toContain('data-branch-menu');
 		}

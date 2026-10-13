@@ -13,6 +13,8 @@
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
 import { failure, failureText } from '../build/failure';
+import { rowKey } from './mixed';
+import type { RefsResult } from './refs';
 
 export type SubmodulesResult = Result<'git.submodules'>;
 export type Submodule = SubmodulesResult['submodules'][number];
@@ -138,11 +140,19 @@ export const shortOid = (oid: string): string => oid.slice(0, 7);
 
 export interface SubmoduleRow {
 	path: string;
+	/** What the panel calls it (names.ts): the last path segment, more of the path only when another root has the same. */
+	name: string;
 	state: SubmoduleState;
 	recorded: string;
 	checkedOut?: string;
 	/** The short oid(s): the checked-out one then the recorded one when they differ ("abc1234 → def5678"), else the one commit. */
 	oids: string;
+	/** The branch checked out, or "detached" with the branches at its commit; absent while its refs are not known (or are older than the commit shown). */
+	branch?: string;
+	/** The whole branch text, for the title. */
+	branchTitle?: string;
+	/** The subject of the commit checked out, once read. */
+	subject?: string;
 	/** What the row's title says, in words. */
 	title: string;
 }
@@ -154,19 +164,51 @@ const STATE_TEXT: Readonly<Record<SubmoduleState, string>> = {
 	dirty: 'has uncommitted changes',
 };
 
+/** How many branches a detached HEAD names in the row; the title lists them all. */
+const DETACHED_SHOWN = 3;
+
+/**
+ * The branch a submodule shows (plan m2n R1) from its own refs: the current branch's name; for a detached HEAD
+ * "detached" and the local and remote-tracking branches whose tip is that commit. Nothing when the refs are not
+ * known or describe another commit than the one the row shows (they are read after the list, and may be older).
+ */
+export function submoduleBranch(refs: RefsResult | undefined, checkedOut: string | undefined): { text: string; title: string } | undefined {
+	if (refs === undefined || checkedOut === undefined || refs.head.oid !== checkedOut) return undefined;
+	if (!refs.head.detached) return refs.head.branch === undefined ? undefined : { text: refs.head.branch, title: refs.head.branch };
+	const at = [
+		...refs.branches.filter((b) => b.oid === checkedOut).map((b) => b.name),
+		...refs.remotes.filter((r) => r.name !== 'HEAD' && r.oid === checkedOut).map((r) => `${r.remote}/${r.name}`),
+	];
+	if (at.length === 0) return { text: 'detached', title: 'detached' };
+	const more = at.length - DETACHED_SHOWN;
+	return { text: `detached (${at.slice(0, DETACHED_SHOWN).join(', ')}${more > 0 ? `, +${more}` : ''})`, title: `detached at ${at.join(', ')}` };
+}
+
+/** What the rows read besides the list: the display names, each root's refs, and the subject of each HEAD (by `rowKey`). */
+export interface RowContext {
+	names?: ReadonlyMap<string, string>;
+	refs?: ReadonlyMap<string, RefsResult>;
+	subjects?: ReadonlyMap<string, string>;
+}
+
 /** The rows the section shows for `list` under the filter: those whose path contains it. */
-export function submoduleRows(list: readonly Submodule[], filter: string): SubmoduleRow[] {
+export function submoduleRows(list: readonly Submodule[], filter: string, ctx: RowContext = {}): SubmoduleRow[] {
 	const q = filter.trim().toLowerCase();
 	const rows: SubmoduleRow[] = [];
 	for (const s of list) {
 		if (q !== '' && !s.path.toLowerCase().includes(q)) continue;
 		const differs = s.checkedOut !== undefined && s.checkedOut !== s.recorded;
+		const branch = submoduleBranch(ctx.refs?.get(s.path), s.checkedOut);
+		const subject = s.checkedOut === undefined ? undefined : ctx.subjects?.get(rowKey(s.path, s.checkedOut));
 		rows.push({
 			path: s.path,
+			name: ctx.names?.get(s.path) ?? s.path,
 			state: s.state,
 			recorded: s.recorded,
 			...(s.checkedOut !== undefined ? { checkedOut: s.checkedOut } : {}),
 			oids: differs ? `${shortOid(s.checkedOut ?? '')} → ${shortOid(s.recorded)}` : shortOid(s.recorded),
+			...(branch ? { branch: branch.text, branchTitle: branch.title } : {}),
+			...(subject !== undefined ? { subject } : {}),
 			title: `${s.path}: ${STATE_TEXT[s.state]}${differs ? ` (checked out ${shortOid(s.checkedOut ?? '')}, recorded ${shortOid(s.recorded)})` : ''}`,
 		});
 	}

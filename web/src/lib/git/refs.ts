@@ -379,3 +379,82 @@ export function toggled(favourites: ReadonlySet<string>, name: string): Set<stri
 	if (!next.delete(name)) next.add(name);
 	return next;
 }
+
+// --- the folders of the side panel ----------------------------------------------------------
+
+/** The person's own opening and closing of folders; a folder in neither follows the default. */
+export interface FolderChoice {
+	opened: ReadonlySet<string>;
+	closed: ReadonlySet<string>;
+}
+
+export const NO_FOLDER_CHOICE: FolderChoice = { opened: new Set(), closed: new Set() };
+
+/** Every folder key a path can make: `section:a`, `section:a/b` for `a/b/c` (the last segment is the branch, not a folder). */
+function folderKeysOf(section: SectionId, name: string, into: Set<string>): void {
+	const parts = name.split('/');
+	let path = '';
+	for (let i = 0; i < parts.length - 1; i++) {
+		path = path === '' ? parts[i] : `${path}/${parts[i]}`;
+		into.add(`${section}:${path}`);
+	}
+}
+
+/** The folders that hold the current branch (local section): open by default. A detached HEAD has none. */
+export function currentBranchFolders(refs: RefsResult): Set<string> {
+	const out = new Set<string>();
+	if (!refs.head.detached && refs.head.branch !== undefined) {
+		folderKeysOf('local', refs.head.branch, out);
+		// A branch that is also a folder (`a` beside `a/b`) is listed inside it.
+		out.add(`local:${refs.head.branch}`);
+	}
+	return out;
+}
+
+/**
+ * The folders to show closed: every folder of the local and remote branches, except those that hold the current
+ * branch, and except those the person opened; and those the person closed, wherever they are (plan m2n R1).
+ */
+export function collapsedFolders(refs: RefsResult, choice: FolderChoice): Set<string> {
+	const all = new Set<string>();
+	for (const b of refs.branches) folderKeysOf('local', b.name, all);
+	for (const r of refs.remotes) if (r.name !== 'HEAD') folderKeysOf('remotes', `${r.remote}/${r.name}`, all);
+	const initial = currentBranchFolders(refs);
+	const out = new Set<string>();
+	for (const key of all) if (choice.closed.has(key) || !(choice.opened.has(key) || initial.has(key))) out.add(key);
+	return out;
+}
+
+/** The choice after a click on a folder that is `open` now. */
+export function toggledFolder(choice: FolderChoice, key: string, open: boolean): FolderChoice {
+	const opened = new Set(choice.opened);
+	const closed = new Set(choice.closed);
+	if (open) {
+		opened.delete(key);
+		closed.add(key);
+	} else {
+		closed.delete(key);
+		opened.add(key);
+	}
+	return { opened, closed };
+}
+
+/** The choice with these folders opened (Navigate to HEAD opens what it needs). */
+export function withOpened(choice: FolderChoice, keys: Iterable<string>): FolderChoice {
+	const opened = new Set(choice.opened);
+	const closed = new Set(choice.closed);
+	for (const k of keys) {
+		closed.delete(k);
+		opened.add(k);
+	}
+	return { opened, closed };
+}
+
+/** The folders a ref `refs/heads/...` is inside, as keys. */
+export function localFoldersOf(ref: string): string[] {
+	const prefix = 'refs/heads/';
+	if (!ref.startsWith(prefix)) return [];
+	const out = new Set<string>();
+	folderKeysOf('local', ref.slice(prefix.length), out);
+	return [...out];
+}
