@@ -56,6 +56,7 @@
 	import HistoryPanel from '../git/HistoryPanel.svelte';
 	import { BranchModel } from '../git/branch';
 	import { FetchModel } from '../git/fetch';
+	import { CompareModel } from '../git/compare';
 	import { HistoryStore } from '../git/history';
 	import { SubmodulesModel, initialisedRoots } from '../git/submodules';
 	import { SubmoduleUpdateModel } from '../git/subupdate';
@@ -124,6 +125,7 @@
 	let gitHistory = $state.raw<HistoryStore | null>(null);
 	let gitFetch = $state.raw<FetchModel | null>(null);
 	let gitBranches = $state.raw<BranchModel | null>(null);
+	let gitCompare = $state.raw<CompareModel | null>(null);
 	let gitSubmodules = $state.raw<SubmodulesModel | null>(null);
 	let gitUpdater = $state.raw<SubmoduleUpdateModel | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
@@ -232,6 +234,7 @@
 		// Checkout and Create Branch (plan m2n P3): the editor's unsaved files stop a checkout before the daemon is
 		// called, and the refs are read again when a call has ended. A clean buffer whose file the checkout rewrote
 		// reloads through the file watch above (m2i D8).
+		const comparer = new CompareModel(callOn, ws);
 		const brancher = new BranchModel(callOn, ws, readers, () => history.refreshRefs());
 		// The Submodules section (plan m2n P4) is read whenever the History store has a new answer of the refs.
 		const submodules = new SubmodulesModel(callOn, ws);
@@ -285,6 +288,7 @@
 		gitHistory = history;
 		gitFetch = fetcher;
 		gitBranches = brancher;
+		gitCompare = comparer;
 		gitSubmodules = submodules;
 		gitUpdater = submoduleUpdater;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
@@ -338,6 +342,7 @@
 			watcher.dispose();
 			fetcher.dispose();
 			brancher.dispose();
+			comparer.dispose();
 			offSubmodules();
 			offRoots();
 			submodules.dispose();
@@ -386,6 +391,7 @@
 			gitHistory = null;
 			gitFetch = null;
 			gitBranches = null;
+			gitCompare = null;
 			gitSubmodules = null;
 			gitUpdater = null;
 			editorTabs = null;
@@ -463,17 +469,18 @@
 			/>
 		{/if}
 	{:else if id === 'git'}
-		{#if gitHistory && gitWatch && gitFetch && gitBranches && gitSubmodules && gitUpdater}
+		{#if gitHistory && gitWatch && gitFetch && gitBranches && gitCompare && gitSubmodules && gitUpdater}
 			<HistoryPanel
 				store={gitHistory}
 				fetcher={gitFetch}
 				branches={gitBranches}
+				compare={gitCompare}
 				submodules={gitSubmodules}
 				updater={gitUpdater}
 				watch={gitWatch}
 				{workspaceId}
 				onopenfile={(file) => {
-					// A changed file of the opened commit: the Diff tab shows it against the commit's first parent.
+					// A changed file of the opened commit (or between two tips): the Diff tab shows it against the commit's first parent (or the base).
 					diffSource?.showCommit(file);
 					shell.show('diff');
 				}}

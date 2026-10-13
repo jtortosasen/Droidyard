@@ -22,7 +22,7 @@ export interface CommitFile {
 	root: string;
 	/** The commit, in full. */
 	oid: string;
-	/** Its first parent in full; null for a root commit. */
+	/** The commit read as the before side: its first parent in full (null for a root commit), or the base of a comparison. */
 	parent: string | null;
 	path: string;
 	/** For a renamed file: the path the parent holds it at. */
@@ -87,6 +87,14 @@ export function commitFileOf(show: Pick<Show, 'oid' | 'parents'>, f: Pick<ShowFi
 		status: f.status,
 		binary: f.binary,
 	};
+}
+
+/**
+ * A file between two tips (Compare with current, ADR-0072 §3): read at `base` (HEAD, the before side) and at `tip`
+ * (the after side). A renamed file is read at its `origPath` at the base.
+ */
+export function compareFileOf(tip: string, base: string, f: Pick<ShowFile, 'path' | 'origPath' | 'status' | 'binary'>): CommitFile {
+	return commitFileOf({ oid: tip, parents: [base] }, f);
 }
 
 export const shortOid = (oid: string): string => oid.slice(0, 7);

@@ -10,9 +10,11 @@
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
 	import type { BranchModel, BranchView } from './branch';
-	import { entryAction, headSource, type BranchTarget, type NewBranchSource } from './branchops';
+	import { canCompare, entryAction, headSource, targetLabel, type BranchTarget, type NewBranchSource } from './branchops';
 	import type { MenuId } from './controls';
 	import CommitView from './CommitView.svelte';
+	import { type CompareModel, type CompareView as CompareViewState } from './compare';
+	import CompareView from './CompareView.svelte';
 	import CreateBranchDialog from './CreateBranchDialog.svelte';
 	import type { CommitFile } from './diffsource';
 	import type { FetchModel, FetchView } from './fetch';
@@ -54,8 +56,10 @@
 		submodules: SubmodulesModel;
 		/** The Submodules section's Update (plan m2n P5), shared by the section's button and each row's. */
 		updater: SubmoduleUpdateModel;
+		/** Compare with current (plan m2n P9): the view the branch menu's entry opens in place of the table. */
+		compare?: CompareModel;
 	}
-	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater, compare }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -104,6 +108,14 @@
 			updateView = u.view;
 		});
 	});
+	let compareView = $state.raw<CompareViewState | null>(untrack(() => compare?.view ?? null));
+	$effect(() => {
+		const c = compare;
+		compareView = c?.view ?? null;
+		return c?.subscribe(() => {
+			compareView = c.view;
+		});
+	});
 	// The Create Branch dialog: where the new branch starts while it is open.
 	let creating = $state.raw<NewBranchSource | null>(null);
 	const locals = $derived(new Set((view.refs?.branches ?? []).map((b) => b.name)));
@@ -112,7 +124,17 @@
 	function onentry(id: MenuId, target: BranchTarget) {
 		const action = entryAction(id, target);
 		if (action === null) return;
-		if (action.kind === 'checkout') void branches.checkout(action.target);
+		if (action.kind === 'compare') {
+			const head = view.refs?.head ?? null;
+			if (compare === undefined || head === null || !canCompare(target, head) || head.oid === undefined || action.target.oid === undefined) return;
+			branches.dismiss();
+			compare.open({
+				branch: targetLabel(action.target),
+				current: head.detached || head.branch === undefined ? 'HEAD' : head.branch,
+				tip: action.target.oid,
+				head: head.oid,
+			});
+		} else if (action.kind === 'checkout') void branches.checkout(action.target);
 		else {
 			branches.dismiss();
 			creating = action.source;
@@ -329,6 +351,9 @@
 			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} onretrysubmodules={() => void submodules.load()} {updater} {updateView} {onentry} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
+		{#if compare && compareView?.open}
+			<CompareView model={compare} view={compareView} onopenfile={(f) => onopenfile?.(f)} {now} />
+		{:else}
 		<div class="table-area">
 	{#if view.state === 'idle'}
 		<p class="note" role="status">{problem ?? 'Reading the status…'}</p>
@@ -500,6 +525,7 @@
 		{/if}
 	{/if}
 		</div>
+		{/if}
 	</div>
 	{#if creating !== null}
 		<CreateBranchDialog source={creating} {locals} model={branches} view={branchView} onsubmit={createBranch} oncancel={() => {

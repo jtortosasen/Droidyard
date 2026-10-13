@@ -17,7 +17,6 @@ export interface Control<Id extends string> {
 	title: string;
 }
 
-const PART_2 = 'Enabled in milestone 2n, part 2';
 const LATER = 'Enabled in a later milestone (not 2n)';
 
 /** SourceGit's order: Fetch, Pull, Push, Stash, then (after a separator) Create Branch. */
@@ -33,7 +32,7 @@ export const TOOLBAR: readonly Control<ToolbarId>[] = [
 export const BRANCH_MENU: readonly Control<MenuId>[] = [
 	{ id: 'checkout', label: 'Checkout', enabled: true, title: 'Check this branch out' },
 	{ id: 'new-branch-from', label: 'New branch from', enabled: true, title: 'Create a branch starting at this one' },
-	{ id: 'compare', label: 'Compare with current', enabled: false, title: `Compare with current: ${PART_2}` },
+	{ id: 'compare', label: 'Compare with current', enabled: true, title: 'Compare this branch with the current one' },
 	{ id: 'merge', label: 'Merge into current', enabled: false, title: `Merge into current: ${LATER}` },
 	{ id: 'rebase', label: 'Rebase onto', enabled: false, title: `Rebase onto: ${LATER}` },
 	{ id: 'push', label: 'Push', enabled: false, title: `Push: ${LATER}` },
