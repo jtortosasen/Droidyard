@@ -102,6 +102,27 @@ func TestGitFetchThroughTheShippedDaemon(t *testing.T) {
 	if got := plainGit(t, env, untrusted.W, "rev-parse", "origin/main"); got == untrustedPushed {
 		t.Errorf("origin/main moved on the untrusted root: a git ran")
 	}
+
+	// git.pull (ADR-0074 §1) is wired the same way: it fast-forwards main on the trusted
+	// root, and on the untrusted one it is refused and main stays.
+	untrustedMain := plainGit(t, env, untrusted.W, "rev-parse", "main")
+	penv, code := callIn(t, p.state, canon(trusted.W), "git.pull")
+	if code != 0 || penv.Error != nil || !strings.Contains(string(penv.Result), pushed) {
+		t.Fatalf("git.pull on the trusted root: exit %d, error %+v, result %s; want main moved to %s", code, penv.Error, penv.Result, pushed)
+	}
+	if got := plainGit(t, env, trusted.W, "rev-parse", "main"); got != pushed {
+		t.Errorf("main = %s after the pull, want the colleague's %s", got, pushed)
+	}
+	penv, code = callIn(t, p.state, canon(untrusted.W), "git.pull")
+	if code == 0 || penv.Error == nil || penv.Error.Code != "WORKSPACE_UNTRUSTED" {
+		t.Fatalf("git.pull on the untrusted root: exit %d, error %+v; want WORKSPACE_UNTRUSTED", code, penv.Error)
+	}
+	if got := plainGit(t, env, untrusted.W, "rev-parse", "main"); got != untrustedMain {
+		t.Errorf("main moved on the untrusted root: a git ran")
+	}
+	if recs := shellRecords(t, p.state); len(recs) != 0 {
+		t.Errorf("processes.json holds %+v after the pull, want none", recs)
+	}
 }
 
 // TestGitWriteOutlivesAKilledDaemonAndTheNextStartReapsIt: a daemon SIGKILLed while a fetch
