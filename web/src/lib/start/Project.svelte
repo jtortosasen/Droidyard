@@ -58,6 +58,7 @@
 	import { FetchModel } from '../git/fetch';
 	import { HistoryStore } from '../git/history';
 	import { SubmodulesModel } from '../git/submodules';
+	import { SubmoduleUpdateModel } from '../git/subupdate';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
 	import type { UnsavedGuard } from '../editor/unsaved';
@@ -124,6 +125,7 @@
 	let gitFetch = $state.raw<FetchModel | null>(null);
 	let gitBranches = $state.raw<BranchModel | null>(null);
 	let gitSubmodules = $state.raw<SubmodulesModel | null>(null);
+	let gitUpdater = $state.raw<SubmoduleUpdateModel | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -234,6 +236,12 @@
 		// The Submodules section (plan m2n P4) is read whenever the History store has a new answer of the refs.
 		const submodules = new SubmodulesModel(callOn, ws);
 		const offSubmodules = submodules.follow(history);
+		// The section's Update (plan m2n P5): an update is a checkout in each submodule, so the editor's unsaved files
+		// under them stop it, and the submodules are read again when it has ended, however it ended.
+		const submoduleUpdater = new SubmoduleUpdateModel(callOn, ws, readers, () => void submodules.load(), {
+			stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+			subscribe: (listener) => store.subscribe(listener),
+		});
 		// Another active file in the Editor is the working tree's diff again (a file opened from the tree or the palette changes it too).
 		let activeFile = tabs.view.active;
 		const offActive = tabs.subscribe(() => {
@@ -276,6 +284,7 @@
 		gitFetch = fetcher;
 		gitBranches = brancher;
 		gitSubmodules = submodules;
+		gitUpdater = submoduleUpdater;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -329,6 +338,7 @@
 			brancher.dispose();
 			offSubmodules();
 			submodules.dispose();
+			submoduleUpdater.dispose();
 			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
@@ -374,6 +384,7 @@
 			gitFetch = null;
 			gitBranches = null;
 			gitSubmodules = null;
+			gitUpdater = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -449,12 +460,13 @@
 			/>
 		{/if}
 	{:else if id === 'git'}
-		{#if gitHistory && gitWatch && gitFetch && gitBranches && gitSubmodules}
+		{#if gitHistory && gitWatch && gitFetch && gitBranches && gitSubmodules && gitUpdater}
 			<HistoryPanel
 				store={gitHistory}
 				fetcher={gitFetch}
 				branches={gitBranches}
 				submodules={gitSubmodules}
+				updater={gitUpdater}
 				watch={gitWatch}
 				{workspaceId}
 				onopenfile={(file) => {

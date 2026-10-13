@@ -5,7 +5,7 @@ import { CapabilityError } from '../api/client';
 import { settle } from '../build/testing';
 import { FetchModel, type FetchClient } from './fetch';
 import HistoryPanel from './HistoryPanel.svelte';
-import { chain, idleBranches, refsOf, setup, submodulesOf } from './historytesting';
+import { chain, idleBranches, refsOf, setup, submodulesOf, idleUpdater } from './historytesting';
 import { SubmodulesModel, shortOid, submoduleRows, type Submodule, type SubmodulesClient } from './submodules';
 import type { GitWatch } from './watch';
 
@@ -178,7 +178,7 @@ async function panel(list: Submodule[], over: { truncated?: boolean; filter?: bo
 	await settle();
 	const submodules = await submodulesOf(list, over.truncated ?? false);
 	const fetcher = new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {});
-	return render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules } }).body;
+	return render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules, updater: idleUpdater() } }).body;
 }
 
 describe('the Submodules section markup', () => {
@@ -220,7 +220,7 @@ describe('the Submodules section markup', () => {
 		const submodules = new SubmodulesModel(client, { root: '/p' });
 		await submodules.load();
 		const fetcher = new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {});
-		const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules } }).body;
+		const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules, updater: idleUpdater() } }).body;
 		expect(body).toMatch(/data-refs-section="submodules"[\s\S]*?role="alert"[\s\S]*?git failed[\s\S]*?Retry/);
 		expect(body).toContain('data-refs-section="local"');
 	});

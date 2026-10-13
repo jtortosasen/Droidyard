@@ -2,24 +2,54 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Package from '@lucide/svelte/icons/package';
+	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+	import X from '@lucide/svelte/icons/x';
+	import Spinner from '../projects/Spinner.svelte';
+	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
 	import { submoduleRows, type SubmodulesView } from './submodules';
 
 	// The side panel's SUBMODULES section (plan m2n P4), after SourceGit's, between TAGS and WORKTREES: its
 	// count is the rows that pass the panel's filter; a row has the submodule's path, its state and its
 	// short commit (the checked-out one then the recorded one when they differ). Paths and oids are git's
-	// text, in an isolated text node. Update is the next step's (P5).
+	// text, in an isolated text node. Update (plan m2n P5) is the section's (every submodule) and each row's: one
+	// update at a time, running and Cancel as the toolbar's Fetch, behind the dirty-buffer gate, whose refusal
+	// names the files; a failure shows the daemon's words (git's own as the cause) and a next step.
 	interface Props {
 		view: SubmodulesView;
 		/** The filter box above the sections. */
 		filter: string;
 		/** Reads the section again after a failed first read. */
 		onretry: () => void;
+		/** The tab's Update, shared by the section's button and the rows' (plan m2n P5). */
+		updater: SubmoduleUpdateModel;
+		updateView: UpdateView;
 	}
-	let { view, filter, onretry }: Props = $props();
+	let { view, filter, onretry, updater, updateView }: Props = $props();
 
 	let open = $state(true);
 	const rows = $derived(view.state === 'ready' ? submoduleRows(view.list, filter) : []);
+	/** The state an Update button of `path` (null: the section's) carries: the model's when it is this one's, else idle. */
+	const stateOf = (path: string | null) => (path === null ? (updateView.all ? updateView.state : 'idle') : !updateView.all && updateView.path === path ? updateView.state : 'idle');
+	const mine = (path: string | null) => updateView.busy && (path === null ? updateView.all : !updateView.all && updateView.path === path);
+	const title = (path: string | null) => {
+		const what = path === null ? (view.truncated ? 'the listed submodules' : 'every submodule') : path;
+		return mine(path) ? (updateView.state === 'queued' ? `The update of ${what} is queued` : `Updating ${what}`) : `Update ${what} to the recorded commit${path === null ? 's' : ''}`;
+	};
 </script>
+
+{#snippet cancelButton()}
+	<button
+		type="button"
+		class="icon"
+		data-op-cancel
+		disabled={updateView.cancelling}
+		title={updateView.cancelling ? 'Cancelling…' : 'Cancel the update'}
+		aria-label="Cancel the update"
+		onclick={() => updater.cancel()}
+	>
+		<X size={12} />
+	</button>
+{/snippet}
 
 <section class="sec" data-refs-section="submodules" data-count={rows.length}>
 	<h3>
@@ -28,7 +58,47 @@
 			<span class="title">SUBMODULES</span>
 			<span class="n">{rows.length}</span>
 		</button>
+		{#if view.state === 'ready' && view.list.length > 0}
+			<button
+				type="button"
+				class="all"
+				data-submodules-update="all"
+				data-op-state={stateOf(null)}
+				disabled={updateView.busy}
+				title={title(null)}
+				aria-label="Update every submodule"
+				onclick={() => void updater.updateAll(view.list.map((m) => m.path))}
+			>
+				{#if mine(null)}<Spinner size={11} />{:else}<RefreshCw size={12} />{/if}
+				<span>Update</span>
+			</button>
+			{#if view.truncated}<span class="trunc" data-update-truncated title="The repository has more submodules than the list holds; only the listed ones are updated.">listed only</span>{/if}
+			{#if mine(null)}{@render cancelButton()}{/if}
+		{/if}
 	</h3>
+	{#if updateView.blocked.length > 0}
+		<div class="banner" role="alert" data-dirty-block>
+			<div class="what">
+				<p class="msg">{updateView.blockedText}</p>
+				<ul class="files" aria-label="Files with unsaved changes">
+					{#each updateView.blocked as file (file)}
+						<li>{file}</li>
+					{/each}
+				</ul>
+			</div>
+			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => updater.dismiss()}><X size={12} /></button>
+		</div>
+	{/if}
+	{#if updateView.failure}
+		<div class="banner" role="alert" data-op-error data-op-of="submodules">
+			<div class="what">
+				<p class="msg">{updateView.failure.code ? `${updateView.failure.code}: ` : ''}{updateView.failure.message}</p>
+				{#if updateView.failure.cause}<pre class="cause">{updateView.failure.cause}</pre>{/if}
+				{#if updateView.failure.nextStep}<p class="next">{updateView.failure.nextStep}</p>{/if}
+			</div>
+			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => updater.dismiss()}><X size={12} /></button>
+		</div>
+	{/if}
 	{#if open}
 		{#if view.state === 'error'}
 			<div class="problem" role="alert">
@@ -56,6 +126,19 @@
 						<span class="text">{row.path}</span>
 						<span class="state" data-state-mark>{row.state}</span>
 						<span class="oids">{row.oids}</span>
+						<button
+							type="button"
+							class="icon"
+							data-submodule-update={row.path}
+							data-op-state={stateOf(row.path)}
+							disabled={updateView.busy}
+							title={title(row.path)}
+							aria-label={`Update ${row.path}`}
+							onclick={() => void updater.update(row.path)}
+						>
+							{#if mine(row.path)}<Spinner size={11} />{:else}<RefreshCw size={12} />{/if}
+						</button>
+						{#if mine(row.path)}{@render cancelButton()}{/if}
 					</div>
 				{/each}
 				{#if rows.length === 0}
@@ -71,18 +154,93 @@
 
 <style>
 	.sec h3 {
+		display: flex;
+		align-items: stretch;
 		margin: 0;
 		font-size: var(--fs-small);
+		background: var(--bg-raised);
+	}
+	.all {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		flex: none;
+		min-height: var(--row);
+		border-color: transparent;
+		border-radius: 0;
+		background: transparent;
+		font-size: var(--fs-small);
+	}
+	.trunc {
+		align-self: center;
+		flex: none;
+		padding: 0 var(--sp-2);
+		font-size: var(--fs-small);
+		color: var(--text-3);
+	}
+	.icon {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 0;
+		padding: 2px;
+		border: 0;
+		background: transparent;
+		color: var(--text-3);
+	}
+	.row:not(:hover, :focus-within) .icon:not([data-op-cancel], [data-op-state='running'], [data-op-state='queued']) {
+		opacity: 0.35;
+	}
+	.banner {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--sp-3);
+		padding: var(--sp-2) var(--sp-4);
+		border-bottom: 1px solid var(--border);
+		font-size: var(--fs-small);
+	}
+	.banner .what {
+		flex: 1;
+		min-width: 0;
+	}
+	.banner p,
+	.banner pre {
+		margin: 0;
+		overflow-wrap: anywhere;
+		white-space: pre-wrap;
+		unicode-bidi: isolate;
+	}
+	.banner .msg {
+		color: var(--danger);
+	}
+	.banner .cause {
+		font-family: var(--font-mono);
+		color: var(--text-2);
+		max-height: 8em;
+		overflow: auto;
+	}
+	.banner .next {
+		color: var(--text-2);
+	}
+	.banner .files {
+		margin: 0;
+		padding-left: var(--sp-5, 20px);
+		max-height: 8em;
+		overflow: auto;
+		overflow-wrap: anywhere;
+		unicode-bidi: isolate;
 	}
 	.sec-head {
 		display: flex;
 		align-items: center;
 		gap: var(--sp-3);
-		width: 100%;
+		flex: 1;
+		min-width: 0;
 		min-height: var(--row);
 		border: 0;
 		border-radius: 0;
-		background: var(--bg-raised);
+		background: transparent;
 		color: var(--text-2);
 		font-size: var(--fs-small);
 		font-weight: 600;
