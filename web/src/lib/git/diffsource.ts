@@ -18,6 +18,8 @@ import type { Show, ShowFile } from './files';
 
 /** A changed file of a commit, with the two commits it is read at. */
 export interface CommitFile {
+	/** The root the commit belongs to: `.` for the workspace, else a submodule path (plan m2n P7); the paths below are workspace-relative either way. */
+	root: string;
 	/** The commit, in full. */
 	oid: string;
 	/** Its first parent in full; null for a root commit. */
@@ -33,7 +35,7 @@ export type SourceView = { kind: 'worktree' } | { kind: 'commit'; file: CommitFi
 
 const WORKTREE: SourceView = { kind: 'worktree' };
 
-const fileKey = (f: CommitFile): string => JSON.stringify([f.oid, f.parent, f.path, f.origPath ?? null, f.status, f.binary]);
+const fileKey = (f: CommitFile): string => JSON.stringify([f.root, f.oid, f.parent, f.path, f.origPath ?? null, f.status, f.binary]);
 
 /** Which source the Diff tab shows. */
 export class DiffSource {
@@ -75,8 +77,9 @@ export class DiffSource {
 }
 
 /** A changed file of the commit `show` describes: read at its first parent. */
-export function commitFileOf(show: Pick<Show, 'oid' | 'parents'>, f: Pick<ShowFile, 'path' | 'origPath' | 'status' | 'binary'>): CommitFile {
+export function commitFileOf(show: Pick<Show, 'oid' | 'parents'>, f: Pick<ShowFile, 'path' | 'origPath' | 'status' | 'binary'>, root = '.'): CommitFile {
 	return {
+		root,
 		oid: show.oid,
 		parent: show.parents[0] ?? null,
 		path: f.path,
@@ -165,13 +168,14 @@ export class CommitText {
 		}
 		this.#set({ kind: 'loading' });
 		const opts = { workspace: this.#ws.root.trim() };
+		const at = file.root === '.' ? {} : { root: file.root };
 		// Added (or a root commit): nothing to read at the parent. Deleted: nothing at the commit.
 		const before: Promise<Side> =
 			file.status === 'added' || file.parent === null
 				? Promise.resolve({ text: '' })
-				: this.#client.call('git.read', { path: file.origPath ?? file.path, base: file.parent }, opts).then(side);
+				: this.#client.call('git.read', { path: file.origPath ?? file.path, base: file.parent, ...at }, opts).then(side);
 		const after: Promise<Side | null> =
-			file.status === 'deleted' ? Promise.resolve(null) : this.#client.call('git.read', { path: file.path, base: file.oid }, opts).then(side);
+			file.status === 'deleted' ? Promise.resolve(null) : this.#client.call('git.read', { path: file.path, base: file.oid, ...at }, opts).then(side);
 		Promise.all([before, after]).then(
 			([b, a]) => {
 				if (ticket !== this.#ticket) return;

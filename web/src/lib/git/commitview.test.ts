@@ -16,7 +16,7 @@ function body() {
 		],
 	});
 	const html = render(CommitView, {
-		props: { expanded: { oid: C, state: 'ready', show, problem: null }, height: 200, onclose: () => {}, onparent: () => {}, onretry: () => {}, onopenfile: () => {} },
+		props: { expanded: { key: C, oid: C, root: '.', state: 'ready', show, problem: null }, height: 200, onclose: () => {}, onparent: () => {}, onretry: () => {}, onopenfile: () => {} },
 	}).body;
 	return { html, show };
 }
