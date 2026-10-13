@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { Attachment } from 'svelte/attachments';
-	import { LazyEditor, loadEditor, type EditorOptions, type ReviewOptions } from '../editor/surface';
+	import { LazyEditor, loadEditor, type CompareOptions, type EditorOptions, type ReviewOptions } from '../editor/surface';
 	import type { TabsModel } from '../editor/tabs';
 	import type { EditorModel, ViewerSet, ViewerView } from '../editor/viewer';
 	import type { HeadBase, BaseView } from './base';
 	import { LETTERS, MARK_WORDS } from './changes';
 	import { loadDiffMode, saveDiffMode, type DiffMode } from './diffmode';
+	import { commitHeader, NO_PARENT, shortOid, type CommitFile, type CommitText, type CommitTextView, type DiffSource, type SourceView } from './diffsource';
 	import { browserStorage } from '../ui/layout';
 	import type { GitView, GitWatch } from './watch';
 
@@ -18,18 +19,26 @@
 	// all red, and the toggle is disabled.
 	// HEAD's text comes from `git.read` and is read again when HEAD or the file's entry changes.
 	// A binary or too-large file, and no repository, are a message. Text from files and from git reaches the page as text nodes only.
+	// A second source (plan m2n step 9; ADR-0070 §4): a changed file of a commit, picked in the History
+	// tab, its text at the commit against its text at the commit's first parent, both read-only (no
+	// buffer, nothing mirrored or followed). Project returns the source to the working tree when the
+	// Editor's active file changes and when a file is opened from the Editor or the Git tree.
 	interface Props {
 		tabs: TabsModel;
 		viewers: ViewerSet;
 		git: GitWatch;
 		base: HeadBase;
+		source: DiffSource;
+		commitText: CommitText;
 	}
-	let { tabs, viewers, git, base }: Props = $props();
+	let { tabs, viewers, git, base, source, commitText }: Props = $props();
 
 	let active = $state<string | null>(untrack(() => tabs.view.active));
 	let gview = $state.raw<GitView>(untrack(() => git.view));
 	let bview = $state.raw<BaseView>(untrack(() => base.view));
 	let vview = $state.raw<ViewerView | null>(null);
+	let sview = $state.raw<SourceView>(untrack(() => source.view));
+	let cview = $state.raw<CommitTextView>(untrack(() => commitText.view));
 	let editorError = $state('');
 	const storage = browserStorage(window);
 	let mode = $state<DiffMode>(loadDiffMode(storage));
@@ -50,6 +59,20 @@
 		gview = g.view;
 		return g.subscribe(() => {
 			gview = g.view;
+		});
+	});
+	$effect(() => {
+		const s = source;
+		sview = s.view;
+		return s.subscribe(() => {
+			sview = s.view;
+		});
+	});
+	$effect(() => {
+		const c = commitText;
+		cview = c.view;
+		return c.subscribe(() => {
+			cview = c.view;
 		});
 	});
 	$effect(() => {
@@ -93,28 +116,49 @@
 		return null;
 	});
 
-	// HEAD's text follows the file, its entry and HEAD's commit; nothing is read while something else blocks.
+	const commitFile = $derived<CommitFile | null>(sview.kind === 'commit' ? sview.file : null);
+
+	// HEAD's text follows the file, its entry and HEAD's commit; nothing is read while something else blocks,
+	// or while a commit's file is shown (its two texts are read by `commitText`).
 	$effect(() => {
 		const path = active;
 		const mark = entry?.mark;
 		const origPath = entry?.origPath;
 		const id = oid;
-		const stop = blocked !== null;
+		const stop = blocked !== null || commitFile !== null;
 		untrack(() => {
 			if (stop || path === null) base.follow(null);
 			else base.follow({ path, mark, origPath, oid: id });
 		});
 	});
+	$effect(() => {
+		const file = commitFile;
+		untrack(() => commitText.follow(file));
+	});
 
-	const shown = $derived(blocked ?? (bview.kind === 'message' ? bview.text : bview.kind === 'text' ? null : 'Reading HEAD…'));
+	const worktreeShown = $derived(blocked ?? (bview.kind === 'message' ? bview.text : bview.kind === 'text' ? null : 'Reading HEAD…'));
+	const commitShown = $derived(cview.kind === 'message' ? cview.text : cview.kind === 'text' ? null : 'Reading the file at the commit…');
+	const shown = $derived(commitFile !== null ? commitShown : worktreeShown);
+	// The right pane alone: a file gone from the working tree, or deleted by the commit.
+	const alone = $derived(commitFile !== null ? commitFile.status === 'deleted' : deleted);
 	const headText = $derived(bview.kind === 'text' ? bview.text : null);
 	const readOnly = $derived(vview !== null && vview.readOnly !== null);
 	// What the view is made of; it is made again when any of it changes.
 	type Made =
-		| { kind: 'deleted'; text: string; path: string }
-		| { kind: DiffMode; text: string; buffer: NonNullable<typeof buffer>; viewer: EditorModel; readOnly: boolean };
+		| { kind: 'deleted'; text: string; path: string; caption?: string }
+		| { kind: DiffMode; text: string; buffer: NonNullable<typeof buffer>; viewer: EditorModel; readOnly: boolean }
+		| { kind: 'commit'; mode: DiffMode; file: CommitFile; before: string; after: string };
 	const mount = $derived.by((): Made | null => {
-		if (shown !== null || headText === null || active === null) return null;
+		if (shown !== null) return null;
+		if (commitFile !== null) {
+			if (cview.kind !== 'text') return null;
+			if (cview.after === null) {
+				const caption = `${commitFile.parent === null ? NO_PARENT : shortOid(commitFile.parent)} (deleted by ${shortOid(commitFile.oid)})`;
+				return { kind: 'deleted', text: cview.before, path: commitFile.path, caption };
+			}
+			return { kind: 'commit', mode, file: commitFile, before: cview.before, after: cview.after };
+		}
+		if (headText === null || active === null) return null;
 		if (deleted) return { kind: 'deleted', text: headText, path: active };
 		if (buffer === null || viewer === null) return null;
 		return { kind: mode, text: headText, buffer, viewer, readOnly };
@@ -127,6 +171,37 @@
 		const onError = (e: unknown) => {
 			editorError = e instanceof Error ? e.message : String(e);
 		};
+		if (m.kind === 'commit') {
+			// Two read-only texts: the commit's file against its first parent's. No buffer is given, so none can be touched.
+			const parent = m.file.parent === null ? NO_PARENT : shortOid(m.file.parent);
+			const now = shortOid(m.file.oid);
+			if (m.mode === 'classic') {
+				const ed = new LazyEditor<CompareOptions>(
+					host,
+					{
+						disk: m.before,
+						text: { text: m.after, path: m.file.path },
+						labels: { a: parent, b: now },
+						sideLabel: `File contents at ${parent}`,
+						textLabel: `File contents at ${now}`,
+					},
+					onError,
+					loadEditor,
+					(mod, h, o) => mod.mountCompare(h, o),
+				);
+				return () => ed.destroy();
+			}
+			const opts: ReviewOptions = {
+				buffer: null,
+				text: { text: m.after, path: m.file.path },
+				base: m.before,
+				path: m.file.path,
+				labels: { left: now, right: `Against ${parent}` },
+				onSave: () => {},
+			};
+			const ed = new LazyEditor<ReviewOptions>(host, opts, onError, loadEditor, (mod, h, o) => mod.mountReview(h, o));
+			return () => ed.destroy();
+		}
 		if (m.kind === 'classic') {
 			const ed = new LazyEditor<EditorOptions>(host, { buffer: m.buffer, onSave: () => void m.viewer.save() }, onError, loadEditor, (mod, h, o) =>
 				mod.mountCompare(h, { ...o, disk: m.text, labels: { a: 'HEAD', b: 'Working tree' }, sideLabel: 'File contents at HEAD' }),
@@ -135,29 +210,41 @@
 		}
 		const opts: ReviewOptions =
 			m.kind === 'deleted'
-				? { buffer: null, base: m.text, path: m.path, onSave: () => {} }
+				? { buffer: null, base: m.text, path: m.path, onSave: () => {}, ...(m.caption !== undefined ? { labels: { left: '', right: m.caption } } : {}) }
 				: { buffer: m.buffer, base: m.text, path: untrack(() => active) ?? undefined, onSave: () => void m.viewer.save() };
 		const ed = new LazyEditor<ReviewOptions>(host, opts, onError, loadEditor, (mod, h, o) => mod.mountReview(h, o));
 		return () => ed.destroy();
 	};
 </script>
 
+{#snippet modes()}
+	<div class="modes" role="group" aria-label="Diff mode">
+		{#each ['classic', 'review'] as const as m (m)}
+			<button type="button" data-mode={m} aria-pressed={(alone ? 'review' : mode) === m} disabled={alone} onclick={() => choose(m)}>
+				{m === 'classic' ? 'Classic' : 'Review'}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+
 <div class="diff">
-	{#if active !== null}
-		<div class="head">
+	{#if commitFile !== null}
+		<div class="head" data-diff-source="commit" data-commit={commitFile.oid} data-parent={commitFile.parent ?? undefined} data-diff-path={commitFile.path}>
+			<span class="path" title={commitFile.path}>{commitHeader(commitFile)}</span>
+			<span class="mark {commitFile.status}" title={MARK_WORDS[commitFile.status]}>{LETTERS[commitFile.status]}</span>
+			<span class="word">{MARK_WORDS[commitFile.status]}</span>
+			<span class="vs">read-only</span>
+			{@render modes()}
+		</div>
+	{:else if active !== null}
+		<div class="head" data-diff-source="worktree" data-diff-path={active}>
 			<span class="path" title={active}>{active}</span>
 			{#if entry}
 				<span class="mark {entry.mark}" title={MARK_WORDS[entry.mark]}>{LETTERS[entry.mark]}</span>
 				<span class="word">{MARK_WORDS[entry.mark]}</span>
 			{/if}
 			<span class="vs">vs HEAD</span>
-			<div class="modes" role="group" aria-label="Diff mode">
-				{#each ['classic', 'review'] as const as m (m)}
-					<button type="button" data-mode={m} aria-pressed={(deleted ? 'review' : mode) === m} disabled={deleted} onclick={() => choose(m)}>
-						{m === 'classic' ? 'Classic' : 'Review'}
-					</button>
-				{/each}
-			</div>
+			{@render modes()}
 		</div>
 	{/if}
 	{#if shown !== null}
