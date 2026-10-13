@@ -7422,6 +7422,112 @@
       }
     },
     {
+      "name": "git.pull",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Fast-forwards the current branch to its upstream for the UI: fetches, then moves the branch and the work tree forward, or refuses (a detached HEAD, no upstream, a diverged branch, local changes in the way); nothing is merged, rebased or stashed. Only on a trusted project; git never prompts here, so a credential that needs one fails with a next step.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "branch": {
+                "type": "string",
+                "description": "The local branch that was pulled, without refs/heads/."
+              },
+              "before": {
+                "type": "string",
+                "description": "The full object id the branch pointed at before the pull."
+              },
+              "after": {
+                "type": "string",
+                "description": "The full object id the branch points at after it. Equal to before: it was already up to date."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "branch",
+              "before",
+              "after"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "git.read",
       "kind": "query",
       "scope": "workspace",

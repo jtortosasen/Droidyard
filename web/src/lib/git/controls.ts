@@ -22,7 +22,7 @@ const LATER = 'Enabled in a later milestone (not 2n)';
 /** SourceGit's order: Fetch, Pull, Push, Stash, then (after a separator) Create Branch. */
 export const TOOLBAR: readonly Control<ToolbarId>[] = [
 	{ id: 'fetch', label: 'Fetch', enabled: true, title: 'Fetch every remote' },
-	{ id: 'pull', label: 'Pull', enabled: false, title: `Pull: ${LATER}` },
+	{ id: 'pull', label: 'Pull', enabled: true, title: 'Fast-forward the current branch to its upstream' },
 	{ id: 'push', label: 'Push', enabled: false, title: `Push: ${LATER}` },
 	{ id: 'stash', label: 'Stash', enabled: false, title: `Stash: ${LATER}` },
 	{ id: 'create-branch', label: 'Create Branch', enabled: true, title: 'Create a branch at HEAD' },
