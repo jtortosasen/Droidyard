@@ -323,3 +323,45 @@ func TestPullTakesNoParameter(t *testing.T) {
 		t.Errorf("%d write gits started for a refused call", n)
 	}
 }
+
+// TestPullNeverPrunes: a pull's fetch prunes nothing, as git.fetch does not (ADR-0071 §1),
+// even when the repository sets remote.origin.prune and remote.origin.pruneTags, which
+// outrank fetch.prune: a gone remote branch and a tag the remote lacks are both kept.
+// Seen failing with --no-prune removed (the verifier's probe: -c fetch.prune=false alone prunes).
+func TestPullNeverPrunes(t *testing.T) {
+	f := newWfx(t)
+	f.e.g(f.r.Origin, "branch", "gone", "main")
+	f.e.g(f.r.Origin, "tag", "gonetag", "main")
+	f.fetchFirst()
+	f.e.g(f.r.W, "fetch", "-q", "origin", "refs/tags/gonetag:refs/tags/gonetag")
+	if f.e.revOr(f.r.W, "refs/remotes/origin/gone") == "" {
+		t.Fatal("control: origin/gone was not fetched")
+	}
+	f.e.g(f.r.Origin, "branch", "-D", "gone")
+	f.e.g(f.r.Origin, "tag", "-d", "gonetag")
+	pushed := f.r.PushOther(t, 1)
+	f.e.g(f.r.W, "config", "remote.origin.prune", "true")
+	f.e.g(f.r.W, "config", "remote.origin.pruneTags", "true")
+	if got := f.pull(); got.After != pushed {
+		t.Fatalf("after %s, want the fast-forward to %s", got.After, pushed)
+	}
+	if f.e.revOr(f.r.W, "refs/remotes/origin/gone") == "" {
+		t.Error("refs/remotes/origin/gone was pruned by git.pull under remote.origin.prune=true")
+	}
+	if f.e.revOr(f.r.W, "refs/tags/gonetag") == "" {
+		t.Error("the tag gonetag was pruned by git.pull under remote.origin.pruneTags=true")
+	}
+}
+
+// TestPullIgnoresTheRepositorysPullConfig: whatever the repository says about merging,
+// rebasing or recursing for its own pulls, git.pull fast-forwards and makes no merge commit.
+func TestPullIgnoresTheRepositorysPullConfig(t *testing.T) {
+	f := newWfx(t)
+	for _, kv := range [][2]string{{"branch.main.mergeoptions", "--no-ff"}, {"pull.ff", "false"}, {"merge.ff", "false"}, {"branch.main.rebase", "true"}, {"pull.rebase", "merges"}, {"submodule.recurse", "true"}, {"fetch.recurseSubmodules", "true"}} {
+		f.e.g(f.r.W, "config", kv[0], kv[1])
+	}
+	pushed := f.r.PushOther(t, 1)
+	if got := f.pull(); got.After != pushed {
+		t.Errorf("after %s, want the fast-forward to %s", got.After, pushed)
+	}
+}

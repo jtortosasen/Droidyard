@@ -32,7 +32,7 @@ func registerPull(reg *capability.Registry, opts Options) {
 		Result:      PullResult{},
 		// The codes the handler returns (ADR-0071 §2, §4; ADR-0074 §2). WORKSPACE_NOT_OPEN
 		// comes from Start. WORKSPACE_UNTRUSTED is the trust hook's. GIT_FAILED is a detached
-		// HEAD, a branch with no upstream, git's own refusal (it cannot fast-forward, local
+		// HEAD, a branch with no commit yet or no upstream, git's own refusal (it cannot fast-forward, local
 		// changes in the way), a credential it cannot ask for, a ref lock another git holds
 		// and the five-minute limit.
 		Errors: []capability.ErrorCode{
@@ -72,6 +72,12 @@ func (o Options) pull(ctx context.Context, call *capability.Call) (any, error) {
 			WithNextStep("check a branch out first; a pull brings a branch up to its upstream")
 	}
 	branch := strings.TrimPrefix(ref, "refs/heads/")
+	// Where the branch is first: an unborn branch has no upstream to read either, and its
+	// refusal says why.
+	before, err := pullHead(ctx, r, root)
+	if err != nil {
+		return nil, err
+	}
 	upstream, err := upstreamOf(ctx, r, root, ref)
 	if err != nil {
 		return nil, err
@@ -80,10 +86,6 @@ func (o Options) pull(ctx context.Context, call *capability.Call) (any, error) {
 		return nil, capability.Errorf(CodeFailed, "git cannot pull: the branch %q has no upstream", truncate(branch, 80)).
 			WithCause("no upstream branch is configured for " + truncate(branch, 80)).
 			WithNextStep("set one in a terminal in " + root + " with `git branch --set-upstream-to=<remote>/<branch>`, then retry")
-	}
-	before, err := pullHead(ctx, r, root)
-	if err != nil {
-		return nil, err
 	}
 
 	timeout := o.timeoutFor(true)
@@ -105,12 +107,13 @@ func (o Options) pull(ctx context.Context, call *capability.Call) (any, error) {
 // and the three -c settings say the same twice, so that the repository's configuration (a
 // rebase, a stash, a submodule recursion the user set for their own pulls) cannot make
 // this one rebase, stash or recurse. --quiet drops the per-ref progress lines a fetch
-// writes, as fetchArgs does; `fatal:` and `error:` lines stay. Its fetch never prunes, as
-// git.fetch never does (ADR-0071 §1), whatever the user set for their own fetches.
+// writes, as fetchArgs does; `fatal:` and `error:` lines stay. --no-prune: its fetch never
+// prunes, as git.fetch never does (ADR-0071 §1); on the command line, because a
+// repository's remote.<name>.prune and remote.<name>.pruneTags outrank fetch.prune, and
+// pruneTags would delete the user's own unpushed tags.
 func pullArgs() []string {
 	return writeCmd("-c", "pull.rebase=false", "-c", "merge.autoStash=false", "-c", "submodule.recurse=false",
-		"-c", "fetch.prune=false", "-c", "fetch.pruneTags=false",
-		"pull", "--quiet", "--ff-only", "--no-rebase", "--no-recurse-submodules", "--no-autostash")
+		"pull", "--quiet", "--ff-only", "--no-rebase", "--no-recurse-submodules", "--no-autostash", "--no-prune")
 }
 
 // pullFailure is writeFailure with, for a branch git cannot fast-forward, the way on:
