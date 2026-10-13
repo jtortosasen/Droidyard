@@ -260,7 +260,7 @@ func (r *runner) exec(ctx context.Context, root string, overrides []string, stdi
 		return result{ExitCode: -1}, fmt.Errorf("starting git: %w", err)
 	}
 	err := cmd.Wait()
-	res := result{Stdout: out.bytes(), Stderr: errb.bytes(), Truncated: out.cut, ExitCode: -1}
+	res := result{Stdout: out.bytes(), Stderr: errb.bytes(), Truncated: out.truncated(), ExitCode: -1}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()
 	}
@@ -300,6 +300,14 @@ func (l *limited) Write(p []byte) (int, error) {
 	}
 	l.buf.Write(p)
 	return n, nil
+}
+
+// truncated reports whether bytes were dropped, read under the lock: the copy goroutines may
+// still be writing when a timed-out call returns.
+func (l *limited) truncated() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.cut
 }
 
 func (l *limited) bytes() []byte {

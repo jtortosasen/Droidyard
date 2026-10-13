@@ -11,6 +11,10 @@
 	import Tag from '@lucide/svelte/icons/tag';
 	import type { KeyValueStorage } from '../ui/layout';
 	import BranchMenu from './BranchMenu.svelte';
+	import Download from '@lucide/svelte/icons/download';
+	import X from '@lucide/svelte/icons/x';
+	import Spinner from '../projects/Spinner.svelte';
+	import type { FetchModel, FetchView } from './fetch';
 	import type { HistoryStore, HistoryView } from './history';
 	import { loadFavourites, panelModel, saveFavourites, toggled, type RefRow, type SectionId } from './refs';
 
@@ -26,8 +30,15 @@
 		store: HistoryStore;
 		workspaceId: string;
 		storage: KeyValueStorage | null;
+		/** The tab's Fetch: each remote of the REMOTES section has a Fetch (plan m2n P2). */
+		fetcher: FetchModel;
+		fetchView: FetchView;
 	}
-	let { view, store, workspaceId, storage }: Props = $props();
+	let { view, store, workspaceId, storage, fetcher, fetchView }: Props = $props();
+
+	// The remotes that have a remote-tracking branch listed; a remote never fetched has none and
+	// is not named by git.refs, so it has no button of its own (the toolbar's Fetch reaches it).
+	const remoteNames = $derived([...new Set((view.refs?.remotes ?? []).map((r) => r.remote))].sort());
 
 	let filter = $state('');
 	let favourites = $state.raw<ReadonlySet<string>>(untrack(() => loadFavourites(storage, workspaceId)));
@@ -132,6 +143,41 @@
 						</button>
 					</h3>
 					{#if open}
+						{#if s.id === 'remotes' && remoteNames.length > 0}
+							<div class="remote-fetch" data-remote-fetch>
+								{#each remoteNames as name (name)}
+									{@const mine = fetchView.busy && fetchView.remote === name}
+									<span class="rf">
+										<button
+											type="button"
+											class="rf-btn"
+											data-fetch-remote={name}
+											data-op-state={fetchView.remote === name ? fetchView.state : 'idle'}
+											disabled={fetchView.busy}
+											aria-label={`Fetch ${name}`}
+											title={mine ? (fetchView.state === 'queued' ? `Fetch of ${name} is queued` : `Fetching ${name}`) : `Fetch ${name}`}
+											onclick={() => void fetcher.run(name)}
+										>
+											{#if mine}<Spinner size={11} />{:else}<Download size={12} />{/if}
+											<span class="rf-name">{name}</span>
+										</button>
+										{#if mine}
+											<button
+												type="button"
+												class="rf-btn"
+												data-op-cancel
+												disabled={fetchView.cancelling}
+												title={fetchView.cancelling ? 'Cancelling…' : `Cancel the fetch of ${name}`}
+												aria-label={`Cancel the fetch of ${name}`}
+												onclick={() => fetcher.cancel()}
+											>
+												<X size={12} />
+											</button>
+										{/if}
+									</span>
+								{/each}
+							</div>
+						{/if}
 						<div class="rows" role="tree" aria-label={s.title}>
 							{#each s.rows as row (row.key)}
 								{#if row.kind === 'folder'}
@@ -321,6 +367,34 @@
 		font-size: var(--fs-small);
 		font-weight: 400;
 		color: var(--text-3);
+	}
+	.remote-fetch {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--sp-2);
+		padding: var(--sp-2) var(--sp-3);
+	}
+	.rf {
+		display: inline-flex;
+		min-width: 0;
+		gap: var(--sp-1);
+	}
+	.rf-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		min-width: 0;
+		border-color: transparent;
+		background: transparent;
+		font-size: var(--fs-small);
+	}
+	.rf-name {
+		unicode-bidi: isolate;
+		min-width: 0;
+		max-width: 16ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.row {
 		display: flex;

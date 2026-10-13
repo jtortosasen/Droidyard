@@ -127,8 +127,10 @@ func checkRegister(fsys fs.FS) []string {
 // (to 26,485) in milestone 2n step 2: mvp.md's git row (`log`, `refs`, `show`) and mcp.md's
 // not-exposed row for git.log (ADR-0069). Raised by 1 (to 26,486) in milestone 2n step 5:
 // the same row names git.refs. Raised by 1 (to 26,487) in milestone 2n step 7: the same row
-// names git.show.
-const liveBudget = 26487
+// names git.show. Raised by 59 (to 26,546) in milestone 2n step P2: a write git is a recorded
+// kind, in process-lifecycle.md's per-operation row and layer 2, and mvp.md's git row and
+// mcp.md's not-exposed row name git.fetch (ADR-0071).
+const liveBudget = 26546
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

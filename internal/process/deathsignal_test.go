@@ -16,15 +16,18 @@ import (
 )
 
 // TestDeathSignalPerKind: on Linux a child is asked for SIGTERM when the thread that
-// forked it exits (Pdeathsig), for every kind but shell-command. A shell.exec command
-// must survive the daemon so Reconcile, which keys on a live leader, can reap its whole
-// group; a device-stream client or a sidecar keeps the signal, as before (plan m1k D5;
-// process-lifecycle.md §Shutdown, layer 2). The choice is a portable bool so it is
-// tested here on any OS, not only under the Linux build tag. Seen failing with
-// shell-command given the death signal.
+// forked it exits (Pdeathsig), for every kind but shell-command and git-write. A shell.exec
+// command and a git write must survive the daemon so Reconcile, which keys on a live
+// leader, can reap their whole groups (Pdeathsig would kill the leader alone and leave the
+// ssh or uploadpack a fetch started); a device-stream client or a sidecar keeps the signal,
+// as before (plan m1k D5, plan m2n P2; process-lifecycle.md §Shutdown, layer 2). The
+// choice is a portable bool so it is tested here on any OS, not only under the Linux build
+// tag. Seen failing with shell-command, and with git-write, given the death signal.
 func TestDeathSignalPerKind(t *testing.T) {
-	if deathSignal(ShellCommand) {
-		t.Error("shell-command asks for the death signal; its leader must outlive the daemon")
+	for _, kind := range []Kind{ShellCommand, GitWrite} {
+		if deathSignal(kind) {
+			t.Errorf("%s asks for the death signal; its leader must outlive the daemon", kind)
+		}
 	}
 	for _, kind := range []Kind{"", SharedSidecar, WorkspaceSidecar, DeviceStream} {
 		if !deathSignal(kind) {
@@ -39,6 +42,17 @@ func TestDeathSignalPerKind(t *testing.T) {
 // record is left. The beforeRecord hook holds the write until the command has forked
 // and named its child, so the group-versus-pid decision is observed here.
 func TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails(t *testing.T) {
+	for _, kind := range []Kind{ShellCommand, GitWrite} {
+		t.Run(string(kind), func(t *testing.T) { killsTheGroupWhenTheRecordWriteFails(t, kind) })
+	}
+}
+
+// killsTheGroupWhenTheRecordWriteFails is the body for the kinds whose whole group is
+// killed (shell-command, and git-write since plan m2n P2: a fetch's transport child is in
+// its group and would otherwise run unrecorded). Seen failing with the kind's leader
+// killed by pid.
+func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
+	t.Helper()
 	root := t.TempDir()
 	st, err := store.New(root)
 	if err != nil {
@@ -83,7 +97,7 @@ func TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails(t *testi
 			syscall.Kill(bgPid, syscall.SIGKILL)
 		}
 	})
-	if _, err := s.SpawnRecorded(cmd, ShellCommand); !errors.Is(err, ErrUnrecordable) {
+	if _, err := s.SpawnRecorded(cmd, kind); !errors.Is(err, ErrUnrecordable) {
 		t.Fatalf("SpawnRecorded err = %v, want ErrUnrecordable", err)
 	}
 	if bgPid == 0 {

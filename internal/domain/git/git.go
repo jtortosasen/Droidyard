@@ -26,7 +26,11 @@ const (
 	// CodeNotARepository: the project root is in no git work tree.
 	CodeNotARepository capability.ErrorCode = "GIT_NOT_A_REPOSITORY"
 	// CodeFailed: git could not be run or exited non-zero for another reason; the cause
-	// is git's first line of stderr, or what stopped the run (a timeout).
+	// is git's first line of stderr, or what stopped the run (a timeout). For a write the
+	// cause is git's stderr from its first `fatal:` or `error:` line, at most 20 lines and
+	// 4 KiB, so a refused switch names the files in the way (ADR-0071 §5). A write's timeout has the
+	// message "git did not finish in <limit> and was stopped" and the cause "git did not
+	// finish in time".
 	CodeFailed capability.ErrorCode = "GIT_FAILED"
 )
 
@@ -63,15 +67,30 @@ type Options struct {
 	// Tick is the poller's interval between statuses; <= 0 is watchInterval's one
 	// second. A test shortens it.
 	Tick time.Duration
+	// Authorize is the trust hook (policy.Authorize) every write is gated on, run by the
+	// scheduler before the handler: an untrusted root is WORKSPACE_UNTRUSTED and no git
+	// starts (ADR-0071 §2). Nil (the golden registry) refuses every root.
+	Authorize func(ctx context.Context, call *capability.Call) (any, error)
+	// Recorded starts a write git recorded, as its own session and group leader, so a
+	// daemon that dies leaves it findable for the next start's reconciliation and its
+	// whole group is ended at every end of the call. Nil (the golden registry) makes a
+	// write GIT_FAILED.
+	Recorded RecordedStarter
+
+	// writeTimeout, when > 0, replaces ADR-0071 §3's limit of every write: a test
+	// shortens it. The shipped binary cannot set it.
+	writeTimeout time.Duration
 }
 
-// Register adds git.read, git.watch, git.log, git.refs and git.show to the registry.
+// Register adds git.read, git.watch, git.log, git.refs, git.show and git.fetch to the
+// registry.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
 	registerWatch(reg, opts)
 	registerLog(reg, opts)
 	registerRefs(reg, opts)
 	registerShow(reg, opts)
+	registerFetch(reg, opts)
 }
 
 // root resolves the call's workspace to its project root.

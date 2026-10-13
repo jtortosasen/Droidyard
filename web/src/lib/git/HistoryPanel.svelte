@@ -5,11 +5,13 @@
 	import Search from '@lucide/svelte/icons/search';
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import Tag from '@lucide/svelte/icons/tag';
+	import X from '@lucide/svelte/icons/x';
 	import Splitter from '../ui/Splitter.svelte';
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
 	import CommitView from './CommitView.svelte';
 	import type { CommitFile } from './diffsource';
+	import type { FetchModel, FetchView } from './fetch';
 	import GitToolbar from './GitToolbar.svelte';
 	import { avatarHue, initials, relativeTime, type HistoryStore, type HistoryView } from './history';
 	import { badgesByOid, type Badge } from './refs';
@@ -38,8 +40,10 @@
 		workspaceId: string;
 		/** A changed file of an expanded commit was picked (plan m2n step 9): the shell opens the Diff tab on it. */
 		onopenfile?: (file: CommitFile) => void;
+		/** The tab's Fetch (plan m2n P2), shared by the toolbar and the Remotes section. */
+		fetcher: FetchModel;
 	}
-	let { store, watch, workspaceId, onopenfile }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -54,6 +58,14 @@
 		view = s.view;
 		return s.subscribe(() => {
 			view = s.view;
+		});
+	});
+	let fetchView = $state.raw<FetchView>(untrack(() => fetcher.view));
+	$effect(() => {
+		const f = fetcher;
+		fetchView = f.view;
+		return f.subscribe(() => {
+			fetchView = f.view;
 		});
 	});
 	$effect(() => {
@@ -195,10 +207,28 @@
 <svelte:window onfocus={() => store.focused()} />
 
 <section class="history" data-history bind:clientHeight={boxHeight}>
-	<GitToolbar head={view.refs?.head ?? null} onnavigate={() => void store.navigateToHead()} />
+	<GitToolbar
+		head={view.refs?.head ?? null}
+		onnavigate={() => void store.navigateToHead()}
+		onrun={(id) => {
+			if (id === 'fetch') void fetcher.run();
+		}}
+		{fetchView}
+		oncancel={() => fetcher.cancel()}
+	/>
+	{#if fetchView.failure}
+		<div class="fetch-failed" role="alert" data-op-error>
+			<div class="what">
+				<p class="msg">{fetchView.failure.code ? `${fetchView.failure.code}: ` : ''}{fetchView.failure.message}</p>
+				{#if fetchView.failure.cause}<pre class="cause">{fetchView.failure.cause}</pre>{/if}
+				{#if fetchView.failure.nextStep}<p class="next">{fetchView.failure.nextStep}</p>{/if}
+			</div>
+			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => fetcher.dismiss()}><X size={14} /></button>
+		</div>
+	{/if}
 	<div class="body">
 		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags and work trees">
-			<RefsPanel {view} {store} {workspaceId} {storage} />
+			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
 		<div class="table-area">
@@ -458,6 +488,38 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.fetch-failed {
+		flex: none;
+		display: flex;
+		align-items: flex-start;
+		gap: var(--sp-3);
+		padding: var(--sp-2) var(--sp-4);
+		border-bottom: 1px solid var(--border);
+		font-size: var(--fs-small);
+	}
+	.fetch-failed .what {
+		flex: 1;
+		min-width: 0;
+	}
+	.fetch-failed p,
+	.fetch-failed pre {
+		margin: 0;
+		overflow-wrap: anywhere;
+		white-space: pre-wrap;
+		unicode-bidi: isolate;
+	}
+	.fetch-failed .msg {
+		color: var(--danger);
+	}
+	.fetch-failed .cause {
+		font-family: var(--font-mono);
+		color: var(--text-2);
+		max-height: 8em;
+		overflow: auto;
+	}
+	.fetch-failed .next {
+		color: var(--text-2);
 	}
 	.note,
 	.problem {

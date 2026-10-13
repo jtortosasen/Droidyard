@@ -9,14 +9,19 @@
 	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import GitBranchPlus from '@lucide/svelte/icons/git-branch-plus';
 	import LocateFixed from '@lucide/svelte/icons/locate-fixed';
+	import X from '@lucide/svelte/icons/x';
+	import Spinner from '../projects/Spinner.svelte';
 	import { activate, TOOLBAR, type ToolbarId } from './controls';
+	import type { FetchView } from './fetch';
 	import { headDisplay, type RefsHead } from './refs';
 
 	// The History tab's operations toolbar, after SourceGit's (plan m2n step 6; the owner's item
 	// 10): Fetch, Pull, Push, Stash, a separator, Create Branch; at the right end the current
-	// branch's name with its ahead and behind badge, and Navigate to HEAD. Every write control is
+	// branch's name with its ahead and behind badge, and Navigate to HEAD. A write control is
 	// shown disabled until the part that enables it (controls.ts); a click goes through
-	// `activate`, so a disabled control reaches nothing. Pull and Push carry a dot when the
+	// `activate`, so a disabled control reaches nothing. Fetch (step P2) is enabled: while a fetch
+	// is in flight it shows a spinner with Queued or Fetching, is disabled, and a Cancel beside it
+	// ends the operation (`data-op-state`, `data-op-cancel`). Pull and Push carry a dot when the
 	// branch is behind or ahead. The branch name is git's text, in an isolated text node.
 	interface Props {
 		/** HEAD as the refs read it; null until they arrive. */
@@ -25,8 +30,15 @@
 		onnavigate: () => void;
 		/** Part 2's seam: an enabled control was pressed. */
 		onrun?: (id: ToolbarId) => void;
+		/** The Fetch in flight, or its last failure. */
+		fetchView?: FetchView;
+		/** Cancel was pressed while a fetch is in flight. */
+		oncancel?: () => void;
 	}
-	let { head, onnavigate, onrun }: Props = $props();
+	let { head, onnavigate, onrun, fetchView, oncancel }: Props = $props();
+
+	const fetching = $derived(fetchView?.busy ?? false);
+	const fetchLabel = $derived(fetchView?.state === 'queued' ? 'Queued…' : fetching ? 'Fetching…' : 'Fetch');
 
 	const ICONS: Record<ToolbarId, Component> = {
 		fetch: Download,
@@ -58,14 +70,28 @@
 			class="tool"
 			data-toolbar={c.id}
 			data-dot={dot(c.id) ? '' : undefined}
-			disabled={!c.enabled}
-			title={c.title}
+			data-op-state={c.id === 'fetch' ? (fetchView?.state ?? 'idle') : undefined}
+			disabled={!c.enabled || (c.id === 'fetch' && fetching)}
+			title={c.id === 'fetch' && fetching ? (fetchView?.remote == null ? 'Fetching every remote' : `Fetching ${fetchView.remote}`) : c.title}
 			onclick={() => activate(c, () => onrun?.(c.id))}
 		>
-			<Icon size={14} />
-			<span>{c.label}</span>
+			{#if c.id === 'fetch' && fetching}<Spinner size={12} />{:else}<Icon size={14} />{/if}
+			<span>{c.id === 'fetch' ? fetchLabel : c.label}</span>
 			{#if dot(c.id)}<span class="dot" aria-hidden="true"></span>{/if}
 		</button>
+		{#if c.id === 'fetch' && fetching}
+			<button
+				type="button"
+				class="tool"
+				data-op-cancel
+				disabled={fetchView?.cancelling}
+				title={fetchView?.cancelling ? 'Cancelling…' : 'Cancel the fetch'}
+				onclick={() => oncancel?.()}
+			>
+				<X size={14} />
+				<span>Cancel</span>
+			</button>
+		{/if}
 	{/each}
 	<span class="fill"></span>
 	{#if shown}
