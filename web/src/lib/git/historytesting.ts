@@ -1,5 +1,6 @@
 // Fakes for the History store's tests: commits, a Git watch, and a client that answers
 // git.log from a list and git.refs from `state.refs`.
+import type { Show } from './files';
 import type { Commit, HistoryClient, HistoryWatch } from './history';
 import { HistoryStore } from './history';
 import type { RefsResult } from './refs';
@@ -37,6 +38,22 @@ export function chain(n: number, prefix = 'c'): Commit[] {
 	return Array.from({ length: n }, (_, i) => commit(`${prefix}${i}`, i + 1 < n ? [`${prefix}${i + 1}`] : []));
 }
 
+/** What git.show answers for an oid: a commit of one counted file. */
+export function showOf(oid: string, over: Partial<Show> = {}): Show {
+	const who = { name: 'Ada Lovelace', email: 'ada@example.org', time: '2026-10-13T14:05:09+02:00' };
+	return {
+		oid,
+		parents: [],
+		author: who,
+		committer: who,
+		message: `message of ${oid}`,
+		messageTruncated: false,
+		files: [{ path: 'a.txt', status: 'modified', added: 1, removed: 0, binary: false }],
+		truncated: false,
+		...over,
+	};
+}
+
 export class FakeWatch implements HistoryWatch {
 	view: GitView = { state: 'watching', problem: null, head: { oid: 'c0', branch: 'main' }, entries: [], truncated: false };
 	#l = new Set<() => void>();
@@ -59,8 +76,15 @@ export function setup(all: () => Commit[] = () => chain(5), pageSize = 2, tips =
 	let failRefs: Error | null = null;
 	// What git.refs answers; a test changes it to move a ref.
 	const state = { refs: refsOf(tips) };
+	const showCalls: { oid: string; workspace?: string }[] = [];
+	let failShow: Error | null = null;
 	const client = {
-		call: async (name: string, params: LogParams, o?: { workspace?: string }) => {
+		call: async (name: string, params: LogParams & { oid?: string }, o?: { workspace?: string }) => {
+			if (name === 'git.show') {
+				showCalls.push({ oid: params.oid!, workspace: o?.workspace });
+				if (failShow) throw failShow;
+				return showOf(params.oid!);
+			}
 			if (name === 'git.refs') {
 				refsCalls.push({ workspace: o?.workspace });
 				if (failRefs) throw failRefs;
@@ -76,5 +100,5 @@ export function setup(all: () => Commit[] = () => chain(5), pageSize = 2, tips =
 	} as unknown as HistoryClient;
 	const watch = new FakeWatch();
 	const store = new HistoryStore(client, { root: ' /proj ' }, watch);
-	return { calls, refsCalls, state, watch, store, failWith: (e: Error | null) => (fail = e), failRefsWith: (e: Error | null) => (failRefs = e) };
+	return { calls, refsCalls, showCalls, failShowWith: (e: Error | null) => (failShow = e), state, watch, store, failWith: (e: Error | null) => (fail = e), failRefsWith: (e: Error | null) => (failRefs = e) };
 }
