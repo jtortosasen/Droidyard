@@ -1,8 +1,8 @@
 // What the History tab's branch entries call (plan m2n P3; ADR-0071 §1, §5), pure:
 //   - which enabled entry of the branch menu does what for a local or a remote-tracking branch:
 //     Checkout is one `git.checkout`, New branch from opens the dialog at that branch's commit;
-//     every other entry does nothing here (Compare with current waits for step P9, the rest for
-//     a later milestone);
+//     Compare with current (P9, ADR-0072) opens the comparison view, and every other entry does
+//     nothing here (the rest wait for a later milestone);
 //   - the toolbar's Create Branch, from HEAD;
 //   - the parameters of the two calls: a remote-tracking branch is checked out as
 //     `{name, remote}` (the daemon creates the local branch tracking it, or switches to the
@@ -34,7 +34,8 @@ export interface NewBranchSource {
 /** What an enabled entry does: a call now, or a dialog first. */
 export type EntryAction =
 	| { kind: 'checkout'; target: BranchTarget; params: Params<'git.checkout'> }
-	| { kind: 'new-branch'; source: NewBranchSource };
+	| { kind: 'new-branch'; source: NewBranchSource }
+	| { kind: 'compare'; target: BranchTarget };
 
 /** The text of a target as the list shows it: `feature/x`, `origin/feature/x`. */
 export function targetLabel(t: BranchTarget): string {
@@ -76,9 +77,22 @@ export function entryAction(id: MenuId, target: BranchTarget): EntryAction | nul
 			const source = sourceOf(target);
 			return source === null ? null : { kind: 'new-branch', source };
 		}
+		case 'compare':
+			return canCompare(target, null) ? { kind: 'compare', target } : null;
 		default:
 			return null;
 	}
+}
+
+/**
+ * Whether Compare with current is offered for `target` (ADR-0072): a local or remote-tracking branch that has a commit and is
+ * not the current branch. `head` is HEAD as the refs read it; null when they are not read (the target alone is judged).
+ */
+export function canCompare(target: BranchTarget, head: RefsHead | null): boolean {
+	if (isRemoteHead(target) || target.oid === undefined || target.oid === '') return false;
+	if (head === null) return true;
+	if (head.oid === undefined || head.oid === '') return false;
+	return !(target.kind === 'local' && !head.detached && head.branch === target.name);
 }
 
 /** The editor's source of unsaved files (editor/unsaved.ts's UnsavedSource, what the gate reads). */

@@ -578,3 +578,79 @@ func TestLogSlim(t *testing.T) {
 		t.Errorf("Slim changed the result it was given")
 	}
 }
+
+// Decision (ADR-0072 §1): exclude leaves the history of the commits it names out, as
+// `^<oid>` on the stdin of the walk: from [B] excluding [A] is exactly
+// `rev-list --date-order B ^A`, in that order, and pages join by skip as before. The
+// control is that B's whole walk is longer, so a handler that dropped the "^" lines fails the
+// equality (seen failing that way).
+func TestLogExclude(t *testing.T) {
+	f := newReadFx(t)
+	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	f.at(r.Dir)
+	b, a := r.Oids["merge"], r.Oids["second"]
+	want := strings.Fields(f.g(r.Dir, "rev-list", "--date-order", b, "^"+a))
+	whole := f.walkOf(r.Dir, []string{b})
+	if len(want) == 0 || len(want) >= len(whole) {
+		t.Fatalf("fixture: B ^A is %d commits and B alone %d; want a proper, non-empty subset", len(want), len(whole))
+	}
+	got := f.mustLog(LogParams{From: []string{b}, Exclude: []string{a}})
+	if !slices.Equal(oidsIn(got.Commits), want) || got.More {
+		t.Errorf("exclude gave %v (more %v); want git's %v", oidsIn(got.Commits), got.More, want)
+	}
+	rev := strings.Fields(f.g(r.Dir, "rev-list", "--date-order", a, "^"+b))
+	if g := f.mustLog(LogParams{From: []string{a}, Exclude: []string{b}}); !slices.Equal(oidsIn(g.Commits), rev) {
+		t.Errorf("reverse gave %v; want %v", oidsIn(g.Commits), rev)
+	}
+	var paged []string
+	for skip := 0; ; {
+		p := f.mustLog(LogParams{From: []string{b}, Exclude: []string{a}, Skip: ip(skip), Limit: ip(1)})
+		paged = append(paged, oidsIn(p.Commits)...)
+		skip += len(p.Commits)
+		if !p.More || len(p.Commits) == 0 {
+			break
+		}
+	}
+	if !slices.Equal(paged, want) {
+		t.Errorf("pages joined to %v; want %v", paged, want)
+	}
+}
+
+// Decision (ADR-0072 §1): exclude is validated as from is: full object ids of commits, at
+// most 5,000; anything else is REQUEST_INVALID_PARAMS, and the syntactic refusals start no
+// git. A non-commit is found by one cat-file, so it is checked apart.
+func TestLogExcludeRefused(t *testing.T) {
+	f := newReadFx(t)
+	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	f.at(r.Dir)
+	good := r.Oids["head"]
+	for name, ex := range map[string][]string{
+		"a short id":         {good[:7]},
+		"a ref name":         {"main"},
+		"an option":          {"--output=/tmp/x"},
+		"a revision":         {good + "^"},
+		"a line break":       {good + "\n^" + good},
+		"empty":              {""},
+		"upper case":         {strings.ToUpper(good)},
+		"5,001 ids":          slices.Repeat([]string{good}, maxFrom+1),
+		"one bad among good": {good, "main"},
+	} {
+		_, err := f.logPage(LogParams{From: []string{good}, Exclude: ex})
+		if err == nil || err.Code != capability.ErrInvalidParams || err.NextStep == "" {
+			t.Errorf("%s: %v; want REQUEST_INVALID_PARAMS with a next step", name, err)
+		}
+	}
+	if n := f.starts.Load(); n != 0 {
+		t.Errorf("%d gits started for an exclude that was refused; want 0", n)
+	}
+	tree := f.oidsOf(r.Dir, "HEAD^{tree}")[0]
+	for name, oid := range map[string]string{"a tree": tree, "an unknown id": strings.Repeat("0", 40)} {
+		_, err := f.logPage(LogParams{From: []string{good}, Exclude: []string{good, oid}})
+		if err == nil || err.Code != capability.ErrInvalidParams || !strings.Contains(err.Message, "exclude[1]") {
+			t.Errorf("%s: %v; want REQUEST_INVALID_PARAMS naming exclude[1]", name, err)
+		}
+	}
+	if _, err := f.logPage(LogParams{From: []string{good}, Exclude: []string{r.Oids["root"]}}); err != nil || f.starts.Load() == 0 {
+		t.Errorf("control: %v after %d starts", err, f.starts.Load())
+	}
+}

@@ -8,9 +8,9 @@ import BranchMenu from './BranchMenu.svelte';
 import GitToolbar from './GitToolbar.svelte';
 
 describe('the write controls', () => {
-	const ENABLED = ['fetch', 'create-branch', 'checkout', 'new-branch-from'];
+	const ENABLED = ['fetch', 'create-branch', 'checkout', 'new-branch-from', 'compare'];
 
-	// Decision (owner's items 6, 7, 8, 10): the toolbar and the branch menu list exactly SourceGit's and IntelliJ's entries; part 2 enabled Fetch (P2), Create Branch, Checkout and New branch from (P3); every other one is disabled with the milestone that enables it.
+	// Decision (owner's items 6, 7, 8, 10): the toolbar and the branch menu list exactly SourceGit's and IntelliJ's entries; part 2 enabled Fetch (P2), Create Branch, Checkout and New branch from (P3) and Compare with current (P9); every other one is disabled with the milestone that enables it.
 	it('lists the toolbar and the branch menu, all disabled but the ones part 2 enabled, each with a reason', () => {
 		expect(TOOLBAR.map((c) => c.id)).toEqual(['fetch', 'pull', 'push', 'stash', 'create-branch']);
 		expect(BRANCH_MENU.map((c) => c.label)).toEqual([
@@ -26,11 +26,8 @@ describe('the write controls', () => {
 		expect([...TOOLBAR, ...BRANCH_MENU].filter((c) => c.enabled).map((c) => c.id)).toEqual(ENABLED);
 		// The other six entries of the menu and Pull, Push and Stash stay disabled, each saying when.
 		const rest = [...TOOLBAR, ...BRANCH_MENU].filter((c) => !c.enabled);
-		expect(rest.map((c) => c.id)).toEqual(['pull', 'push', 'stash', 'compare', 'merge', 'rebase', 'push', 'rename', 'delete']);
+		expect(rest.map((c) => c.id)).toEqual(['pull', 'push', 'stash', 'merge', 'rebase', 'push', 'rename', 'delete']);
 		for (const c of rest) expect(c.title, c.id).toMatch(/milestone/);
-		// Part 2 still enables this one (step P9); the rest wait for a later milestone.
-		const part2 = rest.filter((c) => c.title.includes('part 2')).map((c) => c.label);
-		expect(part2).toEqual(['Compare with current']);
 	});
 
 	// Decision: a click on a disabled control reaches no capability, however it is wired.
@@ -105,7 +102,7 @@ describe('the branch menu markup', () => {
 		const items = [...body.matchAll(/<button[^>]*data-menu-item="([a-z-]+)"[^>]*>/g)];
 		expect(items.map((m) => m[1])).toEqual(['checkout', 'new-branch-from', 'compare', 'merge', 'rebase', 'push', 'rename', 'delete']);
 		for (const m of items) {
-			if (m[1] === 'checkout' || m[1] === 'new-branch-from') {
+			if (m[1] === 'checkout' || m[1] === 'new-branch-from' || m[1] === 'compare') {
 				expect(m[0], m[1]).not.toMatch(/\sdisabled/);
 				continue;
 			}
@@ -115,5 +112,13 @@ describe('the branch menu markup', () => {
 		expect(body).not.toContain('<i>x');
 		expect(body).toContain('&lt;i>x');
 		expect(chosen).toEqual([]);
+	});
+
+	// Decision (ADR-0072): Compare with current is enabled for a branch other than the current one and disabled for the current one.
+	it('disables Compare with current when the branch is the current one', () => {
+		const item = (canCompare: boolean) =>
+			[...render(BranchMenu, { props: { name: 'main', onchoose: () => {}, canCompare } }).body.matchAll(/<button[^>]*data-menu-item="compare"[^>]*>/g)][0][0];
+		expect(item(true)).not.toMatch(/\sdisabled/);
+		expect(item(false)).toMatch(/\sdisabled(=""|\s|>)/);
 	});
 });

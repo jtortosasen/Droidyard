@@ -24,7 +24,8 @@ const (
 
 // ShowParams is git.show's parameters.
 type ShowParams struct {
-	Oid string `json:"oid" jsonschema:"required,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The commit's full object id, as git.log returned it."`
+	Oid  string `json:"oid" jsonschema:"required,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The commit's full object id, as git.log returned it."`
+	Base string `json:"base,omitempty" jsonschema:"pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"A commit (full object id) to list the files against, in place of the first parent."`
 }
 
 // ShowPerson is an author or a committer, as the commit records them.
@@ -102,6 +103,10 @@ func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 		return nil, capability.NewError(capability.ErrInvalidParams, "oid is not a full object id").
 			WithNextStep("pass a full hex object id (as git.log returned it), not a ref name or a short id")
 	}
+	if p.Base != "" && !isOid(p.Base) {
+		return nil, capability.NewError(capability.ErrInvalidParams, "base is not a full object id").
+			WithNextStep("pass a full hex object id of a commit, not a ref name or a short id")
+	}
 	root, cerr := o.root(call)
 	if cerr != nil {
 		return nil, cerr
@@ -119,6 +124,16 @@ func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 	if i >= 0 {
 		return nil, capability.NewError(capability.ErrInvalidParams, "oid is not a commit of this repository").
 			WithNextStep("pass the id of a commit git.log returned; reload the history if the repository changed")
+	}
+	if p.Base != "" {
+		i, cerr := o.firstNotCommit(ctx, r, root, trusted, []string{p.Base})
+		if cerr != nil {
+			return nil, cerr
+		}
+		if i >= 0 {
+			return nil, capability.NewError(capability.ErrInvalidParams, "base is not a commit of this repository").
+				WithNextStep("pass the full object id of a commit of this repository")
+		}
 	}
 	prefix, err := r.prefix(ctx, root, trusted)
 	if err != nil {
@@ -145,6 +160,9 @@ func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 			return nil, capability.NewError(CodeFailed, "git answered something this version does not understand").
 				WithCause("a parent that is not an object id: " + truncate(first, 100))
 		}
+	}
+	if p.Base != "" { // ADR-0072 §2: the files between base and oid
+		first = p.Base
 	}
 	_, filesArgs := showArgs(p.Oid, first)
 	res, err = r.run(ctx, root, trusted, nil, filesArgs...)
