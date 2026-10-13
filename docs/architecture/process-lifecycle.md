@@ -16,7 +16,7 @@ the core is the `droidyard serve` daemon, started, found and kept single by
 | **Shared daemon** | `adb` server | global (core) | long-lived, shared across workspaces; not ours to kill |
 | **Shared sidecar** | **Gradle TAPI sidecar** (JVM) | global (core) | one per core, serving every open root; idles out when no root is active |
 | **Workspace sidecar** | Kotlin LSP (JVM, post-MVP) | workspace | long-lived while the workspace is open |
-| **Per-operation** | `adb` client commands, `git` (a `git.watch`'s per tick, its group killed at the watch's stop), `screenrecord`; a `shell.exec` command (kind `shell-command`) | operation | short, tied to an operation; a `shell.exec` command's whole process group is killed when its call ends |
+| **Per-operation** | `adb` client commands, `git` (a `git.watch`'s per tick, its group killed at the watch's stop), `screenrecord`; a `shell.exec` command (kind `shell-command`); a UI write git (kind `git-write`, [ADR-0071](../adr/0071-git-writes-for-the-ui.md)), recorded | operation | short, tied to an operation; a `shell.exec` command's or a write git's whole process group is killed when its call ends |
 | **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core once its serial is resolved; a launch the core started is ended if its boot fails before then ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)), and is pid-recorded until then (kind `emulator-launch`, ADR-0021) |
 | **Tool-owned daemon** | Gradle daemon, Kotlin compile daemon | Gradle | spawned and detached by Gradle; never a child of ours |
 
@@ -82,10 +82,13 @@ LSP later) stop after a configurable idle period and restart on demand.
      resolved ([emulator](../subsystems/emulator.md) §Design rule; a launch still without
      a serial is ended on the daemon's graceful shutdown, ADR-0033, and a killed daemon's
      successor ends it at reconcile when adb proves it is not a device), **and a
-     `shell.exec` command** (kind `shell-command`, milestone 1k D5): its leader must
+     `shell.exec` command** (kind `shell-command`, milestone 1k D5) **and a UI write git**
+     (kind `git-write`, plan m2n P2; its own session, no terminal): its leader must
      survive a killed daemon so the next one's reconcile finds its pid record and kills
-     its whole group; while the daemon lives, the group is killed at every end of the call
-     (exit, timeout, cancel, workspace close, shutdown). A process that detaches into its
+     its whole group (a fetch's `ssh` or `uploadpack` too); while the daemon lives, the
+     group is killed at every end of the call (exit, timeout, cancel, workspace close,
+     shutdown), a write git's by SIGTERM, then SIGKILL after 2 s: git removes its lock
+     files only on a signal it can catch. A process that detaches into its
      own group or session escapes both, by design. Go delivers `Pdeathsig` when the
      *thread* that forked the child exits, so children are spawned from one goroutine
      locked to its OS thread for the daemon's lifetime.

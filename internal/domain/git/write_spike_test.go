@@ -176,6 +176,17 @@ func (i wInv) start(t testing.TB, dir string, args []string, attr *syscall.SysPr
 	return h
 }
 
+// exitState is how git ended, read only once the helper's Wait has returned (it writes
+// ProcessState); "still running" if it has not within 5 s.
+func (h *hung) exitState() string {
+	select {
+	case <-h.done:
+		return h.cmd.ProcessState.String()
+	case <-time.After(5 * time.Second):
+		return "still running"
+	}
+}
+
 func groupAlive(pgid int) bool { return syscall.Kill(-pgid, 0) != syscall.ESRCH }
 
 // waitGone waits until no process is left in the group pgid, up to d.
@@ -326,9 +337,19 @@ func TestWritePrefixIsTheReadPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
-	want := append(writeFixedPrefix(false), "SENTINEL")
+	// The write prefix is the read prefix and one pair more: -c core.askPass= (empty), which
+	// git-lfs reads itself, as it does not look at GIT_ASKPASS (ADR-0073 §Consequences). The
+	// pair is the prefix's last, and pinned here: dropping it fails this test.
+	wp := writeFixedPrefix(false)
+	if n := len(wp); n < 2 || wp[n-2] != "-c" || wp[n-1] != "core.askPass=" {
+		t.Fatalf("the write prefix does not end in -c core.askPass=: %q", wp)
+	}
+	want := append(slices.Clone(wp[:len(wp)-2]), "SENTINEL")
 	if !slices.Equal(got, want) {
 		t.Errorf("the read runner's argv is\n  %q\nthe write prefix says\n  %q", got, want)
+	}
+	if n := writeFixedPrefix(true); n[len(n)-1] != "core.askPass=" {
+		t.Errorf("the network prefix does not carry core.askPass= either: %q", n)
 	}
 	net := writeFixedPrefix(true)
 	if slices.Contains(net, "protocol.allow=never") {
@@ -819,7 +840,7 @@ func TestWriteSpike4HungFetchIsEnded(t *testing.T) {
 				t.Fatalf("the uploadpack (pid %d, group %d) is not in git's group %d", child, mustPgid(child), h.pid)
 			}
 			took, needKill, gone := h.endGroup(true, 2*time.Second)
-			t.Logf("SIGTERM then SIGKILL after 2s: group gone %v in %v, SIGKILL needed %v; git: %v", gone, took.Round(time.Millisecond), needKill, h.cmd.ProcessState)
+			t.Logf("SIGTERM then SIGKILL after 2s: group gone %v in %v, SIGKILL needed %v; git: %v", gone, took.Round(time.Millisecond), needKill, h.exitState())
 			if !gone || took > 3*time.Second {
 				t.Errorf("kill(-pgid, 0) was not ESRCH within 3 s of the SIGTERM (gone %v after %v)", gone, took)
 			}
@@ -1014,26 +1035,6 @@ func psState(pid int) string {
 	return strings.TrimSpace(string(out))
 }
 
-// writeCause is ADR-0071 §5's cause of a write that fails: git's stderr from its first
-// `fatal:` or `error:` line, at most 20 lines and 4 KiB.
-func writeCause(stderr string) string {
-	lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
-	for i, l := range lines {
-		if strings.HasPrefix(l, "fatal:") || strings.HasPrefix(l, "error:") {
-			lines = lines[i:]
-			break
-		}
-	}
-	if len(lines) > 20 {
-		lines = lines[:20]
-	}
-	s := strings.Join(lines, "\n")
-	if len(s) > 4096 {
-		s = s[:4096]
-	}
-	return s
-}
-
 // Fact 7 (ADR-0071 §5): a switch git refuses over local changes changes nothing, exits
 // non-zero and names the cause and the files in the lines ADR-0071 §5 keeps. Control: on a
 // clean tree the same switch succeeds. Whether a refused `switch --create` leaves the
@@ -1057,7 +1058,7 @@ func TestWriteSpike7RefusedSwitchChangesNothing(t *testing.T) {
 			inv := e.inv(false)
 
 			res := inv.run(t, r.W, switchArgs("feature/x"))
-			cause := writeCause(res.Stderr)
+			cause := writeCause([]byte(res.Stderr))
 			t.Logf("switch: exit %d\nstderr:\n%s", res.Code, res.Stderr)
 			if res.Code == 0 {
 				t.Fatalf("git switched over %s", c.name)
@@ -1306,7 +1307,7 @@ func TestWriteSpike10SubmoduleFileTransport(t *testing.T) {
 
 	d := clone("default")
 	res := net.run(t, d, updateArgs(nil))
-	t.Logf("default policy: exit %d, initialised %v, cause %q", res.Code, initialised(d), firstLine([]byte(writeCause(res.Stderr))))
+	t.Logf("default policy: exit %d, initialised %v, cause %q", res.Code, initialised(d), firstLine([]byte(writeCause([]byte(res.Stderr)))))
 	defaultAdmits := res.Code == 0 && initialised(d)
 
 	d = clone("repo-config")

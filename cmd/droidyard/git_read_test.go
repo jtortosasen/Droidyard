@@ -113,6 +113,14 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 		t.Errorf("git.show as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
 
+	// git.fetch is human-only as well (ADR-0071 §1): a write for the UI, never an MCP tool.
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.fetch", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.fetch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
 	}
@@ -191,7 +199,7 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	}
 	// system.health reports the API version this step introduces.
 	henv, code := p.call(t, "system.health")
-	if code != 0 || health(t, henv).Version != "0.24.0" {
-		t.Errorf("system.health: exit %d, %+v; want API version 0.24.0", code, henv.Error)
+	if code != 0 || health(t, henv).Version != "0.25.0" {
+		t.Errorf("system.health: exit %d, %+v; want API version 0.25.0", code, henv.Error)
 	}
 }

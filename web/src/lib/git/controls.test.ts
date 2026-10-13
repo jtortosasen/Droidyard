@@ -8,8 +8,8 @@ import BranchMenu from './BranchMenu.svelte';
 import GitToolbar from './GitToolbar.svelte';
 
 describe('the write controls', () => {
-	// Decision (owner's items 6, 7, 8, 10): the toolbar and the branch menu list exactly SourceGit's and IntelliJ's entries, all disabled in part 1, each saying which part enables it.
-	it('lists the toolbar and the branch menu, all disabled, each with a reason', () => {
+	// Decision (owner's items 6, 7, 8, 10): the toolbar and the branch menu list exactly SourceGit's and IntelliJ's entries, each disabled with the milestone that enables it, except Fetch, which part 2's step P2 enabled.
+	it('lists the toolbar and the branch menu, all disabled but Fetch, each with a reason', () => {
 		expect(TOOLBAR.map((c) => c.id)).toEqual(['fetch', 'pull', 'push', 'stash', 'create-branch']);
 		expect(BRANCH_MENU.map((c) => c.label)).toEqual([
 			'Checkout',
@@ -21,13 +21,14 @@ describe('the write controls', () => {
 			'Rename',
 			'Delete',
 		]);
-		for (const c of [...TOOLBAR, ...BRANCH_MENU]) {
+		expect(TOOLBAR.find((c) => c.id === 'fetch')?.enabled).toBe(true);
+		for (const c of [...TOOLBAR, ...BRANCH_MENU].filter((c) => c.id !== 'fetch')) {
 			expect(c.enabled, c.id).toBe(false);
 			expect(c.title, c.id).toMatch(/milestone/);
 		}
 		// Part 2 enables these; the rest wait for a later milestone.
 		const part2 = [...TOOLBAR, ...BRANCH_MENU].filter((c) => c.title.includes('part 2')).map((c) => c.label);
-		expect(part2).toEqual(['Fetch', 'Create Branch', 'Checkout', 'New branch from', 'Compare with current']);
+		expect(part2).toEqual(['Create Branch', 'Checkout', 'New branch from', 'Compare with current']);
 	});
 
 	// Decision: a click on a disabled control reaches no capability, however it is wired.
@@ -37,7 +38,7 @@ describe('the write controls', () => {
 		const before = t.calls.length + t.refsCalls.length;
 		const other: string[] = [];
 		const spy = { call: (name: string) => (other.push(name), Promise.resolve({})) } as unknown as HistoryClient;
-		for (const c of [...TOOLBAR, ...BRANCH_MENU]) {
+		for (const c of [...TOOLBAR, ...BRANCH_MENU].filter((c) => c.id !== 'fetch')) {
 			expect(activate(c, () => void spy.call('git.log' as never, {} as never)), c.id).toBe(false);
 		}
 		expect(other).toEqual([]);
@@ -53,10 +54,11 @@ describe('the toolbar markup', () => {
 	const html = (head: Parameters<typeof GitToolbar>[1]['head']) => render(GitToolbar, { props: { head, onnavigate: () => {} } }).body;
 	const tag = (body: string, id: string) => new RegExp(`<button[^>]*data-toolbar="${id}"[^>]*>`).exec(body)?.[0] ?? '';
 
-	// Decision: every write control carries the `disabled` attribute and a title in the markup itself; Navigate to HEAD is the one that works.
-	it('renders every write control disabled, and Navigate to HEAD enabled once HEAD is known', () => {
+	// Decision: every write control but Fetch carries the `disabled` attribute and a title in the markup itself; Navigate to HEAD and Fetch are the ones that work.
+	it('renders the write controls disabled but Fetch, and Navigate to HEAD enabled once HEAD is known', () => {
 		const body = html(refsOf(['a']).head);
-		for (const id of ['fetch', 'pull', 'push', 'stash', 'create-branch']) {
+		expect(tag(body, 'fetch')).not.toMatch(/\sdisabled/);
+		for (const id of ['pull', 'push', 'stash', 'create-branch']) {
 			const b = tag(body, id);
 			expect(b, id).toMatch(/\sdisabled(=""|\s|>)/);
 			expect(b, id).toMatch(/title="[^"]*milestone/);

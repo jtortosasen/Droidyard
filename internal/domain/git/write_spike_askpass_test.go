@@ -73,7 +73,9 @@ func TestWriteSpike5AskpassNeverRuns(t *testing.T) {
 			}
 
 			// Control: without the empty GIT_ASKPASS git calls it and waits.
-			ctl := wInv{prefix: guarded.prefix, env: c.control(slices.Clone(guarded.env), script)}
+			// The prefix's -c core.askPass= is undone as well: it alone hides every askpass
+			// from git's own prompt (TestWritePrefixAskPassAloneHidesTheEnvironment).
+			ctl := wInv{prefix: guarded.without("core.askPass=", "").prefix, env: c.control(slices.Clone(guarded.env), script)}
 			h := ctl.start(t, r.W, fetchArgs("origin"), &syscall.SysProcAttr{Setpgid: true})
 			prompt := waitFile(t, rec, 20*time.Second)
 			select {
@@ -121,4 +123,38 @@ func TestWriteSpike5SshGetsAskpassNever(t *testing.T) {
 	if g := got(ctl); g != "SSH_ASKPASS=/their/askpass REQUIRE=force" {
 		t.Errorf("control: ssh received %q with the inherited environment; the test cannot fail", g)
 	}
+}
+
+// Decision (ADR-0073 §Consequences, plan m2n P2): the prefix's `-c core.askPass=` (empty) is
+// not only for git-lfs. Alone, with GIT_ASKPASS not set and the user's SSH_ASKPASS in the
+// environment, git's own prompt finds an empty askpass and never runs the program (git
+// looks at GIT_ASKPASS, then core.askPass, then SSH_ASKPASS, and stops at the first that
+// is set). Control: the same invocation without the pair calls the program and waits.
+func TestWritePrefixAskPassAloneHidesTheEnvironment(t *testing.T) {
+	t.Log(gitVersion(t))
+	e, r := newRemote(t)
+	srv := newAuthServer(t)
+	e.g(r.W, "config", "remote.origin.url", srv.URL+"/r.git")
+	rec := filepath.Join(t.TempDir(), "prompt")
+	script := e.script("askpass.sh", "echo \"$1\" >> '"+rec+"'\nexec sleep 60")
+	inv := e.invWith(true)
+	// The environment of a daemon that has SSH_ASKPASS, with writeEnv's two variables undone.
+	inv.env = append(slices.DeleteFunc(inv.env, func(kv string) bool {
+		return kv == "GIT_ASKPASS=" || strings.HasPrefix(kv, "SSH_ASKPASS_REQUIRE=")
+	}), "SSH_ASKPASS="+script)
+
+	res := inv.run(t, r.W, fetchArgs("origin"))
+	if _, err := os.Stat(rec); err == nil || res.Code == 0 || res.Took > 2*time.Second {
+		t.Errorf("with core.askPass= alone: exit %d after %v, askpass ran %v; want a fast failure and no askpass", res.Code, res.Took, err == nil)
+	}
+
+	ctl := inv.without("core.askPass=", "")
+	h := ctl.start(t, r.W, fetchArgs("origin"), &syscall.SysProcAttr{Setpgid: true})
+	waitFile(t, rec, 20*time.Second)
+	select {
+	case <-h.done:
+		t.Errorf("control: git did not wait on SSH_ASKPASS without the pair")
+	case <-time.After(300 * time.Millisecond):
+	}
+	h.endGroup(true, 2*time.Second)
 }

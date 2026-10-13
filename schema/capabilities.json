@@ -1,5 +1,5 @@
 {
-  "version": "0.24.0",
+  "version": "0.25.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -6818,6 +6818,111 @@
           "path",
           "size",
           "revision"
+        ]
+      }
+    },
+    {
+      "name": "git.fetch",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Fetches the repository's remotes, or one of them, for the UI: new commits arrive as remote-tracking refs, no branch moves, nothing is pruned and submodules are left alone. Only on a trusted project; git never prompts in a terminal here, so a credential that needs one fails with a next step to run git fetch once in a terminal.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "remote": {
+            "type": "string",
+            "description": "The name of one remote of the repository (git remote lists them). Absent: every remote."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "remotes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The names of the remotes fetched: the one asked for, or every remote the repository has except those set to skip fetch --all."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "remotes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
         ]
       }
     },

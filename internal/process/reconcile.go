@@ -31,6 +31,12 @@ const (
 	// recorded like a sidecar and reaped by Reconcile, but its own group is killed when
 	// the call ends, so nothing it left behind outlives it.
 	ShellCommand Kind = "shell-command"
+	// GitWrite is a recorded process running one git write of the UI (plan m2n P2; ADR-0071):
+	// treated as ShellCommand is. Its leader survives a killed daemon (no death signal), so
+	// Reconcile finds the pid record and kills the whole group, which holds the ssh or the
+	// uploadpack a fetch started; the group is killed when the record cannot be written and at
+	// every end of the call. It is its own session leader (Setsid), so it has no terminal.
+	GitWrite Kind = "git-write"
 	// EmulatorLaunch is an emulator launcher recorded from its spawn until its serial is
 	// resolved (plan m1p Q1; ADR-0021's 2026-10-08 line). Unlike every other kind, a
 	// matching record is signalled only if the Judge says so.

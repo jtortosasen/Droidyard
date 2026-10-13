@@ -2,8 +2,9 @@
 // every one of them is SHOWN and DISABLED, with a title that says which milestone part enables
 // it; none calls a capability. `activate` is the one door a click goes through, so a control
 // that is not enabled cannot reach a client: the markup also carries the `disabled` attribute.
-// Part 2 (ADR-0071) enables Fetch, Create Branch, Checkout, New branch from and Compare with
-// current by setting `enabled` and giving them an action; the rest wait for a later milestone.
+// Part 2 (ADR-0071) enables Fetch (step P2: it stays enabled on an untrusted root, where the
+// refusal says why), then Create Branch, Checkout, New branch from and Compare with current,
+// by setting `enabled` and giving them an action; the rest wait for a later milestone.
 
 export type ToolbarId = 'fetch' | 'pull' | 'push' | 'stash' | 'create-branch';
 export type MenuId = 'checkout' | 'new-branch-from' | 'compare' | 'merge' | 'rebase' | 'push' | 'rename' | 'delete';
@@ -21,7 +22,7 @@ const LATER = 'Enabled in a later milestone (not 2n)';
 
 /** SourceGit's order: Fetch, Pull, Push, Stash, then (after a separator) Create Branch. */
 export const TOOLBAR: readonly Control<ToolbarId>[] = [
-	{ id: 'fetch', label: 'Fetch', enabled: false, title: `Fetch: ${PART_2}` },
+	{ id: 'fetch', label: 'Fetch', enabled: true, title: 'Fetch every remote' },
 	{ id: 'pull', label: 'Pull', enabled: false, title: `Pull: ${LATER}` },
 	{ id: 'push', label: 'Push', enabled: false, title: `Push: ${LATER}` },
 	{ id: 'stash', label: 'Stash', enabled: false, title: `Stash: ${LATER}` },

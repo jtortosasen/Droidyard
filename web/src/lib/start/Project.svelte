@@ -54,6 +54,7 @@
 	import { GitTreeModel } from '../git/tree';
 	import DiffPanel from '../git/DiffPanel.svelte';
 	import HistoryPanel from '../git/HistoryPanel.svelte';
+	import { FetchModel } from '../git/fetch';
 	import { HistoryStore } from '../git/history';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
@@ -118,6 +119,7 @@
 	let diffSource = $state.raw<DiffSource | null>(null);
 	let commitText = $state.raw<CommitText | null>(null);
 	let gitHistory = $state.raw<HistoryStore | null>(null);
+	let gitFetch = $state.raw<FetchModel | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -205,6 +207,17 @@
 		const commitTexts = new CommitText(callOn, ws);
 		// The History tab's commits: read once the watch has a status, and again when HEAD moves.
 		const history = new HistoryStore(callOn, ws, gitStatus);
+		// Fetch (plan m2n P2): the refs are read again when it succeeds, and the activity feed says whether
+		// the daemon holds it behind another write on the repository.
+		const fetcher = new FetchModel(
+			callOn,
+			ws,
+			() => history.refreshRefs(),
+			{
+				stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+				subscribe: (listener) => store.subscribe(listener),
+			},
+		);
 		// The viewer reads the same watch the tree does (no second file.watch).
 		const tabs = new TabsModel(browserStorage(window), workspaceId);
 		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
@@ -249,6 +262,7 @@
 		diffSource = source;
 		commitText = commitTexts;
 		gitHistory = history;
+		gitFetch = fetcher;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -298,6 +312,7 @@
 			tabs.dispose();
 			opsModel.reset();
 			watcher.dispose();
+			fetcher.dispose();
 			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
@@ -340,6 +355,7 @@
 			diffSource = null;
 			commitText = null;
 			gitHistory = null;
+			gitFetch = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -415,9 +431,10 @@
 			/>
 		{/if}
 	{:else if id === 'git'}
-		{#if gitHistory && gitWatch}
+		{#if gitHistory && gitWatch && gitFetch}
 			<HistoryPanel
 				store={gitHistory}
+				fetcher={gitFetch}
 				watch={gitWatch}
 				{workspaceId}
 				onopenfile={(file) => {
