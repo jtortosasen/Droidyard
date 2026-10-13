@@ -6,8 +6,8 @@
 //     checked out is never blocked (branchops.ts);
 //   - the call's answer is an outcome per root. With one root (the workspace alone) the first
 //     outcome decides: `done`, or `failed` with git's own words (cause) and a next step, as text.
-//     With submodules (P8, ADR-0071 §6: a synchronised call) the outcomes are listed per root
-//     (`outcomes`), the call is done when every root is, and a stopped call keeps its list, the
+//     With submodules (P8, R2, ADR-0071 §6, ADR-0074 §3: a synchronised call, or one of a submodule that alone has the
+//     branch) the outcomes are listed per root (`outcomes`), the call is done when every root is, and a stopped call keeps its list, the
 //     failed root with git's words and the rest skipped; nothing is rolled back;
 //   - when the call has ended, however it ended, `onDone` reloads the refs: a refused or ended
 //     checkout may still have changed what the list shows, and the list is cheap to read again.
@@ -105,14 +105,15 @@ export class BranchModel {
 	}
 
 	/**
-	 * Checks `target` out, unless an unsaved buffer stops it; in the submodule roots `sync` too (the call's
-	 * `roots` are the workspace and those). Resolves to whether the branch is checked out in every root asked.
+	 * Checks `target` out, unless an unsaved buffer stops it, in `roots` (the call's own: the workspace `.` only when it
+	 * has the branch, and the submodules that have it; absent: the workspace alone). Resolves to whether the branch is
+	 * checked out in every root asked.
 	 */
-	checkout(target: BranchTarget, sync: readonly string[] = []): Promise<boolean> {
-		return this.#run(true, 'git.checkout', checkoutParams(target, sync));
+	checkout(target: BranchTarget, roots?: readonly string[]): Promise<boolean> {
+		return this.#run(true, 'git.checkout', checkoutParams(target, roots));
 	}
 
-	/** Creates `name` at `from`, and checks it out when asked; in the roots of `sync` too, each at its own start. Resolves to whether it was done everywhere. */
+	/** Creates `name` at `from`, and checks it out when asked; in the roots of `sync` (each submodule at its own start). Resolves to whether it was done everywhere. */
 	createBranch(name: string, checkout: boolean, from: string, sync?: NewBranchSync): Promise<boolean> {
 		return this.#run(checkout, 'git.createBranch', createParams(name, checkout, from, sync));
 	}
@@ -149,8 +150,8 @@ export class BranchModel {
 		let rows: readonly OutcomeRow[] = [];
 		try {
 			const res = await this.#client.call(name, params, { workspace: this.#ws.root.trim() });
-			if (res.outcomes.length > 1) {
-				// A synchronised call: the list says which root did what; there is no one failure to show.
+			if (res.outcomes.length > 1 || res.outcomes.some((o) => o.root !== '.')) {
+				// A synchronised call, or one of a submodule alone: the list says which root did what; there is no one failure to show.
 				rows = res.outcomes.map(outcomeRow);
 				if (rows.some((r) => r.status !== 'done')) failed = { message: 'The call stopped before every root was done.' };
 			} else {

@@ -10,6 +10,7 @@
 // Every name here is git's text; nothing becomes markup.
 import type { Result } from '../api/capabilities.gen';
 import type { KeyValueStorage } from '../ui/layout';
+import { firstHolder, inWorkspace, type BranchUnion, type Holder } from './branchroots';
 
 export type RefsResult = Result<'git.refs'>;
 export type RefsHead = RefsResult['head'];
@@ -61,6 +62,13 @@ export interface RefRow {
 	current?: boolean;
 	upstream?: string;
 	upstreamGone?: boolean;
+	/**
+	 * With more than one root (plan m2n R2): the roots that have the branch, for the coloured marks; absent with one root
+	 * and for tags. When the workspace lacks the branch, `oid` is the first of those roots' and `root` names it.
+	 */
+	holders?: readonly Holder[];
+	/** The root whose commit `oid` is, when it is not the workspace's. */
+	root?: string;
 }
 
 export interface WorktreeRow {
@@ -90,6 +98,8 @@ export interface PanelInput {
 	favourites: ReadonlySet<string>;
 	/** Keys of the folders the person closed. A filter opens every folder. */
 	collapsed: ReadonlySet<string>;
+	/** The branches of every root (branchroots.ts), when the log has more than one: the lists show their union with a mark per root. */
+	union?: BranchUnion;
 }
 
 interface Leaf<T> {
@@ -173,11 +183,20 @@ export function panelModel(refs: RefsResult, input: PanelInput): Section[] {
 	const matches = (...texts: (string | undefined)[]) => q === '' || texts.some((t) => t !== undefined && lower(t).includes(q));
 	const current = refs.head.detached ? undefined : refs.head.branch;
 
-	const locals: Leaf<RefsResult['branches'][number]>[] = refs.branches
+	const union = input.union;
+	type Local = RefsResult['branches'][number];
+	const locals: Leaf<Local>[] = refs.branches
 		.filter((b) => matches(b.name))
 		.map((b) => ({ name: b.name, item: b, starred: input.favourites.has(b.name) }));
+	// A branch only a submodule has is listed as well (plan m2n R2), at that root's commit.
+	for (const entry of union?.locals.values() ?? []) {
+		if (inWorkspace(entry) || !matches(entry.name)) continue;
+		locals.push({ name: entry.name, item: { name: entry.name, oid: firstHolder(entry).oid }, starred: input.favourites.has(entry.name) });
+	}
 	const localRows = fold(locals, 'local', input, (leaf, label, depth) => {
 		const b = leaf.item;
+		const entry = union?.locals.get(b.name);
+		const away = entry !== undefined && !inWorkspace(entry) ? firstHolder(entry) : undefined;
 		return {
 			kind: 'ref',
 			key: `local:${b.name}`,
@@ -187,27 +206,40 @@ export function panelModel(refs: RefsResult, input: PanelInput): Section[] {
 			depth,
 			oid: b.oid,
 			starred: leaf.starred,
-			current: b.name === current,
+			current: away === undefined && b.name === current,
 			...(b.upstream !== undefined ? { upstream: b.upstream } : {}),
 			...(b.upstreamGone ? { upstreamGone: true } : {}),
+			...(entry !== undefined ? { holders: entry.holders } : {}),
+			...(away !== undefined ? { root: away.root } : {}),
 		};
 	});
 
-	const remotes: Leaf<RefsResult['remotes'][number]>[] = refs.remotes
+	type Remote = RefsResult['remotes'][number];
+	const remotes: Leaf<Remote>[] = refs.remotes
 		.filter((r) => r.name !== 'HEAD')
 		.filter((r) => matches(`${r.remote}/${r.name}`))
 		.map((r) => ({ name: `${r.remote}/${r.name}`, item: r, starred: false }));
-	const remoteRows = fold(remotes, 'remotes', input, (leaf, label, depth) => ({
-		kind: 'ref',
-		key: `remotes:${leaf.name}`,
-		ref: remoteRef(leaf.item.remote, leaf.item.name),
-		label,
-		name: leaf.name,
-		depth,
-		oid: leaf.item.oid,
-		remote: leaf.item.remote,
-		branch: leaf.item.name,
-	}));
+	for (const entry of union?.remotes.values() ?? []) {
+		if (inWorkspace(entry) || !matches(entry.name)) continue;
+		remotes.push({ name: entry.name, item: { remote: entry.remote!, name: entry.branch!, oid: firstHolder(entry).oid }, starred: false });
+	}
+	const remoteRows = fold(remotes, 'remotes', input, (leaf, label, depth) => {
+		const entry = union?.remotes.get(leaf.name);
+		const away = entry !== undefined && !inWorkspace(entry) ? firstHolder(entry) : undefined;
+		return {
+			kind: 'ref',
+			key: `remotes:${leaf.name}`,
+			ref: remoteRef(leaf.item.remote, leaf.item.name),
+			label,
+			name: leaf.name,
+			depth,
+			oid: leaf.item.oid,
+			remote: leaf.item.remote,
+			branch: leaf.item.name,
+			...(entry !== undefined ? { holders: entry.holders } : {}),
+			...(away !== undefined ? { root: away.root } : {}),
+		};
+	});
 
 	const tagRows: PanelRow[] = refs.tags
 		.filter((t) => matches(t.name))
@@ -415,10 +447,13 @@ export function currentBranchFolders(refs: RefsResult): Set<string> {
  * The folders to show closed: every folder of the local and remote branches, except those that hold the current
  * branch, and except those the person opened; and those the person closed, wherever they are (plan m2n R1).
  */
-export function collapsedFolders(refs: RefsResult, choice: FolderChoice): Set<string> {
+export function collapsedFolders(refs: RefsResult, choice: FolderChoice, union?: BranchUnion): Set<string> {
 	const all = new Set<string>();
 	for (const b of refs.branches) folderKeysOf('local', b.name, all);
 	for (const r of refs.remotes) if (r.name !== 'HEAD') folderKeysOf('remotes', `${r.remote}/${r.name}`, all);
+	// The branches only a submodule has sit in folders too (plan m2n R2).
+	for (const name of union?.locals.keys() ?? []) folderKeysOf('local', name, all);
+	for (const name of union?.remotes.keys() ?? []) folderKeysOf('remotes', name, all);
 	const initial = currentBranchFolders(refs);
 	const out = new Set<string>();
 	for (const key of all) if (choice.closed.has(key) || !(choice.opened.has(key) || initial.has(key))) out.add(key);

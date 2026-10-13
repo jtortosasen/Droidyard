@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { blockText, nameProblem, syncOn, type NewBranchSource, type SyncOffer } from './branchops';
+	import { blockText, callRoots, nameProblem, syncOn, type NewBranchSource, type SyncOffer } from './branchops';
 	import type { BranchModel, BranchView } from './branch';
 	import SyncSection from './SyncSection.svelte';
 
@@ -10,8 +10,9 @@
 	// the dialog names the files and calls nothing (`data-dirty-block`; Create asks again, so files
 	// saved meanwhile no longer block); with it off nothing is blocked, since no file is touched. A failed call stays here with git's own words, as text
 	// (`data-op-error`); the dialog closes only when the branch is made. Escape is Cancel.
-	// With initialised submodules (`offer`, plan m2n P8; ADR-0071 §6) it also holds the Synchronise submodules toggle,
-	// on when every submodule has the branch the start is, and, after a call, what each root did.
+	// With initialised submodules (`offer`, plan m2n P8, R2; ADR-0071 §6, ADR-0074 §3) it also holds the Synchronise submodules
+	// toggle, on when a submodule has the branch the start is, the repositories that get the branch and those that do not, and,
+	// after a call, what each root did.
 	interface Props {
 		source: NewBranchSource;
 		/** The local branches that exist, so the name can be refused before the call. */
@@ -23,19 +24,21 @@
 		/** Submit: resolves to whether the branch was made (in every root asked), which closes the dialog. */
 		onsubmit: (name: string, checkout: boolean, sync: boolean) => Promise<boolean>;
 		oncancel: () => void;
+		/** What the panel calls each root (names.ts). */
+		names?: ReadonlyMap<string, string>;
 	}
-	let { source, locals, model, view, offer = null, onsubmit, oncancel }: Props = $props();
+	let { source, locals, model, view, offer = null, onsubmit, oncancel, names }: Props = $props();
 
 	let name = $state(untrack(() => source.proposed));
 	let checkout = $state(true);
-	/** What the person chose for Synchronise; null until they touch it, when the offer's default (every submodule has the start's branch, ADR-0071 §6) applies, as the refs arrive. */
+	/** What the person chose for Synchronise; null until they touch it, when the offer's default (a submodule has the start's branch, ADR-0074 §3) applies, as the refs arrive. */
 	let syncChoice = $state<boolean | null>(null);
 	const sync = $derived(syncOn(syncChoice, offer));
 	/** The unsaved files that stop a checkout, read when the dialog opens, when Check out changes and at submit. */
 	let blocked = $state.raw<readonly string[]>(untrack(() => model.dirtyFor(true)));
 	const problem = $derived(nameProblem(name, locals));
-	/** The call cannot be made while Synchronise is on and a submodule lacks the branch. */
-	const syncBlocked = $derived(offer !== null && sync && offer.missing.length > 0);
+	/** No repository would get the branch: nothing to call. */
+	const syncBlocked = $derived(offer !== null && callRoots(offer, sync).length === 0);
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
@@ -81,7 +84,7 @@
 			<span>Check out</span>
 		</label>
 		{#if offer !== null}
-			<SyncSection {offer} bind:sync={() => sync, (v) => (syncChoice = v)} busy={view.busy} outcomes={view.outcomes} />
+			<SyncSection {offer} {names} bind:sync={() => sync, (v) => (syncChoice = v)} busy={view.busy} outcomes={view.outcomes} />
 		{/if}
 		{#if blocked.length > 0}
 			<div class="problem" role="alert" data-dirty-block>

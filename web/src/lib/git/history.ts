@@ -328,11 +328,14 @@ export class HistoryStore {
 		return false;
 	}
 
-	/** A ref picked in the side panel (the workspace's): it is the selected one, and its commit is revealed (a tag on a tree has none). */
-	async selectRef(ref: string, oid: string | undefined): Promise<boolean> {
+	/**
+	 * A ref picked in the side panel: it is the selected one, and its commit is revealed (a tag on a tree has none). The
+	 * commit is the workspace's, or `root`'s for a branch only that submodule has (plan m2n R2).
+	 */
+	async selectRef(ref: string, oid: string | undefined, root: string = WORKSPACE_ROOT): Promise<boolean> {
 		this.#set({ selectedRef: ref, notice: null });
 		if (oid === undefined) return false;
-		return this.reveal(rowKey(WORKSPACE_ROOT, oid));
+		return this.reveal(rowKey(root, oid));
 	}
 
 	/** Navigate to HEAD: the current branch is the selected ref and HEAD's commit is revealed. */
@@ -450,6 +453,8 @@ export class HistoryStore {
 			(r) => {
 				if (gen !== this.#refsGen || this.#disposed) return;
 				const names = refNames(r);
+				// A branch only a submodule has stays selected while that submodule still has it.
+				for (const sub of this.#view.rootRefs.values()) for (const n of refNames(sub)) names.add(n);
 				const sel = this.#view.selectedRef;
 				this.#set({ refs: r, refsState: 'ready', refsProblem: null, selectedRef: sel !== null && names.has(sel) ? sel : null });
 				// The tips the history started from are no longer the refs': it starts again (ADR-0070 §3).

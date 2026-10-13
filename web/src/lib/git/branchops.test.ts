@@ -74,8 +74,8 @@ describe('what the entries call', () => {
 	// Decision (plan P3): the toolbar's Create Branch starts at HEAD, with its short oid shown by the dialog; it has nothing to start from before the refs arrive or in a repository with no commit.
 	it('starts the toolbar Create Branch at HEAD', () => {
 		const head = { oid: 'd'.repeat(40), branch: 'main', detached: false, upstreamGone: false, ahead: 0, behind: 0 };
-		expect(headSource(head)).toEqual({ label: 'HEAD (main)', oid: 'd'.repeat(40), proposed: '', branch: { kind: 'local', name: 'main' } });
-		expect(headSource({ ...head, branch: undefined, detached: true })).toEqual({ label: 'HEAD (detached)', oid: 'd'.repeat(40), proposed: '' });
+		expect(headSource(head)).toEqual({ label: 'HEAD (main)', oid: 'd'.repeat(40), proposed: '', branch: { kind: 'local', name: 'main' }, fromHead: true });
+		expect(headSource({ ...head, branch: undefined, detached: true })).toEqual({ label: 'HEAD (detached)', oid: 'd'.repeat(40), proposed: '', fromHead: true });
 		expect(headSource(null)).toBeNull();
 		expect(headSource({ ...head, oid: undefined })).toBeNull();
 	});

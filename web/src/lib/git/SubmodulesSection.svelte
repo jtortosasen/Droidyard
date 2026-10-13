@@ -41,7 +41,10 @@
 	const mine = (path: string | null) => updateView.busy && (path === null ? updateView.all : !updateView.all && updateView.path === path);
 	const title = (path: string | null) => {
 		const what = path === null ? (view.truncated ? 'the listed submodules' : 'every submodule') : path;
-		return mine(path) ? (updateView.state === 'queued' ? `The update of ${what} is queued` : `Updating ${what}`) : `Update ${what} to the recorded commit${path === null ? 's' : ''}`;
+		if (mine(path)) return updateView.state === 'queued' ? `The update of ${what} is queued` : `Updating ${what}`;
+		// The section's button is the owner's resync (plan m2n R2): after a checkout, every submodule back to what the branch records.
+		if (path === null) return `Bring ${what} to the commits the current branch records (git submodule update --init --recursive)`;
+		return `Update ${what} to the recorded commit`;
 	};
 </script>
 
@@ -74,7 +77,7 @@
 				data-op-state={stateOf(null)}
 				disabled={updateView.busy}
 				title={title(null)}
-				aria-label="Update every submodule"
+				aria-label="Update submodules to the commits the current branch records"
 				onclick={() => void updater.updateAll(view.list.map((m) => m.path))}
 			>
 				{#if mine(null)}<Spinner size={11} />{:else}<RefreshCw size={12} />{/if}

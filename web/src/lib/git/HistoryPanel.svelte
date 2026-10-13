@@ -10,7 +10,7 @@
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
 	import type { BranchModel, BranchView } from './branch';
-	import { checkoutOffer, compareOpening, entryAction, headSource, newBranchOffer, type BranchTarget, type NewBranchSource } from './branchops';
+	import { callRoots, checkoutOffer, compareOpening, entryAction, headSource, newBranchOffer, type BranchTarget, type NewBranchSource } from './branchops';
 	import type { MenuId } from './controls';
 	import CheckoutDialog from './CheckoutDialog.svelte';
 	import CommitView from './CommitView.svelte';
@@ -129,8 +129,8 @@
 	let checking = $state.raw<BranchTarget | null>(null);
 	/** The submodules a checkout or a new branch can also be applied to (ADR-0071 §6). */
 	const syncRoots = $derived(initialisedRoots(submodulesView.list));
-	const createOffer = $derived(creating === null ? null : newBranchOffer(creating, syncRoots, view.rootRefs));
-	const checkoutOfferNow = $derived(checking === null ? null : checkoutOffer(checking, syncRoots, view.rootRefs));
+	const createOffer = $derived(creating === null ? null : newBranchOffer(creating, syncRoots, view.rootRefs, view.refs));
+	const checkoutOfferNow = $derived(checking === null ? null : checkoutOffer(checking, syncRoots, view.rootRefs, view.refs));
 	// The confirmation is for a project with submodules: when the last one goes, so does the dialog.
 	$effect(() => {
 		if (checking !== null && syncRoots.length === 0) checking = null;
@@ -167,14 +167,15 @@
 		const from = creating;
 		if (from === null) return false;
 		const offer = createOffer;
-		const ok = await branches.createBranch(name, checkout, from.oid, sync && offer !== null ? { roots: offer.roots, starts: offer.starts } : undefined);
+		// The roots of the call (ADR-0074 §3): the project when it has the branch the start is, and the submodules that have it.
+		const ok = await branches.createBranch(name, checkout, from.oid, offer === null ? undefined : { roots: callRoots(offer, sync), starts: offer.starts });
 		if (ok) creating = null;
 		return ok;
 	}
 	async function checkoutIn(sync: boolean): Promise<boolean> {
 		const target = checking;
 		if (target === null) return false;
-		const ok = await branches.checkout(target, sync ? syncRoots : []);
+		const ok = await branches.checkout(target, callRoots(checkoutOfferNow, sync));
 		if (ok) checking = null;
 		return ok;
 	}
@@ -565,13 +566,13 @@
 		{/if}
 	</div>
 	{#if creating !== null}
-		<CreateBranchDialog source={creating} {locals} model={branches} view={branchView} offer={createOffer} onsubmit={createBranch} oncancel={() => {
+		<CreateBranchDialog source={creating} {locals} {names} model={branches} view={branchView} offer={createOffer} onsubmit={createBranch} oncancel={() => {
 				creating = null;
 				branches.dismiss();
 			}} />
 	{/if}
 	{#if checking !== null && checkoutOfferNow !== null}
-		<CheckoutDialog target={checking} offer={checkoutOfferNow} model={branches} view={branchView} onsubmit={checkoutIn} oncancel={() => {
+		<CheckoutDialog target={checking} offer={checkoutOfferNow} {names} model={branches} view={branchView} onsubmit={checkoutIn} oncancel={() => {
 				checking = null;
 				branches.dismiss();
 			}} />
