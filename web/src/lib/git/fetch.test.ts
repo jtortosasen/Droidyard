@@ -6,7 +6,7 @@ import { settle } from '../build/testing';
 import { FetchModel, type FetchActivity, type FetchClient } from './fetch';
 import GitToolbar from './GitToolbar.svelte';
 import HistoryPanel from './HistoryPanel.svelte';
-import { chain, idleBranches, refsOf, setup, submodulesOf } from './historytesting';
+import { chain, idleBranches, refsOf, setup, submodulesOf, idleUpdater } from './historytesting';
 import type { GitWatch } from './watch';
 
 // Fetch (plan m2n P2): the model, the toolbar's and the Remotes section's controls.
@@ -246,7 +246,7 @@ describe('the Fetch controls', () => {
 		t.store.refreshRefs();
 		await settle();
 		const submodules = await submodulesOf();
-		return render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules } }).body;
+		return render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules, updater: idleUpdater() } }).body;
 	}
 
 	// Decision (plan P2): each remote of the Remotes section has a Fetch of its own, named by the remote, and the toolbar's Fetch reaches every remote.

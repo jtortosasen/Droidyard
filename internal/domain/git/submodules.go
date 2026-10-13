@@ -125,11 +125,17 @@ func (o Options) submodules(ctx context.Context, call *capability.Call) (any, er
 	if cerr != nil {
 		return nil, cerr
 	}
+	return o.listSubmodules(ctx, r, root)
+}
+
+// listSubmodules is the walk itself, for git.submodules and for git.updateSubmodules, which
+// asks it afresh which paths are submodules before it names any to git.
+func (o Options) listSubmodules(ctx context.Context, r *runner, root string) (SubmodulesResult, error) {
 	trusted := o.trusted(root)
 	// The first git also meets a root that is no repository.
 	prefix, err := r.prefix(ctx, root, trusted)
 	if err != nil {
-		return nil, mapError(root, err)
+		return SubmodulesResult{}, mapError(root, err)
 	}
 	top := root
 	for range strings.Count(prefix, "/") {
@@ -140,9 +146,9 @@ func (o Options) submodules(ctx context.Context, call *capability.Call) (any, er
 	if err != nil && !errors.Is(err, errFull) {
 		var se *submoduleError
 		if errors.As(err, &se) {
-			return nil, mapSubmoduleError(root, se)
+			return SubmodulesResult{}, mapSubmoduleError(root, se)
 		}
-		return nil, mapError(root, err)
+		return SubmodulesResult{}, mapError(root, err)
 	}
 	if w.out == nil {
 		w.out = []Submodule{}

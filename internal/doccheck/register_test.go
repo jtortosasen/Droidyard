@@ -131,8 +131,9 @@ func checkRegister(fsys fs.FS) []string {
 // kind, in process-lifecycle.md's per-operation row and layer 2, and mvp.md's git row and
 // mcp.md's not-exposed row name git.fetch (ADR-0071). Raised by 5 (to 26,551) in milestone 2n
 // step P3: the same two rows name git.checkout and git.createBranch. Raised by 3 (to 26,554) in
-// milestone 2n step P4: the same two rows name git.submodules.
-const liveBudget = 26554
+// milestone 2n step P4: the same two rows name git.submodules. Raised by 2 (to 26,556) in
+// milestone 2n step P5: the same two rows name git.updateSubmodules.
+const liveBudget = 26556
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

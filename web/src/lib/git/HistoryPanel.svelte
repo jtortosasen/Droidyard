@@ -23,6 +23,7 @@
 	import { rowAt, rowTop, rowWindow, type Expanded } from './rows';
 	import { findCommits, stepMatch } from './search';
 	import type { SubmodulesModel, SubmodulesView } from './submodules';
+	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
 	import type { GitWatch } from './watch';
 
 	// The bottom Git panel's History tab (plan m2n steps 4 and 6; ADR-0070 §1, §3): the
@@ -51,8 +52,10 @@
 		branches: BranchModel;
 		/** The side panel's Submodules section (plan m2n P4); it follows the store's refs (`follow`), the shell wires it. */
 		submodules: SubmodulesModel;
+		/** The Submodules section's Update (plan m2n P5), shared by the section's button and each row's. */
+		updater: SubmoduleUpdateModel;
 	}
-	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -91,6 +94,14 @@
 		submodulesView = m.view;
 		return m.subscribe(() => {
 			submodulesView = m.view;
+		});
+	});
+	let updateView = $state.raw<UpdateView>(untrack(() => updater.view));
+	$effect(() => {
+		const u = updater;
+		updateView = u.view;
+		return u.subscribe(() => {
+			updateView = u.view;
 		});
 	});
 	// The Create Branch dialog: where the new branch starts while it is open.
@@ -306,7 +317,7 @@
 	{/if}
 	<div class="body">
 		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags, submodules and work trees">
-			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} onretrysubmodules={() => void submodules.load()} {onentry} />
+			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} onretrysubmodules={() => void submodules.load()} {updater} {updateView} {onentry} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
 		<div class="table-area">

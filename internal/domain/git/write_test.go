@@ -285,37 +285,45 @@ func TestFetchFromALocalRemote(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0071 §2): a write on a root the trust hook refuses starts no git at all,
+// Decision (ADR-0071 §2): a write (git.fetch, git.updateSubmodules) on a root the trust hook refuses starts no git at all,
 // not even a read: WORKSPACE_UNTRUSTED with the nextStep to trust the project, from the
 // scheduler's gate before the handler runs. Two gates: the daemon's hook refusing, and no
 // hook at all (the golden registry), which refuses every root. Seen failing with the gate
 // not installed on the descriptor (write's `d.Authorize = o.gate` removed): the fetch ran.
 func TestWritesUntrustedStartNothing(t *testing.T) {
-	for _, c := range []struct {
-		name string
-		hook func(ctx context.Context, call *capability.Call) (any, error)
+	for _, call := range []struct {
+		name   string
+		params any
 	}{
-		{"the daemon's hook refuses", func(ctx context.Context, call *capability.Call) (any, error) {
-			return nil, policy.UntrustedError("/the/root")
-		}},
-		{"no hook", nil},
+		{"git.fetch", FetchParams{}},
+		{"git.updateSubmodules", UpdateSubmodulesParams{}},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			f := newWfx(t)
-			f.authorize = c.hook
-			f.register()
-			id := f.start("git.fetch", "ws", FetchParams{})
-			out := f.until(id, 10*time.Second)
-			if out.State != capability.StateFailed || out.Error == nil || out.Error.Code != capability.ErrWorkspaceUntrusted {
-				t.Fatalf("outcome %s, error %+v; want failed with WORKSPACE_UNTRUSTED", out.State, out.Error)
-			}
-			if !strings.Contains(out.Error.NextStep, "droidyard trust") {
-				t.Errorf("nextStep %q does not say how to trust the project", out.Error.NextStep)
-			}
-			if w, r := f.writeStarts.Load(), f.readStarts.Load(); w != 0 || r != 0 {
-				t.Errorf("starts: %d write gits and %d reads on an untrusted root, want none", w, r)
-			}
-		})
+		for _, c := range []struct {
+			name string
+			hook func(ctx context.Context, call *capability.Call) (any, error)
+		}{
+			{"the daemon's hook refuses", func(ctx context.Context, call *capability.Call) (any, error) {
+				return nil, policy.UntrustedError("/the/root")
+			}},
+			{"no hook", nil},
+		} {
+			t.Run(call.name+", "+c.name, func(t *testing.T) {
+				f := newWfx(t)
+				f.authorize = c.hook
+				f.register()
+				id := f.start(call.name, "ws", call.params)
+				out := f.until(id, 10*time.Second)
+				if out.State != capability.StateFailed || out.Error == nil || out.Error.Code != capability.ErrWorkspaceUntrusted {
+					t.Fatalf("outcome %s, error %+v; want failed with WORKSPACE_UNTRUSTED", out.State, out.Error)
+				}
+				if !strings.Contains(out.Error.NextStep, "droidyard trust") {
+					t.Errorf("nextStep %q does not say how to trust the project", out.Error.NextStep)
+				}
+				if w, r := f.writeStarts.Load(), f.readStarts.Load(); w != 0 || r != 0 {
+					t.Errorf("starts: %d write gits and %d reads on an untrusted root, want none", w, r)
+				}
+			})
+		}
 	}
 }
 
@@ -378,36 +386,73 @@ func TestFetchCancelKillsTheGroup(t *testing.T) {
 // answers GIT_FAILED saying how long it ran, with a nextStep. The limit is shortened for
 // the test (the daemon's is five minutes for a fetch). Seen failing with the runner
 // signalling git's pid only (the cancel test's mutation): both uploadpacks survived the call.
+//
+// The limit runs from the moment git starts, so on a loaded machine it can pass before git
+// has started the uploadpack stub, and then the call ends having stopped nothing but git
+// itself. That attempt proves nothing about the transport's process, so it is tried again
+// (the group is still checked each time); the test fails only if no attempt in five got the
+// uploadpack running before the limit, which would mean the machine, not the runner.
 func TestFetchTimeout(t *testing.T) {
 	t.Log(gitVersion(t))
+	type answer struct {
+		res any
+		err *capability.Error
+	}
 	for _, stubborn := range []bool{false, true} {
-		f := newWfx(t)
-		f.timeout = 700 * time.Millisecond
-		f.register()
-		pidFile := f.hung(stubborn)
-		type answer struct {
-			res any
-			err *capability.Error
+		proved := false
+		for attempt := 0; attempt < 5 && !proved; attempt++ {
+			f := newWfx(t)
+			f.timeout = 2 * time.Second
+			f.register()
+			pidFile := f.hung(stubborn)
+			got := make(chan answer, 1)
+			go func() {
+				res, err := f.call("git.fetch", "ws", FetchParams{Remote: "origin"})
+				got <- answer{res, err}
+			}()
+			// The uploadpack's pid, unless the call ends first.
+			child := 0
+			var a answer
+			var ended bool
+			for !ended && child == 0 {
+				select {
+				case a = <-got:
+					ended = true
+				case <-time.After(10 * time.Millisecond):
+					if b, err := os.ReadFile(pidFile); err == nil {
+						child, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+					}
+				}
+			}
+			var pgid int
+			if child != 0 {
+				pgid = mustPgid(child)
+				select {
+				case a = <-got:
+				case <-time.After(20 * time.Second):
+					t.Fatal("git.fetch did not return past its limit")
+				}
+			}
+			wantErrCode(t, a.err, CodeFailed)
+			if !strings.Contains(a.err.Message, "did not finish") || a.err.NextStep == "" {
+				t.Errorf("stubborn=%v: error %+v; want the time limit named, with a nextStep", stubborn, a.err)
+			}
+			for _, g := range f.groups() {
+				if groupAlive(g) {
+					t.Errorf("stubborn=%v: group %d outlived the timed-out call", stubborn, g)
+				}
+			}
+			if child == 0 {
+				t.Logf("stubborn=%v attempt %d: the limit passed before the uploadpack started; trying again", stubborn, attempt+1)
+				continue
+			}
+			proved = true
+			if groupAlive(pgid) || syscall.Kill(child, 0) != syscall.ESRCH {
+				t.Errorf("stubborn=%v: the group %d (uploadpack %d) outlived the timed-out call", stubborn, pgid, child)
+			}
 		}
-		got := make(chan answer, 1)
-		go func() {
-			res, err := f.call("git.fetch", "ws", FetchParams{Remote: "origin"})
-			got <- answer{res, err}
-		}()
-		child := pidIn(t, pidFile)
-		pgid := mustPgid(child)
-		var a answer
-		select {
-		case a = <-got:
-		case <-time.After(20 * time.Second):
-			t.Fatal("git.fetch did not return past its limit")
-		}
-		wantErrCode(t, a.err, CodeFailed)
-		if !strings.Contains(a.err.Message, "did not finish") || a.err.NextStep == "" {
-			t.Errorf("stubborn=%v: error %+v; want the time limit named, with a nextStep", stubborn, a.err)
-		}
-		if groupAlive(pgid) || syscall.Kill(child, 0) != syscall.ESRCH {
-			t.Errorf("stubborn=%v: the group %d (uploadpack %d) outlived the timed-out call", stubborn, pgid, child)
+		if !proved {
+			t.Errorf("stubborn=%v: the uploadpack never started within the limit in five attempts: the machine is too loaded to prove the group is ended", stubborn)
 		}
 	}
 }
@@ -681,7 +726,7 @@ func TestWritesAreLongRunning(t *testing.T) {
 		}
 	}
 	// The writes the loop must have covered, so that it cannot pass over a write that lost its Resource.
-	for _, want := range []string{"git.fetch", "git.checkout", "git.createBranch"} {
+	for _, want := range []string{"git.fetch", "git.checkout", "git.createBranch", "git.updateSubmodules"} {
 		if !slices.Contains(writes, want) {
 			t.Errorf("%s takes no Resource: the loop did not cover it (covered %v)", want, writes)
 		}

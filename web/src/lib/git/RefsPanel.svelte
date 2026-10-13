@@ -21,6 +21,7 @@
 	import { loadFavourites, panelModel, saveFavourites, toggled, type RefRow, type SectionId } from './refs';
 	import SubmodulesSection from './SubmodulesSection.svelte';
 	import type { SubmodulesView } from './submodules';
+	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
 
 	// The Git tab's side panel, after SourceGit's (plan m2n step 6; the owner's items 4 and 7): a
 	// filter box over collapsible sections with counts: LOCAL BRANCHES (the current one marked,
@@ -42,10 +43,13 @@
 		/** The SUBMODULES section's list (plan m2n P4) and the way to read it again after a failed first read. */
 		submodules: SubmodulesView;
 		onretrysubmodules: () => void;
+		/** The Submodules section's Update (plan m2n P5). */
+		updater: SubmoduleUpdateModel;
+		updateView: UpdateView;
 		/** An enabled entry of a branch's menu was chosen. */
 		onentry: (id: MenuId, target: BranchTarget) => void;
 	}
-	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, onentry }: Props = $props();
+	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, updater, updateView, onentry }: Props = $props();
 
 	// The remotes that have a remote-tracking branch listed; a remote never fetched has none and
 	// is not named by git.refs, so it has no button of its own (the toolbar's Fetch reaches it).
@@ -315,7 +319,7 @@
 					{/if}
 				</section>
 				{#if s.id === 'tags'}
-					<SubmodulesSection view={submodules} {filter} onretry={onretrysubmodules} />
+					<SubmodulesSection view={submodules} {filter} onretry={onretrysubmodules} {updater} {updateView} />
 				{/if}
 			{/each}
 			{#if view.refs?.branchesTruncated || view.refs?.remotesTruncated || view.refs?.tagsTruncated || view.refs?.worktreesTruncated}

@@ -7,6 +7,7 @@ import type { Commit, HistoryClient, HistoryWatch } from './history';
 import { HistoryStore } from './history';
 import type { RefsResult } from './refs';
 import { SubmodulesModel, type SubmodulesClient } from './submodules';
+import { SubmoduleUpdateModel, type UpdateClient } from './subupdate';
 import type { GitView } from './watch';
 
 /** What git.refs answers for a repository on `main` whose tip set is `tips`. */
@@ -118,4 +119,10 @@ export async function submodulesOf(list: Result<'git.submodules'>['submodules'] 
 	const m = new SubmodulesModel(client, { root: '/p' });
 	await m.load();
 	return m;
+}
+
+/** The Submodules section's Update over a client that answers every call done; `dirty` are the editor's unsaved files. */
+export function idleUpdater(dirty: string[] = []): SubmoduleUpdateModel {
+	const client = { call: () => Promise.resolve({ paths: [] }) } as unknown as UpdateClient;
+	return new SubmoduleUpdateModel(client, { root: '/p' }, { dirtyPaths: () => dirty }, () => {});
 }
