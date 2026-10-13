@@ -102,6 +102,7 @@ edits made before this rule and are not added to.
 | [0070](0070-history-graph-in-the-browser.md) | The history graph laid out in the browser, paged by oid, and a commit's file in the Diff tab | Accepted |
 | [0071](0071-git-writes-for-the-ui.md) | The UI's Git writes: fetch, checkout, new branch and submodule update, on a trusted root | Accepted |
 | [0072](0072-compare-two-commits.md) | Compare with current: `git.log` excludes, `git.show` takes a base, and the Diff tab compares two commits | Accepted |
+| [0073](0073-git-writes-never-ask.md) | A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root | Accepted |
 
 ## Open decisions (not yet ADRs)
 

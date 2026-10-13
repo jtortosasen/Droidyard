@@ -17,12 +17,15 @@ var (
 
 // TestMakeFixture is not a test: with -fixture=<dir> it writes the repositories the
 // level-4 runs of plan m2n open in the browser, <dir>/hist (with its bare origin
-// beside it as hist-origin.git and a linked work tree as hist-linked) and <dir>/big.
+// beside it as hist-origin.git and a linked work tree as hist-linked), <dir>/big, and the
+// fixtures of part 2: w-origin.git, w and w-other (Remote), s and s-*.git (Submodules).
 func TestMakeFixture(t *testing.T) {
 	if *fixtureDir == "" {
 		t.Skip("run with -fixture=<dir> to write the history fixtures")
 	}
 	History(t, filepath.Join(*fixtureDir, "hist"))
+	Remote(t, *fixtureDir)
+	Submodules(t, *fixtureDir)
 	if *fixtureBig {
 		Synthetic(t, filepath.Join(*fixtureDir, "big"), 100000, 40, 100)
 	}
