@@ -498,6 +498,43 @@ Written 2026-10-13 from ADR-0071 (Q3, Accepted, Delegated) and Q4, on part 1's s
   2. A write's `GIT_FAILED` cause is git's stderr from its first `fatal:` or `error:` line, at most 20 lines and 4 KiB; the reads keep ADR-0066 §4's first line.
 - Alternatives: (1) `roots: [{path, from}]` with no top-level `from` (the first draft of P3): one shape, but `roots` then differs between the two capabilities and §1's `from` disappears; a submodule branching from its own HEAD: not what New branch from <branch> means in IntelliJ when every root has that branch. (2) The first line only: the user is not told which files block the checkout.
 
+## Part 3: the owner's first check
+
+The owner's first look at step 10 (d) and P10 (e) on their own project (2026-10-14, `android-kids-app`, 12 submodules, nested) found the following. Each is a step below; the rest of the two checklists stays pending.
+
+| # | What the owner saw | Cause | Step |
+|---|---|---|---|
+| 1 | Submodules named by their path (`dev/modules/android-accessibility`) in the root filter and the Submodules section | `rootLabel` and the row show the path | R1 |
+| 2 | The project itself missing from the root filter, so "only the base project" cannot be chosen | It is there, labelled "workspace" | R1 |
+| 3 | The root filter forgotten between sessions | Held in the store only | R1 |
+| 4 | The root stripe too thin and touching the graph | 3 px, no gap | R1 |
+| 5 | Branch folders open when the panel opens | Folders open by default | R1 |
+| 6 | Scrolling inside an expanded commit scrolls the whole graph | The panel does not contain its scroll | R1 |
+| 7 | Update always shown; pressing it shows nothing | Every submodule was already clean; the section says nothing after it | R1 |
+| 8 | The Submodules section does not show what matters: each submodule's branch and commit | Path, oids and state only | R1 |
+| 9 | Branches should carry which roots have them, and a checkout move only the roots that have the branch (IntelliJ); a button that brings every submodule back to the commits the branch records | ADR-0071 §6's default and refusal | R2 (ADR-0074 §3) |
+| 10 | Pull shows its dot after a Fetch and cannot be used | Pull was left for later (ADR-0071 §1) | R3 (ADR-0074 §1, §2) |
+| 11 | `PROJECT_MODEL_FAILED` on the project, no tasks | The Gradle 9.8.0 distribution (150 MB) was being downloaded by the wrapper and the call failed first: "Could not install Gradle distribution"; the download measured ~0.8 MB/s here. Outside this milestone | register row |
+
+### R1. The owner's first check: names, filter, stripe, folders, the expanded commit's scroll, the Submodules section
+
+- Builds (web only): a root's display name is its last path segment, with parent segments added until it is unique among the roots (`hev-socks5-server/src/core`), the full path as its title; the workspace is the project's folder name. The root filter's choice is kept per workspace in `localStorage` (a per-viewer convenience, read and written in try/catch, a stale root dropped). The stripe is 5 px wide with a gap before the graph. Branch folders start closed, except those holding the current branch; a user's open or close is kept for the session as now. The expanded commit's panel scrolls inside itself (`overscroll-behavior: contain`), the log not moving while it can scroll. The Submodules section shows per submodule its display name, its branch (or "detached" and the branches whose tip is its HEAD), the short oid and subject of its HEAD, and its state; the section's Update reads "Update submodules", stays available, and after it says what it did ("all N already at the recorded commits", or the ones it moved).
+- Check: Vitest for the names (duplicates), the stored filter (absent, stale, storage throwing), the folders' default; svelte-check; level 4 on `$B/s` and on a nested fixture with two `src/core`.
+- Review: the main session's diff review.
+
+### R2. Synchronised branches as IntelliJ has them
+
+- Builds (web only; ADR-0074 §3): the side panel's Local and Remotes list the branches of every loaded root once, each with a coloured mark per root that has it (the stripe's colour, the root's name as title); a branch only a submodule has is listed and its menu offers Checkout. Checkout and New branch from, with Synchronise submodules on, pass `roots` = the roots that have the branch (the workspace only when it has it); the toggle is on by default when a submodule has it; the outcomes per root as now. The Submodules section's Update is the "bring every submodule to the commits this branch records" button.
+- Check: Vitest for the union, the marks and the roots passed; level 4 on `$B/s` with a branch in `lib` only: a checkout moves `lib` only.
+- Review: the main session's diff review.
+- Needs: R1.
+
+### R3. Pull, a fast-forward only
+
+- Builds: `git.pull` (ADR-0074 §1, §2): `pull.go`, the write runner's network invocation, the one key, `LongRunning`; refusals before any write for a detached HEAD or no upstream; git's cause for a diverged branch or local changes in the way. Web: the toolbar's Pull enabled, behind the dirty-buffer gate, running and Cancel as Fetch, its result shown (up to date, or `a1b2c3d..e4f5g6h`). Schema: `git.pull`, within 0.25.0; `mcp.md`'s not-exposed row.
+- Check: `TestPullFastForward`, `TestPullUpToDate`, `TestPullDiverged` (refused, HEAD and the tree unchanged), `TestPullDetached`, `TestPullNoUpstream`, `TestPullUntrusted`, `TestPullNoHook`, `TestPullCancel` (no process left), MCP refused; Vitest; level 5 on `$B/w` after a colleague's push.
+- Review: the Opus verifier (contract, security), effort high.
+
 ## Not in this milestone
 
 - Pull, push, merge, rebase, stash, rename, delete; force or smart checkout; tag creation: a later milestone (items 6, 8).
@@ -615,3 +652,4 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-13, P1, the verifier (revise, Delegated): (5) held only without an askpass program: git runs `SSH_ASKPASS` or `core.askPass` before it checks `GIT_TERMINAL_PROMPT`, and waits. ADR-0073 supersedes ADR-0071 §3 in part: every write's environment drops `SSH_ASKPASS` and sets `GIT_ASKPASS=` and `SSH_ASKPASS_REQUIRE=never`; the user's credential helpers stay theirs on a trusted root. P1's stop condition is answered by that ADR (the decision "never a prompt" is kept, its means completed), so part 2 goes on. `validName`'s refusal of `refs/`, `heads/`, `remotes/`, `tags/` and `@` is kept for the true reason, ambiguity with other refs (git resolves a short name through `refs/`, `refs/tags/`, `refs/heads/`, `refs/remotes/` in turn, gitrevisions(7); it does switch to such a branch once made), and it also refuses the pseudo-refs (`FETCH_HEAD`, `ORIG_HEAD` and the rest); a name starting with a configured remote's name and `/` is P3's check against `git remote`. For P2: a remote name is checked against `git remote` (`validName` admits a URL or a path); the runner writes SIGTERM, 2 s, SIGKILL to the group itself (Go's `WaitDelay` kills the pid only) and spawns through the supervisor's locked thread. For P3: a checkout ended mid-write leaves HEAD where it was with a half-switched work tree and no lock: its outcome says so with a nextStep (and a register row). Unverified, registered: ssh's own askpass under `SSH_ASKPASS_REQUIRE=never` without an ssh endpoint; a GUI credential helper's window; config-based hooks (`hook.<name>.command`) in a later git.
 - 2026-10-13, P5 (Delegated), departing from its Builds line on real git's behaviour: `submodule update -- lib/nested` from the top fails ("pathspec did not match"), so a nested path runs in its parent's directory with the path relative to it, and a path whose listed ancestor is also asked is left to that ancestor's `--recursive`; `submodule update --init` with no paths updates submodules outside a subdirectory workspace, so "all" names the listed submodules no other listed one holds, workspace-relative, from the workspace root, in runs of at most 64 KiB; the runs are sequential under one 5-minute deadline, a later failure stopping the call with the earlier runs applied (no rollback, the nextStep says so). The result is slimmed once delivered. P2's flaky `TestFetchTimeout` (a 700 ms limit could fire before the stub `uploadpack` wrote its pid file) now uses a 2 s limit and retries an attempt that ends first, failing if none proves the group gone.
 - 2026-10-13, P6–P9 (Delegated): to go faster, P9 was built in parallel on its own worktree and merged after P6 and P7 (§P9's evidence); the steps' non-blocking review notes were batched into one final round instead of a round per step. P8's schema changed three descriptions (the old ones said submodule roots were not accepted yet), and the final round added `GIT_NOT_FOUND` and `GIT_NOT_A_REPOSITORY` to the per-root outcome's error enum, since an error after a done root is now that root's outcome (the verifier's N1); with the descriptions of P6's `root`, `git.read`, and P9's `exclude` reworded. All within 0.25.0.
+- 2026-10-14, part 3 (Delegated): the owner's first check added R1–R3 (§Part 3) and ADR-0074 (pull as a fast-forward; a synchronised branch applies to the roots that have it, superseding ADR-0071 §1 and §6 in part); the Gradle distribution failure is a register row, outside this milestone.
