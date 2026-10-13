@@ -5,6 +5,7 @@
 	import ListTree from '@lucide/svelte/icons/list-tree';
 	import Search from '@lucide/svelte/icons/search';
 	import X from '@lucide/svelte/icons/x';
+	import { commitFileOf, type CommitFile } from './diffsource';
 	import { fullDate, listRows, treeRows } from './files';
 	import type { ExpandedCommit } from './history';
 
@@ -21,13 +22,19 @@
 		onclose: () => void;
 		onparent: (oid: string) => void;
 		onretry: () => void;
+		/** A changed file was picked: it opens in the Diff tab against the commit's first parent (plan m2n step 9). */
+		onopenfile?: (file: CommitFile) => void;
 	}
-	let { expanded, height, onclose, onparent, onretry }: Props = $props();
+	let { expanded, height, onclose, onparent, onretry, onopenfile }: Props = $props();
 
 	let mode = $state<'tree' | 'list'>('tree');
 	let collapsed = $state.raw<ReadonlySet<string>>(new Set());
 	const show = $derived(expanded.show);
 	const rows = $derived(show === null ? [] : mode === 'tree' ? treeRows(show.files, collapsed) : listRows(show.files));
+
+	function openFile(r: { path: string; origPath?: string; status: 'added' | 'modified' | 'deleted' | 'renamed'; binary: boolean }) {
+		if (show !== null) onopenfile?.(commitFileOf(show, r));
+	}
 
 	function toggleDir(path: string) {
 		const next = new Set(collapsed);
@@ -109,6 +116,7 @@
 								<span class="t">{r.label}</span>
 							</button>
 						{:else}
+							<!-- The whole row takes a click; the name inside is the button the keyboard reaches (its click bubbles here). -->
 							<div
 								class="file {r.status}"
 								role={mode === 'tree' ? 'treeitem' : 'listitem'}
@@ -118,10 +126,11 @@
 								data-added={r.added}
 								data-removed={r.removed}
 								data-binary={r.binary}
+								onclick={() => openFile(r)}
 								style:padding-left={mode === 'tree' ? `calc(var(--sp-3) + ${r.depth - 1} * var(--sp-5) + 13px + var(--sp-3))` : 'var(--sp-3)'}
 								title={r.path}
 							>
-								<span class="name t">{r.label}</span>
+								<button type="button" class="name t" data-open title="Open in the Diff tab: {r.path}">{r.label}</button>
 								{#if r.dir !== ''}<span class="dirname t">{r.dir}</span>{/if}
 								{#if r.origPath !== undefined}<span class="orig t" data-orig>from {r.origPath}</span>{/if}
 								{#if r.counts !== ''}<span class="counts" class:binary={r.binary}>{r.counts}</span>{/if}
@@ -261,11 +270,21 @@
 		text-align: left;
 		cursor: pointer;
 	}
+	.file {
+		cursor: pointer;
+	}
 	.dir:hover,
 	.file:hover {
 		background: var(--bg-hover);
 	}
 	.name {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		white-space: nowrap;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;

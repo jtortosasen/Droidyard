@@ -49,6 +49,7 @@
 	import FileTree from '../files/FileTree.svelte';
 	import { GitWatch } from '../git/watch';
 	import { HeadBase } from '../git/base';
+	import { CommitText, DiffSource } from '../git/diffsource';
 	import GitTree from '../git/GitTree.svelte';
 	import { GitTreeModel } from '../git/tree';
 	import DiffPanel from '../git/DiffPanel.svelte';
@@ -113,6 +114,9 @@
 	let gitWatch = $state.raw<GitWatch | null>(null);
 	let gitTree = $state.raw<GitTreeModel | null>(null);
 	let headBase = $state.raw<HeadBase | null>(null);
+	// Which source the Diff tab shows (the working tree, or a changed file of a commit) and the commit file's two texts.
+	let diffSource = $state.raw<DiffSource | null>(null);
+	let commitText = $state.raw<CommitText | null>(null);
 	let gitHistory = $state.raw<HistoryStore | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
@@ -134,6 +138,7 @@
 	function showProblem(at: Position) {
 		if (!editorTabs) return;
 		target = { ...at, id: ++targetId };
+		diffSource?.showWorktree();
 		editorTabs.open(at.path);
 		void fileTree?.reveal(at.path);
 	}
@@ -196,6 +201,8 @@
 			ws,
 		);
 		const headText = new HeadBase(callOn, ws);
+		const source = new DiffSource();
+		const commitTexts = new CommitText(callOn, ws);
 		// The History tab's commits: read once the watch has a status, and again when HEAD moves.
 		const history = new HistoryStore(callOn, ws, gitStatus);
 		// The viewer reads the same watch the tree does (no second file.watch).
@@ -203,6 +210,14 @@
 		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
 		const offListen = watcher.listen(readers);
 		const offGuard = guard.attach(readers);
+		// Another active file in the Editor is the working tree's diff again (a file opened from the tree or the palette changes it too).
+		let activeFile = tabs.view.active;
+		const offActive = tabs.subscribe(() => {
+			const now = tabs.view.active;
+			if (now === activeFile) return;
+			activeFile = now;
+			source.showWorktree();
+		});
 		// The palette's file index reads the same stream (no second file.watch).
 		const index = new FileIndex();
 		const offIndex = watcher.listen(index);
@@ -231,6 +246,8 @@
 		gitWatch = gitStatus;
 		gitTree = treeOfGit;
 		headBase = headText;
+		diffSource = source;
+		commitText = commitTexts;
 		gitHistory = history;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
@@ -274,6 +291,7 @@
 			logcatDevices.dispose();
 			offListen();
 			offGuard();
+			offActive();
 			offIndex();
 			offGitTree();
 			readers.dispose();
@@ -283,6 +301,8 @@
 			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
+			commitTexts.dispose();
+			source.dispose();
 			files.dispose();
 			unbind();
 			file.dispose();
@@ -317,6 +337,8 @@
 			gitWatch = null;
 			gitTree = null;
 			headBase = null;
+			diffSource = null;
+			commitText = null;
 			gitHistory = null;
 			editorTabs = null;
 			viewers = null;
@@ -371,6 +393,7 @@
 				ops={fileOps}
 				onopen={(path) => {
 					target = null;
+					diffSource?.showWorktree();
 					editorTabs?.open(path);
 				}}
 				{workspaceId}
@@ -385,6 +408,7 @@
 				onopen={(path) => {
 					// A changed file opens as the Editor's preview tab, so it has one buffer, and its diff shows.
 					target = null;
+					diffSource?.showWorktree();
 					editorTabs?.open(path);
 					shell.show('diff');
 				}}
@@ -392,11 +416,20 @@
 		{/if}
 	{:else if id === 'git'}
 		{#if gitHistory && gitWatch}
-			<HistoryPanel store={gitHistory} watch={gitWatch} {workspaceId} />
+			<HistoryPanel
+				store={gitHistory}
+				watch={gitWatch}
+				{workspaceId}
+				onopenfile={(file) => {
+					// A changed file of the opened commit: the Diff tab shows it against the commit's first parent.
+					diffSource?.showCommit(file);
+					shell.show('diff');
+				}}
+			/>
 		{/if}
 	{:else if id === 'diff'}
-		{#if editorTabs && viewers && gitWatch && headBase}
-			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} />
+		{#if editorTabs && viewers && gitWatch && headBase && diffSource && commitText}
+			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} source={diffSource} {commitText} />
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
@@ -515,6 +548,7 @@
 			onopen={(path) => {
 				shell.show('editor');
 				target = null;
+				diffSource?.showWorktree();
 				tabs.open(path);
 			}}
 		/>

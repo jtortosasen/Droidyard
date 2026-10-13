@@ -78,6 +78,8 @@ export function mount(host: HTMLElement, opts: EditorOptions): EditorHandle {
 
 // Compare's code (the merge view) is its own chunk, fetched when Compare is first opened.
 export async function mountCompare(host: HTMLElement, opts: CompareOptions): Promise<EditorHandle> {
+	// Two read-only texts (a commit's file) have no buffer to mirror or follow: their own view.
+	if (opts.text !== undefined) return (await import('./textside')).mountTextCompare(host, opts);
 	return (await import('./merge')).mountCompare(host, opts);
 }
 

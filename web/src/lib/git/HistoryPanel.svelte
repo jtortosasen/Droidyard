@@ -9,6 +9,7 @@
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
 	import CommitView from './CommitView.svelte';
+	import type { CommitFile } from './diffsource';
 	import GitToolbar from './GitToolbar.svelte';
 	import { avatarHue, initials, relativeTime, type HistoryStore, type HistoryView } from './history';
 	import { badgesByOid, type Badge } from './refs';
@@ -35,8 +36,10 @@
 		watch: GitWatch;
 		/** The project, for what is remembered per browser and project (the favourites). */
 		workspaceId: string;
+		/** A changed file of an expanded commit was picked (plan m2n step 9): the shell opens the Diff tab on it. */
+		onopenfile?: (file: CommitFile) => void;
 	}
-	let { store, watch, workspaceId }: Props = $props();
+	let { store, watch, workspaceId, onopenfile }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -331,6 +334,7 @@
 									onclose={() => store.collapse()}
 									onparent={(p) => void store.openParent(p)}
 									onretry={() => store.expand(c.oid)}
+									{onopenfile}
 								/>
 							{/if}
 						{/if}

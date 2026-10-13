@@ -61,27 +61,54 @@ export interface EditorOptions {
 	onSave(): void;
 }
 
-/** What a Compare view is given (plan m2i D8): the buffer, editable, beside the disk's text, read-only. */
-export interface CompareOptions extends EditorOptions {
-	/** The disk's text, as the file read gave it. */
+/** A file's text shown read-only, with no buffer behind it: a commit's file (ADR-0070 §4). */
+export interface ReadOnlyText {
+	text: string;
+	/** The file's path, whose extension picks the language to highlight. */
+	path: string;
+}
+
+/** What a Compare view is given, beyond the two captions (plan m2i D8). */
+interface CompareCommon {
+	/** The read-only side's text, as the file read gave it: the disk's, HEAD's or a commit's parent. */
 	disk: string;
-	/** The two captions above the sides; default `On disk` and `Yours`. The Diff tab says `HEAD` and `Working tree`. */
+	/** The two captions above the sides; default `On disk` and `Yours`. The Diff tab says `HEAD` and `Working tree`, or the two short hashes. */
 	labels?: { a: string; b: string };
 	/** The read-only side's accessible name; default `File contents on disk`, so HEAD's text is not announced as the disk's. */
 	sideLabel?: string;
 }
 
+/** Compare with the buffer, editable, beside the read-only text (plan m2i D8). */
+export type BufferCompareOptions = EditorOptions & CompareCommon & { text?: undefined };
+
+/** Compare of two read-only texts (ADR-0070 §4): `text` takes the buffer's place, and no buffer is touched, mirrored or followed. */
+export type TextCompareOptions = CompareCommon & {
+	buffer?: undefined;
+	/** The second side: a commit's text, read-only. */
+	text: ReadOnlyText;
+	/** Its accessible name; default `File contents`. */
+	textLabel?: string;
+	onSave?: undefined;
+};
+
+export type CompareOptions = BufferCompareOptions | TextCompareOptions;
+
 /**
- * What a Review view is given (ADR-0067 §4): the buffer on the left, editable, and HEAD's text
- * rendered on the right. With no buffer (the file is deleted) the right pane shows HEAD's text
- * alone, all red.
+ * What a Review view is given (ADR-0067 §4): the buffer on the left, editable, and the base's text
+ * rendered on the right. With no buffer and no `text` (the file is deleted) the right pane shows the
+ * base's text alone, all red. With `text` (ADR-0070 §4: a commit's file) the left is that text,
+ * read-only, and `buffer` is null: no buffer is touched, nothing is mirrored or followed.
  */
 export interface ReviewOptions {
 	buffer: EditorBuffer | null;
-	/** HEAD's text, as `git.read` gave it. */
+	/** A commit's text in the buffer's place; read-only. */
+	text?: ReadOnlyText;
+	/** The base's text, as `git.read` gave it: HEAD's, or the first parent's. */
 	base: string;
 	/** The file's path or name, for the highlighting of a view with no buffer. */
 	path?: string;
+	/** The captions above the panes (the right one alone when single); default `Working tree`, `Against HEAD` and, single, `HEAD (deleted from the working tree)`. */
+	labels?: { left: string; right: string };
 	/** Mod-s was pressed in the left pane. */
 	onSave(): void;
 }

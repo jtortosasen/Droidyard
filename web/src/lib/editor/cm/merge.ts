@@ -17,7 +17,7 @@ import { MergeView, type DiffConfig, type DirectMergeConfig } from '@codemirror/
 import { syntaxHighlighting } from '@codemirror/language';
 import { Annotation, EditorState, Transaction, type ChangeSet, type EditorStateConfig } from '@codemirror/state';
 import { EditorView, lineNumbers } from '@codemirror/view';
-import type { CompareOptions, EditorDiagnostic, EditorHandle } from '../surface';
+import type { BufferCompareOptions, CompareOptions, EditorDiagnostic, EditorHandle } from '../surface';
 import { CmBuffer } from './buffer';
 import { minimalChange } from './change';
 import { highlightStyle } from './highlight';
@@ -142,14 +142,14 @@ export const SIDES_CSS = `
 .droidyard-sides > span + span { border-left: 1px solid var(--border); }
 `;
 /** `.cm-mergeView` is the scroller (the merge view does not scroll by itself); a flex child of the host. */
-const SHEET = `
+export const COMPARE_CSS = `
 .cm-mergeView { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 ${SIDES_CSS}`;
 
 class CmCompare implements EditorHandle {
 	#merge!: MergeView;
 	#buffer: CmBuffer;
-	#opts: CompareOptions;
+	#opts: BufferCompareOptions;
 	#save: () => void;
 	#prevSave: (() => void) | null;
 	#root: ShadowRoot;
@@ -159,7 +159,7 @@ class CmCompare implements EditorHandle {
 	#offChange: () => void;
 	#gone = false;
 
-	constructor(host: HTMLElement, opts: CompareOptions) {
+	constructor(host: HTMLElement, opts: BufferCompareOptions) {
 		if (!(opts.buffer instanceof CmBuffer)) throw new Error('the buffer was not made by this editor');
 		const buffer = opts.buffer;
 		const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
@@ -176,7 +176,7 @@ class CmCompare implements EditorHandle {
 		root.addEventListener('keydown', this.#onKey as EventListener);
 		if (typeof CSSStyleSheet !== 'undefined' && 'adoptedStyleSheets' in root) {
 			const sheet = new CSSStyleSheet();
-			sheet.replaceSync(SHEET);
+			sheet.replaceSync(COMPARE_CSS);
 			root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
 			this.#sheet = sheet;
 		}
@@ -246,6 +246,6 @@ class CmCompare implements EditorHandle {
 	}
 }
 
-export function mountCompare(host: HTMLElement, opts: CompareOptions): EditorHandle {
+export function mountCompare(host: HTMLElement, opts: BufferCompareOptions): EditorHandle {
 	return new CmCompare(host, opts);
 }

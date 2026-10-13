@@ -1,10 +1,13 @@
 import { EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { historyField } from '@codemirror/commands';
+import { EditorView, keymap } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
 import { sha256Hex } from '../text';
 import { EditorModel, type LoadBuffers, type ViewerClient } from '../viewer';
 import { CmBuffer } from './buffer';
 import { compareSides, follow, followed, mirror, sideCaptions } from './merge';
+import { languageOf, textSide, useLanguage } from './textside';
+import { mountCompare } from './view';
 
 const make = (text: string, readOnly = false) => new CmBuffer({ text, readOnly });
 
@@ -227,5 +230,70 @@ describe('the merge view’s colours (D2, D8)', () => {
 		expect(code).not.toMatch(/\b(rgb|rgba|hsl|hsla|oklch|lab|hwb)\(/);
 		expect(code).toMatch(/var\(--danger\)/);
 		expect(code).toMatch(/var\(--success\)/);
+	});
+});
+
+describe('a commit’s text as a read-only side (plan m2n step 9; ADR-0070 §4)', () => {
+	const COMMIT = 'one\r\ntwo\nthree\n';
+	const side = (text = COMMIT) => EditorState.create(textSide(text, 'File contents at abc1234'));
+
+	// Decision: the side holds the commit's text as git gave it, line breaks split as CodeMirror does for the disk's side, with no buffer's separator.
+	it('holds the commit’s text and nothing else', () => {
+		const s = side();
+		expect(s.doc.toString()).toBe('one\ntwo\nthree\n');
+		expect(s.doc.lines).toBe(4);
+		expect(s.facet(EditorState.lineSeparator)).toBeUndefined();
+	});
+
+	// Decision: an edit is refused. `readOnly` alone does not do it (a dispatched transaction still applies), so a filter does.
+	it('refuses a transaction that changes the document, where readOnly alone does not', () => {
+		const onlyReadOnly = EditorState.create({ doc: 'abc', extensions: [EditorState.readOnly.of(true)] });
+		expect(onlyReadOnly.update({ changes: { from: 0, insert: 'X' } }).docChanged).toBe(true);
+		const s = side('abc');
+		expect(s.readOnly).toBe(true);
+		expect(s.facet(EditorView.editable)).toBe(false);
+		const tr = s.update({ changes: { from: 0, insert: 'X' }, userEvent: 'input.type' });
+		expect(tr.docChanged).toBe(false);
+		expect(tr.state.doc.toString()).toBe('abc');
+		// A replacement of everything and a deletion are refused alike, and so is a change mixed with a selection.
+		expect(s.update({ changes: { from: 0, to: 3, insert: '' } }).state.doc.toString()).toBe('abc');
+		expect(s.update({ changes: { from: 1, insert: 'Y' }, selection: { anchor: 2 } }).state.doc.toString()).toBe('abc');
+	});
+
+	// Decision: the side is still a place to read: moving the selection and giving it a language are not edits.
+	it('still takes a selection and the language', async () => {
+		const s = side('val x = 1\n');
+		const moved = s.update({ selection: { anchor: 4 } });
+		expect(moved.state.selection.main.anchor).toBe(4);
+		const ext = await languageOf('A.kt');
+		expect(ext).not.toEqual([]);
+		const lang = s.update({ effects: useLanguage(ext) });
+		expect(lang.state.doc.toString()).toBe('val x = 1\n');
+	});
+
+	// Decision: no mirror and no follow: the side carries no update listener, so nothing it does can reach a buffer,
+	// and it is made from a string, so there is no buffer for it to follow. The buffer's own side, by contrast, is
+	// editable and has the history and keymap the commit's text lacks.
+	it('has no listener, history or keymap that could carry a change to a buffer', () => {
+		const s = side();
+		expect(s.facet(EditorView.updateListener)).toHaveLength(0);
+		expect(s.field(historyField, false)).toBeUndefined();
+		expect(s.facet(keymap)).toHaveLength(0);
+		const buffer = EditorState.create(compareSides(make('x'), 'y').b);
+		expect(buffer.readOnly).toBe(false);
+		expect(buffer.field(historyField, false)).toBeDefined();
+	});
+
+	// Decision: a path with no known language, or whose chunk fails, is plain text and never an error.
+	it('takes an unknown extension as plain text', async () => {
+		expect(await languageOf('README')).toEqual([]);
+		expect(await languageOf('a.unknownext')).toEqual([]);
+	});
+
+	// Decision: two read-only texts (a commit's file) go to their own view; the buffer's Compare is not given them.
+	it('routes a text in the buffer’s place away from the buffer’s Compare', async () => {
+		// With no DOM here the text view fails at its shadow root; the buffer's would have said the buffer was not made by this editor.
+		const host = {} as HTMLElement;
+		await expect(mountCompare(host, { disk: 'a', text: { text: 'b', path: 'a.kt' } })).rejects.toThrow(/attachShadow/);
 	});
 });
