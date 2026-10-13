@@ -354,28 +354,15 @@ func (w *walker) gitlinks(cwd string, cands []string) ([]gitlink, error) {
 		if res.ExitCode != 0 {
 			return false, gitError(res)
 		}
-		recs := strings.Split(string(res.Stdout), "\x00")
-		recs = recs[:len(recs)-1]
-		if res.Truncated {
-			recs = recs[:max(len(recs)-1, 0)]
-		}
-		for _, rec := range recs {
-			meta, p, ok := strings.Cut(rec, "\t")
-			f := strings.Fields(meta)
-			if !ok || len(f) != 3 || f[0] != gitlinkMode || !want[p] {
-				continue
-			}
-			// A conflicted gitlink has up to three entries: the merged stage 0, else
-			// "ours" (stage 2); the base and "theirs" are not what HEAD has.
-			st := int(f[2][0] - '0')
-			if st == 1 || st == 3 {
-				continue
+		gitlinkRecords(res, func(p, oid string, st int) {
+			if !want[p] {
+				return
 			}
 			if old, dup := found[p]; dup && old.stage == 0 {
-				continue
+				return
 			}
-			found[p] = entry{f[1], st}
-		}
+			found[p] = entry{oid, st}
+		})
 		return res.Truncated, nil
 	}
 	for len(cands) > 0 {
@@ -410,6 +397,31 @@ func (w *walker) gitlinks(cwd string, cands []string) ([]gitlink, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
 	return out, nil
+}
+
+// gitlinkRecords reads `ls-files --stage -z` output and calls yield for each gitlink record
+// (mode 160000) of it: its path, its oid and its stage. A record cut at the output cap is
+// not read. A conflicted gitlink has up to three entries: the merged stage 0, else "ours"
+// (stage 2) are what HEAD has; the base and "theirs" (stages 1 and 3) are not yielded. The
+// one place that reads a gitlink record: the walk and git's `root` share it.
+func gitlinkRecords(res result, yield func(p, oid string, stage int)) {
+	recs := strings.Split(string(res.Stdout), "\x00")
+	recs = recs[:len(recs)-1]
+	if res.Truncated {
+		recs = recs[:max(len(recs)-1, 0)]
+	}
+	for _, rec := range recs {
+		meta, p, ok := strings.Cut(rec, "\t")
+		f := strings.Fields(meta)
+		if !ok || len(f) != 3 || f[0] != gitlinkMode {
+			continue
+		}
+		st := int(f[2][0] - '0')
+		if st == 1 || st == 3 {
+			continue
+		}
+		yield(p, f[1], st)
+	}
 }
 
 // read describes one gitlink at the workspace-relative path sub. ok is false when the

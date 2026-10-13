@@ -13,8 +13,10 @@ import (
 // maxRefList caps each list git.refs returns (ADR-0069 §2, plan m2n Q1 §1).
 const maxRefList = 5000
 
-// RefsParams is git.refs' parameters: none.
-type RefsParams struct{}
+// RefsParams is git.refs' parameters: the root, optionally.
+type RefsParams struct {
+	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
+}
 
 // RefsHead is what HEAD is, and how far the current branch is from its upstream.
 type RefsHead struct {
@@ -88,8 +90,10 @@ func registerRefs(reg *capability.Registry, opts Options) {
 		// The codes the handler returns (ADR-0069 §4). WORKSPACE_NOT_OPEN comes from Start.
 		// WORKSPACE_UNTRUSTED is an untrusted root whose git filter drivers cannot all be
 		// switched off (ADR-0066 §3).
+		// REQUEST_INVALID_PARAMS is a root that is no initialised submodule of the project.
 		Errors: []capability.ErrorCode{
 			CodeNotFound, CodeNotARepository, CodeFailed, capability.ErrWorkspaceUntrusted,
+			capability.ErrInvalidParams,
 		},
 		// A retained result drops the lists and the tips once delivered (ADR-0020
 		// §Retention): a later operation.wait returns HEAD and the flags, and the caller
@@ -115,7 +119,11 @@ func registerRefs(reg *capability.Registry, opts Options) {
 // arguments are fixed, and the two object ids the ahead and behind count compares go to
 // git on stdin after the check that they are object ids (ADR-0069 §2).
 func (o Options) refs(ctx context.Context, call *capability.Call) (any, error) {
-	root, cerr := o.root(call)
+	sub, cerr := parseRoot(call.Params.(RefsParams).Root)
+	if cerr != nil {
+		return nil, cerr
+	}
+	ws, cerr := o.root(call)
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -123,22 +131,26 @@ func (o Options) refs(ctx context.Context, call *capability.Call) (any, error) {
 	if cerr != nil {
 		return nil, cerr
 	}
-	trusted := o.trusted(root)
+	trusted := o.trusted(ws)
+	root, err := o.resolveRoot(ctx, r, ws, trusted, sub)
+	if err != nil {
+		return nil, err
+	}
 
 	// HEAD and the refs are read once: the lists below and the tip set are built from the
 	// same two outputs, so they cannot disagree. The first git also meets a root that is no
 	// repository.
-	head, err := headOid(ctx, r, root, trusted)
+	head, err := headOid(ctx, r, root.dir, trusted)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
-	refsOut, refsCut, err := refsOutput(ctx, r, root, trusted)
+	refsOut, refsCut, err := refsOutput(ctx, r, root.dir, trusted)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	tp, tipsTruncated, err := tipSet(head, refsOut, refsCut)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	out := RefsResult{
 		Branches: []RefsBranch{}, Remotes: []RefsRemote{}, Tags: []RefsTag{}, Worktrees: []RefsWorktree{},
@@ -150,9 +162,9 @@ func (o Options) refs(ctx context.Context, call *capability.Call) (any, error) {
 	out.Head.Oid = head
 
 	// The branch HEAD is on, an unborn one included. A detached HEAD exits 1.
-	res, err := r.run(ctx, root, trusted, nil, hist("symbolic-ref", "--quiet", "HEAD")...)
+	res, err := r.run(ctx, root.dir, trusted, nil, hist("symbolic-ref", "--quiet", "HEAD")...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	switch res.ExitCode {
 	case 0:
@@ -160,20 +172,20 @@ func (o Options) refs(ctx context.Context, call *capability.Call) (any, error) {
 	case 1:
 		out.Head.Detached = true
 	default:
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 
 	// The remotes' names, to split remote-tracking refs where a remote's name ends.
-	res, err = r.run(ctx, root, trusted, nil, hist("remote")...)
+	res, err = r.run(ctx, root.dir, trusted, nil, hist("remote")...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	lists, perr := parseRefs(refsOut, refsCut, remoteNames(res.Stdout, res.Truncated))
 	if perr != nil {
-		return nil, mapError(root, perr)
+		return nil, root.mapError(perr)
 	}
 	out.Branches, out.BranchesTruncated = capList(lists.branches, lists.cut[kindHead])
 	out.Remotes, out.RemotesTruncated = capList(lists.remotes, lists.cut[kindRemote])
@@ -198,19 +210,19 @@ func (o Options) refs(ctx context.Context, call *capability.Call) (any, error) {
 	// The work tree that holds the workspace is the one whose top git reports from the
 	// root. A bare repository has none.
 	top := ""
-	res, err = r.run(ctx, root, trusted, nil, hist("rev-parse", "--show-toplevel")...)
+	res, err = r.run(ctx, root.dir, trusted, nil, hist("rev-parse", "--show-toplevel")...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode == 0 {
 		top = o.Env.Canonical(strings.TrimSpace(string(res.Stdout)))
 	}
-	res, err = r.run(ctx, root, trusted, nil, worktreeArgs()...)
+	res, err = r.run(ctx, root.dir, trusted, nil, worktreeArgs()...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	wts := parseWorktrees(res.Stdout, func(path string) bool { return top != "" && o.Env.Canonical(path) == top })
 	out.Worktrees, out.WorktreesTruncated = capList(wts, res.Truncated)
@@ -219,16 +231,16 @@ func (o Options) refs(ctx context.Context, call *capability.Call) (any, error) {
 
 // aheadBehind counts the commits of head that upstream lacks and the reverse, from the
 // two object ids on stdin as one symmetric difference.
-func (o Options) aheadBehind(ctx context.Context, r *runner, root string, trusted bool, head, upstream string) (ahead, behind int, cerr *capability.Error) {
+func (o Options) aheadBehind(ctx context.Context, r *runner, root gitRoot, trusted bool, head, upstream string) (ahead, behind int, cerr *capability.Error) {
 	if !isOid(head) || !isOid(upstream) {
 		return 0, 0, capability.NewError(CodeFailed, "git answered something this version does not understand")
 	}
-	res, err := r.run(ctx, root, trusted, []byte(head+"..."+upstream+"\n"), hist("rev-list", "--stdin", "--left-right", "--count")...)
+	res, err := r.run(ctx, root.dir, trusted, []byte(head+"..."+upstream+"\n"), hist("rev-list", "--stdin", "--left-right", "--count")...)
 	if err != nil {
-		return 0, 0, capability.AsError(mapError(root, err))
+		return 0, 0, capability.AsError(root.mapError(err))
 	}
 	if res.ExitCode != 0 {
-		return 0, 0, capability.AsError(mapError(root, gitError(res)))
+		return 0, 0, capability.AsError(root.mapError(gitError(res)))
 	}
 	f := strings.Fields(string(res.Stdout))
 	if len(f) == 2 && !res.Truncated {

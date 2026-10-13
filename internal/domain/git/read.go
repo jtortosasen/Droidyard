@@ -15,6 +15,7 @@ import (
 type ReadParams struct {
 	Path string `json:"path" jsonschema:"required" jsonschema_description:"The file to read, relative to the project root. An absolute path inside the root is accepted."`
 	Base string `json:"base,omitempty" jsonschema:"pattern=^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"What to read the file at: HEAD, or a commit's full object id. Absent means HEAD."`
+	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's repository. Path must lie in it."`
 }
 
 // ReadResult is git.read's result: a path's text at the base. Text is absent unless the
@@ -69,6 +70,8 @@ func registerRead(reg *capability.Registry, opts Options) {
 // the committed bytes exactly. The base is HEAD or a full commit object id, checked here
 // before any git starts, and an oid is then confirmed to be a commit (a tree's oid would
 // name a path inside that tree). Containment is lexical and decided before any git starts.
+// With a root (roots.go) the path is still the workspace's and must lie inside the root; git
+// reads it in the submodule, from the submodule's own top.
 func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(ReadParams)
 	base := BaseHEAD
@@ -79,13 +82,25 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 		return nil, capability.Errorf(capability.ErrInvalidParams, "base %q is neither %s nor a full commit object id", p.Base, BaseHEAD).
 			WithNextStep("omit base, pass HEAD, or pass a commit's full hex object id (as git.log returned it), not a branch name or a short id")
 	}
-	root, cerr := o.root(call)
+	sub, cerr := parseRoot(p.Root)
 	if cerr != nil {
 		return nil, cerr
 	}
-	rel, cerr := file.ResolveLexical(root, o.Env, p.Path)
+	ws, cerr := o.root(call)
 	if cerr != nil {
 		return nil, cerr
+	}
+	rel, cerr := file.ResolveLexical(ws, o.Env, p.Path)
+	if cerr != nil {
+		return nil, cerr
+	}
+	// The path is the project's, and must lie inside the root it is read in: decided
+	// lexically, before any git starts. inRoot is the path from the root's own top.
+	inRoot, inside := gitRoot{rel: sub}.inside(rel)
+	if !inside {
+		return nil, capability.Errorf(capability.ErrFileOutsideRoot, "%q is outside the root %q", p.Path, sub).
+			WithDetails(map[string]any{"path": rel, "root": sub}).
+			WithNextStep("pass a path inside the submodule the root names, or read it with its own root")
 	}
 	// cat-file reads one object name per line, so a line break would be a second name,
 	// and a carriage return before one is stripped by git. The resolver has refused NUL.
@@ -97,11 +112,19 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 	if cerr != nil {
 		return nil, cerr
 	}
-	trusted := o.trusted(root)
-
-	prefix, err := r.prefix(ctx, root, trusted)
+	trusted := o.trusted(ws)
+	root, err := o.resolveRoot(ctx, r, ws, trusted, sub)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, err
+	}
+	// The workspace's folder below its repository's top. A submodule root is the top of its
+	// own repository (resolveRoot proved it), so the path from its top is inRoot.
+	prefix := ""
+	if root.rel == "" {
+		prefix, err = r.prefix(ctx, root.dir, trusted)
+		if err != nil {
+			return nil, root.mapError(err)
+		}
 	}
 	if base != BaseHEAD {
 		i, cerr := o.firstNotCommit(ctx, r, root, trusted, []string{base})
@@ -114,10 +137,7 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 		}
 	}
 	out := ReadResult{Path: rel, Base: base}
-	if rel == "." {
-		rel = ""
-	}
-	name := base + ":" + prefix + rel
+	name := base + ":" + prefix + inRoot
 	if strings.ContainsAny(name, "\n\r") {
 		return nil, capability.NewError(capability.ErrInvalidParams, "the project root's path inside the repository contains a line break").
 			WithNextStep("git.read cannot name a path under a folder with a line break in its name")
@@ -126,12 +146,12 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 	// First the object's kind and size, so a blob of a gigabyte is never piped through the
 	// daemon; then, for a small blob, its bytes.
 	stdin := []byte(name + "\n")
-	res, err := r.run(ctx, root, trusted, stdin, "cat-file", "--batch-check")
+	res, err := r.run(ctx, root.dir, trusted, stdin, "cat-file", "--batch-check")
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	kind, size, found, perr := parseHeader(res.Stdout)
 	if perr != nil {
@@ -148,12 +168,12 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 		out.TooLarge = true
 		return out, nil
 	}
-	res, err = r.run(ctx, root, trusted, stdin, "cat-file", "--batch")
+	res, err = r.run(ctx, root.dir, trusted, stdin, "cat-file", "--batch")
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	kind, size, found, perr = parseHeader(res.Stdout)
 	switch {

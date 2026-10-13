@@ -702,7 +702,8 @@ func TestRefsFence(t *testing.T) {
 
 // Decision (ADR-0069 §1, ADR-0060 §2, ADR-0020 §Retention): git.refs is a stateless
 // workspace query for the human UI (audience human: the core refuses it over MCP), that
-// needs git, whose codes are listed, and that takes no parameter. Reversing the audience
+// needs git, whose codes are listed (REQUEST_INVALID_PARAMS since plan m2n P6 gave it the
+// optional root), and that takes no parameter but that root. Reversing the audience
 // would list it as an agent tool.
 func TestRefsDescriptor(t *testing.T) {
 	f := newReadFx(t)
@@ -716,13 +717,13 @@ func TestRefsDescriptor(t *testing.T) {
 	if len(d.Availability) != 1 || d.Availability[0] != capability.RequiresGit {
 		t.Errorf("availability %v; want git", d.Availability)
 	}
-	for _, code := range []capability.ErrorCode{CodeNotFound, CodeNotARepository, CodeFailed, capability.ErrWorkspaceUntrusted} {
+	for _, code := range []capability.ErrorCode{CodeNotFound, CodeNotARepository, CodeFailed, capability.ErrWorkspaceUntrusted, capability.ErrInvalidParams} {
 		if !slices.Contains(d.Errors, code) {
 			t.Errorf("the descriptor does not list %s, which the handler returns", code)
 		}
 	}
-	if len(d.Errors) != 4 {
-		t.Errorf("errors %v; want the four the handler returns", d.Errors)
+	if len(d.Errors) != 5 {
+		t.Errorf("errors %v; want the five the handler returns", d.Errors)
 	}
 }
 

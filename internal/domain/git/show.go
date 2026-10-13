@@ -24,7 +24,8 @@ const (
 
 // ShowParams is git.show's parameters.
 type ShowParams struct {
-	Oid string `json:"oid" jsonschema:"required,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The commit's full object id, as git.log returned it."`
+	Oid  string `json:"oid" jsonschema:"required,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The commit's full object id, as git.log returned it."`
+	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
 }
 
 // ShowPerson is an author or a committer, as the commit records them.
@@ -71,7 +72,8 @@ func registerShow(reg *capability.Registry, opts Options) {
 		// The codes the handler returns (ADR-0069 §4). WORKSPACE_NOT_OPEN comes from Start.
 		// WORKSPACE_UNTRUSTED is an untrusted root whose git filter drivers cannot all be
 		// switched off (ADR-0066 §3). REQUEST_INVALID_PARAMS is an oid that is not a full
-		// object id of a commit of this repository.
+		// object id of a commit of this repository, or a root that is no initialised
+		// submodule of the project (ADR-0071 §7).
 		Errors: []capability.ErrorCode{
 			CodeNotFound, CodeNotARepository, CodeFailed,
 			capability.ErrWorkspaceUntrusted, capability.ErrInvalidParams,
@@ -95,14 +97,19 @@ func registerShow(reg *capability.Registry, opts Options) {
 // show serves git.show. The one caller text on argv is the oid, a full hex object id
 // checked here before any git starts and confirmed to be a commit before it is used; the
 // first parent comes from the commit's own details, and the files are listed under the
-// workspace's folder, which git is run in (ADR-0069 §2, §3, §5).
+// workspace's folder, which git is run in (ADR-0069 §2, §3, §5). With a root (roots.go) it
+// is the submodule's commit, run in the submodule, and each file's path carries the root's.
 func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(ShowParams)
 	if !isOid(p.Oid) {
 		return nil, capability.NewError(capability.ErrInvalidParams, "oid is not a full object id").
 			WithNextStep("pass a full hex object id (as git.log returned it), not a ref name or a short id")
 	}
-	root, cerr := o.root(call)
+	sub, cerr := parseRoot(p.Root)
+	if cerr != nil {
+		return nil, cerr
+	}
+	ws, cerr := o.root(call)
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -110,7 +117,11 @@ func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 	if cerr != nil {
 		return nil, cerr
 	}
-	trusted := o.trusted(root)
+	trusted := o.trusted(ws)
+	root, err := o.resolveRoot(ctx, r, ws, trusted, sub)
+	if err != nil {
+		return nil, err
+	}
 
 	i, cerr := o.firstNotCommit(ctx, r, root, trusted, []string{p.Oid})
 	if cerr != nil {
@@ -120,18 +131,24 @@ func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 		return nil, capability.NewError(capability.ErrInvalidParams, "oid is not a commit of this repository").
 			WithNextStep("pass the id of a commit git.log returned; reload the history if the repository changed")
 	}
-	prefix, err := r.prefix(ctx, root, trusted)
-	if err != nil {
-		return nil, mapError(root, err)
+	// The workspace's folder below its repository's top, whose files are listed. A
+	// submodule root is the top of its own repository (resolveRoot proved it), so its
+	// diff-tree paths are the root's own and each gets the root's path in front below.
+	prefix := ""
+	if root.rel == "" {
+		prefix, err = r.prefix(ctx, root.dir, trusted)
+		if err != nil {
+			return nil, root.mapError(err)
+		}
 	}
 
 	detailsArgs, _ := showArgs(p.Oid, "")
-	res, err := r.run(ctx, root, trusted, nil, detailsArgs...)
+	res, err := r.run(ctx, root.dir, trusted, nil, detailsArgs...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	out, perr := parseShow(p.Oid, res)
 	if perr != nil {
@@ -147,16 +164,24 @@ func (o Options) show(ctx context.Context, call *capability.Call) (any, error) {
 		}
 	}
 	_, filesArgs := showArgs(p.Oid, first)
-	res, err = r.run(ctx, root, trusted, nil, filesArgs...)
+	res, err = r.run(ctx, root.dir, trusted, nil, filesArgs...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	files, truncated, perr := parseShowFiles(res.Stdout, res.Truncated, prefix)
 	if perr != nil {
 		return nil, perr
+	}
+	if root.rel != "" { // paths in and out are the workspace's
+		for i := range files {
+			files[i].Path = root.rel + "/" + files[i].Path
+			if files[i].OrigPath != "" {
+				files[i].OrigPath = root.rel + "/" + files[i].OrigPath
+			}
+		}
 	}
 	out.Files, out.Truncated = files, truncated
 	return out, nil

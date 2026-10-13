@@ -173,7 +173,7 @@ func (o Options) createBranch(ctx context.Context, call *capability.Call) (any, 
 		return nil, capability.Errorf(capability.ErrInvalidParams, "a branch named %q already exists", truncate(p.Name, 80)).
 			WithNextStep("choose another name, or check the existing branch out")
 	}
-	if i, cerr := o.firstNotCommit(ctx, b.r, b.root, true, []string{p.From}); cerr != nil {
+	if i, cerr := o.firstNotCommit(ctx, b.r, workspaceRoot(b.root), true, []string{p.From}); cerr != nil {
 		return nil, cerr
 	} else if i >= 0 {
 		return nil, notACommit()

@@ -30,6 +30,7 @@ type LogParams struct {
 	From  []string `json:"from,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."`
 	Skip  *int     `json:"skip,omitempty" jsonschema:"minimum=0,maximum=2147483647" jsonschema_description:"How many commits of the walk to skip: the number already received. Absent means 0."`
 	Limit *int     `json:"limit,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"The most commits to return, 1 to 1000. Absent means 500."`
+	Root  string   `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
 }
 
 // LogCommit is one commit of the history. Names, e-mails and subjects are the
@@ -66,7 +67,8 @@ func registerLog(reg *capability.Registry, opts Options) {
 		// The codes the handler returns (ADR-0069 §4). WORKSPACE_NOT_OPEN comes from Start.
 		// WORKSPACE_UNTRUSTED is an untrusted root whose git filter drivers cannot all be
 		// switched off (ADR-0066 §3). REQUEST_INVALID_PARAMS is a from that is not a list
-		// of full object ids of commits, or a page out of bounds.
+		// of full object ids of commits, a page out of bounds, or a root that is no
+		// initialised submodule of the project (ADR-0071 §7).
 		Errors: []capability.ErrorCode{
 			CodeNotFound, CodeNotARepository, CodeFailed,
 			capability.ErrWorkspaceUntrusted, capability.ErrInvalidParams,
@@ -89,7 +91,8 @@ func registerLog(reg *capability.Registry, opts Options) {
 
 // log serves git.log. No parameter reaches argv but the two validated integers: the
 // commits to walk from go to git on stdin, as full object ids checked here before any
-// git starts (ADR-0069 §2).
+// git starts (ADR-0069 §2). The optional root is a submodule (roots.go): its repository is
+// the one walked, and `from` names its commits.
 func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(LogParams)
 	skip, limit := 0, defaultLogLimit
@@ -119,7 +122,11 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 				WithNextStep("pass full hex object ids (the tips a first page returned), not ref names or short ids")
 		}
 	}
-	root, cerr := o.root(call)
+	sub, cerr := parseRoot(p.Root)
+	if cerr != nil {
+		return nil, cerr
+	}
+	ws, cerr := o.root(call)
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -127,14 +134,18 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 	if cerr != nil {
 		return nil, cerr
 	}
-	trusted := o.trusted(root)
+	trusted := o.trusted(ws)
+	root, err := o.resolveRoot(ctx, r, ws, trusted, sub)
+	if err != nil {
+		return nil, err
+	}
 
 	out := LogResult{Commits: []LogCommit{}, Tips: []string{}}
 	from := p.From
 	if len(from) == 0 {
-		tp, truncated, err := tips(ctx, r, root, trusted)
+		tp, truncated, err := tips(ctx, r, root.dir, trusted)
 		if err != nil {
-			return nil, mapError(root, err)
+			return nil, root.mapError(err)
 		}
 		if len(tp) == 0 { // no commit yet
 			return out, nil
@@ -146,12 +157,12 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 	}
 
 	// One more than the page, so that "more" is known exactly.
-	res, err := r.run(ctx, root, trusted, []byte(strings.Join(from, "\n")+"\n"), logArgs(skip, limit+1)...)
+	res, err := r.run(ctx, root.dir, trusted, []byte(strings.Join(from, "\n")+"\n"), logArgs(skip, limit+1)...)
 	if err != nil {
-		return nil, mapError(root, err)
+		return nil, root.mapError(err)
 	}
 	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
+		return nil, root.mapError(gitError(res))
 	}
 	commits, perr := parseLog(res.Stdout)
 	if perr != nil {
@@ -176,7 +187,7 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 // commitsExist refuses, as REQUEST_INVALID_PARAMS, a from that names an object the
 // repository does not hold or one that is not a commit (ADR-0069 §4). The oids go on
 // stdin, as everywhere.
-func (o Options) commitsExist(ctx context.Context, r *runner, root string, trusted bool, oids []string) *capability.Error {
+func (o Options) commitsExist(ctx context.Context, r *runner, root gitRoot, trusted bool, oids []string) *capability.Error {
 	i, cerr := o.firstNotCommit(ctx, r, root, trusted, oids)
 	if cerr != nil {
 		return cerr
@@ -192,13 +203,13 @@ func (o Options) commitsExist(ctx context.Context, r *runner, root string, trust
 // caller) and returns the index of the first that is no commit of this repository, or -1.
 // The one place that decides "is this oid a commit": git.log's from, git.show's oid and
 // git.read's base share it.
-func (o Options) firstNotCommit(ctx context.Context, r *runner, root string, trusted bool, oids []string) (int, *capability.Error) {
-	res, err := r.run(ctx, root, trusted, []byte(strings.Join(oids, "\n")+"\n"), hist("cat-file", "--batch-check")...)
+func (o Options) firstNotCommit(ctx context.Context, r *runner, root gitRoot, trusted bool, oids []string) (int, *capability.Error) {
+	res, err := r.run(ctx, root.dir, trusted, []byte(strings.Join(oids, "\n")+"\n"), hist("cat-file", "--batch-check")...)
 	if err != nil {
-		return -1, capability.AsError(mapError(root, err))
+		return -1, capability.AsError(root.mapError(err))
 	}
 	if res.ExitCode != 0 {
-		return -1, capability.AsError(mapError(root, gitError(res)))
+		return -1, capability.AsError(root.mapError(gitError(res)))
 	}
 	lines := strings.Split(strings.TrimSuffix(string(res.Stdout), "\n"), "\n")
 	if res.Truncated || len(lines) != len(oids) {
