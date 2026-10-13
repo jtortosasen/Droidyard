@@ -19,10 +19,13 @@
 	import type { FetchModel, FetchView } from './fetch';
 	import type { HistoryStore, HistoryView } from './history';
 	import { loadFavourites, panelModel, saveFavourites, toggled, type RefRow, type SectionId } from './refs';
+	import SubmodulesSection from './SubmodulesSection.svelte';
+	import type { SubmodulesView } from './submodules';
 
 	// The Git tab's side panel, after SourceGit's (plan m2n step 6; the owner's items 4 and 7): a
 	// filter box over collapsible sections with counts: LOCAL BRANCHES (the current one marked,
-	// folders by `/`, starred favourites first), REMOTES, TAGS and WORKTREES. A click on a ref
+	// folders by `/`, starred favourites first), REMOTES, TAGS, SUBMODULES (plan m2n P4: its own
+	// component and model, filtered by the same box) and WORKTREES. A click on a ref
 	// selects its commit in the table (the store loads at most five more pages to find it, else the
 	// table says it is not loaded). A local or a remote-tracking branch has a menu (right click, or
 	// the ⋯ button) with IntelliJ's eight entries, each disabled until the part that enables it;
@@ -36,10 +39,13 @@
 		/** The tab's Fetch: each remote of the REMOTES section has a Fetch (plan m2n P2). */
 		fetcher: FetchModel;
 		fetchView: FetchView;
+		/** The SUBMODULES section's list (plan m2n P4) and the way to read it again after a failed first read. */
+		submodules: SubmodulesView;
+		onretrysubmodules: () => void;
 		/** An enabled entry of a branch's menu was chosen. */
 		onentry: (id: MenuId, target: BranchTarget) => void;
 	}
-	let { view, store, workspaceId, storage, fetcher, fetchView, onentry }: Props = $props();
+	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, onentry }: Props = $props();
 
 	// The remotes that have a remote-tracking branch listed; a remote never fetched has none and
 	// is not named by git.refs, so it has no button of its own (the toolbar's Fetch reaches it).
@@ -133,7 +139,7 @@
 
 <div class="refs" data-refs>
 	<div class="filter">
-		<input type="search" bind:value={filter} placeholder="Filter Branches/Tags" aria-label="Filter branches and tags" />
+		<input type="search" bind:value={filter} placeholder="Filter Branches/Tags/Submodules" aria-label="Filter branches, tags and submodules" />
 	</div>
 	<div class="lists" bind:this={list}>
 		{#if sections === null}
@@ -308,6 +314,9 @@
 						</div>
 					{/if}
 				</section>
+				{#if s.id === 'tags'}
+					<SubmodulesSection view={submodules} {filter} onretry={onretrysubmodules} />
+				{/if}
 			{/each}
 			{#if view.refs?.branchesTruncated || view.refs?.remotesTruncated || view.refs?.tagsTruncated || view.refs?.worktreesTruncated}
 				<p class="note" role="status">Some refs are not listed (the repository has more than the daemon returns).</p>

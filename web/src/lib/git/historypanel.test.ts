@@ -1,7 +1,7 @@
 import { render } from 'svelte/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { settle } from '../build/testing';
-import { chain, idleBranches, refsOf, setup } from './historytesting';
+import { chain, idleBranches, refsOf, setup, submodulesOf } from './historytesting';
 import { FetchModel, type FetchClient } from './fetch';
 import HistoryPanel from './HistoryPanel.svelte';
 import type { GitWatch } from './watch';
@@ -32,7 +32,8 @@ async function panel(bad = false) {
 	t.store.refreshRefs();
 	await settle();
 	t.store.select('c2');
-	const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher: new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {}), branches: idleBranches() } }).body;
+	const submodules = await submodulesOf();
+	const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher: new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {}), branches: idleBranches(), submodules } }).body;
 	return { body, t };
 }
 
@@ -47,7 +48,7 @@ describe('HistoryPanel markup', () => {
 		expect(body).not.toContain('origin/HEAD');
 		expect(body).toMatch(/data-ref="refs\/heads\/main"[^>]*data-current/);
 		expect(body).toContain('data-worktree="/w/app"');
-		expect(body).toContain('Filter Branches/Tags');
+		expect(body).toContain('Filter Branches/Tags/Submodules');
 	});
 
 	// Decision (item 10): the toolbar is across the tab, with the branch display and its ahead and behind.

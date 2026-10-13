@@ -6,7 +6,7 @@ import { sourceOf } from './branchops';
 import CreateBranchDialog from './CreateBranchDialog.svelte';
 import { FetchModel, type FetchClient } from './fetch';
 import HistoryPanel from './HistoryPanel.svelte';
-import { chain, refsOf, setup } from './historytesting';
+import { chain, refsOf, setup, submodulesOf } from './historytesting';
 import type { GitWatch } from './watch';
 
 // The markup of Checkout and Create Branch (plan m2n P3): the dialog, and the History tab with
@@ -107,7 +107,8 @@ describe('the History tab’s branch controls', () => {
 		t.store.refreshRefs();
 		await settle();
 		const fetcher = new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/p' }, () => {});
-		return render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches } }).body;
+		const submodules = await submodulesOf();
+		return render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches, submodules } }).body;
 	}
 
 	// Decision (plan P3): the branch menu opens on a local and on a remote-tracking branch, not on a tag or on origin/HEAD.

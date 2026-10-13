@@ -121,10 +121,11 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 		t.Errorf("git.fetch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
 
-	// So are the writes that move or add a branch (ADR-0071 §1).
+	// So are the writes that move or add a branch, and the submodules query (ADR-0071 §1).
 	for name, params := range map[string]string{
 		"git.checkout":     `{"name":"main"}`,
 		"git.createBranch": `{"name":"n","checkout":false,"from":"` + strings.Repeat("a", 40) + `"}`,
+		"git.submodules":   `{}`,
 	} {
 		id, err = p.ops.Start(context.Background(), capability.Request{Capability: name, Workspace: ws,
 			Params: json.RawMessage(params), Client: capability.ClientMCP})

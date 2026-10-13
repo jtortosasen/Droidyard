@@ -22,6 +22,7 @@
 	import RefsPanel from './RefsPanel.svelte';
 	import { rowAt, rowTop, rowWindow, type Expanded } from './rows';
 	import { findCommits, stepMatch } from './search';
+	import type { SubmodulesModel, SubmodulesView } from './submodules';
 	import type { GitWatch } from './watch';
 
 	// The bottom Git panel's History tab (plan m2n steps 4 and 6; ADR-0070 §1, §3): the
@@ -48,8 +49,10 @@
 		fetcher: FetchModel;
 		/** The tab's Checkout and Create Branch (plan m2n P3), shared by the branch menu, the toolbar and the dialog. */
 		branches: BranchModel;
+		/** The side panel's Submodules section (plan m2n P4); it follows the store's refs (`follow`), the shell wires it. */
+		submodules: SubmodulesModel;
 	}
-	let { store, watch, workspaceId, onopenfile, fetcher, branches }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -80,6 +83,14 @@
 		branchView = b.view;
 		return b.subscribe(() => {
 			branchView = b.view;
+		});
+	});
+	let submodulesView = $state.raw<SubmodulesView>(untrack(() => submodules.view));
+	$effect(() => {
+		const m = submodules;
+		submodulesView = m.view;
+		return m.subscribe(() => {
+			submodulesView = m.view;
 		});
 	});
 	// The Create Branch dialog: where the new branch starts while it is open.
@@ -294,8 +305,8 @@
 		{/if}
 	{/if}
 	<div class="body">
-		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags and work trees">
-			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} {onentry} />
+		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags, submodules and work trees">
+			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} onretrysubmodules={() => void submodules.load()} {onentry} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
 		<div class="table-area">
