@@ -98,8 +98,10 @@ func worktreeArgs() []string {
 
 // showFormat is the details of one commit: oid, parents, raw author name, e-mail and
 // time, committer name, e-mail and time, then the whole message (%B), last because it
-// can hold anything but a NUL. Fields end in NUL.
-const showFormat = "%H%x00%P%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%B"
+// can hold anything but a NUL. Fields end in NUL. A time is %aI / %cI, git's strict
+// ISO 8601 with the commit's own UTC offset (an RFC 3339 time), not the Unix seconds
+// that would lose the offset.
+const showFormat = "%H%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B"
 
 // showFields is the number of NUL-terminated fields in a showFormat record.
 const showFields = 9

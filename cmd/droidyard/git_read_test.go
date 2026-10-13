@@ -105,6 +105,14 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 		t.Errorf("git.refs as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
 
+	// git.show is human-only as well (ADR-0069 §1).
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.show", Workspace: ws,
+		Params: json.RawMessage(`{"oid":"` + strings.Repeat("a", 40) + `"}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.show as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
 	}
@@ -120,7 +128,7 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	// git.log through the shipped registry: the one commit, its tip returned.
 	lenv, code := callIn(t, p.state, root, "git.log")
 	var page struct {
-		Commits []struct{ Subject string }
+		Commits []struct{ Oid, Subject string }
 		Tips    []string
 		More    bool
 	}
@@ -137,6 +145,25 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	}
 	if code != 0 || renv.Error != nil || json.Unmarshal(renv.Result, &refs) != nil || refs.Head.Branch != "main" || len(refs.Branches) != 1 || refs.Branches[0].Name != "main" || len(refs.Tips) != 1 {
 		t.Errorf("git.refs from the CLI: exit %d, error %+v, result %s; want HEAD on main, its branch and its tip", code, renv.Error, renv.Result)
+	}
+
+	// git.show through the shipped registry: the one commit's message and its files (a.kt first),
+	// and git.read at that commit (ADR-0066 §1 widened by ADR-0069 §1).
+	senv, code := callIn(t, p.state, root, "git.show", "--params", `{"oid":"`+page.Commits[0].Oid+`"}`)
+	var shown struct {
+		Message string
+		Files   []struct {
+			Path, Status string
+			Added        *int
+		}
+	}
+	if code != 0 || senv.Error != nil || json.Unmarshal(senv.Result, &shown) != nil || shown.Message != "c\n" || len(shown.Files) == 0 || shown.Files[0].Path != "a.kt" || shown.Files[0].Status != "added" || shown.Files[0].Added == nil || *shown.Files[0].Added != 1 {
+		t.Errorf("git.show from the CLI: exit %d, error %+v, result %s; want the commit's message and a.kt added with one line first", code, senv.Error, senv.Result)
+	}
+	aenv, code := callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt","base":"`+page.Commits[0].Oid+`"}`)
+	var atCommit struct{ Base, Text string }
+	if code != 0 || aenv.Error != nil || json.Unmarshal(aenv.Result, &atCommit) != nil || atCommit.Base != page.Commits[0].Oid || atCommit.Text != "committed\n" {
+		t.Errorf("git.read at a commit from the CLI: exit %d, error %+v, result %s; want the committed text and the oid as base", code, aenv.Error, aenv.Result)
 	}
 
 	// No git on the PATH: unavailable with a reason, GIT_NOT_FOUND with a next step.

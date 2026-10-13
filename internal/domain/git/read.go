@@ -14,7 +14,7 @@ import (
 // ReadParams is git.read's parameters.
 type ReadParams struct {
 	Path string `json:"path" jsonschema:"required" jsonschema_description:"The file to read, relative to the project root. An absolute path inside the root is accepted."`
-	Base string `json:"base,omitempty" jsonschema:"enum=HEAD" jsonschema_description:"What to read the file at. Only HEAD exists; absent means HEAD."`
+	Base string `json:"base,omitempty" jsonschema:"pattern=^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"What to read the file at: HEAD, or a commit's full object id. Absent means HEAD."`
 }
 
 // ReadResult is git.read's result: a path's text at the base. Text is absent unless the
@@ -22,7 +22,7 @@ type ReadParams struct {
 // delivered, for a retained one (Slim).
 type ReadResult struct {
 	Path     string  `json:"path" jsonschema:"required" jsonschema_description:"The file read, relative to the project root."`
-	Base     string  `json:"base" jsonschema:"required,enum=HEAD" jsonschema_description:"What it was read at."`
+	Base     string  `json:"base" jsonschema:"required,pattern=^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"What it was read at: HEAD, or the commit's full object id."`
 	Exists   bool    `json:"exists" jsonschema:"required" jsonschema_description:"False when the base holds no such file: a new file, an untracked one, or a repository with no commit yet."`
 	Size     int64   `json:"size" jsonschema:"required" jsonschema_description:"The file's size in bytes at the base; 0 when it does not exist."`
 	Binary   bool    `json:"binary" jsonschema:"required" jsonschema_description:"True when the file holds a NUL byte or invalid UTF-8; text is then absent."`
@@ -38,7 +38,7 @@ func registerRead(reg *capability.Registry, opts Options) {
 		Audience:     capability.AudienceHuman,
 		Since:        version,
 		Availability: []capability.Requirement{capability.RequiresGit},
-		Description:  "Reads a file's whole text as committed at HEAD, for the diff: a file HEAD does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
+		Description:  "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
 		Params:       ReadParams{},
 		Result:       ReadResult{},
 		// The codes the handler returns (ADR-0066 §4). WORKSPACE_NOT_OPEN comes from Start.
@@ -65,13 +65,19 @@ func registerRead(reg *capability.Registry, opts Options) {
 }
 
 // read serves git.read. The path never reaches git's argv: it goes, as the object name
-// HEAD:<prefix><path>, on the stdin of cat-file, which runs no filter and so returns
-// the committed bytes exactly. Containment is lexical and decided before any git starts.
+// <base>:<prefix><path>, on the stdin of cat-file, which runs no filter and so returns
+// the committed bytes exactly. The base is HEAD or a full commit object id, checked here
+// before any git starts, and an oid is then confirmed to be a commit (a tree's oid would
+// name a path inside that tree). Containment is lexical and decided before any git starts.
 func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(ReadParams)
-	if p.Base != "" && p.Base != BaseHEAD {
-		return nil, capability.Errorf(capability.ErrInvalidParams, "base %q is not supported; only %s is", p.Base, BaseHEAD).
-			WithNextStep("omit base, or pass HEAD")
+	base := BaseHEAD
+	if p.Base != "" {
+		base = p.Base
+	}
+	if base != BaseHEAD && !isOid(base) {
+		return nil, capability.Errorf(capability.ErrInvalidParams, "base %q is neither %s nor a full commit object id", p.Base, BaseHEAD).
+			WithNextStep("omit base, pass HEAD, or pass a commit's full hex object id (as git.log returned it), not a branch name or a short id")
 	}
 	root, cerr := o.root(call)
 	if cerr != nil {
@@ -97,11 +103,21 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 	if err != nil {
 		return nil, mapError(root, err)
 	}
-	out := ReadResult{Path: rel, Base: BaseHEAD}
+	if base != BaseHEAD {
+		i, cerr := o.firstNotCommit(ctx, r, root, trusted, []string{base})
+		if cerr != nil {
+			return nil, cerr
+		}
+		if i >= 0 {
+			return nil, capability.NewError(capability.ErrInvalidParams, "base is not a commit of this repository").
+				WithNextStep("pass HEAD, or the full object id of a commit git.log returned")
+		}
+	}
+	out := ReadResult{Path: rel, Base: base}
 	if rel == "." {
 		rel = ""
 	}
-	name := BaseHEAD + ":" + prefix + rel
+	name := base + ":" + prefix + rel
 	if strings.ContainsAny(name, "\n\r") {
 		return nil, capability.NewError(capability.ErrInvalidParams, "the project root's path inside the repository contains a line break").
 			WithNextStep("git.read cannot name a path under a folder with a line break in its name")
@@ -125,7 +141,7 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 		return out, nil
 	}
 	if kind != "blob" {
-		return nil, wrongType(out.Path, kind)
+		return nil, wrongType(out.Path, kind, base)
 	}
 	out.Exists, out.Size = true, size
 	if size > file.EditableLimit {
@@ -144,10 +160,11 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 	case perr != nil:
 		return nil, perr
 	case !found:
-		// HEAD moved between the two calls, and the file is gone from it.
-		return ReadResult{Path: out.Path, Base: BaseHEAD}, nil
+		// The file is gone from the base between the two calls: HEAD moved (a commit base
+		// is immutable, so only HEAD can).
+		return ReadResult{Path: out.Path, Base: base}, nil
 	case kind != "blob":
-		return nil, wrongType(out.Path, kind)
+		return nil, wrongType(out.Path, kind, base)
 	}
 	out.Size = size
 	if size > file.EditableLimit {
@@ -172,7 +189,7 @@ func (o Options) read(ctx context.Context, call *capability.Call) (any, error) {
 
 // parseHeader reads the first line of cat-file's --batch-check or --batch output:
 // "<oid> <type> <size>" for an object and "<name> missing" for none. The two are told
-// apart by the oid, which a name beginning "HEAD:" never is.
+// apart by the oid, which a name beginning "<base>:" never is.
 func parseHeader(out []byte) (kind string, size int64, found bool, err error) {
 	line, _, _ := strings.Cut(string(out), "\n")
 	f := strings.Fields(line)
@@ -208,8 +225,13 @@ func truncate(s string, n int) string {
 	return strings.ToValidUTF8(s[:n], "")
 }
 
-// wrongType is FILE_WRONG_TYPE: HEAD holds a directory, or a submodule, at the path.
-func wrongType(path, kind string) *capability.Error {
+// wrongType is FILE_WRONG_TYPE: the base (HEAD, or a commit) holds a directory, or a
+// submodule, at the path.
+func wrongType(path, kind, base string) *capability.Error {
+	at := "HEAD"
+	if base != BaseHEAD {
+		at = "the commit"
+	}
 	typ := kind
 	switch kind {
 	case "tree":
@@ -217,7 +239,7 @@ func wrongType(path, kind string) *capability.Error {
 	case "commit":
 		typ = "submodule"
 	}
-	return capability.Errorf(capability.ErrFileWrongType, "%q is a %s at HEAD, not a regular file", path, typ).
+	return capability.Errorf(capability.ErrFileWrongType, "%q is a %s at %s, not a regular file", path, typ, at).
 		WithDetails(map[string]any{"path": path, "type": typ}).
 		WithNextStep("pass a path to a regular file")
 }

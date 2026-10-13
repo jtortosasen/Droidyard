@@ -6952,7 +6952,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.23.0",
-      "description": "Reads a file's whole text as committed at HEAD, for the diff: a file HEAD does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
+      "description": "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
       "availability": [
         "git"
       ],
@@ -6979,10 +6979,8 @@
           },
           "base": {
             "type": "string",
-            "enum": [
-              "HEAD"
-            ],
-            "description": "What to read the file at. Only HEAD exists; absent means HEAD."
+            "pattern": "^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "What to read the file at: HEAD, or a commit's full object id. Absent means HEAD."
           }
         },
         "additionalProperties": false,
@@ -6999,10 +6997,8 @@
           },
           "base": {
             "type": "string",
-            "enum": [
-              "HEAD"
-            ],
-            "description": "What it was read at."
+            "pattern": "^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "What it was read at: HEAD, or the commit's full object id."
           },
           "exists": {
             "type": "boolean",
@@ -7260,6 +7256,179 @@
           "worktreesTruncated",
           "tips",
           "tipsTruncated"
+        ]
+      }
+    },
+    {
+      "name": "git.show",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.24.0",
+      "description": "Reads one commit for the UI's expanded row: its author, committer, times, parents and message, and the files it changed under the project root with the lines added and removed, against its first parent (a merge shows what it brought in; a root commit, everything). The commit is named by its full object id.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "oid": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "The commit's full object id, as git.log returned it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "oid"
+        ]
+      },
+      "output": {
+        "properties": {
+          "oid": {
+            "type": "string",
+            "description": "The commit's full object id."
+          },
+          "parents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The parents' object ids, first parent first; empty for a root commit."
+          },
+          "author": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name as the commit records it."
+              },
+              "email": {
+                "type": "string",
+                "description": "The e-mail as the commit records it."
+              },
+              "time": {
+                "type": "string",
+                "description": "The time in RFC 3339, in the UTC offset the commit recorded; 1970-01-01T00:00:00Z when git prints the commit's date in no RFC 3339 form."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "email",
+              "time"
+            ],
+            "description": "Who wrote the change, and when."
+          },
+          "committer": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name as the commit records it."
+              },
+              "email": {
+                "type": "string",
+                "description": "The e-mail as the commit records it."
+              },
+              "time": {
+                "type": "string",
+                "description": "The time in RFC 3339, in the UTC offset the commit recorded; 1970-01-01T00:00:00Z when git prints the commit's date in no RFC 3339 form."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "email",
+              "time"
+            ],
+            "description": "Who recorded it, and when."
+          },
+          "message": {
+            "type": "string",
+            "description": "The whole commit message, at most 64 KiB. Empty in a result returned again after delivery."
+          },
+          "messageTruncated": {
+            "type": "boolean",
+            "description": "True when the message is longer than the 64 KiB returned."
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The file's path after the commit, relative to the project root."
+                },
+                "origPath": {
+                  "type": "string",
+                  "description": "A renamed file's path before the commit, relative to the project root."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "added",
+                    "modified",
+                    "deleted",
+                    "renamed"
+                  ],
+                  "description": "What the commit did to the file. A change of kind (a file made a link) is modified."
+                },
+                "added": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Lines added, as git counts them; absent for a binary file, and for the files listed after git's output was cut (truncated is then true)."
+                },
+                "removed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Lines removed, as git counts them; absent for a binary file, and for the files listed after git's output was cut (truncated is then true)."
+                },
+                "binary": {
+                  "type": "boolean",
+                  "description": "True when git counts no lines because the file is binary."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "status",
+                "binary"
+              ]
+            },
+            "type": "array",
+            "description": "The files the commit changed under the project root, by path, at most 5000: against the first parent, so a merge shows what it brought into its branch; a root commit against the empty tree. Empty in a result returned again after delivery."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the commit changed more files than listed: past 5000, or past the 4 MiB git's output is read to."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "oid",
+          "parents",
+          "author",
+          "committer",
+          "message",
+          "messageTruncated",
+          "files",
+          "truncated"
         ]
       }
     },
