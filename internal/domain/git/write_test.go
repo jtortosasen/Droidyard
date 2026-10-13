@@ -736,7 +736,7 @@ func TestWritesAreLongRunning(t *testing.T) {
 		}
 	}
 	// The writes the loop must have covered, so that it cannot pass over a write that lost its Resource.
-	for _, want := range []string{"git.fetch", "git.checkout", "git.createBranch", "git.updateSubmodules"} {
+	for _, want := range []string{"git.fetch", "git.pull", "git.checkout", "git.createBranch", "git.updateSubmodules"} {
 		if !slices.Contains(writes, want) {
 			t.Errorf("%s takes no Resource: the loop did not cover it (covered %v)", want, writes)
 		}

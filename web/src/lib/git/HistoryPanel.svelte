@@ -20,6 +20,7 @@
 	import type { CommitFile } from './diffsource';
 	import type { FetchModel, FetchView } from './fetch';
 	import GitToolbar from './GitToolbar.svelte';
+	import type { PullModel, PullView } from './pull';
 	import { avatarHue, initials, relativeTime, type HistoryStore, type HistoryView } from './history';
 	import { badgesByOid, type Badge } from './refs';
 	import RefsPanel from './RefsPanel.svelte';
@@ -59,8 +60,10 @@
 		updater: SubmoduleUpdateModel;
 		/** Compare with current (plan m2n P9): the view the branch menu's entry opens in place of the table. */
 		compare?: CompareModel;
+		/** The toolbar's Pull (plan m2n R3), a fast-forward of the current branch. */
+		puller?: PullModel;
 	}
-	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater, compare }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater, compare, puller }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -83,6 +86,14 @@
 		fetchView = f.view;
 		return f.subscribe(() => {
 			fetchView = f.view;
+		});
+	});
+	let pullView = $state.raw<PullView | undefined>(untrack(() => puller?.view));
+	$effect(() => {
+		const p = puller;
+		pullView = p?.view;
+		return p?.subscribe(() => {
+			pullView = p.view;
 		});
 	});
 	let branchView = $state.raw<BranchView>(untrack(() => branches.view));
@@ -326,10 +337,14 @@
 		onnavigate={() => void store.navigateToHead()}
 		onrun={(id) => {
 			if (id === 'fetch') void fetcher.run();
+			else if (id === 'pull') void puller?.run();
 			else if (id === 'create-branch') openCreate();
 		}}
 		{fetchView}
 		oncancel={() => fetcher.cancel()}
+		{pullView}
+		onpullcancel={() => puller?.cancel()}
+		onpulldismiss={() => puller?.dismiss()}
 	/>
 	{#if fetchView.failure}
 		<div class="fetch-failed" role="alert" data-op-error>

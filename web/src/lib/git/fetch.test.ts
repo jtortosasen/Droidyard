@@ -200,7 +200,7 @@ describe('the Fetch controls', () => {
 		expect(tag(body, 'data-toolbar="fetch"')).not.toMatch(/\sdisabled/);
 		expect(tag(body, 'data-toolbar="fetch"')).toContain('data-op-state="idle"');
 		expect(body).not.toContain('data-op-cancel');
-		expect(tag(body, 'data-toolbar="pull"')).toMatch(/\sdisabled/);
+		expect(tag(body, 'data-toolbar="push"')).toMatch(/\sdisabled/);
 	});
 
 	// Decision: while a fetch is in flight the Fetch is disabled and says Queued or Fetching, and a Cancel appears.
