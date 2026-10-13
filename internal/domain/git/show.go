@@ -26,7 +26,7 @@ const (
 type ShowParams struct {
 	Oid  string `json:"oid" jsonschema:"required,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The commit's full object id, as git.log returned it."`
 	Base string `json:"base,omitempty" jsonschema:"pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"A commit (full object id) to list the files against, in place of the first parent."`
-	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
+	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."`
 }
 
 // ShowPerson is an author or a committer, as the commit records them.

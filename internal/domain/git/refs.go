@@ -15,7 +15,7 @@ const maxRefList = 5000
 
 // RefsParams is git.refs' parameters: the root, optionally.
 type RefsParams struct {
-	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
+	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."`
 }
 
 // RefsHead is what HEAD is, and how far the current branch is from its upstream.

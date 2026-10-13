@@ -15,7 +15,7 @@ import (
 type ReadParams struct {
 	Path string `json:"path" jsonschema:"required" jsonschema_description:"The file to read, relative to the project root. An absolute path inside the root is accepted."`
 	Base string `json:"base,omitempty" jsonschema:"pattern=^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"What to read the file at: HEAD, or a commit's full object id. Absent means HEAD."`
-	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's repository. Path must lie in it."`
+	Root string `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."`
 }
 
 // ReadResult is git.read's result: a path's text at the base. Text is absent unless the
@@ -39,7 +39,7 @@ func registerRead(reg *capability.Registry, opts Options) {
 		Audience:     capability.AudienceHuman,
 		Since:        version,
 		Availability: []capability.Requirement{capability.RequiresGit},
-		Description:  "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
+		Description:  "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root, or outside root, is FILE_OUTSIDE_ROOT, and no git runs for it.",
 		Params:       ReadParams{},
 		Result:       ReadResult{},
 		// The codes the handler returns (ADR-0066 §4). WORKSPACE_NOT_OPEN comes from Start.

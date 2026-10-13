@@ -2,10 +2,11 @@
 //   - the working tree: the Editor's active file against HEAD (`HeadBase`, `base.ts`), the
 //     buffer side editable and following the buffer. This is the default and what the tab returns
 //     to whenever a file is opened from the Editor or the Git tree;
-//   - a commit's file: the file at that commit against the same file at the commit's FIRST parent
-//     (ADR-0069 §5), both read-only text with no buffer behind either. A rename is read at its
-//     `origPath` at the parent; a merge's first parent is the one `git.show` diffed against; an
-//     added file has an empty base; a deleted file has no text at the commit (the right pane alone).
+//   - a file at one commit against the same file at another (ADR-0072 §3), both read-only text with
+//     no buffer behind either. The commit's FIRST parent is one case (ADR-0069 §5: a commit's file);
+//     the other is a comparison, the tip of a branch against HEAD. A rename is read at its `origPath`
+//     at the other commit; a merge's first parent is the one `git.show` diffed against; an added file
+//     has an empty base; a deleted file has no text at the commit (the right pane alone).
 //
 // `DiffSource` says which source is shown; `CommitText` reads the two texts of a commit's file
 // with `git.read` (its `base` parameter is the commit's full object id) and says what to show:

@@ -154,6 +154,63 @@ func TestApplyOutcomesOfACancelAndOfAFailure(t *testing.T) {
 	}
 }
 
+// Decision (ADR-0071 §6, ADR-0053 §2): once a root has been written the call has outcomes to
+// give, so an error that is not git's refusal (git or the repository gone, git not started)
+// is that root's failed outcome with its own code and message, the rest skipped, and the call
+// completes; before the first write the same error is the call's own. Driven through the
+// exec seam. Seen failing with the old `return nil, err`: the call lost the done root.
+func TestApplyErrorsAfterAWrite(t *testing.T) {
+	steps := []branchStep{{root: ".", dir: "/r"}, {root: "lib", dir: "/r/lib"}, {root: "lib/nested", dir: "/r/lib/nested"}}
+	apply := func(failAt int, res result, err error) (BranchResult, error) {
+		i := 0
+		b := &branchCall{exec: func(context.Context, string, time.Duration, []string) (result, error) {
+			i++
+			if i == failAt {
+				return res, err
+			}
+			return result{}, nil
+		}}
+		out, aerr := b.apply(context.Background(), steps, "git refused the checkout")
+		if aerr != nil {
+			return BranchResult{}, aerr
+		}
+		return out.(BranchResult), nil
+	}
+	notARepo := result{ExitCode: 128, Stderr: []byte("fatal: not a git repository (or any of the parent directories): .git\n")}
+	for name, c := range map[string]struct {
+		res  result
+		err  error
+		code capability.ErrorCode
+	}{
+		"the repository is gone": {notARepo, nil, CodeNotARepository},
+		"git is gone":            {result{ExitCode: -1}, ErrNotFound, CodeNotFound},
+		"git could not start":    {result{ExitCode: -1}, ErrNoStarter, CodeFailed},
+	} {
+		// After a write: lib's outcome, lib/nested skipped, the call completed.
+		got, err := apply(2, c.res, c.err)
+		if err != nil {
+			t.Errorf("%s, after a write: the call failed with %v, want its outcomes", name, err)
+			continue
+		}
+		var rows []string
+		for _, o := range got.Outcomes {
+			rows = append(rows, o.Root+"="+o.Status)
+		}
+		if strings.Join(rows, " ") != ".=done lib=failed lib/nested=skipped" {
+			t.Errorf("%s: outcomes %v", name, rows)
+			continue
+		}
+		if e := got.Outcomes[1].Error; e == nil || e.Code != string(c.code) || e.Message == "" {
+			t.Errorf("%s: error %+v, want code %s with a message", name, e, c.code)
+		}
+		// Before the first write: the call's own error, with the same code.
+		_, err = apply(1, c.res, c.err)
+		if ce := capability.AsError(err); err == nil || ce.Code != c.code {
+			t.Errorf("%s, before a write: %v, want the call's error %s", name, err, c.code)
+		}
+	}
+}
+
 // Decision (ADR-0071 §1): a branch exists only as refs/heads/<name>. A tag spelled
 // refs/heads/ghost lives at refs/tags/refs/heads/ghost, where `rev-parse --verify
 // refs/heads/ghost` also finds it; the lookup must not (show-ref --verify is exact). So a

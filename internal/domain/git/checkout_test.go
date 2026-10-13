@@ -628,17 +628,21 @@ func TestCheckoutPartialCloneNextStep(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0071 §6, plan P3): until submodules are roots (P8), `roots` admits only ".",
-// once, and fromIn names no root: each other shape is REQUEST_INVALID_PARAMS before any git.
-// The control: roots ["."] and an absent roots are the same call.
-func TestSubmoduleRootsBeforeP8(t *testing.T) {
+// Decision (ADR-0071 §6, plan P3, P8): a root that is no initialised submodule of the
+// project is REQUEST_INVALID_PARAMS before any write git, whatever else roots holds: a path
+// the repository records no gitlink at (this fixture has no submodule), a parent or absolute
+// or dotted spelling, a root named twice. fromIn names no root of the call, or the root's
+// own: also refused. (That a gitlink is accepted is TestSyncOrder's.) The control: roots
+// ["."] and an absent roots are the same call. It was TestSubmoduleRootsBeforeP8, when
+// every submodule path was refused.
+func TestBranchRootsRefused(t *testing.T) {
 	f := newWfx(t)
 	from := f.r.Oids["y"]
 	f.e.g(f.r.W, "branch", "-q", "loc", "origin/y")
 	for name, roots := range map[string][]string{
-		"a submodule":       {"lib"},
+		"no gitlink there":  {"lib"},
 		"the root and one":  {".", "lib"},
-		"a nested one":      {"lib/nested"},
+		"a nested path":     {"lib/nested"},
 		"a parent path":     {".."},
 		"an absolute path":  {f.roots["ws"]},
 		"a repeated root":   {".", "."},

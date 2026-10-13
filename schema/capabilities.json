@@ -6861,7 +6861,7 @@
               "type": "string"
             },
             "type": "array",
-            "description": "The repositories to apply it to, in order: \".\" is the project's own. Only \".\" for now. Absent: [\".\"]."
+            "description": "\".\" is the project's own, the rest submodule paths. Applied \".\" first, then depth-first. Absent: [\".\"]."
           }
         },
         "additionalProperties": false,
@@ -6938,9 +6938,11 @@
                           "type": "string",
                           "enum": [
                             "GIT_FAILED",
+                            "GIT_NOT_FOUND",
+                            "GIT_NOT_A_REPOSITORY",
                             "OPERATION_CANCELLED"
                           ],
-                          "description": "GIT_FAILED: git refused or the time limit passed. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
+                          "description": "GIT_FAILED: git refused or the time limit passed. GIT_NOT_FOUND, GIT_NOT_A_REPOSITORY: git or this root's repository went away after an earlier root was written. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
                         },
                         "message": {
                           "type": "string",
@@ -7035,14 +7037,14 @@
               "type": "string"
             },
             "type": "array",
-            "description": "The repositories to apply it to, in order: \".\" is the project's own. Only \".\" for now. Absent: [\".\"]."
+            "description": "\".\" is the project's own, the rest submodule paths. Applied \".\" first, then depth-first. Absent: [\".\"]."
           },
           "fromIn": {
             "additionalProperties": {
               "type": "string"
             },
             "type": "object",
-            "description": "Per submodule path, the full object id of its start commit. Submodule roots are not accepted yet."
+            "description": "Per submodule path in roots, the full object id of its start commit there. A root without an entry refuses the call."
           }
         },
         "additionalProperties": false,
@@ -7121,9 +7123,11 @@
                           "type": "string",
                           "enum": [
                             "GIT_FAILED",
+                            "GIT_NOT_FOUND",
+                            "GIT_NOT_A_REPOSITORY",
                             "OPERATION_CANCELLED"
                           ],
-                          "description": "GIT_FAILED: git refused or the time limit passed. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
+                          "description": "GIT_FAILED: git refused or the time limit passed. GIT_NOT_FOUND, GIT_NOT_A_REPOSITORY: git or this root's repository went away after an earlier root was written. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
                         },
                         "message": {
                           "type": "string",
@@ -7321,7 +7325,7 @@
             },
             "type": "array",
             "maxItems": 5000,
-            "description": "Commits (full object ids) whose history is left out: from [B], exclude [A] is the commits of B that A lacks."
+            "description": "Full object ids of commits whose history is left out (from [B], exclude [A]: B's commits A lacks); at most 5000."
           },
           "skip": {
             "type": "integer",
@@ -7338,7 +7342,7 @@
           "root": {
             "type": "string",
             "maxLength": 4096,
-            "description": "A submodule's path as git.submodules lists it; absent or . is the project's own repository."
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
@@ -7424,7 +7428,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.23.0",
-      "description": "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
+      "description": "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root, or outside root, is FILE_OUTSIDE_ROOT, and no git runs for it.",
       "availability": [
         "git"
       ],
@@ -7457,7 +7461,7 @@
           "root": {
             "type": "string",
             "maxLength": 4096,
-            "description": "A submodule's path as git.submodules lists it; absent or . is the project's repository. Path must lie in it."
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
@@ -7539,7 +7543,7 @@
           "root": {
             "type": "string",
             "maxLength": 4096,
-            "description": "A submodule's path as git.submodules lists it; absent or . is the project's own repository."
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
@@ -7782,7 +7786,7 @@
           "root": {
             "type": "string",
             "maxLength": 4096,
-            "description": "A submodule's path as git.submodules lists it; absent or . is the project's own repository."
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
