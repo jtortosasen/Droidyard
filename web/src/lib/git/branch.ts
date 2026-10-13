@@ -4,8 +4,11 @@
 //     the dirty-buffer gate: with an unsaved editor buffer a checkout, and a new branch that is
 //     checked out, call nothing and keep the files to name (`blocked`); a new branch that is not
 //     checked out is never blocked (branchops.ts);
-//   - the call's answer is an outcome per root; the UI sends one root, so the first outcome
-//     decides: `done`, or `failed` with git's own words (cause) and a next step, as text;
+//   - the call's answer is an outcome per root. With one root (the workspace alone) the first
+//     outcome decides: `done`, or `failed` with git's own words (cause) and a next step, as text.
+//     With submodules (P8, ADR-0071 §6: a synchronised call) the outcomes are listed per root
+//     (`outcomes`), the call is done when every root is, and a stopped call keeps its list, the
+//     failed root with git's words and the rest skipped; nothing is rolled back;
 //   - when the call has ended, however it ended, `onDone` reloads the refs: a refused or ended
 //     checkout may still have changed what the list shows, and the list is cheap to read again.
 //     That follows the UI's own write and not "another git", so it adds no signal (ADR-0070 §3);
@@ -16,7 +19,7 @@
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { failure } from '../build/failure';
-import { blockText, checkoutParams, createParams, dirtyBlock, type BranchTarget, type DirtySource } from './branchops';
+import { blockText, checkoutParams, createParams, dirtyBlock, type BranchTarget, type DirtySource, type NewBranchSync } from './branchops';
 
 type Calls = 'git.checkout' | 'git.createBranch';
 
@@ -37,11 +40,22 @@ export interface BranchFailure {
 	nextStep?: string;
 }
 
+/** One root's outcome of a synchronised call, as the dialog lists it. */
+export interface OutcomeRow {
+	/** The root as asked: `.` or a submodule path. */
+	root: string;
+	status: 'done' | 'failed' | 'skipped';
+	/** Present when the root failed: git's words, as text. */
+	failure?: BranchFailure;
+}
+
 export interface BranchView {
 	/** A call is in flight. */
 	busy: boolean;
-	/** The last call's failure. */
+	/** The last call's failure (a call of one root: its outcome's; a call refused whole: the daemon's). */
 	failure: BranchFailure | null;
+	/** The last synchronised call's outcome per root, in the order applied; empty for any other call. */
+	outcomes: readonly OutcomeRow[];
 	/** The unsaved files that stopped the last call before it was made; empty when none did. */
 	blocked: readonly string[];
 	/** The message of the block, as text. */
@@ -62,6 +76,7 @@ export class BranchModel {
 	#view: BranchView | null = null;
 	#busy = false;
 	#failure: BranchFailure | null = null;
+	#outcomes: readonly OutcomeRow[] = [];
 	#blocked: readonly string[] = [];
 	#disposed = false;
 
@@ -73,7 +88,7 @@ export class BranchModel {
 	}
 
 	get view(): BranchView {
-		this.#view ??= { busy: this.#busy, failure: this.#failure, blocked: this.#blocked, blockedText: this.#blocked.length === 0 ? '' : blockText(this.#blocked) };
+		this.#view ??= { busy: this.#busy, failure: this.#failure, outcomes: this.#outcomes, blocked: this.#blocked, blockedText: this.#blocked.length === 0 ? '' : blockText(this.#blocked) };
 		return this.#view;
 	}
 
@@ -89,19 +104,23 @@ export class BranchModel {
 		return dirtyBlock(this.#dirty, checkout);
 	}
 
-	/** Checks `target` out, unless an unsaved buffer stops it. Resolves to whether the branch is checked out. */
-	checkout(target: BranchTarget): Promise<boolean> {
-		return this.#run(true, 'git.checkout', checkoutParams(target));
+	/**
+	 * Checks `target` out, unless an unsaved buffer stops it; in the submodule roots `sync` too (the call's
+	 * `roots` are the workspace and those). Resolves to whether the branch is checked out in every root asked.
+	 */
+	checkout(target: BranchTarget, sync: readonly string[] = []): Promise<boolean> {
+		return this.#run(true, 'git.checkout', checkoutParams(target, sync));
 	}
 
-	/** Creates `name` at `from`, and checks it out when asked. Resolves to whether it was done. */
-	createBranch(name: string, checkout: boolean, from: string): Promise<boolean> {
-		return this.#run(checkout, 'git.createBranch', createParams(name, checkout, from));
+	/** Creates `name` at `from`, and checks it out when asked; in the roots of `sync` too, each at its own start. Resolves to whether it was done everywhere. */
+	createBranch(name: string, checkout: boolean, from: string, sync?: NewBranchSync): Promise<boolean> {
+		return this.#run(checkout, 'git.createBranch', createParams(name, checkout, from, sync));
 	}
 
-	/** Forgets a failure or a block. */
+	/** Forgets a failure, a block or the outcomes of a synchronised call. */
 	dismiss(): void {
-		if (this.#failure === null && this.#blocked.length === 0) return;
+		if (this.#failure === null && this.#blocked.length === 0 && this.#outcomes.length === 0) return;
+		this.#outcomes = [];
 		this.#failure = null;
 		this.#blocked = [];
 		this.#changed();
@@ -123,18 +142,28 @@ export class BranchModel {
 		}
 		this.#blocked = [];
 		this.#failure = null;
+		this.#outcomes = [];
 		this.#busy = true;
 		this.#changed();
 		let failed: BranchFailure | null = null;
+		let rows: readonly OutcomeRow[] = [];
 		try {
 			const res = await this.#client.call(name, params, { workspace: this.#ws.root.trim() });
-			failed = outcomeFailure(res.outcomes);
+			if (res.outcomes.length > 1) {
+				// A synchronised call: the list says which root did what; there is no one failure to show.
+				rows = res.outcomes.map(outcomeRow);
+				if (rows.some((r) => r.status !== 'done')) failed = { message: 'The call stopped before every root was done.' };
+			} else {
+				failed = outcomeFailure(res.outcomes);
+			}
 		} catch (e) {
 			failed = describe(e);
 		}
 		this.#busy = false;
 		if (this.#disposed) return false;
-		this.#failure = failed;
+		this.#outcomes = rows;
+		// The rows already say a synchronised call stopped; the failure is for the other calls.
+		this.#failure = rows.length > 0 ? null : failed;
 		this.#changed();
 		this.#onDone();
 		return failed === null;
@@ -146,12 +175,22 @@ export class BranchModel {
 	}
 }
 
+type Outcome = Result<'git.checkout'>['outcomes'][number];
+
+/** A failed outcome's error as text fields; one with no error says only that it did not run. */
+function outcomeError(o: Outcome): BranchFailure {
+	const e = o.error;
+	if (e === undefined) return { message: o.status === 'skipped' ? 'the call was not tried' : 'the call failed' };
+	return { code: e.code, message: e.message, ...(e.cause ? { cause: e.cause } : {}), ...(e.nextStep ? { nextStep: e.nextStep } : {}) };
+}
+
+function outcomeRow(o: Outcome): OutcomeRow {
+	return { root: o.root, status: o.status, ...(o.status === 'failed' ? { failure: outcomeError(o) } : {}) };
+}
+
 /** The first root's failure, or null when it was done; an answer with no outcome is a failure too. */
 function outcomeFailure(outcomes: Result<'git.checkout'>['outcomes']): BranchFailure | null {
 	const first = outcomes[0];
 	if (first === undefined) return { message: 'the daemon answered with no outcome' };
-	if (first.status === 'done') return null;
-	const e = first.error;
-	if (e === undefined) return { message: first.status === 'skipped' ? 'the call was not tried' : 'the call failed' };
-	return { code: e.code, message: e.message, ...(e.cause ? { cause: e.cause } : {}), ...(e.nextStep ? { nextStep: e.nextStep } : {}) };
+	return first.status === 'done' ? null : outcomeError(first);
 }

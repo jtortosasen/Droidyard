@@ -56,6 +56,8 @@ type wfx struct {
 	// pgids are the process groups of the write gits started, in order.
 	pgidsMu sync.Mutex
 	pgids   []int
+	// dirs are the directories the write gits ran in, in the order they started.
+	dirs []string
 }
 
 type fakeWorkspaces map[string]bool
@@ -101,6 +103,13 @@ func (f *wfx) groups() []int {
 	return slices.Clone(f.pgids)
 }
 
+// writeDirs is a copy of the directories the write gits ran in so far, in start order.
+func (f *wfx) writeDirs() []string {
+	f.pgidsMu.Lock()
+	defer f.pgidsMu.Unlock()
+	return slices.Clone(f.dirs)
+}
+
 func (f *wfx) register() {
 	f.reg = capability.NewRegistry()
 	Register(f.reg, Options{
@@ -123,6 +132,7 @@ func (f *wfx) register() {
 			}
 			f.pgidsMu.Lock()
 			f.pgids = append(f.pgids, rec.Pid())
+			f.dirs = append(f.dirs, cmd.Dir)
 			f.pgidsMu.Unlock()
 			return rec, nil
 		},

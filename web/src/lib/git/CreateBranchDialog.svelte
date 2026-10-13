@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { blockText, nameProblem, type NewBranchSource } from './branchops';
+	import { blockText, nameProblem, syncOn, type NewBranchSource, type SyncOffer } from './branchops';
 	import type { BranchModel, BranchView } from './branch';
+	import SyncSection from './SyncSection.svelte';
 
 	// The Create Branch dialog (plan m2n P3; ADR-0071 §1, §5), a modal as the unsaved-changes dialog
 	// is: the new branch's name, where it starts (the branch the menu was opened on, or HEAD, with
@@ -9,29 +10,38 @@
 	// the dialog names the files and calls nothing (`data-dirty-block`; Create asks again, so files
 	// saved meanwhile no longer block); with it off nothing is blocked, since no file is touched. A failed call stays here with git's own words, as text
 	// (`data-op-error`); the dialog closes only when the branch is made. Escape is Cancel.
+	// With initialised submodules (`offer`, plan m2n P8; ADR-0071 §6) it also holds the Synchronise submodules toggle,
+	// on when every submodule has the branch the start is, and, after a call, what each root did.
 	interface Props {
 		source: NewBranchSource;
 		/** The local branches that exist, so the name can be refused before the call. */
 		locals: ReadonlySet<string>;
 		model: BranchModel;
 		view: BranchView;
-		/** Submit: resolves to whether the branch was made, which closes the dialog. */
-		onsubmit: (name: string, checkout: boolean) => Promise<boolean>;
+		/** The submodules the branch can also be made in; null with none. */
+		offer?: SyncOffer | null;
+		/** Submit: resolves to whether the branch was made (in every root asked), which closes the dialog. */
+		onsubmit: (name: string, checkout: boolean, sync: boolean) => Promise<boolean>;
 		oncancel: () => void;
 	}
-	let { source, locals, model, view, onsubmit, oncancel }: Props = $props();
+	let { source, locals, model, view, offer = null, onsubmit, oncancel }: Props = $props();
 
 	let name = $state(untrack(() => source.proposed));
 	let checkout = $state(true);
+	/** What the person chose for Synchronise; null until they touch it, when the offer's default (every submodule has the start's branch, ADR-0071 §6) applies, as the refs arrive. */
+	let syncChoice = $state<boolean | null>(null);
+	const sync = $derived(syncOn(syncChoice, offer));
 	/** The unsaved files that stop a checkout, read when the dialog opens, when Check out changes and at submit. */
 	let blocked = $state.raw<readonly string[]>(untrack(() => model.dirtyFor(true)));
 	const problem = $derived(nameProblem(name, locals));
+	/** The call cannot be made while Synchronise is on and a submodule lacks the branch. */
+	const syncBlocked = $derived(offer !== null && sync && offer.missing.length > 0);
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
 		blocked = model.dirtyFor(checkout);
-		if (blocked.length > 0 || problem !== null || view.busy) return;
-		await onsubmit(name.trim(), checkout);
+		if (blocked.length > 0 || problem !== null || syncBlocked || view.busy) return;
+		await onsubmit(name.trim(), checkout, sync);
 	}
 
 	/** Opens the dialog as a modal and puts the cursor in the name. */
@@ -70,6 +80,9 @@
 			<input type="checkbox" bind:checked={checkout} data-checkout-toggle onchange={(e) => (blocked = model.dirtyFor(e.currentTarget.checked))} />
 			<span>Check out</span>
 		</label>
+		{#if offer !== null}
+			<SyncSection {offer} bind:sync={() => sync, (v) => (syncChoice = v)} busy={view.busy} outcomes={view.outcomes} />
+		{/if}
 		{#if blocked.length > 0}
 			<div class="problem" role="alert" data-dirty-block>
 				<p>{blockText(blocked)} Cancel to save them, or turn Check out off.</p>
@@ -89,7 +102,7 @@
 		{/if}
 		<div class="actions">
 			<button type="button" data-cancel disabled={view.busy} onclick={oncancel}>Cancel</button>
-			<button type="submit" data-submit disabled={view.busy || problem !== null}>{view.busy ? 'Creating…' : 'Create'}</button>
+			<button type="submit" data-submit disabled={view.busy || problem !== null || syncBlocked}>{view.busy ? 'Creating…' : 'Create'}</button>
 		</div>
 	</form>
 </dialog>

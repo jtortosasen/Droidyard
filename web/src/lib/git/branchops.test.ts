@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { BranchModel, type BranchClient } from './branch';
-import { blockText, canCompare, checkoutParams, createParams, dirtyBlock, entryAction, headSource, isRemoteHead, nameProblem, sourceOf, targetLabel, type BranchTarget } from './branchops';
+import { blockText, canCompare, checkoutParams, compareOpening, createParams, dirtyBlock, entryAction, headSource, isRemoteHead, nameProblem, sourceOf, targetLabel, type BranchTarget } from './branchops';
 import { BRANCH_MENU, type MenuId } from './controls';
 
 // Checkout and Create Branch (plan m2n P3; ADR-0071 §1, §5): what each enabled entry calls, the
@@ -57,8 +57,8 @@ describe('what the entries call', () => {
 
 	// Decision (plan P3): New branch from a remote-tracking branch proposes its name without the remote; from a local one, or from HEAD, it proposes nothing (the name is taken).
 	it('proposes the remote-tracking branch name without the remote', () => {
-		expect(sourceOf(remote)).toEqual({ label: 'origin/feature/y', oid: 'b'.repeat(40), proposed: 'feature/y' });
-		expect(sourceOf(local)).toEqual({ label: 'feature/x', oid: 'a'.repeat(40), proposed: '' });
+		expect(sourceOf(remote)).toEqual({ label: 'origin/feature/y', oid: 'b'.repeat(40), proposed: 'feature/y', branch: remote });
+		expect(sourceOf(local)).toEqual({ label: 'feature/x', oid: 'a'.repeat(40), proposed: '', branch: local });
 		// A remote named with a slash keeps the whole remote out of the proposal.
 		expect(sourceOf({ kind: 'remote', remote: 'team/up', name: 'dev', oid: 'c' })?.proposed).toBe('dev');
 		expect(entryAction('new-branch-from', remote)).toEqual({ kind: 'new-branch', source: sourceOf(remote) });
@@ -74,8 +74,8 @@ describe('what the entries call', () => {
 	// Decision (plan P3): the toolbar's Create Branch starts at HEAD, with its short oid shown by the dialog; it has nothing to start from before the refs arrive or in a repository with no commit.
 	it('starts the toolbar Create Branch at HEAD', () => {
 		const head = { oid: 'd'.repeat(40), branch: 'main', detached: false, upstreamGone: false, ahead: 0, behind: 0 };
-		expect(headSource(head)).toEqual({ label: 'HEAD (main)', oid: 'd'.repeat(40), proposed: '' });
-		expect(headSource({ ...head, branch: undefined, detached: true })?.label).toBe('HEAD (detached)');
+		expect(headSource(head)).toEqual({ label: 'HEAD (main)', oid: 'd'.repeat(40), proposed: '', branch: { kind: 'local', name: 'main' } });
+		expect(headSource({ ...head, branch: undefined, detached: true })).toEqual({ label: 'HEAD (detached)', oid: 'd'.repeat(40), proposed: '' });
 		expect(headSource(null)).toBeNull();
 		expect(headSource({ ...head, oid: undefined })).toBeNull();
 	});
@@ -274,5 +274,15 @@ describe('Compare with current', () => {
 
 	it('is an action for the branch', () => {
 		expect(entryAction('compare', local)).toEqual({ kind: 'compare', target: local });
+	});
+
+	// Decision (ADR-0072; the History panel's wiring, through the helper it calls): the comparison opens with the branch's own oid as the tip and HEAD's commit as the head, the branch as the list shows it and the current branch's name, "HEAD" when detached; nothing opens for the current branch, a ref with no commit or refs not read.
+	it('opens with the branch tip, HEAD’s commit and the current branch’s label', () => {
+		expect(compareOpening(remote, head())).toEqual({ branch: 'origin/feature/y', current: 'main', tip: 'b'.repeat(40), head: 'c'.repeat(40) });
+		expect(compareOpening(local, head({ detached: true, branch: undefined }))).toEqual({ branch: 'feature/x', current: 'HEAD', tip: 'a'.repeat(40), head: 'c'.repeat(40) });
+		expect(compareOpening({ kind: 'local', name: 'main', oid: 'a'.repeat(40) }, head())).toBeNull();
+		expect(compareOpening({ kind: 'local', name: 'x' }, head())).toBeNull();
+		expect(compareOpening(local, head({ oid: undefined }))).toBeNull();
+		expect(compareOpening(local, null)).toBeNull();
 	});
 });

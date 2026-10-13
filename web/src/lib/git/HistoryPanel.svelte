@@ -10,8 +10,9 @@
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
 	import type { BranchModel, BranchView } from './branch';
-	import { canCompare, entryAction, headSource, targetLabel, type BranchTarget, type NewBranchSource } from './branchops';
+	import { checkoutOffer, compareOpening, entryAction, headSource, newBranchOffer, type BranchTarget, type NewBranchSource } from './branchops';
 	import type { MenuId } from './controls';
+	import CheckoutDialog from './CheckoutDialog.svelte';
 	import CommitView from './CommitView.svelte';
 	import { type CompareModel, type CompareView as CompareViewState } from './compare';
 	import CompareView from './CompareView.svelte';
@@ -24,7 +25,7 @@
 	import RefsPanel from './RefsPanel.svelte';
 	import { rowAt, rowTop, rowWindow, type Expanded } from './rows';
 	import { findCommits, stepMatch } from './search';
-	import type { SubmodulesModel, SubmodulesView } from './submodules';
+	import { initialisedRoots, type SubmodulesModel, type SubmodulesView } from './submodules';
 	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
 	import type { GitWatch } from './watch';
 
@@ -118,6 +119,17 @@
 	});
 	// The Create Branch dialog: where the new branch starts while it is open.
 	let creating = $state.raw<NewBranchSource | null>(null);
+	// The Checkout confirmation (plan m2n P8): the branch while it is open. Only with initialised submodules; otherwise
+	// a checkout is made at once.
+	let checking = $state.raw<BranchTarget | null>(null);
+	/** The submodules a checkout or a new branch can also be applied to (ADR-0071 §6). */
+	const syncRoots = $derived(initialisedRoots(submodulesView.list));
+	const createOffer = $derived(creating === null ? null : newBranchOffer(creating, syncRoots, view.rootRefs));
+	const checkoutOfferNow = $derived(checking === null ? null : checkoutOffer(checking, syncRoots, view.rootRefs));
+	// The confirmation is for a project with submodules: when the last one goes, so does the dialog.
+	$effect(() => {
+		if (checking !== null && syncRoots.length === 0) checking = null;
+	});
 	const locals = $derived(new Set((view.refs?.branches ?? []).map((b) => b.name)));
 
 	/** An enabled entry of a branch's menu: Checkout calls at once (after the dirty-buffer gate), New branch from opens the dialog. */
@@ -125,17 +137,17 @@
 		const action = entryAction(id, target);
 		if (action === null) return;
 		if (action.kind === 'compare') {
-			const head = view.refs?.head ?? null;
-			if (compare === undefined || head === null || !canCompare(target, head) || head.oid === undefined || action.target.oid === undefined) return;
+			const opening = compareOpening(target, view.refs?.head ?? null);
+			if (compare === undefined || opening === null) return;
 			branches.dismiss();
-			compare.open({
-				branch: targetLabel(action.target),
-				current: head.detached || head.branch === undefined ? 'HEAD' : head.branch,
-				tip: action.target.oid,
-				head: head.oid,
-			});
-		} else if (action.kind === 'checkout') void branches.checkout(action.target);
-		else {
+			compare.open(opening);
+		} else if (action.kind === 'checkout') {
+			if (syncRoots.length === 0) void branches.checkout(action.target);
+			else {
+				branches.dismiss();
+				checking = action.target;
+			}
+		} else {
 			branches.dismiss();
 			creating = action.source;
 		}
@@ -146,11 +158,19 @@
 		branches.dismiss();
 		creating = source;
 	}
-	async function createBranch(name: string, checkout: boolean): Promise<boolean> {
+	async function createBranch(name: string, checkout: boolean, sync: boolean): Promise<boolean> {
 		const from = creating;
 		if (from === null) return false;
-		const ok = await branches.createBranch(name, checkout, from.oid);
+		const offer = createOffer;
+		const ok = await branches.createBranch(name, checkout, from.oid, sync && offer !== null ? { roots: offer.roots, starts: offer.starts } : undefined);
 		if (ok) creating = null;
+		return ok;
+	}
+	async function checkoutIn(sync: boolean): Promise<boolean> {
+		const target = checking;
+		if (target === null) return false;
+		const ok = await branches.checkout(target, sync ? syncRoots : []);
+		if (ok) checking = null;
 		return ok;
 	}
 	$effect(() => {
@@ -321,7 +341,7 @@
 			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => fetcher.dismiss()}><X size={14} /></button>
 		</div>
 	{/if}
-	{#if creating === null}
+	{#if creating === null && checking === null}
 		{#if branchView.blocked.length > 0}
 			<div class="fetch-failed" role="alert" data-dirty-block>
 				<div class="what">
@@ -528,8 +548,14 @@
 		{/if}
 	</div>
 	{#if creating !== null}
-		<CreateBranchDialog source={creating} {locals} model={branches} view={branchView} onsubmit={createBranch} oncancel={() => {
+		<CreateBranchDialog source={creating} {locals} model={branches} view={branchView} offer={createOffer} onsubmit={createBranch} oncancel={() => {
 				creating = null;
+				branches.dismiss();
+			}} />
+	{/if}
+	{#if checking !== null && checkoutOfferNow !== null}
+		<CheckoutDialog target={checking} offer={checkoutOfferNow} model={branches} view={branchView} onsubmit={checkoutIn} oncancel={() => {
+				checking = null;
 				branches.dismiss();
 			}} />
 	{/if}

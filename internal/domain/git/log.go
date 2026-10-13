@@ -28,10 +28,10 @@ const (
 // LogParams is git.log's parameters.
 type LogParams struct {
 	From    []string `json:"from,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."`
-	Exclude []string `json:"exclude,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"Commits (full object ids) whose history is left out: from [B], exclude [A] is the commits of B that A lacks."`
+	Exclude []string `json:"exclude,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"Full object ids of commits whose history is left out (from [B], exclude [A]: B's commits A lacks); at most 5000."`
 	Skip    *int     `json:"skip,omitempty" jsonschema:"minimum=0,maximum=2147483647" jsonschema_description:"How many commits of the walk to skip: the number already received. Absent means 0."`
 	Limit   *int     `json:"limit,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"The most commits to return, 1 to 1000. Absent means 500."`
-	Root    string   `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
+	Root    string   `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."`
 }
 
 // LogCommit is one commit of the history. Names, e-mails and subjects are the
