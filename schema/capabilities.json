@@ -7325,6 +7325,11 @@
             "maximum": 1000,
             "minimum": 1,
             "description": "The most commits to return, 1 to 1000. Absent means 500."
+          },
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path as git.submodules lists it; absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
@@ -7439,6 +7444,11 @@
             "type": "string",
             "pattern": "^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$",
             "description": "What to read the file at: HEAD, or a commit's full object id. Absent means HEAD."
+          },
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path as git.submodules lists it; absent or . is the project's repository. Path must lie in it."
           }
         },
         "additionalProperties": false,
@@ -7512,10 +7522,17 @@
         "GIT_NOT_FOUND",
         "GIT_NOT_A_REPOSITORY",
         "GIT_FAILED",
-        "WORKSPACE_UNTRUSTED"
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
       ],
       "input": {
-        "properties": {},
+        "properties": {
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path as git.submodules lists it; absent or . is the project's own repository."
+          }
+        },
         "additionalProperties": false,
         "type": "object"
       },
@@ -7747,6 +7764,11 @@
             "type": "string",
             "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
             "description": "The commit's full object id, as git.log returned it."
+          },
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path as git.submodules lists it; absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
