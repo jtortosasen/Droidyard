@@ -243,10 +243,22 @@
 		const offRoots = submodules.subscribe(() => history.setRoots(initialisedRoots(submodules.view.list)));
 		// The section's Update (plan m2n P5): an update is a checkout in each submodule, so the editor's unsaved files
 		// under them stop it, and the submodules are read again when it has ended, however it ended.
-		const submoduleUpdater = new SubmoduleUpdateModel(callOn, ws, readers, () => void submodules.load(), {
-			stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
-			subscribe: (listener) => store.subscribe(listener),
-		});
+		// The summary (plan m2n R1) compares the list before and after the run, so the read is awaited; the refs are read again
+		// too, for the branch each row shows.
+		const submoduleUpdater = new SubmoduleUpdateModel(
+			callOn,
+			ws,
+			readers,
+			async () => {
+				await submodules.load();
+				history.refreshRefs();
+			},
+			{
+				stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+				subscribe: (listener) => store.subscribe(listener),
+			},
+			() => submodules.view.list,
+		);
 		// Another active file in the Editor is the working tree's diff again (a file opened from the tree or the palette changes it too).
 		let activeFile = tabs.view.active;
 		const offActive = tabs.subscribe(() => {

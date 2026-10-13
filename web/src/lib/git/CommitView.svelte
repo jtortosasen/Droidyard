@@ -165,7 +165,11 @@
 		box-sizing: border-box;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
+		/* One row as tall as the panel, so each column scrolls inside it instead of growing past it. */
+		grid-template-rows: minmax(0, 1fr);
 		overflow: hidden;
+		/* A wheel or touch scroll that reaches the panel's end does not carry on into the log behind it (plan m2n R1). */
+		overscroll-behavior: contain;
 		background: var(--bg);
 		border-top: 1px solid var(--border);
 		border-bottom: 1px solid var(--border);
@@ -180,6 +184,7 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: auto;
+		overscroll-behavior: contain;
 		padding: var(--sp-3) var(--sp-4);
 	}
 	.right {

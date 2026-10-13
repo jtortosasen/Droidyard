@@ -5,29 +5,37 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import X from '@lucide/svelte/icons/x';
 	import Spinner from '../projects/Spinner.svelte';
-	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
+	import type { RefsResult } from './refs';
+	import { summaryText, type SubmoduleUpdateModel, type UpdateView } from './subupdate';
 	import { submoduleRows, type SubmodulesView } from './submodules';
 
 	// The side panel's SUBMODULES section (plan m2n P4), after SourceGit's, between TAGS and WORKTREES: its
-	// count is the rows that pass the panel's filter; a row has the submodule's path, its state and its
-	// short commit (the checked-out one then the recorded one when they differ). Paths and oids are git's
-	// text, in an isolated text node. Update (plan m2n P5) is the section's (every submodule) and each row's: one
-	// update at a time, running and Cancel as the toolbar's Fetch, behind the dirty-buffer gate, whose refusal
-	// names the files; a failure shows the daemon's words (git's own as the cause) and a next step.
+	// count is the rows that pass the panel's filter. A row (plan m2n R1) has the submodule's display name (the full
+	// path in its title), its state and, under them, the branch it has checked out (or "detached" and the branches
+	// at its commit), the short commit (the checked-out one then the recorded one when they differ) and the
+	// commit's subject. Paths, names, branches and subjects are git's text, in an isolated text node. Update (plan m2n P5) is
+	// the section's (every submodule) and each row's: one update at a time, running and Cancel as the toolbar's
+	// Fetch, behind the dirty-buffer gate, whose refusal names the files; a failure shows the daemon's words (git's
+	// own as the cause) and a next step. The section's button is always there and says afterwards what the run did.
 	interface Props {
 		view: SubmodulesView;
 		/** The filter box above the sections. */
 		filter: string;
+		/** What the panel calls each submodule (names.ts), each one's own refs and the subject of its HEAD (by `rowKey`). */
+		names: ReadonlyMap<string, string>;
+		rootRefs: ReadonlyMap<string, RefsResult>;
+		subjects: ReadonlyMap<string, string>;
 		/** Reads the section again after a failed first read. */
 		onretry: () => void;
 		/** The tab's Update, shared by the section's button and the rows' (plan m2n P5). */
 		updater: SubmoduleUpdateModel;
 		updateView: UpdateView;
 	}
-	let { view, filter, onretry, updater, updateView }: Props = $props();
+	let { view, filter, names, rootRefs, subjects, onretry, updater, updateView }: Props = $props();
 
 	let open = $state(true);
-	const rows = $derived(view.state === 'ready' ? submoduleRows(view.list, filter) : []);
+	const rows = $derived(view.state === 'ready' ? submoduleRows(view.list, filter, { names, refs: rootRefs, subjects }) : []);
+	const summary = $derived(updateView.summary === null ? null : summaryText(updateView.summary, (p) => names.get(p) ?? p));
 	/** The state an Update button of `path` (null: the section's) carries: the model's when it is this one's, else idle. */
 	const stateOf = (path: string | null) => (path === null ? (updateView.all ? updateView.state : 'idle') : !updateView.all && updateView.path === path ? updateView.state : 'idle');
 	const mine = (path: string | null) => updateView.busy && (path === null ? updateView.all : !updateView.all && updateView.path === path);
@@ -70,7 +78,7 @@
 				onclick={() => void updater.updateAll(view.list.map((m) => m.path))}
 			>
 				{#if mine(null)}<Spinner size={11} />{:else}<RefreshCw size={12} />{/if}
-				<span>Update</span>
+				<span>Update submodules</span>
 			</button>
 			{#if view.truncated}<span class="trunc" data-update-truncated title="The repository has more submodules than the list holds; only the listed ones are updated.">listed only</span>{/if}
 			{#if mine(null)}{@render cancelButton()}{/if}
@@ -85,6 +93,14 @@
 						<li>{file}</li>
 					{/each}
 				</ul>
+			</div>
+			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => updater.dismiss()}><X size={12} /></button>
+		</div>
+	{/if}
+	{#if summary !== null}
+		<div class="banner" role="status" data-update-summary>
+			<div class="what">
+				<p class="done">{summary}</p>
 			</div>
 			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => updater.dismiss()}><X size={12} /></button>
 		</div>
@@ -123,9 +139,17 @@
 						data-checked-out={row.checkedOut}
 					>
 						<Package size={13} />
-						<span class="text">{row.path}</span>
-						<span class="state" data-state-mark>{row.state}</span>
-						<span class="oids">{row.oids}</span>
+						<span class="main">
+							<span class="line">
+								<span class="text name" data-submodule-name>{row.name}</span>
+								<span class="state" data-state-mark>{row.state}</span>
+							</span>
+							<span class="line meta">
+								{#if row.branch !== undefined}<span class="branch" data-submodule-branch title={row.branchTitle}>{row.branch}</span>{/if}
+								<span class="oids" data-submodule-oids>{row.oids}</span>
+								{#if row.subject !== undefined}<span class="text subject" data-submodule-subject title={row.subject}>{row.subject}</span>{/if}
+							</span>
+						</span>
 						<button
 							type="button"
 							class="icon"
@@ -295,12 +319,45 @@
 	.row[data-state='dirty'] .state {
 		color: var(--danger);
 	}
+	.main {
+		flex: 1 1 0;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		padding: 2px 0;
+	}
+	.line {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-3);
+		min-width: 0;
+	}
+	.meta {
+		font-size: var(--fs-small);
+		color: var(--text-3);
+	}
+	.branch {
+		unicode-bidi: isolate;
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 60%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text-2);
+	}
+	.subject {
+		flex: 1 1 0;
+	}
 	.oids {
 		unicode-bidi: isolate;
 		flex: none;
 		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		color: var(--text-3);
+	}
+	.banner .done {
+		color: var(--success);
 	}
 	.note {
 		margin: 0;

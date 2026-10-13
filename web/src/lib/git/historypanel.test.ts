@@ -44,7 +44,10 @@ describe('HistoryPanel markup', () => {
 		for (const [id, n] of [['local', 3], ['remotes', 2], ['tags', 1], ['worktrees', 1]] as const) {
 			expect(body, id).toContain(`data-refs-section="${id}" data-count="${n}"`);
 		}
-		for (const ref of ['refs/heads/main', 'refs/heads/bugfix/x', 'refs/remotes/origin/dev', 'refs/tags/v1']) expect(body, ref).toContain(`data-ref="${ref}"`);
+		for (const ref of ['refs/heads/main', 'refs/tags/v1']) expect(body, ref).toContain(`data-ref="${ref}"`);
+		// Decision (plan R1): branch folders start closed unless they hold the current branch (main is in none), so their refs are not rows yet.
+		for (const key of ['local:bugfix', 'local:feature', 'remotes:origin']) expect(body, key).toMatch(new RegExp(`aria-expanded="false"[^>]*data-folder="${key}"`));
+		for (const ref of ['refs/heads/bugfix/x', 'refs/remotes/origin/dev']) expect(body, ref).not.toContain(`data-ref="${ref}"`);
 		expect(body).not.toContain('origin/HEAD');
 		expect(body).toMatch(/data-ref="refs\/heads\/main"[^>]*data-current/);
 		expect(body).toContain('data-worktree="/w/app"');

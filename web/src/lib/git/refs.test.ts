@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KeyValueStorage } from '../ui/layout';
-import { FAVOURITES_PREFIX, badgesByOid, headDisplay, loadFavourites, panelModel, refNames, saveFavourites, toggled, type PanelInput, type PanelRow, type RefsResult } from './refs';
+import { FAVOURITES_PREFIX, badgesByOid, collapsedFolders, currentBranchFolders, headDisplay, localFoldersOf, toggledFolder, withOpened, loadFavourites, panelModel, refNames, saveFavourites, toggled, type PanelInput, type PanelRow, type RefsResult } from './refs';
 import { refsOf } from './historytesting';
 
 const input = (over: Partial<PanelInput> = {}): PanelInput => ({ filter: '', favourites: new Set(), collapsed: new Set(), ...over });
@@ -232,5 +232,65 @@ describe('favourites', () => {
 		expect(() => saveFavourites(boom, 'p', new Set(['a']))).not.toThrow();
 		expect(loadFavourites(null, 'p').size).toBe(0);
 		expect(() => saveFavourites(null, 'p', new Set(['a']))).not.toThrow();
+	});
+});
+
+describe('the folders of the panel (R1)', () => {
+	const current = (branch: string) => repo({ head: { oid: 'm1', branch, detached: false, upstreamGone: false, ahead: 0, behind: 0 } });
+	const NONE = { opened: new Set<string>(), closed: new Set<string>() };
+
+	// Decision (R1): branch folders start closed, except those along the current branch's path.
+	it('closes every folder except the ones that hold the current branch', () => {
+		const refs = current('feature/ui/login');
+		const collapsed = collapsedFolders(refs, NONE);
+		expect(collapsed.has('local:bugfix')).toBe(true);
+		expect(collapsed.has('local:chore')).toBe(true);
+		expect(collapsed.has('remotes:origin')).toBe(true);
+		expect(collapsed.has('local:feature')).toBe(false);
+		expect(collapsed.has('local:feature/ui')).toBe(false);
+		const rows = labels(panelModel(refs, { filter: '', favourites: new Set(), collapsed }).find((s) => s.id === 'local')!.rows);
+		expect(rows).toEqual(['bugfix/', 'chore/', 'feature/', '  ui/', '    login', 'main', 'zeta']);
+	});
+
+	// Decision (R1): a detached HEAD, or a branch outside any folder, opens nothing.
+	it('opens nothing for a detached HEAD or a branch with no folder', () => {
+		const detached = repo({ head: { oid: 'm1', detached: true, upstreamGone: false, ahead: 0, behind: 0 } });
+		expect(currentBranchFolders(detached).size).toBe(0);
+		expect(collapsedFolders(detached, NONE).has('local:feature')).toBe(true);
+		expect(collapsedFolders(current('main'), NONE).has('local:feature')).toBe(true);
+	});
+
+	// Decision (R1): the person's own toggles keep working: a folder opened stays open, and the default one closed stays closed.
+	it('keeps the person\'s opening and closing over the default', () => {
+		const refs = current('feature/ui/login');
+		let choice = toggledFolder(NONE, 'local:bugfix', false); // a click on a closed folder opens it
+		expect(collapsedFolders(refs, choice).has('local:bugfix')).toBe(false);
+		choice = toggledFolder(choice, 'local:feature', true); // a click on an open folder closes it
+		expect(collapsedFolders(refs, choice).has('local:feature')).toBe(true);
+		choice = toggledFolder(choice, 'local:bugfix', true);
+		expect(collapsedFolders(refs, choice).has('local:bugfix')).toBe(true);
+	});
+
+	// Decision (R1): Navigate to HEAD opens the folders of the branch it selects, even ones the person closed.
+	it('opens the folders along a ref, over a closing', () => {
+		const refs = current('main');
+		const closed = toggledFolder(NONE, 'local:feature/ui', true);
+		const choice = withOpened(closed, localFoldersOf('refs/heads/feature/ui/login'));
+		const collapsed = collapsedFolders(refs, choice);
+		expect(collapsed.has('local:feature')).toBe(false);
+		expect(collapsed.has('local:feature/ui')).toBe(false);
+		expect(localFoldersOf('refs/remotes/origin/dev')).toEqual([]);
+	});
+
+	// Decision (R1): a branch that is also a folder (a, a/b) is listed when it is current.
+	it('opens a current branch that is also a folder', () => {
+		const refs = repo({
+			head: { oid: 'm1', branch: 'a', detached: false, upstreamGone: false, ahead: 0, behind: 0 },
+			branches: [
+				{ name: 'a', oid: 'm1' },
+				{ name: 'a/b', oid: 'b1' },
+			],
+		});
+		expect(collapsedFolders(refs, NONE).has('local:a')).toBe(false);
 	});
 });

@@ -25,6 +25,8 @@
 	import RefsPanel from './RefsPanel.svelte';
 	import { rowAt, rowTop, rowWindow, type Expanded } from './rows';
 	import { findCommits, stepMatch } from './search';
+	import { folderName, rootNames, rootTitle } from './names';
+	import { rootFilterMemory } from './rootfilter';
 	import { initialisedRoots, type SubmodulesModel, type SubmodulesView } from './submodules';
 	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
 	import type { GitWatch } from './watch';
@@ -67,6 +69,9 @@
 	const OVERSCAN = 8;
 	/** Rows from the end of the loaded history at which the next page is read. */
 	const NEAR_END = 100;
+
+	// The root filter is remembered per project (plan m2n R1): restored when the roots are loaded, written on a click.
+	untrack(() => store.remember(rootFilterMemory(storage, workspaceId)));
 
 	let view = $state.raw<HistoryView>(untrack(() => store.view));
 	let problem = $state<string | null>(null);
@@ -312,8 +317,19 @@
 		e.preventDefault();
 	}
 
-	/** What the filter and a stripe's title call a root: the workspace is `.` for the hooks and "workspace" for the eye. */
-	const rootLabel = (root: string): string => (root === '.' ? 'workspace' : root);
+	/**
+	 * What the filter, the stripes and the Submodules section call a root (plan m2n R1): the workspace is `.` for the hooks
+	 * and the project's folder name for the eye; a submodule is its last path segment, with parents only where two share it.
+	 * Worked out over every submodule listed, so the filter and the section agree.
+	 */
+	const names = $derived(rootNames([...new Set([...view.roots, ...submodulesView.list.map((m) => m.path)])], folderName(store.workspaceRoot)));
+	const rootLabel = (root: string): string => names.get(root) ?? root;
+	const rootHint = (root: string): string => rootTitle(root, store.workspaceRoot);
+	// The commit each initialised submodule has checked out is read once, for its row's subject.
+	$effect(() => {
+		const items = submodulesView.list.filter((m) => m.state !== 'uninitialised' && m.checkedOut !== undefined).map((m) => ({ root: m.path, oid: m.checkedOut! }));
+		untrack(() => store.readSubjects(items));
+	});
 	const when = (t: number) => new Date(t * 1000).toLocaleString();
 	const uncommittedText = $derived(`Uncommitted Changes (${view.uncommitted}${view.uncommittedTruncated ? '+' : ''})`);
 </script>
@@ -368,7 +384,7 @@
 	{/if}
 	<div class="body">
 		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags, submodules and work trees">
-			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} onretrysubmodules={() => void submodules.load()} {updater} {updateView} {onentry} />
+			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} {names} rootRefs={view.rootRefs} subjects={view.subjects} onretrysubmodules={() => void submodules.load()} {updater} {updateView} {onentry} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
 		{#if compare && compareView?.open}
@@ -416,7 +432,7 @@
 				<button type="button" class="root-option" class:on={view.filter === null} aria-pressed={view.filter === null} data-root-option-all onclick={() => store.setFilter(null)}>All</button>
 				{#each view.roots as root, k (root)}
 					{@const on = view.filter === null || view.filter.includes(root)}
-					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} data-root-option={root} title={root} onclick={() => store.toggleRoot(root)}>
+					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} data-root-option={root} title={rootHint(root)} onclick={() => store.toggleRoot(root)}>
 						<span class="swatch" aria-hidden="true"></span><span class="text">{rootLabel(root)}</span>
 					</button>
 				{/each}
@@ -433,6 +449,7 @@
 		</div>
 		<div
 			class="viewport"
+			class:multi
 			role="grid"
 			aria-label="Commits"
 			aria-rowcount={count}
@@ -487,7 +504,7 @@
 							>
 								{#if multi}
 									<!-- The root's colour, down the row's left edge: the position of the root in the log. -->
-									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} data-root-stripe={view.roots.indexOf(r.root)} title={rootLabel(r.root)} aria-hidden="true"></span>
+									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} data-root-stripe={view.roots.indexOf(r.root)} title={rootHint(r.root)} aria-hidden="true"></span>
 								{/if}
 								<div class="cell main" role="gridcell">
 									<span class="graph" style:width="{gw}px">
@@ -661,7 +678,7 @@
 		left: 0;
 		top: 0;
 		bottom: 0;
-		width: 3px;
+		width: var(--stripe);
 	}
 	.notice {
 		flex: none;
@@ -772,6 +789,9 @@
 		padding-right: 15px;
 	}
 	.viewport {
+		/* The root stripe at a row's left edge, and the gap before the graph's first lane. */
+		--stripe: 5px;
+		--stripe-gap: 6px;
 		flex: 1;
 		min-height: 0;
 		overflow-y: scroll;
@@ -804,6 +824,10 @@
 	}
 	.cell.main {
 		padding-left: 0;
+	}
+	/* With more than one root the main cell clears the stripe in every row (the Uncommitted row has none and stays aligned). */
+	.viewport.multi .row .cell.main {
+		padding-left: calc(var(--stripe) + var(--stripe-gap));
 	}
 	.text {
 		unicode-bidi: isolate;

@@ -18,7 +18,21 @@
 	import Spinner from '../projects/Spinner.svelte';
 	import type { FetchModel, FetchView } from './fetch';
 	import type { HistoryStore, HistoryView } from './history';
-	import { loadFavourites, panelModel, saveFavourites, toggled, type RefRow, type SectionId } from './refs';
+	import {
+		NO_FOLDER_CHOICE,
+		collapsedFolders,
+		loadFavourites,
+		localFoldersOf,
+		panelModel,
+		saveFavourites,
+		toggled,
+		toggledFolder,
+		withOpened,
+		type FolderChoice,
+		type RefRow,
+		type RefsResult,
+		type SectionId,
+	} from './refs';
 	import SubmodulesSection from './SubmodulesSection.svelte';
 	import type { SubmodulesView } from './submodules';
 	import type { SubmoduleUpdateModel, UpdateView } from './subupdate';
@@ -43,13 +57,17 @@
 		/** The SUBMODULES section's list (plan m2n P4) and the way to read it again after a failed first read. */
 		submodules: SubmodulesView;
 		onretrysubmodules: () => void;
+		/** What the panel calls each root (names.ts), each submodule's own refs, and the subject of each one's HEAD (plan m2n R1). */
+		names: ReadonlyMap<string, string>;
+		rootRefs: ReadonlyMap<string, RefsResult>;
+		subjects: ReadonlyMap<string, string>;
 		/** The Submodules section's Update (plan m2n P5). */
 		updater: SubmoduleUpdateModel;
 		updateView: UpdateView;
 		/** An enabled entry of a branch's menu was chosen. */
 		onentry: (id: MenuId, target: BranchTarget) => void;
 	}
-	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, updater, updateView, onentry }: Props = $props();
+	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, names, rootRefs, subjects, updater, updateView, onentry }: Props = $props();
 
 	// The remotes that have a remote-tracking branch listed; a remote never fetched has none and
 	// is not named by git.refs, so it has no button of its own (the toolbar's Fetch reaches it).
@@ -58,20 +76,20 @@
 	let filter = $state('');
 	let favourites = $state.raw<ReadonlySet<string>>(untrack(() => loadFavourites(storage, workspaceId)));
 	let closedSections = $state.raw<ReadonlySet<SectionId>>(new Set());
-	let closedFolders = $state.raw<ReadonlySet<string>>(new Set());
+	// Branch folders start closed, except those along the current branch (plan m2n R1); the person's own opening and closing is kept.
+	let folderChoice = $state.raw<FolderChoice>(NO_FOLDER_CHOICE);
 	let list = $state<HTMLDivElement>();
 
-	const sections = $derived(view.refs === null ? null : panelModel(view.refs, { filter, favourites, collapsed: closedFolders }));
+	const sections = $derived(view.refs === null ? null : panelModel(view.refs, { filter, favourites, collapsed: collapsedFolders(view.refs, folderChoice) }));
 
 	function toggleSection(id: SectionId) {
 		const next = new Set(closedSections);
 		if (!next.delete(id)) next.add(id);
 		closedSections = next;
 	}
-	function toggleFolder(key: string) {
-		const next = new Set(closedFolders);
-		if (!next.delete(key)) next.add(key);
-		closedFolders = next;
+	/** A click on a folder row, which is `open` now. */
+	function toggleFolder(key: string, open: boolean) {
+		folderChoice = toggledFolder(folderChoice, key, open);
 	}
 	function star(name: string) {
 		favourites = toggled(favourites, name);
@@ -96,17 +114,8 @@
 		const ref = view.selectedRef;
 		if (ref === null) return;
 		untrack(() => {
-			const prefix = 'refs/heads/';
-			if (ref.startsWith(prefix)) {
-				const parts = ref.slice(prefix.length).split('/');
-				parts.pop();
-				const folders = new Set(closedFolders);
-				let path = '';
-				for (const p of parts) {
-					path = path === '' ? p : `${path}/${p}`;
-					folders.delete(`local:${path}`);
-				}
-				if (folders.size !== closedFolders.size) closedFolders = folders;
+			if (ref.startsWith('refs/heads/')) {
+				folderChoice = withOpened(folderChoice, localFoldersOf(ref));
 				if (closedSections.has('local')) {
 					const next = new Set(closedSections);
 					next.delete('local');
@@ -214,11 +223,11 @@
 										tabindex="-1"
 										style:--depth={row.depth}
 										data-folder={row.key}
-										onclick={() => toggleFolder(row.key)}
+										onclick={() => toggleFolder(row.key, row.expanded)}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												toggleFolder(row.key);
+												toggleFolder(row.key, row.expanded);
 											}
 										}}
 									>
@@ -319,7 +328,7 @@
 					{/if}
 				</section>
 				{#if s.id === 'tags'}
-					<SubmodulesSection view={submodules} {filter} onretry={onretrysubmodules} {updater} {updateView} />
+					<SubmodulesSection view={submodules} {filter} {names} {rootRefs} {subjects} onretry={onretrysubmodules} {updater} {updateView} />
 				{/if}
 			{/each}
 			{#if view.refs?.branchesTruncated || view.refs?.remotesTruncated || view.refs?.tagsTruncated || view.refs?.worktreesTruncated}
