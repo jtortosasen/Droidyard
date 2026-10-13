@@ -142,7 +142,7 @@ describe('PullModel', () => {
 		expect(act.listeners()).toBe(0);
 	});
 
-	// Decision: Cancel is operation.cancel on the operation this pull started; a cancelled pull is not a failure, shows no result and reloads nothing; a cancel pressed before the id is known is sent when it arrives.
+	// Decision: Cancel is operation.cancel on the operation this pull started; a cancelled pull is not a failure and shows no result; the refs are read again, since its fetch may have run; a cancel pressed before the id is known is sent when it arrives.
 	it('cancels its own operation and shows neither failure nor result', async () => {
 		const f = fake();
 		let reloads = 0;
@@ -158,10 +158,10 @@ describe('PullModel', () => {
 		f.fail(new CapabilityError({ code: 'OPERATION_CANCELLED', message: 'the operation was cancelled' }, false));
 		await run;
 		expect(m.view).toMatchObject({ state: 'idle', failure: null, result: null, cancelling: false });
-		expect(reloads).toBe(0);
+		expect(reloads).toBe(1);
 	});
 
-	// Decision (ADR-0074 §2, ADR-0071 §5): a refusal is kept as the daemon said it, git's words as the cause and the next step, until the next run or a dismiss; the refs are not reloaded.
+	// Decision (ADR-0074 §2, ADR-0071 §5): a refusal is kept as the daemon said it, git's words as the cause and the next step, until the next run or a dismiss; the refs are read again, since a refused pull may have fetched (a diverged branch's upstream moved).
 	it('keeps a failure with its cause and next step, and the next click clears it', async () => {
 		const f = fake();
 		let reloads = 0;
@@ -172,7 +172,7 @@ describe('PullModel', () => {
 		expect(m.view.state).toBe('failed');
 		expect(m.view.busy).toBe(false);
 		expect(m.view.failure).toEqual({ code: 'GIT_FAILED', message: 'git failed', cause: 'fatal: Not possible to fast-forward, aborting.', nextStep: 'merge or rebase it in a terminal, then retry' });
-		expect(reloads).toBe(0);
+		expect(reloads).toBe(1);
 		const again = m.run();
 		expect(f.names()).toEqual(['git.pull', 'git.pull']);
 		expect(m.view.failure).toBeNull();

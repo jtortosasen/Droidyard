@@ -9,7 +9,7 @@
 //   - `cancel` is `operation.cancel` on that operation, sent when its id is known; a cancelled pull is not
 //     a failure;
 //   - success keeps what the daemon answered (`result`: up to date, or the two ids) until the next run or
-//     `dismiss`, and reloads the refs (`onPulled`); the log follows because HEAD moved (the status watch);
+//     `dismiss`, and reloads the refs (`onPulled`, after a failure too: the fetch may have run); the log follows because HEAD moved (the status watch);
 //   - a failure is kept as the daemon said it (code, message, cause, next step) until the next run or
 //     `dismiss`: a detached HEAD, a branch with no upstream, a branch that cannot be fast-forwarded and local
 //     changes in the way arrive as the daemon's GIT_FAILED with git's words (ADR-0074 §2).
@@ -164,7 +164,9 @@ export class PullModel {
 		} catch (e) {
 			this.#end();
 			if (this.#disposed) return;
-			// A cancel the user asked for is not a failure.
+			// The refs are read again however it ended: a refused pull may have fetched (a diverged branch's
+			// upstream moved), and the graph should show it. A cancel the user asked for is not a failure.
+			this.#onPulled();
 			if (this.#cancelRequested) return this.#finish('idle', null, null);
 			return this.#finish('failed', describe(e), null);
 		}
