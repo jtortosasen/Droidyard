@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { BranchModel, type BranchClient } from './branch';
-import { blockText, checkoutParams, createParams, dirtyBlock, entryAction, headSource, isRemoteHead, nameProblem, sourceOf, targetLabel, type BranchTarget } from './branchops';
+import { blockText, canCompare, checkoutParams, createParams, dirtyBlock, entryAction, headSource, isRemoteHead, nameProblem, sourceOf, targetLabel, type BranchTarget } from './branchops';
 import { BRANCH_MENU, type MenuId } from './controls';
 
 // Checkout and Create Branch (plan m2n P3; ADR-0071 §1, §5): what each enabled entry calls, the
@@ -89,15 +89,15 @@ describe('what the entries call', () => {
 		expect(entryAction('new-branch-from', head)).toBeNull();
 	});
 
-	// Decision (plan P3, items 7 and 8): the other entries of the menu do nothing here, whatever the branch: Compare with current waits for step P9, the rest for a later milestone.
+	// Decision (plan P3, items 7 and 8): the other entries of the menu do nothing here, whatever the branch; Compare with current has its own test below.
 	it('calls nothing for the other entries of the menu', () => {
-		const others = BRANCH_MENU.map((c) => c.id).filter((id) => id !== 'checkout' && id !== 'new-branch-from');
-		expect(others).toEqual(['compare', 'merge', 'rebase', 'push', 'rename', 'delete']);
+		const others = BRANCH_MENU.map((c) => c.id).filter((id) => id !== 'checkout' && id !== 'new-branch-from' && id !== 'compare');
+		expect(others).toEqual(['merge', 'rebase', 'push', 'rename', 'delete']);
 		for (const id of others) {
 			expect(entryAction(id as MenuId, local), id).toBeNull();
 			expect(entryAction(id as MenuId, remote), id).toBeNull();
 		}
-		expect(BRANCH_MENU.filter((c) => c.enabled).map((c) => c.id)).toEqual(['checkout', 'new-branch-from']);
+		expect(BRANCH_MENU.filter((c) => c.enabled).map((c) => c.id)).toEqual(['checkout', 'new-branch-from', 'compare']);
 	});
 
 	// Decision: the createBranch parameters carry the three required fields and no roots (the UI sends the default root until step P8).
@@ -254,3 +254,25 @@ const _params: Params<'git.checkout'> = { name: 'x', remote: 'origin', roots: ['
 const _result: Result<'git.createBranch'> = { outcomes: [{ root: '.', status: 'skipped' }] };
 void _params;
 void _result;
+
+describe('Compare with current', () => {
+	const head = (over: Record<string, unknown> = {}) => ({ oid: 'c'.repeat(40), branch: 'main', detached: false, upstreamGone: false, ahead: 0, behind: 0, ...over });
+
+	// Decision (ADR-0072): offered for a local or remote-tracking branch that has a commit and is not the current branch; never for origin/HEAD.
+	it('is offered for every branch but the current one and a remote HEAD', () => {
+		expect(canCompare(local, head())).toBe(true);
+		expect(canCompare(remote, head())).toBe(true);
+		expect(canCompare({ kind: 'local', name: 'main', oid: 'a'.repeat(40) }, head())).toBe(false);
+		// a remote-tracking branch of the same name as the current one is another branch
+		expect(canCompare({ kind: 'remote', remote: 'origin', name: 'main', oid: 'a'.repeat(40) }, head())).toBe(true);
+		// detached: no branch is current
+		expect(canCompare({ kind: 'local', name: 'main', oid: 'a'.repeat(40) }, head({ detached: true }))).toBe(true);
+		expect(canCompare({ kind: 'remote', remote: 'origin', name: 'HEAD', oid: 'a'.repeat(40) }, head())).toBe(false);
+		expect(canCompare({ kind: 'local', name: 'x' }, head())).toBe(false);
+		expect(canCompare(local, head({ oid: undefined }))).toBe(false);
+	});
+
+	it('is an action for the branch', () => {
+		expect(entryAction('compare', local)).toEqual({ kind: 'compare', target: local });
+	});
+});

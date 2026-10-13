@@ -27,10 +27,11 @@ const (
 
 // LogParams is git.log's parameters.
 type LogParams struct {
-	From  []string `json:"from,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."`
-	Skip  *int     `json:"skip,omitempty" jsonschema:"minimum=0,maximum=2147483647" jsonschema_description:"How many commits of the walk to skip: the number already received. Absent means 0."`
-	Limit *int     `json:"limit,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"The most commits to return, 1 to 1000. Absent means 500."`
-	Root  string   `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
+	From    []string `json:"from,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."`
+	Exclude []string `json:"exclude,omitempty" jsonschema:"maxItems=5000,pattern=^([0-9a-f]{40}|[0-9a-f]{64})$" jsonschema_description:"Commits (full object ids) whose history is left out: from [B], exclude [A] is the commits of B that A lacks."`
+	Skip    *int     `json:"skip,omitempty" jsonschema:"minimum=0,maximum=2147483647" jsonschema_description:"How many commits of the walk to skip: the number already received. Absent means 0."`
+	Limit   *int     `json:"limit,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"The most commits to return, 1 to 1000. Absent means 500."`
+	Root    string   `json:"root,omitempty" jsonschema:"maxLength=4096" jsonschema_description:"A submodule's path as git.submodules lists it; absent or . is the project's own repository."`
 }
 
 // LogCommit is one commit of the history. Names, e-mails and subjects are the
@@ -122,6 +123,16 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 				WithNextStep("pass full hex object ids (the tips a first page returned), not ref names or short ids")
 		}
 	}
+	if len(p.Exclude) > maxFrom {
+		return nil, capability.Errorf(capability.ErrInvalidParams, "exclude holds %d object ids; at most %d", len(p.Exclude), maxFrom).
+			WithNextStep("pass at most " + strconv.Itoa(maxFrom) + " commits to leave out")
+	}
+	for i, oid := range p.Exclude {
+		if !isOid(oid) {
+			return nil, capability.Errorf(capability.ErrInvalidParams, "exclude[%d] is not a full object id", i).
+				WithNextStep("pass full hex object ids of commits, not ref names or short ids")
+		}
+	}
 	sub, cerr := parseRoot(p.Root)
 	if cerr != nil {
 		return nil, cerr
@@ -156,8 +167,18 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 		return nil, cerr
 	}
 
+	stdin := strings.Join(from, "\n") + "\n"
+	if len(p.Exclude) > 0 { // ADR-0072 §1: each as ^<oid> on the same stdin
+		if i, cerr := o.firstNotCommit(ctx, r, root, trusted, p.Exclude); cerr != nil {
+			return nil, cerr
+		} else if i >= 0 {
+			return nil, capability.Errorf(capability.ErrInvalidParams, "exclude[%d] is not a commit of this repository", i).
+				WithNextStep("pass the full object ids of commits of this repository")
+		}
+		stdin += "^" + strings.Join(p.Exclude, "\n^") + "\n"
+	}
 	// One more than the page, so that "more" is known exactly.
-	res, err := r.run(ctx, root.dir, trusted, []byte(strings.Join(from, "\n")+"\n"), logArgs(skip, limit+1)...)
+	res, err := r.run(ctx, root.dir, trusted, []byte(stdin), logArgs(skip, limit+1)...)
 	if err != nil {
 		return nil, root.mapError(err)
 	}

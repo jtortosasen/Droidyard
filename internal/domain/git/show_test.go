@@ -737,3 +737,68 @@ func TestShowListsWhatGitLists(t *testing.T) {
 		}
 	}
 }
+
+// showBase calls git.show with a base.
+func (f *readFx) showBase(oid, base string) (ShowResult, *capability.Error) {
+	f.t.Helper()
+	d, _ := f.reg.Lookup("git.show")
+	res, err := d.Handler(context.Background(), &capability.Call{Workspace: "ws", Params: ShowParams{Oid: oid, Base: base}})
+	if err != nil {
+		return ShowResult{}, capability.AsError(err)
+	}
+	return res.(ShowResult), nil
+}
+
+// Decision (ADR-0072 §2): with a base, the files are those between base and oid, as
+// `diff --numstat base oid` lists them (not the first parent's), and the commit's details are
+// unchanged. Absent, the first parent as before. A base that is no commit of the repository
+// (a tree, a blob, an unknown id) or no full id is REQUEST_INVALID_PARAMS.
+func TestShowBase(t *testing.T) {
+	f := newReadFx(t)
+	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	f.at(r.Dir)
+	a, b := r.Oids["rename"], r.Oids["merge"]
+	want := f.numstatOf(r.Dir, a, b)
+	against := f.numstatOf(r.Dir, b+"^1", b)
+	if len(want) == 0 || fmt.Sprint(want) == fmt.Sprint(against) {
+		t.Fatalf("fixture: base and first parent give the same files %v", want)
+	}
+	res, err := f.showBase(b, a)
+	if err != nil {
+		t.Fatalf("git.show with a base: %s %s", err.Code, err.Message)
+	}
+	got := map[string]string{}
+	for _, file := range res.Files {
+		got[file.Path] = countsText(file)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("files %v; want diff --numstat base oid, %v", got, want)
+	}
+	plain := f.mustShow(b)
+	if res.Oid != plain.Oid || res.Message != plain.Message || fmt.Sprint(res.Parents) != fmt.Sprint(plain.Parents) {
+		t.Errorf("details changed with a base: %+v vs %+v", res, plain)
+	}
+	gotPlain := map[string]string{}
+	for _, file := range plain.Files {
+		gotPlain[file.Path] = countsText(file)
+	}
+	if fmt.Sprint(gotPlain) != fmt.Sprint(against) {
+		t.Errorf("without a base %v; want the first parent's %v", gotPlain, against)
+	}
+
+	n := f.starts.Load()
+	for name, base := range map[string]string{"a ref name": "main", "a short id": a[:7], "a revision": a + "^", "an option": "--output=/tmp/x"} {
+		if _, err := f.showBase(b, base); err == nil || err.Code != capability.ErrInvalidParams || err.NextStep == "" {
+			t.Errorf("%s: %v; want REQUEST_INVALID_PARAMS", name, err)
+		}
+	}
+	if f.starts.Load() != n {
+		t.Errorf("%d gits started for a malformed base", f.starts.Load()-n)
+	}
+	blob := f.oidsOf(r.Dir, "HEAD:README.md")[0]
+	for name, base := range map[string]string{"a tree": r.Oids["tree-tag"], "a blob": blob, "an unknown id": strings.Repeat("1", 40)} {
+		if _, err := f.showBase(b, base); err == nil || err.Code != capability.ErrInvalidParams {
+			t.Errorf("%s: %v; want REQUEST_INVALID_PARAMS (not a commit)", name, err)
+		}
+	}
+}

@@ -11,7 +11,7 @@
 	import Tag from '@lucide/svelte/icons/tag';
 	import type { KeyValueStorage } from '../ui/layout';
 	import BranchMenu from './BranchMenu.svelte';
-	import { isRemoteHead, targetLabel, type BranchTarget } from './branchops';
+	import { canCompare, isRemoteHead, targetLabel, type BranchTarget } from './branchops';
 	import type { MenuId } from './controls';
 	import Download from '@lucide/svelte/icons/download';
 	import X from '@lucide/svelte/icons/x';
@@ -344,6 +344,7 @@
 			{@const target = menuFor}
 			<BranchMenu
 				name={targetLabel(target)}
+				canCompare={canCompare(target, view.refs?.head ?? null)}
 				onchoose={(id) => {
 					pop?.hidePopover();
 					onentry(id, target);

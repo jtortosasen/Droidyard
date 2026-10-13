@@ -7314,6 +7314,15 @@
             "maxItems": 5000,
             "description": "The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."
           },
+          "exclude": {
+            "items": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "description": "Commits (full object ids) whose history is left out: from [B], exclude [A] is the commits of B that A lacks."
+          },
           "skip": {
             "type": "integer",
             "maximum": 2147483647,
@@ -7764,6 +7773,11 @@
             "type": "string",
             "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
             "description": "The commit's full object id, as git.log returned it."
+          },
+          "base": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "A commit (full object id) to list the files against, in place of the first parent."
           },
           "root": {
             "type": "string",
