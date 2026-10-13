@@ -9,7 +9,11 @@
 	import Splitter from '../ui/Splitter.svelte';
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
+	import type { BranchModel, BranchView } from './branch';
+	import { entryAction, headSource, type BranchTarget, type NewBranchSource } from './branchops';
+	import type { MenuId } from './controls';
 	import CommitView from './CommitView.svelte';
+	import CreateBranchDialog from './CreateBranchDialog.svelte';
 	import type { CommitFile } from './diffsource';
 	import type { FetchModel, FetchView } from './fetch';
 	import GitToolbar from './GitToolbar.svelte';
@@ -42,8 +46,10 @@
 		onopenfile?: (file: CommitFile) => void;
 		/** The tab's Fetch (plan m2n P2), shared by the toolbar and the Remotes section. */
 		fetcher: FetchModel;
+		/** The tab's Checkout and Create Branch (plan m2n P3), shared by the branch menu, the toolbar and the dialog. */
+		branches: BranchModel;
 	}
-	let { store, watch, workspaceId, onopenfile, fetcher }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher, branches }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -68,6 +74,41 @@
 			fetchView = f.view;
 		});
 	});
+	let branchView = $state.raw<BranchView>(untrack(() => branches.view));
+	$effect(() => {
+		const b = branches;
+		branchView = b.view;
+		return b.subscribe(() => {
+			branchView = b.view;
+		});
+	});
+	// The Create Branch dialog: where the new branch starts while it is open.
+	let creating = $state.raw<NewBranchSource | null>(null);
+	const locals = $derived(new Set((view.refs?.branches ?? []).map((b) => b.name)));
+
+	/** An enabled entry of a branch's menu: Checkout calls at once (after the dirty-buffer gate), New branch from opens the dialog. */
+	function onentry(id: MenuId, target: BranchTarget) {
+		const action = entryAction(id, target);
+		if (action === null) return;
+		if (action.kind === 'checkout') void branches.checkout(action.target);
+		else {
+			branches.dismiss();
+			creating = action.source;
+		}
+	}
+	function openCreate() {
+		const source = headSource(view.refs?.head ?? null);
+		if (source === null) return;
+		branches.dismiss();
+		creating = source;
+	}
+	async function createBranch(name: string, checkout: boolean): Promise<boolean> {
+		const from = creating;
+		if (from === null) return false;
+		const ok = await branches.createBranch(name, checkout, from.oid);
+		if (ok) creating = null;
+		return ok;
+	}
 	$effect(() => {
 		const w = watch;
 		problem = w.view.problem?.text ?? null;
@@ -212,6 +253,7 @@
 		onnavigate={() => void store.navigateToHead()}
 		onrun={(id) => {
 			if (id === 'fetch') void fetcher.run();
+			else if (id === 'create-branch') openCreate();
 		}}
 		{fetchView}
 		oncancel={() => fetcher.cancel()}
@@ -226,9 +268,34 @@
 			<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => fetcher.dismiss()}><X size={14} /></button>
 		</div>
 	{/if}
+	{#if creating === null}
+		{#if branchView.blocked.length > 0}
+			<div class="fetch-failed" role="alert" data-dirty-block>
+				<div class="what">
+					<p class="msg">{branchView.blockedText}</p>
+					<ul class="files" aria-label="Files with unsaved changes">
+						{#each branchView.blocked as path (path)}
+							<li>{path}</li>
+						{/each}
+					</ul>
+				</div>
+				<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => branches.dismiss()}><X size={14} /></button>
+			</div>
+		{/if}
+		{#if branchView.failure}
+			<div class="fetch-failed" role="alert" data-op-error data-op-of="branch">
+				<div class="what">
+					<p class="msg">{branchView.failure.code ? `${branchView.failure.code}: ` : ''}{branchView.failure.message}</p>
+					{#if branchView.failure.cause}<pre class="cause">{branchView.failure.cause}</pre>{/if}
+					{#if branchView.failure.nextStep}<p class="next">{branchView.failure.nextStep}</p>{/if}
+				</div>
+				<button type="button" class="icon" aria-label="Dismiss" title="Dismiss" onclick={() => branches.dismiss()}><X size={14} /></button>
+			</div>
+		{/if}
+	{/if}
 	<div class="body">
 		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags and work trees">
-			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} />
+			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} {onentry} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
 		<div class="table-area">
@@ -385,6 +452,12 @@
 	{/if}
 		</div>
 	</div>
+	{#if creating !== null}
+		<CreateBranchDialog source={creating} {locals} model={branches} view={branchView} onsubmit={createBranch} oncancel={() => {
+				creating = null;
+				branches.dismiss();
+			}} />
+	{/if}
 </section>
 
 {#snippet badge(b: Badge)}
@@ -520,6 +593,14 @@
 	}
 	.fetch-failed .next {
 		color: var(--text-2);
+	}
+	.fetch-failed .files {
+		margin: 0;
+		padding-left: var(--sp-5, 20px);
+		max-height: 8em;
+		overflow: auto;
+		overflow-wrap: anywhere;
+		unicode-bidi: isolate;
 	}
 	.note,
 	.problem {

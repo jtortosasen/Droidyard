@@ -53,6 +53,9 @@ export interface RefRow {
 	depth: number;
 	/** The commit it points at; absent for a tag on a tree or a blob. */
 	oid?: string;
+	/** Remote-tracking branches only: the remote's name and the branch's name on it (`name` is both, joined). */
+	remote?: string;
+	branch?: string;
 	/** Local branches only. */
 	starred?: boolean;
 	current?: boolean;
@@ -202,6 +205,8 @@ export function panelModel(refs: RefsResult, input: PanelInput): Section[] {
 		name: leaf.name,
 		depth,
 		oid: leaf.item.oid,
+		remote: leaf.item.remote,
+		branch: leaf.item.name,
 	}));
 
 	const tagRows: PanelRow[] = refs.tags

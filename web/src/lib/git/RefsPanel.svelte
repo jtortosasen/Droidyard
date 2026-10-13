@@ -11,6 +11,8 @@
 	import Tag from '@lucide/svelte/icons/tag';
 	import type { KeyValueStorage } from '../ui/layout';
 	import BranchMenu from './BranchMenu.svelte';
+	import { isRemoteHead, targetLabel, type BranchTarget } from './branchops';
+	import type { MenuId } from './controls';
 	import Download from '@lucide/svelte/icons/download';
 	import X from '@lucide/svelte/icons/x';
 	import Spinner from '../projects/Spinner.svelte';
@@ -22,9 +24,10 @@
 	// filter box over collapsible sections with counts: LOCAL BRANCHES (the current one marked,
 	// folders by `/`, starred favourites first), REMOTES, TAGS and WORKTREES. A click on a ref
 	// selects its commit in the table (the store loads at most five more pages to find it, else the
-	// table says it is not loaded). A local branch has a menu (right click, or the ⋯ button) with
-	// IntelliJ's eight entries, every one disabled until the part that enables it. Favourites are
-	// remembered per browser and project. Every name is git's text, in an isolated text node.
+	// table says it is not loaded). A local or a remote-tracking branch has a menu (right click, or
+	// the ⋯ button) with IntelliJ's eight entries, each disabled until the part that enables it;
+	// an enabled one is reported with the branch (`onentry`). Favourites are remembered per
+	// browser and project. Every name is git's text, in an isolated text node.
 	interface Props {
 		view: HistoryView;
 		store: HistoryStore;
@@ -33,8 +36,10 @@
 		/** The tab's Fetch: each remote of the REMOTES section has a Fetch (plan m2n P2). */
 		fetcher: FetchModel;
 		fetchView: FetchView;
+		/** An enabled entry of a branch's menu was chosen. */
+		onentry: (id: MenuId, target: BranchTarget) => void;
 	}
-	let { view, store, workspaceId, storage, fetcher, fetchView }: Props = $props();
+	let { view, store, workspaceId, storage, fetcher, fetchView, onentry }: Props = $props();
 
 	// The remotes that have a remote-tracking branch listed; a remote never fetched has none and
 	// is not named by git.refs, so it has no button of its own (the toolbar's Fetch reaches it).
@@ -64,6 +69,15 @@
 	}
 	function pick(row: RefRow) {
 		void store.selectRef(row.ref, row.oid);
+	}
+	/** The branch a local or remote-tracking row is; null for a tag. */
+	function targetOf(row: RefRow): BranchTarget | null {
+		const oid = row.oid === undefined ? {} : { oid: row.oid };
+		if (row.remote !== undefined && row.branch !== undefined) {
+			const remote: BranchTarget = { kind: 'remote', remote: row.remote, name: row.branch, ...oid };
+			return isRemoteHead(remote) ? null : remote;
+		}
+		return row.ref.startsWith('refs/heads/') ? { kind: 'local', name: row.name, ...oid } : null;
 	}
 
 	// A ref picked from outside (Navigate to HEAD): its section and folders open, and its row
@@ -101,19 +115,19 @@
 	});
 
 	// --- the branch menu --------------------------------------------------------------------
-	let menuFor = $state<string | null>(null);
+	let menuFor = $state.raw<BranchTarget | null>(null);
 	let menuAt = $state({ top: 0, left: 0 });
 	let pop = $state<HTMLDivElement>();
 
-	function openMenu(name: string, x: number, y: number) {
-		menuFor = name;
+	function openMenu(target: BranchTarget, x: number, y: number) {
+		menuFor = target;
 		menuAt = { top: Math.min(y, window.innerHeight - 260), left: Math.min(x, window.innerWidth - 220) };
 		void tick().then(() => pop?.showPopover());
 	}
-	function menuFromButton(e: MouseEvent, name: string) {
+	function menuFromButton(e: MouseEvent, target: BranchTarget) {
 		e.stopPropagation();
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		openMenu(name, r.left, r.bottom + 2);
+		openMenu(target, r.left, r.bottom + 2);
 	}
 </script>
 
@@ -203,6 +217,7 @@
 										<span class="n">{row.count}</span>
 									</div>
 								{:else if row.kind === 'ref'}
+									{@const target = s.id === 'local' || s.id === 'remotes' ? targetOf(row) : null}
 									<div
 										class="row"
 										class:selected={view.selectedRef === row.ref}
@@ -218,10 +233,10 @@
 										data-starred={row.starred ? '' : undefined}
 										title={row.upstream === undefined ? row.name : `${row.name} → ${row.upstream}${row.upstreamGone ? ' (gone)' : ''}`}
 										onclick={() => pick(row)}
-										oncontextmenu={s.id === 'local'
+										oncontextmenu={target
 											? (e) => {
 													e.preventDefault();
-													openMenu(row.name, e.clientX, e.clientY);
+													openMenu(target, e.clientX, e.clientY);
 												}
 											: undefined}
 										onkeydown={(e) => {
@@ -247,6 +262,8 @@
 											>
 												<Star size={12} />
 											</button>
+										{/if}
+										{#if target}
 											<button
 												type="button"
 												class="icon more"
@@ -254,7 +271,7 @@
 												aria-label={`Menu of ${row.name}`}
 												title="Branch menu"
 												data-branch-menu
-												onclick={(e) => menuFromButton(e, row.name)}
+												onclick={(e) => menuFromButton(e, target)}
 											>
 												<Ellipsis size={12} />
 											</button>
@@ -311,7 +328,14 @@
 		}}
 	>
 		{#if menuFor !== null}
-			<BranchMenu name={menuFor} onchoose={() => pop?.hidePopover()} />
+			{@const target = menuFor}
+			<BranchMenu
+				name={targetLabel(target)}
+				onchoose={(id) => {
+					pop?.hidePopover();
+					onentry(id, target);
+				}}
+			/>
 		{/if}
 	</div>
 </div>
@@ -458,7 +482,8 @@
 	.row .mark + .icon {
 		margin-left: auto;
 	}
-	.icon.more {
+	/* After the star the ⋯ follows it; alone (a remote-tracking branch) it is pushed to the end. */
+	.icon.star + .icon.more {
 		margin-left: 0 !important;
 	}
 	.row:not(:hover, :focus-within) .icon:not(.on) {

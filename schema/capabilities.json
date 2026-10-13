@@ -6822,6 +6822,359 @@
       }
     },
     {
+      "name": "git.checkout",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Checks a branch out for the UI, or creates a local branch tracking a remote-tracking one and checks that out; nothing is forced or kept aside, and a checkout git refuses over local changes fails its root with git's words naming the files. Only on a trusted project; the result has one outcome per root.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The branch to check out, without refs/heads/: a local one, or with remote its name on that remote."
+          },
+          "remote": {
+            "type": "string",
+            "description": "A remote of the repository. When name is no local branch, one is created tracking this remote's."
+          },
+          "roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The repositories to apply it to, in order: \".\" is the project's own. Only \".\" for now. Absent: [\".\"]."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "outcomes": {
+                "items": {
+                  "properties": {
+                    "root": {
+                      "type": "string",
+                      "description": "The root as asked: \".\" or a submodule path."
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "failed",
+                        "skipped"
+                      ],
+                      "description": "done: applied. failed: git refused it, it was ended, or the call was cancelled before it ran; see error. skipped: not tried, because an earlier root failed."
+                    },
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "GIT_FAILED",
+                            "OPERATION_CANCELLED"
+                          ],
+                          "description": "GIT_FAILED: git refused or the time limit passed. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "What happened."
+                        },
+                        "cause": {
+                          "type": "string",
+                          "description": "Git's own words, from its first fatal: or error: line, at most 20 lines and 4 KiB (a refused checkout names the files in the way), or the time limit's fixed text. Show it as text."
+                        },
+                        "nextStep": {
+                          "type": "string",
+                          "description": "What to do next, when there is something to do."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "description": "Present when the status is failed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "root",
+                    "status"
+                  ]
+                },
+                "type": "array",
+                "description": "One outcome per root, in the order applied. The call stops at the first failed root and the rest are skipped; after a cancel they are failed OPERATION_CANCELLED. Nothing applied is rolled back. A refusal decided before any git writes fails the whole call and applies nothing."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "outcomes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "git.createBranch",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Creates a local branch at a commit for the UI, with no upstream, and optionally checks it out; a name that exists is refused, and a checkout git refuses over local changes fails its root with git's words. Only on a trusted project; the result has one outcome per root.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The new branch's name, without refs/heads/. A name that exists, or reads as another ref, is refused."
+          },
+          "checkout": {
+            "type": "boolean",
+            "description": "True: check the new branch out too. False: HEAD stays where it is."
+          },
+          "from": {
+            "type": "string",
+            "description": "The start: a full object id (40 or 64 hex characters) of a commit of the repository, not a ref name."
+          },
+          "roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The repositories to apply it to, in order: \".\" is the project's own. Only \".\" for now. Absent: [\".\"]."
+          },
+          "fromIn": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "description": "Per submodule path, the full object id of its start commit. Submodule roots are not accepted yet."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "checkout",
+          "from"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "outcomes": {
+                "items": {
+                  "properties": {
+                    "root": {
+                      "type": "string",
+                      "description": "The root as asked: \".\" or a submodule path."
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "failed",
+                        "skipped"
+                      ],
+                      "description": "done: applied. failed: git refused it, it was ended, or the call was cancelled before it ran; see error. skipped: not tried, because an earlier root failed."
+                    },
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "GIT_FAILED",
+                            "OPERATION_CANCELLED"
+                          ],
+                          "description": "GIT_FAILED: git refused or the time limit passed. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "What happened."
+                        },
+                        "cause": {
+                          "type": "string",
+                          "description": "Git's own words, from its first fatal: or error: line, at most 20 lines and 4 KiB (a refused checkout names the files in the way), or the time limit's fixed text. Show it as text."
+                        },
+                        "nextStep": {
+                          "type": "string",
+                          "description": "What to do next, when there is something to do."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "description": "Present when the status is failed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "root",
+                    "status"
+                  ]
+                },
+                "type": "array",
+                "description": "One outcome per root, in the order applied. The call stops at the first failed root and the rest are skipped; after a cancel they are failed OPERATION_CANCELLED. Nothing applied is rolled back. A refusal decided before any git writes fails the whole call and applies nothing."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "outcomes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "git.fetch",
       "kind": "command",
       "scope": "workspace",

@@ -64,22 +64,9 @@ func (o Options) fetch(ctx context.Context, call *capability.Call) (any, error) 
 	}
 
 	// The gate has admitted the root, so the repository's own configuration is the user's.
-	res, err := r.run(ctx, root, true, nil, hist("remote")...)
+	names, err := listRemotes(ctx, r, root)
 	if err != nil {
-		return nil, mapError(root, err)
-	}
-	if res.ExitCode != 0 {
-		return nil, mapError(root, gitError(res))
-	}
-	var names []string
-	for _, n := range strings.Split(string(res.Stdout), "\n") {
-		if n != "" {
-			names = append(names, n)
-		}
-	}
-	if res.Truncated {
-		// A name cut by the cap would be fetched or refused wrongly.
-		return nil, capability.NewError(CodeFailed, "the repository has more remotes than git.fetch can list")
+		return nil, err
 	}
 	remotes := names
 	if p.Remote != "" {
@@ -97,7 +84,7 @@ func (o Options) fetch(ctx context.Context, call *capability.Call) (any, error) 
 	}
 
 	timeout := o.timeoutFor(true)
-	res, err = w.run(ctx, root, true, timeout, fetchArgs(p.Remote))
+	res, err := w.run(ctx, root, true, timeout, fetchArgs(p.Remote))
 	if err != nil {
 		return nil, mapWriteError(root, err, timeout, "fetch")
 	}
@@ -108,6 +95,30 @@ func (o Options) fetch(ctx context.Context, call *capability.Call) (any, error) 
 		remotes = []string{}
 	}
 	return FetchResult{Remotes: remotes}, nil
+}
+
+// listRemotes lists the repository's remotes, `git remote`'s names, for a root the gate has
+// admitted. The one place that says which names are remotes: validName alone admits a URL
+// or a path, which git would fetch from.
+func listRemotes(ctx context.Context, r *runner, root string) ([]string, error) {
+	res, err := r.run(ctx, root, true, nil, hist("remote")...)
+	if err != nil {
+		return nil, mapError(root, err)
+	}
+	if res.ExitCode != 0 {
+		return nil, mapError(root, gitError(res))
+	}
+	if res.Truncated {
+		// A name cut by the cap would be fetched or refused wrongly.
+		return nil, capability.NewError(CodeFailed, "the repository has more remotes than the Git writes can list")
+	}
+	var names []string
+	for _, n := range strings.Split(string(res.Stdout), "\n") {
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	return names, nil
 }
 
 // skippedByAll lists the remotes `git fetch --all` skips: those with remote.<name>.skipFetchAll

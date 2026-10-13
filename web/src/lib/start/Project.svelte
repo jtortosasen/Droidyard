@@ -54,6 +54,7 @@
 	import { GitTreeModel } from '../git/tree';
 	import DiffPanel from '../git/DiffPanel.svelte';
 	import HistoryPanel from '../git/HistoryPanel.svelte';
+	import { BranchModel } from '../git/branch';
 	import { FetchModel } from '../git/fetch';
 	import { HistoryStore } from '../git/history';
 	import { TabsModel } from '../editor/tabs';
@@ -120,6 +121,7 @@
 	let commitText = $state.raw<CommitText | null>(null);
 	let gitHistory = $state.raw<HistoryStore | null>(null);
 	let gitFetch = $state.raw<FetchModel | null>(null);
+	let gitBranches = $state.raw<BranchModel | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -223,6 +225,10 @@
 		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
 		const offListen = watcher.listen(readers);
 		const offGuard = guard.attach(readers);
+		// Checkout and Create Branch (plan m2n P3): the editor's unsaved files stop a checkout before the daemon is
+		// called, and the refs are read again when a call has ended. A clean buffer whose file the checkout rewrote
+		// reloads through the file watch above (m2i D8).
+		const brancher = new BranchModel(callOn, ws, readers, () => history.refreshRefs());
 		// Another active file in the Editor is the working tree's diff again (a file opened from the tree or the palette changes it too).
 		let activeFile = tabs.view.active;
 		const offActive = tabs.subscribe(() => {
@@ -263,6 +269,7 @@
 		commitText = commitTexts;
 		gitHistory = history;
 		gitFetch = fetcher;
+		gitBranches = brancher;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -313,6 +320,7 @@
 			opsModel.reset();
 			watcher.dispose();
 			fetcher.dispose();
+			brancher.dispose();
 			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
@@ -356,6 +364,7 @@
 			commitText = null;
 			gitHistory = null;
 			gitFetch = null;
+			gitBranches = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -431,10 +440,11 @@
 			/>
 		{/if}
 	{:else if id === 'git'}
-		{#if gitHistory && gitWatch && gitFetch}
+		{#if gitHistory && gitWatch && gitFetch && gitBranches}
 			<HistoryPanel
 				store={gitHistory}
 				fetcher={gitFetch}
+				branches={gitBranches}
 				watch={gitWatch}
 				{workspaceId}
 				onopenfile={(file) => {
