@@ -1,10 +1,12 @@
 // Fakes for the History store's tests: commits, a Git watch, and a client that answers
 // git.log from a list and git.refs from `state.refs`.
+import type { Result } from '../api/capabilities.gen';
 import { BranchModel, type BranchClient } from './branch';
 import type { Show } from './files';
 import type { Commit, HistoryClient, HistoryWatch } from './history';
 import { HistoryStore } from './history';
 import type { RefsResult } from './refs';
+import { SubmodulesModel, type SubmodulesClient } from './submodules';
 import type { GitView } from './watch';
 
 /** What git.refs answers for a repository on `main` whose tip set is `tips`. */
@@ -108,4 +110,12 @@ export function setup(all: () => Commit[] = () => chain(5), pageSize = 2, tips =
 export function idleBranches(dirty: string[] = []): BranchModel {
 	const client = { call: () => Promise.resolve({ outcomes: [{ root: '.', status: 'done' }] }) } as unknown as BranchClient;
 	return new BranchModel(client, { root: '/p' }, { dirtyPaths: () => dirty }, () => {});
+}
+
+/** The Submodules section's model over a client that answers `list` (read once, so the first window has the rows). */
+export async function submodulesOf(list: Result<'git.submodules'>['submodules'] = [], truncated = false): Promise<SubmodulesModel> {
+	const client = { call: () => Promise.resolve({ submodules: list, truncated }) } as unknown as SubmodulesClient;
+	const m = new SubmodulesModel(client, { root: '/p' });
+	await m.load();
+	return m;
 }

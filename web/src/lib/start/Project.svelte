@@ -57,6 +57,7 @@
 	import { BranchModel } from '../git/branch';
 	import { FetchModel } from '../git/fetch';
 	import { HistoryStore } from '../git/history';
+	import { SubmodulesModel } from '../git/submodules';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
 	import type { UnsavedGuard } from '../editor/unsaved';
@@ -122,6 +123,7 @@
 	let gitHistory = $state.raw<HistoryStore | null>(null);
 	let gitFetch = $state.raw<FetchModel | null>(null);
 	let gitBranches = $state.raw<BranchModel | null>(null);
+	let gitSubmodules = $state.raw<SubmodulesModel | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -229,6 +231,9 @@
 		// called, and the refs are read again when a call has ended. A clean buffer whose file the checkout rewrote
 		// reloads through the file watch above (m2i D8).
 		const brancher = new BranchModel(callOn, ws, readers, () => history.refreshRefs());
+		// The Submodules section (plan m2n P4) is read whenever the History store has a new answer of the refs.
+		const submodules = new SubmodulesModel(callOn, ws);
+		const offSubmodules = submodules.follow(history);
 		// Another active file in the Editor is the working tree's diff again (a file opened from the tree or the palette changes it too).
 		let activeFile = tabs.view.active;
 		const offActive = tabs.subscribe(() => {
@@ -270,6 +275,7 @@
 		gitHistory = history;
 		gitFetch = fetcher;
 		gitBranches = brancher;
+		gitSubmodules = submodules;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -321,6 +327,8 @@
 			watcher.dispose();
 			fetcher.dispose();
 			brancher.dispose();
+			offSubmodules();
+			submodules.dispose();
 			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
@@ -365,6 +373,7 @@
 			gitHistory = null;
 			gitFetch = null;
 			gitBranches = null;
+			gitSubmodules = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -440,11 +449,12 @@
 			/>
 		{/if}
 	{:else if id === 'git'}
-		{#if gitHistory && gitWatch && gitFetch && gitBranches}
+		{#if gitHistory && gitWatch && gitFetch && gitBranches && gitSubmodules}
 			<HistoryPanel
 				store={gitHistory}
 				fetcher={gitFetch}
 				branches={gitBranches}
+				submodules={gitSubmodules}
 				watch={gitWatch}
 				{workspaceId}
 				onopenfile={(file) => {

@@ -7891,6 +7891,86 @@
       }
     },
     {
+      "name": "git.submodules",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Lists the project's git submodules for the UI's History tab: for each one the commit the repository records, the commit it has checked out and its state (uninitialised, clean, outdated or dirty), nested ones included. Read-only; each submodule is read in its own directory, with its own repository's filter drivers switched off on an untrusted project.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "submodules": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The submodule's directory, relative to the project root; a nested submodule's path starts with its parent's."
+                },
+                "recorded": {
+                  "type": "string",
+                  "description": "The commit the repository records for it (its index entry)."
+                },
+                "checkedOut": {
+                  "type": "string",
+                  "description": "The commit it has checked out (its HEAD); absent when it is uninitialised or has no commit."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "uninitialised",
+                    "clean",
+                    "outdated",
+                    "dirty"
+                  ],
+                  "description": "uninitialised: no repository of its own there yet. dirty: its working tree differs from its HEAD (its own nested submodules ignored), whatever its commit. outdated: clean but checked out at another commit than recorded. clean: the recorded commit, nothing changed."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "recorded",
+                "state"
+              ]
+            },
+            "type": "array",
+            "description": "The submodules named in .gitmodules that the repository records as gitlinks, below the project root, each followed by its nested ones, to eight levels; at most 1000. Empty in a result returned again after delivery. A submodule whose directory is, or sits behind, a symlink, or whose .git is a symlink, is left out."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when there are more submodules than listed (1000, or git's output passed 4 MiB); the list ends at a whole entry."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "submodules",
+          "truncated"
+        ]
+      }
+    },
+    {
       "name": "git.watch",
       "kind": "command",
       "scope": "workspace",
