@@ -257,7 +257,18 @@ Part 1. Part 2 is outlined after these.
 - Needs: steps 6, 9.
 - Not here: part 2.
 - Rests on: —
-- [ ] Done. Evidence:
+- (a)–(c) observed, 2026-10-13 (K1–K3, `/private/tmp/dy.qlrwpi`, untrusted copies of `$B/hist`): (a) two commits made by a script appeared as the top row with a lane node after 1,052 and 1,111 ms; a branch made by the script appeared in the side panel 261 ms after the window regained focus. (b) On a hostile copy (`log.showSignature` with `gpg.program`, `gpg.x509.program`, `gpg.ssh.program` and a commit carrying a `gpgsig` header; `diff.external`; `diff.evil.command` and `textconv`; clean, smudge and process filters; `core.fsmonitor`; `core.pager`, `pager.log`; `* diff=evil filter=evil` attributes; a dirty work tree), where plain `git log` and `git status` ran the programs 11 times (the control), opening the History tab, expanding a commit and opening `src/app.txt` in the Diff tab left no marker. (c) `droidyard mcp`: 31 tools, none with `git` in its name; `tools/call` of `git_log`, `git_refs` and `git_show`: `-32602 tool not found`. 0 orphans.
+- (d) The owner's checklist, in Spanish, on their own project (the owner checks last, owner 2026-10-12; asked with P10's at the end of part 2):
+  1. La pestaña Git de abajo muestra el historial con el grafo, las columnas GRAPH & SUBJECT, AUTHOR, SHA y COMMIT TIME, la fila "Uncommitted Changes" cuando hay cambios, el nodo de HEAD hueco y los merges atenuados.
+  2. Un commit hecho desde la terminal o el agente aparece arriba en unos segundos.
+  3. El panel lateral: ramas locales en carpetas con la actual marcada, estrella de favoritas, remotos, tags y worktrees con sus contadores, y el filtro.
+  4. Pulsar una rama o un tag selecciona su commit en la tabla; "Navigate to HEAD" vuelve a HEAD.
+  5. La barra: Fetch, Pull, Push, Stash y Create Branch desactivados (los habilita la parte 2), la rama actual con ↑/↓.
+  6. El menú de rama (clic derecho o ⋯) con sus ocho entradas desactivadas.
+  7. Un clic en un commit lo expande en su sitio: hash, padres, autor, fecha con zona, mensaje y los ficheros con (+a | -r).
+  8. Un clic en un fichero del commit lo abre en la pestaña Diff contra el commit anterior, en Review y en Classic, sin poder editarlo.
+  9. El botón de ajustes de filtro (junto a la búsqueda), hoy desactivado: ¿qué esperas que haga?
+- [ ] Done. Evidence: (a)–(c) above; (d) pending the owner.
 
 ## Part 2
 
