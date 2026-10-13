@@ -8,11 +8,12 @@
 	import Splitter from '../ui/Splitter.svelte';
 	import { browserStorage } from '../ui/layout';
 	import { COL, NODE_R, ROW, graphWidth, laneColor, laneX, strokes } from './graph';
+	import CommitView from './CommitView.svelte';
 	import GitToolbar from './GitToolbar.svelte';
 	import { avatarHue, initials, relativeTime, type HistoryStore, type HistoryView } from './history';
 	import { badgesByOid, type Badge } from './refs';
 	import RefsPanel from './RefsPanel.svelte';
-	import { rowTop, rowWindow } from './rows';
+	import { rowAt, rowTop, rowWindow, type Expanded } from './rows';
 	import { findCommits, stepMatch } from './search';
 	import type { GitWatch } from './watch';
 
@@ -72,7 +73,18 @@
 
 	const off = $derived(view.uncommitted > 0 ? 1 : 0);
 	const count = $derived(view.rows.length + off);
-	const win = $derived(rowWindow({ scrollTop, viewportHeight, rowHeight: ROW, overscan: OVERSCAN, count }));
+	// The opened commit (step 8): its panel is a fixed height that fits the viewport, and the row
+	// above it is taller by that much for rowWindow, so the rows below move down by exactly it.
+	const PANEL_MAX = 280;
+	const PANEL_MIN = 120;
+	const panelHeight = $derived(Math.min(PANEL_MAX, Math.max(PANEL_MIN, viewportHeight - ROW)));
+	const expandedRow = $derived.by((): Expanded | null => {
+		const e = view.expanded;
+		if (e === null) return null;
+		const at = store.indexOf(e.oid);
+		return at < 0 ? null : { index: at + off, extra: panelHeight };
+	});
+	const win = $derived(rowWindow({ scrollTop, viewportHeight, rowHeight: ROW, overscan: OVERSCAN, count, expanded: expandedRow }));
 	const indices = $derived(Array.from({ length: win.end - win.start }, (_, k) => win.start + k));
 	const gw = $derived(graphWidth(view.width) + 6);
 	const headRow = $derived(view.headOid === '' ? undefined : view.rows.find((r) => r.commit.oid === view.headOid));
@@ -108,7 +120,7 @@
 		scrolled = s.seq;
 		const at = store.indexOf(s.oid);
 		if (at < 0) return;
-		const top = rowTop(at + off, ROW);
+		const top = rowTop(at + off, ROW, expandedRow);
 		if (top < el.scrollTop || top + ROW > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - (el.clientHeight - ROW) / 2);
 	});
 
@@ -127,16 +139,31 @@
 		if (!r || !el || r.seq === restored) return;
 		restored = r.seq;
 		const at = r.oid === null ? -1 : store.indexOf(r.oid);
-		el.scrollTop = at < 0 ? 0 : rowTop(at + off, ROW);
+		el.scrollTop = at < 0 ? 0 : rowTop(at + off, ROW, expandedRow);
 	});
 
 	function onscroll() {
 		if (!scroller) return;
 		scrollTop = scroller.scrollTop;
 		// The commit at the top of the view; at the very top none, so a new commit shows.
-		const i = Math.round(scrollTop / ROW) - off;
+		const i = rowAt(scrollTop + ROW / 2, { rowHeight: ROW, count, expanded: expandedRow }) - off;
 		store.setAnchor(scrollTop < ROW / 2 || i < 0 ? null : (view.rows[i]?.commit.oid ?? null));
 	}
+
+	// A commit just opened: its panel is brought into view when it hangs below the viewport.
+	let opened: string | null = null;
+	$effect(() => {
+		const oid = view.expanded?.oid ?? null;
+		const el = scroller;
+		if (oid === opened) return;
+		opened = oid;
+		const ex = untrack(() => expandedRow);
+		if (oid === null || !el || ex === null) return;
+		const top = rowTop(ex.index, ROW, ex);
+		const bottom = top + ROW + ex.extra;
+		if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = Math.min(top, bottom - el.clientHeight);
+		else if (top < el.scrollTop) el.scrollTop = top;
+	});
 
 	function move(delta: number) {
 		const rows = view.rows;
@@ -146,7 +173,7 @@
 		store.select(rows[next].commit.oid);
 		const el = scroller;
 		if (!el) return;
-		const top = rowTop(next + off, ROW);
+		const top = rowTop(next + off, ROW, expandedRow);
 		if (top < el.scrollTop) el.scrollTop = top;
 		else if (top + ROW > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW - el.clientHeight;
 	}
@@ -261,9 +288,11 @@
 								aria-selected={view.selected === c.oid}
 								data-row="commit"
 								data-oid={c.oid}
-								onclick={() => store.select(c.oid)}
+								aria-expanded={view.expanded?.oid === c.oid}
+								data-expanded={view.expanded?.oid === c.oid}
+								onclick={() => store.toggleExpand(c.oid)}
 								onkeydown={(e) => {
-									if (e.key === 'Enter') store.select(c.oid);
+									if (e.key === 'Enter') store.toggleExpand(c.oid);
 								}}
 							>
 								<div class="cell main" role="gridcell">
@@ -295,6 +324,15 @@
 								<div class="cell" role="gridcell"><span class="text sha" title={c.oid}>{c.oid.slice(0, 7)}</span></div>
 								<div class="cell" role="gridcell"><span class="text" title={when(c.commitTime)}>{relativeTime(c.commitTime, now)}</span></div>
 							</div>
+							{#if view.expanded?.oid === c.oid}
+								<CommitView
+									expanded={view.expanded}
+									height={panelHeight}
+									onclose={() => store.collapse()}
+									onparent={(p) => void store.openParent(p)}
+									onretry={() => store.expand(c.oid)}
+								/>
+							{/if}
 						{/if}
 					{/each}
 				</div>

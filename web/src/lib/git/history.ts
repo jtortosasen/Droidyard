@@ -21,6 +21,7 @@ import type { CallOptions } from '../api/client';
 import { failure, failureText } from '../build/failure';
 import { Lanes, type LaneRow } from './lanes';
 import { localRef, refNames } from './refs';
+import type { Show } from './files';
 import type { GitView } from './watch';
 
 export type Commit = Result<'git.log'>['commits'][number];
@@ -28,6 +29,15 @@ export type Commit = Result<'git.log'>['commits'][number];
 export interface HistoryClient {
 	call(name: 'git.log', params: Params<'git.log'>, opts?: CallOptions): Promise<Result<'git.log'>>;
 	call(name: 'git.refs', params: Params<'git.refs'>, opts?: CallOptions): Promise<Result<'git.refs'>>;
+	call(name: 'git.show', params: Params<'git.show'>, opts?: CallOptions): Promise<Result<'git.show'>>;
+}
+
+/** The commit opened under its row (plan m2n step 8). */
+export interface ExpandedCommit {
+	oid: string;
+	state: 'loading' | 'ready' | 'error';
+	show: Show | null;
+	problem: string | null;
 }
 
 /** How many more pages a click on a ref may load to find its commit. */
@@ -85,6 +95,8 @@ export interface HistoryView {
 	notice: string | null;
 	/** Set by each reload that finished: where the scroll goes (an oid, or null for the top). `seq` makes each one a new request. */
 	restore: { seq: number; oid: string | null } | null;
+	/** The commit opened under its row, or null. At most one. */
+	expanded: ExpandedCommit | null;
 }
 
 const EMPTY: HistoryView = {
@@ -106,6 +118,7 @@ const EMPTY: HistoryView = {
 	scrollTo: null,
 	notice: null,
 	restore: null,
+	expanded: null,
 };
 
 export class HistoryStore {
@@ -132,6 +145,10 @@ export class HistoryStore {
 	#reading = false;
 	#visible = false;
 	#pageP: { gen: number; done: Promise<void> } | null = null;
+	/** `git.show` answers kept while their row stays loaded: one call per commit opened. */
+	#shows = new Map<string, Show>();
+	/** Bumped by every expansion: an answer of an older one is dropped. */
+	#showGen = 0;
 
 	constructor(client: HistoryClient, ws: HistoryWorkspace, watch: HistoryWatch) {
 		this.#client = client;
@@ -170,6 +187,48 @@ export class HistoryStore {
 	select(oid: string | null): void {
 		if (oid !== null && !this.#index.has(oid)) return;
 		this.#set({ selected: oid, notice: null });
+	}
+
+	/** Opens the commit under its row (and selects it): one `git.show`, kept while the row stays loaded. */
+	expand(oid: string): void {
+		if (this.#disposed || !this.#index.has(oid)) return;
+		const gen = ++this.#showGen;
+		const cached = this.#shows.get(oid);
+		if (cached) {
+			this.#set({ selected: oid, notice: null, expanded: { oid, state: 'ready', show: cached, problem: null } });
+			return;
+		}
+		this.#set({ selected: oid, notice: null, expanded: { oid, state: 'loading', show: null, problem: null } });
+		this.#client.call('git.show', { oid }, { workspace: this.#ws.root.trim() }).then(
+			(r) => {
+				if (gen !== this.#showGen || this.#disposed) return;
+				if (this.#index.has(oid)) this.#shows.set(oid, r);
+				this.#set({ expanded: { oid, state: 'ready', show: r, problem: null } });
+			},
+			(e: unknown) => {
+				if (gen !== this.#showGen || this.#disposed) return;
+				this.#set({ expanded: { oid, state: 'error', show: null, problem: failureText(failure(e)) } });
+			},
+		);
+	}
+
+	/** Closes the opened commit. */
+	collapse(): void {
+		this.#showGen++;
+		this.#set({ expanded: null });
+	}
+
+	/** A click on a row: opens the commit, or closes it when it is the one open. */
+	toggleExpand(oid: string): void {
+		if (this.#view.expanded?.oid === oid) {
+			this.collapse();
+			this.select(oid);
+		} else this.expand(oid);
+	}
+
+	/** A parent clicked in the opened commit: revealed (more pages loaded to find it) and opened. */
+	async openParent(oid: string): Promise<void> {
+		if (await this.reveal(oid)) this.expand(oid);
 	}
 
 	/** Selects a loaded commit and asks the table to bring its row into view. */
@@ -297,6 +356,10 @@ export class HistoryStore {
 				this.#index = new Map();
 				this.#tips = r.tips;
 				const rows = this.#lay(r.commits);
+				for (const k of [...this.#shows.keys()]) if (!this.#index.has(k)) this.#shows.delete(k);
+				const open = this.#view.expanded;
+				const expanded = open !== null && this.#index.has(open.oid) ? open : null;
+				if (expanded === null && open !== null) this.#showGen++;
 				const selected = keepSelected !== null && this.#index.has(keepSelected) ? keepSelected : null;
 				const oid = keepScroll !== null && this.#index.has(keepScroll) ? keepScroll : null;
 				this.#set({
@@ -307,6 +370,7 @@ export class HistoryStore {
 					loadingMore: false,
 					moreProblem: null,
 					selected,
+					expanded,
 					width: this.#lanes.width,
 					restore: { seq: ++this.#restoreSeq, oid },
 				});
@@ -326,6 +390,7 @@ export class HistoryStore {
 		this.#disposed = true;
 		this.#gen++;
 		this.#refsGen++;
+		this.#showGen++;
 		this.#off();
 		this.#listeners.clear();
 	}
