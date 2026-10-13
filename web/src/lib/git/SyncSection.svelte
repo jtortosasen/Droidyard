@@ -1,50 +1,68 @@
 <script lang="ts">
 	import type { OutcomeRow } from './branch';
-	import type { SyncOffer } from './branchops';
+	import { callRoots, type SyncOffer } from './branchops';
 
-	// The synchronise part of the Checkout and Create Branch dialogs (plan m2n P8; ADR-0071 §6):
-	// the "Synchronise submodules" toggle (`data-sync-toggle`), the initialised submodules it would
-	// apply the call to with whether each has the branch (`data-sync-roots`), why it cannot be on
-	// (`data-sync-problem`), and, once a call has been made, what each root did (`data-outcome-root`
-	// with `data-status`). Every name, cause and next step is git's text: shown as text, never markup.
+	// The synchronise part of the Checkout and Create Branch dialogs (plan m2n P8, R2; ADR-0071 §6 as ADR-0074 §3 changed it):
+	// the "Synchronise submodules" toggle (`data-sync-toggle`), every repository with whether the call moves it or it keeps
+	// its branch and why (`data-sync-roots`; a row's `data-has` and `data-moves`), why the toggle cannot be turned off
+	// (`data-sync-forced`: the project lacks the branch) or why nothing can be done (`data-sync-problem`), and, once a call
+	// has been made, what each root did (`data-outcome-root` with `data-status`). Every name, cause and next step is git's
+	// text: shown as text, never markup.
 	interface Props {
 		offer: SyncOffer;
-		/** Whether the call is applied to the submodules too. */
+		/** Whether the call is applied to the submodules that have the branch too. */
 		sync: boolean;
 		/** A call is in flight. */
 		busy: boolean;
 		/** What each root did in the last synchronised call. */
 		outcomes: readonly OutcomeRow[];
+		/** What the panel calls each root (names.ts); a root without a name is shown by its path. */
+		names?: ReadonlyMap<string, string>;
 	}
-	let { offer, sync = $bindable(), busy, outcomes }: Props = $props();
+	let { offer, sync = $bindable(), busy, outcomes, names = new Map() }: Props = $props();
 
-	const rootText = (root: string): string => (root === '.' ? '. (project)' : root);
-	const hasText = (root: string): string => (offer.branch === '' ? 'no branch to look for' : offer.starts.has(root) ? `has ${offer.branch}` : `has no ${offer.branch}`);
+	const nameOf = (root: string): string => names.get(root) ?? (root === '.' ? '. (project)' : root);
+	const branch = $derived(offer.branch);
+	/** The repositories the dialog lists: the project first, then the initialised submodules. */
+	const listed = $derived(['.', ...offer.roots]);
+	const moves = (root: string): boolean => (root === '.' ? offer.workspaceHas : sync && offer.moves.includes(root));
+	const rowText = (root: string): string => {
+		const what = branch === '' ? 'the branch' : branch;
+		if (root === '.') return offer.workspaceHas ? 'moves' : `stays on its branch: it has no ${what}`;
+		if (offer.pending.includes(root)) return 'stays on its branch: its refs are not read yet';
+		if (offer.stays.includes(root)) return `stays on its branch: it has no ${what}`;
+		if (!sync) return 'stays on its branch: Synchronise is off';
+		return offer.atHead.includes(root) ? 'moves, starting at its own HEAD' : 'moves';
+	};
+	const nothing = $derived(callRoots(offer, sync).length === 0);
 </script>
 
 <div class="sync" data-sync>
 	<label class="check">
-		<input type="checkbox" bind:checked={sync} disabled={busy} data-sync-toggle />
+		<input type="checkbox" bind:checked={sync} disabled={busy || offer.forced} data-sync-toggle />
 		<span>Synchronise submodules</span>
 	</label>
-	<ul class="roots" aria-label="Submodules" data-sync-roots>
-		{#each offer.roots as root (root)}
-			<li data-sync-root={root} data-has={offer.starts.has(root)}>
-				<span class="path">{root}</span>
-				<span class="has">{hasText(root)}</span>
+	{#if offer.forced}
+		<p class="note" data-sync-forced>The project has no {branch === '' ? 'such branch' : branch}, so only the submodules that have it move; Synchronise stays on.</p>
+	{/if}
+	<ul class="roots" aria-label="Repositories" data-sync-roots>
+		{#each listed as root (root)}
+			<li data-sync-root={root} data-has={root === '.' ? offer.workspaceHas : offer.starts.has(root)} data-moves={moves(root)}>
+				<span class="path" title={root}>{nameOf(root)}</span>
+				<span class="has">{rowText(root)}</span>
 			</li>
 		{/each}
 	</ul>
-	{#if sync && offer.missing.length > 0}
+	{#if nothing}
 		<p class="problem" role="status" data-sync-problem>
-			{offer.branch === '' ? 'HEAD is on no branch, so there is none to look for in the submodules.' : `${offer.branch} is not in every submodule: ${offer.missing.join(', ')}.`} Turn Synchronise off to apply it to the project alone.
+			{branch === '' ? 'There is no branch to look for.' : `No repository that is read has ${branch}.`} Nothing would change.
 		</p>
 	{/if}
 	{#if outcomes.length > 0}
 		<ul class="outcomes" aria-label="Result per repository" data-outcomes>
 			{#each outcomes as o (o.root)}
 				<li data-outcome-root={o.root} data-status={o.status}>
-					<span class="path">{rootText(o.root)}</span>
+					<span class="path" title={o.root}>{nameOf(o.root)}</span>
 					<span class="status">{o.status}</span>
 					{#if o.failure}
 						<div class="why">
@@ -98,6 +116,14 @@
 		margin: 0 0 var(--sp-2);
 		color: var(--danger);
 		overflow-wrap: anywhere;
+	}
+	.note {
+		margin: 0 0 var(--sp-2);
+		color: var(--text-2);
+		overflow-wrap: anywhere;
+	}
+	li[data-moves='true'] .has {
+		color: var(--text);
 	}
 	.why {
 		flex-basis: 100%;

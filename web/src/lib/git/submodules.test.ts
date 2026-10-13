@@ -243,6 +243,15 @@ describe('the Submodules section markup', () => {
 		expect(body).not.toContain('data-update-summary');
 	});
 
+	// Decision (R2, ADR-0074 §3): the section's button is the owner's resync, and its title says it brings every submodule to the commits the current branch records and which git command that is; a row's own button keeps saying it updates to the recorded commit.
+	it('titles the section’s Update as the resync to the current branch’s commits', async () => {
+		const body = await panel(LIST);
+		const all = /<button[^>]*data-submodules-update="all"[^>]*>/.exec(body)?.[0] ?? '';
+		expect(all).toContain('the commits the current branch records');
+		expect(all).toContain('git submodule update --init --recursive');
+		expect(/<button[^>]*data-submodule-update="lib"[^>]*>/.exec(body)?.[0] ?? '').toContain('Update lib to the recorded commit');
+	});
+
 	// Decision (R1): the filter and the stripes name the workspace by the project folder and two submodules with the same last segment by
 	// the parents that tell them apart; the full path stays in the title.
 	it('labels the root filter with the folder name and the shortest unique names', async () => {

@@ -12,6 +12,7 @@
 	import type { KeyValueStorage } from '../ui/layout';
 	import BranchMenu from './BranchMenu.svelte';
 	import { canCompare, isRemoteHead, targetLabel, type BranchTarget } from './branchops';
+	import { branchUnion, type Holder } from './branchroots';
 	import type { MenuId } from './controls';
 	import Download from '@lucide/svelte/icons/download';
 	import X from '@lucide/svelte/icons/x';
@@ -39,7 +40,9 @@
 
 	// The Git tab's side panel, after SourceGit's (plan m2n step 6; the owner's items 4 and 7): a
 	// filter box over collapsible sections with counts: LOCAL BRANCHES (the current one marked,
-	// folders by `/`, starred favourites first), REMOTES, TAGS, SUBMODULES (plan m2n P4: its own
+	// folders by `/`, starred favourites first), REMOTES (both list the branches of every root once, each with a small
+	// mark in the colour of the stripe of each root that has it when the log has several: plan m2n R2, ADR-0074 §3; one
+	// that only a submodule has is listed too, and its click selects that submodule's commit), TAGS, SUBMODULES (plan m2n P4: its own
 	// component and model, filtered by the same box) and WORKTREES. A click on a ref
 	// selects its commit in the table (the store loads at most five more pages to find it, else the
 	// table says it is not loaded). A local or a remote-tracking branch has a menu (right click, or
@@ -80,7 +83,11 @@
 	let folderChoice = $state.raw<FolderChoice>(NO_FOLDER_CHOICE);
 	let list = $state<HTMLDivElement>();
 
-	const sections = $derived(view.refs === null ? null : panelModel(view.refs, { filter, favourites, collapsed: collapsedFolders(view.refs, folderChoice) }));
+	// The branches of every loaded root, only with more than one (the marks say which roots have a branch).
+	const union = $derived(view.roots.length > 1 ? branchUnion(view.roots, view.refs, rootRefs) : undefined);
+	const sections = $derived(view.refs === null ? null : panelModel(view.refs, { filter, favourites, collapsed: collapsedFolders(view.refs, folderChoice, union), ...(union !== undefined ? { union } : {}) }));
+	const rootName = (root: string): string => names.get(root) ?? root;
+	const markTitle = (h: Holder): string => (h.current ? `${rootName(h.root)}: checked out` : rootName(h.root));
 
 	function toggleSection(id: SectionId) {
 		const next = new Set(closedSections);
@@ -96,11 +103,12 @@
 		saveFavourites(storage, workspaceId, favourites);
 	}
 	function pick(row: RefRow) {
-		void store.selectRef(row.ref, row.oid);
+		void store.selectRef(row.ref, row.oid, row.root);
 	}
 	/** The branch a local or remote-tracking row is; null for a tag. */
 	function targetOf(row: RefRow): BranchTarget | null {
-		const oid = row.oid === undefined ? {} : { oid: row.oid };
+		// A branch only a submodule has: its oid is that submodule's tip (plan m2n R2).
+		const oid = { ...(row.oid === undefined ? {} : { oid: row.oid }), ...(row.root === undefined ? {} : { onlyIn: row.root }) };
 		if (row.remote !== undefined && row.branch !== undefined) {
 			const remote: BranchTarget = { kind: 'remote', remote: row.remote, name: row.branch, ...oid };
 			return isRemoteHead(remote) ? null : remote;
@@ -265,6 +273,13 @@
 										{#if s.id === 'tags'}<Tag size={13} />{:else}<GitBranch size={13} />{/if}
 										<span class="text">{row.label}</span>
 										{#if row.current}<span class="mark" title="Current branch" data-current-mark><Check size={13} /></span>{/if}
+										{#if row.holders}
+											<span class="roots" data-root-marks>
+												{#each row.holders as h (h.root)}
+													<span class="rm" class:cur={h.current} style:--ri={view.roots.indexOf(h.root)} title={markTitle(h)} data-root-mark={h.root} data-root-current={h.current ? '' : undefined}></span>
+												{/each}
+											</span>
+										{/if}
 										{#if s.id === 'local'}
 											<button
 												type="button"
@@ -354,6 +369,7 @@
 			<BranchMenu
 				name={targetLabel(target)}
 				canCompare={canCompare(target, view.refs?.head ?? null)}
+				compareNote={target.onlyIn === undefined ? undefined : 'Compare with current: the project does not have this branch'}
 				onchoose={(id) => {
 					pop?.hidePopover();
 					onentry(id, target);
@@ -504,6 +520,23 @@
 	.row .text + .icon,
 	.row .mark + .icon {
 		margin-left: auto;
+	}
+	/* The roots that have the branch: a dot each in the colour of that root's stripe (HistoryPanel's .stripe). */
+	.roots {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		margin-left: auto;
+	}
+	.rm {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: hsl(calc(var(--ri) * 137.5) 55% 50%);
+	}
+	.rm.cur {
+		box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 2.5px var(--text-2);
 	}
 	/* After the star the ⋯ follows it; alone (a remote-tracking branch) it is pushed to the end. */
 	.icon.star + .icon.more {

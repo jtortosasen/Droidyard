@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { blockText, syncOn, targetLabel, type BranchTarget, type SyncOffer } from './branchops';
+	import { blockText, callRoots, syncOn, targetLabel, type BranchTarget, type SyncOffer } from './branchops';
 	import type { BranchModel, BranchView } from './branch';
 	import SyncSection from './SyncSection.svelte';
 
-	// The Checkout confirmation (plan m2n P8; ADR-0071 §6), shown instead of an immediate call when the
+	// The Checkout confirmation (plan m2n P8, R2; ADR-0071 §6, ADR-0074 §3), shown instead of an immediate call when the
 	// project has initialised submodules: which branch is checked out, the Synchronise submodules toggle
-	// (`data-sync-toggle`; on when every submodule has the branch), and after the call what each root did
+	// (`data-sync-toggle`; on when a submodule has the branch) with the repositories that move and those that keep their
+	// branch, and after the call what each root did
 	// (`data-outcome-root`, `data-status`). A checkout stopped by an unsaved editor buffer names the files and
 	// calls nothing (`data-dirty-block`); a failed call stays here with git's own words, as text
 	// (`data-op-error`). The dialog closes only when the branch is checked out in every root asked. Escape is Cancel.
@@ -18,15 +19,18 @@
 		/** Submit: resolves to whether the branch is checked out in every root asked, which closes the dialog. */
 		onsubmit: (sync: boolean) => Promise<boolean>;
 		oncancel: () => void;
+		/** What the panel calls each root (names.ts). */
+		names?: ReadonlyMap<string, string>;
 	}
-	let { target, offer, model, view, onsubmit, oncancel }: Props = $props();
+	let { target, offer, model, view, onsubmit, oncancel, names }: Props = $props();
 
-	/** What the person chose for Synchronise; null until they touch it, when the offer's default (every submodule has the branch, ADR-0071 §6) applies, as the refs arrive. */
+	/** What the person chose for Synchronise; null until they touch it, when the offer's default (a submodule has the branch, ADR-0074 §3) applies, as the refs arrive. */
 	let syncChoice = $state<boolean | null>(null);
 	const sync = $derived(syncOn(syncChoice, offer));
 	/** The unsaved files that stop a checkout, read when the dialog opens and at submit. */
 	let blocked = $state.raw<readonly string[]>(untrack(() => model.dirtyFor(true)));
-	const syncBlocked = $derived(sync && offer.missing.length > 0);
+	/** No repository would be checked out: nothing to call. */
+	const syncBlocked = $derived(callRoots(offer, sync).length === 0);
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
@@ -59,7 +63,7 @@
 		<p class="what" data-checkout-branch>
 			Check out <span class="ref">{targetLabel(target)}</span>
 		</p>
-		<SyncSection {offer} bind:sync={() => sync, (v) => (syncChoice = v)} busy={view.busy} outcomes={view.outcomes} />
+		<SyncSection {offer} {names} bind:sync={() => sync, (v) => (syncChoice = v)} busy={view.busy} outcomes={view.outcomes} />
 		{#if blocked.length > 0}
 			<div class="problem" role="alert" data-dirty-block>
 				<p>{blockText(blocked)} Cancel to save them first.</p>

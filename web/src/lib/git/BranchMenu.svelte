@@ -12,13 +12,15 @@
 		onchoose: (id: MenuId) => void;
 		/** Whether Compare with current applies to this branch (not the current one, and it has a commit). */
 		canCompare?: boolean;
+		/** Why Compare with current is off, when the branch is one only a submodule has (plan m2n R2). */
+		compareNote?: string | undefined;
 	}
-	let { name, onchoose, canCompare = true }: Props = $props();
+	let { name, onchoose, canCompare = true, compareNote }: Props = $props();
 </script>
 
 <p class="menu-title" data-menu-branch>{name}</p>
 {#each BRANCH_MENU as c (c.id)}
-	<button type="button" class="item" role="menuitem" data-menu-item={c.id} disabled={!c.enabled || (c.id === 'compare' && !canCompare)} title={c.id === 'compare' && !canCompare ? 'Compare with current: not available for this branch' : c.title} onclick={() => activate(c, () => onchoose(c.id))}>
+	<button type="button" class="item" role="menuitem" data-menu-item={c.id} disabled={!c.enabled || (c.id === 'compare' && !canCompare)} title={c.id === 'compare' && !canCompare ? (compareNote ?? 'Compare with current: not available for this branch') : c.title} onclick={() => activate(c, () => onchoose(c.id))}>
 		{c.label}
 	</button>
 {/each}
