@@ -30,9 +30,8 @@ const (
 	CodeFailed capability.ErrorCode = "GIT_FAILED"
 )
 
-// BaseHEAD is the only base there is: the working tree against HEAD. Both capabilities
-// take it as a parameter so that commits and branches widen an enum later and break
-// nothing (ADR-0066 §1).
+// BaseHEAD is git.watch's only base, and git.read's unless it names a commit: only
+// git.read's base widens to a full commit object id (ADR-0066 §1, ADR-0069 §1).
 const BaseHEAD = "HEAD"
 
 // Options configure the git capabilities.
@@ -66,12 +65,13 @@ type Options struct {
 	Tick time.Duration
 }
 
-// Register adds git.read, git.watch, git.log and git.refs to the registry.
+// Register adds git.read, git.watch, git.log, git.refs and git.show to the registry.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
 	registerWatch(reg, opts)
 	registerLog(reg, opts)
 	registerRefs(reg, opts)
+	registerShow(reg, opts)
 }
 
 // root resolves the call's workspace to its project root.

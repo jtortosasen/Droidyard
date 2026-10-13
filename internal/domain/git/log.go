@@ -177,26 +177,41 @@ func (o Options) log(ctx context.Context, call *capability.Call) (any, error) {
 // repository does not hold or one that is not a commit (ADR-0069 §4). The oids go on
 // stdin, as everywhere.
 func (o Options) commitsExist(ctx context.Context, r *runner, root string, trusted bool, oids []string) *capability.Error {
+	i, cerr := o.firstNotCommit(ctx, r, root, trusted, oids)
+	if cerr != nil {
+		return cerr
+	}
+	if i >= 0 {
+		return capability.Errorf(capability.ErrInvalidParams, "from[%d] is not a commit of this repository", i).
+			WithNextStep("pass the tips a first page returned, unchanged; reload the history if the repository changed")
+	}
+	return nil
+}
+
+// firstNotCommit asks git for the kind of each of oids (full object ids, validated by the
+// caller) and returns the index of the first that is no commit of this repository, or -1.
+// The one place that decides "is this oid a commit": git.log's from, git.show's oid and
+// git.read's base share it.
+func (o Options) firstNotCommit(ctx context.Context, r *runner, root string, trusted bool, oids []string) (int, *capability.Error) {
 	res, err := r.run(ctx, root, trusted, []byte(strings.Join(oids, "\n")+"\n"), hist("cat-file", "--batch-check")...)
 	if err != nil {
-		return capability.AsError(mapError(root, err))
+		return -1, capability.AsError(mapError(root, err))
 	}
 	if res.ExitCode != 0 {
-		return capability.AsError(mapError(root, gitError(res)))
+		return -1, capability.AsError(mapError(root, gitError(res)))
 	}
 	lines := strings.Split(strings.TrimSuffix(string(res.Stdout), "\n"), "\n")
 	if res.Truncated || len(lines) != len(oids) {
-		return capability.NewError(CodeFailed, "git answered something this version does not understand")
+		return -1, capability.NewError(CodeFailed, "git answered something this version does not understand")
 	}
 	for i, line := range lines {
 		f := strings.Fields(line)
 		if len(f) == 3 && f[0] == oids[i] && f[1] == "commit" {
 			continue
 		}
-		return capability.Errorf(capability.ErrInvalidParams, "from[%d] is not a commit of this repository", i).
-			WithNextStep("pass the tips a first page returned, unchanged; reload the history if the repository changed")
+		return i, nil
 	}
-	return nil
+	return -1, nil
 }
 
 // parseLog reads logFormat's records: logFields NUL-terminated fields each. A trailing
