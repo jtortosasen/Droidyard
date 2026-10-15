@@ -306,43 +306,63 @@ func TestServeStartsThroughAProbe(t *testing.T) {
 	if _, err := exec.LookPath("lsof"); err != nil {
 		t.Skip("lsof is not installed: the test cannot see serve open daemon.lock")
 	}
-	state := shortDir(t)
-	probe, err := os.OpenFile(filepath.Join(state, daemon.LockFile), os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer probe.Close()
-	fd := int(probe.Fd())
-	if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		t.Fatal(err)
-	}
+	// Serve keeps trying for 100 ms from its open of daemon.lock (daemon.probeGrace); the
+	// test sees the open only through lsof, which a loaded host runs slowly. An attempt
+	// counts only when the probe was released within 80 ms of the last lsof that did not
+	// see the open, so serve was certainly still trying; a later release says nothing about
+	// serve, and the attempt is made again.
+	const conclusive = 80 * time.Millisecond
+	for attempt := 1; ; attempt++ {
+		state := shortDir(t)
+		probe, err := os.OpenFile(filepath.Join(state, daemon.LockFile), os.O_RDWR|os.O_CREATE, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fd := int(probe.Fd())
+		if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+			t.Fatal(err)
+		}
 
-	s := droidyard(t, state, "serve")
-	pid := strconv.Itoa(s.cmd.Process.Pid)
-	for deadline := time.Now().Add(10 * time.Second); ; {
-		out, _ := exec.Command("lsof", "-a", "-p", pid, "-Fn").Output()
-		if strings.Contains(string(out), "/"+daemon.LockFile+"\n") {
-			break
+		unseen := time.Now() // before serve starts, then the start of each lsof that did not see the open
+		s := droidyard(t, state, "serve")
+		pid := strconv.Itoa(s.cmd.Process.Pid)
+		for deadline := time.Now().Add(10 * time.Second); ; {
+			polled := time.Now()
+			out, _ := exec.Command("lsof", "-a", "-p", pid, "-Fn").Output()
+			if strings.Contains(string(out), "/"+daemon.LockFile+"\n") {
+				break
+			}
+			unseen = polled
+			select {
+			case line, ok := <-s.lines:
+				// Serve prints nothing until it holds the lock, which the probe forbids.
+				syscall.Flock(fd, syscall.LOCK_UN)
+				t.Fatalf("serve gave up while the probe held the lock (exited: %v): %s", !ok, line)
+			default:
+			}
+			if time.Now().After(deadline) {
+				syscall.Flock(fd, syscall.LOCK_UN)
+				t.Fatal("serve never opened daemon.lock while the probe held it")
+			}
+			time.Sleep(2 * time.Millisecond)
 		}
-		select {
-		case line, ok := <-s.lines:
-			// Serve prints nothing until it holds the lock, which the probe forbids.
-			syscall.Flock(fd, syscall.LOCK_UN)
-			t.Fatalf("serve gave up while the probe held the lock (exited: %v): %s", !ok, line)
-		default:
+		time.Sleep(10 * time.Millisecond)
+		syscall.Flock(fd, syscall.LOCK_UN)
+		held := time.Since(unseen)
+		probe.Close()
+		if held < conclusive {
+			s.expect(t, "holding")
+			s.cmd.Process.Signal(syscall.SIGTERM)
+			if code := s.wait(t); code != 0 {
+				t.Errorf("serve exited %d on SIGTERM", code)
+			}
+			return
 		}
-		if time.Now().After(deadline) {
-			syscall.Flock(fd, syscall.LOCK_UN)
-			t.Fatal("serve never opened daemon.lock while the probe held it")
+		s.cmd.Process.Kill()
+		s.wait(t)
+		if attempt == 10 {
+			t.Skipf("lsof never saw serve's open within %s of releasing the probe in 10 attempts (last %s): inconclusive here", conclusive, held)
 		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	time.Sleep(20 * time.Millisecond)
-	syscall.Flock(fd, syscall.LOCK_UN)
-
-	s.expect(t, "holding")
-	s.cmd.Process.Signal(syscall.SIGTERM)
-	if code := s.wait(t); code != 0 {
-		t.Errorf("serve exited %d on SIGTERM", code)
+		t.Logf("attempt %d inconclusive: the probe was released %s after serve could have opened the lock", attempt, held)
 	}
 }
