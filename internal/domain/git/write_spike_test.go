@@ -437,6 +437,24 @@ func TestValidName(t *testing.T) {
 			t.Errorf("validName(%q) = %v, want %v", name, got, want)
 		}
 	}
+	// The split of checkout_test.go's two lists: every name TestBranchNamesRefusedBeforeAnyGit
+	// relies on validName to refuse is refused, and every name TestBranchNamesRefused leaves
+	// to git (or to the remotes) is accepted by validName, so that only git can be refusing it.
+	for _, name := range namesRefusedInGo {
+		if validName(name) {
+			t.Errorf("validName(%q) = true; it is one of the names refused before any git", name)
+		}
+	}
+	for _, name := range remotesRefusedInGo {
+		if validName(name) {
+			t.Errorf("validName(%q) = true; it is one of the remote names refused before any git", truncate(name, 40))
+		}
+	}
+	for _, name := range namesRefusedByGit {
+		if !validName(name) {
+			t.Errorf("validName(%q) = false; it is one of the names left to git, which TestBranchNamesRefused asks", name)
+		}
+	}
 }
 
 // Decision (ADR-0071 §3, §5): every builder carries the write config; the flags that

@@ -34,7 +34,7 @@ type subsFx struct {
 // commits, extra uninitialised, hooks in s and in both initialised submodules).
 func newSubsFx(t *testing.T) *subsFx {
 	t.Helper()
-	f := newWfx(t)
+	f := newWfxBare(t) // the Remote of newWfx would go unused: the workspace is `s`
 	allowFileProtocol(t, f.e.home)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "subs"))
 	f.roots["ws"] = platform.Current().Canonical(s.Super)
@@ -344,7 +344,7 @@ func TestUpdateCancel(t *testing.T) {
 			id := f.start("git.updateSubmodules", "ws", UpdateSubmodulesParams{Paths: []string{"lib"}})
 			child := pidIn(t, pidFile)
 			pgid := mustPgid(child)
-			if len(f.groups()) != 1 || pgid != f.groups()[0] {
+			if g := f.groupsOnce(); len(g) != 1 || pgid != g[0] {
 				t.Fatalf("the hook %d is in group %d, the recorded git's is %v", child, pgid, f.groups())
 			}
 			if !groupAlive(pgid) {

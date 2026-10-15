@@ -9,6 +9,7 @@ package gittest
 // run can tell whether a git ran a hook and cannot reach the owner's keychain.
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,25 +87,27 @@ func Remote(t testing.TB, dir string) *Remotes {
 		Origin: filepath.Join(dir, "w-origin.git"), W: filepath.Join(dir, "w"), Other: filepath.Join(dir, "w-other"),
 		Markers: filepath.Join(dir, ".w-hook-markers"), Oids: map[string]string{}, g: g,
 	}
-	seed := filepath.Join(t.TempDir(), "seed")
-	g.run(dir, nil, "init", "-q", "-b", "main", seed)
-	writeFile(t, seed, "README.md", "# remote fixture\n")
-	writeFile(t, seed, "shared.txt", "base\n")
-	g.save(seed, "Initial")
-	writeFile(t, seed, "a.txt", "a\n")
-	r.Oids["main"] = g.save(seed, "Second")
-	g.run(seed, nil, "branch", "-q", "feature/x")
-	g.run(seed, nil, "branch", "-q", "y")
-	g.run(seed, nil, "checkout", "-q", "feature/x")
-	writeFile(t, seed, "x.txt", "x\n")
-	writeFile(t, seed, "shared.txt", "feature x\n")
-	r.Oids["feature/x"] = g.save(seed, "Feature x")
-	g.run(seed, nil, "checkout", "-q", "y")
-	writeFile(t, seed, "y.txt", "y\n")
-	r.Oids["y"] = g.save(seed, "Branch y")
-
+	// The remote is written straight into the bare repository by one `git fast-import`: the
+	// same four commits a work tree and a push would make, in a fraction of the processes
+	// (each git a test starts costs far more than its work on a host that scans every
+	// process). main is Initial then Second; feature/x and y both fork from Second.
 	g.run(dir, nil, "init", "-q", "--bare", "-b", "main", r.Origin)
-	g.run(seed, nil, "push", "-q", r.Origin, "main", "feature/x", "y")
+	marks := filepath.Join(t.TempDir(), "marks")
+	var second, featureX, y int
+	g.fastImport(r.Origin, marks, func(w *bufio.Writer) {
+		s := newStream(w)
+		const who = "Fixture|fixture@example.com"
+		initial := s.commit("refs/heads/main", 0, nil, who, "Initial\n",
+			file{path: "README.md", content: []byte("# remote fixture\n")},
+			file{path: "shared.txt", content: []byte("base\n")})
+		second = s.commit("refs/heads/main", initial, nil, who, "Second\n", file{path: "a.txt", content: []byte("a\n")})
+		featureX = s.commit("refs/heads/feature/x", second, nil, who, "Feature x\n",
+			file{path: "x.txt", content: []byte("x\n")},
+			file{path: "shared.txt", content: []byte("feature x\n")})
+		y = s.commit("refs/heads/y", second, nil, who, "Branch y\n", file{path: "y.txt", content: []byte("y\n")})
+	})
+	m := readMarks(t, marks)
+	r.Oids["main"], r.Oids["feature/x"], r.Oids["y"] = m[second], m[featureX], m[y]
 	for _, clone := range []string{r.W, r.Other} {
 		g.run(dir, nil, "clone", "-q", r.Origin, clone)
 		g.run(clone, nil, "config", "credential.helper", "")
@@ -160,44 +163,61 @@ func Submodules(t testing.TB, dir string) *Subs {
 		Nested: filepath.Join(dir, "s-nested.git"), Extra: filepath.Join(dir, "s-extra.git"),
 		Markers: filepath.Join(dir, ".s-hook-markers"), Oids: map[string]string{},
 	}
-	build := t.TempDir()
 	allow := []string{"-c", "protocol.file.allow=always"}
 	sub := func(d string, args ...string) string { return g.run(d, nil, append(slicesClone(allow), args...)...) }
-	bare := func(work, to string) { g.run(build, nil, "clone", "-q", "--bare", work, to) }
 
-	nested := filepath.Join(build, "nested")
-	g.run(build, nil, "init", "-q", "-b", "main", nested)
-	writeFile(t, nested, "n.txt", "1\n")
-	s.Oids["nested1"] = g.save(nested, "nested 1")
-	writeFile(t, nested, "n.txt", "2\n")
-	s.Oids["nested2"] = g.save(nested, "nested 2")
-	bare(nested, s.Nested)
+	// The four remotes are written straight into bare repositories, each by one `git
+	// fast-import` (a superproject's gitlinks are `M 160000 <oid> <path>`, which need no
+	// checkout of the submodule): the commits `submodule add` and a few saves would make, in a
+	// fraction of the processes. The history is what the doc comment says: nested has two
+	// commits; lib has two, lib1 recording nested1 and lib2 nested2; extra has one; the
+	// superproject has Initial and then the commit that adds lib (at lib2) and extra.
+	const who = "Fixture|fixture@example.com"
+	marks := t.TempDir()
+	bare := func(to string, write func(s *stream)) map[int]string {
+		g.run(dir, nil, "init", "-q", "--bare", "-b", "main", to)
+		mf := filepath.Join(marks, filepath.Base(to)+".marks")
+		g.fastImport(to, mf, func(w *bufio.Writer) { write(newStream(w)) })
+		return readMarks(t, mf)
+	}
+	modules := func(urls ...[2]string) []byte {
+		var b strings.Builder
+		for _, u := range urls {
+			fmt.Fprintf(&b, "[submodule %q]\n\tpath = %s\n\turl = %s\n", u[0], u[0], u[1])
+		}
+		return []byte(b.String())
+	}
+	gitlink := func(path, oid string) file { return file{path: path, gitlink: oid} }
 
-	lib := filepath.Join(build, "lib")
-	g.run(build, nil, "init", "-q", "-b", "main", lib)
-	writeFile(t, lib, "lib.txt", "1\n")
-	sub(lib, "submodule", "add", "-q", s.Nested, "nested")
-	g.run(filepath.Join(lib, "nested"), nil, "checkout", "-q", s.Oids["nested1"])
-	s.Oids["lib1"] = g.save(lib, "lib 1")
-	g.run(filepath.Join(lib, "nested"), nil, "checkout", "-q", s.Oids["nested2"])
-	writeFile(t, lib, "lib.txt", "2\n")
-	s.Oids["lib2"] = g.save(lib, "lib 2")
-	bare(lib, s.Lib)
+	var nested1, nested2 int
+	m := bare(s.Nested, func(st *stream) {
+		nested1 = st.commit("refs/heads/main", 0, nil, who, "nested 1\n", file{path: "n.txt", content: []byte("1\n")})
+		nested2 = st.commit("refs/heads/main", nested1, nil, who, "nested 2\n", file{path: "n.txt", content: []byte("2\n")})
+	})
+	s.Oids["nested1"], s.Oids["nested2"] = m[nested1], m[nested2]
 
-	extra := filepath.Join(build, "extra")
-	g.run(build, nil, "init", "-q", "-b", "main", extra)
-	writeFile(t, extra, "extra.txt", "1\n")
-	s.Oids["extra"] = g.save(extra, "extra 1")
-	bare(extra, s.Extra)
+	var lib1, lib2 int
+	m = bare(s.Lib, func(st *stream) {
+		gm := file{path: ".gitmodules", content: modules([2]string{"nested", s.Nested})}
+		lib1 = st.commit("refs/heads/main", 0, nil, who, "lib 1\n", file{path: "lib.txt", content: []byte("1\n")}, gm, gitlink("nested", s.Oids["nested1"]))
+		lib2 = st.commit("refs/heads/main", lib1, nil, who, "lib 2\n", file{path: "lib.txt", content: []byte("2\n")}, gitlink("nested", s.Oids["nested2"]))
+	})
+	s.Oids["lib1"], s.Oids["lib2"] = m[lib1], m[lib2]
 
-	super := filepath.Join(build, "super")
-	g.run(build, nil, "init", "-q", "-b", "main", super)
-	writeFile(t, super, "README.md", "# submodule fixture\n")
-	g.save(super, "Initial")
-	sub(super, "submodule", "add", "-q", s.Lib, "lib")
-	sub(super, "submodule", "add", "-q", s.Extra, "extra")
-	s.Oids["super"] = g.save(super, "Add the submodules")
-	bare(super, s.Origin)
+	var extra int
+	m = bare(s.Extra, func(st *stream) {
+		extra = st.commit("refs/heads/main", 0, nil, who, "extra 1\n", file{path: "extra.txt", content: []byte("1\n")})
+	})
+	s.Oids["extra"] = m[extra]
+
+	var superTip int
+	m = bare(s.Origin, func(st *stream) {
+		initial := st.commit("refs/heads/main", 0, nil, who, "Initial\n", file{path: "README.md", content: []byte("# submodule fixture\n")})
+		superTip = st.commit("refs/heads/main", initial, nil, who, "Add the submodules\n",
+			file{path: ".gitmodules", content: modules([2]string{"lib", s.Lib}, [2]string{"extra", s.Extra})},
+			gitlink("lib", s.Oids["lib2"]), gitlink("extra", s.Oids["extra"]))
+	})
+	s.Oids["super"] = m[superTip]
 
 	g.run(dir, nil, "clone", "-q", s.Origin, s.Super)
 	sub(s.Super, "submodule", "update", "-q", "--init", "--recursive", "lib")

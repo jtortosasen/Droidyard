@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -179,7 +180,7 @@ func TestCheckoutRefusedOverLocalChanges(t *testing.T) {
 func TestCheckoutNoRecurse(t *testing.T) {
 	t.Parallel()
 	t.Log(gitVersion(t))
-	f := newWfx(t)
+	f := newWfxBare(t) // the Remote of newWfx would go unused: the workspace is `s`
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "subs"))
 	f.roots["ws"] = platform.Current().Canonical(s.Super)
 	f.register()
@@ -329,15 +330,41 @@ func TestCreateBranchFromRefused(t *testing.T) {
 	wantDone(t, f.branches("git.createBranch", CreateBranchParams{Name: "ok", From: good}))
 }
 
+// The names the branch capabilities refuse, in two families, by who refuses them
+// (TestValidName holds the split: validName refuses the first and accepts the second).
+//
+// namesRefusedInGo are refused by validName alone, before any git is looked for: an option,
+// an expansion, a pseudo-ref, another ref's prefix, a control character, a name too long.
+// TestBranchNamesRefusedBeforeAnyGit runs them all, through both capabilities, with no
+// repository at all.
+//
+// namesRefusedByGit pass validName and are refused after it: by `git check-ref-format
+// --branch` or because they start with a remote's name and a slash. Only git can say so,
+// and TestBranchNamesRefused asks it, in a repository with an origin.
+var (
+	namesRefusedInGo = []string{
+		"-b", "--orphan", "-x", "--end-of-options", "-", "@{-1}", "@{u}", "a@{1}", "HEAD", "@", "a\tb",
+		"NUL\x00name", "a\x00b", "new\nline", "a\nb", "cr\rname", "del\x7fname", strings.Repeat("a", 256), "",
+		"refs/heads/x", "refs/tags/x", "heads/x", "remotes/origin/x", "tags/v1", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD",
+	}
+	namesRefusedByGit = []string{
+		"a..b", "a b", "x.lock", "feature.lock", "a/x.lock",
+		"a~1", "a^", "a:b", "a?b", "a*b", "a[b", "a\\b", "/a", "a/", "a//b", ".a", "a/.b", "a.",
+		"origin/x", "origin/feature/x", "origin/main",
+	}
+)
+
 // Decision (ADR-0071 §5; plan m2n P1 fact 9 and its verifier): no name reaches a write
 // git's argv unvalidated. validName refuses what is an option, an expansion, a pseudo-ref
-// or another ref; `git remote` refuses a remote's name and a slash; `check-ref-format
-// --branch` refuses what git's own rules do. Each shape, through both capabilities, is
+// or another ref (namesRefusedInGo, in TestBranchNamesRefusedBeforeAnyGit); `git remote`
+// refuses a remote's name and a slash; `check-ref-format --branch` refuses what git's own
+// rules do (namesRefusedByGit, here). Each shape, through both capabilities, is
 // REQUEST_INVALID_PARAMS with a nextStep, and no write git starts (counting starter). The
-// control: a name of the same family that is valid is accepted. Seen failing with validName
-// made to accept everything: HEAD, refs/heads/x and FETCH_HEAD, which git's own checks
-// accept, reached the write (a ref named refs/heads/refs/heads/x was created, HEAD was
-// refused by the write).
+// control: a name of the same family that is valid is accepted. A handful of the names
+// validName refuses stay here too, so the whole path is seen once with a repository: HEAD,
+// refs/heads/x and FETCH_HEAD, which git's own checks accept, would reach the write if
+// validName accepted everything (seen failing so: a ref named refs/heads/refs/heads/x was
+// created, HEAD was refused by the write).
 func TestBranchNamesRefused(t *testing.T) {
 	t.Parallel()
 	f := newWfx(t)
@@ -345,13 +372,7 @@ func TestBranchNamesRefused(t *testing.T) {
 	f.e.g(f.r.W, "switch", "-q", "-c", "previous")
 	f.e.g(f.r.W, "switch", "-q", "main")
 	from := f.r.Oids["y"]
-	bad := []string{
-		"-b", "--orphan", "-x", "--end-of-options", "-", "@{-1}", "@{u}", "a@{1}", "HEAD", "@", "a..b", "a b", "a\tb",
-		"x.lock", "feature.lock", "a/x.lock", "NUL\x00name", "new\nline", "cr\rname", "del\x7fname", strings.Repeat("a", 256), "",
-		"refs/heads/x", "refs/tags/x", "heads/x", "remotes/origin/x", "tags/v1", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD",
-		"a~1", "a^", "a:b", "a?b", "a*b", "a[b", "a\\b", "/a", "a/", "a//b", ".a", "a/.b", "a.", "a/",
-		"origin/x", "origin/feature/x", "origin/main",
-	}
+	bad := append(slices.Clone(namesRefusedByGit), "-b", "HEAD", "@{-1}", "refs/heads/x", "FETCH_HEAD")
 	for _, name := range bad {
 		if _, err := f.call("git.checkout", "ws", CheckoutParams{Name: name}); err == nil || err.Code != capability.ErrInvalidParams {
 			t.Errorf("checkout %q: %+v, want REQUEST_INVALID_PARAMS", name, err)
@@ -384,22 +405,41 @@ func TestBranchNamesRefused(t *testing.T) {
 }
 
 // Decision (ADR-0071 §5): validName is the Go check that comes first; the names it alone is
-// responsible for are refused without git being asked (a Registry with no runner would
-// answer GIT_NOT_FOUND to anything that reached a git). Seen failing with validName made to
-// accept everything: the names below that git's own rules accept were not refused here.
+// responsible for (namesRefusedInGo: every one of them, which TestValidName holds apart from
+// git's own rules) are refused without git being asked, through git.checkout (with and
+// without a remote) and git.createBranch (with and without a checkout): a Registry whose git
+// is not found would answer GIT_NOT_FOUND to anything that reached a git, and no repository
+// is there to answer. Seen failing with validName made to accept everything: the names
+// below that git's own rules accept were not refused here.
 func TestBranchNamesRefusedBeforeAnyGit(t *testing.T) {
 	t.Parallel()
-	f := newWfx(t)
+	f := newWfxBare(t)
 	f.look = func(string) (string, error) { return "", os.ErrNotExist }
 	f.register()
-	for _, name := range []string{"-b", "--orphan", "@{-1}", "HEAD", "@", "refs/heads/x", "FETCH_HEAD", "a\x00b", "a\nb", strings.Repeat("a", 256), ""} {
-		if _, err := f.call("git.checkout", "ws", CheckoutParams{Name: name}); err == nil || err.Code != capability.ErrInvalidParams {
-			t.Errorf("checkout %q: %+v, want REQUEST_INVALID_PARAMS before any git is looked for", name, err)
-		}
-		if _, err := f.call("git.createBranch", "ws", CreateBranchParams{Name: name, From: strings.Repeat("a", 40)}); err == nil || err.Code != capability.ErrInvalidParams {
-			t.Errorf("createBranch %q: %+v, want REQUEST_INVALID_PARAMS before any git is looked for", name, err)
+	refused := func(what, name string, err *capability.Error) {
+		t.Helper()
+		if err == nil || err.Code != capability.ErrInvalidParams {
+			t.Errorf("%s %q: %+v, want REQUEST_INVALID_PARAMS before any git is looked for", what, name, err)
+		} else if err.NextStep == "" {
+			t.Errorf("%s %q: refused without a nextStep", what, name)
 		}
 	}
+	for _, name := range namesRefusedInGo {
+		_, err := f.call("git.checkout", "ws", CheckoutParams{Name: name})
+		refused("checkout", name, err)
+		_, err = f.call("git.checkout", "ws", CheckoutParams{Name: name, Remote: "origin"})
+		refused("checkout from origin", name, err)
+		for _, checkout := range []bool{false, true} {
+			_, err = f.call("git.createBranch", "ws", CreateBranchParams{Name: name, Checkout: checkout, From: strings.Repeat("a", 40)})
+			refused("createBranch", name, err)
+		}
+	}
+	if w, r := f.writeStarts.Load(), f.readStarts.Load(); w != 0 || r != 0 {
+		t.Errorf("%d write gits and %d reads started for names validName refuses, want none", w, r)
+	}
+	// The control: a name validName accepts does reach the lookup of git.
+	_, err := f.call("git.checkout", "ws", CheckoutParams{Name: "main"})
+	wantErrCode(t, err, CodeNotFound)
 }
 
 // Decision (ADR-0071 §1): a checkout of a branch the repository lacks is REQUEST_INVALID_PARAMS
@@ -701,7 +741,7 @@ func TestBranchWritesUntrustedStartNothing(t *testing.T) {
 		},
 		nil,
 	} {
-		f := newWfx(t)
+		f := newWfxShared(t) // no git starts, so the fixture is only a directory
 		f.authorize = hook
 		f.register()
 		for name, params := range map[string]any{
@@ -726,8 +766,7 @@ func TestBranchWritesUntrustedStartNothing(t *testing.T) {
 // remotes' listing, before any write; no git is GIT_NOT_FOUND.
 func TestBranchWritesNotARepositoryAndNoGit(t *testing.T) {
 	t.Parallel()
-	f := newWfx(t)
-	f.roots["ws"] = platform.Current().Canonical(t.TempDir())
+	f := newWfxBare(t) // "ws" is an empty directory: no repository
 	_, err := f.call("git.checkout", "ws", CheckoutParams{Name: "main"})
 	wantErrCode(t, err, CodeNotARepository)
 	_, err = f.call("git.createBranch", "ws", CreateBranchParams{Name: "n", From: strings.Repeat("a", 40)})
