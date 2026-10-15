@@ -26,13 +26,16 @@ const (
 	// CodeNotARepository: the project root is in no git work tree.
 	CodeNotARepository capability.ErrorCode = "GIT_NOT_A_REPOSITORY"
 	// CodeFailed: git could not be run or exited non-zero for another reason; the cause
-	// is git's first line of stderr, or what stopped the run (a timeout).
+	// is git's first line of stderr, or what stopped the run (a timeout). For a write the
+	// cause is git's stderr from its first `fatal:` or `error:` line, at most 20 lines and
+	// 4 KiB, so a refused switch names the files in the way (ADR-0071 §5). A write's timeout has the
+	// message "git did not finish in <limit> and was stopped" and the cause "git did not
+	// finish in time".
 	CodeFailed capability.ErrorCode = "GIT_FAILED"
 )
 
-// BaseHEAD is the only base there is: the working tree against HEAD. Both capabilities
-// take it as a parameter so that commits and branches widen an enum later and break
-// nothing (ADR-0066 §1).
+// BaseHEAD is git.watch's only base, and git.read's unless it names a commit: only
+// git.read's base widens to a full commit object id (ADR-0066 §1, ADR-0069 §1).
 const BaseHEAD = "HEAD"
 
 // Options configure the git capabilities.
@@ -64,12 +67,37 @@ type Options struct {
 	// Tick is the poller's interval between statuses; <= 0 is watchInterval's one
 	// second. A test shortens it.
 	Tick time.Duration
+	// Authorize is the trust hook (policy.Authorize) every write is gated on, run by the
+	// scheduler before the handler: an untrusted root is WORKSPACE_UNTRUSTED and no git
+	// starts (ADR-0071 §2). Nil (the golden registry) refuses every root.
+	Authorize func(ctx context.Context, call *capability.Call) (any, error)
+	// Recorded starts a write git recorded, as its own session and group leader, so a
+	// daemon that dies leaves it findable for the next start's reconciliation and its
+	// whole group is ended at every end of the call. Nil (the golden registry) makes a
+	// write GIT_FAILED.
+	Recorded RecordedStarter
+
+	// writeTimeout, when > 0, replaces ADR-0071 §3's limit of every write: a test
+	// shortens it. The shipped binary cannot set it.
+	writeTimeout time.Duration
 }
 
-// Register adds git.read and git.watch to the registry.
+// Register adds git.read, git.watch, git.log, git.refs, git.show, git.fetch, git.pull,
+// git.checkout, git.createBranch, git.submodules and git.updateSubmodules to the registry.
+// The writes (fetch, pull, checkout, createBranch, updateSubmodules) are commands for the
+// human UI on the one write runner (write.go): never an MCP tool, trusted roots only, one
+// at a time per repository.
 func Register(reg *capability.Registry, opts Options) {
 	registerRead(reg, opts)
 	registerWatch(reg, opts)
+	registerLog(reg, opts)
+	registerRefs(reg, opts)
+	registerShow(reg, opts)
+	registerFetch(reg, opts)
+	registerPull(reg, opts)
+	registerCheckout(reg, opts)
+	registerSubmodules(reg, opts)
+	registerUpdateSubmodules(reg, opts)
 }
 
 // root resolves the call's workspace to its project root.

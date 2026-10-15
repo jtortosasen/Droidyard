@@ -98,6 +98,12 @@ edits made before this rule and are not added to.
 | [0066](0066-daemon-git-watch-and-read.md) | The daemon's git: `git.watch` and `git.read`, human-only, and a hardened invocation | Accepted |
 | [0067](0067-browser-diff-review-mode-git-tree.md) | The diff in the browser, its Classic and Review modes, and the Git tree | Accepted |
 | [0068](0068-release-builds-and-installer.md) | Release builds in GitHub Actions, and a one-line installer that uses `gh` while the repository is private | Accepted |
+| [0069](0069-git-history-reads.md) | The history reads: `git.log`, `git.refs` and `git.show`, addressed by oid, with the history fence | Accepted |
+| [0070](0070-history-graph-in-the-browser.md) | The history graph laid out in the browser, paged by oid, and a commit's file in the Diff tab | Accepted |
+| [0071](0071-git-writes-for-the-ui.md) | The UI's Git writes: fetch, checkout, new branch and submodule update, on a trusted root | Accepted |
+| [0072](0072-compare-two-commits.md) | Compare with current: `git.log` excludes, `git.show` takes a base, and the Diff tab compares two commits | Accepted |
+| [0073](0073-git-writes-never-ask.md) | A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root | Accepted |
+| [0074](0074-pull-fast-forward-and-roots-with-the-branch.md) | Pull is a fast-forward only, and a synchronised branch applies to the roots that have it | Accepted |
 
 ## Open decisions (not yet ADRs)
 

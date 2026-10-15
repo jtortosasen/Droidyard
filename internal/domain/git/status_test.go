@@ -38,6 +38,7 @@ func marks(st Status) map[string]Mark {
 // column is renamed; `RD` is its origin deleted; a deleted path that is also untracked
 // is modified.
 func TestMarksFromPorcelain(t *testing.T) {
+	t.Parallel()
 	// The worktree fixture holds every `1` row.
 	wt := marks(parseStatus(fixture(t, "worktree"), "", 5000, false))
 	for path, want := range map[string]Mark{
@@ -117,6 +118,7 @@ func TestMarksFromPorcelain(t *testing.T) {
 
 // Decision: the head. An unborn branch has no oid, a detached HEAD has no branch.
 func TestHeadFromPorcelain(t *testing.T) {
+	t.Parallel()
 	for name, want := range map[string]Head{
 		"clean":    {Oid: "ac12d5e6d573589110ebc74c3a83694371f3ed71", Branch: "main"},
 		"unborn":   {Branch: "main"},
@@ -134,6 +136,7 @@ func TestHeadFromPorcelain(t *testing.T) {
 // Decision: a workspace in a subdirectory sees only its own paths, relative to it. A
 // rename from outside is an added file here; one to outside leaves its origin deleted.
 func TestPrefix(t *testing.T) {
+	t.Parallel()
 	st := parseStatus(fixture(t, "subdir"), "app/", 5000, false)
 	if want := []Entry{{Path: "in.txt", Mark: MarkModified}, {Path: "sub/new.txt", Mark: MarkUntracked}}; !reflect.DeepEqual(st.Entries, want) {
 		t.Errorf("subdir: got %+v", st.Entries)
@@ -164,6 +167,7 @@ func TestPrefix(t *testing.T) {
 
 // Decision: paths are git's bytes, not split on spaces; a newline and Unicode survive.
 func TestAwkwardPaths(t *testing.T) {
+	t.Parallel()
 	st := parseStatus(rec(
 		"1 .M N... 100644 100644 100644 aa aa with space.txt",
 		"1 .M N... 100644 100644 100644 aa aa line\nbreak.txt",
@@ -191,6 +195,7 @@ func TestAwkwardPaths(t *testing.T) {
 // Decision: at most the limit, sorted first so the cut is deterministic; and output cut
 // at the byte cap is truncated without trusting its last record.
 func TestStatusCaps(t *testing.T) {
+	t.Parallel()
 	var raw []byte
 	for _, p := range []string{"c", "a", "b"} {
 		raw = append(raw, rec("? "+p)...)
@@ -213,7 +218,9 @@ func (e *env) statusOf(dir string) (Status, error) {
 // Decision: the whole path, through real git: the runner, rev-parse for the prefix and
 // the parser.
 func TestStatusOfARealRepository(t *testing.T) {
+	t.Parallel()
 	t.Run("unborn", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		d := e.repo()
 		e.write(d, "a.txt", "a\n")
@@ -231,6 +238,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 		}
 	})
 	t.Run("rename and delete", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		d := e.repo()
 		e.write(d, "old.txt", "some content\nthat is long enough\nto be a rename\n")
@@ -253,6 +261,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 		}
 	})
 	t.Run("linked worktree", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		d := e.repo()
 		e.write(d, "a.txt", "a\n")
@@ -272,6 +281,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 		}
 	})
 	t.Run("not a repository", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		_, err := e.statusOf(t.TempDir())
 		if !errors.Is(err, ErrNotARepository) {
@@ -279,6 +289,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 		}
 	})
 	t.Run("nested repository", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		d := e.repo()
 		e.write(d, "a.txt", "a\n")
@@ -299,6 +310,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 		}
 	})
 	t.Run("a workspace in a subdirectory", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		d := e.repo()
 		e.write(d, "top.txt", "t\n")
@@ -315,6 +327,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 		}
 	})
 	t.Run("5001 untracked files", func(t *testing.T) {
+		t.Parallel()
 		e := needGit(t)
 		d := e.repo()
 		for i := 0; i < 5001; i++ {
@@ -332,6 +345,7 @@ func TestStatusOfARealRepository(t *testing.T) {
 
 // A record whose XY is not two characters is skipped, never a panic.
 func TestMalformedRecordIsSkipped(t *testing.T) {
+	t.Parallel()
 	raw := "1 M N... 100644 100644 100644 abc abc a.txt\x002 R N... 100644 100644 100644 abc abc R100 b.txt\x00a.txt\x00? c.txt\x00"
 	st := parseStatus([]byte(raw), "", maxEntries, false)
 	if len(st.Entries) != 1 || st.Entries[0].Path != "c.txt" {
@@ -342,6 +356,7 @@ func TestMalformedRecordIsSkipped(t *testing.T) {
 // Decision (ADR-0066 §4): the watch's status refuses a root inside the git directory
 // as the read does, rather than reporting the whole repository from its top.
 func TestStatusFromInsideTheGitDirectoryIsNotARepository(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.write(dir, "top.txt", "top\n")

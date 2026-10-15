@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { highlightStyle } from './highlight';
 import { languageFor } from './languages';
 import { DIFF_CONFIG, mergeConfig } from './merge';
-import { buildChunks, diskLabels, hunksOf, leftMarks, renderOf, rowClass, rowsText, updateChunks } from './review';
+import { buildChunks, diskLabels, hunksOf, leftMarks, mountReview, renderOf, rowClass, rowsText, updateChunks } from './review';
+import { textSide } from './textside';
 import { gutter } from '../../git/review';
 
 const doc = (s: string) => EditorState.create({ doc: s }).doc;
@@ -164,5 +165,46 @@ describe('one diff configuration', () => {
 		expect(build.mock.calls[0]![2]).toBe(DIFF_CONFIG);
 		expect(updateB.mock.calls[0]![4]).toBe(DIFF_CONFIG);
 		expect(mergeConfig({}, {}, {} as ShadowRoot).diffConfig).toBe(DIFF_CONFIG);
+	});
+});
+
+describe('a commit’s file in Review (plan m2n step 9; ADR-0070 §4)', () => {
+	const PARENT = 'a\nb\nc\n';
+	const COMMIT = 'a\nB\nc\nd\n';
+	const left = () => EditorState.create(textSide(COMMIT, 'File contents'));
+
+	// Decision: the left pane's document is the commit's text and nothing else, and the rows are the diff against the parent, as with a buffer.
+	it('shows the commit’s text on the left and the change against the first parent in the rows', () => {
+		const a = EditorState.create({ doc: PARENT });
+		const b = left();
+		expect(b.doc.toString()).toBe(COMMIT);
+		const r = renderOf(a, b, hunksOf(buildChunks(a.doc, b.doc), a.doc, b.doc));
+		expect(r.rows.map((x) => x.kind)).toEqual(['same', 'del', 'add', 'same', 'add', 'same']);
+		expect(r.text).toBe('a\nb\nB\nc\nd\n');
+		expect(r.lines).toBe(b.doc.lines);
+	});
+
+	// Decision: an added file has an empty base: every line of the commit is a green row.
+	it('takes an added file against an empty base as green rows only', () => {
+		const a = EditorState.create({ doc: '' });
+		const b = EditorState.create(textSide('x\ny\n', 'File contents'));
+		const r = renderOf(a, b, hunksOf(buildChunks(a.doc, b.doc), a.doc, b.doc));
+		expect(r.rows.filter((x) => x.kind === 'del')).toHaveLength(0);
+		expect(r.rows.filter((x) => x.kind === 'add').length).toBeGreaterThan(0);
+	});
+
+	// Decision: a commit's text in the buffer's place never edits: an attempt on the left leaves the document, so the rows and marks stay the commit's.
+	it('refuses an edit on the left, so the rows do not move', () => {
+		const a = EditorState.create({ doc: PARENT });
+		const b = left();
+		const edited = b.update({ changes: { from: 0, to: b.doc.length, insert: PARENT } }).state;
+		expect(edited.doc.toString()).toBe(COMMIT);
+		expect(renderOf(a, edited, hunksOf(buildChunks(a.doc, edited.doc), a.doc, edited.doc)).text).toBe('a\nb\nB\nc\nd\n');
+	});
+
+	// Decision: a buffer and a text are two answers to one question; giving both is a bug in the caller, caught at the mount before anything is touched.
+	it('is not given a buffer and a text at once', () => {
+		const buffer = {} as never;
+		expect(() => mountReview({} as HTMLElement, { buffer, text: { text: 'x', path: 'a.kt' }, base: 'y', onSave: () => {} })).toThrow(/takes the buffer’s place/);
 	});
 });

@@ -4,6 +4,8 @@
 - Date: 2026-10-12
 - Supersedes: ADR-0015 §Decision (in part: item 5's bullet "Git runs on an untrusted root with the repository's executable configuration neutralised")
 - Supersedes: ADR-0015 §Decision (in part: item 5's restricted-mode bullet, that `git.*` works on an untrusted root; it does unless the root's git configuration cannot be neutralised, §3 here)
+- Superseded in part by: ADR-0069 (§Decision)
+- Superseded in part by: ADR-0071 (§Decision)
 - Relates to: ADR-0015 §1, §2; ADR-0010; ADR-0049; ADR-0060 §2; ADR-0067; plan m2l Q1
 - Decided by the main session under the owner's standing instruction (apply the recommended option), Delegated. The owner set the frame on 2026-10-12: read-only, working tree against HEAD with the base a parameter, git not offered to agents, and the UI's reads never taking `.git/index.lock`.
 

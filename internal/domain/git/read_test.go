@@ -20,8 +20,10 @@ import (
 // the gits it starts, so a test can say "none ran".
 type readFx struct {
 	*env
-	root     string
-	starts   atomic.Int32
+	root   string
+	starts atomic.Int32
+	// onStart, when set, sees every git before it starts (a test records its argv).
+	onStart  func(*exec.Cmd)
 	trusted  func(string) (bool, *capability.Error)
 	look     func(string) (string, error)
 	reg      *capability.Registry
@@ -50,9 +52,13 @@ func (f *readFx) register() {
 	Register(f.reg, Options{
 		Root:    func(string) (string, bool) { return f.root, true },
 		Env:     f.platform,
+		Environ: f.osEnviron,
 		Trusted: func(root string) (bool, *capability.Error) { return f.trusted(root) },
 		Starter: func(cmd *exec.Cmd) error {
 			f.starts.Add(1)
+			if f.onStart != nil {
+				f.onStart(cmd)
+			}
 			return groupStarter(cmd)
 		},
 		LookPath: func(name string) (string, error) {
@@ -99,6 +105,7 @@ func text(r ReadResult) string {
 // repository's top and from a workspace that is a subfolder of it (the prefix is
 // rev-parse's), and by every spelling the file domain accepts for a path inside the root.
 func TestReadBaseText(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	want := "line one\r\nline two é\nlast without newline"
@@ -143,6 +150,7 @@ func TestReadBaseText(t *testing.T) {
 // untracked file, a path never committed, and a repository with no commit at all (an
 // unborn HEAD), where the diff shows the whole file as added.
 func TestReadAbsent(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	f.write(repo, "new.txt", "brand new\n")
@@ -171,6 +179,7 @@ func TestReadAbsent(t *testing.T) {
 // 512 KiB are reported with their size and no text; 512 KiB itself is text. Binary is
 // file.read's rule (the NUL byte and the invalid UTF-8 rows), shared and not copied.
 func TestReadBinaryAndTooLarge(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	f.write(repo, "nul.bin", "ab\x00cd")
@@ -215,6 +224,7 @@ func TestReadBinaryAndTooLarge(t *testing.T) {
 // the path; a NUL byte, an empty path and a line break (which cat-file would read as a
 // second object name) are REQUEST_INVALID_PARAMS, also with zero starts.
 func TestReadOutsideRoot(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -256,6 +266,7 @@ func TestReadOutsideRoot(t *testing.T) {
 // Decision (ADR-0066 §4): HEAD holding a directory, or a submodule, where the path
 // points is FILE_WRONG_TYPE, for a subfolder and for the root itself; the type is named.
 func TestReadDirectoryIsWrongType(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	f.write(repo, "src/A.kt", "a\n")
@@ -274,6 +285,7 @@ func TestReadDirectoryIsWrongType(t *testing.T) {
 // Decision (ADR-0066 §1): base is an enum holding only HEAD. Another value, a branch
 // name or a commit, is REQUEST_INVALID_PARAMS and starts nothing; absent means HEAD.
 func TestReadOtherBaseRefused(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -291,6 +303,7 @@ func TestReadOtherBaseRefused(t *testing.T) {
 // revision syntax) is read as the file it names, because it travels on stdin as part of
 // the object name.
 func TestReadPathNeverReachesArgv(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	names := []string{"--version", "-h", ":/x", "a*b", "HEAD~1", "@{u}", "sp ace.txt", "tab\there.txt", "é.txt"}
@@ -310,6 +323,7 @@ func TestReadPathNeverReachesArgv(t *testing.T) {
 // GIT_NOT_FOUND, answered by looking afresh at every call (installing git needs no
 // restart), before any process starts; a root in no repository is GIT_NOT_A_REPOSITORY.
 func TestReadWithoutGitAndWithoutARepository(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -333,6 +347,7 @@ func TestReadWithoutGitAndWithoutARepository(t *testing.T) {
 // `--show-prefix` prints "", so HEAD:<path> would name a file outside the root; it is
 // GIT_NOT_A_REPOSITORY instead (the step 3 verifier's escape).
 func TestReadFromInsideTheGitDirectoryIsNotARepository(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	f.write(repo, "top.txt", "outside the root\n")
@@ -353,6 +368,7 @@ func TestReadFromInsideTheGitDirectoryIsNotARepository(t *testing.T) {
 // action, and the driver does not run. A trusted root reads (cat-file runs no filter
 // either way), and a trust check that fails closes to untrusted, not to trusted.
 func TestReadUnsafeDriverOnAnUntrustedRoot(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	mark := filepath.Join(t.TempDir(), "mark")
@@ -392,6 +408,7 @@ func TestReadUnsafeDriverOnAnUntrustedRoot(t *testing.T) {
 // that could not be started (GIT_FAILED), an unsafe driver (WORKSPACE_UNTRUSTED); a
 // cancelled call is not turned into a git error.
 func TestMapError(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		err   error
 		code  capability.ErrorCode
@@ -423,6 +440,7 @@ func TestMapError(t *testing.T) {
 // needs git, and a retained result drops the text. Reversing the audience would list it
 // as an agent tool.
 func TestReadDescriptor(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, ok := f.reg.Lookup("git.read")
 	if !ok {

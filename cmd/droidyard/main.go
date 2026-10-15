@@ -472,6 +472,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		Bus:      bus,
 		Watchers: gitWatchers,
 		Tick:     watchTick,
+		// The writes (ADR-0071): gated on the same trust hook as project code, and started
+		// recorded, as shell.exec's commands are, so a killed daemon's next start reaps
+		// their groups.
+		Authorize: authorize,
+		Recorded:  gitWriteStarter(sup),
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
@@ -518,6 +523,23 @@ func shellStarter(sup *proc.Supervisor) shell.Starter {
 	}
 	return func(cmd *exec.Cmd, kind string) (shell.Recorded, error) {
 		return sup.SpawnRecorded(cmd, proc.Kind(kind))
+	}
+}
+
+// gitWriteStarter adapts the supervisor's recorded spawner to the git writes' starter: the
+// git is recorded while it runs, as its own session and group leader, and its whole group
+// is killed if the record cannot be written (process.GitWrite). Without a supervisor (caps,
+// schema) it is nil, and a write that somehow reached the handler would fail GIT_FAILED.
+func gitWriteStarter(sup *proc.Supervisor) gitdomain.RecordedStarter {
+	if sup == nil {
+		return nil
+	}
+	return func(cmd *exec.Cmd, kind string) (gitdomain.Recorded, error) {
+		r, err := sup.SpawnRecorded(cmd, proc.Kind(kind))
+		if err != nil {
+			return nil, err // a nil interface, not a typed nil
+		}
+		return r, nil
 	}
 }
 

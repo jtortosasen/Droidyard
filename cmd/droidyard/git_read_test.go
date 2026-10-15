@@ -89,6 +89,53 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
 		t.Errorf("git.watch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 	}
+	// git.log is human-only as well (ADR-0069 §1).
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.log", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.log as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
+	// git.refs is human-only as well (ADR-0069 §1).
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.refs", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.refs as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
+	// git.show is human-only as well (ADR-0069 §1).
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.show", Workspace: ws,
+		Params: json.RawMessage(`{"oid":"` + strings.Repeat("a", 40) + `"}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.show as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
+	// git.fetch is human-only as well (ADR-0071 §1): a write for the UI, never an MCP tool.
+	id, err = p.ops.Start(context.Background(), capability.Request{Capability: "git.fetch", Workspace: ws,
+		Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	e = nil
+	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+		t.Errorf("git.fetch as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+	}
+
+	// So are the writes that move or add a branch, and the submodules query (ADR-0071 §1).
+	for name, params := range map[string]string{
+		"git.pull":             `{}`,
+		"git.checkout":         `{"name":"main"}`,
+		"git.createBranch":     `{"name":"n","checkout":false,"from":"` + strings.Repeat("a", 40) + `"}`,
+		"git.submodules":       `{}`,
+		"git.updateSubmodules": `{}`,
+	} {
+		id, err = p.ops.Start(context.Background(), capability.Request{Capability: name, Workspace: ws,
+			Params: json.RawMessage(params), Client: capability.ClientMCP})
+		e = nil
+		if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || id != "" {
+			t.Errorf("%s as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", name, id, err)
+		}
+	}
 
 	read := func() (capability.ResponseEnvelope, int) {
 		return callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt"}`)
@@ -100,6 +147,47 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	var got struct{ Path, Base, Text string }
 	if err := json.Unmarshal(env.Result, &got); err != nil || got.Text != "committed\n" || got.Path != "a.kt" || got.Base != "HEAD" {
 		t.Errorf("the result %s (%v); want HEAD's text, not the edited working copy", env.Result, err)
+	}
+
+	// git.log through the shipped registry: the one commit, its tip returned.
+	lenv, code := callIn(t, p.state, root, "git.log")
+	var page struct {
+		Commits []struct{ Oid, Subject string }
+		Tips    []string
+		More    bool
+	}
+	if code != 0 || lenv.Error != nil || json.Unmarshal(lenv.Result, &page) != nil || len(page.Commits) != 1 || page.Commits[0].Subject != "c" || len(page.Tips) != 1 || page.More {
+		t.Errorf("git.log from the CLI: exit %d, error %+v, result %s; want the one commit and its tip", code, lenv.Error, lenv.Result)
+	}
+
+	// git.refs through the shipped registry: HEAD on main, the one branch, its tip.
+	renv, code := callIn(t, p.state, root, "git.refs")
+	var refs struct {
+		Head     struct{ Branch string }
+		Branches []struct{ Name string }
+		Tips     []string
+	}
+	if code != 0 || renv.Error != nil || json.Unmarshal(renv.Result, &refs) != nil || refs.Head.Branch != "main" || len(refs.Branches) != 1 || refs.Branches[0].Name != "main" || len(refs.Tips) != 1 {
+		t.Errorf("git.refs from the CLI: exit %d, error %+v, result %s; want HEAD on main, its branch and its tip", code, renv.Error, renv.Result)
+	}
+
+	// git.show through the shipped registry: the one commit's message and its files (a.kt first),
+	// and git.read at that commit (ADR-0066 §1 widened by ADR-0069 §1).
+	senv, code := callIn(t, p.state, root, "git.show", "--params", `{"oid":"`+page.Commits[0].Oid+`"}`)
+	var shown struct {
+		Message string
+		Files   []struct {
+			Path, Status string
+			Added        *int
+		}
+	}
+	if code != 0 || senv.Error != nil || json.Unmarshal(senv.Result, &shown) != nil || shown.Message != "c\n" || len(shown.Files) == 0 || shown.Files[0].Path != "a.kt" || shown.Files[0].Status != "added" || shown.Files[0].Added == nil || *shown.Files[0].Added != 1 {
+		t.Errorf("git.show from the CLI: exit %d, error %+v, result %s; want the commit's message and a.kt added with one line first", code, senv.Error, senv.Result)
+	}
+	aenv, code := callIn(t, p.state, root, "git.read", "--params", `{"path":"a.kt","base":"`+page.Commits[0].Oid+`"}`)
+	var atCommit struct{ Base, Text string }
+	if code != 0 || aenv.Error != nil || json.Unmarshal(aenv.Result, &atCommit) != nil || atCommit.Base != page.Commits[0].Oid || atCommit.Text != "committed\n" {
+		t.Errorf("git.read at a commit from the CLI: exit %d, error %+v, result %s; want the committed text and the oid as base", code, aenv.Error, aenv.Result)
 	}
 
 	// No git on the PATH: unavailable with a reason, GIT_NOT_FOUND with a next step.
@@ -127,7 +215,7 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	}
 	// system.health reports the API version this step introduces.
 	henv, code := p.call(t, "system.health")
-	if code != 0 || health(t, henv).Version != "0.23.0" {
-		t.Errorf("system.health: exit %d, %+v; want API version 0.23.0", code, henv.Error)
+	if code != 0 || health(t, henv).Version != "0.25.0" {
+		t.Errorf("system.health: exit %d, %+v; want API version 0.25.0", code, henv.Error)
 	}
 }
