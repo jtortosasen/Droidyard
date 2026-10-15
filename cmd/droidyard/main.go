@@ -429,14 +429,34 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		}
 		return info.Root, true
 	})
+	// The Gradle capabilities run on the Gradle root, a directory inside the project root
+	// (ADR-0075 §3): trust is decided on the project root first, before anything is
+	// resolved or spawned, then the root is resolved again at every call, without a
+	// cache, so a choice written to the project file takes effect on the next call. A
+	// project with none fails PROJECT_NO_GRADLE_ROOT, the candidates in its details.
+	authorizeGradle := func(ctx context.Context, call *capability.Call) (any, error) {
+		v, err := authorize(ctx, call)
+		if err != nil {
+			return nil, err
+		}
+		projectRoot := v.(string)
+		r := workspace.ResolveGradleRoot(projectRoot, false)
+		if r.Abs == "" {
+			// The failure lists the candidates, which the cheap resolution above skips.
+			if r = workspace.ResolveGradleRoot(projectRoot, true); r.Abs == "" {
+				return nil, r.Err
+			}
+		}
+		return gradle.Roots{Project: projectRoot, Gradle: r.Abs}, nil
+	}
 	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
 	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
 	// missing SDK is answered with found: false (plan m1h, D11, D13). sdk.requirements
 	// fetches the project model through the same client and carries the trust hook, so
 	// only a trusted root is answered (D12).
-	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorize})
-	project.Register(reg, gradleClient, authorize)
-	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize})
+	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorizeGradle})
+	project.Register(reg, gradleClient, authorizeGradle)
+	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize, AuthorizeGradle: authorizeGradle})
 	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its
 	// only registry read is the workspace's canonical root (ADR-0015 §1, §5; plan m1j D2).
 	file.Register(reg, file.Options{

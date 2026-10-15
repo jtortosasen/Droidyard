@@ -26,7 +26,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `emulator_wipe` |  | changes state | Factory-resets one AVD's user data by booting it again with -wipe-data, stopping it first if it is running, and returns {device, avd} once it has ... |
 | `operation_cancel` | core | changes state | Asks a running operation to stop, whichever session started it; cancelling a finished one does nothing. |
 | `operation_wait` | core | read-only | Waits for an operation to finish, up to timeoutMs, and returns its state, progress and, once completed, its result. |
-| `project_modules` | core | read-only | Lists the Gradle projects of the workspace's root (the root and container projects included) with path, name and directory, from one cached ... |
+| `project_modules` | core | read-only | Lists the Gradle projects of the workspace's Gradle root (the root and container projects included) with path, name and directory, from one cached ... |
 | `project_variants` | core | read-only | Reports the build variants of each module, or of one with module: source probe is exact, source task-names is inferred from the task names and exact ... |
 | `sdk_requirements` |  | read-only | Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and the ... |
 | `sdk_status` |  | read-only | Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, ... |

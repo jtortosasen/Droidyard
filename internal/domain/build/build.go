@@ -56,8 +56,13 @@ type Options struct {
 	// registers capabilities whose handlers report that no state is configured.
 	History *Registry
 	// Authorize is the trust re-check the scheduler runs before each handler
-	// (internal/policy; ADR-0015 §2).
+	// (internal/policy; ADR-0015 §2): build.errors and build.lastResult read history, and
+	// get the canonical project root as Call.Authorized.
 	Authorize Authorize
+	// AuthorizeGradle is Authorize followed by the Gradle root's resolution (ADR-0075
+	// §3): build.tasks, build.run and build.assemble get a gradle.Roots as
+	// Call.Authorized, or PROJECT_NO_GRADLE_ROOT.
+	AuthorizeGradle Authorize
 }
 
 // Register adds build.tasks, build.run, build.assemble, build.errors and
@@ -66,7 +71,7 @@ type Options struct {
 var buildIDPattern = regexp.MustCompile(`^op-[0-9a-f]{16}$`)
 
 func Register(reg *capability.Registry, o Options) {
-	registerTasks(reg, o.Client, o.Authorize)
+	registerTasks(reg, o.Client, o.AuthorizeGradle)
 	registerBuilds(reg, o)
 }
 
@@ -75,6 +80,7 @@ func Register(reg *capability.Registry, o Options) {
 // be written.
 var buildErrors = []capability.ErrorCode{
 	capability.ErrWorkspaceUntrusted,
+	capability.ErrProjectNoGradleRoot,
 	capability.ErrBuildSidecarUnavailable,
 	capability.ErrBuildSidecarCrashed,
 	capability.ErrBuildGradleUnsupported,
@@ -104,7 +110,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		LongRunning:  true,
 		Since:        "0.6.0",
 		Availability: []capability.Requirement{capability.RequiresGradle},
-		Authorize:    o.Authorize,
+		Authorize:    o.AuthorizeGradle,
 		Resource:     resource,
 		Params:       RunParams{},
 		Result:       Result{},
@@ -127,7 +133,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Idempotent:   true,
 		Since:        "0.6.0",
 		Availability: []capability.Requirement{capability.RequiresGradle},
-		Authorize:    o.Authorize,
+		Authorize:    o.AuthorizeGradle,
 		Resource:     resource,
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
@@ -233,10 +239,10 @@ func dispatch(ctx context.Context, call *capability.Call, o Options, req Request
 	return dispatchModel(ctx, call, o, req, model)
 }
 
-// projectModel is a build's first step, the project model of the call's root; a cancel
+// projectModel is a build's first step, the project model of the call's Gradle root; a cancel
 // that ends it is logged as landing before the build began (plan m1p D3).
 func projectModel(ctx context.Context, call *capability.Call, o Options) (gradle.Model, error) {
-	model, _, err := o.Client.Model(ctx, call.Authorized.(string))
+	model, _, err := o.Client.Model(ctx, call.Authorized.(gradle.Roots).Gradle)
 	if err != nil && ctx.Err() != nil {
 		o.History.logCancel(call.OperationID, phaseBeginBuild)
 	}
@@ -255,7 +261,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	if !r.configured() {
 		return Result{}, noState()
 	}
-	root := call.Authorized.(string)
+	roots := call.Authorized.(gradle.Roots)
 	buildID := call.OperationID
 
 	// The console exists before the build does, so the whole of its output has
@@ -277,7 +283,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	r.markRunning(buildID)
 	defer r.unmarkRunning(buildID)
 
-	br, err := client.BeginBuild(ctx, root)
+	br, err := client.BeginBuild(ctx, roots.Gradle)
 	if err != nil {
 		if ctx.Err() != nil {
 			r.logCancel(buildID, phaseBeginBuild)
@@ -352,7 +358,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 	agp, kgp := pluginVersions(model.Plugins)
 	expected := expectedSources(conn, model.Plugins)
 	merged := extract.Extract(extract.Input{
-		Root:            root,
+		Root:            roots.Project,
 		Outcome:         outcome,
 		Console:         sink.console(),
 		Failures:        sink.failureTree(),
@@ -365,7 +371,7 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 
 	rec := record{
 		BuildID:             buildID,
-		Root:                root,
+		Root:                roots.Gradle,
 		Request:             req,
 		Outcome:             outcome,
 		StartedAt:           started,

@@ -83,7 +83,7 @@ func registry() *capability.Registry {
 	sdk.Register(reg, sdk.Options{})
 	ops.RegisterCapabilities()
 	project.Register(reg, noSidecar{}, trustNothing)
-	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing})
+	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing, AuthorizeGradle: trustNothing})
 	file.Register(reg, file.Options{})
 	git.Register(reg, git.Options{})
 	agent.Register(reg)

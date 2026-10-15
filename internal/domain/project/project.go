@@ -17,8 +17,9 @@ type Client interface {
 	Model(ctx context.Context, root string) (gradle.Model, bool, error)
 }
 
-// Authorize is the trust re-check the scheduler runs before each handler: it returns
-// the canonical root as Call.Authorized (internal/policy; ADR-0015 §2).
+// Authorize is the authorization hook the scheduler runs before each handler: trust on
+// the project root first (internal/policy; ADR-0015 §2), then the Gradle root's
+// resolution (ADR-0075 §3). It returns a gradle.Roots as Call.Authorized.
 type Authorize func(ctx context.Context, call *capability.Call) (any, error)
 
 // None is the empty parameter object.
@@ -29,7 +30,7 @@ type None struct{}
 type Module struct {
 	Path string `json:"path" jsonschema:"required" jsonschema_description:"The Gradle project path, e.g. \":app\"; the root project is \":\"."`
 	Name string `json:"name" jsonschema:"required" jsonschema_description:"The project's name as Gradle reports it."`
-	Dir  string `json:"dir" jsonschema:"required" jsonschema_description:"The project directory, relative to the root; \".\" for the root project."`
+	Dir  string `json:"dir" jsonschema:"required" jsonschema_description:"The project directory, relative to the project root; \".\" for the project root itself."`
 }
 
 // ModulesResult is project.modules' result.
@@ -80,6 +81,7 @@ type FlavorDetail struct {
 // trust hook's, and REQUEST_INVALID_PARAMS where a module argument is validated.
 var baseErrors = []capability.ErrorCode{
 	capability.ErrWorkspaceUntrusted,
+	capability.ErrProjectNoGradleRoot,
 	capability.ErrBuildSidecarUnavailable,
 	capability.ErrBuildSidecarCrashed,
 	capability.ErrBuildGradleUnsupported,
@@ -101,15 +103,17 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 		Params:       None{},
 		Result:       ModulesResult{},
 		Errors:       baseErrors,
-		Description:  "Lists the Gradle projects of the workspace's root (the root and container projects included) with path, name and directory, from one cached configuration pass. stale is true when a build holds the root and the build files changed since.",
+		Description:  "Lists the Gradle projects of the workspace's Gradle root (the root and container projects included) with path, name and directory, from one cached configuration pass. stale is true when a build holds the Gradle root and the build files changed since.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
-			model, stale, err := client.Model(ctx, root(call))
+			roots := roots(call)
+			model, stale, err := client.Model(ctx, roots.Gradle)
 			if err != nil {
 				return nil, err
 			}
 			out := ModulesResult{Modules: []Module{}, Stale: stale}
 			for _, p := range model.Projects {
-				out.Modules = append(out.Modules, Module{Path: p.Path, Name: p.Name, Dir: p.Dir})
+				// Every published path is relative to the project root (ADR-0075 §5).
+				out.Modules = append(out.Modules, Module{Path: p.Path, Name: p.Name, Dir: roots.ProjectRel(p.Dir)})
 			}
 			return out, nil
 		},
@@ -129,7 +133,7 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 		Description:  "Reports the build variants of each module, or of one with module: source probe is exact, source task-names is inferred from the task names and exact is false. A module with no variants reports an empty list, and stale means what it does for project.modules.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(VariantsParams)
-			model, stale, err := client.Model(ctx, root(call))
+			model, stale, err := client.Model(ctx, roots(call).Gradle)
 			if err != nil {
 				return nil, err
 			}
@@ -159,8 +163,8 @@ func Register(reg *capability.Registry, client Client, authorize Authorize) {
 	})
 }
 
-// root is the canonical project root the Authorize hook decided.
-func root(call *capability.Call) string { return call.Authorized.(string) }
+// roots is the project root and the Gradle root the Authorize hook decided.
+func roots(call *capability.Call) gradle.Roots { return call.Authorized.(gradle.Roots) }
 
 // variantDetails turns the probe's variants into the published details, normalising a
 // flavour list to an empty array so a flavourless variant carries [] and not null. Nil
