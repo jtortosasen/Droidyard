@@ -67,7 +67,7 @@ func containsCode(codes []capability.ErrorCode, want capability.ErrorCode) bool 
 
 func run(t *testing.T, h capability.Handler, p TasksParams) TasksResult {
 	t.Helper()
-	got, err := h(context.Background(), &capability.Call{Authorized: "/w/dc", Params: p})
+	got, err := h(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/dc", Gradle: "/w/dc"}, Params: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestTasksFilters(t *testing.T) {
 // fails REQUEST_INVALID_PARAMS with the known paths, rather than returning no tasks.
 func TestTasksUnknownModuleIsInvalidParams(t *testing.T) {
 	h := handler(t, fakeClient{model: fixture()})
-	_, err := h(context.Background(), &capability.Call{Authorized: "/w/dc", Params: TasksParams{Module: ":nope"}})
+	_, err := h(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/dc", Gradle: "/w/dc"}, Params: TasksParams{Module: ":nope"}})
 	e, ok := err.(*capability.Error)
 	if !ok || e.Code != capability.ErrInvalidParams {
 		t.Fatalf("an unknown module gave %v, want REQUEST_INVALID_PARAMS", err)
