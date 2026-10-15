@@ -234,7 +234,7 @@ func TestPullCancel(t *testing.T) {
 			id := f.start("git.pull", "ws", PullParams{})
 			child := pidIn(t, pidFile)
 			pgid := mustPgid(child)
-			if len(f.groups()) != 1 || pgid != f.groups()[0] {
+			if g := f.groupsOnce(); len(g) != 1 || pgid != g[0] {
 				t.Fatalf("the uploadpack %d is in group %d, the recorded git's is %v", child, pgid, f.groups())
 			}
 			if err := f.ops.Cancel(id); err != nil {
@@ -319,7 +319,7 @@ func (f *wfx) fetchFirst() {
 // capability refuses an unknown parameter, before any git starts.
 func TestPullTakesNoParameter(t *testing.T) {
 	t.Parallel()
-	f := newWfx(t)
+	f := newWfxBare(t) // refused before any repository is looked at
 	raw, err := json.Marshal(map[string]string{"remote": "origin"})
 	if err != nil {
 		t.Fatal(err)

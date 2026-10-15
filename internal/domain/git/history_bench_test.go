@@ -41,6 +41,10 @@ func TestMain(m *testing.M) {
 	if benchFixture.made != "" {
 		os.RemoveAll(benchFixture.made)
 	}
+	if err := removeShared(); err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL:", err)
+		code = 1
+	}
 	os.Exit(code)
 }
 

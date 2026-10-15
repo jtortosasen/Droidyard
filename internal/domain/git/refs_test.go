@@ -288,8 +288,7 @@ func TestRefsUnborn(t *testing.T) {
 // machine is GIT_NOT_FOUND with a next step, before any process starts.
 func TestRefsNotARepository(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	f, r := newHistoryFx(t)
 	f.at(t.TempDir())
 	_, err := f.refsPage()
 	wantCode(t, err, CodeNotARepository)
@@ -313,10 +312,9 @@ func TestRefsNotARepository(t *testing.T) {
 // two is what fails when only one of them is changed.
 func TestRefsTipsEqualLogTips(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	dir := filepath.Join(t.TempDir(), "syn")
-	gittest.Synthetic(t, dir, 6000, 0, 5100) // every tenth tag annotated
-	f.at(dir)
+	needGit(t)
+	f := newReadFxOn(t, sharedSynthetic(t)) // every tenth tag annotated
+	dir := f.root
 
 	refs := f.mustRefs()
 	log := f.mustLog(LogParams{Limit: ip(10)})
@@ -501,9 +499,7 @@ func TestRefsRemoteNames(t *testing.T) {
 // ref moves in between.
 func TestRefsReadsOnce(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, _ := newHistoryFx(t)
 	var mu sync.Mutex
 	var heads, eachRefs int
 	f.onStart = func(cmd *exec.Cmd) {
@@ -536,7 +532,8 @@ func (e *env) fillRefs(dir string, n int) {
 }
 
 // Decision (Q1 §1, ADR-0069 §2): each list holds at most 5,000, with its own truncated
-// flag, and exactly 5,000 is not truncated. What drops out is the tail: the alphabetical
+// flag, and exactly 5,000 is not truncated (that boundary: TestParseRefsCaps, on synthetic
+// output; this test is git's real output over the cap). What drops out is the tail: the alphabetical
 // end of the branches and of the remote-tracking branches, the oldest tags (the order
 // git.log's tips drop them in). The flags are independent: one over the cap does not mark
 // the others.
@@ -576,15 +573,8 @@ func TestRefsCaps(t *testing.T) {
 		t.Errorf("the newest tag is not first: %s", res.Tags[0].Name)
 	}
 
-	// One fewer of each: exactly 5,000 and nothing truncated.
-	f.g(dir, "update-ref", "-d", "refs/heads/b00000")
-	f.g(dir, "update-ref", "-d", "refs/remotes/origin/r00000")
-	f.g(dir, "update-ref", "-d", "refs/tags/"+oldest)
-	res = f.mustRefs()
-	if len(res.Branches) != maxRefList || len(res.Remotes) != maxRefList || len(res.Tags) != maxRefList || res.BranchesTruncated || res.RemotesTruncated || res.TagsTruncated {
-		t.Errorf("exactly 5000: %d (%v), %d (%v), %d (%v); want all, none truncated",
-			len(res.Branches), res.BranchesTruncated, len(res.Remotes), res.RemotesTruncated, len(res.Tags), res.TagsTruncated)
-	}
+	// That exactly 5,000 in a list is whole and not truncated is a boundary of Go code, held
+	// by TestParseRefsCaps on synthetic output; here is git's own output meeting it.
 }
 
 // Decision (ADR-0066 §2, ADR-0069 §Consequences): when git's own output passes the 4 MiB
