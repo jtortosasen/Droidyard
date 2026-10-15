@@ -610,9 +610,11 @@ func TestWriteCancelLeavesNoLockCheckout(t *testing.T) {
 // lock left, and is a failed outcome GIT_FAILED naming the limit, with the same nextStep as
 // a cancel. The limit is shortened for the test.
 func TestCheckoutTimeout(t *testing.T) {
-	// Not parallel: its limit is 700 ms and the smudge has to start inside it, which a loaded machine cannot promise.
+	// The smudge has to start inside the limit: 700 ms did not, once, with two package runs
+	// beside the pre-commit hook's; 5 s does, and the smudge sleeps 60.
+	t.Parallel()
 	f := newWfx(t)
-	f.timeout = 700 * time.Millisecond
+	f.timeout = 5 * time.Second
 	f.register()
 	started := f.slowCheckout()
 	res := f.branches("git.checkout", CheckoutParams{Name: "slowb"})
