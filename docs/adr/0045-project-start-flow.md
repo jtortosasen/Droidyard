@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0047 (§1, §2)
+- Superseded in part by: ADR-0075 (§1)
 - Date: 2026-10-10
 - Supersedes: ADR-0019 §Processes (in part: item 3's `ui` opens a project and the picker)
 - Supersedes: ADR-0015 §Decision (in part: item 6's human audience gains a second use)

@@ -43,3 +43,4 @@ the output.
 | [m2l-git-review-diff-and-tree.md](m2l-git-review-diff-and-tree.md) | 2l — Git: the review diff and the Git tree | Done |
 | [m2m-release-and-installer.md](m2m-release-and-installer.md) | 2m — release builds and the one-line installer | Done |
 | [m2n-git-history.md](m2n-git-history.md) | 2n — Git history | Done |
+| [m2o-gradle-root-below.md](m2o-gradle-root-below.md) | 2o — A project whose Gradle build is in a subfolder | Approved |
