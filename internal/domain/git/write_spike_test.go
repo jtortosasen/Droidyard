@@ -700,7 +700,11 @@ func TestWriteSpike3NoGcOutlivesAFetch(t *testing.T) {
 			for i, c := range blobsWithPrefix17(3) {
 				e.write(r.W, fmt.Sprintf("loose-%d.txt", i), c)
 			}
-			e.commit(r.W)
+			// Committed with automatic maintenance off: from git 2.5x a commit starts a detached
+			// `maintenance run --auto` whose loose-objects task packs these blobs while the
+			// fetch below is watched, which reads as the fetch's gc (seen on git 2.55).
+			e.g(r.W, "add", "-A")
+			e.g(r.W, "-c", "maintenance.auto=false", "-c", "gc.auto=0", "commit", "-q", "-m", "c")
 			dir17 := filepath.Join(r.W, ".git", "objects", "17")
 			loose := func() int { es, _ := os.ReadDir(dir17); return len(es) }
 			packs := func() int {
