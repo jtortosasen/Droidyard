@@ -81,9 +81,7 @@ func (e *env) rawCommit(dir, parent, name, email, message string, when int) stri
 // list, not null), and a merge keeps its parents in order.
 func TestLogFirstPage(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 
 	res := f.mustLog(LogParams{})
 	want, truncated, err := tips(context.Background(), f.r, r.Dir, false)
@@ -158,9 +156,7 @@ func TestLogFirstPage(t *testing.T) {
 // it by path would rewrite the parents the graph is drawn from.
 func TestLogWalksTheWholeRepositoryFromASubfolder(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	whole := f.mustLog(LogParams{})
 	f.at(filepath.Join(r.Dir, "docs"))
 	sub := f.mustLog(LogParams{})
@@ -268,9 +264,7 @@ func TestLogTipsCapped(t *testing.T) {
 // reads them from stdin.
 func TestLogTipsOnStdin(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, _ := newHistoryFx(t)
 	var mu sync.Mutex
 	var argvs [][]string
 	f.onStart = func(cmd *exec.Cmd) {
@@ -311,9 +305,7 @@ func TestLogTipsOnStdin(t *testing.T) {
 // option, a revision expression, a line break (a second oid on stdin), 5,001 ids.
 func TestLogFromRefused(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	good := r.Oids["head"]
 	tooMany := slices.Repeat([]string{good}, maxFrom+1)
 	for name, p := range map[string]LogParams{
@@ -357,9 +349,7 @@ func TestLogFromRefused(t *testing.T) {
 // not git's error and not a page: the tips the caller passes back are commits.
 func TestLogFromNotACommit(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	tag := f.oidsOf(r.Dir, "refs/tags/v1.0")[0]
 	if kind := strings.TrimSpace(f.g(r.Dir, "cat-file", "-t", tag)); kind != "tag" {
 		t.Fatalf("fixture: v1.0 is a %s", kind)
@@ -452,8 +442,7 @@ func TestLogUnborn(t *testing.T) {
 // a next step, before any process starts.
 func TestLogNotARepository(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	f, r := newHistoryFx(t)
 	f.at(t.TempDir())
 	_, err := f.logPage(LogParams{})
 	wantCode(t, err, CodeNotARepository)
@@ -600,9 +589,7 @@ func TestLogSlim(t *testing.T) {
 // equality (seen failing that way).
 func TestLogExclude(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	b, a := r.Oids["merge"], r.Oids["second"]
 	want := strings.Fields(f.g(r.Dir, "rev-list", "--date-order", b, "^"+a))
 	whole := f.walkOf(r.Dir, []string{b})
@@ -636,9 +623,7 @@ func TestLogExclude(t *testing.T) {
 // git. A non-commit is found by one cat-file, so it is checked apart.
 func TestLogExcludeRefused(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	good := r.Oids["head"]
 	for name, ex := range map[string][]string{
 		"a short id":         {good[:7]},

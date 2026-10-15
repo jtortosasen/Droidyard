@@ -285,6 +285,12 @@ func TestWatchPublishesACommit(t *testing.T) {
 	f.g(f.root, "commit", "-q", "-am", "second")
 	n1 := f.statuses.Load() // counted from the commit's end, not its start
 	st = statusEvent(t, next(t, sub))
+	// git commit moves the branch before it renames the new index into place, so a tick in
+	// between sees the new head with the old index (a.txt still listed); git said so, and
+	// the watch published it. The commit's own state follows on a later tick.
+	for i := 0; i < 3 && len(st.Entries) != 0 && st.Head.Oid != oid0 && st.Head.Oid != ""; i++ {
+		st = statusEvent(t, next(t, sub))
+	}
 	if len(st.Entries) != 0 || st.Head.Oid == "" || st.Head.Oid == oid0 {
 		t.Fatalf("the commit published head %+v with %+v; want a new oid (was %s) and no entries", st.Head, st.Entries, oid0)
 	}

@@ -40,6 +40,15 @@ func newReadFx(t *testing.T) *readFx {
 	return f
 }
 
+// newReadFxOn is newReadFx over an existing repository, one a test only reads (the
+// shared fixtures of shared_test.go): it makes no repository of its own.
+func newReadFxOn(t *testing.T, dir string) *readFx {
+	t.Helper()
+	f := &readFx{env: needGit(t), platform: platform.Current()}
+	f.at(dir)
+	return f
+}
+
 // at points workspace "ws" at dir (canonicalised as workspace.open does) and registers.
 func (f *readFx) at(dir string) {
 	f.root = f.platform.Canonical(dir)

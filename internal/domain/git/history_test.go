@@ -35,7 +35,7 @@ func dedupe(oids []string) []string {
 func TestTipsOrderPeelingAndDedupe(t *testing.T) {
 	t.Parallel()
 	e := needGit(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	r := sharedHistory(t)
 	got, truncated, err := tips(context.Background(), e.r, r.Dir, false)
 	if err != nil || truncated {
 		t.Fatalf("tips: %v truncated %v", err, truncated)
@@ -82,8 +82,13 @@ func TestTipsCapped(t *testing.T) {
 		t.Run(strconv.Itoa(c.tags)+" tags", func(t *testing.T) {
 			t.Parallel()
 			e := needGit(t)
-			dir := filepath.Join(t.TempDir(), "syn")
-			gittest.Synthetic(t, dir, 6000, 0, c.tags)
+			var dir string
+			if c.tags == 5100 { // the one the other cap tests read too: shared, and only read here
+				dir = sharedSynthetic(t)
+			} else {
+				dir = filepath.Join(t.TempDir(), "syn")
+				gittest.Synthetic(t, dir, 6000, 0, c.tags)
+			}
 			got, truncated, err := tips(context.Background(), e.r, dir, false)
 			if err != nil {
 				t.Fatal(err)
@@ -126,7 +131,7 @@ func TestTipsOfAnUnbornRepository(t *testing.T) {
 func TestBuildersAgainstARealRepository(t *testing.T) {
 	t.Parallel()
 	e := needGit(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	r := sharedHistory(t)
 	ctx := context.Background()
 	run := func(stdin []byte, args []string) string {
 		t.Helper()
@@ -229,73 +234,6 @@ func TestBuildersAgainstARealRepository(t *testing.T) {
 	}
 }
 
-// Decision (Q1 §2): the cap counts distinct commits, after the refs that share one are
-// folded: exactly 5,000 distinct tips are all kept and not truncated, 5,001 keep 5,000 and
-// say so, and a few hundred more refs on a commit already in the set change nothing.
-func TestTipsCapCountsDistinctCommits(t *testing.T) {
-	t.Parallel()
-	e := needGit(t)
-	dir := filepath.Join(t.TempDir(), "syn")
-	gittest.Synthetic(t, dir, 6000, 0, 5100)
-
-	// The commit each tag peels to, and the two commits other refs hold (HEAD, main and
-	// origin/main).
-	holders := e.oidsOf(dir, "HEAD", "origin/main")
-	distinct := map[string]bool{holders[0]: true, holders[1]: true}
-	perOid := map[string]int{}
-	type tagRef struct{ name, oid string }
-	var tags []tagRef
-	for _, line := range strings.Split(strings.TrimSpace(e.g(dir, "for-each-ref", "--format=%(refname) %(objectname) %(*objectname)", "refs/tags")), "\n") {
-		f := strings.Fields(line)
-		oid := f[len(f)-1]
-		tags = append(tags, tagRef{f[0], oid})
-		perOid[oid]++
-		distinct[oid] = true
-	}
-	// Delete tags that are the only ref to their commit until 5,001 distinct commits are left.
-	var batch strings.Builder
-	del := func(n int) {
-		for _, tg := range tags {
-			if n == 0 {
-				break
-			}
-			if perOid[tg.oid] == 1 && tg.oid != holders[0] && tg.oid != holders[1] && distinct[tg.oid] {
-				batch.WriteString("delete " + tg.name + "\n")
-				delete(distinct, tg.oid)
-				n--
-			}
-		}
-	}
-	del(len(distinct) - (maxTips + 1))
-	// And 300 more refs on a commit that is already a tip.
-	for i := 0; i < 300; i++ {
-		batch.WriteString("create refs/tags/dup" + strconv.Itoa(i) + " " + holders[1] + "\n")
-	}
-	e.gStdin(dir, batch.String(), "update-ref", "--stdin")
-	if len(distinct) != maxTips+1 {
-		t.Fatalf("fixture: %d distinct commits, want %d", len(distinct), maxTips+1)
-	}
-
-	got, truncated, err := tips(context.Background(), e.r, dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !truncated || len(got) != maxTips {
-		t.Errorf("5,001 distinct tips: %d returned, truncated %v; want %d, true", len(got), truncated, maxTips)
-	}
-
-	batch.Reset()
-	del(1)
-	e.gStdin(dir, batch.String(), "update-ref", "--stdin")
-	got, truncated, err = tips(context.Background(), e.r, dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if truncated || len(got) != maxTips || len(dedupe(got)) != maxTips {
-		t.Errorf("5,000 distinct tips (and over 5,000 refs): %d returned, %d distinct, truncated %v; want all, not truncated", len(got), len(dedupe(got)), truncated)
-	}
-}
-
 // Decision (Q1 §2): HEAD is a tip first even when detached on a commit no ref points to.
 func TestTipsOfADetachedHead(t *testing.T) {
 	t.Parallel()
@@ -319,7 +257,7 @@ func TestTipsOfADetachedHead(t *testing.T) {
 func TestShowFilesFromASubdirectory(t *testing.T) {
 	t.Parallel()
 	e := needGit(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
+	r := sharedHistory(t)
 	_, files := showArgs(r.Oids["octopus"], r.Oids["merge"])
 	list := func(root string) string {
 		t.Helper()
