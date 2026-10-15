@@ -20,6 +20,7 @@ var (
 // beside it as hist-origin.git and a linked work tree as hist-linked), <dir>/big, and the
 // fixtures of part 2: w-origin.git, w and w-other (Remote), s and s-*.git (Submodules).
 func TestMakeFixture(t *testing.T) {
+	t.Parallel()
 	if *fixtureDir == "" {
 		t.Skip("run with -fixture=<dir> to write the history fixtures")
 	}
@@ -48,6 +49,7 @@ func count(t *testing.T, dir string, args ...string) int {
 // Decision (plan m2n step 1b): History makes every shape later steps assert on, so a
 // fixture that drifts fails here, not as a puzzling failure in a capability test.
 func TestHistoryShape(t *testing.T) {
+	t.Parallel()
 	r := History(t, filepath.Join(t.TempDir(), "hist"))
 	d := r.Dir
 
@@ -147,6 +149,7 @@ func TestHistoryShape(t *testing.T) {
 // Decision (plan m2n step 1b): Synthetic makes exactly the commit count asked for, with
 // the merged branches and the tags, because the benchmarks quote "100,000 commits".
 func TestSyntheticCounts(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ commits, branches, tags int }{{200, 3, 12}, {50, 0, 0}, {13, 4, 1}} {
 		dir := filepath.Join(t.TempDir(), "syn")
 		Synthetic(t, dir, c.commits, c.branches, c.tags)
@@ -175,6 +178,7 @@ func TestSyntheticCounts(t *testing.T) {
 // Decision: Synthetic refuses a request it cannot satisfy exactly, rather than
 // returning a repository of another size.
 func TestSyntheticRefusesTooFewCommits(t *testing.T) {
+	t.Parallel()
 	// The check is Synthetic's first act; running it needs git only for the skip.
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")

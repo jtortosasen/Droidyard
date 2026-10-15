@@ -26,29 +26,43 @@ func groupStarter(cmd *exec.Cmd) error {
 
 // testEnv is the environment real git runs in for a test: the host's ~/.gitconfig
 // (signing, fsmonitor, LFS) cannot change the result, and commits are reproducible.
-func testEnv(t testing.TB) []string {
+//
+// It never touches the process environment (t.Setenv would forbid t.Parallel): the
+// test's HOME is returned and reaches every runner through env.osEnviron.
+func testEnv(t testing.TB) (environ []string, home string) {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
-	var env []string
+	home = t.TempDir()
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
-			env = append(env, kv)
+		if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
+			environ = append(environ, kv)
 		}
 	}
-	return append(env,
+	return append(environ,
+		"HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, "xdg"),
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=T", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_AUTHOR_DATE=2026-01-01T00:00:00Z",
 		"GIT_COMMITTER_NAME=T", "GIT_COMMITTER_EMAIL=t@example.com", "GIT_COMMITTER_DATE=2026-01-01T00:00:00Z",
-	)
+	), home
 }
 
 // env is a test's real-git setup.
 type env struct {
-	t   testing.TB
-	env []string
-	r   *runner
+	t    testing.TB
+	env  []string
+	home string // the test's own HOME; the process environment is never changed
+	r    *runner
+}
+
+// osEnviron is the process environment with this test's HOME and XDG_CONFIG_HOME in the
+// place of the host's: what t.Setenv gave every runner built from os.Environ().
+func (e *env) osEnviron() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "HOME="+e.home, "XDG_CONFIG_HOME="+filepath.Join(e.home, "xdg"))
 }
 
 // needGit skips the test without git on PATH and returns the setup.
@@ -58,12 +72,13 @@ func needGit(t testing.TB) *env {
 	if err != nil {
 		t.Skip("git is not on PATH")
 	}
-	e := testEnv(t)
+	environ, home := testEnv(t)
+	e := &env{t: t, env: environ, home: home}
 	// The runner scrubs GIT_*, so the system-config switch is added to its environment
 	// after the fact; the scrub itself is what TestGitEnvironmentIgnored checks.
-	r := newRunner(groupStarter, path, os.Environ())
-	r.env = append(r.env, "GIT_CONFIG_NOSYSTEM=1")
-	return &env{t: t, env: e, r: r}
+	e.r = newRunner(groupStarter, path, e.osEnviron())
+	e.r.env = append(e.r.env, "GIT_CONFIG_NOSYSTEM=1")
+	return e
 }
 
 // g runs plain git (not the runner) in dir and fails the test on a non-zero exit.
@@ -183,6 +198,7 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 // rewrites a stale index. A stat-dirty file (new mtime, same bytes) is the case where
 // git's own refresh would write the index; the control proves the setup would have.
 func TestStatusLeavesTheIndexAlone(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.write(dir, "a.txt", "one\n")
@@ -219,6 +235,7 @@ func TestStatusLeavesTheIndexAlone(t *testing.T) {
 // Decision (Q1 §2): a commit another process is making holds .git/index.lock; our read
 // must not fail on it and must not touch it.
 func TestStatusBesideAHeldIndexLock(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.write(dir, "a.txt", "one\n")
@@ -253,6 +270,7 @@ func TestStatusBesideAHeldIndexLock(t *testing.T) {
 // trusted root keeps the user's filters. The control at the end proves the same config
 // does run under plain git.
 func TestUntrustedRootRunsNoRepositoryFilter(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	marks := t.TempDir()
 	filterMark := filepath.Join(marks, "filter")
@@ -338,6 +356,7 @@ func TestUntrustedRootRunsNoRepositoryFilter(t *testing.T) {
 
 // Decision (Q1 §2): a `process` filter (git-lfs filter-process) is overridden too.
 func TestUntrustedRootRunsNoProcessFilter(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	mark := filepath.Join(t.TempDir(), "process")
 	proc := e.script("proc.sh", "touch '"+mark+"'\nexit 1")
@@ -364,6 +383,7 @@ func TestUntrustedRootRunsNoProcessFilter(t *testing.T) {
 // Decision (Q1 §2): the whole process group dies on cancel; a filter's child (git-lfs
 // filter-process) must not outlive git.
 func TestCancelKillsTheGroup(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	slow := e.script("slow.sh", "echo $$ > '"+pidFile+"'\nexec sleep 60")
@@ -420,6 +440,7 @@ func TestCancelKillsTheGroup(t *testing.T) {
 // Decision (Q1 §2): the run's own timeout ends the call with ErrTimeout, not a bare
 // context error, and kills the group.
 func TestTimeoutKillsTheGroup(t *testing.T) {
+	// Not parallel: its runner limit is 3 s and the filter has to start inside it.
 	e := needGit(t)
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	slow := e.script("slow.sh", "echo $$ > '"+pidFile+"'\nexec sleep 60")
@@ -457,6 +478,7 @@ func TestTimeoutKillsTheGroup(t *testing.T) {
 // Decision (Q1 §2): GIT_* in the daemon's environment cannot point our git at another
 // repository.
 func TestGitEnvironmentIgnored(t *testing.T) {
+	// Not parallel: it sets GIT_* in the process environment (t.Setenv).
 	e := needGit(t)
 	other := e.repo()
 	e.write(other, "other.txt", "x\n")
@@ -471,7 +493,7 @@ func TestGitEnvironmentIgnored(t *testing.T) {
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(other, ".git", "index"))
 	t.Setenv("GIT_WORK_TREE", other)
 	path, _ := exec.LookPath("git")
-	r := newRunner(groupStarter, path, os.Environ()) // the daemon's environment, GIT_* included
+	r := newRunner(groupStarter, path, e.osEnviron()) // the daemon's environment, GIT_* included
 	r.env = append(r.env, "GIT_CONFIG_NOSYSTEM=1")
 	res, err := r.run(context.Background(), dir, true, nil, statusArgs...)
 	if err != nil || res.ExitCode != 0 {
@@ -485,6 +507,7 @@ func TestGitEnvironmentIgnored(t *testing.T) {
 // Decision: a filter driver named so that it cannot be written as a -c override is a
 // refusal, not a silent gap.
 func TestUnwritableDriverNameIsRefused(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.appendConfig(dir, "[filter \"a=b\"]\n\tclean = cat\n")
@@ -496,6 +519,7 @@ func TestUnwritableDriverNameIsRefused(t *testing.T) {
 
 // Decision: stdout is capped as it is read, and the flag says so.
 func TestStdoutIsCapped(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.write(dir, "a.txt", strings.Repeat("x", stdoutLimit+1000))
@@ -648,8 +672,10 @@ var scenarios = []scenario{
 // Decision: step 2's fixtures are real git output, saved, and a git that changes its
 // output fails here first. `go test ./internal/domain/git -update` rewrites them.
 func TestStatusFixtures(t *testing.T) {
+	t.Parallel()
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			e := needGit(t)
 			root := sc.build(e)
 			res := e.status(root, true)

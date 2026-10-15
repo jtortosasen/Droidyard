@@ -33,6 +33,7 @@ func (f *wfx) pull() PullResult {
 // state before: main is behind origin/main's remote until the pull. No hook runs (the
 // fixture's hooks write markers) and the colleague's file is in the work tree.
 func TestPullFastForward(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	before := f.e.rev(f.r.W, "main")
@@ -60,6 +61,7 @@ func TestPullFastForward(t *testing.T) {
 
 // Decision (ADR-0074 §1): equal oids mean the branch was up to date, and nothing moves.
 func TestPullUpToDate(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	head := f.e.rev(f.r.W, "main")
 	before := treeState(t, f.e, f.r.W)
@@ -79,6 +81,7 @@ func TestPullUpToDate(t *testing.T) {
 // with --ff-only (and the -c belts) removed from pullArgs: git merged, main moved to a merge
 // commit.
 func TestPullDiverged(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.write(f.r.W, "local.txt", "local\n")
 	f.e.commit(f.r.W)
@@ -104,6 +107,7 @@ func TestPullDiverged(t *testing.T) {
 // Decision (ADR-0074 §2): a detached HEAD is refused before any write, saying so. Seen
 // failing with the detached check removed from pull: git ran and its own words came back.
 func TestPullDetached(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.r.PushOther(t, 1)
 	f.e.g(f.r.W, "checkout", "-q", "--detach")
@@ -124,6 +128,7 @@ func TestPullDetached(t *testing.T) {
 // Decision (ADR-0074 §2): a branch with no upstream is refused before any write, naming the
 // branch, with a cause and a nextStep. The control: main, which has one, pulls.
 func TestPullNoUpstream(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.g(f.r.W, "checkout", "-q", "-b", "no-upstream")
 	_, err := f.call("git.pull", "ws", PullParams{})
@@ -144,6 +149,7 @@ func TestPullNoUpstream(t *testing.T) {
 // a read: WORKSPACE_UNTRUSTED with the nextStep to trust the project, and the branch has not
 // moved. Seen failing with the gate not installed on the descriptor: the pull ran.
 func TestPullUntrusted(t *testing.T) {
+	t.Parallel()
 	for name, hook := range map[string]func(*wfx){
 		"the daemon's hook refuses": func(f *wfx) {
 			f.authorize = func(ctx context.Context, call *capability.Call) (any, error) {
@@ -181,6 +187,7 @@ func TestPullUntrusted(t *testing.T) {
 // the silence after the daemon's pull is the invocation's doing. Seen failing with
 // `core.hooksPath=/dev/null` removed from writeFixedPrefix: the hook ran.
 func TestPullNoHook(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	hooks := t.TempDir()
 	for _, dir := range []string{filepath.Join(f.r.W, ".git", "hooks"), hooks} {
@@ -214,6 +221,7 @@ func TestPullNoHook(t *testing.T) {
 // uploadpack hangs, once dying to SIGTERM and once ignoring it. Seen failing with the runner
 // signalling git's pid only: the uploadpack outlived the call.
 func TestPullCancel(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	for _, stubborn := range []bool{false, true} {
 		name := "uploadpack dies to SIGTERM"
@@ -253,7 +261,9 @@ func TestPullCancel(t *testing.T) {
 // --no-autostash and merge.autoStash=false removed and autostash set in the repository's
 // configuration: the second shape was stashed and applied, and the tree changed.
 func TestPullLocalChangesInTheWay(t *testing.T) {
+	t.Parallel()
 	t.Run("an untracked file", func(t *testing.T) {
+		t.Parallel()
 		f := newWfx(t)
 		f.r.PushOther(t, 1)
 		f.e.write(f.r.W, "other-1.txt", "mine\n")
@@ -270,6 +280,7 @@ func TestPullLocalChangesInTheWay(t *testing.T) {
 		}
 	})
 	t.Run("a modified tracked file", func(t *testing.T) {
+		t.Parallel()
 		f := newWfx(t)
 		f.e.g(f.r.W, "config", "pull.rebase", "true")
 		f.e.g(f.r.W, "config", "rebase.autoStash", "true")
@@ -307,6 +318,7 @@ func (f *wfx) fetchFirst() {
 // Decision (ADR-0074 §1): git.pull takes no parameter, and a stray one is refused as every
 // capability refuses an unknown parameter, before any git starts.
 func TestPullTakesNoParameter(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	raw, err := json.Marshal(map[string]string{"remote": "origin"})
 	if err != nil {
@@ -329,6 +341,7 @@ func TestPullTakesNoParameter(t *testing.T) {
 // outrank fetch.prune: a gone remote branch and a tag the remote lacks are both kept.
 // Seen failing with --no-prune removed (the verifier's probe: -c fetch.prune=false alone prunes).
 func TestPullNeverPrunes(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.g(f.r.Origin, "branch", "gone", "main")
 	f.e.g(f.r.Origin, "tag", "gonetag", "main")
@@ -356,6 +369,7 @@ func TestPullNeverPrunes(t *testing.T) {
 // TestPullIgnoresTheRepositorysPullConfig: whatever the repository says about merging,
 // rebasing or recursing for its own pulls, git.pull fast-forwards and makes no merge commit.
 func TestPullIgnoresTheRepositorysPullConfig(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	for _, kv := range [][2]string{{"branch.main.mergeoptions", "--no-ff"}, {"pull.ff", "false"}, {"merge.ff", "false"}, {"branch.main.rebase", "true"}, {"pull.rebase", "merges"}, {"submodule.recurse", "true"}, {"fetch.recurseSubmodules", "true"}} {
 		f.e.g(f.r.W, "config", kv[0], kv[1])

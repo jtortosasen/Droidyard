@@ -88,6 +88,7 @@ func wantRefused(t *testing.T, label string, err *capability.Error, want string)
 // control is the state before: no root is on feature/x. Seen failing with the sort in
 // branchRoots removed: the outcomes came back lib/nested, ., lib.
 func TestSyncOrder(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	if h := x.heads(); h[0] == "feature/x" || h[1] == "feature/x" || h[2] == "feature/x" {
@@ -112,6 +113,7 @@ func TestSyncOrder(t *testing.T) {
 // first. Pure: the roots are only ordered here, none resolved. Seen failing with plain
 // string order: "lib-x" came before "lib/nested".
 func TestBranchRootsOrder(t *testing.T) {
+	t.Parallel()
 	rels, cerr := branchRoots([]string{"lib-x", "lib/nested/deep", "z", ".", "lib/nested", "lib", "a"}, nil)
 	if cerr != nil {
 		t.Fatal(cerr)
@@ -132,6 +134,7 @@ func TestBranchRootsOrder(t *testing.T) {
 // control is the same call once the edit is undone: all three done. Seen failing with the
 // loop continuing after a failed root (stop never set): lib/nested was switched.
 func TestSyncStopsAtFirstFailure(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	lib := x.dir("lib")
@@ -181,6 +184,7 @@ func libState(x *sfx, dir string) string {
 // moves, with it each root's does. Seen failing with every root started at from: lib and
 // lib/nested refused it as no commit of theirs.
 func TestSyncCreateBranchPerRootFrom(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	from := x.e.rev(x.dir("."), "HEAD~1")
@@ -229,6 +233,7 @@ func TestSyncCreateBranchPerRootFrom(t *testing.T) {
 // done in all three roots. Seen failing with the checks of a submodule done after "." was
 // written: the superproject had the branch after the refusal.
 func TestSyncCreateBranchRefused(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	from := x.e.rev(x.dir("."), "HEAD~1")
@@ -294,6 +299,7 @@ func TestSyncCreateBranchRefused(t *testing.T) {
 // REQUEST_INVALID_PARAMS for both capabilities. The control: the valid roots alone are done.
 // Seen failing with the roots resolved while applying: "." was on feature/x after the refusal.
 func TestSyncRootRefused(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	x.e.write(x.dir("."), "plain/file.txt", "a directory that is no repository\n")
@@ -331,6 +337,7 @@ func TestSyncRootRefused(t *testing.T) {
 // it, the same call is done in all three. Seen failing with the presence checked only in
 // ".": the superproject was switched and lib answered a failed outcome.
 func TestSyncBranchMissingInARoot(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	x.e.g(x.dir("lib"), "branch", "-q", "-D", "feature/x")
@@ -362,6 +369,7 @@ func TestSyncBranchMissingInARoot(t *testing.T) {
 // branch on it, refuses the whole call before any write. feature/y is pushed from the
 // superproject and lib only, so it is remote-tracking there and absent in lib/nested.
 func TestSyncRemoteTrackingPerRoot(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	for _, rel := range []string{".", "lib"} {
@@ -395,6 +403,7 @@ func TestSyncRemoteTrackingPerRoot(t *testing.T) {
 // after both roots. lib's switch is held by a smudge filter on a gate. Seen failing with no
 // key on the writes (Resource empty): the fetch started at once.
 func TestSyncOneKey(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	x := newSfx(t)
 	lib := x.dir("lib")

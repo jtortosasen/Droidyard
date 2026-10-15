@@ -86,6 +86,7 @@ func (e *env) emptyTree(dir string) string {
 // which differs from the second parent alone, is not there. Seen failing with showArgs'
 // two-tree form replaced by `diff-tree -c <merge>` (the combined diff), see the plan.
 func TestShowMergeAgainstFirstParent(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -143,6 +144,7 @@ func TestShowMergeAgainstFirstParent(t *testing.T) {
 // Decision (ADR-0069 §5): a root commit is shown against the empty tree: every file is
 // added, with git's counts, and the parents are an empty list, not null.
 func TestShowRootCommit(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -172,6 +174,7 @@ func TestShowRootCommit(t *testing.T) {
 // real history; a binary file has none and says binary, a text file with no removed
 // line has removed 0 and still carries it (a pointer to zero, not an absent field).
 func TestShowNumstat(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -227,6 +230,7 @@ func TestShowNumstat(t *testing.T) {
 // modified; a copy cannot arise since copies are not detected). Counts of a renamed file
 // are of the lines changed besides the move.
 func TestShowRename(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := f.root
 	f.write(dir, "old.txt", "a\nb\nc\nd\ne\nf\n")
@@ -296,6 +300,7 @@ func TestShowRename(t *testing.T) {
 // prefix on argv as a pathspec. A file moved into the workspace from outside it is added,
 // with no origin outside the root.
 func TestShowPrefix(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	for path, text := range map[string]string{
@@ -343,6 +348,7 @@ func TestShowPrefix(t *testing.T) {
 // dash, a glob character and non-ASCII text are the file's name, and a text file's counts
 // stay with it.
 func TestShowAwkwardPaths(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	names := []string{"sp ace.txt", "tab\there.txt", "new\nline.txt", ":colon.txt", "-dash.txt", "a*b.txt", "é.txt", "q\"uote.txt"}
 	for i, n := range names {
@@ -398,7 +404,9 @@ func (e *env) fastImportFiles(dir string, n int, pad string) string {
 // 4 MiB cap, the commit is truncated too: its files are listed as far as they were read
 // (in the raw phase none has counts, in the counts phase the last ones have none).
 func TestShowCaps(t *testing.T) {
+	t.Parallel()
 	t.Run("message", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		for _, c := range []struct {
 			name, message string
@@ -420,6 +428,7 @@ func TestShowCaps(t *testing.T) {
 	})
 
 	t.Run("files", func(t *testing.T) {
+		t.Parallel()
 		for _, c := range []struct {
 			n         int
 			truncated bool
@@ -448,6 +457,7 @@ func TestShowCaps(t *testing.T) {
 		{"the cap in the raw records", 2200, 2100, false, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			f := newReadFx(t)
 			oid := f.env.fastImportFiles(f.root, c.n, strings.Repeat("p", c.padLen))
 			res := f.mustShow(oid)
@@ -478,6 +488,7 @@ func TestShowCaps(t *testing.T) {
 // break and an empty string never start a git; an id the repository does not hold, a
 // tree, a blob and an annotated tag (not a commit) are the same code after the check.
 func TestShowUnknownCommit(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -528,6 +539,7 @@ func TestShowUnknownCommit(t *testing.T) {
 // recorded, for the author and the committer apart; names and e-mails are the raw ones;
 // the message is the whole text, line breaks and non-ASCII included.
 func TestShowDetails(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "one\n")
 	f.g(f.root, "add", "-A")
@@ -568,6 +580,7 @@ func TestShowDetails(t *testing.T) {
 // parents and files as the commit holds them, and a graft leaves its parents. Controls
 // prove each forgery works against plain git.
 func TestShowFence(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, attrs string) (*readFx, string) {
 		f := newReadFx(t)
 		dir, head := f.env.historyRepo(attrs)
@@ -587,6 +600,7 @@ func TestShowFence(t *testing.T) {
 	}
 
 	t.Run("programs the repository configures", func(t *testing.T) {
+		t.Parallel()
 		f, head := setup(t, "*.txt diff=custom\n")
 		e := f.env
 		ext, conv := filepath.Join(t.TempDir(), "ext"), filepath.Join(t.TempDir(), "conv")
@@ -609,6 +623,7 @@ func TestShowFence(t *testing.T) {
 	})
 
 	t.Run("a replace ref giving the commit another author, message and files", func(t *testing.T) {
+		t.Parallel()
 		f, head := setup(t, "")
 		e := f.env
 		e.g(f.root, "update-ref", "refs/replace/"+head, e.forgedCommit(f.root, ""))
@@ -619,6 +634,7 @@ func TestShowFence(t *testing.T) {
 	})
 
 	t.Run("a graft giving the commit no parent", func(t *testing.T) {
+		t.Parallel()
 		f, head := setup(t, "")
 		f.write(f.root, ".git/info/grafts", head+"\n")
 		if got := strings.TrimSpace(f.env.plainRun(f.root, nil, "-c", "advice.graftFileDeprecated=false", "log", "-1", "--format=%P", head)); got != "" {
@@ -633,6 +649,7 @@ func TestShowFence(t *testing.T) {
 // release git.log introduced, and whose codes are listed. Reversing the audience would list
 // it as an agent tool.
 func TestShowDescriptor(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, ok := f.reg.Lookup("git.show")
 	if !ok {
@@ -658,6 +675,7 @@ func TestShowDescriptor(t *testing.T) {
 // message nor the files, so retention never keeps the repository's text; the commit's
 // identity, its people and the flags stay, and the files as [] not null.
 func TestShowSlim(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, _ := f.reg.Lookup("git.show")
 	one := 1
@@ -693,6 +711,7 @@ func TestShowSlim(t *testing.T) {
 // form becomes the epoch and does not refuse the commit. Over git's real output the other
 // tests prove the parser; these are the shapes only a broken git would produce.
 func TestParseShowFilesRefusesWhatGitDoesNotWrite(t *testing.T) {
+	t.Parallel()
 	const modes = ":100644 100644 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb "
 	for name, out := range map[string]string{
 		"a raw record of four fields":  ":100644 100644 aaaa M\x00a.txt\x00",
@@ -720,6 +739,7 @@ func TestParseShowFilesRefusesWhatGitDoesNotWrite(t *testing.T) {
 // removed from every path, and the number of numstat records equals the raw ones (a
 // mismatch is GIT_FAILED, above), checked here against plain git's own --name-only.
 func TestShowListsWhatGitLists(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -754,6 +774,7 @@ func (f *readFx) showBase(oid, base string) (ShowResult, *capability.Error) {
 // unchanged. Absent, the first parent as before. A base that is no commit of the repository
 // (a tree, a blob, an unknown id) or no full id is REQUEST_INVALID_PARAMS.
 func TestShowBase(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)

@@ -62,7 +62,7 @@ func (e *env) inv(network bool) wInv { return e.invWith(network) }
 func (e *env) invWith(network bool, extra ...string) wInv {
 	return wInv{
 		prefix: writeFixedPrefix(network),
-		env:    append(writeEnv(append(os.Environ(), extra...), network), "GIT_CONFIG_NOSYSTEM=1", "no_proxy=127.0.0.1", "NO_PROXY=127.0.0.1"),
+		env:    append(writeEnv(append(e.osEnviron(), extra...), network), "GIT_CONFIG_NOSYSTEM=1", "no_proxy=127.0.0.1", "NO_PROXY=127.0.0.1"),
 	}
 }
 
@@ -322,6 +322,7 @@ func locks(t testing.TB, dir string) []string {
 // leaves out exactly protocol.allow=never. Proven against the read runner's own argv,
 // not against a copy of the list.
 func TestWritePrefixIsTheReadPrefix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	argv := filepath.Join(dir, "argv")
 	fake := filepath.Join(dir, "git")
@@ -371,6 +372,7 @@ func TestWritePrefixIsTheReadPrefix(t *testing.T) {
 // network command and nothing else different; a caller's GIT_* never reaches git and
 // GIT_TERMINAL_PROMPT=0 stays.
 func TestWriteEnv(t *testing.T) {
+	t.Parallel()
 	in := []string{"PATH=/bin", "HOME=/h", "GIT_DIR=/elsewhere", "GIT_ALLOW_PROTOCOL=ssh", "GIT_TERMINAL_PROMPT=1", "LC_ALL=de_DE",
 		"SSH_ASKPASS=/their/askpass", "SSH_ASKPASS_REQUIRE=force", "GIT_ASKPASS=/their/askpass"}
 	off, on := writeEnv(in, false), writeEnv(in, true)
@@ -420,6 +422,7 @@ func TestWriteEnv(t *testing.T) {
 // Decision (ADR-0071 §5): a name is validated in Go before git sees it. Each row is a
 // name git would take as an option, expand, or treat as something else.
 func TestValidName(t *testing.T) {
+	t.Parallel()
 	for name, want := range map[string]bool{
 		"main": true, "feature/x": true, "a-b_c.d": true, "ünï": true, "x": true,
 		"": false, "-x": false, "--end-of-options": false, "@{-1}": false, "a@{u}": false, "HEAD": false,
@@ -440,6 +443,7 @@ func TestValidName(t *testing.T) {
 // stop a submodule recursion and a prune are in the commands that need them; a name is
 // after --end-of-options and a path after `--`, never the other way round.
 func TestWriteBuilders(t *testing.T) {
+	t.Parallel()
 	has := func(args []string, seq ...string) bool {
 		for i := 0; i+len(seq) <= len(args); i++ {
 			if slices.Equal(args[i:i+len(seq)], seq) {
@@ -491,6 +495,7 @@ func TestWriteBuilders(t *testing.T) {
 // Decision (ADR-0071 §3): the global --literal-pathspecs makes a submodule path holding
 // `*` a path. Control: without it the same argument is a pattern and reaches `lib`.
 func TestWriteSpikeLiteralSubmodulePaths(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, s := newSubs(t)
 	moveLibBack := func() {
@@ -526,6 +531,7 @@ func TestWriteSpikeLiteralSubmodulePaths(t *testing.T) {
 // GIT_ALLOW_PROTOCOL=none); writeEnv(network) with the network prefix brings the pushed
 // commit. Control: plain git brings it too, so the refusal is the invocation's.
 func TestWriteSpike1FetchNeedsTheNetworkInvocation(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	pushed := r.PushOther(t, 1)
@@ -577,6 +583,7 @@ func TestWriteSpike1FetchNeedsTheNetworkInvocation(t *testing.T) {
 // Control: plain git runs both hooks for the same writes, and the invocation without
 // core.hooksPath lets the children's hooks run (so it is the -c that reached them).
 func TestWriteSpike2NoHookRuns(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	net := e.inv(true)
@@ -672,6 +679,7 @@ func hookRan(marker, hook, where string) bool {
 // process group by its own setsid); with the write config nothing runs. Which of the two
 // -c settings does it in this git is recorded.
 func TestWriteSpike3NoGcOutlivesAFetch(t *testing.T) {
+	// Not parallel: it counts the gc and maintenance processes of the whole machine (ps), so no other git may run one meanwhile.
 	t.Log(gitVersion(t))
 	type variant struct {
 		name         string
@@ -826,6 +834,7 @@ func (e *env) hangingUploadpack(dir string, stubborn bool) (pidFile string) {
 // uploadpack alike: the grace costs nothing), and one that ignores it. The control is
 // SIGTERM alone against the second, which leaves it alive.
 func TestWriteSpike4HungFetchIsEnded(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	for _, c := range []struct {
 		name     string
@@ -899,6 +908,7 @@ func newAuthServer(t testing.TB) *authServer {
 // URL git sends them, so the failure is the missing credential, not the server.
 // The prompt that would wait is the terminal part of item 6.
 func TestWriteSpike5CredentialNeverPrompts(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	srv := newAuthServer(t)
@@ -945,6 +955,7 @@ func hasTerminal() bool {
 // the session and so the terminal. The ids need no terminal; opening /dev/tty and the
 // prompt need this test process to have one (see the top of this file).
 func TestWriteSpike6Setsid(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	pidFile := e.hangingUploadpack(r.W, false)
@@ -1040,6 +1051,7 @@ func psState(pid int) string {
 // clean tree the same switch succeeds. Whether a refused `switch --create` leaves the
 // branch behind is recorded.
 func TestWriteSpike7RefusedSwitchChangesNothing(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	for _, c := range []struct {
 		name  string
@@ -1104,6 +1116,7 @@ func TestWriteSpike7RefusedSwitchChangesNothing(t *testing.T) {
 // network invocation with the variable removed switches and the blob arrives, so the
 // refusal is the invocation's.
 func TestWriteSpike8PartialCloneSwitch(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	e.g(r.Origin, "config", "uploadpack.allowFilter", "true")
@@ -1162,6 +1175,7 @@ func TestWriteSpike8PartialCloneSwitch(t *testing.T) {
 // outcomes are recorded for each name the plan lists, and validName refuses every name
 // git would expand into another.
 func TestWriteSpike9EndOfOptionsAndNames(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	pushed := r.PushOther(t, 1)
@@ -1291,6 +1305,7 @@ func trunc(s string, n int) string {
 // still refused when it is admitted. Control: the admitted run clones, so the refusal was
 // the policy.
 func TestWriteSpike10SubmoduleFileTransport(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e := needGit(t)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
@@ -1317,7 +1332,7 @@ func TestWriteSpike10SubmoduleFileTransport(t *testing.T) {
 	repoAdmits := res.Code == 0 && initialised(d)
 
 	d = clone("global-config")
-	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".gitconfig"), []byte("[protocol \"file\"]\n\tallow = always\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(e.home, ".gitconfig"), []byte("[protocol \"file\"]\n\tallow = always\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res = net.run(t, d, updateArgs(nil))
@@ -1330,7 +1345,7 @@ func TestWriteSpike10SubmoduleFileTransport(t *testing.T) {
 	nonNetworkAdmits := res.Code == 0 && initialised(d)
 
 	// Control: plain git is refused under the default policy too, and admitted with -c.
-	os.Remove(filepath.Join(os.Getenv("HOME"), ".gitconfig"))
+	os.Remove(filepath.Join(e.home, ".gitconfig"))
 	d = clone("plain")
 	_, plainErr := e.gErr(d, "submodule", "update", "--init", "--recursive")
 	t.Logf("plain git, default policy: refused %v", plainErr != nil)

@@ -43,6 +43,7 @@ func (r *runner) without(names ...string) *runner {
 // commit's parents and not its tree, so it cannot change this read: its case only shows
 // the read works under one. Control: plain git is forged by each replace ref.
 func TestReadIgnoresReplaceRefsAndGrafts(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		setup func(f *readFx, head string)
@@ -62,6 +63,7 @@ func TestReadIgnoresReplaceRefsAndGrafts(t *testing.T) {
 		}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			f := newReadFx(t)
 			f.write(f.root, "a.txt", "the real content\n")
 			f.commit(f.root)
@@ -90,6 +92,7 @@ func TestReadIgnoresReplaceRefsAndGrafts(t *testing.T) {
 // stands for HEAD's); head.oid, which is the ref's value, is unaffected either way. Seen
 // failing with GIT_NO_REPLACE_OBJECTS removed from the runner.
 func TestStatusIgnoresReplaceRefs(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.write(dir, "a.txt", "the real content\n")
@@ -124,6 +127,7 @@ func TestStatusIgnoresReplaceRefs(t *testing.T) {
 // keeps stderr git's own, so a status leaves it empty and a failure's first line, which
 // gitError reports, is git's "fatal:" and not the hint.
 func TestGraftHintDoesNotReachStderr(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	e.write(dir, "a.txt", "one\n")

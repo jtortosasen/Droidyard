@@ -14,6 +14,7 @@ import (
 // are what they are at HEAD. A workspace below the repository's top adds its prefix to the
 // object name as before.
 func TestReadAtCommit(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	f.write(repo, "a.txt", "v1\n")
@@ -80,6 +81,7 @@ func TestReadAtCommit(t *testing.T) {
 // name, read a path inside a tree, or nothing: a tree's id, a blob's, an annotated tag's
 // and an id the repository does not hold are REQUEST_INVALID_PARAMS.
 func TestReadBaseNotACommit(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	repo := f.root
 	f.write(repo, "a.txt", "v1\n")
@@ -107,6 +109,7 @@ func TestReadBaseNotACommit(t *testing.T) {
 // revision, an option, another case and a path-bearing name are REQUEST_INVALID_PARAMS with
 // zero gits started; the control shows the counter counts and a full id starts one.
 func TestReadBaseRefused(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
