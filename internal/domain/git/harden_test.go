@@ -13,6 +13,7 @@ import (
 // runs, whose driver name the daemon cannot write as an override (here the empty one),
 // refuses the call; it is never skipped.
 func TestEmptyDriverNameIsRefusedNotSkipped(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	mark := filepath.Join(t.TempDir(), "mark")
 	clean := e.script("clean.sh", "touch '"+mark+"'\ncat")
@@ -38,6 +39,7 @@ func TestEmptyDriverNameIsRefusedNotSkipped(t *testing.T) {
 // Decision: a two-part key (filter.<key>, no subsection) is not a driver, because git
 // ignores it; the daemon skips it. Proven against real git, not assumed.
 func TestTwoPartFilterKeyIsNoDriver(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	mark := filepath.Join(t.TempDir(), "mark")
 	clean := e.script("clean.sh", "touch '"+mark+"'\ncat")
@@ -62,6 +64,7 @@ func TestTwoPartFilterKeyIsNoDriver(t *testing.T) {
 // Decision: the list of configured filters is never trusted incomplete. A driver
 // listed after the stdout cap would otherwise run.
 func TestTruncatedDriverListIsRefused(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	mark := filepath.Join(t.TempDir(), "mark")
 	clean := e.script("clean.sh", "touch '"+mark+"'\ncat")
@@ -87,6 +90,7 @@ func TestTruncatedDriverListIsRefused(t *testing.T) {
 // it, which runs the repository's core.sshCommand; GIT_NO_LAZY_FETCH and
 // protocol.allow=never each stop it, on a trusted root as on an untrusted one.
 func TestPartialCloneNeverFetches(t *testing.T) {
+	t.Parallel()
 	// The repository allows ssh per protocol, which overrides protocol.allow=never. Each
 	// environment guard is also run without the other: "older git" drops
 	// GIT_NO_LAZY_FETCH, which a git before 2.45 ignores.
@@ -102,6 +106,7 @@ func TestPartialCloneNeverFetches(t *testing.T) {
 	} {
 		trusted := c.trusted
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			e := needGit(t)
 			if c.drop != "" {
 				var env []string
@@ -150,6 +155,7 @@ func TestPartialCloneNeverFetches(t *testing.T) {
 // Decision (T1): status --find-renames runs no diff textconv or external diff on an
 // untrusted root.
 func TestUntrustedStatusRunsNoTextconv(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	mark := filepath.Join(t.TempDir(), "mark")
 	tc := e.script("tc.sh", "touch '"+mark+"'\ncat \"$1\"")
@@ -181,6 +187,7 @@ func TestUntrustedStatusRunsNoTextconv(t *testing.T) {
 // Decision (T2): a filter defined only in the user's global config is overridden on an
 // untrusted root, as a repository's is.
 func TestUntrustedRootOverridesGlobalFilter(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	mark := filepath.Join(t.TempDir(), "mark")
 	clean := e.script("clean.sh", "touch '"+mark+"'\ncat")
@@ -189,7 +196,7 @@ func TestUntrustedRootOverridesGlobalFilter(t *testing.T) {
 	e.write(dir, "c.txt", "one\n")
 	e.commit(dir)
 	cfg := "[filter \"glob\"]\n\tclean = " + clean + "\n\trequired = true\n"
-	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".gitconfig"), []byte(cfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(e.home, ".gitconfig"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e.write(dir, "c.txt", "two\n")

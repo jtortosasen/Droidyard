@@ -119,6 +119,7 @@ func (f *readFx) readRoot(root, path, base string) (ReadResult, *capability.Erro
 // oid of the superproject is no commit of the submodule (an oid names a commit of one
 // repository), and a nested submodule is a root by its path from the workspace.
 func TestRootLog(t *testing.T) {
+	t.Parallel()
 	x := newRootFx(t)
 	ctx := context.Background()
 
@@ -181,6 +182,7 @@ func TestRootLog(t *testing.T) {
 // ahead and behind against its upstream there. A nested submodule left detached by
 // `submodule update` is a detached HEAD at its recorded commit.
 func TestRootRefs(t *testing.T) {
+	t.Parallel()
 	x := newRootFx(t)
 	ctx := context.Background()
 	res := x.refsRoot("lib")
@@ -244,6 +246,7 @@ func TestRootRefs(t *testing.T) {
 // submodule's own paths are; the details are that repository's commit, and a commit of the
 // superproject is not one. The statuses and counts are git's, in lib.
 func TestRootShowPaths(t *testing.T) {
+	t.Parallel()
 	x := newRootFx(t)
 	res := x.showRoot("lib", x.libOids["c2"])
 
@@ -295,6 +298,7 @@ func TestRootShowPaths(t *testing.T) {
 // workspace's (it carries the root's path, and the result's path too); a path outside the
 // root, the workspace's own files among them, is FILE_OUTSIDE_ROOT before any git starts.
 func TestRootReadAtCommit(t *testing.T) {
+	t.Parallel()
 	x := newRootFx(t)
 
 	res, err := x.readRoot("lib", "lib/lib.txt", "")
@@ -356,12 +360,14 @@ func TestRootReadAtCommit(t *testing.T) {
 // else is REQUEST_INVALID_PARAMS before any git runs in the place it names, through each
 // of the four reads, trusted or not. Each shape here is one the plan names.
 func TestRootRefused(t *testing.T) {
+	t.Parallel()
 	for _, untrusted := range []bool{false, true} {
 		name := "trusted"
 		if untrusted {
 			name = "untrusted"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			x := newRootFx(t)
 			if untrusted {
 				x.untrusted()
@@ -625,6 +631,7 @@ func (x *rootFx) reads(root string) []rootRead {
 // carries the override of that submodule's own driver, which the workspace root does not
 // define.
 func TestRootFence(t *testing.T) {
+	t.Parallel()
 	x := newRootFx(t)
 	marks := t.TempDir()
 	mark := func(name string) string { return filepath.Join(marks, name) }
@@ -757,6 +764,7 @@ func TestRootFence(t *testing.T) {
 // workspace that is a subfolder of its repository names its submodule by the path below
 // that folder, and what lies in the repository above the folder is outside every root.
 func TestRootSubdirectoryWorkspace(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	top := f.root
 	f.write(top, "app/a.txt", "a\n")

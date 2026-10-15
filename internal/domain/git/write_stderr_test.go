@@ -18,6 +18,7 @@ import (
 // git's fatal line, both good remotes were fetched, and the verbose control (no --quiet)
 // shows what the flag drops: a line per tag, far more than the 64 KiB kept.
 func TestFetchQuietKeepsTheFatalLine(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	tip := f.e.rev(f.r.Other, "HEAD")
@@ -63,6 +64,7 @@ func TestFetchQuietKeepsTheFatalLine(t *testing.T) {
 // the terminal nextStep. A cut stderr says it was cut. Seen failing with stderr kept by
 // limited (head only): the fatal line was gone.
 func TestWriteStderrKeepsItsEnd(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	script := f.e.script("uploadpack.sh", `i=0
@@ -84,6 +86,7 @@ exit 1`)
 // whole when it did not; whatever the size of the writes. writeCause on the cut text finds a
 // late fatal line and needsCredential still matches it.
 func TestHeadTail(t *testing.T) {
+	t.Parallel()
 	for _, chunk := range []int{1, 7, 1000, 100 << 10} {
 		h := &headTail{head: 32 << 10, tail: 32 << 10}
 		var all []byte
@@ -125,6 +128,7 @@ func TestHeadTail(t *testing.T) {
 // skipFetchAll (or the older skipDefaultUpdate) true is left out, and really not fetched; one
 // asked for by name is fetched whatever its setting. Seen failing with the filter removed.
 func TestFetchAllSkipsWhatGitSkips(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	for _, n := range []string{"second", "third", "fourth", "dotted.name"} {

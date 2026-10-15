@@ -166,6 +166,9 @@ func (e *env) gStdin(dir, stdin string, args ...string) string {
 }
 
 func attacks() []attack {
+	// graftOid is the forged object of the grafts attack, for its check of the output. It
+	// belongs to one call, so no two tests share it; only the grafts subtest sets or reads it.
+	var graftOid string
 	cfg := func(text string) func(*env, string, string) {
 		return func(e *env, dir, script string) {
 			e.appendConfig(dir, strings.ReplaceAll(text, "SCRIPT", script))
@@ -318,9 +321,6 @@ func attacks() []attack {
 	}
 }
 
-// graftOid is the forged commit of the grafts attack, for its check of the output.
-var graftOid string
-
 // forgedCommit writes a commit by a forged author, with a message and a file that carry
 // the marker FORGED, on top of parent (none when empty), and returns its oid.
 func (e *env) forgedCommit(dir, parent string) string {
@@ -361,9 +361,11 @@ func (e *env) plainRun(dir string, stdin []byte, args ...string) string {
 }
 
 func TestHistoryFence(t *testing.T) {
+	t.Parallel()
 	t.Logf("%s at %s", strings.TrimSpace(needGit(t).plainRun(t.TempDir(), nil, "--version")), needGit(t).r.git)
 	for _, a := range attacks() {
 		t.Run(a.id, func(t *testing.T) {
+			t.Parallel()
 			e := needGit(t)
 			mark := filepath.Join(t.TempDir(), "mark")
 			script := e.script("attack.sh", "touch '"+mark+"'\ncat")
@@ -507,6 +509,7 @@ func TestHistoryFence(t *testing.T) {
 // before the subcommand where git reads it; a commit is named by its oid after the
 // options and before "--"; and the oid is the only caller text in any argv.
 func TestHistoryArgvShape(t *testing.T) {
+	t.Parallel()
 	const oid, parent = "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef"
 	details, files := showArgs(oid, parent)
 	// Written out, not read from logFence and diffFence: a flag lost from them fails here.

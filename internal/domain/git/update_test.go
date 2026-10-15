@@ -35,7 +35,7 @@ type subsFx struct {
 func newSubsFx(t *testing.T) *subsFx {
 	t.Helper()
 	f := newWfx(t)
-	allowFileProtocol(t)
+	allowFileProtocol(t, f.e.home)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "subs"))
 	f.roots["ws"] = platform.Current().Canonical(s.Super)
 	f.register()
@@ -43,9 +43,9 @@ func newSubsFx(t *testing.T) *subsFx {
 }
 
 // allowFileProtocol writes the global setting a submodule's clone from a local path needs.
-func allowFileProtocol(t *testing.T) {
+func allowFileProtocol(t *testing.T, home string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".gitconfig"), []byte("[protocol \"file\"]\n\tallow = always\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[protocol \"file\"]\n\tallow = always\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -117,6 +117,7 @@ func wantStates(t *testing.T, got map[string]string, want map[string]string) {
 // included. With paths, only those (and what is inside them) are touched. The control is
 // the state before: a fresh clone lists extra and lib uninitialised.
 func TestUpdateInitialises(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newSubsFx(t)
 	f.open(f.clone())
@@ -152,6 +153,7 @@ func TestUpdateInitialises(t *testing.T) {
 // Seen failing with a nested path passed from the workspace root: GIT_FAILED, "pathspec
 // 'lib/nested' did not match any file(s) known to git".
 func TestUpdateOutdated(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newSubsFx(t)
 	lib, nested := filepath.Join(f.s.Super, "lib"), filepath.Join(f.s.Super, "lib", "nested")
@@ -189,6 +191,7 @@ func TestUpdateOutdated(t *testing.T) {
 // the checkout git would make there is refused and the change stays. The control is the
 // state before (outdated, with the change in the way).
 func TestUpdateGitRefuses(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newSubsFx(t)
 	lib := filepath.Join(f.s.Super, "lib")
@@ -217,6 +220,7 @@ func TestUpdateGitRefuses(t *testing.T) {
 // same update in the same state, which writes the markers. Seen failing with
 // core.hooksPath removed from writeFixedPrefix: the markers were written.
 func TestUpdateRunsNoHook(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newSubsFx(t)
 	lib, nested := filepath.Join(f.s.Super, "lib"), filepath.Join(f.s.Super, "lib", "nested")
@@ -249,6 +253,7 @@ func TestUpdateRunsNoHook(t *testing.T) {
 // valid path, which does start one. Seen failing with the listing check removed: `docs`
 // and `-x` reached git.
 func TestUpdatePathsRefused(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newSubsFx(t)
 	if err := os.MkdirAll(filepath.Join(f.s.Super, "docs"), 0o755); err != nil {
@@ -312,6 +317,7 @@ func hangingRemotes(hook string) string {
 // ignores it. Seen failing with the runner signalling git's pid only: the stubborn hook
 // outlived the call.
 func TestUpdateCancel(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	for _, stubborn := range []bool{false, true} {
 		name := "dies to SIGTERM"
@@ -331,7 +337,7 @@ func TestUpdateCancel(t *testing.T) {
 			body += ";;\nesac\nexec \"$@\"\n"
 			hook := f.e.script("hook.sh", body)
 			cfg := hangingRemotes(hook)
-			if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".gitconfig"), []byte(cfg), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(f.e.home, ".gitconfig"), []byte(cfg), 0o644); err != nil {
 				t.Fatal(err)
 			}
 
@@ -378,6 +384,7 @@ func TestUpdateCancel(t *testing.T) {
 // pass before the hook starts; that attempt proves nothing about the grandchild and is
 // tried again, and the test fails if no attempt in five reached the hook.
 func TestUpdateTimeout(t *testing.T) {
+	// Not parallel: its limit is 3 s and the hung remote has to start inside it (it retries five times).
 	t.Log(gitVersion(t))
 	type answer struct {
 		res UpdateSubmodulesResult
@@ -388,7 +395,7 @@ func TestUpdateTimeout(t *testing.T) {
 		f.open(f.clone())
 		pidFile := filepath.Join(t.TempDir(), "hook.pid")
 		hook := f.e.script("hook.sh", "case \"$(pwd)\" in\n*s-extra.git) echo $$ > '"+pidFile+"'; exec sleep 60;;\nesac\nexec \"$@\"\n")
-		if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".gitconfig"), []byte(hangingRemotes(hook)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(f.e.home, ".gitconfig"), []byte(hangingRemotes(hook)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		f.timeout = 3 * time.Second
@@ -446,6 +453,7 @@ func TestUpdateTimeout(t *testing.T) {
 // that submodule and not all of its parent's; and when a later run fails the note that the
 // earlier runs stay applied is added to the error's own nextStep, not put in its place.
 func TestUpdateNextSteps(t *testing.T) {
+	t.Parallel()
 	cmd := updateRun{dir: "/r/lib", paths: []string{"nested", "it's"}}.command()
 	if cmd != `submodule update --init --recursive -- 'nested' 'it'\''s'` {
 		t.Errorf("command = %s", cmd)
@@ -472,6 +480,7 @@ func TestUpdateNextSteps(t *testing.T) {
 // Decision (ADR-0020 §Retention): a result returned again after delivery holds no paths, as
 // [] not null, and the original is not changed.
 func TestUpdateSlim(t *testing.T) {
+	t.Parallel()
 	reg := capability.NewRegistry()
 	Register(reg, Options{})
 	d, _ := reg.Lookup("git.updateSubmodules")
@@ -495,6 +504,7 @@ func TestUpdateSlim(t *testing.T) {
 // above; and a path whose ancestor is asked is left to that ancestor's --recursive. Seen
 // failing with every path passed from the root: the nested one is a run at the root.
 func TestUpdateRuns(t *testing.T) {
+	t.Parallel()
 	known := []string{"extra", "lib", "lib/nested", "mods/m", "mods/m/deep/d"}
 	for _, c := range []struct {
 		name  string
@@ -549,6 +559,7 @@ func TestUpdateRuns(t *testing.T) {
 // the workspace's own, named, because plain `git submodule update --init` run from the
 // subdirectory initialises `extra` at the repository's top too (the control).
 func TestUpdateSubdirectoryWorkspace(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newSubsFx(t)
 	super := f.clone()
@@ -596,6 +607,7 @@ func TestUpdateSubdirectoryWorkspace(t *testing.T) {
 // Decision (ADR-0071 §3): an update with nothing to update starts no git. A project with
 // no submodule answers an empty list, and a path is refused.
 func TestUpdateNoSubmodules(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t) // the plain Remote fixture has no submodule
 	res, err := f.call("git.updateSubmodules", "ws", UpdateSubmodulesParams{})
 	if err != nil {
@@ -613,6 +625,7 @@ func TestUpdateNoSubmodules(t *testing.T) {
 
 // Decision (ADR-0071 §3): a git that cannot be found is GIT_NOT_FOUND with no write started.
 func TestUpdateNoGit(t *testing.T) {
+	t.Parallel()
 	f := newSubsFx(t)
 	f.look = func(string) (string, error) { return "", os.ErrNotExist }
 	f.register()

@@ -88,6 +88,7 @@ func (e *env) gitmodules(dir string, paths ...string) {
 // states agree with git's own `submodule status` (uninitialised "-", outdated "+"), which
 // never reports dirty; that is `git status` in the submodule.
 func TestSubmodulesStates(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 	f.at(s.Super)
@@ -162,6 +163,7 @@ func TestSubmodulesStates(t *testing.T) {
 // not name (git's own `submodule` commands refuse it too), are not listed. The list is
 // [], never null, and the call starts no git beyond the top's.
 func TestSubmodulesNone(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := f.root
 	f.write(dir, "a.txt", "a\n")
@@ -190,7 +192,9 @@ func TestSubmodulesNone(t *testing.T) {
 // folders), and a `.gitmodules` that is itself a symlink is not read. The outside places hold
 // real repositories, so a walk that went there would start a git there.
 func TestSubmodulesContainment(t *testing.T) {
+	t.Parallel()
 	t.Run("a symlink out of the root", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 		f.at(s.Super)
@@ -217,6 +221,7 @@ func TestSubmodulesContainment(t *testing.T) {
 	})
 
 	t.Run("a symlink on the way to the directory", func(t *testing.T) {
+		t.Parallel()
 		// mods is a symlink out of the root and mods/m a real repository behind it: the
 		// directory itself is not a symlink, so only resolving the whole path finds out.
 		f := newReadFx(t)
@@ -243,6 +248,7 @@ func TestSubmodulesContainment(t *testing.T) {
 	})
 
 	t.Run("a .git that is a symlink", func(t *testing.T) {
+		t.Parallel()
 		// The submodule's directory is the workspace's, but git never makes a symlink of a
 		// submodule's .git and this one points at a repository outside: no git runs in it,
 		// and it is left out.
@@ -273,6 +279,7 @@ func TestSubmodulesContainment(t *testing.T) {
 	})
 
 	t.Run("a symlink inside a submodule's path", func(t *testing.T) {
+		t.Parallel()
 		// lib/nested is reached through lib: with lib a real directory and nested a
 		// symlink out, only nested is left out.
 		f := newReadFx(t)
@@ -302,6 +309,7 @@ func TestSubmodulesContainment(t *testing.T) {
 	})
 
 	t.Run("outside a subdirectory workspace", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		top := f.platform.Canonical(f.root)
 		// app/mod is a submodule of the workspace; other/mod2 is the repository's, beside
@@ -336,6 +344,7 @@ func TestSubmodulesContainment(t *testing.T) {
 	})
 
 	t.Run("a symlinked .gitmodules", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		f.write(f.root, "a.txt", "a\n")
 		f.commit(f.root)
@@ -356,6 +365,7 @@ func TestSubmodulesContainment(t *testing.T) {
 // is not truncated (the 1001st is the proof there is more). The gitlinks have no
 // directory behind them, so each is uninitialised and no git runs for it.
 func TestSubmodulesTruncated(t *testing.T) {
+	t.Parallel()
 	build := func(t *testing.T, n int) *readFx {
 		f := newReadFx(t)
 		f.write(f.root, "a.txt", "a\n")
@@ -390,6 +400,7 @@ func TestSubmodulesTruncated(t *testing.T) {
 // with truncated: the .gitmodules read here is cut in the middle of a record, which is
 // dropped, and the gitlinks that fell before the cut are listed.
 func TestSubmodulesOutputCap(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -414,6 +425,7 @@ func TestSubmodulesOutputCap(t *testing.T) {
 // ("a*c") is only a character, and "-x" is a path, not an option. A gitlink the
 // .gitmodules does not name ("abc", which "a*c" would match as a glob) is not listed.
 func TestSubmodulesOddPaths(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -443,6 +455,7 @@ func TestSubmodulesOddPaths(t *testing.T) {
 // Decision: a path that is not a plain relative one is never a candidate: absolute,
 // parent-directory, unclean and `.git` paths are dropped before any git sees them.
 func TestSubmodulesPlainPaths(t *testing.T) {
+	t.Parallel()
 	for p, want := range map[string]bool{
 		"lib": true, "a/b": true, "-x": true, ":(top)z": true, "a b": true,
 		"": false, ".": false, "..": false, "../x": false, "/abs": false, "a/../b": false,
@@ -457,6 +470,7 @@ func TestSubmodulesPlainPaths(t *testing.T) {
 // Decision (ADR-0020 §Retention): a result returned again after delivery holds no list,
 // as [] not null, and keeps the flag.
 func TestSubmodulesSlim(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, _ := f.reg.Lookup("git.submodules")
 	full := SubmodulesResult{Submodules: []Submodule{{Path: "lib", Recorded: "a", CheckedOut: "b", State: StateOutdated}}, Truncated: true}
@@ -482,6 +496,7 @@ func TestSubmodulesSlim(t *testing.T) {
 // and a walk that reads the drivers in the superproject only would run them here: the
 // superproject has no such driver.
 func TestSubmodulesFence(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 	f.at(s.Super)
@@ -573,6 +588,7 @@ func (e *env) append(p, text string) {
 // The walk is bounded by the submodules; the time and the number of gits are logged, and
 // the test fails only on a wrong answer or on minutes.
 func TestSubmodulesTwenty(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -613,7 +629,9 @@ func TestSubmodulesTwenty(t *testing.T) {
 // that cannot be written as an override is WORKSPACE_UNTRUSTED whose message names the
 // submodule and does not say the root's configuration is at fault.
 func TestSubmodulesErrorNamesTheSubmodule(t *testing.T) {
+	t.Parallel()
 	t.Run("a malformed .gitmodules of a submodule", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 		f.at(s.Super)
@@ -625,6 +643,7 @@ func TestSubmodulesErrorNamesTheSubmodule(t *testing.T) {
 		}
 	})
 	t.Run("a malformed .gitmodules of a nested submodule", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 		f.at(s.Super)
@@ -636,6 +655,7 @@ func TestSubmodulesErrorNamesTheSubmodule(t *testing.T) {
 		}
 	})
 	t.Run("a filter key of a submodule that cannot be overridden, untrusted", func(t *testing.T) {
+		t.Parallel()
 		f := newReadFx(t)
 		s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 		f.at(s.Super)
@@ -666,6 +686,7 @@ func TestSubmodulesErrorNamesTheSubmodule(t *testing.T) {
 // again one candidate at a time, so both gitlinks are listed and the list is not truncated
 // (a candidate alone cut can only lose entries below it, never a gitlink).
 func TestSubmodulesHugeCandidateDirectory(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)

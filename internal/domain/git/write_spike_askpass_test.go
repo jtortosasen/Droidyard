@@ -24,6 +24,7 @@ import (
 // the same invocation without the empty GIT_ASKPASS (and with the inherited SSH_ASKPASS)
 // calls the script and waits on it; the test ends that git by its process group.
 func TestWriteSpike5AskpassNeverRuns(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	for _, c := range []struct {
 		name string
@@ -97,6 +98,7 @@ func TestWriteSpike5AskpassNeverRuns(t *testing.T) {
 // SSH_ASKPASS_REQUIRE=never and no SSH_ASKPASS. Control: the inherited environment
 // reaches it unchanged.
 func TestWriteSpike5SshGetsAskpassNever(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	rec := filepath.Join(t.TempDir(), "ssh-env")
@@ -119,7 +121,7 @@ func TestWriteSpike5SshGetsAskpassNever(t *testing.T) {
 		t.Errorf("ssh received %q under writeEnv, want SSH_ASKPASS=unset REQUIRE=never", g)
 	}
 	// Control: the same daemon environment, scrubbed as the reads are, hands ssh the user's.
-	ctl := wInv{prefix: writeFixedPrefix(true), env: append(slices.DeleteFunc(scrubEnv(append(os.Environ(), extra...)), func(kv string) bool { return kv == "GIT_ALLOW_PROTOCOL=none" }), "GIT_CONFIG_NOSYSTEM=1")}
+	ctl := wInv{prefix: writeFixedPrefix(true), env: append(slices.DeleteFunc(scrubEnv(append(e.osEnviron(), extra...)), func(kv string) bool { return kv == "GIT_ALLOW_PROTOCOL=none" }), "GIT_CONFIG_NOSYSTEM=1")}
 	if g := got(ctl); g != "SSH_ASKPASS=/their/askpass REQUIRE=force" {
 		t.Errorf("control: ssh received %q with the inherited environment; the test cannot fail", g)
 	}
@@ -131,6 +133,7 @@ func TestWriteSpike5SshGetsAskpassNever(t *testing.T) {
 // looks at GIT_ASKPASS, then core.askPass, then SSH_ASKPASS, and stops at the first that
 // is set). Control: the same invocation without the pair calls the program and waits.
 func TestWritePrefixAskPassAloneHidesTheEnvironment(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	srv := newAuthServer(t)

@@ -55,8 +55,9 @@ func newWatchFx(t *testing.T, tick time.Duration) *watchFx {
 	f.sess = event.NewSession(f.bus, "ses-git")
 	f.reg = capability.NewRegistry()
 	Register(f.reg, Options{
-		Root: func(string) (string, bool) { return f.root, f.root != "" },
-		Env:  platform.Current(),
+		Root:    func(string) (string, bool) { return f.root, f.root != "" },
+		Env:     platform.Current(),
+		Environ: f.osEnviron,
 		Trusted: func(string) (bool, *capability.Error) {
 			return f.trusted.Load(), nil
 		},
@@ -224,6 +225,7 @@ func (f *watchFx) hasEntry(st Status, path string, mark Mark) bool {
 // Decision (ADR-0066 §1): the result is the baseline, git's own status, the map the
 // first event is compared with: so a client builds its view from one call and the events.
 func TestWatchBaselineIsStatus(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	f.write(f.root, "a.txt", "one\n")
 	f.write(f.root, "b.txt", "two\n")
@@ -263,6 +265,7 @@ func equalEntries(a, b []Entry) bool {
 // watched: an edit is `modified`; a commit leaves no entry and a new head.oid; each is
 // seen within three ticks.
 func TestWatchPublishesACommit(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	f.write(f.root, "a.txt", "one\n")
 	f.commit(f.root)
@@ -294,6 +297,7 @@ func TestWatchPublishesACommit(t *testing.T) {
 // the files would miss: a `git add` of an untracked file turns it from untracked to added
 // with no file changing.
 func TestWatchPublishesAnIndexChange(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	f.write(f.root, "a.txt", "one\n")
 	f.commit(f.root)
@@ -314,6 +318,7 @@ func TestWatchPublishesAnIndexChange(t *testing.T) {
 // the index, so git hashes it again each tick, finds the same content) publishes
 // nothing either.
 func TestWatchQuietWhenUnchanged(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	f.write(f.root, "a.txt", "one\n")
 	f.write(f.root, "b.txt", "two\n")
@@ -333,6 +338,7 @@ func TestWatchQuietWhenUnchanged(t *testing.T) {
 // publishes stopped {workspaceClosed} as its last act; the subscription stays; and no git
 // is left running.
 func TestWatchStopsOnWorkspaceClose(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	f.write(f.root, "a.txt", "one\n")
 	f.commit(f.root)
@@ -358,6 +364,7 @@ func TestWatchStopsOnWorkspaceClose(t *testing.T) {
 // silently, and a stop never waits for git: a status stuck in a repository filter is
 // killed with its group, and the poller ends at once.
 func TestWatchStopKillsAStatusInFlight(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	slow := f.script("slow.sh", "echo $$ > '"+pidFile+"'\nexec sleep 60")
@@ -395,6 +402,7 @@ func TestWatchStopKillsAStatusInFlight(t *testing.T) {
 // the baseline runs, or just after it, leaves nothing behind: no poller, no
 // subscription, no git.
 func TestWatchCancelledDuringBaseline(t *testing.T) {
+	// Not parallel: it sets the package variable watchBaselineHook.
 	t.Run("while git runs", func(t *testing.T) {
 		f := newWatchFx(t, 20*time.Millisecond)
 		f.write(f.root, "a.txt", "one\n")
@@ -440,6 +448,7 @@ func TestWatchCancelledDuringBaseline(t *testing.T) {
 // ADR-0066 §3) a root no longer trusted whose configuration gained a filter driver that
 // cannot be switched off, are two such failures.
 func TestWatchFailedTickStops(t *testing.T) {
+	t.Parallel()
 	t.Run("git is gone", func(t *testing.T) {
 		f := newWatchFx(t, 20*time.Millisecond)
 		f.write(f.root, "a.txt", "one\n")
@@ -477,6 +486,7 @@ func TestWatchFailedTickStops(t *testing.T) {
 // next tick the filter is not run again. The control: while trusted, the filter runs
 // at every tick.
 func TestWatchRevokedTrustRunsNoFilter(t *testing.T) {
+	t.Parallel()
 	f := newWatchFx(t, 20*time.Millisecond)
 	mark := filepath.Join(t.TempDir(), "mark")
 	clean := f.script("clean.sh", "echo x >> '"+mark+"'\ncat")
@@ -518,6 +528,7 @@ func TestWatchRevokedTrustRunsNoFilter(t *testing.T) {
 // Decision (ADR-0066 §1, §3): the errors of the baseline are the contract's codes, and
 // a watch that fails to start leaves no subscription, no poller and no git.
 func TestWatchBaselineErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("base other than HEAD", func(t *testing.T) {
 		f := newWatchFx(t, 20*time.Millisecond)
 		_, err := f.watchCtx(context.Background(), WatchParams{Base: "main"})
@@ -577,6 +588,7 @@ func TestWatchBaselineErrors(t *testing.T) {
 // Decision (ADR-0020 §Retention): a retained result drops the entries once delivered and
 // keeps the rest, so operation.wait still answers with the head.
 func TestWatchResultIsSlimmedAfterDelivery(t *testing.T) {
+	t.Parallel()
 	reg := capability.NewRegistry()
 	Register(reg, Options{})
 	d, _ := reg.Lookup("git.watch")
@@ -604,6 +616,7 @@ func TestWatchResultIsSlimmedAfterDelivery(t *testing.T) {
 // hold is too short to collide), so the no-lock promise rests on
 // TestStatusLeavesTheIndexAlone.
 func TestCommitsNeverFailBesideTheWatch(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("200 commits beside a watch")
 	}

@@ -6,9 +6,9 @@ const src = 'dev/modules/android-vpn/vpn/src/main/cpp';
 describe('rootNames', () => {
 	// Decision (R1): the last segment is the name, so a submodule is not shown by its long path.
 	it('names a root by its last path segment', () => {
-		const n = rootNames(['.', 'dev/modules/android-accessibility', 'lib'], 'android-kids-app');
+		const n = rootNames(['.', 'dev/modules/android-accessibility', 'lib'], 'sample-app');
 		expect([...n]).toEqual([
-			['.', 'android-kids-app'],
+			['.', 'sample-app'],
 			['dev/modules/android-accessibility', 'android-accessibility'],
 			['lib', 'lib'],
 		]);
@@ -50,7 +50,7 @@ describe('rootNames', () => {
 
 describe('folderName and rootTitle', () => {
 	it('takes the last segment of the root, ignoring trailing separators and Windows ones', () => {
-		expect(folderName('/Users/me/android-kids-app/')).toBe('android-kids-app');
+		expect(folderName('/Users/me/sample-app/')).toBe('sample-app');
 		expect(folderName('C:\\work\\app')).toBe('app');
 		expect(folderName('')).toBe(WORKSPACE_FALLBACK);
 		expect(folderName('/')).toBe(WORKSPACE_FALLBACK);

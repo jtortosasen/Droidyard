@@ -80,6 +80,7 @@ func (e *env) rawCommit(dir, parent, name, email, message string, when int) stri
 // commit's fields are the raw ones git records, a root commit has no parents (an empty
 // list, not null), and a merge keeps its parents in order.
 func TestLogFirstPage(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -156,6 +157,7 @@ func TestLogFirstPage(t *testing.T) {
 // subdirectory"): the project folder does not narrow the history, because simplifying
 // it by path would rewrite the parents the graph is drawn from.
 func TestLogWalksTheWholeRepositoryFromASubfolder(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -173,6 +175,7 @@ func TestLogWalksTheWholeRepositoryFromASubfolder(t *testing.T) {
 // added between two pages change nothing, because the tips are the caller's and are not
 // resolved again.
 func TestLogPagesJoin(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -235,6 +238,7 @@ func TestLogPagesJoin(t *testing.T) {
 // tipsTruncated, with HEAD and the branch among them, and those tips are acceptable as
 // the next page's from (the cap on from is the cap on tips).
 func TestLogTipsCapped(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := filepath.Join(t.TempDir(), "syn")
 	gittest.Synthetic(t, dir, 6000, 0, 5001)
@@ -263,6 +267,7 @@ func TestLogTipsCapped(t *testing.T) {
 // argv, whether the tips were resolved by the call or passed in as from, and the log
 // reads them from stdin.
 func TestLogTipsOnStdin(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -305,6 +310,7 @@ func TestLogTipsOnStdin(t *testing.T) {
 // bounds, are REQUEST_INVALID_PARAMS with no git started: a short id, a ref name, an
 // option, a revision expression, a line break (a second oid on stdin), 5,001 ids.
 func TestLogFromRefused(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -350,6 +356,7 @@ func TestLogFromRefused(t *testing.T) {
 // one that is not a commit (a tree, a blob, an annotated tag), is REQUEST_INVALID_PARAMS,
 // not git's error and not a page: the tips the caller passes back are commits.
 func TestLogFromNotACommit(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -379,6 +386,7 @@ func TestLogFromNotACommit(t *testing.T) {
 // continues without a gap or a repeat until the last commit. A single commit larger than
 // the cap cannot be paged past, and is GIT_FAILED rather than a page that never moves.
 func TestLogOutputCap(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := f.root
 	const commits, size = 60, 100 << 10
@@ -427,6 +435,7 @@ func TestLogOutputCap(t *testing.T) {
 // Decision (Q1 §2): a repository with no commit has no tips and an empty page, as lists
 // ([] and not null), and no error.
 func TestLogUnborn(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	res, err := f.logPage(LogParams{})
 	if err != nil {
@@ -442,6 +451,7 @@ func TestLogUnborn(t *testing.T) {
 // call resolves the tips or is given them; no git on the machine is GIT_NOT_FOUND with
 // a next step, before any process starts.
 func TestLogNotARepository(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(t.TempDir())
@@ -465,6 +475,7 @@ func TestLogNotARepository(t *testing.T) {
 // JSON the browser parses is the commit's text and never an error), bidi controls arrive
 // untouched for the UI to isolate, and a 10 KiB subject is whole.
 func TestLogAwkwardText(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := f.root
 	e := f.env
@@ -502,6 +513,7 @@ func TestLogAwkwardText(t *testing.T) {
 // (log.showSignature and gpg.program) does not get it run, with the tips resolved by the
 // call and with the tips passed in. The control is plain git, which runs the program.
 func TestLogRunsNoSignatureProgram(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	e := f.env
 	dir, _ := e.historyRepo("")
@@ -534,6 +546,7 @@ func TestLogRunsNoSignatureProgram(t *testing.T) {
 // once delivered but keeps the flags the caller acts on. Reversing the audience would
 // list it as an agent tool.
 func TestLogDescriptor(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, ok := f.reg.Lookup("git.log")
 	if !ok {
@@ -556,6 +569,7 @@ func TestLogDescriptor(t *testing.T) {
 // again after delivery holds no commits and no tips, so retention never keeps a page of
 // history; more and tipsTruncated stay, and as lists ([] not null).
 func TestLogSlim(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, _ := f.reg.Lookup("git.log")
 	full := LogResult{
@@ -585,6 +599,7 @@ func TestLogSlim(t *testing.T) {
 // control is that B's whole walk is longer, so a handler that dropped the "^" lines fails the
 // equality (seen failing that way).
 func TestLogExclude(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -620,6 +635,7 @@ func TestLogExclude(t *testing.T) {
 // most 5,000; anything else is REQUEST_INVALID_PARAMS, and the syntactic refusals start no
 // git. A non-commit is found by one cat-file, so it is checked apart.
 func TestLogExcludeRefused(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)

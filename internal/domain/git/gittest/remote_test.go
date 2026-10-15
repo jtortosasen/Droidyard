@@ -11,6 +11,7 @@ import (
 // level-5 runs assert on: main, feature/x and y on the remote, only a local main in the
 // clones, the hooks and the empty credential.helper in `w`, and a colleague who pushes.
 func TestRemoteShape(t *testing.T) {
+	t.Parallel()
 	r := Remote(t, filepath.Join(t.TempDir(), "fx"))
 	heads := strings.Fields(out(t, r.Origin, "for-each-ref", "--format=%(refname)", "refs/heads"))
 	if want := []string{"refs/heads/feature/x", "refs/heads/main", "refs/heads/y"}; strings.Join(heads, " ") != strings.Join(want, " ") {
@@ -62,6 +63,7 @@ func TestRemoteShape(t *testing.T) {
 // initialised at the recorded commits, `extra` uninitialised, and the hooks in the three
 // git directories a daemon's update can touch.
 func TestSubmodulesShape(t *testing.T) {
+	t.Parallel()
 	s := Submodules(t, filepath.Join(t.TempDir(), "fx"))
 	status := out(t, s.Super, "submodule", "status", "--recursive")
 	lines := strings.Split(status, "\n")

@@ -33,6 +33,7 @@ func dedupe(oids []string) []string {
 // deep, a tag on a tree dropped, each commit once at its first place. One function builds
 // it, so git.log and git.refs agree.
 func TestTipsOrderPeelingAndDedupe(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	got, truncated, err := tips(context.Background(), e.r, r.Dir, false)
@@ -73,11 +74,13 @@ func TestTipsOrderPeelingAndDedupe(t *testing.T) {
 // Decision (Q1 §2): at most 5,000 tips, HEAD and the branches kept first, and
 // tipsTruncated says when any was dropped; one fewer and it does not.
 func TestTipsCapped(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		tags      int
 		truncated bool
 	}{{4980, false}, {5100, true}} {
 		t.Run(strconv.Itoa(c.tags)+" tags", func(t *testing.T) {
+			t.Parallel()
 			e := needGit(t)
 			dir := filepath.Join(t.TempDir(), "syn")
 			gittest.Synthetic(t, dir, 6000, 0, c.tags)
@@ -107,6 +110,7 @@ func TestTipsCapped(t *testing.T) {
 
 // Decision: a repository with no commit has no tips and no error.
 func TestTipsOfAnUnbornRepository(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := e.repo()
 	got, truncated, err := tips(context.Background(), e.r, dir, false)
@@ -120,6 +124,7 @@ func TestTipsOfAnUnbornRepository(t *testing.T) {
 // page being a slice of the whole; a commit's details of nine fields; its files against
 // the first parent (a root commit against the empty tree), with git's own counts.
 func TestBuildersAgainstARealRepository(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	ctx := context.Background()
@@ -228,6 +233,7 @@ func TestBuildersAgainstARealRepository(t *testing.T) {
 // folded: exactly 5,000 distinct tips are all kept and not truncated, 5,001 keep 5,000 and
 // say so, and a few hundred more refs on a commit already in the set change nothing.
 func TestTipsCapCountsDistinctCommits(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	dir := filepath.Join(t.TempDir(), "syn")
 	gittest.Synthetic(t, dir, 6000, 0, 5100)
@@ -292,6 +298,7 @@ func TestTipsCapCountsDistinctCommits(t *testing.T) {
 
 // Decision (Q1 §2): HEAD is a tip first even when detached on a commit no ref points to.
 func TestTipsOfADetachedHead(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	e.g(r.Dir, "checkout", "-q", "--detach", r.Oids["root"])
@@ -310,6 +317,7 @@ func TestTipsOfADetachedHead(t *testing.T) {
 // Decision (Q1 §2, "git.show lists only the workspace's files"): the "." pathspec, from
 // the root git runs in, keeps a subdirectory workspace to its own files.
 func TestShowFilesFromASubdirectory(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	_, files := showArgs(r.Oids["octopus"], r.Oids["merge"])

@@ -119,6 +119,7 @@ func (f *wfx) register() {
 		},
 		Env:     platform.Current(),
 		Trusted: func(string) (bool, *capability.Error) { return true, nil },
+		Environ: f.e.osEnviron,
 		Starter: func(cmd *exec.Cmd) error {
 			f.readStarts.Add(1)
 			return groupStarter(cmd)
@@ -253,6 +254,7 @@ func wantErrCode(t *testing.T, err *capability.Error, code capability.ErrorCode)
 // hook runs (the fixture's hooks write markers) and no local branch moves. The control is
 // the state before: origin/main is behind until the fetch.
 func TestFetchFromALocalRemote(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	pushed := f.r.PushOther(t, 1)
@@ -301,6 +303,7 @@ func TestFetchFromALocalRemote(t *testing.T) {
 // hook at all (the golden registry), which refuses every root. Seen failing with the gate
 // not installed on the descriptor (write's `d.Authorize = o.gate` removed): the fetch ran.
 func TestWritesUntrustedStartNothing(t *testing.T) {
+	t.Parallel()
 	for _, call := range []struct {
 		name   string
 		params any
@@ -347,6 +350,7 @@ func TestWritesUntrustedStartNothing(t *testing.T) {
 // SignalGroup replaced by unix.Kill(rec.Pid(), sig)): the stubborn uploadpack outlived the
 // call.
 func TestFetchCancelKillsTheGroup(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	for _, stubborn := range []bool{false, true} {
 		name := "uploadpack dies to SIGTERM"
@@ -403,6 +407,7 @@ func TestFetchCancelKillsTheGroup(t *testing.T) {
 // (the group is still checked each time); the test fails only if no attempt in five got the
 // uploadpack running before the limit, which would mean the machine, not the runner.
 func TestFetchTimeout(t *testing.T) {
+	// Not parallel: its limit is 2 s and the uploadpack has to start inside it (it retries five times, and still failed on a loaded machine).
 	t.Log(gitVersion(t))
 	type answer struct {
 		res any
@@ -502,6 +507,7 @@ exec '` + real + `' "$@"
 // with the runner sending SIGKILL at once (stopGroup without its SIGTERM): the cancel left
 // refs/remotes/origin/main.lock.
 func TestWriteCancelLeavesNoLock(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	git := gitWithHooks(t)
@@ -566,6 +572,7 @@ func TestWriteCancelLeavesNoLock(t *testing.T) {
 // credential.helper is empty. Within 5 s, whatever askpass the environment names: the
 // daemon's own SSH_ASKPASS (a script that sleeps) must not be run.
 func TestFetchPromptFails(t *testing.T) {
+	// Not parallel: it sets SSH_ASKPASS in the process environment (t.Setenv).
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	srv := newAuthServer(t)
@@ -606,6 +613,7 @@ func TestFetchPromptFails(t *testing.T) {
 // removed (the `slices.Contains(names, p.Remote)` test): the path of another repository,
 // the URL and the unknown name were fetched or failed as GIT_FAILED.
 func TestFetchRemoteRefused(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	for _, remote := range []string{
 		"-x", "--all", "--upload-pack=touch /tmp/x", "a b", "a\x00b", "a\nb", "unknown", "ORIGIN",
@@ -631,6 +639,7 @@ func TestFetchRemoteRefused(t *testing.T) {
 // Decision (ADR-0071 §1, §2): a root that is no repository is GIT_NOT_A_REPOSITORY, from
 // the remote listing, before any fetch starts.
 func TestFetchNotARepository(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.roots["ws"] = platform.Current().Canonical(t.TempDir())
 	_, err := f.call("git.fetch", "ws", FetchParams{})
@@ -646,6 +655,7 @@ func TestFetchNotARepository(t *testing.T) {
 // fails, so git exits non-zero at once with a stray in its group. Seen failing with the
 // runner ending the group only on cancel and timeout: the sleep survived the call.
 func TestWriteKillsWhatGitLeft(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	strayFile := filepath.Join(t.TempDir(), "stray.pid")
 	script := f.e.script("uploadpack.sh", "sleep 120 >/dev/null 2>&1 </dev/null &\necho $! > '"+strayFile+"'\nexit 1")
@@ -669,6 +679,7 @@ func TestWriteKillsWhatGitLeft(t *testing.T) {
 // ends. The kind's value is the one internal/process records. Seen failing with the
 // starter given the other kinds' attributes: getsid was the test's.
 func TestWriteIsRecorded(t *testing.T) {
+	t.Parallel()
 	if writeKind != string(process.GitWrite) {
 		t.Fatalf("the runner's kind %q is not process.GitWrite %q", writeKind, process.GitWrite)
 	}
@@ -708,6 +719,7 @@ func TestWriteIsRecorded(t *testing.T) {
 // the first assertion names git.fetch. The scheduler's side is internal/capability's
 // TestLongRunningHasNoQueueBound.
 func TestWritesAreLongRunning(t *testing.T) {
+	t.Parallel()
 	reg := capability.NewRegistry()
 	Register(reg, Options{})
 	var writes []string
@@ -769,6 +781,7 @@ func countLines(path string) int {
 // key taken from the work tree's own git directory (commondir not followed): the linked work
 // tree's fetch ran at once.
 func TestWritesQueuePerRepository(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	logA, gateA := filepath.Join(t.TempDir(), "a.log"), filepath.Join(t.TempDir(), "a.gate")
@@ -852,6 +865,7 @@ func waitLines(t *testing.T, path string, n int) {
 // files: a plain repository, a folder of it, a linked work tree and a submodule's own git
 // directory, and a root that is no repository (its own key).
 func TestWriteKeyIsTheCommonDirectory(t *testing.T) {
+	t.Parallel()
 	e := needGit(t)
 	r := gittest.Remote(t, filepath.Join(t.TempDir(), "fx"))
 	canon := platform.Current().Canonical
@@ -900,6 +914,7 @@ func TestWriteKeyIsTheCommonDirectory(t *testing.T) {
 // line, runs for at most 20 lines and 4 KiB, and is valid UTF-8; stderr with neither line
 // gives its first. A fetch's progress lines before the error are not the cause.
 func TestWriteCause(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", 300)
 	var many []string
 	for i := 0; i < 30; i++ {
@@ -930,6 +945,7 @@ func TestWriteCause(t *testing.T) {
 
 // Decision (ADR-0071 §3): a git that cannot be found is GIT_NOT_FOUND with no write started.
 func TestFetchNoGit(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.look = func(string) (string, error) { return "", errors.New("not found") }
 	f.register()

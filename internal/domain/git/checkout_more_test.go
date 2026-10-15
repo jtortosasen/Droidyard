@@ -19,6 +19,7 @@ import (
 // raw JSON, because the struct's omitempty would drop an empty slice. Seen failing with the
 // empty-list check removed: the call ran as ["."].
 func TestEmptyRootsRefused(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.g(f.r.W, "branch", "-q", "loc", "origin/y")
 	for name, params := range map[string]string{
@@ -49,6 +50,7 @@ func TestEmptyRootsRefused(t *testing.T) {
 // skipped), a timeout, and a cancel before the first root (the call's own cancel). Seen
 // failing with the cancelled roots marked skipped.
 func TestApplyOutcomesOfACancelAndOfAFailure(t *testing.T) {
+	t.Parallel()
 	steps := []branchStep{
 		{root: ".", dir: "/r", switches: true},
 		{root: "lib", dir: "/r/lib", switches: true},
@@ -160,6 +162,7 @@ func TestApplyOutcomesOfACancelAndOfAFailure(t *testing.T) {
 // completes; before the first write the same error is the call's own. Driven through the
 // exec seam. Seen failing with the old `return nil, err`: the call lost the done root.
 func TestApplyErrorsAfterAWrite(t *testing.T) {
+	t.Parallel()
 	steps := []branchStep{{root: ".", dir: "/r"}, {root: "lib", dir: "/r/lib"}, {root: "lib/nested", dir: "/r/lib/nested"}}
 	apply := func(failAt int, res result, err error) (BranchResult, error) {
 		i := 0
@@ -217,6 +220,7 @@ func TestApplyErrorsAfterAWrite(t *testing.T) {
 // new branch `ghost` is made, and a checkout of `ghost` finds no branch. Seen failing with
 // rev-parse in refExists: the new branch was refused as existing.
 func TestBranchLookupIsExact(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.g(f.r.W, "tag", "refs/heads/ghost", "main")
 	if f.e.revOr(f.r.W, "refs/heads/ghost") == "" {
@@ -238,6 +242,7 @@ func TestBranchLookupIsExact(t *testing.T) {
 // only once the switch can go ahead: plan P1 fact 7). The control is the same call once the
 // file is restored.
 func TestCreateBranchWithCheckoutRefusedOverLocalChanges(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	from := f.r.Oids["feature/x"]
@@ -270,6 +275,7 @@ func TestCreateBranchWithCheckoutRefusedOverLocalChanges(t *testing.T) {
 // do for a creation and for a checkout alike: choose another name, and a branch already named
 // so is renamed in a terminal.
 func TestRemotePrefixRefusalSaysWhatToDo(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	for _, call := range []func() *capability.Error{
 		func() *capability.Error {

@@ -10,6 +10,7 @@ import (
 // is trackArgs's job, asked for explicitly, never switchArgs's. --no-guess is what keeps
 // switchArgs from creating the local branch by itself. Control: without it git creates it.
 func TestWriteSwitchArgsDoNotGuess(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	net := e.inv(true)
@@ -32,6 +33,7 @@ func TestWriteSwitchArgsDoNotGuess(t *testing.T) {
 // branch as its upstream whatever the user's branch.autoSetupMerge says. Control: without
 // --track a user who turned auto set-up off gets a branch with no upstream.
 func TestWriteTrackArgsSetTheUpstream(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	e, r := newRemote(t)
 	e.g(r.W, "config", "branch.autoSetupMerge", "false")

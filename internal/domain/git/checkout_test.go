@@ -49,6 +49,7 @@ func wantDone(t *testing.T, res BranchResult) {
 // (the fixture's post-checkout and reference-transaction write markers). The control is the
 // state before: HEAD is main and y.txt is absent.
 func TestCheckoutLocal(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	f.e.g(f.r.W, "branch", "-q", "loc", "origin/y")
@@ -81,6 +82,7 @@ func TestCheckoutLocal(t *testing.T) {
 // out. The control: no local y before, and plain `git switch y` (git's own guess) would have
 // made one too, which is why the call asks for it with `remote` and --no-guess otherwise.
 func TestCheckoutRemoteCreatesTracking(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	if f.e.revOr(f.r.W, "refs/heads/y") != "" {
@@ -115,6 +117,7 @@ func TestCheckoutRemoteCreatesTracking(t *testing.T) {
 // the remote-tracking one's, and gets no upstream. Seen failing with the local check
 // removed (the call always taking the tracking path): git refused to create y.
 func TestCheckoutExistingLocalWithRemote(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.g(f.r.W, "branch", "-q", "y", "main")
 	own := f.e.rev(f.r.W, "refs/heads/y")
@@ -140,6 +143,7 @@ func TestCheckoutExistingLocalWithRemote(t *testing.T) {
 // nothing: HEAD, the refs and the edited file are as they were. The call itself succeeds.
 // The control is the same checkout once the file is restored.
 func TestCheckoutRefusedOverLocalChanges(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	f.e.g(f.r.W, "branch", "-q", "fx", "origin/feature/x")
@@ -173,6 +177,7 @@ func TestCheckoutRefusedOverLocalChanges(t *testing.T) {
 // on, as a user's configuration may have it, plain git moves lib's HEAD, and the call does
 // not. Seen failing with --no-recurse-submodules removed from switchArgs: lib moved to lib1.
 func TestCheckoutNoRecurse(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "subs"))
@@ -211,6 +216,7 @@ func TestCheckoutNoRecurse(t *testing.T) {
 // and reference-transaction would see. The control: the same operation by plain git writes
 // the markers, so the empty marker file is the invocation's doing (core.hooksPath).
 func TestCheckoutRunsNoHook(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	f.e.g(f.r.W, "switch", "-q", "-c", "ctl", "origin/y")
@@ -234,6 +240,7 @@ func TestCheckoutRunsNoHook(t *testing.T) {
 // exists is REQUEST_INVALID_PARAMS and no write git starts. The commit is a remote's, so a
 // branch made from the current HEAD would not tell `from` from HEAD.
 func TestCreateBranch(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	from := f.r.Oids["feature/x"]
@@ -288,6 +295,7 @@ func TestCreateBranch(t *testing.T) {
 // Seen failing with the cat-file check removed (firstNotCommit): the tree, the blob, the tag
 // and the unknown id reached the write and failed there as outcomes.
 func TestCreateBranchFromRefused(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	good := f.r.Oids["y"]
 	tree := f.e.rev(f.r.W, "HEAD^{tree}")
@@ -331,6 +339,7 @@ func TestCreateBranchFromRefused(t *testing.T) {
 // accept, reached the write (a ref named refs/heads/refs/heads/x was created, HEAD was
 // refused by the write).
 func TestBranchNamesRefused(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	// A previous branch, so that @{-1} means something to check-ref-format.
 	f.e.g(f.r.W, "switch", "-q", "-c", "previous")
@@ -379,6 +388,7 @@ func TestBranchNamesRefused(t *testing.T) {
 // answer GIT_NOT_FOUND to anything that reached a git). Seen failing with validName made to
 // accept everything: the names below that git's own rules accept were not refused here.
 func TestBranchNamesRefusedBeforeAnyGit(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.look = func(string) (string, error) { return "", os.ErrNotExist }
 	f.register()
@@ -397,6 +407,7 @@ func TestBranchNamesRefusedBeforeAnyGit(t *testing.T) {
 // remote-tracking one; a remote that is not the repository's; a tag or a commit, which are
 // not branches. The control: a branch that exists is checked out.
 func TestCheckoutMissingBranch(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.e.g(f.r.W, "tag", "-a", "-m", "t", "v1", "main")
 	for name, p := range map[string]CheckoutParams{
@@ -432,6 +443,7 @@ func TestCheckoutMissingBranch(t *testing.T) {
 // fetch is cancelled; and it is not failed by ADR-0020's 20 s queue bound (the writes are
 // LongRunning: TestWritesAreLongRunning). The fetch is held on a gate script.
 func TestCheckoutQueuedBehindFetch(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	f.e.g(f.r.W, "branch", "-q", "loc", "origin/y")
@@ -498,6 +510,7 @@ func (f *wfx) slowCheckout() string {
 // a lock. Seen failing with SIGKILL sent at once (stopGroup without its SIGTERM): the
 // cancelled checkout left index.lock.
 func TestWriteCancelLeavesNoLockCheckout(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	started := f.slowCheckout()
@@ -557,6 +570,7 @@ func TestWriteCancelLeavesNoLockCheckout(t *testing.T) {
 // lock left, and is a failed outcome GIT_FAILED naming the limit, with the same nextStep as
 // a cancel. The limit is shortened for the test.
 func TestCheckoutTimeout(t *testing.T) {
+	// Not parallel: its limit is 700 ms and the smudge has to start inside it, which a loaded machine cannot promise.
 	f := newWfx(t)
 	f.timeout = 700 * time.Millisecond
 	f.register()
@@ -595,6 +609,7 @@ func decodeBranchResult(t *testing.T, out capability.Outcome) BranchResult {
 // failed outcome with git's line, nothing changed, and the nextStep to fetch the missing
 // objects once in a terminal.
 func TestCheckoutPartialCloneNextStep(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	f := newWfx(t)
 	f.e.g(f.r.Origin, "config", "uploadpack.allowFilter", "true")
@@ -636,6 +651,7 @@ func TestCheckoutPartialCloneNextStep(t *testing.T) {
 // ["."] and an absent roots are the same call. It was TestSubmoduleRootsBeforeP8, when
 // every submodule path was refused.
 func TestBranchRootsRefused(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	from := f.r.Oids["y"]
 	f.e.g(f.r.W, "branch", "-q", "loc", "origin/y")
@@ -678,6 +694,7 @@ func TestBranchRootsRefused(t *testing.T) {
 // WORKSPACE_UNTRUSTED with the trust nextStep and no git of any kind. Two gates: the hook
 // refusing, and none at all (the golden registry).
 func TestBranchWritesUntrustedStartNothing(t *testing.T) {
+	t.Parallel()
 	for _, hook := range []func(ctx context.Context, call *capability.Call) (any, error){
 		func(ctx context.Context, call *capability.Call) (any, error) {
 			return nil, policy.UntrustedError("/the/root")
@@ -708,6 +725,7 @@ func TestBranchWritesUntrustedStartNothing(t *testing.T) {
 // Decision (ADR-0071 §1): a root that is no repository is GIT_NOT_A_REPOSITORY from the
 // remotes' listing, before any write; no git is GIT_NOT_FOUND.
 func TestBranchWritesNotARepositoryAndNoGit(t *testing.T) {
+	t.Parallel()
 	f := newWfx(t)
 	f.roots["ws"] = platform.Current().Canonical(t.TempDir())
 	_, err := f.call("git.checkout", "ws", CheckoutParams{Name: "main"})

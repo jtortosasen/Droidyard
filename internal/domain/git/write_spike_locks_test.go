@@ -20,6 +20,7 @@ import (
 // alone. git removes its lock files from its signal handlers, which SIGKILL skips; where
 // the control leaves none the test cannot tell, and says so.
 func TestWriteSpike11NoLockLeft(t *testing.T) {
+	t.Parallel()
 	t.Log(gitVersion(t))
 	type held struct {
 		args    []string

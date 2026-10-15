@@ -263,7 +263,7 @@ describe('the Submodules section markup', () => {
 			{ path: 'x/hev-server/src/core', recorded: R, checkedOut: R, state: 'clean' },
 			{ path: 'x/hev-tunnel/src/core', recorded: R, checkedOut: R, state: 'clean' },
 		]);
-		const fetcher = new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/work/android-kids-app' }, () => {});
+		const fetcher = new FetchModel({ call: (() => Promise.resolve({})) as FetchClient['call'] }, { root: '/work/sample-app' }, () => {});
 		const body = render(HistoryPanel, { props: { store: t.store, watch: t.watch as unknown as GitWatch, workspaceId: 'ws1', fetcher, branches: idleBranches(), submodules, updater: idleUpdater() } }).body;
 		expect(body).toMatch(/data-root-option="\."[^>]*title="\/proj"[^>]*>[\s\S]*?<span class="text[^"]*">proj</);
 		expect(body).toMatch(/data-root-option="x\/hev-server\/src\/core"[^>]*title="x\/hev-server\/src\/core"[^>]*>[\s\S]*?<span class="text[^"]*">hev-server\/src\/core</);

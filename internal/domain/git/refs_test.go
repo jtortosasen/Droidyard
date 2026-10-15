@@ -65,6 +65,33 @@ func (e *env) createRefs(dir, oid string, refs []string) {
 	e.gStdin(dir, b.String(), "update-ref", "--stdin")
 }
 
+// createPackedRefs makes refs as createRefs does, but by appending them to packed-refs, the
+// file git itself writes (the header's "sorted" is dropped, as TestRefsAwkwardNames does,
+// so git sorts them on reading). For the tens of thousands a cap test needs: as loose
+// files they cost seconds to write and to read, and git.refs reading them took most of
+// its 10 s limit once other tests shared the disk. Refs git lists are the same.
+func (e *env) createPackedRefs(dir, oid string, refs []string) {
+	e.t.Helper()
+	e.g(dir, "pack-refs", "--all")
+	packed := filepath.Join(dir, ".git", "packed-refs")
+	raw, err := os.ReadFile(packed)
+	if err != nil && !os.IsNotExist(err) {
+		e.t.Fatal(err)
+	}
+	var b strings.Builder
+	if len(raw) == 0 {
+		b.WriteString("# pack-refs with: peeled fully-peeled \n")
+	} else {
+		b.WriteString(strings.Replace(string(raw), " sorted", "", 1))
+	}
+	for _, r := range refs {
+		b.WriteString(oid + " " + r + "\n")
+	}
+	if err := os.WriteFile(packed, []byte(b.String()), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 // Decision (Q1 §1, §2): git.refs lists what git lists, whole and as plain git names it:
 // HEAD with the current branch's upstream and its ahead and behind (counted by git, here
 // one commit each way), local branches with their folders, remote-tracking branches split
@@ -72,6 +99,7 @@ func (e *env) createRefs(dir, oid string, refs []string) {
 // has none), the work trees with the one that holds the workspace marked, and the tip set
 // git.log starts from. A detached HEAD has a commit and no branch, upstream or counts.
 func TestRefsOfARealRepository(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -207,6 +235,7 @@ func TestRefsOfARealRepository(t *testing.T) {
 // an upstream that is a local branch counts too, and the upstream of a branch the
 // repository no longer has is named and counts zero, not an error.
 func TestRefsUpstreamKinds(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -245,6 +274,7 @@ func TestRefsUpstreamKinds(t *testing.T) {
 // Decision (Q1 §1): a repository with no commit has a branch HEAD would be on, no commit,
 // no refs and no tips, as lists ([] and not null), and no error.
 func TestRefsUnborn(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	res := f.mustRefs()
 	b, _ := json.Marshal(res)
@@ -257,6 +287,7 @@ func TestRefsUnborn(t *testing.T) {
 // Decision (ADR-0066 §4): a root in no repository is GIT_NOT_A_REPOSITORY; no git on the
 // machine is GIT_NOT_FOUND with a next step, before any process starts.
 func TestRefsNotARepository(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(t.TempDir())
@@ -281,6 +312,7 @@ func TestRefsNotARepository(t *testing.T) {
 // oracle is what fails when both capabilities stop peeling together; the comparison of the
 // two is what fails when only one of them is changed.
 func TestRefsTipsEqualLogTips(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := filepath.Join(t.TempDir(), "syn")
 	gittest.Synthetic(t, dir, 6000, 0, 5100) // every tenth tag annotated
@@ -349,6 +381,7 @@ func TestRefsTipsEqualLogTips(t *testing.T) {
 // bytes that are not UTF-8 comes back as valid UTF-8 (one U+FFFD per run), so the JSON the
 // browser parses is never an error.
 func TestRefsAwkwardNames(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -437,6 +470,7 @@ func TestRefsAwkwardNames(t *testing.T) {
 // configured remote claims falls back to the first slash. Splitting at the first slash
 // would make team/origin's branch x the branch origin/x of team.
 func TestRefsRemoteNames(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -466,6 +500,7 @@ func TestRefsRemoteNames(t *testing.T) {
 // HEAD and one for-each-ref. A second read of either could disagree with the first when a
 // ref moves in between.
 func TestRefsReadsOnce(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
 	f.at(r.Dir)
@@ -496,8 +531,8 @@ func (e *env) fillRefs(dir string, n int) {
 		heads = append(heads, fmt.Sprintf("refs/heads/b%05d", i))
 		remotes = append(remotes, fmt.Sprintf("refs/remotes/origin/r%05d", i))
 	}
-	e.createRefs(dir, head, heads)
-	e.createRefs(dir, head, remotes)
+	e.createPackedRefs(dir, head, heads)
+	e.createPackedRefs(dir, head, remotes)
 }
 
 // Decision (Q1 §1, ADR-0069 §2): each list holds at most 5,000, with its own truncated
@@ -506,6 +541,7 @@ func (e *env) fillRefs(dir string, n int) {
 // git.log's tips drop them in). The flags are independent: one over the cap does not mark
 // the others.
 func TestRefsCaps(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	dir := filepath.Join(t.TempDir(), "syn")
 	gittest.Synthetic(t, dir, 6000, 0, 5001)
@@ -556,6 +592,7 @@ func TestRefsCaps(t *testing.T) {
 // truncated, the lists before them are whole and not marked, the cut line is never half
 // read, and the tips say so too.
 func TestRefsOutputCap(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
@@ -565,7 +602,7 @@ func TestRefsOutputCap(t *testing.T) {
 	for i := 0; i < 30000; i++ {
 		tags = append(tags, fmt.Sprintf("refs/tags/%s%05d", long, i))
 	}
-	f.env.createRefs(f.root, head, tags)
+	f.env.createPackedRefs(f.root, head, tags)
 
 	res := f.mustRefs()
 	if !res.TagsTruncated || len(res.Tags) != maxRefList || res.BranchesTruncated || res.RemotesTruncated || !res.TipsTruncated {
@@ -586,6 +623,7 @@ func TestRefsOutputCap(t *testing.T) {
 // a bare repository's entry is not a work tree, an all-zero HEAD is no commit, and an
 // entry the output was cut in (never terminated) is not read. The cap is the lists' cap.
 func TestParseWorktrees(t *testing.T) {
+	t.Parallel()
 	const z = "0000000000000000000000000000000000000000"
 	oid := strings.Repeat("a", 40)
 	out := "worktree /r\x00HEAD " + oid + "\x00branch refs/heads/main\x00\x00" +
@@ -628,6 +666,7 @@ func TestParseWorktrees(t *testing.T) {
 // works against plain git: a signature program, an fsmonitor hook and an external diff are
 // run by it, a replace ref or a graft changes the ahead and behind it counts.
 func TestRefsFence(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T) (*readFx, string) {
 		f := newReadFx(t)
 		e := f.env
@@ -652,6 +691,7 @@ func TestRefsFence(t *testing.T) {
 	}
 
 	t.Run("programs the repository configures", func(t *testing.T) {
+		t.Parallel()
 		f, head := setup(t)
 		e := f.env
 		gpg, fsm, ext := filepath.Join(t.TempDir(), "gpg"), filepath.Join(t.TempDir(), "fsm"), filepath.Join(t.TempDir(), "ext")
@@ -681,6 +721,7 @@ func TestRefsFence(t *testing.T) {
 	})
 
 	t.Run("a replace ref giving HEAD another history", func(t *testing.T) {
+		t.Parallel()
 		f, head := setup(t)
 		e := f.env
 		e.g(f.root, "update-ref", "refs/replace/"+head, e.forgedCommit(f.root, ""))
@@ -691,6 +732,7 @@ func TestRefsFence(t *testing.T) {
 	})
 
 	t.Run("a graft giving HEAD no parent", func(t *testing.T) {
+		t.Parallel()
 		f, head := setup(t)
 		f.write(f.root, ".git/info/grafts", head+"\n")
 		if got := plainCounts(f); got != "1 1" {
@@ -706,6 +748,7 @@ func TestRefsFence(t *testing.T) {
 // optional root), and that takes no parameter but that root. Reversing the audience
 // would list it as an agent tool.
 func TestRefsDescriptor(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, ok := f.reg.Lookup("git.refs")
 	if !ok {
@@ -731,6 +774,7 @@ func TestRefsDescriptor(t *testing.T) {
 // the lists and no tips, so retention never keeps the repository's refs; HEAD and the
 // flags stay, and the lists as [] not null.
 func TestRefsSlim(t *testing.T) {
+	t.Parallel()
 	f := newReadFx(t)
 	d, _ := f.reg.Lookup("git.refs")
 	full := RefsResult{
