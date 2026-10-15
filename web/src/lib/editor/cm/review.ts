@@ -1,5 +1,7 @@
 // Review mode (ADR-0067 §4; plan m2l step 7): the buffer, editable, on the left; HEAD's text as
-// unified rows on the right, read-only; the panes held level by an elastic scroll.
+// unified rows on the right, read-only; the panes held level by an elastic scroll. A commit's file
+// (ADR-0070 §4; plan m2n step 9) puts that commit's text, read-only, in the buffer's place and its
+// first parent's on the right: no buffer is touched, and nothing is mirrored or followed.
 //
 //   - The maps (rows, the elastic map, the anchor, the driver) are `git/review.ts`, pure. This file
 //     is the glue: it measures both panes with `lineBlockAt`, sets their scroll and padding, and
@@ -26,6 +28,7 @@ import {
 	StateField,
 	Text,
 	type ChangeDesc,
+	type EditorStateConfig,
 	type Extension,
 	type Range,
 } from '@codemirror/state';
@@ -53,6 +56,7 @@ import { minimalChange } from './change';
 import { highlightStyle } from './highlight';
 import { DIFF_CONFIG, SIDES_CSS, bufferSide, follow, followed, mergeTheme, mirror, mix } from './merge';
 import { languageFor } from './languages';
+import { textSide, useLanguage } from './textside';
 import { isSaveKey } from './savekey';
 import { theme } from './theme';
 
@@ -276,6 +280,8 @@ interface Pad {
 
 class CmReview implements EditorHandle {
 	#buffer: CmBuffer | null;
+	/** A commit's text in the buffer's place (read-only), else null. */
+	#text: ReviewOptions['text'];
 	#opts: ReviewOptions;
 	#root: ShadowRoot;
 	#sheet: CSSStyleSheet | null = null;
@@ -307,8 +313,10 @@ class CmReview implements EditorHandle {
 	#gone = false;
 
 	constructor(host: HTMLElement, opts: ReviewOptions) {
+		if (opts.text !== undefined && opts.buffer !== null) throw new Error('a read-only text takes the buffer’s place; give one of them');
 		if (opts.buffer !== null && !(opts.buffer instanceof CmBuffer)) throw new Error('the buffer was not made by this editor');
 		this.#buffer = opts.buffer;
+		this.#text = opts.text;
 		this.#opts = opts;
 		const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
 		root.replaceChildren();
@@ -329,13 +337,14 @@ class CmReview implements EditorHandle {
 		this.#baseState = this.#makeBase();
 
 		// The DOM: captions, then the panes (the left only with a buffer).
-		const single = this.#buffer === null;
+		const single = this.#buffer === null && this.#text === undefined;
+		const [leftLabel, rightLabel] = opts.labels ? [opts.labels.left, opts.labels.right] : ['Working tree', 'Against HEAD'];
 		this.#wrap = document.createElement('div');
 		this.#wrap.className = single ? 'droidyard-review single' : 'droidyard-review';
 		this.#wrap.dataset.review = 'root';
 		const sides = document.createElement('div');
 		sides.className = 'droidyard-sides';
-		for (const label of single ? ['HEAD (deleted from the working tree)'] : ['Working tree', 'Against HEAD']) {
+		for (const label of single ? [opts.labels?.right ?? 'HEAD (deleted from the working tree)'] : [leftLabel, rightLabel]) {
 			const span = document.createElement('span');
 			span.textContent = label;
 			sides.append(span);
@@ -360,13 +369,15 @@ class CmReview implements EditorHandle {
 		if (this.#buffer !== null) {
 			this.#mountLeft();
 			this.#offChange = this.#buffer.onChange(() => this.#follow());
+		} else if (this.#text !== undefined) {
+			this.#mountLeft();
 		} else {
 			this.#rebuild();
 		}
 		this.#prevSave = this.#buffer?.onSave ?? null;
 		this.#save = () => opts.onSave();
 		if (this.#buffer !== null) this.#buffer.onSave = this.#save;
-		if (single) this.#loadLanguage();
+		if (this.#buffer === null) this.#loadLanguage();
 		if (typeof ResizeObserver !== 'undefined') {
 			this.#observer = new ResizeObserver(() => {
 				this.#map = null;
@@ -383,12 +394,15 @@ class CmReview implements EditorHandle {
 	}
 
 	#loadLanguage(): void {
-		const entry = this.#opts.path === undefined ? null : languageFor(this.#opts.path);
+		const path = this.#text?.path ?? this.#opts.path;
+		const entry = path === undefined ? null : languageFor(path);
 		if (entry === null) return;
 		entry.load().then(
 			(ext) => {
 				if (this.#gone) return;
 				this.#own = ext;
+				// A read-only text's left pane takes the language too (an effect, not an edit).
+				if (this.#text !== undefined) this.#left?.dispatch({ effects: useLanguage(ext) });
 				this.#schedule();
 			},
 			() => {},
@@ -410,7 +424,7 @@ class CmReview implements EditorHandle {
 				renderField,
 				numbers,
 				syntaxHighlighting(highlightStyle),
-				EditorView.contentAttributes.of({ 'aria-label': 'Changes against HEAD', 'aria-readonly': 'true' }),
+				EditorView.contentAttributes.of({ 'aria-label': this.#opts.labels ? `Changes: ${this.#opts.labels.right}` : 'Changes against HEAD', 'aria-readonly': 'true' }),
 				theme,
 				mergeTheme,
 				reviewTheme,
@@ -424,12 +438,21 @@ class CmReview implements EditorHandle {
 		return new EditorView({ state, parent: this.#rightEl, root: this.#root });
 	}
 
-	#mountLeft(): void {
-		const buffer = this.#buffer!;
-		const side = bufferSide(buffer);
+	/** The left pane's document and extensions before the review's own: the buffer's, or the read-only text's. */
+	#leftSide(): { config: EditorStateConfig; mirrored: Extension } {
+		const buffer = this.#buffer;
+		if (buffer === null) {
+			const text = this.#text!;
+			return { config: textSide(text.text, 'File contents', this.#own), mirrored: [] };
+		}
 		const mirrored = EditorView.updateListener.of((u) => {
 			if (u.docChanged && !u.transactions.some((t) => t.annotation(followed) === true)) mirror(buffer, u.startState, u.state, u.changes);
 		});
+		return { config: bufferSide(buffer), mirrored };
+	}
+
+	#mountLeft(): void {
+		const { config: side, mirrored } = this.#leftSide();
 		const watch = EditorView.updateListener.of((u) => {
 			if (u.docChanged) {
 				this.#changes = this.#changes === null ? u.changes : this.#changes.compose(u.changes);

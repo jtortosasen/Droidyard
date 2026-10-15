@@ -123,8 +123,19 @@ func checkRegister(fsys fs.FS) []string {
 // capability-api.md names git.changes among the ring-less topics (ADR-0066 §1). Raised by 23
 // (to 26,426) at 2l's close: the README's status, mvp.md's Git line and process-lifecycle.md's
 // git row (a watch's gits outlive its operation). Raised by 55 (to 26,481) at 2m's close: the
-// README's install section and status, and mvp.md's Distribution line (ADR-0068).
-const liveBudget = 26481
+// README's install section and status, and mvp.md's Distribution line (ADR-0068). Raised by 4
+// (to 26,485) in milestone 2n step 2: mvp.md's git row (`log`, `refs`, `show`) and mcp.md's
+// not-exposed row for git.log (ADR-0069). Raised by 1 (to 26,486) in milestone 2n step 5:
+// the same row names git.refs. Raised by 1 (to 26,487) in milestone 2n step 7: the same row
+// names git.show. Raised by 59 (to 26,546) in milestone 2n step P2: a write git is a recorded
+// kind, in process-lifecycle.md's per-operation row and layer 2, and mvp.md's git row and
+// mcp.md's not-exposed row name git.fetch (ADR-0071). Raised by 5 (to 26,551) in milestone 2n
+// step P3: the same two rows name git.checkout and git.createBranch. Raised by 3 (to 26,554) in
+// milestone 2n step P4: the same two rows name git.submodules. Raised by 2 (to 26,556) in
+// milestone 2n step P5: the same two rows name git.updateSubmodules. Raised by 2 (to 26,558)
+// in milestone 2n step R3: mcp.md's not-exposed row and mvp.md's git row name git.pull (ADR-0074).
+// Raised by 7 (to 26,565) at milestone 2n's close: README.md's §Where the work stands names 2n.
+const liveBudget = 26565
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -49,9 +49,18 @@
 	import FileTree from '../files/FileTree.svelte';
 	import { GitWatch } from '../git/watch';
 	import { HeadBase } from '../git/base';
+	import { CommitText, DiffSource } from '../git/diffsource';
 	import GitTree from '../git/GitTree.svelte';
 	import { GitTreeModel } from '../git/tree';
 	import DiffPanel from '../git/DiffPanel.svelte';
+	import HistoryPanel from '../git/HistoryPanel.svelte';
+	import { BranchModel } from '../git/branch';
+	import { FetchModel } from '../git/fetch';
+	import { PullModel } from '../git/pull';
+	import { CompareModel } from '../git/compare';
+	import { HistoryStore } from '../git/history';
+	import { SubmodulesModel, initialisedRoots } from '../git/submodules';
+	import { SubmoduleUpdateModel } from '../git/subupdate';
 	import { TabsModel } from '../editor/tabs';
 	import { ViewerSet } from '../editor/viewer';
 	import type { UnsavedGuard } from '../editor/unsaved';
@@ -111,6 +120,16 @@
 	let gitWatch = $state.raw<GitWatch | null>(null);
 	let gitTree = $state.raw<GitTreeModel | null>(null);
 	let headBase = $state.raw<HeadBase | null>(null);
+	// Which source the Diff tab shows (the working tree, or a changed file of a commit) and the commit file's two texts.
+	let diffSource = $state.raw<DiffSource | null>(null);
+	let commitText = $state.raw<CommitText | null>(null);
+	let gitHistory = $state.raw<HistoryStore | null>(null);
+	let gitFetch = $state.raw<FetchModel | null>(null);
+	let gitPull = $state.raw<PullModel | null>(null);
+	let gitBranches = $state.raw<BranchModel | null>(null);
+	let gitCompare = $state.raw<CompareModel | null>(null);
+	let gitSubmodules = $state.raw<SubmodulesModel | null>(null);
+	let gitUpdater = $state.raw<SubmoduleUpdateModel | null>(null);
 	let editorTabs = $state.raw<TabsModel | null>(null);
 	let viewers = $state.raw<ViewerSet | null>(null);
 	// D10: the last build's errors by file (the one copy: derived from the build model's result) and the
@@ -131,6 +150,7 @@
 	function showProblem(at: Position) {
 		if (!editorTabs) return;
 		target = { ...at, id: ++targetId };
+		diffSource?.showWorktree();
 		editorTabs.open(at.path);
 		void fileTree?.reveal(at.path);
 	}
@@ -193,11 +213,67 @@
 			ws,
 		);
 		const headText = new HeadBase(callOn, ws);
+		const source = new DiffSource();
+		const commitTexts = new CommitText(callOn, ws);
+		// The History tab's commits: read once the watch has a status, and again when HEAD moves.
+		const history = new HistoryStore(callOn, ws, gitStatus);
+		// Fetch (plan m2n P2): the refs are read again when it succeeds, and the activity feed says whether
+		// the daemon holds it behind another write on the repository.
+		const fetcher = new FetchModel(
+			callOn,
+			ws,
+			() => history.refreshRefs(),
+			{
+				stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+				subscribe: (listener) => store.subscribe(listener),
+			},
+		);
 		// The viewer reads the same watch the tree does (no second file.watch).
 		const tabs = new TabsModel(browserStorage(window), workspaceId);
 		const readers = new ViewerSet(callOn, ws, { dirty: (path, dirty) => tabs.setDirty(path, dirty) });
 		const offListen = watcher.listen(readers);
 		const offGuard = guard.attach(readers);
+		// Checkout and Create Branch (plan m2n P3): the editor's unsaved files stop a checkout before the daemon is
+		// called, and the refs are read again when a call has ended. A clean buffer whose file the checkout rewrote
+		// reloads through the file watch above (m2i D8).
+		const comparer = new CompareModel(callOn, ws);
+		const brancher = new BranchModel(callOn, ws, readers, () => history.refreshRefs());
+		// Pull (plan m2n R3) is gated on the same unsaved files and reads the refs again when it succeeds; the log follows HEAD.
+		const puller = new PullModel(callOn, ws, readers, () => history.refreshRefs(), {
+			stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+			subscribe: (listener) => store.subscribe(listener),
+		});
+		// The Submodules section (plan m2n P4) is read whenever the History store has a new answer of the refs.
+		const submodules = new SubmodulesModel(callOn, ws);
+		const offSubmodules = submodules.follow(history);
+		// The log mixes the workspace with its initialised submodules (plan m2n P7).
+		const offRoots = submodules.subscribe(() => history.setRoots(initialisedRoots(submodules.view.list)));
+		// The section's Update (plan m2n P5): an update is a checkout in each submodule, so the editor's unsaved files
+		// under them stop it, and the submodules are read again when it has ended, however it ended.
+		// The summary (plan m2n R1) compares the list before and after the run, so the read is awaited; the refs are read again
+		// too, for the branch each row shows.
+		const submoduleUpdater = new SubmoduleUpdateModel(
+			callOn,
+			ws,
+			readers,
+			async () => {
+				await submodules.load();
+				history.refreshRefs();
+			},
+			{
+				stateOf: (id) => store.operations.find((o) => o.id === id)?.state,
+				subscribe: (listener) => store.subscribe(listener),
+			},
+			() => submodules.view.list,
+		);
+		// Another active file in the Editor is the working tree's diff again (a file opened from the tree or the palette changes it too).
+		let activeFile = tabs.view.active;
+		const offActive = tabs.subscribe(() => {
+			const now = tabs.view.active;
+			if (now === activeFile) return;
+			activeFile = now;
+			source.showWorktree();
+		});
 		// The palette's file index reads the same stream (no second file.watch).
 		const index = new FileIndex();
 		const offIndex = watcher.listen(index);
@@ -226,6 +302,15 @@
 		gitWatch = gitStatus;
 		gitTree = treeOfGit;
 		headBase = headText;
+		diffSource = source;
+		commitText = commitTexts;
+		gitHistory = history;
+		gitFetch = fetcher;
+		gitPull = puller;
+		gitBranches = brancher;
+		gitCompare = comparer;
+		gitSubmodules = submodules;
+		gitUpdater = submoduleUpdater;
 		// The models follow a rename or move before the tabs do (m2i D7), so their buffers are not dropped.
 		const opsModel = new FileOps(callOn, ws, {
 			moved: (from, to) => {
@@ -268,14 +353,26 @@
 			logcatDevices.dispose();
 			offListen();
 			offGuard();
+			offActive();
 			offIndex();
 			offGitTree();
 			readers.dispose();
 			tabs.dispose();
 			opsModel.reset();
 			watcher.dispose();
+			fetcher.dispose();
+			puller.dispose();
+			brancher.dispose();
+			comparer.dispose();
+			offSubmodules();
+			offRoots();
+			submodules.dispose();
+			submoduleUpdater.dispose();
+			history.dispose();
 			gitStatus.dispose();
 			headText.dispose();
+			commitTexts.dispose();
+			source.dispose();
 			files.dispose();
 			unbind();
 			file.dispose();
@@ -310,6 +407,15 @@
 			gitWatch = null;
 			gitTree = null;
 			headBase = null;
+			diffSource = null;
+			commitText = null;
+			gitHistory = null;
+			gitFetch = null;
+			gitPull = null;
+			gitBranches = null;
+			gitCompare = null;
+			gitSubmodules = null;
+			gitUpdater = null;
 			editorTabs = null;
 			viewers = null;
 			palette = null;
@@ -363,6 +469,7 @@
 				ops={fileOps}
 				onopen={(path) => {
 					target = null;
+					diffSource?.showWorktree();
 					editorTabs?.open(path);
 				}}
 				{workspaceId}
@@ -377,14 +484,34 @@
 				onopen={(path) => {
 					// A changed file opens as the Editor's preview tab, so it has one buffer, and its diff shows.
 					target = null;
+					diffSource?.showWorktree();
 					editorTabs?.open(path);
 					shell.show('diff');
 				}}
 			/>
 		{/if}
+	{:else if id === 'git'}
+		{#if gitHistory && gitWatch && gitFetch && gitBranches && gitCompare && gitSubmodules && gitUpdater}
+			<HistoryPanel
+				store={gitHistory}
+				fetcher={gitFetch}
+				puller={gitPull ?? undefined}
+				branches={gitBranches}
+				compare={gitCompare}
+				submodules={gitSubmodules}
+				updater={gitUpdater}
+				watch={gitWatch}
+				{workspaceId}
+				onopenfile={(file) => {
+					// A changed file of the opened commit (or between two tips): the Diff tab shows it against the commit's first parent (or the base).
+					diffSource?.showCommit(file);
+					shell.show('diff');
+				}}
+			/>
+		{/if}
 	{:else if id === 'diff'}
-		{#if editorTabs && viewers && gitWatch && headBase}
-			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} />
+		{#if editorTabs && viewers && gitWatch && headBase && diffSource && commitText}
+			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} source={diffSource} {commitText} />
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
@@ -503,6 +630,7 @@
 			onopen={(path) => {
 				shell.show('editor');
 				target = null;
+				diffSource?.showWorktree();
 				tabs.open(path);
 			}}
 		/>

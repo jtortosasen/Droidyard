@@ -35,7 +35,7 @@ describe('panels', () => {
 	// Decision: a panel that does not exist yet is shown and names the milestone that builds it.
 	it('names a milestone on each disabled entry', () => {
 		const disabled = PANELS.filter((p) => p.disabled !== undefined);
-		expect(disabled.map((p) => p.id).sort()).toEqual(['git', 'liveview', 'terminal']);
+		expect(disabled.map((p) => p.id).sort()).toEqual(['liveview', 'terminal']);
 		for (const p of disabled) {
 			expect(p.disabled?.milestone.trim(), p.id).toBeTruthy();
 			expect(disabledTitle(p)).toContain(p.disabled!.milestone);
@@ -46,11 +46,10 @@ describe('panels', () => {
 	it('cannot activate a disabled or unknown entry', () => {
 		const active = initialActive();
 		expect(activate(active, 'terminal')).toBe(active);
-		expect(activate(active, 'git')).toBe(active);
-		// Plan m2l step 5: the Git tab (left) and the Diff tab (centre) exist; the bottom Git waits for "Git history".
+		// Plan m2l step 5: the Git tab (left) and the Diff tab (centre) exist; the bottom Git (History) is enabled by m2n step 4.
 		expect(activate(active, 'git-side').left).toBe('git-side');
 		expect(activate(active, 'diff').centre).toBe('diff');
-		expect(PANELS.find((p) => p.id === 'git')?.disabled?.milestone).toBe('Git history');
+		expect(activate(active, 'git').bottom).toBe('git');
 		expect(activate(active, 'nope')).toBe(active);
 		expect(activate(active, 'problems').bottom).toBe('problems');
 		for (const r of ['left', 'centre', 'bottom', 'right'] as const) {

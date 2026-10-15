@@ -1,5 +1,5 @@
 {
-  "version": "0.23.0",
+  "version": "0.25.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -6822,13 +6822,719 @@
       }
     },
     {
+      "name": "git.checkout",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Checks a branch out for the UI, or creates a local branch tracking a remote-tracking one and checks that out; nothing is forced or kept aside, and a checkout git refuses over local changes fails its root with git's words naming the files. Only on a trusted project; the result has one outcome per root.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The branch to check out, without refs/heads/: a local one, or with remote its name on that remote."
+          },
+          "remote": {
+            "type": "string",
+            "description": "A remote of the repository. When name is no local branch, one is created tracking this remote's."
+          },
+          "roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "\".\" is the project's own, the rest submodule paths. Applied \".\" first, then depth-first. Absent: [\".\"]."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "outcomes": {
+                "items": {
+                  "properties": {
+                    "root": {
+                      "type": "string",
+                      "description": "The root as asked: \".\" or a submodule path."
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "failed",
+                        "skipped"
+                      ],
+                      "description": "done: applied. failed: git refused it, it was ended, or the call was cancelled before it ran; see error. skipped: not tried, because an earlier root failed."
+                    },
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "GIT_FAILED",
+                            "GIT_NOT_FOUND",
+                            "GIT_NOT_A_REPOSITORY",
+                            "OPERATION_CANCELLED"
+                          ],
+                          "description": "GIT_FAILED: git refused or the time limit passed. GIT_NOT_FOUND, GIT_NOT_A_REPOSITORY: git or this root's repository went away after an earlier root was written. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "What happened."
+                        },
+                        "cause": {
+                          "type": "string",
+                          "description": "Git's own words, from its first fatal: or error: line, at most 20 lines and 4 KiB (a refused checkout names the files in the way), or the time limit's fixed text. Show it as text."
+                        },
+                        "nextStep": {
+                          "type": "string",
+                          "description": "What to do next, when there is something to do."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "description": "Present when the status is failed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "root",
+                    "status"
+                  ]
+                },
+                "type": "array",
+                "description": "One outcome per root, in the order applied. The call stops at the first failed root and the rest are skipped; after a cancel they are failed OPERATION_CANCELLED. Nothing applied is rolled back. A refusal decided before any git writes fails the whole call and applies nothing."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "outcomes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "git.createBranch",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Creates a local branch at a commit for the UI, with no upstream, and optionally checks it out; a name that exists is refused, and a checkout git refuses over local changes fails its root with git's words. Only on a trusted project; the result has one outcome per root.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The new branch's name, without refs/heads/. A name that exists, or reads as another ref, is refused."
+          },
+          "checkout": {
+            "type": "boolean",
+            "description": "True: check the new branch out too. False: HEAD stays where it is."
+          },
+          "from": {
+            "type": "string",
+            "description": "The start: a full object id (40 or 64 hex characters) of a commit of the repository, not a ref name."
+          },
+          "roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "\".\" is the project's own, the rest submodule paths. Applied \".\" first, then depth-first. Absent: [\".\"]."
+          },
+          "fromIn": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "description": "Per submodule path in roots, the full object id of its start commit there. A root without an entry refuses the call."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "checkout",
+          "from"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "outcomes": {
+                "items": {
+                  "properties": {
+                    "root": {
+                      "type": "string",
+                      "description": "The root as asked: \".\" or a submodule path."
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "failed",
+                        "skipped"
+                      ],
+                      "description": "done: applied. failed: git refused it, it was ended, or the call was cancelled before it ran; see error. skipped: not tried, because an earlier root failed."
+                    },
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "GIT_FAILED",
+                            "GIT_NOT_FOUND",
+                            "GIT_NOT_A_REPOSITORY",
+                            "OPERATION_CANCELLED"
+                          ],
+                          "description": "GIT_FAILED: git refused or the time limit passed. GIT_NOT_FOUND, GIT_NOT_A_REPOSITORY: git or this root's repository went away after an earlier root was written. OPERATION_CANCELLED: the call was cancelled while git was writing, or before it reached this root."
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "What happened."
+                        },
+                        "cause": {
+                          "type": "string",
+                          "description": "Git's own words, from its first fatal: or error: line, at most 20 lines and 4 KiB (a refused checkout names the files in the way), or the time limit's fixed text. Show it as text."
+                        },
+                        "nextStep": {
+                          "type": "string",
+                          "description": "What to do next, when there is something to do."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "description": "Present when the status is failed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "root",
+                    "status"
+                  ]
+                },
+                "type": "array",
+                "description": "One outcome per root, in the order applied. The call stops at the first failed root and the rest are skipped; after a cancel they are failed OPERATION_CANCELLED. Nothing applied is rolled back. A refusal decided before any git writes fails the whole call and applies nothing."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "outcomes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "git.fetch",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Fetches the repository's remotes, or one of them, for the UI: new commits arrive as remote-tracking refs, no branch moves, nothing is pruned and submodules are left alone. Only on a trusted project; git never prompts in a terminal here, so a credential that needs one fails with a next step to run git fetch once in a terminal.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "remote": {
+            "type": "string",
+            "description": "The name of one remote of the repository (git remote lists them). Absent: every remote."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "remotes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The names of the remotes fetched: the one asked for, or every remote the repository has except those set to skip fetch --all."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "remotes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "git.log",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.24.0",
+      "description": "Reads one page of the repository's commit history for the UI's graph, newest first with every commit before its parents, whole even when the project is a subfolder. The first call starts from the tips now and returns them; later pages pass them back as from, so refs moving does not shift the history.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "from": {
+            "items": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "description": "The tips a first page returned (full object ids), passed back unchanged; at most 5000. Empty or absent: the tips now."
+          },
+          "exclude": {
+            "items": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "description": "Full object ids of commits whose history is left out (from [B], exclude [A]: B's commits A lacks); at most 5000."
+          },
+          "skip": {
+            "type": "integer",
+            "maximum": 2147483647,
+            "minimum": 0,
+            "description": "How many commits of the walk to skip: the number already received. Absent means 0."
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 1000,
+            "minimum": 1,
+            "description": "The most commits to return, 1 to 1000. Absent means 500."
+          },
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "commits": {
+            "items": {
+              "properties": {
+                "oid": {
+                  "type": "string",
+                  "description": "The commit's full object id."
+                },
+                "parents": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "The parents' object ids, first parent first; empty for a root commit."
+                },
+                "authorName": {
+                  "type": "string",
+                  "description": "The author's name as the commit records it."
+                },
+                "authorEmail": {
+                  "type": "string",
+                  "description": "The author's e-mail as the commit records it."
+                },
+                "commitTime": {
+                  "type": "integer",
+                  "description": "When it was committed, in Unix seconds."
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "The first paragraph of the message, on one line."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "oid",
+                "parents",
+                "authorName",
+                "authorEmail",
+                "commitTime",
+                "subject"
+              ]
+            },
+            "type": "array",
+            "description": "The page: newest first by commit date, every commit before its parents. Empty in a result returned again after delivery, and for a repository with no commit."
+          },
+          "tips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The tip set the walk started from, as full object ids: HEAD, then branches, remote-tracking branches and tags, peeled to commits, at most 5000. Pass it back as from for the next page. Empty when from was given, and in a result returned again after delivery."
+          },
+          "tipsTruncated": {
+            "type": "boolean",
+            "description": "True when the repository has more tips than the 5000 returned; the oldest tags are left out. False when from was given."
+          },
+          "more": {
+            "type": "boolean",
+            "description": "True when the walk goes on past this page. The next page's skip is the number of commits received so far; a page cut short by the 4 MiB output cap holds whole commits only and says more."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commits",
+          "tips",
+          "tipsTruncated",
+          "more"
+        ]
+      }
+    },
+    {
+      "name": "git.pull",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Fast-forwards the current branch to its upstream for the UI: fetches, then moves the branch and the work tree forward, or refuses (a detached HEAD, no upstream, a diverged branch, local changes in the way); nothing is merged, rebased or stashed. Only on a trusted project; git never prompts here, so a credential that needs one fails with a next step.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "branch": {
+                "type": "string",
+                "description": "The local branch that was pulled, without refs/heads/."
+              },
+              "before": {
+                "type": "string",
+                "description": "The full object id the branch pointed at before the pull."
+              },
+              "after": {
+                "type": "string",
+                "description": "The full object id the branch points at after it. Equal to before: it was already up to date."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "branch",
+              "before",
+              "after"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "git.read",
       "kind": "query",
       "scope": "workspace",
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.23.0",
-      "description": "Reads a file's whole text as committed at HEAD, for the diff: a file HEAD does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root is FILE_OUTSIDE_ROOT, and no git runs for it.",
+      "description": "Reads a file's whole text as committed at HEAD, or at the commit base names by its full object id, for the diff: a file the base does not hold is exists false, and a binary file or one over 512 KiB is reported without its text. A path outside the project root, or outside root, is FILE_OUTSIDE_ROOT, and no git runs for it.",
       "availability": [
         "git"
       ],
@@ -6855,10 +7561,13 @@
           },
           "base": {
             "type": "string",
-            "enum": [
-              "HEAD"
-            ],
-            "description": "What to read the file at. Only HEAD exists; absent means HEAD."
+            "pattern": "^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "What to read the file at: HEAD, or a commit's full object id. Absent means HEAD."
+          },
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
           }
         },
         "additionalProperties": false,
@@ -6875,10 +7584,8 @@
           },
           "base": {
             "type": "string",
-            "enum": [
-              "HEAD"
-            ],
-            "description": "What it was read at."
+            "pattern": "^(HEAD|[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "What it was read at: HEAD, or the commit's full object id."
           },
           "exists": {
             "type": "boolean",
@@ -6910,6 +7617,610 @@
           "size",
           "binary",
           "tooLarge"
+        ]
+      }
+    },
+    {
+      "name": "git.refs",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.24.0",
+      "description": "Reads what the repository's history view lists beside the graph: HEAD, with how far the current branch is ahead of and behind its upstream, the local and remote-tracking branches, the tags and the work trees, and the tip set git.log starts from. The refs are the repository's, whole even when the project is a subfolder.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "head": {
+            "properties": {
+              "oid": {
+                "type": "string",
+                "description": "HEAD's commit id; absent in a repository with no commit yet."
+              },
+              "branch": {
+                "type": "string",
+                "description": "The checked-out branch, also when it has no commit yet; absent when HEAD is detached."
+              },
+              "detached": {
+                "type": "boolean",
+                "description": "True when HEAD is detached: it points at a commit, not at a branch."
+              },
+              "upstream": {
+                "type": "string",
+                "description": "The current branch's upstream as configured, for example origin/main; absent when the branch has none or HEAD is detached."
+              },
+              "upstreamGone": {
+                "type": "boolean",
+                "description": "True when the current branch names an upstream that is not among the refs listed: deleted, or past the cut of git's output. Ahead and behind are zero then."
+              },
+              "ahead": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Commits on the current branch that its upstream lacks. Zero when there is no upstream or it is no longer a branch of this repository. Counted for the current branch only."
+              },
+              "behind": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Commits on the upstream that the current branch lacks; zero as ahead is."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "detached",
+              "upstreamGone",
+              "ahead",
+              "behind"
+            ],
+            "description": "What HEAD is."
+          },
+          "branches": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The branch's name without refs/heads/, folders included (feature/login)."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The object the branch points at."
+                },
+                "upstream": {
+                  "type": "string",
+                  "description": "The upstream as configured (origin/main); absent when the branch has none."
+                },
+                "upstreamGone": {
+                  "type": "boolean",
+                  "description": "True when the upstream is not among the refs listed: deleted, or past the cut of git's output. Omitted when false."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "oid"
+              ]
+            },
+            "type": "array",
+            "description": "Local branches by name; at most 5000. Empty in a result returned again after delivery."
+          },
+          "branchesTruncated": {
+            "type": "boolean",
+            "description": "True when there are more local branches than listed."
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "remote": {
+                  "type": "string",
+                  "description": "The remote's name, as configured, slashes included (team/origin). A ref no configured remote claims is split at its first slash."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The branch's name on that remote, folders included. A remote's default-branch pointer is listed as HEAD."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The object the ref points at."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "remote",
+                "name",
+                "oid"
+              ]
+            },
+            "type": "array",
+            "description": "Remote-tracking branches by name; at most 5000. Empty in a result returned again after delivery."
+          },
+          "remotesTruncated": {
+            "type": "boolean",
+            "description": "True when there are more remote-tracking branches than listed."
+          },
+          "tags": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The tag's name without refs/tags/."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The commit the tag finally points at, however many tags deep; absent for a tag on a tree or a blob."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name"
+              ]
+            },
+            "type": "array",
+            "description": "Tags, newest first; at most 5000: the oldest are left out at the cap, and when git's output is cut at 4 MiB the tags last in name order are missing too. Empty in a result returned again after delivery."
+          },
+          "tagsTruncated": {
+            "type": "boolean",
+            "description": "True when there are more tags than listed."
+          },
+          "worktrees": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The work tree's absolute path, as git records it."
+                },
+                "branch": {
+                  "type": "string",
+                  "description": "The branch checked out in it; absent when it is detached."
+                },
+                "oid": {
+                  "type": "string",
+                  "description": "The commit it has checked out; absent when it has none yet."
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "True for the work tree that holds this workspace."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "current"
+              ]
+            },
+            "type": "array",
+            "description": "The repository's work trees, the main one first; at most 5000. Empty in a result returned again after delivery."
+          },
+          "worktreesTruncated": {
+            "type": "boolean",
+            "description": "True when there are more work trees than listed."
+          },
+          "tips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The tip set git.log starts from, as full object ids, the same list: HEAD, then branches, remote-tracking branches and tags, peeled to commits, at most 5000. Empty in a result returned again after delivery."
+          },
+          "tipsTruncated": {
+            "type": "boolean",
+            "description": "True when the repository has more tips than the 5000 returned, or git's refs were cut at 4 MiB; the oldest tags are left out at the cap, the tags last in name order at the cut."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "head",
+          "branches",
+          "branchesTruncated",
+          "remotes",
+          "remotesTruncated",
+          "tags",
+          "tagsTruncated",
+          "worktrees",
+          "worktreesTruncated",
+          "tips",
+          "tipsTruncated"
+        ]
+      }
+    },
+    {
+      "name": "git.show",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.24.0",
+      "description": "Reads one commit for the UI's expanded row: its author, committer, times, parents and message, and the files it changed under the project root with the lines added and removed, against its first parent (a merge shows what it brought in; a root commit, everything). The commit is named by its full object id.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "oid": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "The commit's full object id, as git.log returned it."
+          },
+          "base": {
+            "type": "string",
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "A commit (full object id) to list the files against, in place of the first parent."
+          },
+          "root": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A submodule's path in the project (a gitlink of its parent, initialised); absent or . is the project's own repository."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "oid"
+        ]
+      },
+      "output": {
+        "properties": {
+          "oid": {
+            "type": "string",
+            "description": "The commit's full object id."
+          },
+          "parents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The parents' object ids, first parent first; empty for a root commit."
+          },
+          "author": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name as the commit records it."
+              },
+              "email": {
+                "type": "string",
+                "description": "The e-mail as the commit records it."
+              },
+              "time": {
+                "type": "string",
+                "description": "The time in RFC 3339, in the UTC offset the commit recorded; 1970-01-01T00:00:00Z when git prints the commit's date in no RFC 3339 form."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "email",
+              "time"
+            ],
+            "description": "Who wrote the change, and when."
+          },
+          "committer": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name as the commit records it."
+              },
+              "email": {
+                "type": "string",
+                "description": "The e-mail as the commit records it."
+              },
+              "time": {
+                "type": "string",
+                "description": "The time in RFC 3339, in the UTC offset the commit recorded; 1970-01-01T00:00:00Z when git prints the commit's date in no RFC 3339 form."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "email",
+              "time"
+            ],
+            "description": "Who recorded it, and when."
+          },
+          "message": {
+            "type": "string",
+            "description": "The whole commit message, at most 64 KiB. Empty in a result returned again after delivery."
+          },
+          "messageTruncated": {
+            "type": "boolean",
+            "description": "True when the message is longer than the 64 KiB returned."
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The file's path after the commit, relative to the project root."
+                },
+                "origPath": {
+                  "type": "string",
+                  "description": "A renamed file's path before the commit, relative to the project root."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "added",
+                    "modified",
+                    "deleted",
+                    "renamed"
+                  ],
+                  "description": "What the commit did to the file. A change of kind (a file made a link) is modified."
+                },
+                "added": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Lines added, as git counts them; absent for a binary file, and for the files listed after git's output was cut (truncated is then true)."
+                },
+                "removed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Lines removed, as git counts them; absent for a binary file, and for the files listed after git's output was cut (truncated is then true)."
+                },
+                "binary": {
+                  "type": "boolean",
+                  "description": "True when git counts no lines because the file is binary."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "status",
+                "binary"
+              ]
+            },
+            "type": "array",
+            "description": "The files the commit changed under the project root, by path, at most 5000: against the first parent, so a merge shows what it brought into its branch; a root commit against the empty tree. Empty in a result returned again after delivery."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the commit changed more files than listed: past 5000, or past the 4 MiB git's output is read to."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "oid",
+          "parents",
+          "author",
+          "committer",
+          "message",
+          "messageTruncated",
+          "files",
+          "truncated"
+        ]
+      }
+    },
+    {
+      "name": "git.submodules",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Lists the project's git submodules for the UI's History tab: for each one the commit the repository records, the commit it has checked out and its state (uninitialised, clean, outdated or dirty), nested ones included. Read-only; each submodule is read in its own directory, with its own repository's filter drivers switched off on an untrusted project.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "submodules": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The submodule's directory, relative to the project root; a nested submodule's path starts with its parent's."
+                },
+                "recorded": {
+                  "type": "string",
+                  "description": "The commit the repository records for it (its index entry)."
+                },
+                "checkedOut": {
+                  "type": "string",
+                  "description": "The commit it has checked out (its HEAD); absent when it is uninitialised or has no commit."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "uninitialised",
+                    "clean",
+                    "outdated",
+                    "dirty"
+                  ],
+                  "description": "uninitialised: no repository of its own there yet. dirty: its working tree differs from its HEAD (its own nested submodules ignored), whatever its commit. outdated: clean but checked out at another commit than recorded. clean: the recorded commit, nothing changed."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path",
+                "recorded",
+                "state"
+              ]
+            },
+            "type": "array",
+            "description": "The submodules named in .gitmodules that the repository records as gitlinks, below the project root, each followed by its nested ones, to eight levels; at most 1000. Empty in a result returned again after delivery. A submodule whose directory is, or sits behind, a symlink, or whose .git is a symlink, is left out."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when there are more submodules than listed (1000, or git's output passed 4 MiB); the list ends at a whole entry."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "submodules",
+          "truncated"
+        ]
+      }
+    },
+    {
+      "name": "git.updateSubmodules",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.25.0",
+      "description": "Updates the project's git submodules for the UI, all or the given paths: each is initialised if need be and checked out at the commit the repository records, nested ones included. Only on a trusted project; no hook runs and git never prompts, so a credential that needs one fails with a next step.",
+      "availability": [
+        "git"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "GIT_NOT_FOUND",
+        "GIT_NOT_A_REPOSITORY",
+        "GIT_FAILED",
+        "WORKSPACE_UNTRUSTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Submodule paths as git.submodules lists them, a nested one starting with its parent's. Absent: every one listed."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "paths": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The submodules the update was asked to bring to their recorded commits: the paths given, or every one listed when it started; nested ones not initialised before are initialised too, unnamed. Empty in a result returned again after delivery."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "paths"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
         ]
       }
     },

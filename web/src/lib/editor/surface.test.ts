@@ -32,7 +32,7 @@ function loader() {
 			return f;
 		},
 		mountCompare: async (_host, o) => {
-			const f = new Fake(o);
+			const f = new Fake({ buffer: o.buffer ?? buffer, onSave: o.onSave ?? (() => {}) });
 			mounted.push(f);
 			return f;
 		},

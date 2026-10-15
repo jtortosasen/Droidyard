@@ -37,6 +37,16 @@
 	--syn-link: #4eb0cc;
 	--syn-meta: #ffa14f;
 
+	/* The commit graph's lane colours (plan m2n step 4): mid tones that read on both themes. */
+	--lane-0: #0a84ff;
+	--lane-1: #30b0c7;
+	--lane-2: #32ade6;
+	--lane-3: #bf5af2;
+	--lane-4: #ff9f0a;
+	--lane-5: #ff375f;
+	--lane-6: #30d158;
+	--lane-7: #ac8e68;
+
 	--font-ui: system-ui, sans-serif;
 	--font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 	--fs-base: 13px;
