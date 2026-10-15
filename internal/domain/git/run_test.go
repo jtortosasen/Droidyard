@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -123,10 +124,16 @@ func (e *env) commit(dir string) {
 	e.g(dir, "commit", "-q", "-m", "c")
 }
 
+// touches counts touch's calls, so that each sets its own second.
+var touches atomic.Int64
+
 // touch gives a file a new mtime and leaves its bytes alone: stat-dirty, same content.
 func (e *env) touch(dir, rel string) {
 	e.t.Helper()
-	when := time.Now().Add(-72 * time.Hour)
+	// A whole second apart from every other touch: a git built without nanosecond stat
+	// times (Ubuntu's) compares seconds, so two touches within one second would look the
+	// same and git would not look at the file again.
+	when := time.Now().Add(-72*time.Hour - time.Duration(touches.Add(1))*time.Second)
 	if err := os.Chtimes(filepath.Join(dir, rel), when, when); err != nil {
 		e.t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -342,7 +343,16 @@ func (e *env) ttyG(dir string, args ...string) {
 	if err != nil {
 		e.t.Skip("no script(1) to give git a terminal")
 	}
+	// BSD script(1) (macOS) takes the command after the file; util-linux's (Linux) takes
+	// it as one shell string after -c.
 	cmd := exec.Command(sc, append([]string{"-q", "/dev/null", "git"}, args...)...)
+	if runtime.GOOS == "linux" {
+		quoted := []string{"git"}
+		for _, a := range args {
+			quoted = append(quoted, "'"+strings.ReplaceAll(a, "'", `'\''`)+"'")
+		}
+		cmd = exec.Command(sc, "-q", "-e", "-c", strings.Join(quoted, " "), "/dev/null")
+	}
 	cmd.Dir = dir
 	cmd.Env = e.env
 	cmd.CombinedOutput()
