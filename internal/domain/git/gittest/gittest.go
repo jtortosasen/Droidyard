@@ -126,6 +126,9 @@ type file struct {
 	content []byte
 	// from, when set, renames the file from this path (content is then its new content).
 	from string
+	// gitlink, when set, records the path as a submodule at this commit (mode 160000); the
+	// commit need not exist in the repository.
+	gitlink string
 }
 
 // stream writes fast-import commands.
@@ -154,6 +157,8 @@ func (s *stream) commit(ref string, from int, merges []int, who, subject string,
 	}
 	for _, f := range files {
 		switch {
+		case f.gitlink != "":
+			fmt.Fprintf(s.w, "M 160000 %s %s\n", f.gitlink, quote(f.path))
 		case f.from != "":
 			fmt.Fprintf(s.w, "R %s %s\n", quote(f.from), quote(f.path))
 		case f.content == nil:

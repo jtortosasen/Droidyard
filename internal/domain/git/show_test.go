@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
-	"github.com/jtortosasen/droidyard/internal/domain/git/gittest"
 )
 
 // showPage calls git.show as the UI would.
@@ -87,9 +86,7 @@ func (e *env) emptyTree(dir string) string {
 // two-tree form replaced by `diff-tree -c <merge>` (the combined diff), see the plan.
 func TestShowMergeAgainstFirstParent(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 
 	res := f.mustShow(r.Oids["merge"])
 	if len(res.Parents) != 2 || res.Message != "Merge feature/login" {
@@ -145,9 +142,7 @@ func TestShowMergeAgainstFirstParent(t *testing.T) {
 // added, with git's counts, and the parents are an empty list, not null.
 func TestShowRootCommit(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 
 	res := f.mustShow(r.Oids["root"])
 	if res.Parents == nil || len(res.Parents) != 0 {
@@ -175,9 +170,7 @@ func TestShowRootCommit(t *testing.T) {
 // line has removed 0 and still carries it (a pointer to zero, not an absent field).
 func TestShowNumstat(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 
 	checked := 0
 	for _, oid := range strings.Fields(f.g(r.Dir, "rev-list", "--all")) {
@@ -413,10 +406,11 @@ func TestShowCaps(t *testing.T) {
 			wantLen       int
 			truncated     bool
 		}{
+			// The other boundaries (one byte more, a short message, an empty one, a four-byte
+			// character) are TestShowCapsParsed's, on synthetic output; git hands over the
+			// whole message at the cap and one cut mid-character.
 			{"exactly 64 KiB", strings.Repeat("x", maxMessage), maxMessage, false},
-			{"one byte more", strings.Repeat("x", maxMessage+1), maxMessage, true},
 			{"a character on the limit", "a" + strings.Repeat("é", 40000), maxMessage - 1, true},
-			{"short", "subject\n\nbody\n", len("subject\n\nbody\n"), false},
 		} {
 			oid := f.commitMessage(f.root, c.message)
 			res := f.mustShow(oid)
@@ -489,9 +483,7 @@ func TestShowCaps(t *testing.T) {
 // tree, a blob and an annotated tag (not a commit) are the same code after the check.
 func TestShowUnknownCommit(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	good := r.Oids["head"]
 	for name, oid := range map[string]string{
 		"a ref name": "main", "HEAD": "HEAD", "a short id": good[:7], "an id one short": good[:39],
@@ -740,9 +732,7 @@ func TestParseShowFilesRefusesWhatGitDoesNotWrite(t *testing.T) {
 // mismatch is GIT_FAILED, above), checked here against plain git's own --name-only.
 func TestShowListsWhatGitLists(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	for _, oid := range strings.Fields(f.g(r.Dir, "rev-list", "--all")) {
 		if oid == r.Oids["rename"] {
 			continue
@@ -775,9 +765,7 @@ func (f *readFx) showBase(oid, base string) (ShowResult, *capability.Error) {
 // (a tree, a blob, an unknown id) or no full id is REQUEST_INVALID_PARAMS.
 func TestShowBase(t *testing.T) {
 	t.Parallel()
-	f := newReadFx(t)
-	r := gittest.History(t, filepath.Join(t.TempDir(), "hist"))
-	f.at(r.Dir)
+	f, r := newHistoryFx(t)
 	a, b := r.Oids["rename"], r.Oids["merge"]
 	want := f.numstatOf(r.Dir, a, b)
 	against := f.numstatOf(r.Dir, b+"^1", b)

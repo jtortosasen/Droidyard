@@ -32,7 +32,7 @@ type sfx struct {
 // superproject and from the detached recorded commit in each submodule).
 func newSfx(t *testing.T) *sfx {
 	t.Helper()
-	f := newWfx(t)
+	f := newWfxBare(t) // the Remote of newWfx would go unused: the workspace is `s`
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "subs"))
 	f.roots["ws"] = platform.Current().Canonical(s.Super)
 	f.register()

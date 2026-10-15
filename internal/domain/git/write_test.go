@@ -70,11 +70,39 @@ func (w fakeWorkspaces) Admit(target string, record func(id string)) bool {
 	return true
 }
 
+// newWfx is the write fixture over a Remote of its own, for a test that writes in it (or in
+// anything it holds), or that changes it in any way.
 func newWfx(t *testing.T) *wfx {
 	t.Helper()
 	e := needGit(t)
-	f := &wfx{t: t, e: e, r: gittest.Remote(t, filepath.Join(t.TempDir(), "fx")), roots: map[string]string{}}
-	f.roots["ws"] = platform.Current().Canonical(f.r.W)
+	return newWfxOn(t, e, gittest.Remote(t, filepath.Join(t.TempDir(), "fx")))
+}
+
+// newWfxShared is the write fixture over the shared Remote of shared_test.go, for a test
+// that only reads it: the calls it makes are refused, or start no git, or only list. A call
+// that is accepted and writes is not for this fixture.
+func newWfxShared(t *testing.T) *wfx {
+	t.Helper()
+	e := needGit(t)
+	return newWfxOn(t, e, sharedRemote(t))
+}
+
+// newWfxBare is the write fixture with no repository: workspace "ws" is an empty directory
+// and f.r is nil. For a test that points "ws" at a fixture of its own (gittest.Submodules),
+// or whose calls never reach a repository.
+func newWfxBare(t *testing.T) *wfx {
+	t.Helper()
+	return newWfxOn(t, needGit(t), nil)
+}
+
+func newWfxOn(t *testing.T, e *env, r *gittest.Remotes) *wfx {
+	t.Helper()
+	f := &wfx{t: t, e: e, r: r, roots: map[string]string{}}
+	if r != nil {
+		f.roots["ws"] = platform.Current().Canonical(r.W)
+	} else {
+		f.roots["ws"] = platform.Current().Canonical(t.TempDir())
+	}
 	st, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +129,20 @@ func (f *wfx) groups() []int {
 	f.pgidsMu.Lock()
 	defer f.pgidsMu.Unlock()
 	return slices.Clone(f.pgids)
+}
+
+// groupsOnce waits for the first write git's group, up to 10 s: the supervisor notes the
+// group when SpawnRecorded returns, after git started, so a fast host can run git's
+// children (an uploadpack writing its pid) before the group is noted.
+func (f *wfx) groupsOnce() []int {
+	f.t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if g := f.groups(); len(g) > 0 {
+			return g
+		}
+	}
+	f.t.Fatal("no write git was recorded in 10 s")
+	return nil
 }
 
 // writeDirs is a copy of the directories the write gits ran in so far, in start order.
@@ -321,7 +363,7 @@ func TestWritesUntrustedStartNothing(t *testing.T) {
 			{"no hook", nil},
 		} {
 			t.Run(call.name+", "+c.name, func(t *testing.T) {
-				f := newWfx(t)
+				f := newWfxShared(t) // no git starts, so the fixture is only a directory
 				f.authorize = c.hook
 				f.register()
 				id := f.start(call.name, "ws", call.params)
@@ -363,7 +405,7 @@ func TestFetchCancelKillsTheGroup(t *testing.T) {
 			id := f.start("git.fetch", "ws", FetchParams{Remote: "origin"})
 			child := pidIn(t, pidFile)
 			pgid := mustPgid(child)
-			if len(f.groups()) != 1 || pgid != f.groups()[0] {
+			if g := f.groupsOnce(); len(g) != 1 || pgid != g[0] {
 				t.Fatalf("the uploadpack %d is in group %d, the recorded git's is %v", child, pgid, f.groups())
 			}
 			if !groupAlive(pgid) {
@@ -615,10 +657,12 @@ func TestFetchPromptFails(t *testing.T) {
 func TestFetchRemoteRefused(t *testing.T) {
 	t.Parallel()
 	f := newWfx(t)
+	// The names validName refuses (remotesRefusedInGo) are refused before any repository is
+	// read, in TestFetchRemoteRefusedBeforeAnyGit; these pass validName and are the
+	// repository's own remotes' to refuse: a name it has no remote of, and a URL or a path.
 	for _, remote := range []string{
-		"-x", "--all", "--upload-pack=touch /tmp/x", "a b", "a\x00b", "a\nb", "unknown", "ORIGIN",
+		"a b", "unknown", "ORIGIN",
 		"https://example.invalid/r.git", "file://" + f.r.Other, f.r.Other, f.r.Origin, "../w-other", "origin/main",
-		strings.Repeat("a", 256), "HEAD", "refs/remotes/origin",
 	} {
 		_, err := f.call("git.fetch", "ws", FetchParams{Remote: remote})
 		if err == nil || err.Code != capability.ErrInvalidParams {
@@ -636,12 +680,40 @@ func TestFetchRemoteRefused(t *testing.T) {
 	}
 }
 
+// remotesRefusedInGo are the remote names of TestFetchRemoteRefused that validName refuses:
+// an option, a control character, a name too long, HEAD, another ref's prefix.
+var remotesRefusedInGo = []string{
+	"-x", "--all", "--upload-pack=touch /tmp/x", "a\x00b", "a\nb", strings.Repeat("a", 256), "HEAD", "refs/remotes/origin",
+}
+
+// Decision (ADR-0071 §5; plan m2n P1 verifier): the remote reaches argv only as a name of the
+// repository's own, and validName comes first. The names it refuses (an option, a control
+// character, a name past 255 bytes, HEAD, another ref's prefix) are REQUEST_INVALID_PARAMS
+// with a nextStep with no git looked for and no repository to read, which a Registry whose git
+// is not found would show as GIT_NOT_FOUND. TestValidName holds that validName refuses each.
+func TestFetchRemoteRefusedBeforeAnyGit(t *testing.T) {
+	t.Parallel()
+	f := newWfxBare(t)
+	f.look = func(string) (string, error) { return "", os.ErrNotExist }
+	f.register()
+	for _, remote := range remotesRefusedInGo {
+		_, err := f.call("git.fetch", "ws", FetchParams{Remote: remote})
+		if err == nil || err.Code != capability.ErrInvalidParams {
+			t.Errorf("remote %q: %+v, want REQUEST_INVALID_PARAMS before any git is looked for", truncate(remote, 40), err)
+		} else if err.NextStep == "" {
+			t.Errorf("remote %q: refused without a nextStep", truncate(remote, 40))
+		}
+	}
+	if w, r := f.writeStarts.Load(), f.readStarts.Load(); w != 0 || r != 0 {
+		t.Errorf("%d write gits and %d reads started for names validName refuses, want none", w, r)
+	}
+}
+
 // Decision (ADR-0071 §1, §2): a root that is no repository is GIT_NOT_A_REPOSITORY, from
 // the remote listing, before any fetch starts.
 func TestFetchNotARepository(t *testing.T) {
 	t.Parallel()
-	f := newWfx(t)
-	f.roots["ws"] = platform.Current().Canonical(t.TempDir())
+	f := newWfxBare(t) // "ws" is an empty directory: no repository
 	_, err := f.call("git.fetch", "ws", FetchParams{})
 	wantErrCode(t, err, CodeNotARepository)
 	if n := f.writeStarts.Load(); n != 0 {
@@ -893,8 +965,8 @@ func TestWriteKeyIsTheCommonDirectory(t *testing.T) {
 	if got := key(wt); got != wantMain {
 		t.Errorf("key of the linked work tree by its unresolved path = %q, want %q", got, wantMain)
 	}
-	other := gittest.Remote(t, filepath.Join(t.TempDir(), "fx2"))
-	if got := key(canon(other.W)); got == wantMain {
+	other := e.repo() // any other repository will do: only its key is read
+	if got := key(canon(other)); got == wantMain {
 		t.Errorf("two repositories share the key %q", got)
 	}
 	bare := t.TempDir()
@@ -946,7 +1018,7 @@ func TestWriteCause(t *testing.T) {
 // Decision (ADR-0071 §3): a git that cannot be found is GIT_NOT_FOUND with no write started.
 func TestFetchNoGit(t *testing.T) {
 	t.Parallel()
-	f := newWfx(t)
+	f := newWfxBare(t) // no git is looked for in any repository
 	f.look = func(string) (string, error) { return "", errors.New("not found") }
 	f.register()
 	_, err := f.call("git.fetch", "ws", FetchParams{})

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/git/gittest"
+	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
 // rootFx is the submodule fixture (gittest.Submodules: `lib`, its `lib/nested` and the
@@ -28,10 +29,42 @@ type rootFx struct {
 	libOids map[string]string
 }
 
+// newRootFx builds the fixture for a test that changes it (or anything in it).
 func newRootFx(t *testing.T) *rootFx {
 	t.Helper()
-	f := newReadFx(t)
-	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
+	f := &readFx{env: needGit(t), platform: platform.Current()}
+	return buildRootFx(f, filepath.Join(t.TempDir(), "fx"))
+}
+
+// rootData is what a rootFx holds of the repository itself: the part tests that only read
+// share (the readFx is each test's own).
+type rootData struct {
+	s           *gittest.Subs
+	lib, nested string
+	libOids     map[string]string
+}
+
+var rootSharedFx = lazyFixture[*rootData]{name: "root"}
+
+// newRootFxShared is the same fixture, built once for the tests that only read it: log, refs,
+// show and read of a root. They use the repository and never change it, not even to touch a
+// file; the fence test and the refusal test, which do, build their own.
+func newRootFxShared(t *testing.T) *rootFx {
+	t.Helper()
+	f := &readFx{env: needGit(t), platform: platform.Current()}
+	d := rootSharedFx.get(t, func(_ testing.TB, dir string) *rootData {
+		x := buildRootFx(f, filepath.Join(dir, "fx"))
+		return &rootData{s: x.s, lib: x.lib, nested: x.nested, libOids: x.libOids}
+	})
+	f.at(d.s.Super)
+	return &rootFx{readFx: f, s: d.s, lib: d.lib, nested: d.nested, libOids: d.libOids}
+}
+
+// buildRootFx makes the Submodules fixture in dir and gives lib the history the tests read;
+// f is the read fixture it is then opened with.
+func buildRootFx(f *readFx, dir string) *rootFx {
+	f.t.Helper()
+	s := gittest.Submodules(f.t, dir)
 	f.at(s.Super)
 	x := &rootFx{readFx: f, s: s, lib: filepath.Join(f.root, "lib"), libOids: map[string]string{}}
 	x.nested = filepath.Join(x.lib, "nested")
@@ -120,7 +153,7 @@ func (f *readFx) readRoot(root, path, base string) (ReadResult, *capability.Erro
 // repository), and a nested submodule is a root by its path from the workspace.
 func TestRootLog(t *testing.T) {
 	t.Parallel()
-	x := newRootFx(t)
+	x := newRootFxShared(t)
 	ctx := context.Background()
 
 	res := x.logRoot("lib", LogParams{})
@@ -183,7 +216,7 @@ func TestRootLog(t *testing.T) {
 // `submodule update` is a detached HEAD at its recorded commit.
 func TestRootRefs(t *testing.T) {
 	t.Parallel()
-	x := newRootFx(t)
+	x := newRootFxShared(t)
 	ctx := context.Background()
 	res := x.refsRoot("lib")
 
@@ -247,7 +280,7 @@ func TestRootRefs(t *testing.T) {
 // superproject is not one. The statuses and counts are git's, in lib.
 func TestRootShowPaths(t *testing.T) {
 	t.Parallel()
-	x := newRootFx(t)
+	x := newRootFxShared(t)
 	res := x.showRoot("lib", x.libOids["c2"])
 
 	if res.Oid != x.libOids["c2"] || len(res.Parents) != 1 || res.Parents[0] != x.libOids["c1"] {
@@ -299,7 +332,7 @@ func TestRootShowPaths(t *testing.T) {
 // root, the workspace's own files among them, is FILE_OUTSIDE_ROOT before any git starts.
 func TestRootReadAtCommit(t *testing.T) {
 	t.Parallel()
-	x := newRootFx(t)
+	x := newRootFxShared(t)
 
 	res, err := x.readRoot("lib", "lib/lib.txt", "")
 	if err != nil || !res.Exists || text(res) != "2\n" || res.Path != "lib/lib.txt" || res.Base != "HEAD" {
@@ -359,59 +392,61 @@ func TestRootReadAtCommit(t *testing.T) {
 // gitlink, level by level, that is initialised and has no symlink on the way. Everything
 // else is REQUEST_INVALID_PARAMS before any git runs in the place it names, through each
 // of the four reads, trusted or not. Each shape here is one the plan names.
+// The two runs, trusted and untrusted, share one fixture: the setup below adds to it what the
+// shapes refer to, and each run leaves the fixture as it found it (the symlinks it puts in
+// lib's place are taken out again), so the second run meets the same repository the first
+// did. Building it twice cost a second Submodules fixture and a second setup for nothing.
 func TestRootRefused(t *testing.T) {
 	t.Parallel()
+	x := newRootFx(t)
+	ws := x.root
+	// Places of the workspace that are not submodules.
+	x.write(ws, "docs/a.txt", "a\n")
+	x.g(ws, "add", "docs/a.txt")
+	x.g(ws, "commit", "-q", "-m", "docs")
+	inner := filepath.Join(ws, "docs", "inner") // a repository the superproject does not record
+	x.g(ws, "init", "-q", "-b", "main", inner)
+	x.write(inner, "i.txt", "i\n")
+	x.commit(inner)
+	plainInLib := filepath.Join(x.lib, "plain", "x") // a repository below a plain directory of lib
+	x.g(x.lib, "init", "-q", "-b", "main", plainInLib)
+	x.write(plainInLib, "p.txt", "p\n")
+	x.commit(plainInLib)
+	x.g(ws, "update-index", "--add", "--cacheinfo", "160000,"+x.s.Oids["extra"]+",fake")
+	if err := os.MkdirAll(filepath.Join(ws, "fake", ".git"), 0o755); err != nil { // no repository: git finds the superproject's
+		t.Fatal(err)
+	}
+	if err := os.Symlink("lib", filepath.Join(ws, "link-lib")); err != nil {
+		t.Fatal(err)
+	}
+	// Gitlinks the superproject records whose directory sits behind a symlinked
+	// directory: `mods` leads to a directory of the workspace, `outer` out of it. Each
+	// holds a real repository `m`, so only the symlink stands in the way.
+	outside := t.TempDir()
+	for _, l := range []struct{ link, target, at string }{
+		{"mods", "mods-real", filepath.Join(ws, "mods-real", "m")},
+		{"outer", outside, filepath.Join(outside, "m")},
+	} {
+		if err := os.MkdirAll(filepath.Dir(l.at), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		x.g(filepath.Dir(l.at), "init", "-q", "-b", "main", l.at)
+		x.write(l.at, "m.txt", "m\n")
+		x.commit(l.at)
+		x.g(ws, "update-index", "--add", "--cacheinfo", "160000,"+strings.TrimSpace(x.g(l.at, "rev-parse", "HEAD"))+","+l.link+"/m")
+		if err := os.Symlink(l.target, filepath.Join(ws, l.link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	for _, untrusted := range []bool{false, true} {
 		name := "trusted"
 		if untrusted {
 			name = "untrusted"
 		}
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			x := newRootFx(t)
-			if untrusted {
-				x.untrusted()
-			}
-			ws := x.root
-			// Places of the workspace that are not submodules.
-			x.write(ws, "docs/a.txt", "a\n")
-			x.g(ws, "add", "docs/a.txt")
-			x.g(ws, "commit", "-q", "-m", "docs")
-			inner := filepath.Join(ws, "docs", "inner") // a repository the superproject does not record
-			x.g(ws, "init", "-q", "-b", "main", inner)
-			x.write(inner, "i.txt", "i\n")
-			x.commit(inner)
-			plainInLib := filepath.Join(x.lib, "plain", "x") // a repository below a plain directory of lib
-			x.g(x.lib, "init", "-q", "-b", "main", plainInLib)
-			x.write(plainInLib, "p.txt", "p\n")
-			x.commit(plainInLib)
-			x.g(ws, "update-index", "--add", "--cacheinfo", "160000,"+x.s.Oids["extra"]+",fake")
-			if err := os.MkdirAll(filepath.Join(ws, "fake", ".git"), 0o755); err != nil { // no repository: git finds the superproject's
-				t.Fatal(err)
-			}
-			if err := os.Symlink("lib", filepath.Join(ws, "link-lib")); err != nil {
-				t.Fatal(err)
-			}
-			// Gitlinks the superproject records whose directory sits behind a symlinked
-			// directory: `mods` leads to a directory of the workspace, `outer` out of it. Each
-			// holds a real repository `m`, so only the symlink stands in the way.
-			outside := t.TempDir()
-			for _, l := range []struct{ link, target, at string }{
-				{"mods", "mods-real", filepath.Join(ws, "mods-real", "m")},
-				{"outer", outside, filepath.Join(outside, "m")},
-			} {
-				if err := os.MkdirAll(filepath.Dir(l.at), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				x.g(filepath.Dir(l.at), "init", "-q", "-b", "main", l.at)
-				x.write(l.at, "m.txt", "m\n")
-				x.commit(l.at)
-				x.g(ws, "update-index", "--add", "--cacheinfo", "160000,"+strings.TrimSpace(x.g(l.at, "rev-parse", "HEAD"))+","+l.link+"/m")
-				if err := os.Symlink(l.target, filepath.Join(ws, l.link)); err != nil {
-					t.Fatal(err)
-				}
-			}
-
+			x.env.t = t // the helpers fail the subtest that runs them
+			x.trusted = func(string) (bool, *capability.Error) { return !untrusted, nil }
 			// refused[root] = the directories no git may have been started in.
 			type shape struct {
 				root string
@@ -585,6 +620,32 @@ func TestRootRefused(t *testing.T) {
 				t.Errorf("control: lib's log is empty after the refusals")
 			}
 		})
+	}
+}
+
+// Decision (ADR-0071 §7, plan m2n P6): the lexical part of a root, with no git and no
+// repository: "" and "." are the workspace, a clean relative path is itself, and every other
+// spelling (absolute, parent, current-directory or empty components, a trailing slash, a
+// `.git` component, a NUL, more than 4096 bytes) is REQUEST_INVALID_PARAMS with a nextStep.
+// TestRootRefused sends the same shapes through all four reads and sees no git start.
+func TestParseRoot(t *testing.T) {
+	t.Parallel()
+	for root, want := range map[string]string{"": "", ".": "", "lib": "lib", "lib/nested": "lib/nested", "-x": "-x", ":(top)z": ":(top)z", "a b": "a b"} {
+		if got, err := parseRoot(root); err != nil || got != want {
+			t.Errorf("parseRoot(%q) = %q, %v; want %q", root, got, err, want)
+		}
+	}
+	for _, root := range []string{
+		"..", "../s", "lib/../..", "lib/..", "/", "/etc", "/tmp/ws/lib", "./lib", "lib/", "lib//nested", ".git", "lib/.git",
+		".git/modules/lib", "lib\x00", "\x00", "lib/./nested", "a/../b", strings.Repeat("a/", 3000), strings.Repeat("a", maxRootLen+1),
+	} {
+		got, err := parseRoot(root)
+		if err == nil || err.Code != capability.ErrInvalidParams || err.NextStep == "" || got != "" {
+			t.Errorf("parseRoot(%q) = %q, %+v; want REQUEST_INVALID_PARAMS with a nextStep", truncate(root, 40), got, err)
+		}
+	}
+	if _, err := parseRoot(strings.Repeat("a", maxRootLen)); err != nil {
+		t.Errorf("a root of exactly %d bytes: %+v; want it accepted", maxRootLen, err)
 	}
 }
 

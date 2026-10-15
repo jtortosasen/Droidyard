@@ -276,7 +276,7 @@ func TestCreateBranchWithCheckoutRefusedOverLocalChanges(t *testing.T) {
 // so is renamed in a terminal.
 func TestRemotePrefixRefusalSaysWhatToDo(t *testing.T) {
 	t.Parallel()
-	f := newWfx(t)
+	f := newWfxShared(t) // refused after reading the remotes: nothing is written
 	for _, call := range []func() *capability.Error{
 		func() *capability.Error {
 			_, e := f.call("git.checkout", "ws", CheckoutParams{Name: "origin/x"})
