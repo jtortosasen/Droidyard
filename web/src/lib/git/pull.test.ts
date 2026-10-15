@@ -112,7 +112,7 @@ describe('PullModel', () => {
 		await m.run();
 		expect(f.calls).toEqual([]);
 		expect(m.view).toMatchObject({ state: 'idle', busy: false, blocked: ['app/A.kt', 'app/B.kt'], blockedText: pullBlockText(['app/A.kt', 'app/B.kt']) });
-		expect(m.view.blockedText).toContain('2 have unsaved changes');
+		expect(m.view.blockedText).toContain('2 files have unsaved changes');
 		dirty = [];
 		const run = m.run();
 		expect(f.names()).toEqual(['git.pull']);

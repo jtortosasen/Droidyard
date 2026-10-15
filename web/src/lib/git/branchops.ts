@@ -285,7 +285,7 @@ export function dirtyBlock(source: DirtySource, rewritesWorkTree: boolean): stri
 
 /** The refusal the block shows, as text. */
 export function blockText(paths: readonly string[]): string {
-	return `Save or close ${paths.length === 1 ? 'this file' : 'these files'} first: ${paths.length} ${paths.length === 1 ? 'has' : 'have'} unsaved changes that the checkout would overwrite.`;
+	return `Save or close ${paths.length === 1 ? 'this file' : 'these files'} first: ${paths.length === 1 ? 'it has' : `${paths.length} files have`} unsaved changes that the checkout would overwrite.`;
 }
 
 /** Why the dialog's name cannot be used, from what the list holds already; null when it can be tried. */
