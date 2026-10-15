@@ -578,7 +578,7 @@ func TestWriteCancelLeavesNoLockCheckout(t *testing.T) {
 	if ns := res.Outcomes[0].Error.NextStep; !strings.Contains(ns, "git status") || !strings.Contains(ns, "terminal") || !strings.Contains(ns, f.roots["ws"]) {
 		t.Errorf("nextStep %q does not send the user to `git status` in a terminal in the root", ns)
 	}
-	if groupAlive(pgid) {
+	if groupLive(pgid) {
 		t.Errorf("group %d is still alive", pgid)
 	}
 	if left := locks(t, f.r.W); len(left) > 0 {
@@ -626,7 +626,7 @@ func TestCheckoutTimeout(t *testing.T) {
 		t.Errorf("error %+v; want GIT_FAILED naming the limit, with the git status nextStep", oe)
 	}
 	pid := pidIn(t, started)
-	if syscall.Kill(pid, 0) != syscall.ESRCH || groupAlive(f.groups()[0]) {
+	if pidLive(pid) || groupLive(f.groups()[0]) {
 		t.Errorf("the group %v (smudge %d) outlived the timed-out call", f.groups(), pid)
 	}
 	if left := locks(t, f.r.W); len(left) > 0 {

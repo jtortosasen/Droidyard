@@ -359,7 +359,7 @@ func TestUpdateCancel(t *testing.T) {
 			if out.State != capability.StateCancelled {
 				t.Errorf("outcome %s, error %+v; want cancelled", out.State, out.Error)
 			}
-			if groupAlive(pgid) {
+			if groupLive(pgid) {
 				t.Errorf("group %d still has a member when the operation ended cancelled", pgid)
 			}
 			if syscall.Kill(child, 0) != syscall.ESRCH {
@@ -432,7 +432,7 @@ func TestUpdateTimeout(t *testing.T) {
 			t.Errorf("error %+v; want the time limit named and a nextStep naming the submodule", a.err)
 		}
 		for _, g := range f.groups() {
-			if groupAlive(g) {
+			if groupLive(g) {
 				t.Errorf("group %d outlived the timed-out call", g)
 			}
 		}
@@ -440,7 +440,7 @@ func TestUpdateTimeout(t *testing.T) {
 			t.Logf("attempt %d: the limit passed before the hook started; trying again", attempt)
 			continue
 		}
-		if groupAlive(pgid) || syscall.Kill(child, 0) != syscall.ESRCH {
+		if groupLive(pgid) || pidLive(child) {
 			t.Errorf("the group %d (hook %d) outlived the timed-out call", pgid, child)
 		}
 		return

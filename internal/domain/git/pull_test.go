@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -244,7 +243,7 @@ func TestPullCancel(t *testing.T) {
 			if out.State != capability.StateCancelled {
 				t.Errorf("outcome %s, error %+v; want cancelled", out.State, out.Error)
 			}
-			if groupAlive(pgid) || syscall.Kill(child, 0) != syscall.ESRCH {
+			if groupLive(pgid) || pidLive(child) {
 				t.Errorf("group %d or the uploadpack %d outlived the cancelled pull", pgid, child)
 			}
 			if recs := f.records(); len(recs) != 0 {

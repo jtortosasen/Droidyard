@@ -189,6 +189,39 @@ func (h *hung) exitState() string {
 
 func groupAlive(pgid int) bool { return syscall.Kill(-pgid, 0) != syscall.ESRCH }
 
+// groupLive reports whether a process of the group pgid still runs. A member the kernel
+// still lists as a zombie (killed, not yet reaped by launchd or init, its parent gone) runs
+// nothing and holds no lock, so it does not count: under load the reaping of a killed
+// grandchild can lag a call's end by more than the runner's kill grace.
+func groupLive(pgid int) bool {
+	if !groupAlive(pgid) {
+		return false
+	}
+	out, err := exec.Command("ps", "-A", "-o", "pgid=,stat=").Output()
+	if err != nil {
+		return true
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(l); len(f) == 2 && f[0] == strconv.Itoa(pgid) && !strings.HasPrefix(f[1], "Z") {
+			return true
+		}
+	}
+	return false
+}
+
+// pidLive reports whether pid exists and is not a zombie (see groupLive).
+func pidLive(pid int) bool {
+	if syscall.Kill(pid, 0) == syscall.ESRCH {
+		return false
+	}
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil { // ps exits 1 when no such process is left
+		return false
+	}
+	st := strings.TrimSpace(string(out))
+	return st != "" && !strings.HasPrefix(st, "Z")
+}
+
 // waitGone waits until no process is left in the group pgid, up to d.
 func waitGone(pgid int, d time.Duration) bool {
 	deadline := time.Now().Add(d)

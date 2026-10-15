@@ -422,10 +422,10 @@ func TestFetchCancelKillsTheGroup(t *testing.T) {
 			}
 			// The operation ends only when the handler has returned, which is after the
 			// group is gone: so the group is gone the moment it is cancelled.
-			if groupAlive(pgid) {
+			if groupLive(pgid) {
 				t.Errorf("group %d still has a member when the operation ended cancelled", pgid)
 			}
-			if syscall.Kill(child, 0) != syscall.ESRCH {
+			if pidLive(child) {
 				t.Errorf("the uploadpack %d is still alive", child)
 			}
 			if took > 4*time.Second {
@@ -495,7 +495,7 @@ func TestFetchTimeout(t *testing.T) {
 				t.Errorf("stubborn=%v: error %+v; want the time limit named, with a nextStep", stubborn, a.err)
 			}
 			for _, g := range f.groups() {
-				if groupAlive(g) {
+				if groupLive(g) {
 					t.Errorf("stubborn=%v: group %d outlived the timed-out call", stubborn, g)
 				}
 			}
@@ -504,7 +504,7 @@ func TestFetchTimeout(t *testing.T) {
 				continue
 			}
 			proved = true
-			if groupAlive(pgid) || syscall.Kill(child, 0) != syscall.ESRCH {
+			if groupLive(pgid) || pidLive(child) {
 				t.Errorf("stubborn=%v: the group %d (uploadpack %d) outlived the timed-out call", stubborn, pgid, child)
 			}
 		}
@@ -578,7 +578,7 @@ func TestWriteCancelLeavesNoLock(t *testing.T) {
 	if out.State != capability.StateCancelled {
 		t.Errorf("outcome %s, error %+v; want cancelled", out.State, out.Error)
 	}
-	if groupAlive(pgid) {
+	if groupLive(pgid) {
 		t.Errorf("group %d is still alive", pgid)
 	}
 	if left := locks(t, f.r.W); len(left) > 0 {
@@ -740,7 +740,7 @@ func TestWriteKillsWhatGitLeft(t *testing.T) {
 	if syscall.Kill(stray, 0) != syscall.ESRCH {
 		t.Errorf("the stray %d git left in its group outlived the call", stray)
 	}
-	if groupAlive(f.groups()[0]) {
+	if groupLive(f.groups()[0]) {
 		t.Errorf("group %d has a member after the call", f.groups()[0])
 	}
 }
