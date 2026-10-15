@@ -94,7 +94,7 @@ The owner's brief (2026-10-15) is the requirement; its design was approved ("Sí
 - Not here: no caller; the daemon still uses one root.
 - Rests on: a `gradleRoot` from the project file, which is untrusted repository content, never resolves outside the canonical project root, at level 4.
 - Review: the Opus verifier (untrusted text deciding where project code runs), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `go test ./internal/workspace/` ok (2026-10-16); `TestResolveGradleRoot` (30 rows on `t.TempDir()`), `...KeyResolvesUnderACanonicalisedTempDir`, `...WithoutCandidates`, `...ScanBound`, `...CapsCandidates`, `...KeyAtTheCap`, `...ProjectFileFIFO`, `TestNoGradleRootError`. Seen failing, each through `go test -overlay`: descent into a candidate (two candidates); (a) returning before the scan (`[tools/x]`); (0) removed and `HOME` uncanonicalised (`x/y` resolved; the second rerun by the verifier); a bad key falling back (`dev`, ten rows); containment before `EvalSymlinks` (`../outside`); `os.Open` for `os.OpenRoot` (the outside file read); the project root uncanonicalised (20+ rows); `withKey` past the cap (51); a blocking open of the project file (hung on a FIFO). The symlink-skip reversal as planned does not fail: `DirEntry.IsDir()` is already false for a link, so the explicit test is redundant; the property is pinned by the `link -> OUTSIDE` rows against a scan that would follow links (verifier N1). Opus verifier: proceed, 0 blocking, 1 [test] (N1, this note), 5 [nit]; the main session fixed the nextStep text to Q1 §4's, the cap, and the project file opened `O_NONBLOCK`; a symlinked settings file still counts, as `platform.GradleRoot` does.
 
 ### 2. The Gradle capabilities run on the Gradle root: the first end to end
 
