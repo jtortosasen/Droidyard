@@ -69,7 +69,7 @@ export function summaryText(s: PullSummary): string {
 
 /** The refusal the dirty-buffer gate shows. */
 export function pullBlockText(files: readonly string[]): string {
-	return `Save or close ${files.length === 1 ? 'this file' : 'these files'} first: ${files.length} ${files.length === 1 ? 'has' : 'have'} unsaved changes that the pull would overwrite.`;
+	return `Save or close ${files.length === 1 ? 'this file' : 'these files'} first: ${files.length === 1 ? 'it has' : `${files.length} files have`} unsaved changes that the pull would overwrite.`;
 }
 
 function describe(e: unknown): PullFailure {
