@@ -41,7 +41,8 @@ global, below.)
 
 **What `open` does**, completely: canonicalise the root and derive the id, validate that
 it is a readable directory, load `ws/<wsid>/workspace.json` and any cached project facts,
-evaluate trust from policy, resolve the Gradle root (file reads only), and publish the lifecycle event. It does not contact the TAPI
+evaluate trust from policy, and publish the lifecycle event; the open handler then resolves
+the Gradle root (reads only). It does not contact the TAPI
 sidecar, does not fetch the project model, and does not start the Kotlin LSP (post-MVP,
 which imports the Gradle build and will therefore start lazily, for a trusted root only).
 
@@ -104,7 +105,7 @@ watchers, subscriptions. Processes are ephemeral; the *record of what we spawned
 daemon can reap orphans after a crash. Format and location are
 [ADR-0021](../adr/0021-persistence-format-and-location.md): JSON files per workspace under
 `ws/<wsid>/` in the user state directory, never inside the project tree, except the UI's own choices for
-a project (module, variant, device, application id): `<root>/.droidyard/project.json`, written by the UI through
+a project (module, variant, device, application id, Gradle root): `<root>/.droidyard/project.json`, written by the UI through
 `file.write` on its first change ([ADR-0046](../adr/0046-project-file.md)); it preselects, except
 `gradleRoot` (ADR-0075).
 
