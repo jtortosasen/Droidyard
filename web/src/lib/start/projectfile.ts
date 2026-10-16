@@ -6,8 +6,10 @@
 // Rules this module keeps, each tested:
 //   - the file only preselects: a value the daemon's lists lack is ignored by the models
 //     that apply it, and nothing here carries trust, policy, admission or tool keys;
-//   - it is read once, when the workspace opens, and never written on load: the first
-//     write is the first change the user makes (D19);
+//   - it is read when the workspace opens and never written on load: the first write is
+//     the first change the user makes (D19). Every write reads it again first and patches
+//     what it read, with ifRevision (ADR-0075 §7): a key another writer set since the load
+//     (a hand edit, a second tab) survives;
 //   - a file with a newer schemaVersion, one that does not parse, and one that could not
 //     be read are treated as absent and never overwritten; the panel says so and the
 //     user's choices last for the tab;
@@ -39,6 +41,8 @@ export interface ProjectPatch {
 	build?: { module: string; variant: string };
 	device?: DevicePref;
 	applicationId?: string;
+	/** The Gradle root, relative to the project root (ADR-0075 §7); the UI never reads it back from the file. */
+	gradleRoot?: string;
 }
 
 export type FileState =
@@ -52,6 +56,13 @@ export type FileState =
 
 /** The states in which the file is never written. */
 const BLOCKED: readonly FileState[] = ['newer', 'invalid', 'unreadable'];
+/** A write that meets a conflict reads and patches again; this many tries in all (as trust.ts). */
+const WRITE_TRIES = 3;
+
+type ReadOutcome =
+	| { kind: 'ok'; raw: Record<string, unknown>; revision: string | undefined }
+	| { kind: 'absent' }
+	| { kind: 'newer' | 'invalid' | 'unreadable'; notice: string };
 
 export type Parsed = { kind: 'ok'; raw: Record<string, unknown> } | { kind: 'newer'; version: number } | { kind: 'invalid' };
 
@@ -110,14 +121,11 @@ export function applyPatch(raw: Record<string, unknown>, patch: ProjectPatch): R
 		next.device = { ...rest, ...patch.device };
 	}
 	if (patch.applicationId !== undefined) next.applicationId = patch.applicationId;
+	if (patch.gradleRoot !== undefined) next.gradleRoot = patch.gradleRoot;
 	return next;
 }
 
 export const render = (raw: Record<string, unknown>): string => JSON.stringify(raw, null, 2) + '\n';
-
-function mergePatch(a: ProjectPatch | null, b: ProjectPatch): ProjectPatch {
-	return { ...a, ...b };
-}
 
 /** The device a choice of this list entry is stored as; an emulator whose AVD is unknown is not. */
 export function devicePrefOf(d: { device: string; kind: 'emulator' | 'physical'; avdName?: string }): DevicePref | null {
@@ -156,8 +164,10 @@ export class ProjectFileModel {
 	#raw: Record<string, unknown> = { schemaVersion: SCHEMA_VERSION };
 	#notice: string | null = null;
 	#writeError: Failure | null = null;
-	/** Changes made before the read answered: written once it did, if the file may be. */
-	#pending: ProjectPatch | null = null;
+	/** Changes not on disk yet: made before the read answered, in flight, or whose write failed. */
+	#queue: ProjectPatch[] = [];
+	/** Settled when the write that carries a change ends, or when the file is left alone. */
+	#waiters: (() => void)[] = [];
 	#writing = false;
 	#dirty = false;
 	#loadedFor: string | null = null;
@@ -195,6 +205,7 @@ export class ProjectFileModel {
 	dispose(): void {
 		this.#off();
 		this.#gen++;
+		this.#settle(this.#waiters.splice(0));
 	}
 
 	/** The socket (re)opened: a read the connection cut short is made again. */
@@ -202,14 +213,21 @@ export class ProjectFileModel {
 		if (state === 'open' && this.#state === 'idle') this.#workspaceChanged();
 	}
 
-	/** The user changed a choice: it is written, unless the file is one we must not touch. */
-	update(patch: ProjectPatch): void {
-		if (this.#state === 'idle' || this.#state === 'loading') {
-			this.#pending = mergePatch(this.#pending, patch);
-			return;
-		}
-		if (BLOCKED.includes(this.#state)) return;
-		this.#apply(patch);
+	/**
+	 * The user changed a choice: it is written, unless the file is one we must not touch.
+	 * The promise settles when the write that carries it ends (failed or not), and at once
+	 * when the file is left alone (`view.notice` says why).
+	 */
+	update(patch: ProjectPatch): Promise<void> {
+		if (BLOCKED.includes(this.#state)) return Promise.resolve();
+		this.#queue.push(patch);
+		const done = new Promise<void>((resolve) => this.#waiters.push(resolve));
+		if (this.#state !== 'idle' && this.#state !== 'loading') this.#flush();
+		return done;
+	}
+
+	#settle(waiters: (() => void)[]): void {
+		for (const w of waiters) w();
 	}
 
 	#workspaceChanged(): void {
@@ -220,6 +238,34 @@ export class ProjectFileModel {
 		if (id !== this.#loadedFor || (granted && this.#state === 'unreadable')) void this.#load(id);
 	}
 
+	/** One read of the project file: its parsed content and revision, or why it is not ours. */
+	async #read(): Promise<ReadOutcome> {
+		try {
+			const r = await this.#client.call('file.read', { path: PROJECT_FILE, limit: READ_LIMIT }, { workspace: this.#ws.root.trim() });
+			// A page that is not the whole text (binary, cut, or more to read) is not our file.
+			const whole = r.text !== undefined && r.binary !== true && r.truncated !== true && r.nextOffset >= r.size;
+			const parsed = whole ? parseProjectFile(r.text ?? '') : ({ kind: 'invalid' } as Parsed);
+			if (parsed.kind === 'ok') return { kind: 'ok', raw: parsed.raw, revision: r.revision };
+			if (parsed.kind === 'newer') {
+				return {
+					kind: 'newer',
+					notice: `${PROJECT_FILE} has schemaVersion ${parsed.version}, newer than this UI reads (${SCHEMA_VERSION}). It is ignored and will not be changed; your choices last for this tab only.`,
+				};
+			}
+			return { kind: 'invalid', notice: `${PROJECT_FILE} could not be parsed. It is ignored and will not be overwritten; your choices last for this tab only.` };
+		} catch (e) {
+			if (e instanceof CapabilityError && e.code === 'FILE_NOT_FOUND') return { kind: 'absent' };
+			if (e instanceof CapabilityError) {
+				const f = failure(e);
+				return {
+					kind: 'unreadable',
+					notice: `${PROJECT_FILE} could not be read (${f.code ?? 'error'}). It is ignored and will not be overwritten; your choices last for this tab only.`,
+				};
+			}
+			throw e; // a lost connection says nothing about the file
+		}
+	}
+
 	async #load(id: string): Promise<void> {
 		const gen = ++this.#gen;
 		this.#loadedFor = id;
@@ -227,53 +273,34 @@ export class ProjectFileModel {
 		this.#notice = null;
 		this.#raw = { schemaVersion: SCHEMA_VERSION };
 		this.#changed();
-		let state: FileState;
+		let out: ReadOutcome;
 		try {
-			const r = await this.#client.call('file.read', { path: PROJECT_FILE, limit: READ_LIMIT }, { workspace: this.#ws.root.trim() });
+			out = await this.#read();
+		} catch {
 			if (gen !== this.#gen) return;
-			// A page that is not the whole text (binary, cut, or more to read) is not our file.
-			const whole = r.text !== undefined && r.binary !== true && r.truncated !== true && r.nextOffset >= r.size;
-			const parsed = whole ? parseProjectFile(r.text ?? '') : ({ kind: 'invalid' } as Parsed);
-			if (parsed.kind === 'ok') {
-				this.#raw = parsed.raw;
-				state = 'loaded';
-			} else if (parsed.kind === 'newer') {
-				state = 'newer';
-				this.#notice = `${PROJECT_FILE} has schemaVersion ${parsed.version}, newer than this UI reads (${SCHEMA_VERSION}). It is ignored and will not be changed; your choices last for this tab only.`;
-			} else {
-				state = 'invalid';
-				this.#notice = `${PROJECT_FILE} could not be parsed. It is ignored and will not be overwritten; your choices last for this tab only.`;
-			}
-		} catch (e) {
-			if (gen !== this.#gen) return;
-			if (e instanceof CapabilityError && e.code === 'FILE_NOT_FOUND') {
-				state = 'absent';
-			} else if (e instanceof CapabilityError) {
-				state = 'unreadable';
-				const f = failure(e);
-				this.#notice = `${PROJECT_FILE} could not be read (${f.code ?? 'error'}). It is ignored and will not be overwritten; your choices last for this tab only.`;
-			} else {
-				// A lost connection says nothing about the file: read again when the socket reopens.
-				this.#state = 'idle';
-				this.#loadedFor = null;
-				this.#changed();
-				return;
-			}
+			// Read again when the socket reopens.
+			this.#state = 'idle';
+			this.#loadedFor = null;
+			this.#changed();
+			return;
 		}
-		this.#state = state;
-		const pending = this.#pending;
-		this.#pending = null;
+		if (gen !== this.#gen) return;
+		if (out.kind === 'ok') {
+			this.#raw = out.raw;
+			this.#state = 'loaded';
+		} else if (out.kind === 'absent') {
+			this.#state = 'absent';
+		} else {
+			this.#state = out.kind;
+			this.#notice = out.notice;
+		}
 		this.#changed();
-		if (pending !== null && !BLOCKED.includes(state)) this.#apply(pending);
-	}
-
-	#apply(patch: ProjectPatch): void {
-		const next = applyPatch(this.#raw, patch);
-		const unchanged = this.#state === 'loaded' && render(next) === render(this.#raw);
-		this.#raw = next;
-		if (unchanged && this.#writeError === null) return;
-		this.#state = 'loaded';
-		this.#flush();
+		if (BLOCKED.includes(this.#state)) {
+			this.#queue = [];
+			this.#settle(this.#waiters.splice(0));
+		} else if (this.#queue.length > 0) {
+			this.#flush();
+		}
 	}
 
 	/** One write at a time; a change made while one is in flight is written after it. */
@@ -292,18 +319,68 @@ export class ProjectFileModel {
 		try {
 			do {
 				this.#dirty = false;
-				const content = render(this.#raw);
-				try {
-					await this.#client.call('file.write', { path: PROJECT_FILE, content }, { workspace: this.#ws.root.trim() });
-					this.#writeError = null;
-				} catch (e) {
-					// The choice stays in the models; the next change writes the whole file again.
-					this.#writeError = failure(e);
-				}
-			} while (this.#dirty && id === this.#loadedFor);
+				const batch = this.#queue.splice(0);
+				const waiters = this.#waiters.splice(0);
+				if (batch.length > 0) await this.#writeBatch(batch, id);
+				this.#settle(waiters);
+			} while (this.#dirty && id === this.#loadedFor && !BLOCKED.includes(this.#state));
 		} finally {
 			this.#writing = false;
+			if (BLOCKED.includes(this.#state)) this.#settle(this.#waiters.splice(0));
 			this.#changed();
+		}
+	}
+
+	/**
+	 * Reads the file again, applies the batch to what was read and writes it with the revision
+	 * read (ADR-0075 §7). A conflict reads and patches again, three tries in all. A file
+	 * that is now one we must not touch is left alone; a failure keeps the batch for the
+	 * next write and shows the failure.
+	 */
+	async #writeBatch(batch: ProjectPatch[], id: string | null): Promise<void> {
+		const fail = (e: unknown) => {
+			this.#writeError = failure(e);
+			this.#queue.unshift(...batch);
+		};
+		for (let attempt = 1; attempt <= WRITE_TRIES; attempt++) {
+			let out: ReadOutcome;
+			try {
+				out = await this.#read();
+			} catch (e) {
+				fail(e);
+				return;
+			}
+			if (id !== this.#loadedFor) return;
+			if (out.kind === 'newer' || out.kind === 'invalid' || out.kind === 'unreadable') {
+				this.#state = out.kind;
+				this.#notice = out.notice;
+				this.#queue = [];
+				return;
+			}
+			const base = out.kind === 'ok' ? out.raw : { schemaVersion: SCHEMA_VERSION };
+			const next = batch.reduce(applyPatch, base);
+			if (out.kind === 'ok' && render(next) === render(base)) {
+				this.#raw = base;
+				this.#state = 'loaded';
+				this.#writeError = null;
+				return;
+			}
+			try {
+				const ifRevision = out.kind === 'ok' ? out.revision : 'absent';
+				await this.#client.call(
+					'file.write',
+					{ path: PROJECT_FILE, content: render(next), ...(ifRevision !== undefined && { ifRevision }) },
+					{ workspace: this.#ws.root.trim() },
+				);
+				this.#raw = next;
+				this.#state = 'loaded';
+				this.#writeError = null;
+				return;
+			} catch (e) {
+				if (e instanceof CapabilityError && e.code === 'FILE_REVISION_CONFLICT' && attempt < WRITE_TRIES) continue;
+				fail(e);
+				return;
+			}
 		}
 	}
 

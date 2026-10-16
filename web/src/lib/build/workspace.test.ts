@@ -101,4 +101,18 @@ describe('WorkspaceModel', () => {
 		expect(t.model.view.info?.trusted).toBe(true);
 		expect(t.calls.calls.at(-1)).toEqual({ name: 'workspace.describe', params: {}, workspace: '/p' });
 	});
+
+	// Decision (ADR-0075 §5, §7): `gradle` comes from open, and describe is the one source
+	// afterwards: a root chosen elsewhere shows after refresh().
+	it('keeps gradle from open and takes it again from describe on refresh', async () => {
+		const t = await setup();
+		t.calls.on('workspace.open', () => ({ id: 'w1', name: 's', root: '/p', state: 'ready', trusted: true, gradle: { candidates: ['dev', 'tools/x'] } }));
+		await t.model.openById('w1');
+		expect(t.model.view.gradle).toEqual({ candidates: ['dev', 'tools/x'] });
+		expect(t.model.gradleRoot).toBeUndefined();
+		t.calls.on('workspace.describe', () => ({ id: 'w1', name: 's', root: '/p', state: 'ready', trusted: true, gradle: { root: 'dev', candidates: ['dev', 'tools/x'] } }));
+		await t.model.refresh();
+		expect(t.model.view.gradle).toEqual({ root: 'dev', candidates: ['dev', 'tools/x'] });
+		expect(t.model.gradleRoot).toBe('dev');
+	});
 });

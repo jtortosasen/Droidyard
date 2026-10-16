@@ -45,7 +45,15 @@ async function setup(o: Opts = {}) {
 	const act = await activityWith();
 	const { hub } = await hubStarted();
 	const calls = new FakeCalls();
-	const disk = { content: o.file ?? null as string | null, writes: [] as string[] };
+	// The disk keeps a revision that changes with every write, as file.read/file.write do
+	// (ADR-0058); `beforeWrite` is a concurrent writer acting between a read and a write.
+	const disk = {
+		content: o.file ?? null as string | null,
+		rev: 1,
+		writes: [] as string[],
+		attempts: [] as { ifRevision?: string; content: string }[],
+		beforeWrite: null as (() => void) | null,
+	};
 	const gate = { read: null as Promise<void> | null };
 	let fileRead!: () => void;
 	const fileDone = new Promise<void>((r) => (fileRead = r));
@@ -77,14 +85,18 @@ async function setup(o: Opts = {}) {
 		if (o.readError) throw o.readError;
 		if (disk.content === null) throw capError('FILE_NOT_FOUND');
 		const size = new TextEncoder().encode(disk.content).length;
-		return { path: PROJECT_FILE, size, modTime: 't', offset: 0, nextOffset: size, text: disk.content };
+		return { path: PROJECT_FILE, size, modTime: 't', offset: 0, nextOffset: size, text: disk.content, revision: `rev-${disk.rev}` };
 	});
 	calls.on('file.write', (p) => {
 		if (o.writeError) throw o.writeError;
-		const content = (p as { content: string }).content;
+		const { content, ifRevision } = p as { content: string; ifRevision?: string };
+		disk.attempts.push({ ifRevision, content });
+		disk.beforeWrite?.();
+		if (ifRevision !== undefined && ifRevision !== (disk.content === null ? 'absent' : `rev-${disk.rev}`)) throw capError('FILE_REVISION_CONFLICT');
 		disk.content = content;
+		disk.rev++;
 		disk.writes.push(content);
-		return { path: PROJECT_FILE, size: content.length };
+		return { path: PROJECT_FILE, size: content.length, revision: `rev-${disk.rev}` };
 	});
 
 	const ws = new FakeWs();
@@ -558,5 +570,119 @@ describe('the parts', () => {
 			build: { module: ':a', variant: 'v', k: 2 },
 		});
 		expect(parseProjectFile('{"schemaVersion":1,"z":1}')).toEqual({ kind: 'ok', raw: { schemaVersion: 1, z: 1 } });
+	});
+});
+
+describe('the Gradle root in the project file (ADR-0075 §7)', () => {
+	// Decision: the UI's choice of the Gradle root is one more key of the file, and every
+	// other key, known or not, is kept.
+	it('applyPatch sets gradleRoot and keeps every other key', () => {
+		const raw = { schemaVersion: 1, build: { module: ':app', variant: 'debug' }, custom: { x: 1 }, gradleRoot: 'old' };
+		expect(applyPatch(raw, { gradleRoot: 'tools/x' })).toEqual({ ...raw, gradleRoot: 'tools/x' });
+		expect(applyPatch({ schemaVersion: 1 }, { gradleRoot: '.' })).toEqual({ schemaVersion: 1, gradleRoot: '.' });
+	});
+
+	// Decision: every write reads the file again first. A gradleRoot written by hand after
+	// the model loaded must survive a later choice of another key (today's rewrite of the
+	// copy read at load would put the old file back).
+	it('keeps a gradleRoot written by hand after the load when a device is chosen', async () => {
+		const t = await setup({ file: fileOf({ schemaVersion: 1, build: { module: ':app', variant: 'debug' } }), devices: [dev('emulator-5554', { avdName: 'a1' }), dev('R58M', { kind: 'physical' })] });
+		t.disk.content = fileOf({ schemaVersion: 1, build: { module: ':app', variant: 'debug' }, gradleRoot: 'dev' });
+		t.disk.rev++;
+		t.devices.select('R58M');
+		await settle();
+		expect(t.written().at(-1)).toEqual({ schemaVersion: 1, build: { module: ':app', variant: 'debug' }, gradleRoot: 'dev', device: { serial: 'R58M' } });
+	});
+
+	// Decision: the same holds for a second model (another tab) on the same file.
+	it('keeps a gradleRoot a second model wrote on the same file', async () => {
+		const t = await setup({ file: fileOf({ schemaVersion: 1 }), devices: [dev('R58M', { kind: 'physical' })] });
+		const other = new ProjectFileModel(t.calls as unknown as ProjectFileClient, new FakeWs());
+		await settle();
+		await other.update({ gradleRoot: 'tools/x' });
+		expect(t.written().at(-1)).toEqual({ schemaVersion: 1, gradleRoot: 'tools/x' });
+		t.devices.select('R58M');
+		await settle();
+		expect(t.written().at(-1)).toEqual({ schemaVersion: 1, gradleRoot: 'tools/x', device: { serial: 'R58M' } });
+	});
+
+	// Decision (ADR-0058): the write carries the revision it read, so a file changed between
+	// the read and the write is a conflict, read and patched again, not overwritten.
+	it('reads and patches again when the file changes between the read and the write', async () => {
+		const t = await setup({ file: fileOf({ schemaVersion: 1 }) });
+		let raced = false;
+		t.disk.beforeWrite = () => {
+			if (raced) return;
+			raced = true;
+			t.disk.content = fileOf({ schemaVersion: 1, late: true });
+			t.disk.rev++;
+		};
+		await t.file.update({ gradleRoot: 'dev' });
+		expect(t.disk.attempts).toHaveLength(2);
+		expect(t.disk.attempts.every((a) => a.ifRevision !== undefined)).toBe(true);
+		expect(t.written()).toEqual([{ schemaVersion: 1, late: true, gradleRoot: 'dev' }]);
+		expect(t.file.view.writeError).toBeNull();
+	});
+
+	// Decision: a file that was absent is written with ifRevision "absent", so a file another
+	// writer created meanwhile is not replaced.
+	it('writes a new file with ifRevision absent and merges with one created meanwhile', async () => {
+		const t = await setup();
+		await t.file.update({ gradleRoot: 'dev' });
+		expect(t.disk.attempts[0]).toMatchObject({ ifRevision: 'absent' });
+		expect(t.written()).toEqual([{ schemaVersion: 1, gradleRoot: 'dev' }]);
+
+		const u = await setup();
+		let raced = false;
+		u.disk.beforeWrite = () => {
+			if (raced) return;
+			raced = true;
+			u.disk.content = fileOf({ schemaVersion: 1, made: 'by hand' });
+			u.disk.rev++;
+		};
+		await u.file.update({ gradleRoot: 'dev' });
+		expect(u.written()).toEqual([{ schemaVersion: 1, made: 'by hand', gradleRoot: 'dev' }]);
+	});
+
+	// Decision: three tries, then the failure is shown and the change stays for the next write.
+	it('gives up after three conflicts, shows the failure and settles', async () => {
+		const t = await setup({ file: fileOf({ schemaVersion: 1 }) });
+		t.disk.beforeWrite = () => t.disk.rev++;
+		await t.file.update({ gradleRoot: 'dev' });
+		expect(t.disk.attempts).toHaveLength(3);
+		expect(t.disk.writes).toHaveLength(0);
+		expect(t.file.view.writeError).toMatchObject({ code: 'FILE_REVISION_CONFLICT' });
+		t.disk.beforeWrite = null;
+		await t.file.update({ applicationId: 'com.x.app' });
+		expect(t.written().at(-1)).toEqual({ schemaVersion: 1, gradleRoot: 'dev', applicationId: 'com.x.app' });
+	});
+
+	// Decision: a file that is now newer, unparseable or unreadable is read at the write and
+	// left alone, with the notice, and the promise settles so the select never waits.
+	it('reads a file that became one we must not touch, writes nothing, and settles', async () => {
+		const t = await setup({ file: fileOf({ schemaVersion: 1 }) });
+		t.disk.content = fileOf({ schemaVersion: 9 });
+		await t.file.update({ gradleRoot: 'dev' });
+		expect(t.disk.writes).toHaveLength(0);
+		expect(t.file.view.state).toBe('newer');
+		expect(t.file.view.notice).toContain('schemaVersion 9');
+		await t.file.update({ gradleRoot: 'again' }); // already blocked: settles at once
+		const bad = await setup({ file: '{nope' });
+		await bad.file.update({ gradleRoot: 'dev' });
+		expect(bad.file.view.notice).toContain('could not be parsed');
+		expect(bad.disk.content).toBe('{nope');
+	});
+
+	// Decision: a change made before the read answered settles when the file turns out to be
+	// one we must not touch (the select would wait forever otherwise).
+	it('settles a change made during the read when the file is left alone', async () => {
+		const t = await setup({ file: '{nope' });
+		let open!: () => void;
+		t.gate.read = new Promise<void>((r) => (open = r));
+		const model = new ProjectFileModel(t.calls as unknown as ProjectFileClient, Object.assign(new FakeWs(), { id: 'w9' }));
+		const done = model.update({ gradleRoot: 'dev' });
+		open();
+		await done;
+		expect(t.disk.writes).toHaveLength(0);
 	});
 });
