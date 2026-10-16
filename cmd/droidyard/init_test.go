@@ -333,7 +333,7 @@ func TestInitOnTheCommandLine(t *testing.T) {
 		if code := p.wait(t); code != 2 {
 			t.Errorf("at a folder of two: exit %d; want 2", code)
 		}
-		for _, want := range []string{"or above it", "one or two levels below", "gradleRoot", "--root"} {
+		for _, want := range []string{"or above it", "several folders", "gradleRoot", "--root"} {
 			if !strings.Contains(p.stderr.String(), want) {
 				t.Errorf("the refusal %q does not say %q", p.stderr.String(), want)
 			}
