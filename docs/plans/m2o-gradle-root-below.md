@@ -128,7 +128,7 @@ The owner's brief (2026-10-15) is the requirement; its design was approved ("Sí
 - Not here: `workspace.watch` rows and `workspace.state` events carry no Gradle root: the projects panel does not show it.
 - Rests on: —
 - Review: the Opus verifier (contract), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestOpenAndDescribeReportTheGradleRoot` (real files, through the capability layer; open and describe agree: a top with `dev/` → `dev`, `["dev"]`; rule 1 with another build below → `.`, `["."]`; two → no root, `[a b]`, PROJECT_NO_GRADLE_ROOT; none → `candidates` `[]` and no `root` on the wire; a project file written after the open decides at the next describe, a bad key then the error), `TestRegistryDescribeResolvesNoGradleRoot`. Seen failing through `go test -overlay`: the resolution cached per root; `Registry.Describe` resolving; `Root` absolute; and the schema and `tools.md` golden tests before `-update`. Schema: `gradle {root?, candidates, error?}` required on both results, with field descriptions; PROJECT_NO_GRADLE_ROOT in both `errors`; describe's description; version 0.26.0 unchanged. Tool-list budget: 28,059 of 29,000 bytes after the description change (about 28,047 before; inferred). Opus verifier (rerun after a network cut): proceed, 0 blocking, 1 [plan] (this evidence and the budget delta), 5 [nit]; the main session filled an empty candidate list when an info has no root, described the `gradle` fields, and reworded describe's description.
 
 ### 4. Crash and close follow the Gradle root
 

@@ -10475,7 +10475,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.2.0",
-      "description": "Describes the open workspace: its id, root, state, whether it is trusted, and, when degraded, why.",
+      "description": "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, and, when degraded, why.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -10483,7 +10483,8 @@
         "openWorldHint": false
       },
       "errors": [
-        "WORKSPACE_STATE_NEWER"
+        "WORKSPACE_STATE_NEWER",
+        "PROJECT_NO_GRADLE_ROOT"
       ],
       "input": {
         "properties": {},
@@ -10539,6 +10540,52 @@
               "code",
               "message"
             ]
+          },
+          "gradle": {
+            "properties": {
+              "root": {
+                "type": "string",
+                "description": "The Gradle root, relative to the project root (\".\" is the project root itself); absent when there is none."
+              },
+              "candidates": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The folders holding a settings.gradle(.kts), relative to the project root, sorted, at most 50; listed even when root is set."
+              },
+              "error": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "cause": {
+                    "type": "string"
+                  },
+                  "nextStep": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "description": "PROJECT_NO_GRADLE_ROOT, present exactly when root is absent."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "candidates"
+            ]
           }
         },
         "additionalProperties": false,
@@ -10548,7 +10595,8 @@
           "name",
           "root",
           "state",
-          "trusted"
+          "trusted",
+          "gradle"
         ]
       }
     },
@@ -10569,7 +10617,8 @@
       "errors": [
         "WORKSPACE_ROOT_INVALID",
         "WORKSPACE_STATE_NEWER",
-        "WORKSPACE_STATE_UNREADABLE"
+        "WORKSPACE_STATE_UNREADABLE",
+        "PROJECT_NO_GRADLE_ROOT"
       ],
       "input": {
         "properties": {},
@@ -10625,6 +10674,52 @@
               "code",
               "message"
             ]
+          },
+          "gradle": {
+            "properties": {
+              "root": {
+                "type": "string",
+                "description": "The Gradle root, relative to the project root (\".\" is the project root itself); absent when there is none."
+              },
+              "candidates": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The folders holding a settings.gradle(.kts), relative to the project root, sorted, at most 50; listed even when root is set."
+              },
+              "error": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "cause": {
+                    "type": "string"
+                  },
+                  "nextStep": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "description": "PROJECT_NO_GRADLE_ROOT, present exactly when root is absent."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "candidates"
+            ]
           }
         },
         "additionalProperties": false,
@@ -10634,7 +10729,8 @@
           "name",
           "root",
           "state",
-          "trusted"
+          "trusted",
+          "gradle"
         ]
       }
     },
