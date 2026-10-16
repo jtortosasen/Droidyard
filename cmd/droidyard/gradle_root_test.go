@@ -99,6 +99,25 @@ func TestGradleRootBelowTheProjectRoot(t *testing.T) {
 	if len(res.Tasks) != 1 || res.Tasks[0].Path != ":app:assembleDebug" {
 		t.Errorf("build.tasks = %+v; want the fake's :app:assembleDebug", res.Tasks)
 	}
+	// project.modules publishes its dirs relative to the project root, not the Gradle root
+	// (ADR-0075 §5): the fake's "." and "app" are "dev" and "dev/app". Seen failing with
+	// the daemon's hook handing the Gradle root as the project root.
+	env, code = callIn(t, state, top, "project.modules")
+	var mods struct {
+		Modules []struct {
+			Dir string `json:"dir"`
+		} `json:"modules"`
+	}
+	if code != 0 || json.Unmarshal(env.Result, &mods) != nil {
+		t.Fatalf("project.modules exited %d: %+v", code, env.Error)
+	}
+	var dirs []string
+	for _, m := range mods.Modules {
+		dirs = append(dirs, m.Dir)
+	}
+	if strings.Join(dirs, ",") != "dev,dev/app" {
+		t.Errorf("project.modules dirs = %v; want [dev dev/app], relative to the project root", dirs)
+	}
 	// The other Gradle capabilities on the same workspace, their results aside: each must
 	// reach the sidecar through dev/, so none opens the top. build.run may answer before
 	// its build reaches the sidecar, so the log is read once the fake served it.

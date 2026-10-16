@@ -443,12 +443,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			return nil, err
 		}
 		projectRoot := v.(string)
+		// Without candidates: a failure lists them anyway, and a valid key skips the scan.
 		r := workspace.ResolveGradleRoot(projectRoot, false)
 		if r.Abs == "" {
-			// The failure lists the candidates, which the cheap resolution above skips.
-			if r = workspace.ResolveGradleRoot(projectRoot, true); r.Abs == "" {
-				return nil, r.Err
-			}
+			return nil, r.Err
 		}
 		// Remembered per workspace, so a crash of this root degrades it and its close
 		// releases the connection (ADR-0075 §8). A workspace that began closing since the

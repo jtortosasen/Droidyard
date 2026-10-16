@@ -135,9 +135,10 @@ func checkRegister(fsys fs.FS) []string {
 // milestone 2n step P5: the same two rows name git.updateSubmodules. Raised by 2 (to 26,558)
 // in milestone 2n step R3: mcp.md's not-exposed row and mvp.md's git row name git.pull (ADR-0074).
 // Raised by 7 (to 26,565) at milestone 2n's close: README.md's §Where the work stands names 2n.
-// Raised by 77 (to 26,642) at milestone 2o's close: workspace-state.md and gradle.md name the
-// two roots, the register's four 2o rows, and README.md's status line (ADR-0075).
-const liveBudget = 26642
+// Raised by 90 (to 26,655) at milestone 2o's close: workspace-state.md, gradle.md and
+// process-lifecycle.md name the two roots, the register's five 2o rows, and README.md's
+// status line (ADR-0075).
+const liveBudget = 26655
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
