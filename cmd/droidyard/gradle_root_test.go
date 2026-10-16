@@ -221,3 +221,67 @@ func TestNoGradleRoot(t *testing.T) {
 	}
 	srv.wait(t)
 }
+
+// TestCloseClosesTheGradleRootConnection is ADR-0075 §8 on a real daemon over the fake
+// sidecar: closing the top's workspace after build.tasks releases the connection to the
+// Gradle root, <top>/dev, never to the top. With a second workspace open at <top>/dev
+// that also ran build.tasks, the connection is shared: closing the top writes no `closed`
+// line, and closing both writes one. Seen failing with the "no other open workspace"
+// test removed from Close (the top's close then closes the shared connection).
+func TestCloseClosesTheGradleRootConnection(t *testing.T) {
+	t.Parallel()
+	state := shortDir(t)
+	cfg, events := fakeSidecar(t, gradleRootModel)
+	top := topWith(t, ".cursor/", "dev/settings.gradle.kts")
+	dev := filepath.Join(top, "dev")
+
+	srv := droidyardEnv(t, state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t)}, "serve")
+	srv.expect(t, "listening")
+	for _, root := range []string{top, dev} {
+		if code := droidyard(t, state, "trust", root).wait(t); code != 0 {
+			t.Fatalf("droidyard trust %s exited %d", root, code)
+		}
+	}
+	call := func(root string, args ...string) {
+		t.Helper()
+		if env, code := callIn(t, state, root, args...); code != 0 {
+			t.Fatalf("%s in %s exited %d: %+v", args[0], root, code, env.Error)
+		}
+	}
+	closedLines := func() []string {
+		var out []string
+		for _, l := range eventLines(t, events) {
+			if strings.HasPrefix(l, "closed ") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+
+	// The top alone: its close releases dev/.
+	call(top, "workspace.open")
+	call(top, "build.tasks")
+	call(top, "workspace.close")
+	if got, want := closedLines(), []string{"closed " + dev}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after closing the top the sidecar closed %q; want %q", got, want)
+	}
+
+	// Two workspaces on one Gradle root: the top's close leaves the connection to the other.
+	call(top, "workspace.open")
+	call(dev, "workspace.open")
+	call(top, "build.tasks")
+	call(dev, "build.tasks")
+	call(top, "workspace.close")
+	if got := closedLines(); len(got) != 1 {
+		t.Fatalf("closing the top while the workspace at dev/ is open wrote the `closed` lines %q; want no new one", got)
+	}
+	call(dev, "workspace.close")
+	if got, want := closedLines(), []string{"closed " + dev, "closed " + dev}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after closing both the sidecar closed %q; want %q", got, want)
+	}
+
+	if code := droidyard(t, state, "stop").wait(t); code != 0 {
+		t.Errorf("stop exited %d", code)
+	}
+	srv.wait(t)
+}
