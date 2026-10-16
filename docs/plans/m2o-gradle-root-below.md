@@ -162,7 +162,7 @@ The owner's brief (2026-10-15) is the requirement; its design was approved ("Sí
 - Not here: `workspace.chooseRoot` keeps its rule (the nearest ancestor with a settings file, else the folder): a top chosen in the dialog is already the top. The MCP binding does not change.
 - Rests on: —
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestProjectOf` (HOME temporary: the top with `dev/` → the top; `dev`, `dev/sub` → `dev`; two builds → none; two and a valid key → found; a HOME with one build two levels down → none; `/` → none), `TestUIOpensTheTopOfARepository` (`ui` at the top opens `w=<the top's id>`; at a folder of two, no `w`), `TestInitOnTheCommandLine` (at the top, `--dry-run` names the top and `Gradle root: <top>/dev`; at a folder of two, exit 2 naming "or above it", "one or two levels below", `gradleRoot` and `--root`, nothing written; with `--root` there, `Gradle root: none (several …)` and the choice). Seen failing through `go test -overlay`: the home exclusion off (the HOME row found); no cwd fallback (the top not found; `ui` opened no `w`; `init` exit 2); `ui` on the old upward walk; `init` on the old check. `/` → none is shown as "not found" here; that it reads no directory is step 1's test. Beyond the step: `init` prints the Gradle root also with `--root`, and the reason when there is none (the main session's; the owner sees at once whether their top resolves); `help` for `ui` and `init` states the rule. Main session's diff review: `init` resolves the project once.
 
 ### 6. The UI: show and change the Gradle root
 

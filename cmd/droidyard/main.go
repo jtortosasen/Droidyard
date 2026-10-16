@@ -85,7 +85,8 @@ Commands:
   ui         Open the web UI in the default browser, at the tokenised URL:
              droidyard ui [--no-autostart]
              In a project folder, or under one (a settings.gradle or settings.gradle.kts),
-             it opens that project; elsewhere, the newest open project, else the
+             or at the top of a repository whose Gradle build is one or two folders
+             below, it opens that project; elsewhere, the newest open project, else the
              projects panel.
              ui starts a daemon when none answers, unless --no-autostart.
   trust      Grant a project root trust, so capabilities that run its code may:
@@ -100,7 +101,9 @@ Commands:
              It merges into existing files, keeps an existing droidyard entry, and refuses
              a file it cannot parse. --uninstall removes what init would write; --dry-run
              prints the changes and writes none.
-             The root is --root, else the project root of the current directory.
+             The root is --root, else the project ui would open from the current directory:
+             the nearest folder at or above it with a settings.gradle(.kts), else the
+             current folder when it is the top of a repository with one Gradle build below.
              No daemon is involved or started.
   hook       Answer one coding assistant's hook event (run by an assistant's hook entry):
              droidyard hook --client claude|cursor --root <absolute project root>

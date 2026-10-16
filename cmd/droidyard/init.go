@@ -14,6 +14,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/workspace"
 	"github.com/jtortosasen/droidyard/skills"
 )
 
@@ -115,16 +116,19 @@ func initCmd(args []string, out, errw io.Writer) int {
 		return 1
 	}
 	// init writes into the user's project, so it does not guess one: without --root the
-	// project must be found by its settings.gradle, as `droidyard mcp` finds it, and the
-	// home directory is never a project (its .cursor and .claude are the user's global
-	// configuration).
+	// project is the one `droidyard ui` opens (ADR-0075 §6): found by a settings.gradle
+	// at or above the working directory, or the top of a repository whose Gradle build
+	// is one or two folders below. The home directory is never a project (its .cursor
+	// and .claude are the user's global configuration).
+	root := resolveRoot(*rootFlag, cwd)
 	if *rootFlag == "" {
-		if _, ok := platform.GradleRoot(cwd); !ok {
-			fmt.Fprintf(errw, "droidyard init: no settings.gradle or settings.gradle.kts in %s or above it; name the project with --root\n%s\n", cwd, initUsage)
+		p, ok := projectOf(cwd)
+		if !ok {
+			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, none in the folders one or two levels below it, and no gradleRoot in its .droidyard/project.json; name the project with --root\n%s\n", cwd, initUsage)
 			return 2
 		}
+		root = p
 	}
-	root := resolveRoot(*rootFlag, cwd)
 	if home, err := os.UserHomeDir(); err == nil && sameFile(root, home) {
 		fmt.Fprintf(errw, "droidyard init: %s is your home directory, not a project: its .cursor and .claude hold your global configuration; name the project with --root\n", root)
 		return 2
@@ -160,6 +164,11 @@ func initCmd(args []string, out, errw io.Writer) int {
 		return 1
 	}
 	printInit(out, root, command, res, tools, *dryRun, *uninstall)
+	if g := workspace.ResolveGradleRoot(root, true); g.Err == nil {
+		fmt.Fprintf(out, "Gradle root: %s\n", g.Abs)
+	} else {
+		fmt.Fprintf(out, "Gradle root: none (%s). %s\n", g.Err.Cause, g.Err.NextStep)
+	}
 	if !res.Refused() && !*dryRun && !*uninstall {
 		for _, c := range clients {
 			if n := assistant.Note(c); n != "" {

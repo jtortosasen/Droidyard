@@ -319,6 +319,36 @@ func TestInitOnTheCommandLine(t *testing.T) {
 		}
 	})
 
+	t.Run("at the top of a repository init names the top, and at a folder of two it refuses", func(t *testing.T) {
+		top := projectDir(t)
+		buildAt(t, top, "dev")
+		out, code := initRun(t, state, top, "--client", "cursor", "--dry-run")
+		if code != 0 || !strings.Contains(out, "droidyard init for "+top+" ") || !strings.Contains(out, "Gradle root: "+filepath.Join(top, "dev")) {
+			t.Errorf("at the top: exit %d; want the top as the root and its Gradle root named\n%s", code, out)
+		}
+		two := projectDir(t)
+		buildAt(t, two, "a")
+		buildAt(t, two, "b")
+		p := droidyardIn(t, state, two, "init", "--client", "cursor")
+		if code := p.wait(t); code != 2 {
+			t.Errorf("at a folder of two: exit %d; want 2", code)
+		}
+		for _, want := range []string{"or above it", "one or two levels below", "gradleRoot", "--root"} {
+			if !strings.Contains(p.stderr.String(), want) {
+				t.Errorf("the refusal %q does not say %q", p.stderr.String(), want)
+			}
+		}
+		if left, _ := os.ReadDir(two); len(left) != 2 {
+			t.Errorf("init wrote into a folder of two: %v", left)
+		}
+		// Named with --root, the folder of two is a project with no Gradle root: init says
+		// so and how to choose one.
+		out, code = initRun(t, state, two, "--client", "cursor", "--dry-run", "--root", two)
+		if code != 0 || !strings.Contains(out, "Gradle root: none (several") || !strings.Contains(out, "gradleRoot") {
+			t.Errorf("--root at a folder of two: exit %d; want its Gradle root reported as none, with the choice\n%s", code, out)
+		}
+	})
+
 	t.Run("the home directory is refused, with --root or found by settings.gradle", func(t *testing.T) {
 		home := projectDir(t)
 		os.WriteFile(filepath.Join(home, "settings.gradle"), nil, 0o644)
