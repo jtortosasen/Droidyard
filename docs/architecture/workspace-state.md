@@ -18,6 +18,10 @@ envelope's `workspace` field ([ADR-0020](../adr/0020-operation-contract.md)); th
 no implicit "current workspace". An MCP session is bound to one root at attach, and its
 adapter fills the field.
 
+A workspace has two roots ([ADR-0075](../adr/0075-project-root-and-gradle-root.md)): the
+**project root**, the folder opened, and the **Gradle root** inside it, where builds run; so a
+repository whose build is `dev/` opens at its top.
+
 ## Lifecycle
 
 `created -> opening -> ready <-> degraded`, then `workspace.close` -> `closing -> closed`.
@@ -27,7 +31,7 @@ adapter fills the field.
 | `created` | Registered, root validated, nothing started yet. |
 | `opening` | Loading durable configuration and any cached project facts. Runs **no** project code and spawns nothing in the MVP (below). |
 | `ready` | Usable. The project model has not necessarily been fetched: that happens lazily. |
-| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build (only the workspace whose build was running degrades, with `BUILD_SIDECAR_CRASHED`, and the next successful sidecar start returns it to `ready`, clearing that cause only), or its `workspace.json` is from a newer version ([ADR-0056](../adr/0056-newer-daemon-wide-state-file.md)). Capabilities report availability accordingly. |
+| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build (every open workspace that used the crashed Gradle root degrades, with `BUILD_SIDECAR_CRASHED`, and the next successful sidecar start returns it to `ready`, clearing that cause only), or its `workspace.json` is from a newer version ([ADR-0056](../adr/0056-newer-daemon-wide-state-file.md)). Capabilities report availability accordingly. |
 | `closing` | Cancelling the workspace's operations, shutting down workspace-owned sidecars. |
 | `closed` | All resources released. |
 
@@ -37,7 +41,7 @@ global, below.)
 
 **What `open` does**, completely: canonicalise the root and derive the id, validate that
 it is a readable directory, load `ws/<wsid>/workspace.json` and any cached project facts,
-evaluate trust from policy, and publish the lifecycle event. It does not contact the TAPI
+evaluate trust from policy, resolve the Gradle root (file reads only), and publish the lifecycle event. It does not contact the TAPI
 sidecar, does not fetch the project model, and does not start the Kotlin LSP (post-MVP,
 which imports the Gradle build and will therefore start lazily, for a trusted root only).
 
@@ -101,7 +105,8 @@ daemon can reap orphans after a crash. Format and location are
 [ADR-0021](../adr/0021-persistence-format-and-location.md): JSON files per workspace under
 `ws/<wsid>/` in the user state directory, never inside the project tree, except the UI's own choices for
 a project (module, variant, device, application id): `<root>/.droidyard/project.json`, written by the UI through
-`file.write` on its first change and only ever preselecting ([ADR-0046](../adr/0046-project-file.md)).
+`file.write` on its first change ([ADR-0046](../adr/0046-project-file.md)); it preselects, except
+`gradleRoot` (ADR-0075).
 
 ## Concurrency model
 
@@ -123,7 +128,7 @@ Closing a workspace must not disconnect devices or kill the shared `adb` server.
 ## Cleanup and crash recovery
 
 On graceful close: cancel and drain the workspace's operations (bounded, ADR-0027), stop its
-workspace-owned sidecars (subject to policy), close the root's connection in the shared TAPI sidecar,
+workspace-owned sidecars (subject to policy), close in the shared TAPI sidecar each Gradle root's connection no other open workspace uses,
 release watchers. On a crash the next daemon reaps orphans from pid records (matching pid **and**
 start time), removes the stale socket, and treats every workspace as closed until reopened; it never
 assumes a clean slate, and the kernel reclaims the daemon `flock` when the holder dies.

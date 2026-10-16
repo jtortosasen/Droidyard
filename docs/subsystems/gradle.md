@@ -209,7 +209,9 @@ instead of queueing behind it. Contention between builds is reported as `queued`
 
 Every Gradle-touching call requires a **trusted** project root; an untrusted one fails with
 `WORKSPACE_UNTRUSTED` before anything is spawned
-([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). The sidecar then
+connects to the **Gradle root** inside it; published paths stay relative to the project root
+([ADR-0075](../adr/0075-project-root-and-gradle-root.md)).
 
 - **Lazy start** on the first `build.*`, `project.*` or `sdk.requirements` call that needs it.
   **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no open operation on any root,
