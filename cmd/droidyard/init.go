@@ -124,7 +124,11 @@ func initCmd(args []string, out, errw io.Writer) int {
 	if *rootFlag == "" {
 		p, ok := projectOf(cwd)
 		if !ok {
-			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, none in the folders one or two levels below it, and no gradleRoot in its .droidyard/project.json; name the project with --root\n%s\n", cwd, initUsage)
+			cause := "no Gradle root"
+			if g := workspace.ResolveGradleRoot(cwd, false); g.Err != nil {
+				cause = g.Err.Cause
+			}
+			fmt.Fprintf(errw, "droidyard init: no project at %s: no settings.gradle or settings.gradle.kts in it or above it, and %s; choose one with \"gradleRoot\" in its .droidyard/project.json, or name the project with --root\n%s\n", cwd, cause, initUsage)
 			return 2
 		}
 		root = p
