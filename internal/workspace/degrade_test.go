@@ -21,7 +21,7 @@ func TestDegradeOnlyTouchesAReadyWorkspace(t *testing.T) {
 		t.Fatalf("a crash reported for a root never opened left it %q", got)
 	}
 
-	h.open(t, root)
+	h.ws.NoteGradleRoot(h.open(t, root).ID, root) // an ordinary project's Gradle root is its own
 	h.ws.Degrade(root, crash)
 	other := capability.Errorf(ErrStateNewer, "a newer file")
 	h.ws.Degrade(root, other) // already degraded: keeps the first cause
@@ -40,7 +40,7 @@ func TestDegradeOnlyTouchesAReadyWorkspace(t *testing.T) {
 	}
 
 	h.closeWS(t, root)
-	h.ws.Degrade(root, crash) // closed: untouched
+	h.ws.Degrade(root, crash) // closed: untouched (and its recorded roots are gone)
 	if got := h.ws.State(root); got != Closed {
 		t.Fatalf("a crash reported for a closed workspace left it %q", got)
 	}

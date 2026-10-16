@@ -38,6 +38,7 @@ const (
 // trust hook's and the model fetch's, as in project.* (plan m1h step 4).
 var requirementErrors = []capability.ErrorCode{
 	capability.ErrWorkspaceUntrusted,
+	capability.ErrProjectNoGradleRoot,
 	capability.ErrBuildSidecarUnavailable,
 	capability.ErrBuildSidecarCrashed,
 	capability.ErrBuildGradleUnsupported,
@@ -107,7 +108,7 @@ func registerRequirements(reg *capability.Registry, o Options) {
 		Errors:       requirementErrors,
 		Description:  "Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and the sdkmanager command for each, without changing anything. When source is failure-signatures nothing could be checked and complete is false.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
-			root := call.Authorized.(string)
+			root := call.Authorized.(gradle.Roots).Gradle
 			model, stale, err := o.Client.Model(ctx, root)
 			if err != nil {
 				return nil, err

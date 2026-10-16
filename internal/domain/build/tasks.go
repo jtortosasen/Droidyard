@@ -17,8 +17,10 @@ type Client interface {
 	Model(ctx context.Context, root string) (gradle.Model, bool, error)
 }
 
-// Authorize is the trust re-check the scheduler runs before each handler: it returns
-// the canonical root as Call.Authorized (internal/policy; ADR-0015 §2).
+// Authorize is the authorization hook the scheduler runs before each handler: it returns
+// the Call.Authorized the handler reads (internal/policy; ADR-0015 §2): the canonical
+// project root for build.errors and build.lastResult, a gradle.Roots for the capabilities
+// that run on the Gradle root (ADR-0075 §3).
 type Authorize func(ctx context.Context, call *capability.Call) (any, error)
 
 // TasksParams is build.tasks' parameters.
@@ -62,6 +64,7 @@ func registerTasks(reg *capability.Registry, client Client, authorize Authorize)
 		Result:       TasksResult{},
 		Errors: []capability.ErrorCode{
 			capability.ErrWorkspaceUntrusted,
+			capability.ErrProjectNoGradleRoot,
 			capability.ErrBuildSidecarUnavailable,
 			capability.ErrBuildSidecarCrashed,
 			capability.ErrBuildGradleUnsupported,
@@ -71,7 +74,7 @@ func registerTasks(reg *capability.Registry, client Client, authorize Authorize)
 		Description: "Lists the tasks that exist in the project, filtered by module, group or a name substring, from the cached project model (it never runs Gradle). Hidden tasks are left out unless includeHidden is true.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(TasksParams)
-			model, stale, err := client.Model(ctx, call.Authorized.(string))
+			model, stale, err := client.Model(ctx, call.Authorized.(gradle.Roots).Gradle)
 			if err != nil {
 				return nil, err
 			}

@@ -578,7 +578,7 @@ func TestWriteCancelLeavesNoLockCheckout(t *testing.T) {
 	if ns := res.Outcomes[0].Error.NextStep; !strings.Contains(ns, "git status") || !strings.Contains(ns, "terminal") || !strings.Contains(ns, f.roots["ws"]) {
 		t.Errorf("nextStep %q does not send the user to `git status` in a terminal in the root", ns)
 	}
-	if groupAlive(pgid) {
+	if groupLive(pgid) {
 		t.Errorf("group %d is still alive", pgid)
 	}
 	if left := locks(t, f.r.W); len(left) > 0 {
@@ -610,9 +610,11 @@ func TestWriteCancelLeavesNoLockCheckout(t *testing.T) {
 // lock left, and is a failed outcome GIT_FAILED naming the limit, with the same nextStep as
 // a cancel. The limit is shortened for the test.
 func TestCheckoutTimeout(t *testing.T) {
-	// Not parallel: its limit is 700 ms and the smudge has to start inside it, which a loaded machine cannot promise.
+	// The smudge has to start inside the limit: 700 ms did not, once, with two package runs
+	// beside the pre-commit hook's; 5 s does, and the smudge sleeps 60.
+	t.Parallel()
 	f := newWfx(t)
-	f.timeout = 700 * time.Millisecond
+	f.timeout = 5 * time.Second
 	f.register()
 	started := f.slowCheckout()
 	res := f.branches("git.checkout", CheckoutParams{Name: "slowb"})
@@ -624,7 +626,7 @@ func TestCheckoutTimeout(t *testing.T) {
 		t.Errorf("error %+v; want GIT_FAILED naming the limit, with the git status nextStep", oe)
 	}
 	pid := pidIn(t, started)
-	if syscall.Kill(pid, 0) != syscall.ESRCH || groupAlive(f.groups()[0]) {
+	if pidLive(pid) || groupLive(f.groups()[0]) {
 		t.Errorf("the group %v (smudge %d) outlived the timed-out call", f.groups(), pid)
 	}
 	if left := locks(t, f.r.W); len(left) > 0 {

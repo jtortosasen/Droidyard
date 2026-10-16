@@ -35,7 +35,7 @@ func runRequirements(t *testing.T, o Options, model gradle.Model, root string) R
 	if !ok {
 		t.Fatal("sdk.requirements is not registered")
 	}
-	got, err := d.Handler(context.Background(), &capability.Call{Authorized: root, Params: None{}})
+	got, err := d.Handler(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: root, Gradle: root}, Params: None{}})
 	if err != nil {
 		t.Fatalf("sdk.requirements: %v", err)
 	}
@@ -284,7 +284,9 @@ func TestRequirementsProbeFailed(t *testing.T) {
 // the trust hook's plus the model fetch's.
 func TestRequirementsDescriptorClassification(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg, Options{Authorize: func(context.Context, *capability.Call) (any, error) { return "/x", nil }})
+	Register(reg, Options{Authorize: func(context.Context, *capability.Call) (any, error) {
+		return gradle.Roots{Project: "/x", Gradle: "/x"}, nil
+	}})
 	d, ok := reg.Lookup("sdk.requirements")
 	if !ok {
 		t.Fatal("sdk.requirements is not registered")

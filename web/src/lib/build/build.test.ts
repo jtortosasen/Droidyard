@@ -14,6 +14,7 @@ class FakeWs {
 	id: string | null;
 	root = '/p';
 	trusted = true;
+	gradleRoot: string | undefined = '.';
 	#l = new Set<() => void>();
 	constructor(id: string | null) {
 		this.id = id;
@@ -28,6 +29,10 @@ class FakeWs {
 	}
 	trust() {
 		this.trusted = true;
+		for (const l of this.#l) l();
+	}
+	setGradleRoot(root: string | undefined) {
+		this.gradleRoot = root;
 		for (const l of this.#l) l();
 	}
 }
@@ -64,6 +69,23 @@ describe('trust granted from the UI', () => {
 		const names = t.calls.calls.map((c) => c.name);
 		expect(names).toContain('project.modules');
 		expect(names).toContain('build.lastResult');
+	});
+});
+
+describe('the Gradle root changes (ADR-0075 §7)', () => {
+	// Decision: the modules and variants are those of the Gradle root; a new root is read
+	// again, once, and an unrelated describe (same root) reads nothing.
+	it('reads the modules again once when the root changes, and not on an unrelated describe', async () => {
+		const t = await setup();
+		t.ws.set('w1'); // a describe that changed nothing
+		await settle();
+		expect(t.calls.names()).not.toContain('project.modules');
+		t.ws.setGradleRoot('dev');
+		await settle();
+		expect(t.calls.names().filter((n) => n === 'project.modules')).toHaveLength(1);
+		t.ws.set('w1');
+		await settle();
+		expect(t.calls.names().filter((n) => n === 'project.modules')).toHaveLength(1);
 	});
 });
 

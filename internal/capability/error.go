@@ -122,6 +122,13 @@ const (
 	// ErrProjectModelFailed: the configuration pass failed; Gradle's root failure is the
 	// cause.
 	ErrProjectModelFailed ErrorCode = "PROJECT_MODEL_FAILED"
+	// ErrProjectNoGradleRoot: the project has no Gradle root to run in: none of the
+	// places ADR-0075 §2 looks holds a settings file, several do and none was chosen, or
+	// the `gradleRoot` key of .droidyard/project.json names a folder that is not a Gradle
+	// root inside the project root. The cause says which; details.candidates lists the
+	// Gradle roots found, relative to the project root; nextStep names the UI's choice and
+	// the key (ADR-0075 §4).
+	ErrProjectNoGradleRoot ErrorCode = "PROJECT_NO_GRADLE_ROOT"
 	// ErrBuildNotFound: an unknown buildId, or a workspace whose registry holds no
 	// finished build (gradle.md §Persistence; plan m1g D9).
 	ErrBuildNotFound ErrorCode = "BUILD_NOT_FOUND"

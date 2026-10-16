@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,38 @@ type Info struct {
 	// while that file is of a newer version and unread: the time is not known.
 	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
 	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
+	// Gradle is where the project's Gradle build is (ADR-0075 §5). Filled by the open and
+	// describe handlers, not by the registry: Registry.Describe, which every root lookup
+	// calls, resolves nothing.
+	Gradle GradleInfo `json:"gradle" jsonschema:"required"`
+}
+
+// GradleInfo is the Gradle root as workspace.open and workspace.describe report it
+// (ADR-0075 §5), resolved again at every call (ResolveGradleRoot).
+type GradleInfo struct {
+	// Root is the Gradle root relative to the project root, `/`-separated; "." is the
+	// project root itself. Absent when there is none.
+	Root string `json:"root,omitempty" jsonschema_description:"The Gradle root, relative to the project root (\".\" is the project root itself); absent when there is none."`
+	// Candidates are the folders that hold a settings.gradle(.kts), relative to the
+	// project root, sorted and at most 50: listed whether or not Root is set, so a choice
+	// can be changed. Empty when none.
+	Candidates []string `json:"candidates" jsonschema:"required" jsonschema_description:"The folders holding a settings.gradle(.kts), relative to the project root, sorted, at most 50; listed even when root is set."`
+	// Error is PROJECT_NO_GRADLE_ROOT, present exactly when Root is absent: it says
+	// whether there is none, several, or what is wrong with the project file's choice.
+	Error *capability.Error `json:"error,omitempty" jsonschema_description:"PROJECT_NO_GRADLE_ROOT, present exactly when root is absent."`
+}
+
+// withGradle returns info with its Gradle root resolved against the project root. The
+// open and describe handlers call it; an info without a root (none is returned that way)
+// gets an empty candidate list, never null.
+func withGradle(info Info) Info {
+	if info.Root == "" {
+		info.Gradle = GradleInfo{Candidates: []string{}}
+		return info
+	}
+	g := ResolveGradleRoot(info.Root, true)
+	info.Gradle = GradleInfo{Root: g.Rel, Candidates: g.Candidates, Error: g.Err}
+	return info
 }
 
 // config is ws/<wsid>/workspace.json (plan m1c, R8).
@@ -104,11 +137,12 @@ type Options struct {
 	// StopSidecars, and must not block: it signals the pollers and returns. Nil until
 	// file.* is registered.
 	StopPollers func(id string)
-	// CloseRoot releases the resources that belong to the workspace's project root,
-	// after the drain: the Gradle sidecar closes its connection to that root so
-	// Gradle's daemon connection is released rather than left to the sidecar's idle
-	// timeout (gradle.md §Protocol; plan m1g step 5). It is called with the
-	// workspace's canonical root and must not block for long.
+	// CloseRoot releases the resources that belong to a Gradle root, after the drain: the
+	// Gradle sidecar closes its connection to that root so Gradle's daemon connection is
+	// released rather than left to the sidecar's idle timeout (gradle.md §Protocol; plan
+	// m1g step 5). It is called, outside mu and pubMu, once for each canonical Gradle root
+	// the workspace's calls resolved (NoteGradleRoot) that no other open workspace
+	// resolved (ADR-0075 §8), and must not block for long.
 	CloseRoot func(root string)
 	// OnOpen runs once when a workspace is opened — not when an already-open one is
 	// asked for again — with its id and canonical root. It is the build registry's
@@ -173,6 +207,9 @@ type workspace struct {
 	state atomic.Value // State
 	// Guarded by Registry.mu.
 	info Info
+	// gradleRoots are the canonical Gradle roots this workspace's calls resolved while it was
+	// open (ADR-0075 §8), recorded by NoteGradleRoot. Guarded by Registry.mu.
+	gradleRoots map[string]struct{}
 }
 
 // Registry is every workspace this daemon has opened in its life, and the index of the
@@ -314,26 +351,66 @@ func (r *Registry) publishLocked(id string, s State, degradedBy *capability.Erro
 	}
 }
 
-// Degrade marks the open workspace of root degraded by cause: the Gradle sidecar
-// crashed while that workspace's build ran (workspace-state.md §Lifecycle; plan m2c,
-// D21). Only a ready workspace degrades: one already degraded keeps the cause it has,
-// and one that is not open is not touched. It publishes the transition.
-func (r *Registry) Degrade(root string, cause *capability.Error) {
-	id, _ := r.resolve(root)
+// NoteGradleRoot records that a call of the workspace target names resolved the Gradle
+// root abs, canonical (ADR-0075 §8), so a sidecar crash on that root degrades the
+// workspace and a close releases the connection. It is a no-op unless the workspace is
+// ready or degraded: an operation that outlives a close's drain cannot leave a root on a
+// workspace that is closing or closed. The set is emptied when the workspace closes and
+// when a closed one opens, never by an Open of an open one. It returns false when it
+// recorded nothing because the workspace is not open, and the caller then refuses the
+// call: a connection it opened would be recorded nowhere and outlive the close.
+func (r *Registry) NoteGradleRoot(target, abs string) error {
+	id, _ := r.resolve(target)
 	w := r.lookup(id)
-	if w == nil || cause == nil {
+	if w == nil {
+		return notOpen(id)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !w.info.State.open() {
+		return notOpen(id)
+	}
+	if abs == "" {
+		return nil
+	}
+	if w.gradleRoots == nil {
+		w.gradleRoots = map[string]struct{}{}
+	}
+	w.gradleRoots[abs] = struct{}{}
+	return nil
+}
+
+// Degrade marks every open workspace whose calls resolved the Gradle root root degraded
+// by cause: the Gradle sidecar crashed while a build of that root ran (workspace-state.md
+// §Lifecycle; plan m2c, D21; ADR-0075 §8). An ordinary project records its own root, so
+// it is one of these. Only a ready workspace degrades: one already degraded keeps the
+// cause it has, and one that is not open is not touched. It publishes each transition.
+func (r *Registry) Degrade(root string, cause *capability.Error) {
+	if cause == nil {
 		return
 	}
+	r.allMu.RLock()
+	all := make([]*workspace, 0, len(r.all))
+	for _, w := range r.all {
+		all = append(all, w)
+	}
+	r.allMu.RUnlock()
+	for _, w := range all {
+		r.degradeOne(w, root, cause)
+	}
+}
+
+func (r *Registry) degradeOne(w *workspace, root string, cause *capability.Error) {
 	r.pubMu.Lock()
 	defer r.pubMu.Unlock()
 	r.mu.Lock()
-	if w.info.State != Ready {
+	if _, ok := w.gradleRoots[root]; !ok || w.info.State != Ready {
 		r.mu.Unlock()
 		return
 	}
 	w.info.State, w.info.DegradedBy = Degraded, cause
 	w.state.Store(Degraded)
-	name, wroot := w.info.Name, w.info.Root
+	id, name, wroot := w.info.ID, w.info.Name, w.info.Root
 	r.mu.Unlock()
 	r.publishLocked(id, Degraded, cause, name, wroot)
 }
@@ -447,6 +524,9 @@ func (r *Registry) Open(target string) (Info, error) {
 	}
 	r.mu.Lock()
 	w.info = info
+	// A closed workspace opens with no Gradle root: what a call noted while it was closing
+	// or closed is gone, and NoteGradleRoot noted nothing in the states between.
+	w.gradleRoots = nil
 	w.state.Store(info.State)
 	r.mu.Unlock()
 	r.publish(id, info.State, info.DegradedBy, info.Name, info.Root)
@@ -603,6 +683,37 @@ func notOpen(id string) *capability.Error {
 		WithNextStep("call workspace.open on it, then retry")
 }
 
+// releasableRoots returns, sorted, the roots of mine (the Gradle roots a closing
+// workspace w recorded, taken from it as it entered closing) that no open workspace
+// records now (ADR-0075 §8). Called with r.mu held after the drain, so a workspace that
+// resolved one of them during the drain keeps its connection; two workspaces closing
+// together on a shared root may both release it, and a second close of a root is a no-op.
+func (r *Registry) releasableRoots(w *workspace, mine map[string]struct{}) []string {
+	if len(mine) == 0 {
+		return nil
+	}
+	r.allMu.RLock()
+	defer r.allMu.RUnlock()
+	var out []string
+	for g := range mine {
+		shared := false
+		for _, o := range r.all {
+			if o == w || !o.info.State.open() {
+				continue
+			}
+			if _, ok := o.gradleRoots[g]; ok {
+				shared = true
+				break
+			}
+		}
+		if !shared {
+			out = append(out, g)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Close closes the workspace target names for every session and returns once it is
 // closed (ADR-0027): it enters closing, which rejects every other workspace-scoped
 // call at Start; cancels the workspace's operations and waits for them up to the
@@ -626,6 +737,8 @@ func (r *Registry) Close(target string) error {
 	root, name := w.info.Root, w.info.Name
 	w.info.State = Closing
 	w.state.Store(Closing)
+	mine := w.gradleRoots
+	w.gradleRoots = nil
 	r.mu.Unlock()
 	r.publish(id, Closing, nil, name, root)
 
@@ -640,8 +753,17 @@ func (r *Registry) Close(target string) error {
 			}
 		}
 	}
-	if r.opts.CloseRoot != nil && root != "" {
-		r.opts.CloseRoot(root)
+	// Which roots no open workspace uses is decided after the drain, so one that another
+	// workspace resolved meanwhile is kept. CloseRoot runs outside mu and pubMu (w.tx is
+	// held): the Gradle client waits up to 5 s for a root's lock, while a crashing build's
+	// path takes the admission lock through Degrade.
+	r.mu.Lock()
+	release := r.releasableRoots(w, mine)
+	r.mu.Unlock()
+	if r.opts.CloseRoot != nil {
+		for _, g := range release {
+			r.opts.CloseRoot(g)
+		}
 	}
 	if r.opts.StopSidecars != nil {
 		r.opts.StopSidecars(id)

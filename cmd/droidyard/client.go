@@ -403,7 +403,7 @@ func ui(args []string) int {
 	// opens, on the projects panel, with the reason said here.
 	var id string
 	if cwd, err := os.Getwd(); err == nil {
-		if root, ok := platform.GradleRoot(cwd); ok {
+		if root, ok := projectOf(cwd); ok {
 			if id, err = openProject(conn, r, root); err != nil {
 				fmt.Fprintf(os.Stderr, "droidyard ui: opening %s: %v\nThe browser opens on the projects panel instead.\n", root, err)
 			}
