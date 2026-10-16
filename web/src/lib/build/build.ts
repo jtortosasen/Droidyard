@@ -35,6 +35,8 @@ export interface BuildWorkspace {
 	readonly root: string;
 	/** Whether the open workspace is trusted; a grant makes the project's reads possible. */
 	readonly trusted?: boolean;
+	/** The Gradle root the daemon resolves (ADR-0075); a change of it makes the project's reads stale. */
+	readonly gradleRoot?: string;
 	subscribe(listener: () => void): () => void;
 }
 
@@ -99,6 +101,7 @@ export class BuildModel {
 	#starting = false;
 	#gen = 0; // the newest read of the last result; an older one is dropped
 	#trusted = false;
+	#gradleRoot: string | undefined;
 	#projectGen = 0;
 	// ADR-0046: what the project file preselects, applied until the user chooses something,
 	// and the listeners told of the user's own choices (the file is written from those).
@@ -185,7 +188,10 @@ export class BuildModel {
 		const trusted = this.#ws.trusted === true;
 		const granted = trusted && !this.#trusted;
 		this.#trusted = trusted;
-		if (id === this.#id) {
+		const gradleRoot = this.#ws.gradleRoot;
+		const moved = gradleRoot !== this.#gradleRoot;
+		this.#gradleRoot = gradleRoot;
+		if (id === this.#id && !moved) {
 			// Trust granted from the UI (ADR-0045 §5): what the untrusted workspace refused is
 			// read again; no event carries trust.
 			if (granted && id !== null) {

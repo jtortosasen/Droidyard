@@ -23,11 +23,16 @@ export interface WorkspaceInfo {
 	degradedBy?: Failure;
 }
 
+/** What the daemon says about the Gradle root (ADR-0075 §5); `describe` is its one source for the UI. */
+export type GradleInfo = Result<'workspace.describe'>['gradle'];
+
 export interface WorkspaceView {
 	/** The open workspace's root; empty until the first open answered. */
 	root: string;
 	/** The workspace this panel opened; null before it and while it is not open. */
 	info: WorkspaceInfo | null;
+	/** The Gradle root and candidates as the daemon last said; null before the first open answered. */
+	gradle: GradleInfo | null;
 	opening: boolean;
 	error: Failure | null;
 	/** The open workspace was closed by another client: the panel offers to reopen. */
@@ -42,6 +47,7 @@ export class WorkspaceModel {
 	#root = '';
 	#target = '';
 	#info: WorkspaceInfo | null = null;
+	#gradle: GradleInfo | null = null;
 	#opening = false;
 	#error: Failure | null = null;
 	#closed = false;
@@ -65,6 +71,11 @@ export class WorkspaceModel {
 		return this.#info?.trusted === true;
 	}
 
+	/** The Gradle root the daemon resolves, relative to the project root; undefined when there is none. */
+	get gradleRoot(): string | undefined {
+		return this.#gradle?.root;
+	}
+
 	/** The id of the open workspace; null when none is (or it was closed by another client). */
 	get id(): string | null {
 		return this.#info !== null && !this.#closed ? this.#info.id : null;
@@ -74,6 +85,7 @@ export class WorkspaceModel {
 		this.#view ??= {
 			root: this.#root,
 			info: this.#info,
+			gradle: this.#gradle,
 			opening: this.#opening,
 			error: this.#error,
 			closedByOther: this.#closed,
@@ -118,6 +130,7 @@ export class WorkspaceModel {
 				trusted: r.trusted,
 				degradedBy: r.degradedBy ? { code: r.degradedBy.code, message: r.degradedBy.message, nextStep: r.degradedBy.nextStep } : undefined,
 			};
+			this.#gradle = r.gradle;
 			this.#closed = false;
 			this.#seen.set(r.id, r.state);
 			ok = true;
@@ -156,6 +169,7 @@ export class WorkspaceModel {
 			const r = await this.#client.call('workspace.describe', {}, { workspace: this.#root.trim() });
 			if (this.#info === info && r.id === info.id) {
 				this.#info = { ...info, state: r.state, trusted: r.trusted };
+				this.#gradle = r.gradle;
 				this.#closed = false;
 			}
 		} catch (e) {

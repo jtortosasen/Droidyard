@@ -23,6 +23,7 @@ export const PANELS: readonly PanelDef[] = [
 	{ id: 'target', region: 'toolbar', label: 'Module and variant', end: true },
 	{ id: 'run', region: 'toolbar', label: 'Run', end: true },
 	{ id: 'build', region: 'toolbar', label: 'Build', end: true },
+	{ id: 'gradleroot', region: 'toolbar', label: 'Gradle root', end: true },
 	{ id: 'tasks', region: 'toolbar', label: 'Tasks', end: true },
 	{ id: 'projectfile', region: 'status', label: 'Project file' },
 
