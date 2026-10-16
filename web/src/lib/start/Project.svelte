@@ -10,6 +10,7 @@
 	import BuildResult from '../build/BuildResult.svelte';
 	import { TasksModel } from '../build/tasks';
 	import TaskSelect from '../toolbar/TaskSelect.svelte';
+	import GradleRootSelect from '../toolbar/GradleRootSelect.svelte';
 	import DeviceMenu from '../toolbar/DeviceMenu.svelte';
 	import TargetMenu from '../toolbar/TargetMenu.svelte';
 	import RunButton from '../toolbar/RunButton.svelte';
@@ -551,6 +552,10 @@
 	{:else if id === 'activity'}
 		{#if buildConsole && build}
 			<Activity store={activity} {sessions} console={buildConsole} {build} {restore} {records} {workspaceId} onopenoutput={() => shell.show('console')} />
+		{/if}
+	{:else if id === 'gradleroot'}
+		{#if workspace && projectFile}
+			<GradleRootSelect {workspace} file={projectFile} />
 		{/if}
 	{:else if id === 'tasks'}
 		{#if tasks}

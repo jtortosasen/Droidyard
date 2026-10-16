@@ -204,3 +204,78 @@ func TestSidecarDyingUnderTheRunRequestDegradesTheWorkspace(t *testing.T) {
 		t.Errorf("after the sidecar died under build.run the workspace is %+v; want degraded by BUILD_SIDECAR_CRASHED", info)
 	}
 }
+
+// TestSidecarCrashDegradesTheTopWorkspace is ADR-0075 §8 on the shipped wiring: the
+// project root is a repository top whose Gradle build is its dev/ folder, and the sidecar
+// dies on build.run, reporting <top>/dev, a path no workspace has as its root. The
+// workspace of the top, whose calls resolved dev/, goes degraded with
+// BUILD_SIDECAR_CRASHED and returns to ready at the next successful sidecar start; an
+// open workspace that resolved another root is untouched. Seen failing with Degrade
+// matching the reported root against the workspaces' project roots (step 2's state).
+func TestSidecarCrashDegradesTheTopWorkspace(t *testing.T) {
+	cfg := gradletest.WriteConfig(t, gradletest.Config{
+		Model: gradletest.MustModel(gradle.Model{Projects: []gradle.Module{{Path: ":", Name: "root", Dir: "."}}}),
+		DieOn: "build.run",
+	})
+	jdk := fakeJDK(t)
+	p := startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{
+		env: []string{"HOME=/nonexistent-droidyard-test", "PATH="},
+		gradle: &gradleSeam{
+			launch: gradletest.Launch(cfg),
+			finder: func([]string) *gradle.Finder {
+				return &gradle.Finder{GOOS: "linux", Env: []string{"JAVA_HOME=" + jdk}, StudioHomes: func() []string { return nil }}
+			},
+		},
+	})
+	top := topWith(t, ".cursor/", "README.md", "dev/settings.gradle.kts")
+	other, _ := gradleProject(t)
+	for _, root := range []string{top, other} {
+		if code := droidyard(t, p.state, "trust", root).wait(t); code != 0 {
+			t.Fatalf("droidyard trust %s exited %d", root, code)
+		}
+	}
+	invoke := func(name, root, params string) capability.Outcome {
+		t.Helper()
+		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: name, Workspace: root, Params: json.RawMessage(params), Client: capability.ClientCLI})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return out
+	}
+	for _, root := range []string{top, other} {
+		if out := invoke("workspace.open", root, ""); out.State != capability.StateCompleted {
+			t.Fatalf("workspace.open %s: %+v", root, out)
+		}
+	}
+	describe := func(root string) workspace.Info {
+		t.Helper()
+		info, ok := invoke("workspace.describe", root, "").Result.(workspace.Info)
+		if !ok {
+			t.Fatalf("workspace.describe %s failed", root)
+		}
+		return info
+	}
+	// The other workspace resolves its own root first; the model fetch starts the sidecar.
+	if out := invoke("project.modules", other, ""); out.State != capability.StateCompleted {
+		t.Fatalf("project.modules on the other workspace = %+v", out)
+	}
+
+	built := invoke("build.run", top, `{"tasks":[":assembleDebug"]}`)
+	if built.State != capability.StateFailed || built.Error == nil || built.Error.Code != capability.ErrBuildSidecarCrashed {
+		t.Fatalf("build.run on the top = %+v; want failed with BUILD_SIDECAR_CRASHED", built)
+	}
+	if s := describe(top); s.State != workspace.Degraded || s.DegradedBy == nil || s.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
+		t.Errorf("the top's workspace is %+v; want degraded by BUILD_SIDECAR_CRASHED", s)
+	}
+	if s := describe(other); s.State != workspace.Ready || s.DegradedBy != nil {
+		t.Errorf("a workspace that resolved another root is %+v; want it untouched", s)
+	}
+
+	// The next successful start, on any root, returns it to ready.
+	if out := invoke("project.modules", other, ""); out.State != capability.StateCompleted {
+		t.Fatalf("project.modules on the other workspace = %+v; want a fresh sidecar to answer", out)
+	}
+	if s := describe(top); s.State != workspace.Ready || s.DegradedBy != nil {
+		t.Errorf("after the next start the top's workspace is %+v; want ready", s)
+	}
+}

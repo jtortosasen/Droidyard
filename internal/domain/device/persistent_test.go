@@ -61,16 +61,18 @@ func TestReaderClientSerialisesPerDeviceAndNotTwoDevices(t *testing.T) {
 		t.Errorf("%d reads to one device overlapped at the reader, want 1 (the per-device lock)", m)
 	}
 
-	// Two devices, one shared log: their reads may be in flight together.
+	// Two devices, one shared log: their reads may be in flight together. Each read holds its
+	// reader 1 s, so the two overlap even when a loaded host starts the second goroutine
+	// late (60 ms did not, once, beside the whole module's tests).
 	log2 := &devicetest.ReaderLog{}
 	rA := devicetest.StartReader(t, pixelDoc(t))
 	t.Cleanup(rA.Close)
 	rA.SetLog(log2)
-	rA.SetDelay(60 * time.Millisecond)
+	rA.SetDelay(time.Second)
 	rB := devicetest.StartReader(t, pixelDoc(t))
 	t.Cleanup(rB.Close)
 	rB.SetLog(log2)
-	rB.SetDelay(60 * time.Millisecond)
+	rB.SetDelay(time.Second)
 	f2 := newUIFixture(t, map[string]string{
 		uiSerial + ".push.exit":     "0",
 		uiSerial + ".start.out":     "",

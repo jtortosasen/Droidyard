@@ -63,6 +63,35 @@ func TestBareDroidyardOpensTheProject(t *testing.T) {
 	srv.wait(t)
 }
 
+// TestUIOpensTheTopOfARepository: `ui` at the top of a repository whose one Gradle build
+// is a folder below opens the top (w=<its id>); at a folder of two builds with no choice
+// it opens no project (ADR-0075 §6).
+func TestUIOpensTheTopOfARepository(t *testing.T) {
+	t.Parallel()
+	state := shortDir(t)
+	srv, addr := serveOn(t, state)
+	token, _ := daemon.ReadToken(state)
+	top := platform.Current().Canonical(t.TempDir())
+	buildAt(t, top, "dev")
+	id, _ := platform.Current().WorkspaceID(top)
+
+	url, _ := launched(t, state, top, "ui")
+	if want := "http://" + addr + "/#token=" + token + "&w=" + id; url != want {
+		t.Errorf("ui at the top opened %q; want w=%s", strings.ReplaceAll(url, token, "<token>"), id)
+	}
+	srv.expect(t, "client=cli capability=workspace.open")
+
+	two := platform.Current().Canonical(t.TempDir())
+	buildAt(t, two, "a")
+	buildAt(t, two, "b")
+	url, _ = launched(t, state, two, "ui")
+	if want := "http://" + addr + "/#token=" + token; url != want {
+		t.Errorf("ui at a folder of two builds opened %q; want no w", strings.ReplaceAll(url, token, "<token>"))
+	}
+	stopped(t, state)
+	srv.wait(t)
+}
+
 // TestBareDroidyardElsewhereOpensWithoutW: outside any project the browser opens on the
 // page without `w`, and no workspace is opened (ADR-0045 §1, ADR-0047 §2).
 func TestBareDroidyardElsewhereOpensWithoutW(t *testing.T) {

@@ -44,7 +44,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Description: "Opens the workspace for a project root, or returns its state if it is already open. An MCP session opens its bound root itself, so call this only to reopen it after a close.",
 		Params:      None{},
 		Result:      Info{},
-		Errors:      []capability.ErrorCode{ErrRootInvalid, ErrStateNewer, ErrStateUnreadable},
+		Errors:      []capability.ErrorCode{ErrRootInvalid, ErrStateNewer, ErrStateUnreadable, capability.ErrProjectNoGradleRoot},
 		Annotations: capability.Annotations{
 			Destructive: &notDestructive,
 			Reason:      "registers a root and runs no project code",
@@ -54,7 +54,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 			if err != nil {
 				return nil, err
 			}
-			return info, nil
+			return withGradle(info), nil
 		},
 	})
 
@@ -63,16 +63,16 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Kind:        capability.Query,
 		Scope:       capability.Workspace,
 		Since:       since,
-		Description: "Describes the open workspace: its id, root, state, whether it is trusted, and, when degraded, why.",
+		Description: "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, and, when degraded, why.",
 		Params:      None{},
 		Result:      Info{},
-		Errors:      []capability.ErrorCode{ErrStateNewer},
+		Errors:      []capability.ErrorCode{ErrStateNewer, capability.ErrProjectNoGradleRoot},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			info, err := ws.Describe(call.Workspace)
 			if err != nil {
 				return nil, err
 			}
-			return info, nil
+			return withGradle(info), nil
 		},
 	})
 

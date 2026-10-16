@@ -57,6 +57,7 @@ export class TasksModel {
 	#starting = false;
 	#gen = 0;
 	#trusted = false;
+	#gradleRoot: string | undefined;
 
 	constructor(client: TasksClient, mirror: BuildMirror, ws: BuildWorkspace) {
 		this.#client = client;
@@ -176,7 +177,11 @@ export class TasksModel {
 		const trusted = this.#ws.trusted === true;
 		const granted = trusted && !this.#trusted;
 		this.#trusted = trusted;
-		if (id === this.#id) {
+		// ADR-0075 §7: the tasks are those of the Gradle root; a new root is a new list, as a new workspace is.
+		const gradleRoot = this.#ws.gradleRoot;
+		const moved = gradleRoot !== this.#gradleRoot;
+		this.#gradleRoot = gradleRoot;
+		if (id === this.#id && !moved) {
 			// Trust granted from the UI (ADR-0045 §5): the list the untrusted workspace refused
 			// is read again; no event carries trust.
 			if (granted && id !== null) void this.load();

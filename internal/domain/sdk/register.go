@@ -7,8 +7,9 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 )
 
-// Authorize is the trust re-check the scheduler runs before sdk.requirements' handler:
-// it returns the canonical root as Call.Authorized (internal/policy; ADR-0015 §2).
+// Authorize is the authorization hook the scheduler runs before sdk.requirements'
+// handler: trust on the project root, then the Gradle root's resolution (internal/policy;
+// ADR-0015 §2, ADR-0075 §3). It returns a gradle.Roots as Call.Authorized.
 type Authorize func(ctx context.Context, call *capability.Call) (any, error)
 
 // Client is what sdk.requirements needs of the sidecar client: the cached project model,

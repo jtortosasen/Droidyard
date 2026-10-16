@@ -132,7 +132,27 @@ func newFixtureAt(t *testing.T, state string, cfg gradletest.Config) *buildFixtu
 // step 7, D9).
 func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor policy.BelowFloor) *buildFixture {
 	t.Helper()
-	root := t.TempDir()
+	return newFixtureRoots(t, state, cfg, floor, "")
+}
+
+// newFixtureRoots is newFixtureFloor with the Gradle root a folder of the project root,
+// gradleRel (ADR-0075 §1); empty makes the two roots one, as for most projects.
+func newFixtureRoots(t *testing.T, state string, cfg gradletest.Config, floor policy.BelowFloor, gradleRel string) *buildFixture {
+	t.Helper()
+	return newFixtureTop(t, state, cfg, floor, t.TempDir(), gradleRel)
+}
+
+// newFixtureTop is newFixtureRoots over a project root the caller made, so a script can
+// name files under it.
+func newFixtureTop(t *testing.T, state string, cfg gradletest.Config, floor policy.BelowFloor, root, gradleRel string) *buildFixture {
+	t.Helper()
+	gradleRoot := root
+	if gradleRel != "" {
+		gradleRoot = filepath.Join(root, gradleRel)
+		if err := os.MkdirAll(gradleRoot, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if len(cfg.Model) == 0 {
 		cfg.Model = gradletest.MustModel(testModel(root))
 	}
@@ -174,6 +194,9 @@ func newFixtureFloor(t *testing.T, state string, cfg gradletest.Config, floor po
 		History: history,
 		Authorize: func(context.Context, *capability.Call) (any, error) {
 			return root, nil
+		},
+		AuthorizeGradle: func(context.Context, *capability.Call) (any, error) {
+			return gradle.Roots{Project: root, Gradle: gradleRoot}, nil
 		},
 	})
 	ops.RegisterCapabilities()

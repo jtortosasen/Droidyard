@@ -1,6 +1,7 @@
 # ADR-0046: The project file, `.droidyard/project.json`, for the UI's choices
 
 - Status: Accepted
+- Superseded in part by: ADR-0075 (§1, §2, §3)
 - Date: 2026-10-10
 - Supersedes: ADR-0021 §Location (in part: the UI's choices for a project live in the project)
 - Relates to: ADR-0015 §5, ADR-0031, ADR-0032, ADR-0037 §Consequences, ADR-0045; plan m2c Q3,

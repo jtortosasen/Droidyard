@@ -85,7 +85,8 @@ Commands:
   ui         Open the web UI in the default browser, at the tokenised URL:
              droidyard ui [--no-autostart]
              In a project folder, or under one (a settings.gradle or settings.gradle.kts),
-             it opens that project; elsewhere, the newest open project, else the
+             or at the top of a repository whose Gradle build is one or two folders
+             below, it opens that project; elsewhere, the newest open project, else the
              projects panel.
              ui starts a daemon when none answers, unless --no-autostart.
   trust      Grant a project root trust, so capabilities that run its code may:
@@ -100,7 +101,9 @@ Commands:
              It merges into existing files, keeps an existing droidyard entry, and refuses
              a file it cannot parse. --uninstall removes what init would write; --dry-run
              prints the changes and writes none.
-             The root is --root, else the project root of the current directory.
+             The root is --root, else the project ui would open from the current directory:
+             the nearest folder at or above it with a settings.gradle(.kts), else the
+             current folder when it is the top of a repository with one Gradle build below.
              No daemon is involved or started.
   hook       Answer one coding assistant's hook event (run by an assistant's hook entry):
              droidyard hook --client claude|cursor --root <absolute project root>
@@ -429,14 +432,38 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		}
 		return info.Root, true
 	})
+	// The Gradle capabilities run on the Gradle root, a directory inside the project root
+	// (ADR-0075 §3): trust is decided on the project root first, before anything is
+	// resolved or spawned, then the root is resolved again at every call, without a
+	// cache, so a choice written to the project file takes effect on the next call. A
+	// project with none fails PROJECT_NO_GRADLE_ROOT, the candidates in its details.
+	authorizeGradle := func(ctx context.Context, call *capability.Call) (any, error) {
+		v, err := authorize(ctx, call)
+		if err != nil {
+			return nil, err
+		}
+		projectRoot := v.(string)
+		// Without candidates: a failure lists them anyway, and a valid key skips the scan.
+		r := workspace.ResolveGradleRoot(projectRoot, false)
+		if r.Abs == "" {
+			return nil, r.Err
+		}
+		// Remembered per workspace, so a crash of this root degrades it and its close
+		// releases the connection (ADR-0075 §8). A workspace that began closing since the
+		// trust check refuses the call: its connection would be recorded nowhere.
+		if err := ws.NoteGradleRoot(call.Workspace, r.Abs); err != nil {
+			return nil, err
+		}
+		return gradle.Roots{Project: projectRoot, Gradle: r.Abs}, nil
+	}
 	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
 	// installed from its package.xml files: no JVM, no sdkmanager, no requirement, and a
 	// missing SDK is answered with found: false (plan m1h, D11, D13). sdk.requirements
 	// fetches the project model through the same client and carries the trust hook, so
 	// only a trusted root is answered (D12).
-	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorize})
-	project.Register(reg, gradleClient, authorize)
-	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize})
+	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorizeGradle})
+	project.Register(reg, gradleClient, authorizeGradle)
+	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize, AuthorizeGradle: authorizeGradle})
 	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its
 	// only registry read is the workspace's canonical root (ADR-0015 §1, §5; plan m1j D2).
 	file.Register(reg, file.Options{

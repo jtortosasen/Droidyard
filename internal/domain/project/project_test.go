@@ -92,7 +92,7 @@ func errCode(t *testing.T, err error) capability.ErrorCode {
 func TestModulesListsEveryProjectAndPassesStaleThrough(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, fakeClient{model: recorded(t), stale: true}, nil)
-	got, err := handler(t, reg, "project.modules")(context.Background(), &capability.Call{Authorized: "/w/dc", Params: None{}})
+	got, err := handler(t, reg, "project.modules")(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/dc", Gradle: "/w/dc"}, Params: None{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestModulesListsEveryProjectAndPassesStaleThrough(t *testing.T) {
 func TestVariantsOverTheRecordedModel(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, fakeClient{model: recorded(t)}, nil)
-	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: "/w/dc", Params: VariantsParams{}})
+	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/dc", Gradle: "/w/dc"}, Params: VariantsParams{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func probedModel() gradle.Model {
 func TestVariantsFromTheProbe(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, fakeClient{model: probedModel()}, nil)
-	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: "/w/flavoured", Params: VariantsParams{}})
+	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/flavoured", Gradle: "/w/flavoured"}, Params: VariantsParams{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestVariantsFallBackWhenTheProbeFailed(t *testing.T) {
 	m.Plugins = gradle.Plugins{}
 	reg := capability.NewRegistry()
 	Register(reg, fakeClient{model: m}, nil)
-	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: "/w/flavoured", Params: VariantsParams{Module: ":app"}})
+	got, err := handler(t, reg, "project.variants")(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/flavoured", Gradle: "/w/flavoured"}, Params: VariantsParams{Module: ":app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestVariantsForOneModuleAndAnUnknownOne(t *testing.T) {
 	Register(reg, fakeClient{model: recorded(t)}, nil)
 	h := handler(t, reg, "project.variants")
 
-	got, err := h(context.Background(), &capability.Call{Authorized: "/w/dc", Params: VariantsParams{Module: ":app"}})
+	got, err := h(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/dc", Gradle: "/w/dc"}, Params: VariantsParams{Module: ":app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestVariantsForOneModuleAndAnUnknownOne(t *testing.T) {
 		t.Fatalf("with module :app the result is %+v; want only :app", res.Modules)
 	}
 
-	_, err = h(context.Background(), &capability.Call{Authorized: "/w/dc", Params: VariantsParams{Module: ":nope"}})
+	_, err = h(context.Background(), &capability.Call{Authorized: gradle.Roots{Project: "/w/dc", Gradle: "/w/dc"}, Params: VariantsParams{Module: ":nope"}})
 	if code := errCode(t, err); code != capability.ErrInvalidParams {
 		t.Fatalf("an unknown module gave %s, want REQUEST_INVALID_PARAMS", code)
 	}
@@ -238,5 +238,38 @@ func TestVariantsForOneModuleAndAnUnknownOne(t *testing.T) {
 	paths, _ := e.Details["modules"].([]string)
 	if len(paths) != 12 {
 		t.Errorf("the error's details list %d modules, want the 12 known: %v", len(paths), e.Details)
+	}
+}
+
+// Decision (ADR-0075 §5, ADR-0022): project.modules' dir is relative to the project root,
+// not to the Gradle root the model came from. Under a Gradle root dev/ the root project
+// is dev, a module app is dev/app, and a module the build includes from outside the
+// Gradle root (../lib) is lib; with one root for both, dirs are the model's own. Seen
+// failing with the model's dir passed through (".", "app", "../lib").
+func TestModuleDirRelativeToTheProjectRoot(t *testing.T) {
+	model := gradle.Model{Projects: []gradle.Module{
+		{Path: ":", Name: "root", Dir: "."},
+		{Path: ":app", Name: "app", Dir: "app"},
+		{Path: ":lib", Name: "lib", Dir: "../lib"},
+	}}
+	dirs := func(roots gradle.Roots) []string {
+		t.Helper()
+		reg := capability.NewRegistry()
+		Register(reg, fakeClient{model: model}, nil)
+		got, err := handler(t, reg, "project.modules")(context.Background(), &capability.Call{Authorized: roots, Params: None{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, m := range got.(ModulesResult).Modules {
+			out = append(out, m.Dir)
+		}
+		return out
+	}
+	if got, want := strings.Join(dirs(gradle.Roots{Project: "/w/top", Gradle: "/w/top/dev"}), ","), "dev,dev/app,lib"; got != want {
+		t.Errorf("under a Gradle root dev/, dirs are %s; want %s", got, want)
+	}
+	if got, want := strings.Join(dirs(gradle.Roots{Project: "/w/top", Gradle: "/w/top"}), ","), ".,app,../lib"; got != want {
+		t.Errorf("with equal roots, dirs are %s; want %s", got, want)
 	}
 }

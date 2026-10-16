@@ -8,6 +8,7 @@ class FakeWs {
 	id: string | null = 'w1';
 	root = '/p';
 	trusted = true;
+	gradleRoot: string | undefined = '.';
 	#l = new Set<() => void>();
 	subscribe(l: () => void) {
 		this.#l.add(l);
@@ -15,6 +16,10 @@ class FakeWs {
 	}
 	set(id: string | null) {
 		this.id = id;
+		for (const l of this.#l) l();
+	}
+	setGradleRoot(root: string | undefined) {
+		this.gradleRoot = root;
 		for (const l of this.#l) l();
 	}
 	trust() {
@@ -42,6 +47,36 @@ async function tasksSetup(ops: ReturnType<typeof liveOp>[] = []) {
 }
 
 describe('the tasks panel', () => {
+	// Decision (ADR-0075 §7): the tasks are those of the Gradle root. A new root is a new
+	// list, read once, with the old selection dropped; a describe that left the root as it
+	// was reads nothing.
+	it('reads the tasks again once when the Gradle root changes, and not on an unrelated describe', async () => {
+		const t = await tasksSetup();
+		t.model.toggle(':app:t1');
+		t.ws.set('w1'); // a describe that changed nothing
+		await settle();
+		expect(t.calls.names()).not.toContain('build.tasks');
+		t.ws.setGradleRoot('dev');
+		await settle();
+		expect(t.calls.names().filter((n) => n === 'build.tasks')).toHaveLength(1);
+		expect(t.model.view.selected).toEqual([]);
+		t.ws.set('w1');
+		await settle();
+		expect(t.calls.names().filter((n) => n === 'build.tasks')).toHaveLength(1);
+	});
+
+	// Decision (ADR-0075 §3): with no Gradle root the daemon answers PROJECT_NO_GRADLE_ROOT;
+	// the panel shows that code and message, not a generic failure.
+	it('shows PROJECT_NO_GRADLE_ROOT with its message', async () => {
+		const t = await tasksSetup();
+		t.calls.on('build.tasks', () => {
+			throw capError('PROJECT_NO_GRADLE_ROOT', 'No settings.gradle(.kts) found');
+		});
+		t.ws.setGradleRoot(undefined);
+		await settle();
+		expect(t.model.view.loadError).toMatchObject({ code: 'PROJECT_NO_GRADLE_ROOT', message: 'No settings.gradle(.kts) found' });
+	});
+
 	// Decision (ADR-0045 §5): a grant publishes no event; the list the untrusted workspace
 	// refused is read again when the workspace says it is trusted (level 4 kept the error).
 	it('reads the tasks again when the workspace becomes trusted', async () => {

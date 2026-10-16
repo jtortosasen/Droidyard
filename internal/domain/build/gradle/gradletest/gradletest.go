@@ -78,7 +78,8 @@ type Config struct {
 	DieOn string `json:"dieOn"`
 
 	// Events, when set, is a file the fake appends its lifecycle to: "started <pid>",
-	// "served <method>", "eof". A test reads it to see that stdin was closed.
+	// "served <method>", "opened <root>" and "closed <root>" for each connection,
+	// "eof". A test reads it to see that stdin was closed.
 	Events string `json:"events"`
 }
 
@@ -352,6 +353,7 @@ func (s *sidecar) serve(line string, held *int) {
 			return
 		}
 		s.setOpen(rp.Root, true)
+		event(s.cfg, "opened %s", rp.Root)
 		s.writeResult(req.ID, map[string]any{
 			"gradleVersion":  s.cfg.GradleVersion,
 			"source":         s.cfg.Source,
@@ -360,6 +362,7 @@ func (s *sidecar) serve(line string, held *int) {
 		})
 	case "connection.close":
 		s.setOpen(rp.Root, false)
+		event(s.cfg, "closed %s", rp.Root)
 		s.writeResult(req.ID, map[string]any{})
 	case "project.model":
 		if req.Method == s.cfg.BigLineOn {
