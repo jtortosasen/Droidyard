@@ -447,6 +447,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 				return nil, r.Err
 			}
 		}
+		// Remembered per workspace, so a crash of this root degrades it and its close
+		// releases the connection (ADR-0075 §8). A workspace that began closing since the
+		// trust check refuses the call: its connection would be recorded nowhere.
+		if err := ws.NoteGradleRoot(call.Workspace, r.Abs); err != nil {
+			return nil, err
+		}
 		return gradle.Roots{Project: projectRoot, Gradle: r.Abs}, nil
 	}
 	// sdk.status resolves the host SDK in the daemon's own environment and reads what is
