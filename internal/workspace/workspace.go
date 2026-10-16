@@ -57,6 +57,38 @@ type Info struct {
 	// while that file is of a newer version and unread: the time is not known.
 	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
 	DegradedBy *capability.Error `json:"degradedBy,omitempty"`
+	// Gradle is where the project's Gradle build is (ADR-0075 §5). Filled by the open and
+	// describe handlers, not by the registry: Registry.Describe, which every root lookup
+	// calls, resolves nothing.
+	Gradle GradleInfo `json:"gradle" jsonschema:"required"`
+}
+
+// GradleInfo is the Gradle root as workspace.open and workspace.describe report it
+// (ADR-0075 §5), resolved again at every call (ResolveGradleRoot).
+type GradleInfo struct {
+	// Root is the Gradle root relative to the project root, `/`-separated; "." is the
+	// project root itself. Absent when there is none.
+	Root string `json:"root,omitempty" jsonschema_description:"The Gradle root, relative to the project root (\".\" is the project root itself); absent when there is none."`
+	// Candidates are the folders that hold a settings.gradle(.kts), relative to the
+	// project root, sorted and at most 50: listed whether or not Root is set, so a choice
+	// can be changed. Empty when none.
+	Candidates []string `json:"candidates" jsonschema:"required" jsonschema_description:"The folders holding a settings.gradle(.kts), relative to the project root, sorted, at most 50; listed even when root is set."`
+	// Error is PROJECT_NO_GRADLE_ROOT, present exactly when Root is absent: it says
+	// whether there is none, several, or what is wrong with the project file's choice.
+	Error *capability.Error `json:"error,omitempty" jsonschema_description:"PROJECT_NO_GRADLE_ROOT, present exactly when root is absent."`
+}
+
+// withGradle returns info with its Gradle root resolved against the project root. The
+// open and describe handlers call it; an info without a root (none is returned that way)
+// gets an empty candidate list, never null.
+func withGradle(info Info) Info {
+	if info.Root == "" {
+		info.Gradle = GradleInfo{Candidates: []string{}}
+		return info
+	}
+	g := ResolveGradleRoot(info.Root, true)
+	info.Gradle = GradleInfo{Root: g.Rel, Candidates: g.Candidates, Error: g.Err}
+	return info
 }
 
 // config is ws/<wsid>/workspace.json (plan m1c, R8).
