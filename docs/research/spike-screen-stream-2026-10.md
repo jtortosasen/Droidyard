@@ -84,11 +84,14 @@ production options, to fit three key frames under the 2 MiB cap; the framing is 
 - **Golden bytes** (all landed; 590×1280 frame, point (295, 331)):
 
   ```text
-  touch down  02 00 ffffffffffffffff 00000127 0000014b 024e 0500 ffff 00000000 00000000
-  touch up    02 01 ffffffffffffffff 00000127 0000014b 024e 0500 0000 00000000 00000000
+  touch down  02 00 fffffffffffffffe 00000127 0000014b 024e 0500 ffff 00000000 00000000
+  touch up    02 01 fffffffffffffffe 00000127 0000014b 024e 0500 0000 00000000 00000000
   key down    00 00 00000004 00000000 00000000
   key up      00 01 00000004 00000000 00000000
   ```
+
+  (Corrected 2026-10-17 before the merge: the first draft printed the pointer id as
+  `ffffffffffffffff`; the bytes sent were `fffffffffffffffe`.)
 
   The pointer id is -2 (scrcpy's generic finger); the frame size in the message is the
   stream's. A socket write takes 10–110 µs.
