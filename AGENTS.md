@@ -15,9 +15,18 @@ the agent loop belongs to the external assistant.
 4. **`docs/adr/README.md`** — the decisions, all accepted. **Before proposing a change
    to something an ADR covers, read that ADR: it records what was rejected and why.**
    A rejected option with a recorded reason is not an invitation to re-propose it.
-5. **`docs/reviews/2026-09-29-pre-implementation-review.md`** and
-   **`docs/reviews/2026-09-29-ratifications.md`** — the findings that shaped the
-   current design, and the nineteen decisions the owner made. Both are closed records.
+
+Behind the design are the closed records of 2026-09-29 in `docs/reviews/` (the
+pre-implementation review and the owner's nineteen ratifications); read them when a
+question reaches back to the original design. Where the project may go after the MVP is
+[`docs/vision/beyond.md`](docs/vision/beyond.md): a vision, not a roadmap.
+
+## Starting a session
+
+The owner runs several sessions at once, one per piece of work, each in its own
+worktree. A fresh session starts with the `work-board` skill: it says what the other
+sessions are doing, what can start without colliding with them, and how to claim a
+lane, close in turn and publish the board page.
 
 ## Starting a milestone
 
@@ -26,7 +35,8 @@ the agent loop belongs to the external assistant.
 approval, implementation, verification, close — and which agent does each step. If a
 plan exists for the milestone you are about to work on, **follow it**; if the work
 forces a departure from it, say so and update the plan rather than drifting from it
-silently.
+silently. Before a plan is written, the owner sees the open register rows the milestone
+could close on the way and picks which ones join it (`work-board` §Gather).
 
 ## Agents and models
 
@@ -42,11 +52,10 @@ skill says who does what.
   reviews the diff. Review depth follows the step's risk (`milestone-workflow`
   §Verification by risk): the Opus verifier for contract, security and concurrency
   changes and at a milestone's close; the main session's diff review otherwise.
-- **Implementer: the Claude `implementer` on Sonnet** (owner's choice, 2026-10-08, after
-  milestone 1p ran on it; replaces DeepSeek, the choice of 2026-10-04): launched by the main
-  session through the Agent tool (`subagent_type: implementer`, `model: sonnet`), in the
-  background, one plan step per run, in the main tree (`isolation: "worktree"` only for
-  parallel steps). **The main session sets each run's reasoning effort** (owner,
+- **Implementer: the Claude `implementer` on Sonnet** (owner, 2026-10-08): launched by the
+  main session through the Agent tool (`subagent_type: implementer`, `model: sonnet`), in
+  the background, one plan step per run, in the session's tree (`isolation: "worktree"`
+  only for parallel steps). **The main session sets each run's reasoning effort** (owner,
   2026-10-08): the model's default, `high` for a step the Opus verifier reviews (contract,
   security, untrusted text, concurrency, process lifetime) or one that under-delivered. A review's fix round goes to the
   same agent (SendMessage). Limits: the `implementer-run.md` rules in its prompt (no
@@ -73,9 +82,10 @@ skill says who does what.
   `docs/reviews/`, and every ADR cite documents as they were. They are not edited or
   reconciled at a close, and a dead `§` reference or `#fragment` in them is not a
   defect; only a link path whose target a merge removed is repointed.
-- **Branch per milestone.** The main session creates `m<id>` from `main` at approval;
-  steps are committed there through the pre-commit hook; the close merges it with
-  `git merge --no-ff` and deletes the branch. The implementer never switches or merges.
+- **Branch per milestone.** The main session creates `m<id>` from `main` at approval, in
+  its own worktree when other work is in flight (`work-board` §Claim); steps are committed
+  there through the pre-commit hook; the close merges it with `git merge --no-ff` and
+  deletes the branch. The implementer never switches or merges.
 - **Verify what can be verified.** The house rule, learned the hard way: a claim that
   can be checked should be checked, and an assumption must be *labelled* as an
   assumption. `docs/research/spike-s1-error-formats.md` is the worked example — it
@@ -92,8 +102,11 @@ skill says who does what.
     per area for what code cannot say (why, how the pieces fit, what was rejected).
   - Decision history: ADRs.
   - Status: the plan and its row in `docs/plans/README.md`, plus one line in
-    `docs/README.md` §Where the work stands. The auto-memory holds a pointer, not status.
-  - Open items: `docs/roadmap/known-limits.md` only.
+    `docs/README.md` §Where the work stands. Work in flight: the lanes (`work-board`).
+    The auto-memory holds a pointer, not status.
+  - Open items: `docs/roadmap/known-limits.md` only, each open row with the work that
+    would close it in its `Work` column. The board page is generated from it, never
+    edited.
   - Process: this file and the skills.
 - **Language and diagrams.** Documents and code are in English; the Spanish brainstorm
   `android-agent-suite-boceto.md` is provenance only and superseded. Diagrams are ASCII
@@ -140,15 +153,15 @@ change to the published API, and it should be a conscious one.
 
 ## Scope discipline
 
-The MVP is deliberately narrow. `docs/roadmap/mvp.md` §Out of scope lists what was
-deferred and why — including code intelligence, the live screen stream, OCR, SDK
-provisioning, multi-device concurrency and Windows. Do not add what the MVP does not
-need; if you think something should be added, write an ADR proposing it.
+The MVP is done (2h closed its Definition of done); each milestone since is chosen by
+the owner, and its plan's Scope table is its boundary. `docs/roadmap/mvp.md` §Out of
+scope still says what was deferred and why: code intelligence, the live screen stream,
+OCR, SDK provisioning, multi-device concurrency, Windows. Do not add what the milestone
+does not need; if you think something should be added, write an ADR proposing it.
 
 ## Before touching the Gradle sidecar
 
-Read `docs/subsystems/gradle.md` §Spikes before the sidecar is written and
-`docs/research/spike-s1-error-formats.md` first. The second spike run has not happened,
-and it is what settles whether the Tooling API sidecar keeps its justification: on a
-real project (Kotlin plugin 2.0.21), compiler errors exist only as console text, so the
-console extractor is the primary path today, not a fallback.
+Read `docs/subsystems/gradle.md`, its §Spikes and
+`docs/research/spike-s1-error-formats.md`: below Kotlin plugin 2.4, compiler errors
+exist only as console text, so the console extractor is the primary path there, not a
+fallback.
