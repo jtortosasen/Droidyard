@@ -105,6 +105,12 @@ edits made before this rule and are not added to.
 | [0073](0073-git-writes-never-ask.md) | A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root | Accepted |
 | [0074](0074-pull-fast-forward-and-roots-with-the-branch.md) | Pull is a fast-forward only, and a synchronised branch applies to the roots that have it | Accepted |
 | [0075](0075-project-root-and-gradle-root.md) | The project root and the Gradle root | Accepted |
+| [0081](0081-worktree-inherits-trust.md) | A linked worktree of a trusted repository is trusted | Accepted |
+| [0082](0082-session-enters-a-worktree.md) | A session enters a worktree of its project; a worktree is a workspace of its project | Accepted |
+| [0083](0083-session-watch-and-panel-by-project.md) | `session.watch`, and the sessions panel grouped by project | Accepted |
+| [0084](0084-one-tab-workspace-show.md) | One tab: `droidyard` switches an open tab instead of opening another | Accepted |
+| [0085](0085-hook-root-from-command-directory.md) | The hook records where the command ran | Accepted |
+| [0086](0086-workspace-forget.md) | A recent project can be removed: `workspace.forget` | Accepted |
 
 ## Open decisions (not yet ADRs)
 

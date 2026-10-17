@@ -1,6 +1,7 @@
 # ADR-0015: Untrusted device data and an explicit authorization boundary
 
 - Status: Accepted
+- Superseded in part by: ADR-0081 (§5)
 - Superseded in part by: ADR-0045 (§Decision)
 - Superseded in part by: ADR-0066 (§Decision, item 5's git and restricted-mode bullets)
 - Date: 2026-09-27

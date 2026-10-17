@@ -1,6 +1,7 @@
 # ADR-0031: The configuration file starts with trusted roots only
 
 - Status: Accepted
+- Superseded in part by: ADR-0081 (§1)
 - Date: 2026-10-06
 - Relates to: ADR-0015 §5–6 (trusted roots, human-only policy), ADR-0019 §3–4
   (`droidyard trust`), ADR-0021 §Location, ADR-0024 (directory names),
