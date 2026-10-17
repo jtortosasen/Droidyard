@@ -84,6 +84,10 @@ type ADB struct {
 	// them all beside the log streams.
 	screens screenSources
 
+	// screenViews is every device.watchScreen stream (plan m2p step 4): each holds one
+	// reference on a source in screens. Close ends them before the sources.
+	screenViews screenStreams
+
 	// log is the daemon's log (daemon.log when the daemon is detached), where reader
 	// restarts, fallbacks and slow warm reads are recorded (plan m1n step 2). Nil, the
 	// zero value, logs nothing. logMu serialises writes so concurrent readers' lines

@@ -1270,8 +1270,10 @@ func (a *ADB) Close(ctx context.Context) {
 	// The Logcat streams first: each child is killed and reaped, and its pid record
 	// removed, before the daemon's supervisor stops (ADR-0041 §6).
 	a.streams.StopAll(ctx)
-	// The live view's servers likewise (ADR-0078 §6): each child is killed and reaped, its
-	// record removed and its forward removed before the supervisor stops.
+	// The live view's streams drop their references, then the servers likewise (ADR-0078
+	// §6): each child is killed and reaped, its record removed and its forward removed
+	// before the supervisor stops.
+	a.screenViews.StopAll(ctx)
 	a.screens.StopAll(ctx)
 	a.rdMu.Lock()
 	clients := make([]*readerClient, 0, len(a.readers))

@@ -1,5 +1,5 @@
 {
-  "version": "0.26.0",
+  "version": "0.27.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -5204,6 +5204,112 @@
               "cause": {
                 "type": "string",
                 "description": "For exited and deviceGone, the exit status of adb logcat; never device text."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "device",
+              "reason"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "device.watchScreen",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.27.0",
+      "description": "Starts the live view of a device for the calling WebSocket session: H.264 video on GET /v1/screen (its first frame is {\"auth\": \u003ctoken\u003e, \"stream\": \u003cstreamId\u003e}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "SESSION_REQUIRED"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the stream's events arrive on, over the WebSocket session that made the call. Ending it (events.unsubscribe) ends the stream."
+          },
+          "device": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string",
+            "description": "The id to send, with the daemon's token, as the first frame of GET /v1/screen within 10 s. It works once, for as long as the subscription lives."
+          },
+          "width": {
+            "type": "integer",
+            "description": "The frame width in pixels when the stream started; a rotation announces a new size in the stream itself."
+          },
+          "height": {
+            "type": "integer",
+            "description": "The frame height in pixels when the stream started."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "device",
+          "streamId",
+          "width",
+          "height"
+        ]
+      },
+      "events": {
+        "topic": "device.screen",
+        "types": {
+          "stopped": {
+            "properties": {
+              "device": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "deviceGone",
+                  "exited",
+                  "failed",
+                  "detached"
+                ],
+                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
+              },
+              "cause": {
+                "type": "string",
+                "description": "The daemon's words for why, never device text."
               }
             },
             "additionalProperties": false,
