@@ -11,13 +11,14 @@ const policy = (roots: string[], revision: string) => ({
 	revision,
 });
 
-function setup(roots: string[] = ['/a'], revision = 'r1') {
+function setup(roots: string[] = ['/a'], revision = 'r1', mainRoot?: string) {
 	const calls = new FakeCalls();
 	calls.on('policy.get', () => policy(roots, revision));
 	calls.on('policy.update', () => policy([], 'r2'));
 	let refreshed = 0;
 	const model = new TrustModel(calls as unknown as TrustClient, {
 		root: '/p',
+		mainRoot,
 		refresh: () => {
 			refreshed++;
 			return Promise.resolve();
@@ -37,6 +38,31 @@ describe('TrustModel', () => {
 		expect(t.calls.calls[1]!.params).toEqual({ trust: { roots: ['/a', '/b', '/p'] }, ifRevision: 'rev-9' });
 		expect(t.refreshed()).toBe(1);
 		expect(t.model.view).toMatchObject({ busy: false, conflict: false, error: null });
+	});
+
+	// Decision (ADR-0081 §5): trust is the project's, so Trust on a worktree posts its main
+	// tree, never the worktree's own path (which would trust one checkout and leave its
+	// siblings asking); on a plain project the root is what is posted. Reversed (the root
+	// always), the worktree's path is posted.
+	it('on a worktree posts the main tree, not the worktree root', async () => {
+		const t = setup(['/a'], 'r1', '/main');
+		expect(t.model.mainRoot).toBe('/main');
+		await t.model.grant();
+		expect(t.calls.calls[1]!.params).toEqual({ trust: { roots: ['/a', '/main'] }, ifRevision: 'r1' });
+	});
+
+	it('on a worktree whose main tree is already trusted writes nothing', async () => {
+		const t = setup(['/main'], 'r1', '/main');
+		await t.model.grant();
+		expect(t.calls.names()).toEqual(['policy.get']);
+		expect(t.refreshed()).toBe(1);
+	});
+
+	it('on a plain project posts its root and reports no main tree', async () => {
+		const t = setup(['/a'], 'r1');
+		expect(t.model.mainRoot).toBe('');
+		await t.model.grant();
+		expect(t.calls.calls[1]!.params).toEqual({ trust: { roots: ['/a', '/p'] }, ifRevision: 'r1' });
 	});
 
 	// Decision: the click is the only grant; building the model or reading its view never writes.

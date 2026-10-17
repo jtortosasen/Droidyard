@@ -20,6 +20,8 @@ export interface WorkspaceInfo {
 	name: string;
 	state: string;
 	trusted: boolean;
+	/** The project's main tree when the root is a linked git worktree of it (ADR-0082 §6). */
+	mainRoot?: string;
 	degradedBy?: Failure;
 }
 
@@ -69,6 +71,11 @@ export class WorkspaceModel {
 	/** The open workspace's trust, as the daemon last described it. */
 	get trusted(): boolean {
 		return this.#info?.trusted === true;
+	}
+
+	/** The main tree when the open workspace is a linked worktree; undefined otherwise. */
+	get mainRoot(): string | undefined {
+		return this.#info?.mainRoot;
 	}
 
 	/** The Gradle root the daemon resolves, relative to the project root; undefined when there is none. */
@@ -128,6 +135,7 @@ export class WorkspaceModel {
 				name: r.name,
 				state: r.state,
 				trusted: r.trusted,
+				mainRoot: r.mainRoot,
 				degradedBy: r.degradedBy ? { code: r.degradedBy.code, message: r.degradedBy.message, nextStep: r.degradedBy.nextStep } : undefined,
 			};
 			this.#gradle = r.gradle;
@@ -168,7 +176,7 @@ export class WorkspaceModel {
 		try {
 			const r = await this.#client.call('workspace.describe', {}, { workspace: this.#root.trim() });
 			if (this.#info === info && r.id === info.id) {
-				this.#info = { ...info, state: r.state, trusted: r.trusted };
+				this.#info = { ...info, state: r.state, trusted: r.trusted, mainRoot: r.mainRoot };
 				this.#gradle = r.gradle;
 				this.#closed = false;
 			}

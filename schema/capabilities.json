@@ -1,5 +1,5 @@
 {
-  "version": "0.26.0",
+  "version": "0.27.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -10512,6 +10512,10 @@
           "trusted": {
             "type": "boolean"
           },
+          "mainRoot": {
+            "type": "string",
+            "description": "The project's main tree when root is a linked git worktree of it, absolute; absent otherwise. A worktree is a workspace of its project, trusted when that tree is."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -10645,6 +10649,10 @@
           },
           "trusted": {
             "type": "boolean"
+          },
+          "mainRoot": {
+            "type": "string",
+            "description": "The project's main tree when root is a linked git worktree of it, absolute; absent otherwise. A worktree is a workspace of its project, trusted when that tree is."
           },
           "createdAt": {
             "type": "string",
@@ -10793,6 +10801,10 @@
                 },
                 "trusted": {
                   "type": "boolean"
+                },
+                "mainRoot": {
+                  "type": "string",
+                  "description": "The project's main tree when root is a linked git worktree of it, absolute, as of its last open; absent otherwise. A closed worktree whose directory is gone is not listed."
                 }
               },
               "additionalProperties": false,
@@ -10871,6 +10883,10 @@
               "trusted": {
                 "type": "boolean",
                 "description": "Whether the root is trusted when the transition happened; a trust granted afterwards publishes no event."
+              },
+              "mainRoot": {
+                "type": "string",
+                "description": "The project's main tree when root is a linked git worktree of it, absolute; absent otherwise."
               }
             },
             "additionalProperties": false,

@@ -102,6 +102,18 @@ describe('WorkspaceModel', () => {
 		expect(t.calls.calls.at(-1)).toEqual({ name: 'workspace.describe', params: {}, workspace: '/p' });
 	});
 
+	// Decision (ADR-0082 §6): a worktree names its main tree from open, and describe says it
+	// again; that is what Trust posts.
+	it('keeps mainRoot from open and takes it again from describe on refresh', async () => {
+		const t = await setup();
+		t.calls.on('workspace.open', () => ({ id: 'w1', name: 'wt', root: '/wt', state: 'ready', trusted: false, mainRoot: '/main' }));
+		await t.model.openById('w1');
+		expect(t.model.mainRoot).toBe('/main');
+		t.calls.on('workspace.describe', () => ({ id: 'w1', name: 'wt', root: '/wt', state: 'ready', trusted: true }));
+		await t.model.refresh();
+		expect(t.model.mainRoot).toBeUndefined();
+	});
+
 	// Decision (ADR-0075 §5, §7): `gradle` comes from open, and describe is the one source
 	// afterwards: a root chosen elsewhere shows after refresh().
 	it('keeps gradle from open and takes it again from describe on refresh', async () => {

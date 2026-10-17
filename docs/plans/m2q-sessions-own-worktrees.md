@@ -123,7 +123,19 @@
 - Not here: grouping in the panel (step 8).
 - Rests on: —
 - Review: the Opus verifier (contract, trust), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestWorktreeOfATrustedProject` (real `serve`, real `git worktree add`, fake sidecar) passes and checks the following:
+  - Untrusted, `build.tasks` on `wt` → `WORKSPACE_UNTRUSTED` naming main, with no sidecar started.
+  - After `droidyard trust main`, the fake logs `opened <wt>` and no `opened <main>`.
+  - The closed row carries `mainRoot`, and after `rm -rf wt` there is no row, while a deleted plain project stays listed.
+
+  `TestMainRootIsResolvedAtEveryOpenAndDescribe`, the two `TestWatch…` tests and Vitest `trust.test.ts`/`workspace.test.ts` pass. The implementer saw these fail with each reversal: no `Trusted` fallback, no existence test, `Open` not re-resolving, the event without `MainRoot`, `grant` posting `root`. Schema diff: `version` 0.27.0, plus `mainRoot` in four places (open and describe results, watch rows, `workspace.state` payload), nothing else. Also touched, beyond Builds: `Banners.svelte` (the strip the UI shows), `web/src/lib/build/workspace.ts` (carries `mainRoot`), and the version pin in `cmd/droidyard/git_read_test.go`.
+
+  The Opus verifier said proceed, nothing blocking. Fix round by the main session:
+  - `workspace.describe`'s re-resolution is now tested through the capability, and seen failing with it removed ([test]).
+  - The watch filter now leaves out only a *closed* worktree whose directory is gone; an open one stays listed so the panel can close it. Seen failing with the old filter ([bug]); the row description and the schema follow.
+  - The `Info.MainRoot` comment is fixed ([nit]).
+
+  `pnpm -C web run verify` passes. Not done: the Trust text rendered in a browser (level 5, step 10).
 
 ### 4. `workspace.enter`: a session moves into a worktree of its project
 

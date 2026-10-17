@@ -72,6 +72,8 @@ func Register(reg *capability.Registry, ws *Registry) {
 			if err != nil {
 				return nil, err
 			}
+			// Resolved again here, not in Registry.Describe, which every root lookup calls.
+			info.MainRoot = ws.mainRoot(info.Root)
 			return withGradle(info), nil
 		},
 	})
