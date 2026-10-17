@@ -21,6 +21,9 @@
 	import { buildCommands, FileIndex, PaletteModel } from '../palette/palette';
 	import Palette from '../palette/Palette.svelte';
 	import type { ShellApi } from '../ui/panels';
+	import LiveView from '../screen/LiveView.svelte';
+	import { LiveViewModel } from '../screen/liveview';
+	import { browserCodec } from '../screen/decoder';
 	import { ConsoleModel } from '../build/console';
 	import Console from '../build/Console.svelte';
 	import type { EventsHub } from '../build/hub';
@@ -86,6 +89,8 @@
 		hub: EventsHub;
 		connection: ConnectionState;
 		workspaceId: string;
+		/** The session's token, which the screen socket presents. */
+		token: string;
 		/** Asks before unsaved text is lost; the open files attach to it. */
 		guard: UnsavedGuard;
 		/** The daemon refused the id: the page shows the projects panel with the reason. */
@@ -97,7 +102,7 @@
 		/** The sessions column's body (the projects and agents panel), which App owns. */
 		sessionsPanel: Snippet;
 	}
-	let { client, activity, sessions, projects, hub, connection, workspaceId, guard, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
+	let { client, activity, sessions, projects, hub, connection, workspaceId, token, guard, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
 
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	// Restore of a delete any client made (plan m2j step 10): the workspace root is read at click.
@@ -114,6 +119,7 @@
 	let uiTree = $state.raw<UiTreeModel | null>(null);
 	let act = $state.raw<ActModel | null>(null);
 	let appLogs = $state.raw<AppLogsModel | null>(null);
+	let liveView = $state.raw<LiveViewModel | null>(null);
 	let fileTree = $state.raw<FileTreeModel | null>(null);
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let fileOps = $state.raw<FileOps | null>(null);
@@ -196,6 +202,14 @@
 		const tree = new UiTreeModel(callOn, deviceList, store);
 		const actions = new ActModel(callOn, deviceList);
 		const logs = new AppLogsModel(callOn, deviceList, installer, store);
+		const screen = new LiveViewModel(
+			{
+				subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+				call: (name, params) => c.call(name, params),
+			},
+			deviceList,
+			{ supported: browserCodec() !== null },
+		);
 		const files = new FileTreeModel(callOn, ws);
 		const watcher = new FileWatch(
 			{
@@ -299,6 +313,7 @@
 		uiTree = tree;
 		act = actions;
 		appLogs = logs;
+		liveView = screen;
 		fileTree = files;
 		gitWatch = gitStatus;
 		gitTree = treeOfGit;
@@ -401,6 +416,8 @@
 			run = null;
 			uiTree = null;
 			act = null;
+			screen.dispose();
+			liveView = null;
 			appLogs = null;
 			fileTree = null;
 			fileOps = null;
@@ -564,6 +581,10 @@
 	{:else if id === 'devices'}
 		{#if devices && emulators && install}
 			<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+		{/if}
+	{:else if id === 'liveview'}
+		{#if liveView}
+			<LiveView model={liveView} {token} {connection} visible={shell.rightOpen()} />
 		{/if}
 	{:else if id === 'tree'}
 		{#if uiTree && act}
