@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0048 (§2)
+- Superseded in part by: ADR-0076 (§2)
 - Date: 2026-10-10
 - Relates to: ADR-0010, ADR-0016, ADR-0020 §Core primitives, ADR-0036, ADR-0041 §4;
   `capability-api.md` §Events and subscriptions; plan m2b Q1
