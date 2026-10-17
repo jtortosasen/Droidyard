@@ -189,7 +189,7 @@ func mapSubmoduleError(root string, se *submoduleError) error {
 	case errors.Is(se.err, ErrUnsafeDriver):
 		return capability.Errorf(capability.ErrWorkspaceUntrusted, "the project root %q is not trusted, and a filter driver configured in its submodule %q cannot be switched off, so git was not run there", root, se.path).
 			WithCause(se.Error()).
-			WithNextStep(policy.UntrustedError(root).NextStep)
+			WithNextStep(policy.UntrustedNextStep(root))
 	case errors.Is(se.err, ErrGitFailed):
 		return capability.Errorf(CodeFailed, "git failed in the submodule %q", se.path).
 			WithCause("submodule " + se.path + ": " + strings.TrimPrefix(se.err.Error(), ErrGitFailed.Error()+": "))

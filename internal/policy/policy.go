@@ -4,6 +4,12 @@
 // only by human channels (`droidyard trust`, `policy.update`) or by hand, and is never
 // migrated or reset with the state.
 //
+// Trust is the project's (ADR-0081): a root that is a linked worktree of a trusted
+// repository's main tree is trusted too, and matches `shell.roots` by the same rule.
+// It never flows the other way, from a worktree to its main tree or to a sibling, and
+// the proof is git's own files inside the trusted repository (platform.LinkedWorktree).
+// `droidyard trust <path>` still trusts exactly the path it is given.
+//
 // Version 1 of the file has five sections: `trust`, `devices`, `shell`, `gradle` and
 // `tools` (ADR-0032 §1). Every key is optional; a `null` value is its default. Unknown
 // keys, at the top level and inside a known section, are kept on every rewrite and
@@ -115,7 +121,8 @@ func New(env platform.Env) *Policy {
 
 // Trusted reports whether root is trusted: equal to a `trust.roots` entry, or under a
 // `trust.prefixes` entry at a path-component boundary, both canonicalised as a
-// workspace root is (plan m1g D1). A missing file trusts nothing. A file that does not
+// workspace root is (plan m1g D1), or a linked worktree of a root so trusted
+// (ADR-0081 §1). A missing file trusts nothing. A file that does not
 // parse trusts nothing and returns the error, whose cause names the file; it is never
 // renamed or rewritten (it is the user's configuration, not state).
 func (p *Policy) Trusted(root string) (bool, *capability.Error) {
@@ -129,7 +136,17 @@ func (p *Policy) Trusted(root string) (bool, *capability.Error) {
 	if !snap.present {
 		return false, nil
 	}
-	return trustedBy(snap.roots, snap.prefixes, p.env.Canonical(root)), nil
+	canonical := p.env.Canonical(root)
+	if trustedBy(snap.roots, snap.prefixes, canonical) {
+		return true, nil
+	}
+	// A linked worktree of a trusted project is trusted (ADR-0081 §1): the project is
+	// what is trusted, never the worktree's own path, and only from the main tree to
+	// its worktrees. Re-decided on every call; nothing is cached.
+	if main, ok := platform.LinkedWorktree(p.env, canonical); ok {
+		return trustedBy(snap.roots, snap.prefixes, main), nil
+	}
+	return false, nil
 }
 
 // Authorize returns the Descriptor.Authorize hook the capabilities that run project
@@ -151,6 +168,10 @@ func (p *Policy) Authorize(rootOf RootOf) func(context.Context, *capability.Call
 			return nil, err
 		}
 		if !trusted {
+			// A worktree is asked to trust its project (ADR-0081 §5), not itself.
+			if main, ok := platform.LinkedWorktree(p.env, canonical); ok {
+				return nil, worktreeUntrustedError(canonical, main)
+			}
 			return nil, UntrustedError(canonical)
 		}
 		return canonical, nil
@@ -159,7 +180,8 @@ func (p *Policy) Authorize(rootOf RootOf) func(context.Context, *capability.Call
 
 // ShellAllowed reports whether shell.exec may run with root as its project root:
 // `shell.enabled`, or root equal to or under a `shell.roots` entry at a path-component
-// boundary (ADR-0032 §2; plan m1k D4). When it may not, the returned failure is
+// boundary, or a linked worktree of such a root (ADR-0032 §2; plan m1k D4; ADR-0081 §4).
+// When it may not, the returned failure is
 // POLICY_SHELL_DISABLED; its cause names the file when the configuration is invalid,
 // and it always names the file in its nextStep. A missing file keeps the shell off.
 func (p *Policy) ShellAllowed(root string) (bool, *capability.Error) {
@@ -176,7 +198,14 @@ func (p *Policy) ShellAllowed(root string) (bool, *capability.Error) {
 	if snap.doc.shell.enabled {
 		return true, nil
 	}
-	if trustedBy(nil, p.canonical(snap.doc.shell.roots), p.env.Canonical(root)) {
+	canonical := p.env.Canonical(root)
+	shellRoots := p.canonical(snap.doc.shell.roots)
+	if trustedBy(nil, shellRoots, canonical) {
+		return true, nil
+	}
+	// The shell is the project's choice too (ADR-0081 §4): a linked worktree of a
+	// `shell.roots` project may run it.
+	if main, ok := platform.LinkedWorktree(p.env, canonical); ok && trustedBy(nil, shellRoots, main) {
 		return true, nil
 	}
 	return false, p.shellDisabled(root, "")
@@ -499,6 +528,24 @@ type RootOf func(call *capability.Call) (string, bool)
 func UntrustedError(root string) *capability.Error {
 	return capability.Errorf(capability.ErrWorkspaceUntrusted, "the project root %q is not trusted, so its code will not run", root).
 		WithNextStep("ask the user to run `droidyard trust '" + strings.ReplaceAll(root, "'", `'\''`) + "'`; nothing ran, so this call is safe to repeat once the root is trusted.")
+}
+
+// UntrustedNextStep is the nextStep of a WORKSPACE_UNTRUSTED raised outside Authorize
+// (the git domain's filter-driver refusals): trust root, or, when root is a linked
+// worktree, its main tree, since the project is what gets trusted (ADR-0081 §5).
+func UntrustedNextStep(root string) string {
+	if main, ok := platform.LinkedWorktree(platform.Env{}, root); ok {
+		return UntrustedError(main).NextStep
+	}
+	return UntrustedError(root).NextStep
+}
+
+// worktreeUntrustedError is UntrustedError for a linked worktree whose project is not
+// trusted: the project is what gets trusted, so the message and the nextStep name the
+// main tree (ADR-0081 §5).
+func worktreeUntrustedError(root, main string) *capability.Error {
+	return capability.Errorf(capability.ErrWorkspaceUntrusted, "the project root %q is a worktree of %q, which is not trusted, so its code will not run", root, main).
+		WithNextStep(UntrustedError(main).NextStep)
 }
 
 // shellDisabled is the fixed failure of shell.exec on a root the policy does not admit

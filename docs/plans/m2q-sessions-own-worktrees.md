@@ -106,7 +106,7 @@
 - Not here: `mainRoot` in the contract and the UI's Trust (step 3). `droidyard trust <worktree>` still trusts the path it is given (ADR-0031 §4 unchanged).
 - Rests on: a root inherits trust only when the trusted repository's own administrative directory names that root back, at level 4 (real git, real files).
 - Review: the Opus verifier (the security fence), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestLinkedWorktree` and `TestWorktreeTrust` pass on host git 2.51.2. The git-written relative-paths row ran; nothing was skipped. Seen failing with each of these removed in turn: the back-link, the `C/worktrees/<name>` parent test, `Base(C) == ".git"`, the `Lstat`, the 4 KiB bound, `O_NONBLOCK`, the worktree clause in `Trusted` and in `ShellAllowed`, and the worktree error (implementer). `Base(C)` was also caught by the verifier's mutation m1, and the `Trusted` clause by m3. `M/.git`-is-a-directory is implied by a canonical `C` named `.git`, so no reversal can fail it. Opus verifier: proceed, no blocking finding. Fix round by the main session: the git domain's two filter-driver refusals take `policy.UntrustedNextStep`, which names the main tree for a worktree ([contract], ADR-0081 §5); the back-link compares with `R/.git` as `Lstat` saw it, not re-canonicalised ([safety], a same-uid race); reads use `O_NOFOLLOW` ([nit]). After the fix, `go test` of `./internal/platform`, `./internal/policy` and `./internal/domain/...` is ok. Level 4.
 
 ### 3. A worktree is a workspace of its project: `mainRoot`, and the first end to end
 
