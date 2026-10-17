@@ -80,6 +80,10 @@ type ADB struct {
 	bus     *event.Bus
 	streams streamSet
 
+	// screens is every live-view source, one per device (plan m2p step 3); Close ends
+	// them all beside the log streams.
+	screens screenSources
+
 	// log is the daemon's log (daemon.log when the daemon is detached), where reader
 	// restarts, fallbacks and slow warm reads are recorded (plan m1n step 2). Nil, the
 	// zero value, logs nothing. logMu serialises writes so concurrent readers' lines

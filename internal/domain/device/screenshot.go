@@ -20,6 +20,13 @@ import (
 // preamble.
 const ErrScreenshotFailed capability.ErrorCode = "DEVICE_SCREENSHOT_FAILED"
 
+// ErrStreamFailed is the live view's source failing to start: the push of the server, the
+// forward, the server's start, the connect to its sockets, or the first bytes of its
+// stream not being the expected protocol (ADR-0077, ADR-0078 §1; plan m2p step 3). Its
+// cause names the phase and the exit status, never device output. adb itself that cannot
+// be run is DEVICE_ADB_FAILED, as in the preamble.
+const ErrStreamFailed capability.ErrorCode = "DEVICE_STREAM_FAILED"
+
 // screencapTimeout bounds `exec-out screencap -p`; a variable so a test is quick.
 var screencapTimeout = 10 * time.Second
 
