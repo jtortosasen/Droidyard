@@ -3799,6 +3799,81 @@
       }
     },
     {
+      "name": "device.pressKey",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.27.0",
+      "description": "Presses and releases a system key on the device. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "key": {
+            "type": "string",
+            "enum": [
+              "back",
+              "home",
+              "appSwitch",
+              "enter",
+              "delete"
+            ],
+            "description": "The system key to press and release."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "key"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
+        ]
+      }
+    },
+    {
       "name": "device.screenshot",
       "kind": "query",
       "scope": "global",
@@ -3881,6 +3956,188 @@
           "durability",
           "expiresAt",
           "untrusted"
+        ]
+      }
+    },
+    {
+      "name": "device.swipe",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.27.0",
+      "description": "Drags a finger along a path of points of the open live view, normalised to the frame and replayed with the points' timing. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "path": {
+            "items": {
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0,
+                  "description": "From the left edge of the frame (0) to the right edge (1)."
+                },
+                "y": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0,
+                  "description": "From the top edge of the frame (0) to the bottom edge (1)."
+                },
+                "t": {
+                  "type": "integer",
+                  "maximum": 5000,
+                  "minimum": 0,
+                  "description": "Milliseconds from the first point (the first point's is 0); strictly greater than the point before, at most 5000."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "x",
+                "y",
+                "t"
+              ]
+            },
+            "type": "array",
+            "maxItems": 64,
+            "minItems": 2,
+            "description": "The finger's path: down at the first point, through the others at their t, up at the last. 2 to 64 points."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "path"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
+        ]
+      }
+    },
+    {
+      "name": "device.tap",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.27.0",
+      "description": "Touches the device's screen at a point of its open live view, normalised to the frame, and lifts after durationMs (a long press). With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "x": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "description": "Where to touch, from the left edge of the frame (0) to the right edge (1)."
+          },
+          "y": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "description": "Where to touch, from the top edge of the frame (0) to the bottom edge (1)."
+          },
+          "durationMs": {
+            "type": "integer",
+            "maximum": 2000,
+            "minimum": 0,
+            "description": "How long to hold the touch, in milliseconds (default 0, a tap; a longer one is a long press). At most 2000."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "x",
+          "y"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
         ]
       }
     },

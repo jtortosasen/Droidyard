@@ -240,6 +240,29 @@ func (ss *screenSources) Live() int {
 	return len(ss.all)
 }
 
+// running returns the device's source when it is started and not ending, and nil
+// otherwise. It never starts one and holds no reference: the input capabilities use a live
+// view that someone else opened (ADR-0079 §3), and the source may end the next instant, which
+// Inject reports.
+func (ss *screenSources) running(serial string) *screenSource {
+	ss.mu.Lock()
+	s := ss.by[serial]
+	if s == nil || s.ending {
+		ss.mu.Unlock()
+		return nil
+	}
+	ss.mu.Unlock()
+	select {
+	case <-s.ready:
+		if s.startFail != nil {
+			return nil
+		}
+		return s
+	default:
+		return nil // still starting
+	}
+}
+
 func (a *ADB) newScreenSource(ss *screenSources, t *target) *screenSource {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &screenSource{
@@ -811,7 +834,8 @@ func (s *screenSource) Reason() error { return s.hub.Reason() }
 // Inject implements screen.Source: EncodeControl's messages against the current frame
 // size, written to the control socket on their schedule. Injections are serialised, so
 // two gestures never interleave their touches. A gesture cut short by ctx still lifts the
-// finger, with the last message of its encoding.
+// finger, with the last message of its encoding. A failure after the first byte was
+// written is a *screen.PartialError (ADR-0079 §3); one before it is returned as it is.
 func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
 	msgs, err := screen.EncodeControl(in, s.hub.Size())
 	if err != nil {
@@ -825,6 +849,20 @@ func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
 	case <-s.hub.Done():
 		return s.hub.Reason()
 	}
+	// The select above picks at random when the source has ended and the token is free: an
+	// ended source sends nothing.
+	select {
+	case <-s.hub.Done():
+		return s.hub.Reason()
+	default:
+	}
+	sent := false
+	fail := func(err error) error {
+		if sent {
+			return &screen.PartialError{Err: err}
+		}
+		return err
+	}
 	began := time.Now()
 	for i, m := range msgs {
 		if wait := m.At - time.Since(began); wait > 0 {
@@ -834,28 +872,42 @@ func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
 			case <-ctx.Done():
 				t.Stop()
 				if i > 0 {
-					s.write(msgs[len(msgs)-1].Data) // lift
+					if _, err := s.write(msgs[len(msgs)-1].Data); err != nil { // lift
+						s.endOnWriteError()
+					}
 				}
-				return ctx.Err()
+				return fail(ctx.Err())
 			case <-s.hub.Done():
 				t.Stop()
-				return s.hub.Reason()
+				return fail(s.hub.Reason())
 			}
 		}
-		if err := s.write(m.Data); err != nil {
+		n, err := s.write(m.Data)
+		if n > 0 {
+			sent = true
+		}
+		if err != nil {
 			select {
 			case <-s.hub.Done():
-				return s.hub.Reason()
+				return fail(s.hub.Reason())
 			default:
 			}
-			return fmt.Errorf("screen: the control socket: %w", err)
+			s.endOnWriteError()
+			return fail(fmt.Errorf("screen: the control socket: %w", err))
 		}
 	}
 	return nil
 }
 
-func (s *screenSource) write(b []byte) error {
+// endOnWriteError ends the source after a control write that failed. A write that timed out
+// midway leaves half a message on the socket, and every later input would be read out of
+// frame, so the control socket is not used again: the viewers see failed and the next input
+// finds no live view (ADR-0079 §3).
+func (s *screenSource) endOnWriteError() {
+	s.end(&ScreenEnd{Reason: StopFailed, Cause: "the control socket could not be written"})
+}
+
+func (s *screenSource) write(b []byte) (int, error) {
 	s.control.SetWriteDeadline(time.Now().Add(screenWriteBound))
-	_, err := s.control.Write(b)
-	return err
+	return s.control.Write(b)
 }
