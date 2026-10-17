@@ -29,7 +29,7 @@ close an item.
 | Sidecar memory (spike S4): measured idle only (2h step 5), not under a build | unverified | build | [m1g §Unverified](../plans/m1g-gradle-sidecar-and-build.md#unverified) | 1g | |
 | Gradle daemon reuse with the terminal and Android Studio (spike S5) not measured | unverified | build | [m1g §Unverified](../plans/m1g-gradle-sidecar-and-build.md#unverified) | 1g | |
 | Telling a probe failure from the project's own by the failure chain rests on two broken-script cases | unverified | build | [m1h §Unverified](../plans/m1h-android-probe-and-sdk.md#unverified) | 1h | |
-| Whether the owner's repository has exactly one Gradle build within two levels (no agent may look) | unverified | build | [m2o §Unverified](../plans/m2o-gradle-root-below.md#unverified) | 2o | |
+| Whether the owner's repository has exactly one Gradle build within two levels (no agent may look) | unverified | build | [m2o §Unverified](../plans/m2o-gradle-root-below.md#unverified) | 2o | 2o (the owner, 2026-10-17: opened at its top, it works) |
 | Problem summaries (`event.build.problemSummary`, from the sidecar's protocol sketch) designed, not built: post-MVP | deferred | build | [m1g §Not in this milestone](../plans/m1g-gradle-sidecar-and-build.md#not-in-this-milestone) | 1g | |
 | `build.errors` on a KGP ≥ 2.4 fixture (Problems API records) | deferred | build | [mvp §Definition of done](mvp.md#definition-of-done) | 1g | 2h (step 3: golden rewritten to KGP 2.4.20, one `event` record) |
 | The CI version matrix (KGP and AGP axes, the probe canary on AGP floor and latest, pinned-version fixtures): CI runs no Gradle (2m), results say `validation: untested` | deferred | build | [ADR-0018 §Consequences](../adr/0018-gradle-version-support-policy.md#consequences) | design | |
