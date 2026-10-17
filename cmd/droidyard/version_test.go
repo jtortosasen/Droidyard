@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/jtortosasen/droidyard/internal/domain/system"
@@ -17,6 +19,25 @@ func TestVersionLine(t *testing.T) {
 		if got := versionLine(build, "9.9"); got != want {
 			t.Errorf("versionLine(%q) = %q, want %q", build, got, want)
 		}
+	}
+}
+
+// TestVersionLicenses expects `version --licenses` to print the embedded scrcpy licence,
+// and bare `version` to stay one line (install.sh parses it).
+func TestVersionLicenses(t *testing.T) {
+	var b bytes.Buffer
+	if code := versionCommand(&b, []string{"--licenses"}); code != 0 {
+		t.Fatalf("exit code %d", code)
+	}
+	for _, want := range []string{"Apache License", "Version 2.0"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("--licenses output lacks %q", want)
+		}
+	}
+	b.Reset()
+	versionCommand(&b, nil)
+	if strings.Count(b.String(), "\n") != 1 {
+		t.Errorf("bare version printed %q, want one line", b.String())
 	}
 }
 

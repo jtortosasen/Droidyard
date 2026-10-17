@@ -28,6 +28,7 @@ import (
 	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/device/screen/scrcpyserver"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/file"
 	gitdomain "github.com/jtortosasen/droidyard/internal/domain/git"
@@ -54,6 +55,23 @@ func versionLine(build, api string) string {
 	return "droidyard " + build + " (API " + api + ")"
 }
 
+// versionCommand prints the one version line, or with --licenses the licence of the
+// third-party software embedded in the binary (scrcpy's server, Apache-2.0). The bare
+// command stays one line: install.sh parses it.
+func versionCommand(w io.Writer, args []string) int {
+	switch {
+	case len(args) == 0:
+		fmt.Fprintln(w, versionLine(build, system.Version))
+	case len(args) == 1 && args[0] == "--licenses":
+		fmt.Fprintf(w, "scrcpy server %s, embedded as the screen stream's source (sha256 %s).\n\n%s",
+			scrcpyserver.Version, scrcpyserver.SHA256, scrcpyserver.License())
+	default:
+		fmt.Fprintln(os.Stderr, "usage: droidyard version [--licenses]")
+		return 2
+	}
+	return 0
+}
+
 const usage = `Droidyard — a lean Android development runtime for humans and agents.
 
 Usage:
@@ -64,7 +82,8 @@ With no command, droidyard runs ui.
 Commands:
   caps       List the capabilities this build exposes, with their annotations.
   schema     Print the generated JSON Schema that consumers are contracted to.
-  version    Print the build version and the API version.
+  version    Print the build version and the API version;
+             --licenses prints the licence of the software embedded in the binary.
   serve      Run the core daemon in the foreground, until SIGTERM or SIGINT;
              --detach runs it in a session of its own, logging to daemon.log.
   call       Call one capability and print its response envelope:
@@ -142,7 +161,7 @@ func main() {
 			fail(err)
 		}
 	case "version":
-		fmt.Println(versionLine(build, system.Version))
+		os.Exit(versionCommand(os.Stdout, os.Args[2:]))
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	case "serve":
