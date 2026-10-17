@@ -83,7 +83,7 @@
 - Needs: nothing built; real `claude` and `cursor-agent` (their versions recorded), the host `git`.
 - Not here: the Cursor app (no headless run exists; the owner's trial, Unverified); interactive `/clear` in Claude Code (run once by hand if a terminal is available, else Unverified).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: [`spike-c2-sessions-2026-10.md`](../research/spike-c2-sessions-2026-10.md), runs a1 to a4 (Claude Code 2.1.302) and b1, b2 (cursor-agent 2026.10.01), `$R` `/private/tmp/dy2q.Kgmn`. The stop rule did not fire: one connection per run in both clients, and subagents, including a worktree-isolated one, ride the parent's (a1, a2). (c): Claude Code's `cwd` is physical and follows `cd` (a2); Cursor's is `""` (b1). `/clear` and `EnterWorktree` in `-p` were not observed (Unverified).
 
 ### 2. Trust: a linked worktree of a trusted repository is trusted
 
@@ -377,3 +377,5 @@ Q1 to Q6 were decided as drafted by the main session under the owner's standing 
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-18, step 6: the session's name is set from `server/discover` as well as `initialize`. Claude Code 2.1.302 speaks MCP `2026-07-28`, opens with `server/discover` and sends no `initialize` (step 1, (a)). mcp-go sets the client info from either.
