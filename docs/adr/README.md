@@ -105,6 +105,7 @@ edits made before this rule and are not added to.
 | [0073](0073-git-writes-never-ask.md) | A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root | Accepted |
 | [0074](0074-pull-fast-forward-and-roots-with-the-branch.md) | Pull is a fast-forward only, and a synchronised branch applies to the roots that have it | Accepted |
 | [0075](0075-project-root-and-gradle-root.md) | The project root and the Gradle root | Accepted |
+| [0076](0076-operation-target.md) | The operation's target on `operation.state` | Accepted |
 
 ## Open decisions (not yet ADRs)
 
