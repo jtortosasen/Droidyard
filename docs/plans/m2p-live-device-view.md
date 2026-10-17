@@ -5,23 +5,23 @@
 - Date: 2026-10-17
 - Milestone: "2p: C3, a live device view — the device screen streamed to the web UI, with input" (owner's choice, 2026-10-17; [`beyond.md`](../vision/beyond.md) §C3; `docs/README.md` §Where the work stands says "next, the owner's choice").
 - Phase: none. `mvp.md` §Phase 2 — Minimal web UI (closes the MVP) lists the live stream as a stretch, and §Out of scope says "no stills (owner, 2026-10-09)". The MVP is done (2h).
-- Contract: ADR-new-1, ADR-new-2, ADR-new-3, ADR-0076 (Q10) and ADR-new-5 (Q1–Q10, Delegated). Numbers 0077 to 0080 are reserved for the four new ones (`board.go adr`), in the order ADR-new-1, -2, -3, -5. ADR-0076 is written at approval (step 9 rests on no spike fact); the other four are written from step 1's note, before step 2, as ADR-0035 was written from m1n step 2, and the plan's placeholders are then replaced: an accepted ADR is not edited, so none is written before the facts it states. Measured numbers (latency, rates) go to the research note and the area document, not into an ADR.
-  - **ADR-new-1:** the live view streams H.264 from the vendored, pinned scrcpy server behind the `screen.Source` seam.
+- Contract: ADR-0076 (Q10), ADR-0077 (Q1, Q2), ADR-0078 (Q3, Q4, Q7, Q8), ADR-0079 (Q5, Q6), ADR-0080 (Q9); Delegated. ADR-0076 was written at approval; the other four from step 1's note, before step 2 (as ADR-0035 from m1n step 2). Measured numbers go to the research note and the area documents, not into an ADR.
+  - **ADR-0077:** the live view streams H.264 from the vendored, pinned scrcpy server behind the `screen.Source` seam.
     - It replaces the no-stream decision in `adb-device.md` §Screen viewing: on demand, not streamed.
     - It covers the licence, the digest and pushing at each start.
     - It names its departure from ADR-0029's "our own small code".
-  - **ADR-new-2:** `device.watchScreen`, the `device.screen` topic and `GET /v1/screen`, with its frame header and close codes.
+  - **ADR-0078:** `device.watchScreen`, the `device.screen` topic and `GET /v1/screen`, with its frame header and close codes.
     - One source per device, with config, GOP and rejoin.
     - Lifetimes.
     - Decoding by WebCodecs only.
     - `DEVICE_STREAM_FAILED`.
-  - **ADR-new-3:** UI input through the `human` capabilities `device.tap`, `device.swipe` and `device.pressKey`.
+  - **ADR-0079:** UI input through the `human` capabilities `device.tap`, `device.swipe` and `device.pressKey`.
     - Normalised coordinates against the stream's frame size, delivered by the source's control channel.
     - `DEVICE_NO_STREAM`.
     - The measured latency cost.
     - No MCP exposure.
   - **ADR-0076:** `operation.state` and `ActiveOperation` carry the call's `target`. It supersedes ADR-0043 §2 in part.
-  - **ADR-new-5:** `FLAG_SECURE` is detected from the focused window and reported on `device.screenshot` and `device.screen`.
+  - **ADR-0080:** `FLAG_SECURE` is detected from the focused window and reported on `device.screenshot` and `device.screen`.
   - Also: ADR-0010, ADR-0012, ADR-0015 §2, §4, §6, ADR-0020, ADR-0021 §Pid records, ADR-0028, ADR-0029, ADR-0036, ADR-0041, ADR-0043, ADR-0048, ADR-0055, ADR-0060 §2, ADR-0068; `adb-device.md` §Transport to the device, §Lifecycle and concurrency; `ui-automation.md` §Input primitives; `capability-api.md` §Events and subscriptions; `http-websocket.md` §Security baseline.
 - Register: the main session's commit that adds this plan sets `Work` = `2p` on R1–R5 (Scope).
 
@@ -172,10 +172,10 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
   - The other points are recorded with their numbers.
 - Schema: no change.
 - Needs: real emulators, Google Chrome, and the SDK's build tools (formapp).
-- Not here: no daemon code uses the server. ADR-new-1 is written from the note.
+- Not here: no daemon code uses the server. ADR-0077 is written from the note.
 - Rests on: S1–S4, at level 5.
 - Review: the main session's review of the vendoring (digest, licence, provenance) and of the note.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `docs/research/spike-screen-stream-2026-10.md`. S1: first key frame 0.54–0.74 s after start on API 31, 1.7–2.2 s on API 36. S2: headless Google Chrome 155 decoded 187/187 packets of fixture (a), 73/73 of (b), 67/67 joining at key frame 3. S3: 20/20 control taps landed on API 31 and API 36 ("Likes: 20"), Back landed. S4: server gone 1.04 s (API 31), 1.26 s (API 36) after its client. `TestServerDigest` seen failing with one byte changed, `TestVersionLicenses` with the embed emptied (implementer's run). Fixtures in `internal/domain/device/screen/testdata/`. Evidence under `~/Library/Caches/droidyard-dev/m2p/evidence`.
 
 ### 2. Packets, input and fan-out (no device)
 
@@ -261,7 +261,7 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 - Needs: step 2.
 - Not here:
   - A daemon killed outright leaves its forward until adb restarts or the device goes: it cannot be told apart from a user's own scrcpy forward. This becomes a register row.
-  - Between `forward` and the connects, another local user could connect to the loopback port first; the same class as the reader's forward (ADR-new-1 Consequences; a register row).
+  - Between `forward` and the connects, another local user could connect to the loopback port first; the same class as the reader's forward (ADR-0077 Consequences; a register row).
 - Rests on: every server ends with its last viewer, its device or the daemon, and leaves no forward. Level 5 (the real check) and level 4 (fakes, `-race`).
 - Review: the Opus verifier (process lifetime, concurrency), effort `high`.
 - [ ] Done. Evidence:
@@ -482,7 +482,7 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 - Agents watching the screen or acting by coordinates over MCP: Q6, with C5.
 - C4 and C5: `beyond.md`.
 - Audio and clipboard sync: off in the server's options. Clipboard text is device text.
-- Wheel scroll, typing straight into the canvas, live drag tracking (a stream of touch events), multi-touch: later minor changes on ADR-new-3.
+- Wheel scroll, typing straight into the canvas, live drag tracking (a stream of touch events), multi-touch: later minor changes on ADR-0079.
 - Input without a live view (a reader fallback): Q5.
 - H.265 or AV1, and a quality control in the UI: step 1's constants.
 - Waking a sleeping device; a view that survives a reboot (Restart is offered).
@@ -492,24 +492,24 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 
 None blocks. Each is Delegated: the main session applies the recommendation and writes the ADR named in Contract.
 
-- **Q1. Transport (ADR-new-1).** Recommended: **scrcpy's server** (API 21+, H.264 from MediaCodec, follows rotation, has a control socket, Apache-2.0). Rejected:
+- **Q1. Transport (ADR-0077).** Recommended: **scrcpy's server** (API 21+, H.264 from MediaCodec, follows rotation, has a control socket, Apache-2.0). Rejected:
   - `screenrecord --output-format=h264`: restarts every 180 s on many releases, has no control channel and does not follow rotation (assumed from its usage text);
   - a `screencap` loop: 2–5 fps, and stills, which the owner rejected;
   - the emulator's gRPC stream: emulator only, against "serial is the only identity";
   - our own encoder dex: a rewrite of scrcpy's server, with hidden-API wrappers for each release.
 
-  **No ADR held "the MVP does not stream"**: it lives in `adb-device.md`, `mvp.md` §Out of scope and m2b Q2. ADR-new-1 replaces it, and its `StreamSource` seam is step 2's `Source`. On the earlier ADRs:
+  **No ADR held "the MVP does not stream"**: it lives in `adb-device.md`, `mvp.md` §Out of scope and m2b Q2. ADR-0077 replaces it, and its `StreamSource` seam is step 2's `Source`. On the earlier ADRs:
   - ADR-0005 rejects the opaque Android CLI. An open-source, pinned, checked server is not that, so there is no Supersedes.
-  - ADR-0029's Alternatives read ADR-0005 as "the platform's tools and our own small code". A third-party prebuilt departs from that reading, and ADR-new-1's Context says so.
-- **Q2. Licence, vendoring, versioning (ADR-new-1).** Recommended:
+  - ADR-0029's Alternatives read ADR-0005 as "the platform's tools and our own small code". A third-party prebuilt departs from that reading, and ADR-0077's Context says so.
+- **Q2. Licence, vendoring, versioning (ADR-0077).** Recommended:
   - the release binary, embedded, with `Version` and `SHA256` pinned and checked before each push;
   - the licence (and `NOTICE`, if any) embedded and printed by `droidyard version --licenses`, so ADR-0068's one-member archive is untouched;
   - pushed at each start; the server deletes its jar (S4 and (e));
   - an upgrade is deliberate: a new file, a new digest, re-recorded fixtures.
 
   Rejected: downloading at run time; a host's Homebrew copy; building from source; a licence file in the archive (`install.sh` discards it).
-- **Q3. Browser decoding (ADR-new-2).** Recommended: **WebCodecs only**, Annex B, to a canvas (`127.0.0.1` is a secure context); an unsupporting browser gets a message. Rejected: MSE with a remux to fragmented MP4 (code and latency); a WASM decoder (a dependency); JPEG frames (stills).
-- **Q4. The wire (ADR-new-2).** Recommended:
+- **Q3. Browser decoding (ADR-0078).** Recommended: **WebCodecs only**, Annex B, to a canvas (`127.0.0.1` is a secure context); an unsupporting browser gets a message. Rejected: MSE with a remux to fragmented MP4 (code and latency); a WASM decoder (a dependency); JPEG frames (stills).
+- **Q4. The wire (ADR-0078).** Recommended:
   - a streaming **capability** `device.watchScreen` owns the stream;
   - control events go on its subscription (`device.screen`, typed in the schema);
   - packets go on a separate binary **`GET /v1/screen`**, bound by an unguessable id.
@@ -520,7 +520,7 @@ None blocks. Each is Delegated: the main session applies the recommendation and 
   - SSE or chunked HTTP: not binary, and no keyframe-aware backpressure.
 
   The endpoint is also the unit a C4 relay forwards.
-- **Q5. The input path (ADR-new-3).** The owner fixes the outer shape: capability calls. Recommended behind them: the **source's control channel** (scrcpy's socket). It injects asynchronously, in the video's own coordinate space, and is open whenever a view is. Rejected:
+- **Q5. The input path (ADR-0079).** The owner fixes the outer shape: capability calls. Recommended behind them: the **source's control channel** (scrcpy's socket). It injects asynchronously, in the video's own coordinate space, and is open whenever a view is. Rejected:
   - the reader's synchronous injection (23–435 ms quiet, blocked 11.2 s on a frozen app, ADR-0035), which also needs a new swipe and key verb and a dex rebuild;
   - `adb shell input` (a JVM per call, about 0.65 s or more).
 
@@ -534,16 +534,16 @@ None blocks. Each is Delegated: the main session applies the recommendation and 
   - a drag reaches the device only after release, replayed with its timing, so a drag lands late by its own length.
 
   Live tracking would make each move an operation, which is too many; it is a later decision.
-- **Q6. Agents over MCP (ADR-new-3).** Nothing new: streaming is never an MCP tool (ADR-0010), and the input capabilities are `human`. Agents keep the screenshot, with its warning. C5's agent exploration decides coordinate input for agents.
-- **Q7. Lifetimes (ADR-new-2).** One server per device, shared and reference-counted. It ends:
+- **Q6. Agents over MCP (ADR-0079).** Nothing new: streaming is never an MCP tool (ADR-0010), and the input capabilities are `human`. Agents keep the screenshot, with its warning. C5's agent exploration decides coordinate input for agents.
+- **Q7. Lifetimes (ADR-0078).** One server per device, shared and reference-counted. It ends:
   - with its last viewer (subscription end, socket close, or an unattached id after 10 s);
   - with its device (`deviceGone`, including `emulator.stop`);
   - with the daemon (`StopAll`);
   - on a protocol error (`failed`).
 
   The child is recorded, as ADR-0021 already foresees for "`screenrecord` streams". The panel watches only while visible.
-- **Q8. Several viewers (ADR-new-2).** Recommended: the source keeps the current config and GOP; a join starts at the GOP's keyframe with the config prepended, and an overflow rejoins at the next keyframe. This is source-agnostic: no keyframe request, and a relay can do the same. Rejected: a server per viewer (an encoder each); refusing a second tab.
-- **Q9. `FLAG_SECURE` (ADR-new-5).** Recommended: a focused-window check (step 1 picks the command), as a screenshot warning and as `device.screen` `state` while viewing. Rejected:
+- **Q8. Several viewers (ADR-0078).** Recommended: the source keeps the current config and GOP; a join starts at the GOP's keyframe with the config prepended, and an overflow rejoins at the next keyframe. This is source-agnostic: no keyframe request, and a relay can do the same. Rejected: a server per viewer (an encoder each); refusing a second tab.
+- **Q9. `FLAG_SECURE` (ADR-0080).** Recommended: a focused-window check (step 1 picks the command), as a screenshot warning and as `device.screen` `state` while viewing. Rejected:
   - an all-black heuristic: the status and navigation bars are other windows;
   - a reader request: `AccessibilityWindowInfo` has no secure flag.
 - **Q10. The operation's target (ADR-0076).** Recommended: `target {device?, avd?, module?, variant?}`, declared per descriptor. It supersedes ADR-0043 §2 in part, as a bounded exception to "never parameters".
@@ -575,8 +575,8 @@ None blocks. Each is Delegated: the main session applies the recommendation and 
 | 1 | revise | [blocking] B2: the licence was added to the release archive, against ADR-0068, and `install.sh` discards it; the check named no test | `build.sh` is untouched. The licence is embedded and printed by `droidyard version --licenses`, with `TestVersionLicenses` seen failing with the embed emptied (step 1, Q2) |
 | 1 | revise | [should] S1 `Input` undefined, so scrcpy's wire leaked into handlers; S2 a closed stream socket kept its viewer; S3 gestures would reload App logs | S1: a neutral `screen.Input`, and `EncodeControl` tested in step 2; handlers use a fake `Source`. S2: socket close or 10 s unattached releases, `stopped detached`, 4404 afterwards, the model re-watches. S3: the tree's own trigger list, with a Vitest case |
 | 1 | revise | [should] S4 ADR-0048 skipped; S5 no spike tooling, (e) not a stop rule; S6 no daemon packet count; S7 the header in two languages | S4: Q10 cites ADR-0048, with a bounded exception. S5: `TestSpikeScrcpy` (env-gated, implementer) and a scratch page; stop rule S4. S6: `data-packets`. S7: `frame-golden.bin`, read by Go and Vitest |
-| 1 | revise | [should] S8 cancel during acquire, refusal after `StopAll`; S9 the write-key queueing and `durationMs`'s scope; S10 ADR-0029 departure and the loopback port race | S8: the two tests in step 3. S9: in Q5's latency list. S10: Q1 and ADR-new-1's Context; the race in step 3's Not here and a register row |
-| 1 | revise | nits: Rests on wording; `process-lifecycle.md`; screenshot description edits unneeded; the Chrome binary; ADR-new-2's close codes; size | All taken: step 4's Rests on; step 10 (d); step 8 changes no description, so the tool list is byte-identical (A9); K3 and S2 name Google Chrome; the Contract lists the codes and header. Q1–Q10 compacted, the ADR list folded into Contract |
+| 1 | revise | [should] S8 cancel during acquire, refusal after `StopAll`; S9 the write-key queueing and `durationMs`'s scope; S10 ADR-0029 departure and the loopback port race | S8: the two tests in step 3. S9: in Q5's latency list. S10: Q1 and ADR-0077's Context; the race in step 3's Not here and a register row |
+| 1 | revise | nits: Rests on wording; `process-lifecycle.md`; screenshot description edits unneeded; the Chrome binary; ADR-0078's close codes; size | All taken: step 4's Rests on; step 10 (d); step 8 changes no description, so the tool list is byte-identical (A9); K3 and S2 name Google Chrome; the Contract lists the codes and header. Q1–Q10 compacted, the ADR list folded into Contract |
 | 2 | proceed | B1 resolved (config apart, join with config, bounds consistent, tests aimed at the defect); B2 resolved (checked against ADR-0068, `install.sh:195`, `TestArchiveMembers`, the `version` case) | — |
 | 2 | proceed | [should] S-a Demux and the Hub both merged the config; S-b a rejoin's keyframe not said to carry it; S-c a decoder error re-watched without a limit | S-a: Demux yields config packets on their own, and only the Hub prepends; `TestHubJoinAtFirstKeyframe` (exactly once). S-b: the rejoin keyframe carries the current config, with a test case across a config change. S-c: one re-watch, then `stopped(failed)`, with a Vitest case |
 | 2 | proceed | nits: bare `version` stays one line; `Join()` with an empty GOP and `TestHubGOPBound`'s assertion; whether the caps count the config | All taken (step 1; step 2: an empty GOP waits for the next keyframe with config; caps count device bytes only, and the queue bound adds the config) |
@@ -586,3 +586,7 @@ None blocks. Each is Delegated: the main session applies the recommendation and 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-17, step 1 (provenance). The vendored server is **scrcpy 4.1** (tag `v4.1`, 2026-07-12), not the newest release: 5.0 (2026-10-05) is a major release twelve days old, and 5.0.1 a hotfix of it, while 4.1 has three months in the field and is the version the plan's research read. Its SHA-256 `deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae` (733,706 B) matches the release's `SHA256SUMS.txt` and Homebrew's copy. `LICENSE` is the tag's (Apache-2.0, 11,387 B); the tag has no `NOTICE`. Moving to 5.x is a deliberate upgrade (Q2). Delegated.
+- 2026-10-17, step 1 (run). The spike tool's lifetime poll stopped on `ls`'s exit status; the main session appended `; true` to its device command (one line). The second scratch AVD is `droidyard_m2p36` (API 36, Pixel 6 profile, cold boot ~22 s), so the Pixel_9a was not used; 37.1 was not run.
+- 2026-10-17, step 2. The video socket carries a 12-byte **session packet** (first word's bit 31 set; then u32 width, u32 height; no payload) before each encoder start's config, at start and at rotation (the note §(a)). `Demux` reads it and never yields it as media; `TestDemuxRotation` counts two. The preamble is the dummy byte, the 64-byte name and the 4-byte codec id, with no size after it. ADR-0077, ADR-0078.
+- 2026-10-17, step 8. On API 31 `screencap` with a secure window focused fails (exit 1, empty output) instead of capturing black; on API 36 it captures black. `device.screenshot` also runs the check when the capture fails, and `SCREENSHOT_FAILED`'s cause then says the focused window is secure. The check is one `adb shell dumpsys window` (focus line plus that window's block; `dumpsys window windows` lacks the focus line on API 31), its fixtures `testdata/dumpsys-window-api{31,36}-{on,off}.txt`; the parser lives with step 8's code and reads them from `internal/domain/device/screen/testdata`. ADR-0080.
+- 2026-10-17, steps 7 and 10. Latency numbers go to the research note and `ui-automation.md` §Input primitives, not to ADR-0079 (an accepted ADR is not edited).
