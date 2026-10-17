@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -611,47 +610,5 @@ func TestWatchResultIsSlimmedAfterDelivery(t *testing.T) {
 	}
 	if got.SubscriptionID != "sub-1" || got.Head != full.Head || !got.Truncated || got.Base != "HEAD" {
 		t.Errorf("Slim changed more than the entries: %+v", got)
-	}
-}
-
-// Decision (ADR-0066 §2): the daemon's reads never take .git/index.lock, so a commit an
-// agent makes beside a fast watch never fails. 200 add-and-commit cycles beside a 5 ms
-// watch: every one exits 0 and none mentions index.lock. The count with the lock
-// switches removed (an -overlay of run.go) is recorded in the plan step's report, not
-// asserted here. A smoke test: it passed with both switches removed too (git's own lock
-// hold is too short to collide), so the no-lock promise rests on
-// TestStatusLeavesTheIndexAlone.
-func TestCommitsNeverFailBesideTheWatch(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("200 commits beside a watch")
-	}
-	f := newWatchFx(t, 5*time.Millisecond)
-	f.write(f.root, "seed.txt", "seed\n")
-	f.commit(f.root)
-	f.start()
-
-	failed, locked := 0, 0
-	for i := 0; i < 200; i++ {
-		f.write(f.root, fmt.Sprintf("f%03d.txt", i), fmt.Sprintf("content %d\n", i))
-		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", fmt.Sprintf("c%d", i)}} {
-			out, err := f.gErr(f.root, args...)
-			if err != nil {
-				failed++
-				if strings.Contains(out, "index.lock") {
-					locked++
-				}
-				t.Errorf("cycle %d: git %v: %v\n%s", i, args, err, out)
-			} else if strings.Contains(out, "index.lock") {
-				locked++
-			}
-		}
-	}
-	t.Logf("200 cycles beside the watch: %d failed commands, %d mentioned index.lock, %d statuses ran", failed, locked, f.statuses.Load())
-	if locked != 0 {
-		t.Errorf("%d commands mentioned index.lock", locked)
-	}
-	if f.statuses.Load() < 20 {
-		t.Errorf("only %d statuses ran beside the commits; the test proves nothing", f.statuses.Load())
 	}
 }
