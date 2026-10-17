@@ -12,12 +12,16 @@ import (
 const registerPath = "docs/roadmap/known-limits.md"
 
 var (
-	registerColumns = []string{"Item", "Kind", "Area", "Source", "Recorded", "Closed by"}
+	registerColumns = []string{"Item", "Kind", "Area", "Work", "Source", "Recorded", "Closed by"}
 	// registerKinds are in the order rows are sorted within an Area.
 	registerKinds = []string{"limit", "unverified", "deferred", "open question"}
 	// registerAreas are in case-insensitive alphabetical order, which is the order
 	// rows are sorted in.
 	registerAreas = []string{"build", "CLI", "code", "configuration", "device", "device/UI", "emulator", "files", "git", "MCP/agents", "platform", "policy/security", "process", "SDK", "web UI"}
+
+	// registerWork is the work that would close an open row, as the register's intro
+	// lists it; a milestone such as 2p is also allowed.
+	registerWork = []string{"C1", "C2", "C3", "C4", "C5", "C6", "git", "v1-code", "v1-test", "v1-device", "v1-sdk", "distribution", "platforms", "quick", "review", "trial"}
 
 	milestoneRE = regexp.MustCompile(`^\d+[a-z]$`)
 	closedByRE  = regexp.MustCompile(`^\d+[a-z]\b`)
@@ -26,8 +30,8 @@ var (
 )
 
 // TestRegisterIsWellFormed checks docs/roadmap/known-limits.md, the one home of open
-// items (AGENTS.md §Where each fact lives): six columns; Kind one of four; Area from
-// a closed set; Source a link; Recorded a milestone or "design"; Closed by empty or
+// items (AGENTS.md §Where each fact lives): seven columns; Kind one of four; Area from
+// a closed set; Work empty, a milestone or from a closed set; Source a link; Recorded a milestone or "design"; Closed by empty or
 // starting with a milestone; rows ordered by Area, then Kind, as its intro says.
 func TestRegisterIsWellFormed(t *testing.T) {
 	report(t, checkRegister(repo()))
@@ -69,7 +73,7 @@ func checkRegister(fsys fs.FS) []string {
 			add("%s: the row has %d cells; it needs %d (%s). A literal | in the item goes inside a code span", at, len(row), len(registerColumns), strings.Join(registerColumns, ", "))
 			continue
 		}
-		item, kind, area, source, recorded, closed := row[0], row[1], row[2], row[3], row[4], row[5]
+		item, kind, area, work, source, recorded, closed := row[0], row[1], row[2], row[3], row[4], row[5], row[6]
 		if item == "" {
 			add("%s: the row has an empty Item", at)
 		}
@@ -80,6 +84,9 @@ func checkRegister(fsys fs.FS) []string {
 		a := indexOf(registerAreas, area)
 		if a < 0 {
 			add("%s: Area %q is not one of %s. A new area is a decision: add it to this check and to the register's intro", at, area, strings.Join(registerAreas, " | "))
+		}
+		if work != "" && indexOf(registerWork, work) < 0 && !milestoneRE.MatchString(work) {
+			add("%s: Work %q is not a milestone such as 2p nor one of %s. A new kind of work is a decision: add it to this check and to the register's intro", at, work, strings.Join(registerWork, " | "))
 		}
 		if !registerLinkRE.MatchString(source) {
 			add("%s: Source %q holds no link. Link the ADR, plan or research note that raised the item, or the area document", at, source)
