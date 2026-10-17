@@ -35,8 +35,9 @@ var placeholders = map[string]bool{
 }
 
 // TestADRIndexMatchesFiles checks docs/adr/README.md §Index against the files: every
-// ADR has one row, every row points at a file that exists, numbering has no gaps or
-// duplicates, and the Status column says what the file says.
+// ADR has one row, every row points at a file that exists, no number is used twice,
+// and the Status column says what the file says. Gaps are allowed: parallel lanes
+// reserve numbers (work-board), and one a lane drops, or merges later, is a gap.
 func TestADRIndexMatchesFiles(t *testing.T) {
 	report(t, checkADRIndex(repo()))
 }
@@ -112,12 +113,6 @@ func checkADRIndex(fsys fs.FS) []string {
 		}
 	}
 	sort.Ints(nums)
-	for i, n := range nums {
-		if n != i+1 {
-			add("%s: ADR numbering has a gap: expected %04d, found %04d. Numbers are sequential from 0001; renumber the file or restore the missing one", adrDir, i+1, n)
-			break
-		}
-	}
 
 	index, err := readDoc(fsys, adrIndex)
 	if err != nil {

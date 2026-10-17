@@ -17,7 +17,7 @@ An agent writes `Status: Proposed`; only the owner accepts. A proposed ADR binds
 
 ## Writing it
 
-1. **Number.** Take the next free number in `docs/adr/`, use `NNNN-short-title.md`, and add a row to the index in `docs/adr/README.md`.
+1. **Number.** Reserve it with `board.go adr <lane>` (`work-board`): other lanes hold numbers `docs/adr/` does not show yet, so the index may have gaps. Use `NNNN-short-title.md`, and add a row to the index in `docs/adr/README.md`.
 2. **Context.** The forces and the evidence, with sources, and what breaks or stays undecided without a decision. Label every assumption; cite what was observed, as `docs/research/spike-s1-error-formats.md` does.
 3. **Decision.** Specific enough that code can be checked against it: names, codes, numbers, states. Label working defaults as such, as ADR-0020 does with "20 s (working default, configurable)".
 4. **Consequences.** Include the costs, and list every document that must change to follow the decision. That list is a checklist for the same change, not a to-do for later.
