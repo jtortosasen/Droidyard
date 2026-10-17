@@ -1,6 +1,7 @@
 # ADR-0082: A session enters a worktree of its project; a worktree is a workspace of its project
 
 - Status: Accepted
+- Superseded in part by: ADR-0088 (§Decision)
 - Date: 2026-10-18
 - Supersedes: ADR-0019 §Sessions (in part: the binding moves within its project through `workspace.enter`); ADR-0010 §Decision (in part: a stateless capability may act on the calling MCP session's binding)
 - Relates to: ADR-0004, ADR-0020 §Scope, ADR-0021 §Layout, ADR-0036, ADR-0048 §1, ADR-0060 §2, ADR-0071, ADR-0075, ADR-0081; `docs/vision/beyond.md` (C2); plan m2q Q2

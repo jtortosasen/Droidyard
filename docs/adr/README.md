@@ -111,6 +111,7 @@ edits made before this rule and are not added to.
 | [0084](0084-one-tab-workspace-show.md) | One tab: `droidyard` switches an open tab instead of opening another | Accepted |
 | [0085](0085-hook-root-from-command-directory.md) | The hook records where the command ran | Accepted |
 | [0086](0086-workspace-forget.md) | A recent project can be removed: `workspace.forget` | Accepted |
+| [0088](0088-chat-id-recovers-binding.md) | A session carries its chat's id, and a resumed chat gets its worktree back | Accepted |
 
 ## Open decisions (not yet ADRs)
 
