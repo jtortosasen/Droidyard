@@ -4,6 +4,8 @@ A lean, AI-agnostic Android development runtime that replaces most day-to-day An
 Studio usage, exposing one capability API to both a lightweight web UI and external
 coding agents.
 
+Where the owner wants it to go next, and the capabilities that needs: [beyond.md](beyond.md).
+
 ## The problem
 
 Android development is effectively locked to Android Studio:
