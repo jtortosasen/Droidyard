@@ -68,6 +68,14 @@ var (
 	ErrViewerClosed = errors.New("screen: viewer closed")
 )
 
+// PartialError wraps an Inject failure that came after the input's first byte was written
+// to the device: the device may have received part of the gesture (ADR-0079 §3). Err is the
+// cause and is reachable with errors.Is and errors.As.
+type PartialError struct{ Err error }
+
+func (e *PartialError) Error() string { return "screen: input cut short: " + e.Err.Error() }
+func (e *PartialError) Unwrap() error { return e.Err }
+
 // Viewer is one reader of a stream. Next blocks until a packet, the end of the stream,
 // Close or ctx. It returns the stream's end reason (Source.Reason) once the stream ended,
 // ErrViewerClosed after Close, and ctx.Err() when ctx ends first.
@@ -82,7 +90,9 @@ type Source interface {
 	Join() Viewer
 	// Size is the newest frame size the stream announced; the zero Size before the first.
 	Size() Size
-	// Inject sends one input to the device against Size.
+	// Inject sends one input to the device against Size. An error from before the first
+	// byte reached the device is returned as it is; one from after it is wrapped in a
+	// *PartialError, so the caller can tell a refused input from a cut one.
 	Inject(ctx context.Context, in Input) error
 	// Done is closed when the stream ended; Reason then says why.
 	Done() <-chan struct{}
