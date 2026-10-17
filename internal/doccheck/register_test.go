@@ -138,7 +138,9 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 90 (to 26,655) at milestone 2o's close: workspace-state.md, gradle.md and
 // process-lifecycle.md name the two roots, the register's five 2o rows, and README.md's
 // status line (ADR-0075).
-const liveBudget = 26655
+// Raised by 1,015 (to 27,670) on 2026-10-17: vision/beyond.md records the owner's vision
+// beyond the MVP and the capabilities it needs, at the owner's request, with its two links.
+const liveBudget = 27670
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

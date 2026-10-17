@@ -17,7 +17,7 @@ which files are frozen records, and the language rule are in
 
 | Directory | What it holds |
 | --- | --- |
-| [`vision/`](vision/vision.md) | The vision, non-goals and principles in one document; the [glossary](vision/glossary.md). |
+| [`vision/`](vision/vision.md) | The vision, non-goals and principles in one document; the [glossary](vision/glossary.md); the owner's vision [beyond the MVP](vision/beyond.md). |
 | [`architecture/`](architecture/overview.md) | The overview (layers, topology, events, concurrency, state ownership); the [capability API](architecture/capability-api.md), [process lifecycle](architecture/process-lifecycle.md) and [workspace state](architecture/workspace-state.md). |
 | [`subsystems/`](subsystems/) | One document per integration: `adb-device`, `emulator`, `files`, `gradle`, `sdk`, `ui-automation`. |
 | [`interfaces/`](interfaces/) | The HTTP/WebSocket and MCP adapters. |
