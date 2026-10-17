@@ -540,14 +540,14 @@ var registerFixture = tree{registerPath: `# Known limits
 
 Intro.
 
-| Item | Kind | Area | Source | Recorded | Closed by |
-| --- | --- | --- | --- | --- | --- |
-| One | limit | build | [x](x.md) | 1n | |
-| Two | deferred | build | [x](x.md) | design | 1p (step 2) |
-| Three | open question | CLI | [x](x.md) | 1d | |
-| Four | limit | device | [x](x.md) | 1e | |
-| Five | limit | device/UI | [x](x.md) | 1e | |
-| Six | limit | web UI | [x](x.md) | 1e | |
+| Item | Kind | Area | Work | Source | Recorded | Closed by |
+| --- | --- | --- | --- | --- | --- | --- |
+| One | limit | build |  | [x](x.md) | 1n | |
+| Two | deferred | build |  | [x](x.md) | design | 1p (step 2) |
+| Three | open question | CLI | C3 | [x](x.md) | 1d | |
+| Four | limit | device | 2p | [x](x.md) | 1e | |
+| Five | limit | device/UI | quick | [x](x.md) | 1e | |
+| Six | limit | web UI |  | [x](x.md) | 1e | |
 `}
 
 func TestRegisterCheckCatchesDrift(t *testing.T) {
@@ -562,7 +562,7 @@ func TestRegisterCheckCatchesDrift(t *testing.T) {
 		expect(t, checkRegister(tr.fs()), registerPath+":12", `Area "desktop"`)
 	})
 	t.Run("no Source link", func(t *testing.T) {
-		tr := registerFixture.with(t, registerPath, "| One | limit | build | [x](x.md) |", "| One | limit | build | x.md |")
+		tr := registerFixture.with(t, registerPath, "| One | limit | build |  | [x](x.md) |", "| One | limit | build |  | x.md |")
 		expect(t, checkRegister(tr.fs()), registerPath+":7", "Source", "no link")
 	})
 	t.Run("out of order by Area", func(t *testing.T) {
@@ -583,9 +583,13 @@ func TestRegisterCheckCatchesDrift(t *testing.T) {
 		tr := registerFixture.with(t, registerPath, "| 1p (step 2) |", "| fixed |")
 		expect(t, checkRegister(tr.fs()), registerPath+":8", `Closed by "fixed"`)
 	})
+	t.Run("an unknown Work", func(t *testing.T) {
+		tr := registerFixture.with(t, registerPath, "| CLI | C3 |", "| CLI | someday |")
+		expect(t, checkRegister(tr.fs()), registerPath+":9", `Work "someday"`)
+	})
 	t.Run("a missing cell", func(t *testing.T) {
-		tr := registerFixture.with(t, registerPath, "| One | limit | build | [x](x.md) | 1n | |", "| One | limit | build | [x](x.md) | 1n |")
-		expect(t, checkRegister(tr.fs()), registerPath+":7", "5 cells")
+		tr := registerFixture.with(t, registerPath, "| One | limit | build |  | [x](x.md) | 1n | |", "| One | limit | build |  | [x](x.md) | 1n |")
+		expect(t, checkRegister(tr.fs()), registerPath+":7", "6 cells")
 	})
 	t.Run("the columns", func(t *testing.T) {
 		tr := registerFixture.with(t, registerPath, "| Item | Kind | Area |", "| Item | Kind | Where |")
