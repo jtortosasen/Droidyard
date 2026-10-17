@@ -18,5 +18,7 @@
     <item name="crash" type="id" />
     <item name="freeze" type="id" />
     <item name="password" type="id" />
+    <!-- m2p step 1: the Secure toggle (FLAG_SECURE on the window). -->
+    <item name="secure" type="id" />
     <item name="probe_result" type="id" />
 </resources>

@@ -584,3 +584,5 @@ None blocks. Each is Delegated: the main session applies the recommendation and 
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-17, step 1 (provenance). The vendored server is **scrcpy 4.1** (tag `v4.1`, 2026-07-12), not the newest release: 5.0 (2026-10-05) is a major release twelve days old, and 5.0.1 a hotfix of it, while 4.1 has three months in the field and is the version the plan's research read. Its SHA-256 `deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae` (733,706 B) matches the release's `SHA256SUMS.txt` and Homebrew's copy. `LICENSE` is the tag's (Apache-2.0, 11,387 B); the tag has no `NOTICE`. Moving to 5.x is a deliberate upgrade (Q2). Delegated.

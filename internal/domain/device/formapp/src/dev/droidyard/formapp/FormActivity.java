@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -27,7 +28,9 @@ import android.widget.TextView;
  *   <li>{@code crash} Button, throwing on the main thread, and {@code freeze} Button,
  *       blocking the main thread for 15 s — milestone 1n's app crash and ANR;</li>
  *   <li>{@code password} EditText, masked — the field that reads back masked
- *       (plan m1n step 5).</li>
+ *       (plan m1n step 5);</li>
+ *   <li>{@code secure} Button toggling {@code FLAG_SECURE} on the window (plan m2p
+ *       step 1).</li>
  * </ul>
  *
  * The layout is deliberately compact: the reader drops nodes not visible to the user,
@@ -173,6 +176,28 @@ public class FormActivity extends Activity {
         password.setHint("Password");
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         root.addView(password);
+
+        // m2p step 1: the Secure toggle. It sets or clears FLAG_SECURE on this window, so
+        // the spike can see what the screen stream and screencap show of a protected
+        // window. It starts clear; each tap flips it. The label stays "Secure" so the
+        // selector is stable.
+        Button secure = new Button(this);
+
+        secure.setAllCaps(false);
+        secure.setId(R.id.secure);
+        secure.setText("Secure");
+        secure.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                android.view.Window w = getWindow();
+                if ((w.getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) != 0) {
+                    w.clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                } else {
+                    w.addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                }
+            }
+        });
+        root.addView(secure);
 
         setContentView(root);
     }
