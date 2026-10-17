@@ -341,7 +341,7 @@ func TestSpikeScrcpy(t *testing.T) {
 		killed := since()
 		say("killed the adb shell client; polling the device")
 		for {
-			ps := run("shell", "ps -A -o PID,ARGS | grep '[c]om.genymobile'; ls "+spikeJar+" 2>&1")
+			ps := run("shell", "ps -A -o PID,ARGS | grep '[c]om.genymobile'; ls "+spikeJar+" 2>&1; true")
 			gone := !strings.Contains(ps, "com.genymobile")
 			say("server running: %v; jar: %s", !gone, lastLine(ps))
 			if since()-killed > 5*time.Second || (gone && strings.Contains(ps, "No such file")) {
