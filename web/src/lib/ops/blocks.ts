@@ -2,8 +2,9 @@
 // the activity store's rows. Pure: the clock, the session labels and what the console holds
 // come in as arguments, so the rules are tested without a component.
 //
-// An operation's target (ADR-0076) is not shown in a block, only in the mirrors that use
-// it, so a block's title is the capability in words, and its full name is the tooltip. Output is a rule of four:
+// An operation's target (ADR-0076) shows as plain text beside the actor: the device, else
+// the AVD, else the module. A block's title is the capability in words, and its full name
+// is the tooltip. Output is a rule of four:
 //   - a build the console model holds: its lines, by `buildId` (a build's id is its
 //     operation's id, ADR-0020);
 //   - the tab's own call that failed: its code, and the message when the tab has it;
@@ -12,6 +13,7 @@
 import { BUILD_CAPABILITIES } from '../build/mirror';
 import { duration, keyOf } from '../projects/sessions';
 import { isTerminal, type Operation } from './activity';
+import { inert } from '../devices/text';
 import { RECORD_COMMAND, type CommandRecord } from './commands';
 
 export type BlockTone = 'running' | 'queued' | 'success' | 'failure' | 'cancelled' | 'unseen';
@@ -30,6 +32,8 @@ export interface Block {
 	/** The capability in words ("Build", "Run tasks", "Tap"). */
 	title: string;
 	actor: string;
+	/** What the operation names: its device, else its AVD, else its module; '' for none. As text (`inert`). */
+	target: string;
 	you: boolean;
 	tone: BlockTone;
 	/** "Ended unseen" for a state the store could not see. */
@@ -78,6 +82,12 @@ export function titleOf(capability: string): string {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** The device, else the AVD, else the module an operation names, as text; '' when it names none. */
+export function targetOf(op: Pick<Operation, 'target'>): string {
+	const t = op.target;
+	return inert(t?.device || t?.avd || t?.module || '');
+}
+
 export function actorOf(op: Pick<Operation, 'client' | 'session'>, labels: ReadonlyMap<string, string>): string {
 	if (op.client === 'ui' || op.client === 'cli') return 'You';
 	if (op.client === 'mcp') return (op.session && labels.get(op.session.id)) || op.session?.name || 'agent';
@@ -124,6 +134,7 @@ export function blockOf(op: Operation, ctx: BlockContext, message?: string): Blo
 		workspace: op.workspace,
 		title: titleOf(op.capability),
 		actor: actorOf(op, ctx.labels),
+		target: targetOf(op),
 		you: op.client === 'ui' || op.client === 'cli',
 		tone: toneOf(op),
 		stateText: op.state === 'unseen' ? 'ended unseen' : op.state,
@@ -144,6 +155,7 @@ function recordBlock(op: Operation, ctx: BlockContext): Block {
 		workspace: op.workspace,
 		title: rec ? `ran \`${rec.command}\` outside droidyard` : titleOf(op.capability),
 		actor: rec?.actor ?? 'Agent',
+		target: targetOf(op),
 		you: false,
 		tone: toneOf(op),
 		stateText: op.state === 'unseen' ? 'ended unseen' : op.state,

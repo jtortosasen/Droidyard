@@ -22,6 +22,7 @@
 	import Palette from '../palette/Palette.svelte';
 	import type { ShellApi } from '../ui/panels';
 	import LiveView from '../screen/LiveView.svelte';
+	import type { InputClient } from '../screen/input';
 	import { LiveViewModel } from '../screen/liveview';
 	import { browserCodec } from '../screen/decoder';
 	import { ConsoleModel } from '../build/console';
@@ -584,7 +585,7 @@
 		{/if}
 	{:else if id === 'liveview'}
 		{#if liveView}
-			<LiveView model={liveView} {token} {connection} visible={shell.rightOpen()} />
+			<LiveView model={liveView} {token} {connection} visible={shell.rightOpen()} input={{ call: ((n, p) => client.call(n, p)) as InputClient['call'] }} />
 		{/if}
 	{:else if id === 'tree'}
 		{#if uiTree && act}
