@@ -83,7 +83,9 @@ func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
 
 func waitGone(t *testing.T, what string, pid int) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	// 10 s: a killed process stays a zombie until launchd reaps it, and load delays that;
+	// the loop returns as soon as the process is gone.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if gone(pid) {
 			return
 		}

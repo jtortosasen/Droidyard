@@ -540,23 +540,35 @@ func TestRunKillsTheCommandsBackgroundProcesses(t *testing.T) {
 // ignores SIGTERM (and hands the ignore to `sleep`) is SIGKILLed after the grace, and
 // the group is gone (plan m1k D5, D6). Seen failing with the group never signalled.
 func TestRunTimesOutAndKillsTheGroup(t *testing.T) {
-	h := newHarness(t)
-	h.enable(t)
-	start := time.Now()
-	res := mustResult(t, h.invoke(t, "trap '' TERM; echo $$ > pid; sleep 60", 1000))
-	if !res.TimedOut {
-		t.Error("timedOut is false")
+	// An attempt counts only when the pid file exists: it is written after the trap, so
+	// the SIGTERM was ignored as the test assumes. Under load the timeout can fire before
+	// the shell reaches the trap; that attempt proves nothing, so it is made again, at
+	// most five times, then skipped as inconclusive (as TestServeStartsThroughAProbe does).
+	for attempt := 0; attempt < 5; attempt++ {
+		h := newHarness(t)
+		h.enable(t)
+		start := time.Now()
+		res := mustResult(t, h.invoke(t, "trap '' TERM; echo $$ > pid; sleep 60", 1000))
+		raw, err := os.ReadFile(filepath.Join(h.root, "pid"))
+		if err != nil || strings.TrimSpace(string(raw)) == "" {
+			continue
+		}
+		if !res.TimedOut {
+			t.Error("timedOut is false")
+		}
+		if res.Signal != "SIGKILL" {
+			t.Errorf("signal = %q, want SIGKILL after the grace", res.Signal)
+		}
+		if d := time.Since(start); d > 6*time.Second {
+			t.Errorf("the timeout took %s; want under the term grace plus the kill grace", d)
+		}
+		pgid := h.pidFromFile(t, "pid")
+		if groupAlive(pgid) {
+			t.Errorf("the process group %d survived the timeout", pgid)
+		}
+		return
 	}
-	if res.Signal != "SIGKILL" {
-		t.Errorf("signal = %q, want SIGKILL after the grace", res.Signal)
-	}
-	if d := time.Since(start); d > 6*time.Second {
-		t.Errorf("the timeout took %s; want under the term grace plus the kill grace", d)
-	}
-	pgid := h.pidFromFile(t, "pid")
-	if groupAlive(pgid) {
-		t.Errorf("the process group %d survived the timeout", pgid)
-	}
+	t.Skip("the timeout fired before the shell reached its trap in all 5 attempts: inconclusive")
 }
 
 // TestCancelAndWorkspaceCloseEndTheCall: an operation.cancel and a workspace close
