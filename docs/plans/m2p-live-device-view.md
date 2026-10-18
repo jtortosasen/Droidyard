@@ -1,6 +1,6 @@
 # Plan: Milestone 2p — C3, a live device view
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-17, Delegated (the main session under the owner's standing instruction to apply the recommended option): Q1–Q10 as recommended; the owner may revert any.
 - Date: 2026-10-17
 - Milestone: "2p: C3, a live device view — the device screen streamed to the web UI, with input" (owner's choice, 2026-10-17; [`beyond.md`](../vision/beyond.md) §C3; `docs/README.md` §Where the work stands says "next, the owner's choice").
@@ -94,15 +94,15 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 
 ## Acceptance
 
-- [ ] A1. With the Live view tab open, the toolbar's emulator plays within 3 s. During an animation the panel decodes at least 90% of the packets it received (`data-frames` against `data-packets`). Source: C3; Q1, Q3. Proven by: steps 5, 10.
-- [ ] A2. Tap, long press, swipe, Back, Home, Recents and text from the view act on the device. Each is an operation in Activity with client `ui` and its device, and has a trace line. A physical device the policy refuses gets `DEVICE_NOT_ALLOWED` with nothing sent. An MCP session gets `REQUEST_NOT_ALLOWED_HERE`. Source: constraint 2; Q5. Proven by: steps 6, 7, 10.
-- [ ] A3. The input latency is measured and stated: the capability path's `durationMs` p50/p95 and click-to-next-frame p50/p95, beside step 1's bare control write and `adb devices -l`. Source: constraint 2. Proven by: steps 1, 7.
-- [ ] A4. Two tabs on one device run one server. Closing one leaves the other playing, and a tab that joins or restarts later plays from the next packet it gets. Closing both stops the server and removes its forward within 2 s. Source: Q7, Q8. Proven by: steps 2, 3, 5.
-- [ ] A5. Stopping the emulator ends the view with `deviceGone`. `droidyard stop` leaves no server and no forward. A daemon killed outright leaves a record that the next start reaps. Source: Q7; ADR-0021 §Pid records. Proven by: steps 3, 4, 10.
-- [ ] A6. With a `FLAG_SECURE` window focused, `device.screenshot` warns and the view shows a banner; otherwise neither does. Source: R1; Q9. Proven by: steps 8, 10.
-- [ ] A7. The operation view names its target. The UI tree and app logs re-read only for their device. The mirror names the device being stopped and the AVD being booted. The toolbar names the module of any client's `build.assemble`. Source: R2, R5; Q10. Proven by: step 9.
-- [ ] A8. A viewer's bytes on `/v1/screen` are the source's packets, byte for byte. No client frame on that socket reaches the device. Source: constraints 1, 2. Proven by: steps 2, 4.
-- [ ] A9. One minor version (0.27.0), with the schema diff the steps declare. The MCP tool list is byte-identical. Source: `capability-api.md` §Discovery and versioning; ADR-0036. Proven by: steps 4, 6, 8, 9.
+- [x] A1. With the Live view tab open, the toolbar's emulator plays within 3 s. During an animation the panel decodes at least 90% of the packets it received (`data-frames` against `data-packets`). Source: C3; Q1, Q3. Proven by: steps 5, 10.
+- [x] A2. Tap, long press, swipe, Back, Home, Recents and text from the view act on the device. Each is an operation in Activity with client `ui` and its device, and has a trace line. A physical device the policy refuses gets `DEVICE_NOT_ALLOWED` with nothing sent. An MCP session gets `REQUEST_NOT_ALLOWED_HERE`. Source: constraint 2; Q5. Proven by: steps 6, 7, 10.
+- [x] A3. The input latency is measured and stated: the capability path's `durationMs` p50/p95 and click-to-next-frame p50/p95, beside step 1's bare control write and `adb devices -l`. Source: constraint 2. Proven by: steps 1, 7.
+- [x] A4. Two tabs on one device run one server. Closing one leaves the other playing, and a tab that joins or restarts later plays from the next packet it gets. Closing both stops the server and removes its forward within 2 s. Source: Q7, Q8. Proven by: steps 2, 3, 5.
+- [x] A5. Stopping the emulator ends the view with `deviceGone`. `droidyard stop` leaves no server and no forward. A daemon killed outright leaves a record that the next start reaps. Source: Q7; ADR-0021 §Pid records. Proven by: steps 3, 4, 10.
+- [x] A6. With a `FLAG_SECURE` window focused, `device.screenshot` warns and the view shows a banner; otherwise neither does. Source: R1; Q9. Proven by: steps 8, 10.
+- [x] A7. The operation view names its target. The UI tree and app logs re-read only for their device. The mirror names the device being stopped and the AVD being booted. The toolbar names the module of any client's `build.assemble`. Source: R2, R5; Q10. Proven by: step 9.
+- [x] A8. A viewer's bytes on `/v1/screen` are the source's packets, byte for byte. No client frame on that socket reaches the device. Source: constraints 1, 2. Proven by: steps 2, 4.
+- [x] A9. One minor version (0.27.0), with the schema diff the steps declare. The MCP tool list is byte-identical. Source: `capability-api.md` §Discovery and versioning; ADR-0036. Proven by: steps 4, 6, 8, 9.
 
 ## Run rules (steps 1, 3, 5, 7, 8, 10: the main session only)
 
@@ -475,7 +475,7 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 - Not here: the look (`review`).
 - Rests on: —
 - Review: the Opus verifier at the close.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) steps 5 and 8 rerun on the final binary on API 36, step 7 on API 31, and A2's long press (the home screen's menu opened: "Home settings", "Widgets", "Wallpapers") and Recents (the overview) from the view on API 31 (`evidence/lv5/dyp.DMFknW`); (b) and (c) `evidence/lv5/step10-dyp.LtQ2Mv`; (d) `adb-device.md`, `process-lifecycle.md`, `ui-automation.md`, `capability-api.md`, `http-websocket.md`, `mvp.md`, `beyond.md`, the register (R1, R2, R3, R5 closed, R4 split, fourteen rows added), README and the index; the live corpus budget raised with its reason.
 
 ## Not in this milestone
 
@@ -602,3 +602,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-18, step 9 (verifier). The target is recorded at Start from the decoded parameters, before a handler checks their patterns, so ADR-0076's "validated parameters" does not hold as written: each field is cleaned of control and format characters (as ADR-0048's session name), cut at 200 bytes on a rune boundary, and the toolbar shows the module through `inert`. The superseding ADR written at the close (number 0087, reserved) also records this reading of ADR-0076 §2–3.
 - 2026-10-18, step 7. Activity rows show the operation's target (device, else AVD, else module, through `inert`) beside the client tag, for A2's "with client `ui` and its device" (`blocks.ts` `targetOf`). Only the primary button starts a gesture; a gesture past 5 s keeps its last sample within 5 s as the lift; nothing is sent before the frame size is known. `TestAttachScreen` (step 4) assumed a join starts at the recording's first key frame; under load it starts at a later one, as ADR-0078 §5 says, and its assertion now accepts any of the recording's key frames with the config once. The level-5 run reads the screen through `device.uiTree`: a parallel `uiautomator dump` collides with the reader the UI tree panel keeps running.
 - 2026-10-18, step 8. A failed capture with a secure focus says "the focused window is secure (FLAG_SECURE), which Android does not capture" (ADR-0080 §2's "says the same", worded for a capture that failed rather than one that is black). A viewer hears `state` once the first check has answered, or at once when it joins after one; a failed check publishes nothing. The banner shows while the view is live. Each `device.screenshot` runs one more `dumpsys window`, a failed capture included.
+- 2026-10-18, close. No superseding ADR (Delegated; replaces the two entries above that planned number 0087): none of the three points changes a decision. A `stopped` published to an ended subscription reaches no one, so skipping it is ADR-0078 §3's observable behaviour; ADR-0078 §4's 4 KiB read limit with ADR-0028's rule ("a larger frame closes with 1009") gives 1009 for a frame over it and 1003 for any other client frame; ADR-0076's decision (the caller's own parameters, never device text, not untrusted) holds, and cleaning control and format characters enforces it where "validated" overstated what the core checks. `http-websocket.md` and `capability-api.md` state the rules as built. The reservation 0087 stays unused.
+- 2026-10-18, close (verifier). Step 7's latency went to `ui-automation.md` §Input primitives and step 7's evidence, not to the research note, which stayed as written at step 1 (the "steps 7 and 10" entry above said both). The step 10 rerun of step 5 on API 36 counted one forward more than its windows: the forward the SIGKILL check in (b) leaves by design (the register's row), removed when that emulator stopped; A4's removal within 2 s rests on step 5's run and on that rerun's own forward. ADR-0077 §4's seam does not carry the `secure` state (a register row, `Work` C4). Step 10 (b) and (c)'s printed outputs are `evidence/lv5/step10-dyp.LtQ2Mv/step10.txt`.
