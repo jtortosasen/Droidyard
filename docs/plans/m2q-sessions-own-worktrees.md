@@ -203,12 +203,28 @@
 - Builds: `session.watch` (Q3 §1) beside `workspace.watch`: streaming, global, audience all, so off MCP by ADR-0010; result `{subscriptionId, sessions: [{id, name?, workspace?, connectedAt}]}`, oldest first, taken after the subscription opened; events on a new ring-less topic `session.state`, type `state`, payload `{id, name?, workspace?, ended}`, published by `Sessions` on connect, on the name from `initialize` (bounded by `capability.SessionName`), on every binding, and on the end, in that order per session, offered to every `session.watch` subscription (ADR-0045 §3's pattern; `Bus.Broadcast`). The MCP adapter calls `Sessions.Named` after `initialize`. CLI and WebSocket connections are not sessions here.
 - Implements: Q3 §1, §2.
 - Check: `TestSessionWatch` (`cmd/droidyard`, a WebSocket client and MCP shims): subscribe; a shim connects and sends nothing → a row-less `state` event `{id}` and, in a second `session.watch`, a row with no name (seen failing with `Connect` not publishing); `initialize` → `{id, name}`; `workspace_enter` → `{id, workspace: <wt id>}`; the shim killed → `{id, ended: true}` and no row in a new `session.watch`; a seam between the subscription and the snapshot (as `workspace.watch`'s `SetWatchHook`) shows a connect in between is not lost. `TestSessionWatchOffMCP`: not in `tools/list`.
-- Schema: `session.watch` (params none, its result); `session.state` where the event topics are published. `version` stays `0.27.0`.
+- Schema: `session.watch` (params none, its result); `session.state` where the event topics are published. `version` stays `0.28.0` (merge of main, Changes).
 - Needs: step 4.
 - Not here: the panel (step 8); `droidyard call` and the hook as sessions (one-shot connections, not chats).
 - Rests on: no event of a session is published before its row can be read, and none after its end, at level 4 (the seam test).
 - Review: the Opus verifier (a capability, concurrency), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: these tests pass under `-race`:
+  - `TestSessionWatch` (a real `serve`, real shims, a real `git worktree`). In order: connect gives `{id}` alone, with a nameless row in a second watch; `initialize` gives the name; a `server/discover` with `_meta` protocol 2026-07-28 names a second shim; `workspace_enter` gives the worktree's id; a CLI call is no session; a killed shim gives `{id, ended}` and then no row; the chat id is in no frame.
+  - `TestSessionWatchLosesNothingBetweenSubscriptionAndSnapshot`, the seam test.
+  - `TestSessionWatchOffMCP`.
+  - Unit tests in `internal/capability`.
+
+  **Seen failing.** The implementer reversed each piece: Connect, Bound and End not publishing, the discover hook removed, the snapshot taken before the subscription, and exposable. The verifier's mutations caught two of them: the discover hook removed, and the order swapped.
+
+  **Verifier (Opus):** proceed. Lock order is `Sessions.mu`, then the bus, then the subscription, with no cycle, and `Broadcast` never blocks (bounded queue, then a gap). The schema diff is one entry.
+
+  **Fix round** (main session):
+  - The session is named on every successful request (`AddOnSuccess`), not only after `initialize` or `server/discover`. A client of protocol 2026-07-28 carries its name in every request's `_meta` ([bug]). Seen failing with the hook emptied: no name event.
+  - `session.state` added to `capability-api.md`'s list of ring-less topics ([doc]), with `liveBudget` +6 (stated).
+  - The version lines in the plan updated.
+  - Two comments ([nit]).
+
+  Level 4: the name from a real Claude Code chat waits for step 10.
 
 ### 7. The hook records where the command ran
 
@@ -245,7 +261,7 @@
   - Web: the projects model handles `show` (select, open if closed) and `forgotten` (drop the row); a closed row's menu has Remove.
 - Implements: Q4, Q6.
 - Check: `TestUIReusesTheOpenTab` (`cmd/droidyard`, `openURL` replaced, as `ui_test.go`): no WebSocket → `openURL` once; a WebSocket holding `workspace.watch` → no `openURL`, and the WebSocket receives `show` for the project's id (seen failing with today's `ui`). `TestWorkspaceForget`: a closed workspace leaves `workspace.watch` and `workspaces.json`, its `ws/<wsid>/` stays, reopening the root lists its last build again; an open one → `WORKSPACE_OPEN`; over MCP → `REQUEST_NOT_ALLOWED_HERE` (human). Vitest: `show` selects; Remove only on closed rows; `forgotten` drops the row.
-- Schema: `workspace.show` and `workspace.forget` with their params, results and errors; event types `show` and `forgotten` on `workspace.state`; `WORKSPACE_OPEN` in `workspace.forget`'s `errors` (its meaning in `error.go`). `version` stays `0.27.0`.
+- Schema: `workspace.show` and `workspace.forget` with their params, results and errors; event types `show` and `forgotten` on `workspace.state`; `WORKSPACE_OPEN` in `workspace.forget`'s `errors` (its meaning in `error.go`). `version` stays `0.28.0` (merge of main, Changes).
 - Needs: steps 3, 8 (the same model).
 - Not here: raising the browser window (Q4 §3); a desktop window (later, owner 5).
 - Rests on: —

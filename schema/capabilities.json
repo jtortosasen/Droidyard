@@ -10281,6 +10281,104 @@
       }
     },
     {
+      "name": "session.watch",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.28.0",
+      "description": "Streams the agents connected over MCP to the calling WebSocket session on topic session.state, from the moment each connects: on connecting, on its name, on every binding and on its end. The result lists the sessions connected now, oldest first, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "SESSION_REQUIRED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the session.state events arrive on, over the WebSocket session that made the call, until events.unsubscribe or the session's end."
+          },
+          "sessions": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The daemon's id for the MCP session, as on session.state. It grants nothing."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "What the client called itself, bounded to 64 characters; absent until the client has said."
+                },
+                "workspace": {
+                  "type": "string",
+                  "description": "The id of the workspace the session is bound to now; absent before it is bound."
+                },
+                "connectedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "connectedAt"
+              ]
+            },
+            "type": "array",
+            "description": "The MCP sessions connected now, the oldest first, taken after the subscription opened: merge it with the events by id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "sessions"
+        ]
+      },
+      "events": {
+        "topic": "session.state",
+        "types": {
+          "state": {
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The daemon's id for the MCP session. It grants nothing."
+              },
+              "name": {
+                "type": "string",
+                "description": "What the client called itself, bounded to 64 characters; absent until the client has said."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "The id of the workspace the session is bound to now; absent before it is bound."
+              },
+              "ended": {
+                "type": "boolean",
+                "description": "True on the session's last event, which carries nothing else: the session is gone."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "id",
+              "ended"
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "shell.exec",
       "kind": "command",
       "scope": "workspace",

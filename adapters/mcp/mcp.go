@@ -299,9 +299,18 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 	// own: notifications, client info, the protocol version and the requests
 	// notifications/cancelled can reach all belong to it (ADR-0025 §Decision, as
 	// amended 2026-10-03).
+	// The client names itself in initialize, or, at protocol 2026-07-28, in the _meta of
+	// every request (server/discover first, for Claude Code): mcp-go has set the
+	// session's client info by the time a request succeeds, so every success names it
+	// again, and Named publishes only a change (ADR-0083 §1).
+	hooks := &server.Hooks{}
+	hooks.AddOnSuccess(func(ctx context.Context, _ any, _ mcpgo.MCPMethod, _ any, _ any) {
+		sessionOf(ctx).named()
+	})
 	srv := server.NewMCPServer("droidyard", s.version,
 		server.WithToolCapabilities(false),
 		server.WithInstructions(instructions),
+		server.WithHooks(hooks),
 	)
 	// A tool outside the profile is never added, so a call to it gets the answer
 	// for a name that does not exist: MCP's "tool not found".
@@ -520,11 +529,23 @@ func (c *session) root() string {
 // initialize (empty before it), and the bound root (ADR-0048): the binding as it stands
 // when the call is made, so it follows a workspace_enter. The core bounds the name.
 func (c *session) origin() capability.Origin {
-	o := capability.Origin{ID: c.id, Root: c.root()}
+	return capability.Origin{ID: c.id, Root: c.root(), Name: c.clientName()}
+}
+
+// clientName is what the client called itself, "" before it has.
+func (c *session) clientName() string {
 	if ci, ok := c.client.(server.SessionWithClientInfo); ok {
-		o.Name = ci.GetClientInfo().Name
+		return ci.GetClientInfo().Name
 	}
-	return o
+	return ""
+}
+
+// named gives the core the name the client has just given (ADR-0083 §1). The registry
+// bounds it. A context that carries no session does nothing.
+func (c *session) named() {
+	if c != nil {
+		c.sessions.Named(c.id, c.clientName())
+	}
 }
 
 // openBound opens the session's bound root, once, before the session reads its first

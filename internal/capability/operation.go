@@ -306,8 +306,10 @@ func (o *Operations) UsePublisher(p Publisher) { o.pub = p }
 // published on (ADR-0043). Without one, none is published.
 func (o *Operations) UseStatePublisher(p StatePublisher) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.spub = p
+	o.mu.Unlock()
+	// The same bus carries session.state (ADR-0083 §1).
+	o.sessions.usePublisher(p)
 }
 
 // UseTrace sets where the trace lines go (flush); the default is the standard

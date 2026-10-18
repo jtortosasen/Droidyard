@@ -171,8 +171,10 @@ another's ids.
   ([ADR-0043](../adr/0043-operation-watch.md)) is ring-less, offered to **every**
   `operation.watch` subscription, and `build.output`
   ([ADR-0044](../adr/0044-build-watchoutput.md)) to every `build.watchOutput` subscription of
-  the build's workspace, and `workspace.state`
-  ([ADR-0045](../adr/0045-project-start-flow.md)) to every `workspace.watch` subscription.
+  the build's workspace, `workspace.state`
+  ([ADR-0045](../adr/0045-project-start-flow.md)) to every `workspace.watch` subscription, and
+  `session.state` ([ADR-0083](../adr/0083-session-watch-and-panel-by-project.md)) to every
+  `session.watch` subscription.
 - Overflowing a subscription's own queue costs that subscription a gap, not the session.
   On the WebSocket an event arrives as `{"subscriptionId", "event"}`, never before the
   response that gave the id ([http-websocket](../interfaces/http-websocket.md)
