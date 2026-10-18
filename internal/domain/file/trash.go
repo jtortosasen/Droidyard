@@ -3,7 +3,9 @@ package file
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -43,8 +45,10 @@ var (
 	trashIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	// asidePattern is the one name an entry may record as its aside: a droidyard
 	// temporary name, a single component. The sweep uses a recorded name only if it
-	// matches, so a hand-edited entry.json cannot make it touch anything else.
-	asidePattern = regexp.MustCompile(`^\.droidyard-[0-9a-f]{16}\.tmp$`)
+	// matches, so a hand-edited entry.json cannot make it touch anything else. A new
+	// aside is .droidyard-aside-<16 hex>.tmp; the older .droidyard-<16 hex>.tmp is still
+	// accepted, for entries an older binary wrote (ADR-0091 §1).
+	asidePattern = regexp.MustCompile(`^\.droidyard-(aside-)?[0-9a-f]{16}\.tmp$`)
 )
 
 // Test seams. Production leaves them as they are.
@@ -146,6 +150,98 @@ func newTrashID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
+}
+
+// asideName is the name a delete across volumes gives the item it renames aside:
+// .droidyard-aside-<16 hex>.tmp (ADR-0091 §1), so no temporary file of file.write or
+// file.copy, or an aside of another state root's trash, can be taken for it or it for them.
+func asideName() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return ".droidyard-aside-" + hex.EncodeToString(b[:]) + ".tmp"
+}
+
+// RecordedAsides is the set of aside names the entries of every workspace's trash under
+// this state root record (ADR-0091 §3), for the watch's sweep to leave them alone. Any
+// trash folder or entry that cannot be read or parsed is an error, and the caller then
+// sweeps nothing: an unreadable record might name the only copy of a deleted item.
+//
+// It reads the entry files directly, without the trash locks: a cross-volume delete
+// holds its workspace's lock through the whole copy, and an entry is replaced atomically
+// and names its aside before the item is renamed aside (delete.go). It does not use the
+// store's Read either, which moves a file that does not parse out of the way.
+func (t *Trash) RecordedAsides() (map[string]bool, error) {
+	if t == nil || t.st == nil {
+		return nil, errors.New("no trash")
+	}
+	out := map[string]bool{}
+	wsDir := filepath.Join(t.st.Root(), "ws")
+	workspaces, err := os.ReadDir(wsDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, ws := range workspaces {
+		if !ws.IsDir() {
+			continue
+		}
+		trashDir := filepath.Join(wsDir, ws.Name(), "trash")
+		ids, err := os.ReadDir(trashDir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			if !id.IsDir() {
+				continue
+			}
+			if err := readRecordedAside(filepath.Join(trashDir, id.Name()), out); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
+// readRecordedAside adds the aside one entry folder's record names, if any, to out. A
+// folder with no entry.json is a half-made entry (nothing was moved: the record is
+// written first) only when it holds nothing but the store's own temporary file; anything
+// else there (a quarantined record, an item) leaves the question open, so it is an error.
+func readRecordedAside(entryDir string, out map[string]bool) error {
+	b, err := os.ReadFile(filepath.Join(entryDir, entryFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		des, derr := os.ReadDir(entryDir)
+		if derr != nil {
+			return derr
+		}
+		for _, de := range des {
+			if de.Name() != entryFile+".tmp" {
+				return fmt.Errorf("%s holds %s but no %s", entryDir, de.Name(), entryFile)
+			}
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var e struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Aside         string `json:"aside"`
+	}
+	if err := json.Unmarshal(b, &e); err != nil {
+		return fmt.Errorf("%s: %w", filepath.Join(entryDir, entryFile), err)
+	}
+	if e.SchemaVersion < 1 || e.SchemaVersion > store.Version {
+		return fmt.Errorf("%s: schemaVersion %d is not one this binary reads", filepath.Join(entryDir, entryFile), e.SchemaVersion)
+	}
+	if e.Aside != "" {
+		out[e.Aside] = true
+	}
+	return nil
 }
 
 // recordedPath reports whether p is a path the trash may have recorded: a clean,

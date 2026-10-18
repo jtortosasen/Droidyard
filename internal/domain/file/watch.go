@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -148,6 +149,8 @@ type watcher struct {
 	workspace string
 	operation string
 	tick      time.Duration
+	// trash names the asides that a tick's sweep must leave alone (ADR-0091 §3).
+	trash *Trash
 
 	baseline map[string]watchEntry
 
@@ -296,6 +299,7 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 
 	entries := make(map[string]watchEntry)
 	truncated := false
+	sweeper := &tempSweeper{w: w}
 	var descend func(dir string) *capability.Error
 	descend = func(dir string) *capability.Error {
 		if watchWalkHook != nil {
@@ -328,6 +332,9 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 			// A temporary name is skipped whatever it is: file.copy builds a folder under
 			// one, and a watch must see only the final name appear (plan m2g step 4).
 			if tempWatchName(name) {
+				if tick {
+					sweeper.consider(p, name)
+				}
 				continue
 			}
 			if isDir && (excludedDir(name) || (name == "build" && hasGradleMarker(fsys, dir))) {
@@ -398,6 +405,57 @@ func hasGradleMarker(fsys fs.FS, dir string) bool {
 // of create-and-delete noise.
 func tempWatchName(name string) bool {
 	return strings.HasPrefix(name, ".") && strings.Contains(name, ".droidyard-") && strings.HasSuffix(name, ".tmp")
+}
+
+// tempMaxAge is how old a file.write or file.copy temporary file or folder must be before
+// a watch tick removes it (ADR-0091 §2): far past any write, so no live one is taken.
+const tempMaxAge = 24 * time.Hour
+
+// tempSweepPattern is the one name a tick removes: exactly a file.write or file.copy
+// temporary name. A new-style aside (.droidyard-aside-...) does not match it, and the
+// looser tempWatchName, which hides names from events, is never the sweep's test.
+var tempSweepPattern = regexp.MustCompile(`^\.droidyard-[0-9a-f]{16}\.tmp$`)
+
+// sweepNow is the clock of the sweep's age rule; a test replaces it.
+var sweepNow = time.Now
+
+// tempSweeper removes the leftover temporary files and folders one tick's walk meets
+// (ADR-0091). It is silent: no event, no Activity row, and a failed removal is ignored
+// and retried by a later tick. Nothing is removed unless the trash's records, of every
+// workspace under the state root, could be read in full and do not name the entry as an
+// aside.
+type tempSweeper struct {
+	w *watcher
+	// recorded is the trash's aside names, read once per tick and only when a candidate is
+	// met; failed means they could not be read, so this tick sweeps nothing.
+	recorded map[string]bool
+	read     bool
+	failed   bool
+}
+
+// consider removes the entry at p (named name, which tempWatchName matched) if it is an
+// old temporary file or folder that no trash entry records. The removal goes through the
+// watcher's os.Root, which removes a link as a link and never follows it.
+func (s *tempSweeper) consider(p, name string) {
+	if !tempSweepPattern.MatchString(name) {
+		return
+	}
+	fi, err := s.w.root.Lstat(p)
+	if err != nil || sweepNow().Sub(fi.ModTime()) <= tempMaxAge {
+		return
+	}
+	if !s.read {
+		s.read = true
+		if s.w.trash == nil {
+			s.failed = true
+		} else if s.recorded, err = s.w.trash.RecordedAsides(); err != nil {
+			s.failed = true
+		}
+	}
+	if s.failed || s.recorded[name] {
+		return
+	}
+	_ = removeAside(s.w.root, p)
 }
 
 // Watchers is every live watch poller, by workspace (plan m1j, D9). Its Stop is wired
@@ -496,6 +554,7 @@ func (o Options) watch(ctx context.Context, call *capability.Call) (any, error) 
 		workspace: call.Workspace,
 		operation: call.OperationID,
 		tick:      tick,
+		trash:     o.Trash,
 		stop:      make(chan string, 1),
 	}
 	// The subscription exists before the baseline walks, so a cancel during the walk has

@@ -251,7 +251,7 @@ func (r *resolver) deleteAcross(ctx context.Context, root *os.Root, parent, idDi
 		_ = removeTree(idPath)
 		return "", e
 	}
-	aside := tempName()
+	aside := asideName()
 	entry.Aside = aside
 	if err := t.st.Write(entryName(r.workspace, id), entry); err != nil {
 		_ = removeTree(idPath)

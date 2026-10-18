@@ -41,8 +41,8 @@ a check-then-open, so no race separates deciding a path is inside from using it.
   target's mode, renamed over it, the directory `fsync`ed. The target **keeps its on-disk name**
   (so `src/a.kt` replaces `src/A.kt` on a case-insensitive volume without renaming it). Writes
   under `.git/` are allowed. A daemon killed between the temporary file and the rename leaves
-  it in the project: a transient file, not state, named so a human recognises it and ignored by
-  `file.watch`.
+  it in the project: a transient file, not state, which `file.watch` ignores and, a day later,
+  removes ([ADR-0091](../adr/0091-leftover-temporary-files-swept.md)).
 - **Conditional write** ([ADR-0058](../adr/0058-file-write-revision-precondition.md)): `file.read`
   returns the whole file's SHA-256 as `revision` on every page, and `file.write`'s `ifRevision`
   writes only if the file still has it. A hash, not mtime and size: coarse clocks and `cp -p`
@@ -74,19 +74,18 @@ filesystem can say fails its item, and the call completes with every item's outc
 `SESSION_REQUIRED` elsewhere, [ADR-0010](../adr/0010-capability-statefulness.md)). It **polls**
 (D7): the handler walks the directory through the root's `fs.FS` for a baseline, then a
 goroutine walks again **every second** and publishes the differences. No OS notification API is
-used: FSEvents needs cgo on macOS or one kqueue descriptor per file, and inotify is Linux-only;
-a second's latency suits a file explorer. The baseline is also the result's `entries`, the map the
+used (FSEvents needs cgo, inotify is Linux-only). The baseline is also the result's `entries`, the map the
 first tick diffs against and never a second walk, so a client builds the tree from one call and the
 events ([ADR-0049](../adr/0049-file-watch-baseline.md)).
 
-A change is an entry's **type, size or modification time** differing; a directory's own size
-and mtime are not compared (a child change already names itself). A tick with no change
-publishes nothing. A walk:
+A change is an entry's **type, size or modification time** differing, not a directory's own size
+or mtime. A tick with no change publishes nothing. A walk:
 
 - records at most 20 000 entries and never descends a symlink (recorded as one entry);
 - excludes `.git/`, `.gradle/`, `.idea/`, `.kotlin/`, `.cxx/`, a `build` directory whose parent
   holds a `build.gradle`/`build.gradle.kts` (a source package named `build` is kept), and
-  `file.write`'s and `file.copy`'s temporary files and folders;
+  `file.write`'s and `file.copy`'s temporary files and folders, which a tick silently removes
+  when over a day old and recorded by no trash entry, a link as a link;
 - on a tick that reaches the cap, reports **no deletions at all** and marks its event
   `truncated`: it cannot tell a deleted entry from one pushed past the cap, so the client
   re-lists; one that later falls under the cap is reported `created`;
