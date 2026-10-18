@@ -23,6 +23,7 @@ type hostFixture struct {
 	adb *ADB
 	ops *capability.Operations
 	cfg string
+	dir string // the fake adb's scenario directory
 }
 
 const (
@@ -54,7 +55,7 @@ func newHostFixture(t *testing.T, listing string, serials []string, config strin
 	Register(reg, adb, testStore(t), nil)
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
-	return &hostFixture{adb: adb, ops: ops, cfg: cfg}
+	return &hostFixture{adb: adb, ops: ops, cfg: cfg, dir: dir}
 }
 
 // call runs capName as who: "" is a local caller, a name a paired peer of that name.
@@ -165,7 +166,7 @@ func TestDeviceLendableSet(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen"}
+	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("lendable device capabilities = %v; want %v", got, want)

@@ -432,6 +432,8 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		// The hosts this daemon borrows devices from: <remote>/<serial> is relayed over
 		// their links (ADR-0100). The links exist once serve starts them.
 		adb.SetRemotes(host)
+		// The APKs the daemon's peers upload, installed by device.installUpload (ADR-0099 §3).
+		adb.SetUploads(host.Uploads())
 		base := problems
 		problems = func() []store.Problem { return append(base(), host.Problems()...) }
 	}

@@ -248,13 +248,15 @@ func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Op
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Listen: listen, API: system.Version, Log: logw})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Listen: listen, API: system.Version, Log: logw})
 	go func() { defer close(done); srv.Run(ctx) }()
 	host.Start()
 	return func() {
 		cancel()
 		<-done
 		host.Stop()
+		// After the listener, so no upload is still arriving; what is left is removed.
+		host.Uploads().Close()
 	}
 }
 

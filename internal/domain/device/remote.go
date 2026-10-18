@@ -151,12 +151,18 @@ func hostParams(params any, serial string) (json.RawMessage, error) {
 // machine's, so the call is marked untrusted whatever it returns. declared are the codes
 // the capability's descriptor lists.
 func (a *ADB) relay(ctx context.Context, call *capability.Call, name string, result any, declared []capability.ErrorCode, rt *remoteTarget) (any, error) {
-	yes := true
-	call.Untrusted = &yes
 	params, err := hostParams(call.Params, rt.serial)
 	if err != nil {
 		return nil, capability.AsError(err)
 	}
+	return a.relayParams(ctx, call, name, params, result, declared, rt)
+}
+
+// relayParams is relay for a call the host takes other parameters for than the caller's
+// (device.install, whose host half is device.installUpload).
+func (a *ADB) relayParams(ctx context.Context, call *capability.Call, name string, params json.RawMessage, result any, declared []capability.ErrorCode, rt *remoteTarget) (any, error) {
+	yes := true
+	call.Untrusted = &yes
 	resp, err := callHost(ctx, rt.link, name, params)
 	if err != nil {
 		return nil, linkError(ctx, rt, err)

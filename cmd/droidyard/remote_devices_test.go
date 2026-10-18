@@ -118,6 +118,8 @@ type labOptions struct {
 	hostProcesses bool
 	// extraPeers are peers the host pairs besides the client "anna", each lent phone1.
 	extraPeers []labPeer
+	// phone2ToAnna lends phone2 to the client as well as to bob.
+	phone2ToAnna bool
 }
 
 // labPeer is a peer the host pairs: its name and certificate fingerprint.
@@ -171,6 +173,10 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostConf["devices"] = map[string]any{"allowPhysical": true, "allowlist": hostAllow}
 	peers := []map[string]string{{"name": "anna", "fingerprint": lab.client.host.Identity().Fingerprint()}}
 	phone1To := []string{"anna"}
+	phone2To := []string{"bob"}
+	if o.phone2ToAnna {
+		phone2To = append(phone2To, "anna")
+	}
 	for _, p := range o.extraPeers {
 		peers = append(peers, map[string]string{"name": p.name, "fingerprint": p.fingerprint})
 		phone1To = append(phone1To, p.name)
@@ -181,7 +187,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 		"peers":  peers,
 		"lend": []map[string]any{
 			{"device": phone1, "to": phone1To},
-			{"device": phone2, "to": []string{"bob"}},
+			{"device": phone2, "to": phone2To},
 			{"device": phone3, "to": []string{"anna"}},
 			{"device": hostEmulator, "to": []string{"anna"}},
 		},
@@ -192,7 +198,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
 	}
 	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, 0, hostConfig)
-	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.adb, os.Stderr)
+	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.adb, lab.host.log)
 	var once sync.Once
 	lab.stopHost = func() { once.Do(stop) }
 	t.Cleanup(lab.stopHost)

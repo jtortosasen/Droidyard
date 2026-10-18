@@ -1,5 +1,7 @@
 package capability
 
+import "errors"
+
 // The peer protocol (ADR-0098 §4) is internal: both ends are this code, so it is not in
 // schema/capabilities.json. A session is a TLS 1.3 connection with both certificates
 // pinned, upgraded to a WebSocket on PeerPath; its first frame each way is a PeerHello,
@@ -17,7 +19,25 @@ const (
 	// a socket of its own, TLS-pinned like the session, whose first frame is
 	// {"stream": <id>}, an id from a device.watchScreen of the same peer.
 	PeerScreenPath = "/peer/v1/screen"
+	// PeerUploadPath is the route of an APK upload (ADR-0099 §3): a PUT whose body is the
+	// file, with a Content-Length of at most PeerMaxUpload, answered with a PeerUploadReply.
+	PeerUploadPath = "/peer/v1/upload"
+	// PeerMaxUpload is the largest APK a host takes, in bytes (ADR-0099 §3).
+	PeerMaxUpload = 512 << 20
 )
+
+// ErrPeerUploadBusy is what a store answers an upload with while the same peer's earlier
+// one is still arriving: a peer has one slot, so its concurrent uploads cannot fill the
+// host's disk. The listener answers it 409.
+var ErrPeerUploadBusy = errors.New("this peer already has an upload arriving")
+
+// PeerUploadReply is what a host answers a stored upload with: the id the peer names it by
+// in device.installUpload, and the SHA-256 of the bytes the host stored, which the peer
+// compares with the digest of what it sent.
+type PeerUploadReply struct {
+	Upload string `json:"upload"`
+	SHA256 string `json:"sha256"`
+}
 
 // The WebSocket close codes of a peer session, in the application range.
 const (

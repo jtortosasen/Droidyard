@@ -29,6 +29,8 @@ type Host struct {
 	api   string
 	log   io.Writer
 
+	uploads *Uploads
+
 	mu        sync.Mutex
 	identity  *Identity
 	problems  []store.Problem
@@ -46,12 +48,22 @@ func New(cfg Config, state, api string, log io.Writer) *Host {
 	if log == nil {
 		log = io.Discard
 	}
-	return &Host{cfg: cfg, state: state, api: api, log: log, open: map[string]int{}, links: map[string]*Link{}}
+	return &Host{cfg: cfg, state: state, api: api, log: log, uploads: NewUploads(state, log),
+		open: map[string]int{}, links: map[string]*Link{}}
 }
 
-// Init loads the identity, making it when absent (ADR-0098 §1). A daemon whose identity
-// cannot be made runs without peers: the error is for its log.
+// Uploads are the APKs paired peers uploaded to this daemon (ADR-0099 §3).
+func (h *Host) Uploads() *Uploads { return h.uploads }
+
+// Init sweeps the uploads an earlier daemon left and loads the identity, making it when
+// absent (ADR-0098 §1). A daemon whose identity cannot be made runs without peers: the
+// error is for its log.
 func (h *Host) Init() error {
+	// What an earlier daemon left of its peers' uploads is swept first (ADR-0091): whatever
+	// the identity does, nothing refers to those files.
+	if err := h.uploads.Sweep(); err != nil {
+		fmt.Fprintf(h.log, "droidyard: the peers' upload directory could not be swept: %v\n", err)
+	}
 	id, problems, err := LoadIdentity(h.state)
 	h.mu.Lock()
 	defer h.mu.Unlock()

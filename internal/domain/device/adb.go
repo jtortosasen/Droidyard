@@ -14,6 +14,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
@@ -40,14 +41,21 @@ type ADB struct {
 	// before any call, and read at each device check; nil is the emulators-only
 	// default.
 	policy Policy
-	// lending says which of the host's devices a paired peer may use (ADR-0099 §1), and
-	// remotes are the hosts this daemon borrows devices from (ADR-0100). Both are set once
-	// at wiring; nil lends nothing and has no remote.
+	// lending says which of the host's devices a paired peer may use (ADR-0099 §1),
+	// remotes are the hosts this daemon borrows devices from (ADR-0100) and uploads holds
+	// the APKs its peers uploaded (ADR-0099 §3). All are set once at wiring; nil lends
+	// nothing, has no remote and has no upload.
 	lending Lending
 	remotes Remotes
+	uploads *hosting.Uploads
 	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
 	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
 	toolKey policy.ToolKey
+
+	// upMu guards upSlots: one slot per remote, held while a build is uploaded to it and
+	// installed there (installRemote).
+	upMu    sync.Mutex
+	upSlots map[string]chan struct{}
 
 	mu    sync.Mutex
 	cache *versions
@@ -233,6 +241,10 @@ func (a *ADB) SetLending(l Lending) { a.lending = l }
 // SetRemotes gives the ADB the links to the hosts this daemon borrows devices from
 // (ADR-0100). Without them every device is local.
 func (a *ADB) SetRemotes(r Remotes) { a.remotes = r }
+
+// SetUploads gives the ADB the APKs its peers uploaded, which device.installUpload installs
+// (ADR-0099 §3). Without them every upload is unknown.
+func (a *ADB) SetUploads(u *hosting.Uploads) { a.uploads = u }
 
 // SetToolKey gives the ADB `tools.adb` as the daemon read it at start (ADR-0032 §3, §6;
 // plan m1k D8): the first candidate of every resolution. The value is a snapshot, so an

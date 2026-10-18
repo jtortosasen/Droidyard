@@ -93,6 +93,8 @@ type side struct {
 	ops  *capability.Operations
 	bus  *event.Bus
 	log  *safeBuffer
+	// state is the state root of the daemon's peer state.
+	state string
 	// screens, when set before listen, is what the listener claims a video stream with.
 	screens httpapi.PeerScreenAttach
 }
@@ -100,7 +102,9 @@ type side struct {
 func newSide(t *testing.T, api string) *side {
 	t.Helper()
 	s := &side{cfg: &config{}, log: &safeBuffer{}}
-	s.host = hosting.New(s.cfg, t.TempDir(), api, s.log)
+	s.state = t.TempDir()
+	s.host = hosting.New(s.cfg, s.state, api, s.log)
+	t.Cleanup(s.host.Uploads().Close)
 	if err := s.host.Init(); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +180,7 @@ func (s *side) listen(t *testing.T, addr string) (bound string, stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Listen: addr, API: "0.0.0", Log: s.log})
+	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Listen: addr, API: "0.0.0", Log: s.log})
 	go func() { defer close(done); srv.Run(ctx) }()
 	stop = func() { cancel(); <-done }
 	t.Cleanup(stop)

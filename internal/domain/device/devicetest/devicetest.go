@@ -50,7 +50,7 @@
 //	<serial>.inputmethod        `-s <serial> shell settings get secure default_input_method`
 //	<serial>.dumpsyswindow      `-s <serial> shell dumpsys window` (the busy path's focus read)
 //	<serial>.broadcast          `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec am broadcast -a ADB_INPUT_B64 --es msg <base64>`
-//	<serial>.install            `-s <serial> install -r <apk>`
+//	<serial>.install            `-s <serial> install -r <apk>` (the file's bytes are copied to <serial>.installed)
 //	<serial>.uninstall          `-s <serial> uninstall <applicationId>`
 //	<serial>.pmpath             `-s <serial> shell pm path <applicationId>`
 //	<serial>.pm                 `-s <serial> shell pm list packages -U <filter>` (see below)
@@ -687,6 +687,15 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 			if b, err := os.ReadFile(raw[3]); err == nil {
 				os.WriteFile(filepath.Join(dir, raw[1]+".pushed"), b, 0o600)
 				writeDeviceFile(dir, raw[4], b)
+			}
+		}
+	case strings.HasSuffix(prefix, ".install"):
+		// The file adb reads, whatever the command then answers: its bytes are kept as
+		// `<serial>.installed` (the last install's), so a test can compare them with the
+		// APK it expected; a path that is not a file leaves nothing.
+		if len(raw) == 5 {
+			if b, err := os.ReadFile(raw[4]); err == nil {
+				os.WriteFile(filepath.Join(dir, raw[1]+".installed"), b, 0o600)
 			}
 		}
 	case strings.HasSuffix(prefix, ".pushscrcpy"):

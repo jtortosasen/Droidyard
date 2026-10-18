@@ -98,6 +98,7 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 	registerWatchLogs(reg, adb)
 	registerWatchScreen(reg, adb)
 	registerInstall(reg, adb, builds)
+	registerInstallUpload(reg, adb)
 	registerUninstall(reg, adb)
 	registerInputText(reg, adb)
 	registerScreenInput(reg, adb)

@@ -1,8 +1,9 @@
 // Package peer is the peer adapter: the listener a host serves its paired peers on
 // (ADR-0098 §3). It is a second listener beside the UI's loopback one, never the UI's API
 // on the network: TLS 1.3 with both certificates pinned, two routes here (/peer/v1/ws,
-// whose sessions are the UI's WebSocket loop started by a hello, and /peer/v1/screen, a
-// live view's video), and nothing else. It translates;
+// whose sessions are the UI's WebSocket loop started by a hello, /peer/v1/screen, a
+// live view's video, and /peer/v1/upload, an APK for device.installUpload), and nothing
+// else. It translates;
 // what a peer may call is the core's Lendable set, not this package's to widen
 // (docs/architecture/overview.md §Adapter boundary).
 package peer
@@ -42,6 +43,9 @@ var (
 	streamFrameTimeout = 5 * time.Second
 	// closeGrace is how long a close handshake gets before the connection is dropped.
 	closeGrace = time.Second
+	// uploadBound is how long an upload's body may take to arrive: a little over the 10
+	// minutes a client allows itself, so a stalled sender is cut and its file removed.
+	uploadBound = 11 * time.Minute
 )
 
 // Host is what the listener needs of the daemon's peer state: *hosting.Host. The adapter
@@ -62,6 +66,15 @@ type Host interface {
 	PeerClosed(name string)
 }
 
+// Uploads stores the APKs a peer uploads (ADR-0099 §3): *hosting.Uploads. Put reads exactly
+// size bytes of body, which is never larger than capability.PeerMaxUpload, as the named
+// peer's only pending upload, and returns the id it is known by and its SHA-256.
+type Uploads interface {
+	Put(peer string, size int64, body io.Reader) (id, sha256 string, err error)
+	// Forget drops the peer's pending upload: it was unpaired.
+	Forget(peer string)
+}
+
 // errNotPinned is what a handshake whose client certificate is not paired fails with.
 var errNotPinned = errors.New("the client's certificate is not in hosting.peers")
 
@@ -74,6 +87,8 @@ type Options struct {
 	// Screens claims a live view's stream for the peer it was issued to; nil serves no
 	// video, and /peer/v1/screen answers 404.
 	Screens httpapi.PeerScreenAttach
+	// Uploads stores an APK a peer uploads; nil takes none, and /peer/v1/upload answers 404.
+	Uploads Uploads
 	// API is this daemon's API version, named in the hello.
 	API string
 	Log io.Writer
@@ -89,12 +104,14 @@ type Server struct {
 	closing bool           // the listener is stopping: no screen socket is taken
 }
 
-// sock is one open peer socket, a session or a live view's video: whose it is, and the
-// connection to close on a revocation.
+// sock is one open peer connection, a session, a live view's video or an upload in progress:
+// whose it is, and what ends it on a revocation (the WebSocket is closed with the reason;
+// an upload is cancelled).
 type sock struct {
 	cert   *x509.Certificate
 	name   string
-	conn   *websocket.Conn
+	conn   *websocket.Conn    // nil for an upload
+	cancel context.CancelFunc // set for an upload
 	screen bool
 }
 
@@ -209,12 +226,13 @@ func (s *Server) tlsConfig(cert tls.Certificate) *tls.Config {
 }
 
 // handler is the peer port's whole surface: a request carrying an Origin is refused (a
-// browser has no business here), the pin is checked again, and only /peer/v1/ws and
-// /peer/v1/screen exist.
+// browser has no business here), the pin is checked again, and only /peer/v1/ws,
+// /peer/v1/screen and /peer/v1/upload exist.
 func (s *Server) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(capability.PeerPath, s.serveWS)
 	mux.HandleFunc(capability.PeerScreenPath, s.serveScreen)
+	mux.HandleFunc("PUT "+capability.PeerUploadPath, s.serveUpload)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if len(r.Header.Values("Origin")) > 0 {
@@ -273,6 +291,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			if now, _, ok := s.o.Host.Pin(k.cert); ok && now == k.name {
 				return true
 			}
+			s.forget(k.name)
 			go revoke(c)
 			return false
 		},
@@ -321,6 +340,66 @@ func (s *Server) serveScreen(w http.ResponseWriter, r *http.Request) {
 		s.screens.Done()
 	}()
 	httpapi.ServePeerScreen(r.Context(), c, name, streamFrameTimeout, s.o.Screens)
+}
+
+// serveUpload is PUT /peer/v1/upload: an APK for the peer's next device.installUpload
+// (ADR-0099 §3). The length must be declared and at most capability.PeerMaxUpload, which is
+// answered before a byte of the body is read; the body is stored by Uploads, which keeps
+// nothing of one that fails. The request is in the revocation sweep like a socket, so a peer
+// removed from hosting.peers loses an upload in progress within sweepEvery, and its body is
+// cut off after uploadBound whatever it does.
+func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
+	name, cert, ok := s.requestPeer(r)
+	if !ok {
+		http.Error(w, "not paired", http.StatusForbidden)
+		return
+	}
+	if s.o.Uploads == nil {
+		http.NotFound(w, r)
+		return
+	}
+	switch {
+	case r.ContentLength < 0:
+		http.Error(w, "a Content-Length is required", http.StatusLengthRequired)
+		return
+	case r.ContentLength == 0:
+		http.Error(w, "an empty upload", http.StatusBadRequest)
+		return
+	case r.ContentLength > capability.PeerMaxUpload:
+		fmt.Fprintf(s.o.Log, "droidyard: peer %s: an upload of %d bytes was refused; the limit is %d\n", name, r.ContentLength, int64(capability.PeerMaxUpload))
+		http.Error(w, "the upload is over the limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	k := &sock{cert: cert, name: name, cancel: cancel}
+	s.mu.Lock()
+	s.socks[k] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.socks, k)
+		s.mu.Unlock()
+	}()
+	// A body read blocks on the connection, which a context does not reach: the deadline does.
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(uploadBound))
+	stop := context.AfterFunc(ctx, func() { rc.SetReadDeadline(time.Unix(1, 0)) })
+	defer stop()
+
+	id, sum, err := s.o.Uploads.Put(name, r.ContentLength, r.Body)
+	if err != nil {
+		fmt.Fprintf(s.o.Log, "droidyard: peer %s: an upload of %d bytes was not stored: %v\n", name, r.ContentLength, err)
+		if errors.Is(err, capability.ErrPeerUploadBusy) {
+			http.Error(w, "an earlier upload is still arriving", http.StatusConflict)
+			return
+		}
+		http.Error(w, "the upload was not stored", http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprintf(s.o.Log, "droidyard: peer %s: stored an upload of %d bytes, sha256 %s\n", name, r.ContentLength, sum[:12])
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(capability.PeerUploadReply{Upload: id, SHA256: sum})
 }
 
 // closeScreens ends every screen socket and waits for their handlers: the listener stopped,
@@ -406,9 +485,22 @@ func (s *Server) sweep(ctx context.Context) {
 		for _, k := range open {
 			if now, _, ok := s.o.Host.Pin(k.cert); !ok || now != k.name {
 				fmt.Fprintf(s.o.Log, "droidyard: peer %s is no longer paired; its link is closed\n", k.name)
+				s.forget(k.name)
+				if k.conn == nil {
+					k.cancel()
+					continue
+				}
 				go revoke(k.conn)
 			}
 		}
+	}
+}
+
+// forget drops what an unpaired peer left on this host: its pending upload, which a name
+// paired again with another certificate must not find (ADR-0099 §3).
+func (s *Server) forget(name string) {
+	if s.o.Uploads != nil {
+		s.o.Uploads.Forget(name)
 	}
 }
 

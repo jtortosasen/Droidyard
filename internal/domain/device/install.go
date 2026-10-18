@@ -10,6 +10,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 )
 
 // device.install and device.uninstall (adb-device.md §Install, §Capabilities; plan m1g
@@ -181,6 +182,14 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
+			// A device a host lends is named <remote>/<serial>: the client's own policy
+			// decides, and the build is uploaded to the host (ADR-0100 §3).
+			if rt, ok, err := adb.authorizeRemote(call); ok || err != nil {
+				if err != nil {
+					return nil, err
+				}
+				return rt, nil
+			}
 			return adb.authorize(ctx, call.Origin, p.Device, "device.install")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -197,8 +206,83 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 			if err != nil {
 				return nil, err
 			}
+			if rt, ok := call.Authorized.(*remoteTarget); ok {
+				return adb.installRemote(ctx, call, rt, out)
+			}
 			t := call.Authorized.(*target)
 			return adb.install(ctx, t, p, out)
+		},
+	})
+}
+
+// installUploadErrors are the codes device.installUpload can return: the device preamble's,
+// the params check (which is also an upload this peer does not have) and its own. It is
+// long-running, so it need not list OPERATION_QUEUE_TIMEOUT.
+var installUploadErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
+	capability.ErrInvalidParams, ErrInstallFailed)
+
+// InstallUploadParams is device.installUpload's parameters.
+type InstallUploadParams struct {
+	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
+	Upload string `json:"upload" jsonschema:"required,pattern=^[0-9a-f]{32}$" jsonschema_description:"The id the host answered the peer's upload with: the peer's own pending upload."`
+}
+
+// InstallUploadResult is device.installUpload's result.
+type InstallUploadResult struct {
+	SHA256 string `json:"sha256" jsonschema:"required" jsonschema_description:"The SHA-256 of the installed file, as the host stored it."`
+}
+
+// validate rejects an upload id that is not the shape the host issues, before anything
+// looks it up. The id is only ever a key in memory, never part of a path.
+func (p InstallUploadParams) validate() error {
+	if !hosting.ValidUploadID(p.Upload) {
+		return capability.Errorf(capability.ErrInvalidParams, "upload %q is not an upload id", p.Upload)
+	}
+	return nil
+}
+
+// registerInstallUpload adds device.installUpload (ADR-0099 §3), the host's half of
+// installing a build on a device it lends. It is global, human-only and lent to peers; the
+// APK is one a peer uploaded, so for any other caller there is none.
+func registerInstallUpload(reg *capability.Registry, adb *ADB) {
+	reg.MustRegister(capability.Descriptor{
+		Name:         "device.installUpload",
+		Kind:         capability.Command,
+		Scope:        capability.Global,
+		LongRunning:  true,
+		Audience:     capability.AudienceHuman,
+		Lendable:     true,
+		Since:        "0.29.0",
+		Availability: []capability.Requirement{capability.RequiresADB},
+		Params:       InstallUploadParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(InstallUploadParams).Device) },
+		Result:       InstallUploadResult{},
+		Errors:       installUploadErrors,
+		Description:  "Installs the APK a paired peer uploaded to this host, then removes it; an upload that is not the caller's, has expired or was replaced is rejected. The device must be one this host lends to the peer.",
+		Resource: func(call *capability.Call) string {
+			if s := call.Params.(InstallUploadParams).Device; s != "" {
+				return writeKey(s)
+			}
+			return ""
+		},
+		Annotations: capability.Annotations{
+			Destructive: boolPtr(false),
+			Reason:      "-r replaces the app and keeps its data (mcp.md §Annotations)",
+		},
+		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
+			p := call.Params.(InstallUploadParams)
+			if err := p.validate(); err != nil {
+				return nil, err
+			}
+			return adb.authorize(ctx, call.Origin, p.Device, "device.installUpload")
+		},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			p := call.Params.(InstallUploadParams)
+			if err := p.validate(); err != nil {
+				return nil, err
+			}
+			t := call.Authorized.(*target)
+			return adb.installUpload(ctx, t, call.Origin, p)
 		},
 	})
 }
@@ -245,23 +329,63 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 // result (adb-device.md §Install). A "Failure [INSTALL_FAILED_…]" is detected on exit 0
 // as well: the token alone is the cause (R3).
 func (a *ADB) install(ctx context.Context, t *target, p InstallParams, out build.ResolvedOutput) (InstallResult, error) {
-	if err := a.ready(ctx, t); err != nil {
+	if err := a.installAPK(ctx, t, out.Path, out.APK); err != nil {
 		return InstallResult{}, err
 	}
-	res, err := a.runShell(ctx, t, installTimeout, installOutputCap, "install", "-r", out.Path)
+	return InstallResult{ApplicationID: out.ApplicationID, VersionCode: out.VersionCode, APK: out.APK}, nil
+}
+
+// installAPK is the install both a build and an upload go through: `adb install -r` of the
+// file at path, which no error names (name stands in for it).
+func (a *ADB) installAPK(ctx context.Context, t *target, path, name string) error {
+	if err := a.ready(ctx, t); err != nil {
+		return err
+	}
+	res, err := a.runShell(ctx, t, installTimeout, installOutputCap, "install", "-r", path)
 	if err != nil {
 		if errors.Is(err, ErrTimeout) {
-			return InstallResult{}, installFailed("adb install did not answer in " + installTimeout.String())
+			return installFailed("adb install did not answer in " + installTimeout.String())
 		}
-		return InstallResult{}, withoutPath(err, out.Path, out.APK)
+		return withoutPath(err, path, name)
 	}
 	if token := failureToken(res); token != "" {
-		return InstallResult{}, installFailed(token)
+		return installFailed(token)
 	}
 	if res.ExitCode != 0 {
-		return InstallResult{}, installFailed("adb install exited with status " + strconv.Itoa(res.ExitCode))
+		return installFailed("adb install exited with status " + strconv.Itoa(res.ExitCode))
 	}
-	return InstallResult{ApplicationID: out.ApplicationID, VersionCode: out.VersionCode, APK: out.APK}, nil
+	return nil
+}
+
+// installUpload installs the APK the calling peer uploaded and removes it, whatever the
+// install does: an upload is used once (ADR-0099 §3). Only a paired peer has uploads, and
+// only its own are found.
+func (a *ADB) installUpload(ctx context.Context, t *target, who capability.Origin, p InstallUploadParams) (InstallUploadResult, error) {
+	peer := ""
+	if who.Client == capability.ClientPeer {
+		peer = who.Name
+	}
+	var up *hosting.Upload
+	ok := false
+	if a.uploads != nil {
+		up, ok = a.uploads.Take(peer, p.Upload)
+	}
+	if !ok {
+		cause := "the upload may have expired (an upload is kept 10 minutes), been replaced by a newer one, or already been installed"
+		if a.uploads != nil {
+			if why := a.uploads.Gone(peer, p.Upload); why != "" {
+				cause = "the upload was " + why
+			}
+		}
+		return InstallUploadResult{}, capability.NewError(capability.ErrInvalidParams, "this host has no such upload from this peer").
+			WithCause(cause).
+			WithNextStep("Repeat device.install, which uploads the build again.")
+	}
+	defer up.Remove()
+	if err := a.installAPK(ctx, t, up.Path, "upload.apk"); err != nil {
+		return InstallUploadResult{}, err
+	}
+	return InstallUploadResult{SHA256: up.SHA256}, nil
 }
 
 // uninstall runs D18: `pm path` first; an absent package is a completed call; otherwise

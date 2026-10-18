@@ -333,7 +333,7 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 			t.Errorf("%s: Target = %+v; want the avd parameter, avd-1", d.Name, got)
 		}
 	}
-	want := []string{"build.assemble", "device.inputText", "device.install", "device.launch", "device.logs",
+	want := []string{"build.assemble", "device.inputText", "device.install", "device.installUpload", "device.launch", "device.logs",
 		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiTree",
 		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe"}
 	var got []string

@@ -167,7 +167,10 @@ func checkRegister(fsys fs.FS) []string {
 // line (ADR-0081 to ADR-0084, ADR-0088).
 // Raised by 8 (to 28,294) at milestone 2r's close: README.md's status line names 2r (2r's
 // edits of files.md, workspace-state.md and process-lifecycle.md add nothing in total).
-const liveBudget = 28294
+// Raised by 14 (to 28,308) at milestone 2t step 4: mvp.md's device row and mcp.md's
+// not-exposed table name device.installUpload, which the capability check requires
+// (ADR-0099 §3).
+const liveBudget = 28308
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
