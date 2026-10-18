@@ -189,7 +189,14 @@
 - Needs: step 4; Claude Code; real Gradle with `samples/golden`'s dependencies cached (as m2o step 7).
 - Not here: the UI; a measurement of how often agents follow the rule (Unverified).
 - Rests on: an agent told by the skill makes or reuses the worktree and enters it before building, at level 5 (one run per client).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: with step 5b, final run on `6a948c1`, `$R` `/private/tmp/dy5q.7WIS`, Claude Code 2.1.302 `-p --model sonnet`, through the recorder.
+  - **Chat 0**, a question: only `project_modules`; `git worktree list` is unchanged.
+  - **Chat 1** (`chat1b`), with the text named; the unnamed prompt made the agent ask for the new text, saying it would use a `fix-greeting` worktree. The wire runs `workspace_describe`, then `workspace_enter {root: …/repo5-fix-greeting}` (`trusted: true`, `mainRoot` `…/repo5`), then `build_assemble`. The log shows `build.assemble workspace=repo5-fix-greeting-9fad7e414669`. Main has no tracked change.
+  - **Chat 2**, "continue task": `workspace_describe`, whose `worktrees` lists `repo5-fix-greeting`, then `workspace_enter` into it, then a build in it. No new worktree.
+  - **Chat 3**, `--resume` of chat 1: only `build_assemble` on the wire. The restore's `workspace.enter` is in the log, and the build ran in the worktree's workspace (ADR-0088).
+  - **Earlier runs:** on `dbb48a5`, chat 1 built on main, which led to the text revision (Changes). On `a869580`, chats 1 and 3 passed and chat 2 built on main, which led to step 5b (Changes, ADR-0089). The owner's adb server is unchanged (pid 70176, started Oct 15 10:21:23).
+  - **cursor-agent:** not run here; step 10 runs it.
+  - **Unverified:** how often agents follow the rule; one run per prompt is not a measurement.
 
 ### 6. `session.watch`: an agent listed from the moment it connects
 
