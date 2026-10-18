@@ -50,9 +50,10 @@ for a task (match an existing one or create one), owns it, and carries its conte
 Git side panel shows worktrees by session, read-only. Builds on the sessions of
 [ADR-0048](../adr/0048-operation-session.md).
 
-**C3. A live device view.** The screen streamed to the UI, with input. Already the next
-planned milestone, and the base of C4 (seeing a remote phone) and C5 (recording what a
-person does).
+**C3. A live device view.** The screen streamed to the UI, with input. Built in 2p
+([ADR-0077](../adr/0077-screen-stream-source.md) to [ADR-0080](../adr/0080-flag-secure-detection.md)),
+as the base of C4 (seeing a remote phone) and C5 (recording what a person does): its stream is
+relayable unchanged behind a source seam, and every input is a capability call.
 
 **C4. Device hosting.** A Droidyard in a *host* role exposes its attached devices to
 other Droidyards: screen, input, logs, install, and adb or JDWP forwarded inside the

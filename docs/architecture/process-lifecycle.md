@@ -16,7 +16,7 @@ the core is the `droidyard serve` daemon, started, found and kept single by
 | **Shared daemon** | `adb` server | global (core) | long-lived, shared across workspaces; not ours to kill |
 | **Shared sidecar** | **Gradle TAPI sidecar** (JVM) | global (core) | one per core, serving every open root; idles out when no root is active |
 | **Workspace sidecar** | Kotlin LSP (JVM, post-MVP) | workspace | long-lived while the workspace is open |
-| **Per-operation** | `adb` client commands, `git` (a `git.watch`'s per tick, its group killed at the watch's stop), `screenrecord`; a `shell.exec` command (kind `shell-command`); a UI write git (kind `git-write`, [ADR-0071](../adr/0071-git-writes-for-the-ui.md)), recorded | operation | short, tied to an operation; a `shell.exec` command's or a write git's whole process group is killed when its call ends |
+| **Per-operation** | `adb` client commands, `git` (a `git.watch`'s per tick, its group killed at the watch's stop), the live view's `adb shell` running the screen server (kind `device-stream`, ended with its last viewer); a `shell.exec` command (kind `shell-command`); a UI write git (kind `git-write`, [ADR-0071](../adr/0071-git-writes-for-the-ui.md)), recorded | operation | short, tied to an operation; a `shell.exec` command's or a write git's whole process group is killed when its call ends |
 | **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core once its serial is resolved; a launch the core started is ended if its boot fails before then ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)), and is pid-recorded until then (kind `emulator-launch`, ADR-0021) |
 | **Tool-owned daemon** | Gradle daemon, Kotlin compile daemon | Gradle | spawned and detached by Gradle; never a child of ours |
 
@@ -111,7 +111,7 @@ Parsers live with the owning subsystem (ADB, Gradle, Logcat), not here.
 
 ## Crash recovery
 
-Every sidecar and every long-running child (a `logcat` or `screenrecord` stream) has a
+Every sidecar and every long-running child (a `logcat` stream or the live view's screen server) has a
 durable **pid record** `{id, kind, workspace?, pid, pgid, startTime, command}`, written at
 spawn and removed at reap: the one piece of process state that is persisted
 ([ADR-0021](../adr/0021-persistence-format-and-location.md)). Short per-operation

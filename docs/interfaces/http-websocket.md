@@ -84,7 +84,7 @@ not against the user's own processes.
 ## Endpoints
 
 The routes and their shapes are `adapters/httpapi`: the embedded UI bundle (no token),
-`POST /v1/call`, `GET /v1/artifacts/{id}` and `GET /v1/ws`. HTTP requests identify their
+`POST /v1/call`, `GET /v1/artifacts/{id}`, `GET /v1/ws` and `GET /v1/screen`. HTTP requests identify their
 adapter as `ui`, and that identity is what lets human-only capabilities through
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
 
@@ -124,6 +124,14 @@ with `since`, except a `file.watch`, which watches again and re-lists
 ([capability-api](../architecture/capability-api.md) §Subscriptions). A subscriber that
 overflows gets an `events.gap` marker and never loses events silently. Frame limits, the
 close codes and the keepalive are in `adapters/httpapi/ws.go`.
+
+### `GET /v1/screen`
+
+The live view's video ([ADR-0078](../adr/0078-screen-watch-and-endpoint.md) §4), on a socket of its
+own, bound by the `streamId` of a session's `device.watchScreen`; nothing the client sends reaches
+the device. The 4 KiB read limit lasts the socket's life: a frame over it closes 1009 (ADR-0028),
+any other client frame after `auth` 1003. The id is not kept in the operation record. Header, close
+codes and deadline: `adapters/httpapi/screen.go`.
 
 ### `GET /v1/artifacts/{id}`
 

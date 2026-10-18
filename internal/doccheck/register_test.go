@@ -149,7 +149,11 @@ func checkRegister(fsys fs.FS) []string {
 // beyond the MVP and the capabilities it needs, at the owner's request, with its two links.
 // Raised by 14 (to 27,684) in milestone 2p step 6: mvp.md's device row and mcp.md's not-exposed row name
 // device.tap, device.swipe and device.pressKey (ADR-0079).
-const liveBudget = 27684
+// Raised by 283 (to 27,967) at milestone 2p's close: adb-device.md's screen viewing (the live view,
+// the server's upgrade procedure, what it leaves on a device), ui-automation.md's live input,
+// http-websocket.md's GET /v1/screen, capability-api.md's device.screen, the register's fourteen 2p
+// rows and README.md's status line (ADR-0077 to ADR-0080).
+const liveBudget = 27967
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

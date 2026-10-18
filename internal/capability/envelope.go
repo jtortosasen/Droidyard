@@ -135,7 +135,7 @@ type OperationState struct {
 const OpTargetMax = 200
 
 // OpTarget names what a recorded call acts on, on operation.state events and
-// operation.watch rows (ADR-0076): the caller's own validated parameters, declared per
+// operation.watch rows (ADR-0076): the caller's own decoded parameters, declared per
 // descriptor by Descriptor.Target and fixed when the operation is recorded. Never device
 // or project text, so it is not untrusted; no other parameter travels with it.
 type OpTarget struct {
