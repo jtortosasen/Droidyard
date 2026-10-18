@@ -160,7 +160,21 @@
 - Not here: listing sessions (step 6); creating, choosing or deleting worktrees (Q2 §2: the agent's). A session's binding is not persisted: a reconnected chat enters again.
 - Rests on: a session can move only itself, and only within its project, at level 4.
 - Review: the Opus verifier (contract, a new code, the fence, a lifetime), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence:
+  - **Tests pass:** `TestSessionEntersAWorktree` and `TestResumedChatRecoversItsBinding` (real `serve`, real `git worktree add`, scripted MCP shims and a WebSocket), plus unit tests in `internal/capability` and `internal/daemon`. All pass under `-race`.
+  - **The implementer's reversals, each seen failing:** a shared binding (B describes `wt`), the project comparison removed (another repository's worktree entered), Start's `Binding` check removed (the CLI and WebSocket reach the handler, and operations are recorded), memory not written, `Forget` removed, and the daemon's chat-id check removed.
+  - **The verifier's mutations, each caught:** M1 (one binding for every session), M2 (a restore that bypasses `workspace.enter`'s rule) and M3 (no Start check: refused calls recorded as operations).
+  - **Budgets:** the tool list is 28,758 B of 29,000.
+  - **Schema:** one new entry, `workspace.enter`, with `binding: true`. Nothing else changes.
+  - **Verifier verdict:** proceed after one [contract] fix, the `errors` list (Changes).
+  - **Fix round, by the main session:**
+    - the `errors` list;
+    - `request()` reads the binding once for both `Workspace` and `Origin.Root` ([bug]: a race with `workspace_enter`);
+    - the description says a new chat starts where its client started it ([doc]);
+    - the `withGradle` comment ([nit]).
+
+    After it, `-race` on the five touched packages is ok.
+  - **Level:** 4; the real chat is step 5.
 
 ### 5. Level 5, early: a real chat acquires a worktree
 
@@ -391,4 +405,9 @@ Q1 to Q6 were decided as drafted by the main session under the owner's standing 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-18, steps 4 and 5, ADR-0088 (owner): a session carries its chat's id, and a resumed chat gets its worktree back while the daemon lives. Step 1 observed `CLAUDE_CODE_SESSION_ID` in the MCP server's environment, stable across `--resume`. Step 4 also builds: `Hello.Chat`, filled by `droidyard mcp` from that variable (pattern `^[A-Za-z0-9-]{1,64}$`); `Sessions.Connect` takes the chat id; the registry remembers chat → last bound root (256 chats, oldest dropped, never persisted) and binds a new session with a remembered chat there before it answers `initialize`/`server/discover`, when ADR-0082 §3's rule still holds and the directory exists. Step 4's check adds `TestResumedChatRecoversItsBinding`: session A with chat X enters `wt`, ends; session B with chat X is bound at `wt` from its first call (seen failing with the memory removed); B with chat X after `rm -rf wt` → main, entry dropped; chat X from a session whose hello root is another project → that project, not `wt` (seen failing with the project test removed); no variable → main. Step 5 adds chat 3: `claude -p --resume` of chat 1 builds in the worktree with no new `workspace_enter` on the wire. Tying hook records to the session stays out (register row at step 10).
+- 2026-10-18, step 4, as built:
+  - `workspace.enter`'s `errors` also lists `WORKSPACE_STATE_NEWER` and `PROJECT_NO_GRADLE_ROOT`, which its workspace result can carry, as `workspace.open`'s does. The Schema bullet's list was short (step verifier, [contract]).
+  - `Sessions.Connect(id, chat)` registers the connection, and `Opened(id, project, wsid, root)` records the hello's binding.
+  - `Named` moves to step 6, its first caller.
+  - `doccheck`'s `liveBudget` rises by 166 words, for the verbatim instructions and `mcp.md` §Transport and session (Delegated).
 - 2026-10-18, step 6: the session's name is set from `server/discover` as well as `initialize`. Claude Code 2.1.302 speaks MCP `2026-07-28`, opens with `server/discover` and sends no `initialize` (step 1, (a)). mcp-go sets the client info from either.

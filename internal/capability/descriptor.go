@@ -160,6 +160,10 @@ type Call struct {
 	// Authorized is what the descriptor's Authorize hook returned: what it read, for
 	// the handler to use instead of reading it again. Nil without a hook.
 	Authorized any
+	// Origin is the session the call came from, as the adapter named it (Request.Origin).
+	// A Binding capability reads the session's id from it; the zero Origin is a call
+	// without a session.
+	Origin Origin
 }
 
 // Descriptor is one capability. It is registered explicitly by its domain package at
@@ -176,6 +180,14 @@ type Descriptor struct {
 	// LongRunning says the call may outlive an adapter's wait budget (ADR-0020). It
 	// does not make the call stateful.
 	LongRunning bool
+
+	// Binding says the capability acts on the calling MCP session's binding, the root
+	// its calls address (ADR-0082 §4). It stays Stateless: the binding is ADR-0019's
+	// addressing, which the MCP session already holds, not state the session carries to
+	// a push channel. Start refuses such a call, and records no operation, unless its
+	// Origin.ID is a session registered in the core's Sessions: a CLI, WebSocket or
+	// plain HTTP connection has none.
+	Binding bool
 
 	// Idempotent says repeating the call is safe and equivalent.
 	Idempotent bool

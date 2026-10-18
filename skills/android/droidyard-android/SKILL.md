@@ -31,6 +31,17 @@ restart the shared adb server.
    (or the focused field), each with an `expect` that says what must change, so one call
    acts and verifies.
 
+## Development in a worktree
+
+A chat that only reads or answers stays on the project's checkout. When it starts a task
+that changes code, give the task a git worktree of its own: reuse the one whose branch
+names the task (`git worktree list`), else create one with `git worktree add` or your
+client's worktree feature. Then call `workspace_enter {root}` with its absolute path: the
+builds, installs and `workspace_describe` that follow act on that worktree, and
+`workspace_enter` with the project's root goes back. droidyard creates and deletes no
+worktree. A new chat enters again; after a resume, `workspace_describe` shows whether it is
+still there.
+
 ## Selectors
 
 - Target by `id` (without the package prefix) when the node has one, else `text` or

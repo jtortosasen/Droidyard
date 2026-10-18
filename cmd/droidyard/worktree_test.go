@@ -41,9 +41,8 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// watchRows connects a WebSocket to the daemon serving state, calls workspace.watch and
-// returns its rows.
-func watchRows(t *testing.T, state string) []workspace.Listed {
+// wsToDaemon connects a WebSocket to the daemon serving state and authenticates it.
+func wsToDaemon(t *testing.T, state string) *wsClient {
 	t.Helper()
 	info, err := daemon.ReadLock(state)
 	if err != nil || info.HTTP == nil {
@@ -62,6 +61,14 @@ func watchRows(t *testing.T, state string) []workspace.Listed {
 	}
 	w := pump(t, c)
 	w.writeText(`{"auth":"` + strings.TrimSpace(string(raw)) + `"}`)
+	return w
+}
+
+// watchRows connects a WebSocket to the daemon serving state, calls workspace.watch and
+// returns its rows.
+func watchRows(t *testing.T, state string) []workspace.Listed {
+	t.Helper()
+	w := wsToDaemon(t, state)
 	w.send("w", "workspace.watch", "", "", nil)
 	_, f := w.collect("w")
 	if f.Error != nil {

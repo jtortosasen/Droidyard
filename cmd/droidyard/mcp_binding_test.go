@@ -25,7 +25,15 @@ type boundCall struct {
 // workspaceTool calls a workspace tool with {} and decodes its answer.
 func (s *shim) workspaceTool(id int, name string) boundCall {
 	s.t.Helper()
-	s.callTool(id, name, `{}`)
+	return s.toolWith(id, name, `{}`)
+}
+
+// toolWith is workspaceTool with arguments: the answer of any tool whose success is read
+// as a workspace object (a tool of another shape decodes to the zero value, its isError
+// still set).
+func (s *shim) toolWith(id int, name, args string) boundCall {
+	s.t.Helper()
+	s.callTool(id, name, args)
 	line := s.recv()
 	var msg struct {
 		ID     int `json:"id"`
@@ -116,13 +124,18 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 		}
 		seen++
 		for prop := range tool.InputSchema.Properties {
+			// workspace_enter's root is where the session moves to, not the workspace a
+			// call addresses (ADR-0082 §3): it is the one parameter of that name.
+			if tool.Name == "workspace_enter" && prop == "root" {
+				continue
+			}
 			if strings.Contains(strings.ToLower(prop), "workspace") || prop == "root" {
 				t.Errorf("(a) %s takes %q: agents never pass a workspace", tool.Name, prop)
 			}
 		}
 	}
-	if seen != 3 {
-		t.Errorf("(a) tools/list has %d workspace tools; want 3", seen)
+	if seen != 4 {
+		t.Errorf("(a) tools/list has %d workspace tools; want 4", seen)
 	}
 
 	// (b) --root wins over the cwd.

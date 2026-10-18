@@ -39,6 +39,12 @@ const (
 	// the core never opens a workspace implicitly. nextStep: workspace.open (ADR-0020
 	// §Scope and workspace addressing).
 	ErrWorkspaceNotOpen ErrorCode = "WORKSPACE_NOT_OPEN"
+	// ErrWorkspaceNotAWorktree: workspace.enter's root is neither the calling session's
+	// project root nor a linked git worktree of it by ADR-0081 §2 (a worktree of another
+	// repository included), so the binding did not move. nextStep: pass the project's root
+	// or a worktree of it (ADR-0082 §3). Beside WORKSPACE_NOT_OPEN: both say a root is not
+	// one the call may address.
+	ErrWorkspaceNotAWorktree ErrorCode = "WORKSPACE_NOT_A_WORKTREE"
 	// ErrWorkspaceUntrusted: the workspace opened in restricted mode and the capability
 	// touches project code (ADR-0015 §5).
 	ErrWorkspaceUntrusted ErrorCode = "WORKSPACE_UNTRUSTED"
@@ -135,8 +141,9 @@ const (
 
 	// The request codes. Start rejects a call with them, and creates no operation, for an
 	// unknown capability, parameters that fail strict decoding, a workspace-scoped call with
-	// no workspace, a global call that names one, and a human-audience capability called over
-	// MCP (ADR-0020 §Core primitives). REQUEST_INVALID_PARAMS is also a handler's code for a
+	// no workspace, a global call that names one, and a capability this connection may not
+	// call: a human-audience one over MCP, or a Binding one from a connection that is not an
+	// MCP session (ADR-0020 §Core primitives; ADR-0082 §4). REQUEST_INVALID_PARAMS is also a handler's code for a
 	// parameter it finds invalid while running, and AsError's fallback for an untyped error:
 	// then it ends a failed operation.
 	ErrCapabilityNotFound  ErrorCode = "REQUEST_CAPABILITY_NOT_FOUND"

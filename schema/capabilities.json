@@ -10605,6 +10605,154 @@
       }
     },
     {
+      "name": "workspace.enter",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "binding": true,
+      "audience": "all",
+      "since": "0.27.0",
+      "description": "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "WORKSPACE_NOT_A_WORKTREE",
+        "WORKSPACE_ROOT_INVALID",
+        "WORKSPACE_STATE_NEWER",
+        "WORKSPACE_STATE_UNREADABLE",
+        "PROJECT_NO_GRADLE_ROOT"
+      ],
+      "input": {
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "Absolute path of the project's main tree or of one of its git worktrees."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "root"
+        ]
+      },
+      "output": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded"
+            ]
+          },
+          "trusted": {
+            "type": "boolean"
+          },
+          "mainRoot": {
+            "type": "string",
+            "description": "The project's main tree when root is a linked git worktree of it, absolute; absent otherwise. A worktree is a workspace of its project, trusted when that tree is."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "degradedBy": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "cause": {
+                "type": "string"
+              },
+              "nextStep": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "gradle": {
+            "properties": {
+              "root": {
+                "type": "string",
+                "description": "The Gradle root, relative to the project root (\".\" is the project root itself); absent when there is none."
+              },
+              "candidates": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The folders holding a settings.gradle(.kts), relative to the project root, sorted, at most 50; listed even when root is set."
+              },
+              "error": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "cause": {
+                    "type": "string"
+                  },
+                  "nextStep": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "description": "PROJECT_NO_GRADLE_ROOT, present exactly when root is absent."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "candidates"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "root",
+          "state",
+          "trusted",
+          "gradle"
+        ]
+      }
+    },
+    {
       "name": "workspace.open",
       "kind": "command",
       "scope": "workspace",

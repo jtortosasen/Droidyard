@@ -29,6 +29,12 @@ import (
 // stopTimeout bounds how long `stop` waits for the daemon to release its lock.
 const stopTimeout = 30 * time.Second
 
+// chatEnv is the variable Claude Code 2.1.302 sets in an MCP server's environment to the
+// chat's own id, unchanged by --resume (ADR-0088; docs/research/spike-c2-sessions-2026-10.md).
+// It is not documented as an interface for MCP servers: without it, or with a release that
+// renames it, a resumed chat enters its worktree again.
+const chatEnv = "CLAUDE_CODE_SESSION_ID"
+
 // connect resolves the socket from the environment, as the daemon did, and says
 // hello as the given client kind.
 func connect(client capability.ClientKind) (net.Conn, *bufio.Reader, string, error) {
@@ -239,6 +245,10 @@ func mcpShim(args []string) int {
 			fmt.Fprintf(os.Stderr, "droidyard mcp: unexpected argument %q\n%s\n", a, usage)
 			return 2
 		}
+	}
+	// The chat Claude Code names in the server's environment, if it does (ADR-0088 §1).
+	if v := os.Getenv(chatEnv); daemon.ChatPattern.MatchString(v) {
+		hello.Chat = v
 	}
 	// The session's binding (ADR-0019 §Sessions): --root, made absolute against the
 	// cwd, else the cwd's project root. The daemon opens it and canonicalises it.

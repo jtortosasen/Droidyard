@@ -85,7 +85,7 @@ type GradleInfo struct {
 }
 
 // withGradle returns info with its Gradle root resolved against the project root. The
-// open and describe handlers call it; an info without a root (none is returned that way)
+// open, describe and enter handlers call it; an info without a root (none is returned that way)
 // gets an empty candidate list, never null.
 func withGradle(info Info) Info {
 	if info.Root == "" {

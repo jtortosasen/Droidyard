@@ -30,7 +30,7 @@ type CloseResult struct{}
 // (plan m2c D17: one version for the milestone).
 const sinceWatch = "0.16.0"
 
-// Register adds workspace.open, workspace.describe, workspace.close, workspace.watch and
+// Register adds workspace.open, workspace.enter, workspace.describe, workspace.close, workspace.watch and
 // workspace.chooseRoot.
 func Register(reg *capability.Registry, ws *Registry) {
 	notDestructive := false
@@ -56,6 +56,24 @@ func Register(reg *capability.Registry, ws *Registry) {
 			}
 			return withGradle(info), nil
 		},
+	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:        CapEnter,
+		Kind:        capability.Command,
+		Scope:       capability.Global,
+		Binding:     true,
+		Idempotent:  true,
+		Since:       sinceEnter,
+		Description: "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
+		Params:      EnterParams{},
+		Result:      Info{},
+		Errors:      []capability.ErrorCode{ErrNotAWorktree, ErrRootInvalid, ErrStateNewer, ErrStateUnreadable, capability.ErrProjectNoGradleRoot},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "moves only the calling session's binding; deletes nothing",
+		},
+		Handler: ws.enter,
 	})
 
 	reg.MustRegister(capability.Descriptor{

@@ -246,7 +246,7 @@ Two practical notes:
 | Domain | Capabilities | Phase |
 | --- | --- | --- |
 | `system` | `capabilities`, `health` | 0 |
-| `workspace` | `open`, `describe`, `close`, `watch`, `chooseRoot` (human-only; never over MCP) | 0, 2 |
+| `workspace` | `open`, `enter`, `describe`, `close`, `watch`, `chooseRoot` (human-only; never over MCP) | 0, 2 |
 | `project` | `modules`, `variants` | 1 |
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult`, `watchOutput` | 1–2 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
