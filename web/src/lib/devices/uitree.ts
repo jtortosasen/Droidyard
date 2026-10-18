@@ -1,6 +1,6 @@
 // The UI tree of the selected device (plan m2b step 6): `device.uiTree {device}`, nodes
 // indented by `children`, each row its class, id, text and desc. It is read when the user
-// asks and when an operation of UI_TRIGGERS ends (a tap, a typed text, a launch or an
+// asks and when an operation of TREE_TRIGGERS ends (a tap, a typed text, a gesture in the live view, a launch or an
 // install, by any client) while a tree is shown; never polled, and a read of its own is not
 // a trigger. Picking a node gives the selector the action form is filled with. Every
 // device field leaves here as a string for a text node (see text.ts); the raw node stays
@@ -123,6 +123,9 @@ export function concernsDevice(op: Pick<Operation, 'target'>, device: string): b
 	return named === undefined || named === '' || named === device;
 }
 
+/** The tree's own list: those, and the live view's three inputs (plan m2p step 7). App logs keep UI_TRIGGERS, so a gesture costs no `device.logs` read. */
+export const TREE_TRIGGERS = [...UI_TRIGGERS, 'device.tap', 'device.swipe', 'device.pressKey'] as const;
+
 export class UiTreeModel {
 	#client: UiTreeClient;
 	#devices: DeviceSelection;
@@ -144,7 +147,7 @@ export class UiTreeModel {
 		this.#offs.push(devices.subscribe(() => this.#deviceChanged()));
 		// Only while a tree is shown, and only for an operation on its device or on none in
 		// particular (ADR-0076): another device's tap costs no read.
-		this.#offs.push(activity.onTerminal(UI_TRIGGERS, (op) => {
+		this.#offs.push(activity.onTerminal(TREE_TRIGGERS, (op) => {
 			if (concernsDevice(op, this.#for)) void this.#reload();
 		}));
 	}

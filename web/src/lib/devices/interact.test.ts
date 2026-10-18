@@ -132,6 +132,20 @@ describe('the UI tree model', () => {
 		expect(t.calls.names().filter((n) => n === 'device.uiTree')).toHaveLength(1);
 	});
 
+	// Decision (plan m2p step 7): the live view's gestures and keys re-read a shown tree, but
+	// not App logs, which keep UI_TRIGGERS: a gesture does not cost a device.logs read.
+	it("re-reads the tree for the view's input and the logs do not", async () => {
+		const t = await setup();
+		await t.treeModel.load();
+		await t.logModel.load();
+		for (const c of ['device.tap', 'device.swipe', 'device.pressKey']) {
+			t.calls.calls.length = 0;
+			await done(t, c, undefined, { device: 'emulator-5554' });
+			expect(t.calls.names().filter((n) => n === 'device.uiTree'), c).toHaveLength(1);
+			expect(t.calls.names().filter((n) => n === 'device.logs'), c).toHaveLength(0);
+		}
+	});
+
 	// Decision (D13): a read is never its own trigger; unrelated operations cause none.
 	it('does not re-read when a tree read or a list ends', async () => {
 		const t = await setup();

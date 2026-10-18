@@ -113,3 +113,15 @@ describe('activity blocks: duration', () => {
 		expect(elapsedText(one(op('u', { state: 'unseen' })), now)).toBe('');
 	});
 });
+
+describe('activity blocks: target', () => {
+	// Decision (A2, ADR-0076): a block shows what the operation names, beside the actor:
+	// the device, else the AVD, else the module; none when it names none.
+	it('shows the device an input names, and nothing when there is no target', () => {
+		const tap = op('t1', { capability: 'device.tap', client: 'ui', session: undefined, target: { device: 'emulator-5554' } });
+		expect(one(tap).target).toBe('emulator-5554');
+		expect(one(op('t2', { capability: 'device.tap', client: 'ui', session: undefined })).target).toBe('');
+		expect(one(op('t3', { target: { avd: 'Pixel_8', module: ':app' } })).target).toBe('Pixel_8');
+		expect(one(op('t4', { target: { module: ':app' } })).target).toBe(':app');
+	});
+});

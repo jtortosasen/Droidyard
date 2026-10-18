@@ -4,6 +4,7 @@
 	import { browserCodec, VideoPacketDecoder, type DecodedFrame } from './decoder';
 	import type { LiveViewModel, LiveViewView, StopReason } from './liveview';
 	import { ScreenSocket } from './stream';
+	import { GestureRecorder, InputSender, NAV_KEYS, toFrame, type InputClient, type NavKey } from './input';
 
 	// The device's screen (plan m2p step 5): the model decides what is watched; this draws.
 	// A decoded frame replaces the one waiting to be drawn, and the canvas shows the newest
@@ -15,8 +16,10 @@
 		connection: ConnectionState;
 		/** The panel's region is open. */
 		visible: boolean;
+		/** Where the input goes (plan m2p step 7). */
+		input: InputClient;
 	}
-	let { model, token, connection, visible }: Props = $props();
+	let { model, token, connection, visible, input }: Props = $props();
 
 	let view = $state.raw<LiveViewView>(untrack(() => model.view));
 	let pageHidden = $state(document.hidden);
@@ -91,6 +94,45 @@
 		};
 	});
 
+	// Input (plan m2p step 7): pointer events with capture, so a mouse, a pen and a finger
+	// work alike. Coordinates are the frame's, never the letterbox bars'.
+	const sender = $derived(new InputSender(input, () => view.device));
+	let problem = $state('');
+	let text = $state('');
+	let overFrame = $state(false);
+	let recorder: GestureRecorder | null = null;
+
+	const frameSize = () => ({ width: canvas?.width ?? 0, height: canvas?.height ?? 0 });
+	function report(p: Promise<string | null>): Promise<boolean> {
+		return p.then((e) => {
+			problem = e ?? '';
+			return e === null;
+		});
+	}
+	function down(e: PointerEvent) {
+		if (!canvas || e.button !== 0) return;
+		recorder = GestureRecorder.start(e.clientX, e.clientY, e.timeStamp, canvas.getBoundingClientRect(), frameSize());
+		if (recorder) canvas.setPointerCapture(e.pointerId);
+	}
+	function move(e: PointerEvent) {
+		if (!canvas) return;
+		if (recorder) recorder.move(e.clientX, e.clientY, e.timeStamp);
+		else overFrame = toFrame(e.clientX, e.clientY, canvas.getBoundingClientRect(), frameSize()) !== null;
+	}
+	function up(e: PointerEvent) {
+		const r = recorder;
+		recorder = null;
+		if (r) void report(sender.gesture(r.end(e.clientX, e.clientY, e.timeStamp)));
+	}
+	function press(key: NavKey) {
+		void report(sender.key(key));
+	}
+	async function send(e: SubmitEvent) {
+		e.preventDefault();
+		if (text === '') return;
+		if (await report(sender.text(text))) text = '';
+	}
+
 	const WHY: Record<StopReason, string> = {
 		deviceGone: 'The device went away.',
 		exited: 'The screen server on the device ended.',
@@ -116,7 +158,31 @@
 	{:else if view.state === 'starting'}
 		<p>Starting...</p>
 	{/if}
-	<canvas bind:this={canvas} hidden={view.state !== 'live'} aria-label="Device screen"></canvas>
+	<canvas
+		bind:this={canvas}
+		hidden={view.state !== 'live'}
+		aria-label="Device screen"
+		class:acts={overFrame}
+		onpointerdown={down}
+		onpointermove={move}
+		onpointerup={up}
+		onpointercancel={() => (recorder = null)}
+		onpointerleave={() => (overFrame = false)}
+	></canvas>
+	{#if view.state === 'live'}
+		<div class="keys">
+			{#each NAV_KEYS as k (k.key)}
+				<button type="button" onclick={() => press(k.key)}>{k.label}</button>
+			{/each}
+		</div>
+		<form onsubmit={send}>
+			<input type="text" bind:value={text} maxlength="500" aria-label="Text to type into the focused field" />
+			<button type="submit" disabled={text === ''}>Send</button>
+		</form>
+		{#if problem !== ''}
+			<p role="alert">{problem}</p>
+		{/if}
+	{/if}
 </section>
 
 <style>
@@ -125,6 +191,20 @@
 		width: 100%;
 		max-height: 70vh;
 		object-fit: contain;
+		touch-action: none;
+	}
+	canvas.acts {
+		cursor: crosshair;
+	}
+	.keys,
+	form {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+	input {
+		flex: 1;
+		min-width: 0;
 	}
 	canvas[hidden] {
 		display: none;

@@ -254,8 +254,21 @@ func TestAttachScreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := append(append([]byte(nil), pkts[0].Data...), pkts[1].Data...); !p.Key || !p.Config || !bytes.Equal(p.Data, want) {
-		t.Errorf("first packet key=%v config=%v %d bytes, want the source's key frame with the config (%d bytes)", p.Key, p.Config, len(p.Data), len(want))
+	// A join starts at the GOP current when it attaches (ADR-0078 §5), which under load may
+	// be a later key frame of the recording than its first: the config once, then one of
+	// the recording's key frames, unchanged.
+	config := pkts[0].Data
+	keyed := false
+	if p.Key && p.Config && bytes.HasPrefix(p.Data, config) {
+		for _, k := range pkts[1:] {
+			if k.Key && bytes.Equal(p.Data[len(config):], k.Data) {
+				keyed = true
+				break
+			}
+		}
+	}
+	if !keyed {
+		t.Errorf("first packet key=%v config=%v %d bytes, want the config (%d bytes) then one of the source's key frames", p.Key, p.Config, len(p.Data), len(config))
 	}
 	h.Close()
 	if _, err := w.adb.AttachScreen(res.StreamID); !errors.Is(err, ErrScreenStreamUnknown) {
