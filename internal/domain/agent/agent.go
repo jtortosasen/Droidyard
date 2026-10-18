@@ -1,5 +1,7 @@
-// Package agent holds the capability through which the hook records what an agent ran
-// outside droidyard (ADR-0063): agent.recordCommand. It stores nothing: the record is
+// Package agent holds the capabilities through which the hook reports on an agent's work
+// outside droidyard: agent.recordCommand (ADR-0063), the Android commands it ran;
+// agent.recordEdit (ADR-0095 §3), the files its own tools wrote; and agent.checkWrite
+// (ADR-0095 §3), the verdict on a write before it is made. A record stores nothing: it is
 // the operation's result, which Activity reads through operation.wait. The package also
 // owns the facts about a record (the programs, the word pattern, the bounds, the client
 // names), so that the hook's reader (internal/assistant) and the capability's
@@ -108,8 +110,9 @@ func validate(r Record) (Record, error) {
 	return out, nil
 }
 
-// Register adds agent.recordCommand to the registry.
-func Register(reg *capability.Registry) {
+// Register adds agent.recordCommand, agent.recordEdit and agent.checkWrite to the registry.
+func Register(reg *capability.Registry, o Options) {
+	registerEdits(reg, o)
 	notDestructive := false
 	reg.MustRegister(capability.Descriptor{
 		Name:         "agent.recordCommand",

@@ -27,17 +27,18 @@ const (
 // Device is one entry of `adb devices -l`, classified, with the best-effort details
 // getprop and the emulator console add.
 type Device struct {
-	Device         string `json:"device" jsonschema:"required" jsonschema_description:"The serial: the device's identity, and the value of every device argument."`
-	State          string `json:"state" jsonschema:"required,enum=device,enum=offline,enum=unauthorized,enum=recovery,enum=sideload,enum=unknown"`
-	Kind           string `json:"kind" jsonschema:"required,enum=emulator,enum=physical"`
-	Online         bool   `json:"online" jsonschema:"required" jsonschema_description:"True when the state is device."`
-	Product        string `json:"product,omitempty"`
-	Model          string `json:"model,omitempty"`
-	TransportID    string `json:"transportId,omitempty"`
-	AndroidVersion string `json:"androidVersion,omitempty" jsonschema_description:"Best effort, from getprop; absent when the device did not answer in time."`
-	SDK            int    `json:"sdk,omitempty" jsonschema_description:"The API level; best effort, as androidVersion."`
-	AvdName        string `json:"avdName,omitempty" jsonschema_description:"The emulator's AVD name; best effort, as androidVersion."`
-	Host           string `json:"host,omitempty" jsonschema_description:"The name of the remote that lends the device, the prefix of its serial (<host>/<serial>); absent on a device of this machine."`
+	Device         string      `json:"device" jsonschema:"required" jsonschema_description:"The serial: the device's identity, and the value of every device argument."`
+	State          string      `json:"state" jsonschema:"required,enum=device,enum=offline,enum=unauthorized,enum=recovery,enum=sideload,enum=unknown"`
+	Kind           string      `json:"kind" jsonschema:"required,enum=emulator,enum=physical"`
+	Online         bool        `json:"online" jsonschema:"required" jsonschema_description:"True when the state is device."`
+	Product        string      `json:"product,omitempty"`
+	Model          string      `json:"model,omitempty"`
+	TransportID    string      `json:"transportId,omitempty"`
+	AndroidVersion string      `json:"androidVersion,omitempty" jsonschema_description:"Best effort, from getprop; absent when the device did not answer in time."`
+	SDK            int         `json:"sdk,omitempty" jsonschema_description:"The API level; best effort, as androidVersion."`
+	AvdName        string      `json:"avdName,omitempty" jsonschema_description:"The emulator's AVD name; best effort, as androidVersion."`
+	OccupiedBy     *OccupiedBy `json:"occupiedBy,omitempty" jsonschema_description:"Another chat that holds this device: its install, uninstall, launch, tap through an element, text input and emulator stop or wipe from this session are refused unless the configured conflict is allow, and an idle holder (stale) is taken over by an acting call. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. Reading the screen, the tree or the logs is never refused."`
+	Host           string      `json:"host,omitempty" jsonschema_description:"The name of the remote that lends the device, the prefix of its serial (<host>/<serial>); absent on a device of this machine."`
 
 	usb bool // devices -l reported usb:
 }

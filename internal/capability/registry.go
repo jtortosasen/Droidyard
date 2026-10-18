@@ -82,6 +82,9 @@ func (r *Registry) Register(d Descriptor) error {
 		// host's workspaces, and a binding belongs to a local MCP session (ADR-0099 §2).
 		return fmt.Errorf("capability %q: Lendable is for a global capability that is neither RawTarget nor Binding", d.Name)
 	}
+	if d.Occupies != "" && d.Occupies != OccupiesAct && d.Occupies != OccupiesBoot {
+		return fmt.Errorf("capability %q: Occupies %q is neither %q nor %q", d.Name, d.Occupies, OccupiesAct, OccupiesBoot)
+	}
 	if d.Audience == AudienceHuman && d.Scope == Global {
 		// Not an error by itself, but worth stating: human-only capabilities are
 		// rejected at the MCP transport, not hidden (ADR-0015 §6).

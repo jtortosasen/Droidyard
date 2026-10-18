@@ -5,6 +5,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import Ban from '@lucide/svelte/icons/ban';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
+	import Trash from '@lucide/svelte/icons/trash';
 	import Clock from '@lucide/svelte/icons/clock';
 	import Spinner from '../projects/Spinner.svelte';
 	import type { BuildModel } from '../build/build';
@@ -13,8 +14,9 @@
 	import type { SessionsModel, SessionsView } from '../projects/sessions';
 	import type { ActivityStore, Operation, WatchStatus } from './activity';
 	import { buildBlocks, elapsedText, type ActorFilter, type Block } from './blocks';
-	import { RECORD_COMMAND, type CommandRecord, type CommandRecordsModel } from './commands';
+	import { isRecord, type CommandRecord, type CommandRecordsModel } from './commands';
 	import { canRestore, EXPIRED_TEXT, itemText, type RestoreModel, type RestoreState } from './restore';
+	import { deletedBy, stateText, unaccounted, type TrashEntry, type TrashModel, type TrashRowState } from './trash';
 
 	// The activity stream (plan m2d step 8, direction C): a block per operation, newest at
 	// the bottom, following the stream unless the user scrolled up. Every field is a text
@@ -27,13 +29,15 @@
 		build: BuildModel;
 		/** Restore of a completed file.delete (plan m2j step 10); `workspaceId` is the project this tab shows. */
 		restore: RestoreModel;
+		/** The workspace's trash (ADR-0096): what was deleted before this tab's first operation, with Restore. */
+		trash: TrashModel;
 		/** The hook's records of an agent's Android commands (ADR-0063 §6). */
 		records: CommandRecordsModel;
 		workspaceId: string;
 		/** Shows the Build output tab. */
 		onopenoutput: () => void;
 	}
-	let { store, sessions, console: buildConsole, build, restore, records, workspaceId, onopenoutput }: Props = $props();
+	let { store, sessions, console: buildConsole, build, restore, trash, records, workspaceId, onopenoutput }: Props = $props();
 
 	/** How many console lines an expanded block draws: the newest ones. */
 	const LINES = 200;
@@ -47,6 +51,9 @@
 	let actor = $state<ActorFilter>('all');
 	let open = $state<Record<string, boolean>>({});
 	let restores = $state.raw<ReadonlyMap<string, RestoreState>>(new Map());
+	let trashed = $state.raw<readonly TrashEntry[]>([]);
+	let trashStates = $state.raw<ReadonlyMap<string, TrashRowState>>(new Map());
+	let trashError = $state.raw<string | null>(null);
 	let recorded = $state.raw<ReadonlyMap<string, CommandRecord>>(new Map());
 	let now = $state(Date.now());
 	let following = $state(true);
@@ -95,10 +102,27 @@
 		read();
 		return m.subscribe(read);
 	});
-	// A completed `agent.recordCommand` row has its result read once; the model caches it.
+	// The trash is read when the watch starts and each time it starts again (a reconnect).
+	$effect(() => {
+		if (status.state === 'watching') void trash.load();
+	});
+	$effect(() => {
+		const m = trash;
+		const read = () => {
+			trashed = m.entries;
+			trashError = m.error;
+			trashStates = new Map(m.entries.flatMap((e) => {
+				const s = m.stateOf(e.id);
+				return s === undefined ? [] : [[e.id, s] as const];
+			}));
+		};
+		read();
+		return m.subscribe(read);
+	});
+	// A completed `agent.recordCommand` or `agent.recordEdit` row has its result read once; the model caches it.
 	$effect(() => {
 		const m = records;
-		for (const o of operations) if (o.capability === RECORD_COMMAND && o.state === 'completed') void m.load(o.id);
+		for (const o of operations) if (isRecord(o.capability) && o.state === 'completed') void m.load(o.id, o.capability);
 		const read = () => {
 			recorded = new Map(
 				operations.flatMap((o) => {
@@ -126,9 +150,24 @@
 		),
 	);
 
+	// The entries no operation of the store accounts for, oldest first like the stream, under
+	// the same filters: an entry's name makes it an agent's; a selected agent keeps the entries
+	// of its label alone.
+	const deleted = $derived(
+		unaccounted(trashed, operations, workspaceId)
+			.filter((e) => {
+				const who = deletedBy(e);
+				if (actor === 'you' && !who.you) return false;
+				if (actor === 'agents' && who.you) return false;
+				return agentKey === null || (!who.you && labels.get(agentKey) === who.label);
+			})
+			.reverse(),
+	);
+
 	// Follow the bottom as blocks arrive, unless the user scrolled up.
 	$effect(() => {
 		void blocks.length;
+		void deleted.length;
 		void consoleView?.count;
 		if (!following) return;
 		void tick().then(() => {
@@ -149,6 +188,12 @@
 	function onscroll() {
 		if (!scroller) return;
 		following = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+	}
+
+	/** The time of day; with the date too when it is not today. */
+	function whenText(iso: string, at: number): string {
+		const d = new Date(iso);
+		return new Date(at).toDateString() === d.toDateString() ? d.toLocaleTimeString() : d.toLocaleString();
 	}
 
 	function lines(): string[] {
@@ -192,11 +237,35 @@
 				</button>
 			</span>
 		{/if}
+		{#if trashError !== null}
+			<span class="note">Trash: {trashError}</span>
+		{/if}
 		{#if status.state !== 'watching'}
 			<span class="note">Watching: {status.state}{status.detail ? ` (${status.detail})` : ''}</span>
 		{/if}
 	</div>
 	<div class="stream" bind:this={scroller} {onscroll}>
+		{#each deleted as e (e.id)}
+			{@const who = deletedBy(e)}
+			{@const st = trashStates.get(e.id)}
+			<article class="block" data-tone="deleted">
+				<div class="head">
+					<span class="status" data-tone="deleted" title="deleted"><Trash size={14} /></span>
+					<span class="title">Deleted</span>
+					<span class="actor" class:you={who.you}>{who.label}</span>
+					<span class="target">{e.path}</span>
+					<span class="time">{whenText(e.deletedAt, now)}</span>
+				</div>
+				<div class="restore">
+					{#if st === undefined || st.kind === 'failed'}
+						<button type="button" class="link" onclick={() => void trash.restore(e.id)}>Restore</button>
+					{/if}
+					{#if st !== undefined}
+						<p class="why" class:err={st.kind === 'failed'}>{stateText(st)}</p>
+					{/if}
+				</div>
+			</article>
+		{/each}
 		{#each blocks as b (b.id)}
 			{@const expandable = b.output.kind !== 'none'}
 			<article class="block" data-tone={b.tone}>
@@ -262,7 +331,9 @@
 				{/if}
 			</article>
 		{:else}
-			<p class="note">Nothing here yet.</p>
+			{#if deleted.length === 0}
+				<p class="note">Nothing here yet.</p>
+			{/if}
 		{/each}
 	</div>
 </section>
@@ -350,6 +421,9 @@
 	}
 	.block[data-tone='failure'] {
 		border-left-color: var(--danger);
+	}
+	.block[data-tone='deleted'] {
+		border-left-color: var(--text-3);
 	}
 	.head {
 		display: flex;

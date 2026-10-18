@@ -87,6 +87,9 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 			if cerr := ctx.Err(); cerr != nil {
 				return nil, cerr
 			}
+			// Who holds a device is told to every caller but the holder and its chat; the UI and
+			// the CLI are told of every holder (ADR-0094 §1).
+			adb.markOccupied(devices, call.Origin.ID)
 			return ListResult{Devices: devices, Warnings: warnings}, nil
 		},
 	})
@@ -137,7 +140,7 @@ func (a *ADB) listFor(ctx context.Context, who capability.Origin) ([]Device, []s
 	// error here (ratifications §Operational defaults).
 	warnings := a.Check(ctx).Warnings
 
-	listed, err := a.listAll(ctx, res.Path)
+	listed, err := a.listAllTracked(ctx, res.Path)
 	if err != nil {
 		return nil, nil, err
 	}

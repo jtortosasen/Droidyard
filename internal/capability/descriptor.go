@@ -128,6 +128,18 @@ type Annotations struct {
 	Reason string
 }
 
+// Occupies is how a capability holds a device for the calling session
+// (Descriptor.Occupies).
+type Occupies string
+
+const (
+	// OccupiesAct: an acting call (install, uninstall, launch, tap or type through an
+	// element, emulator stop or wipe) holds a free device and may be refused a held one.
+	OccupiesAct Occupies = "act"
+	// OccupiesBoot: a call that boots the device it holds, taking it over; never refused.
+	OccupiesBoot Occupies = "boot"
+)
+
 // Handler runs a capability. It must honour ctx cancellation and must be safe for
 // concurrent invocation.
 type Handler func(ctx context.Context, call *Call) (any, error)
@@ -188,6 +200,14 @@ type Descriptor struct {
 	// Origin.ID is a session registered in the core's Sessions: a CLI, WebSocket or
 	// plain HTTP connection has none.
 	Binding bool
+
+	// Occupies says the capability acts on a device the calling MCP session then holds
+	// (ADR-0094 §2): OccupiesAct for an acting call, which holds a free device and is
+	// refused one another live session holds; OccupiesBoot for a call that boots the
+	// device it then holds. The device package makes the check in the call's preamble (its
+	// Authorize hook), so the descriptor lists the code in Errors for an act and not for a
+	// boot, which is never refused. Not published: the schema shows the code.
+	Occupies Occupies
 
 	// Idempotent says repeating the call is safe and equivalent.
 	Idempotent bool

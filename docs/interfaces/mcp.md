@@ -32,6 +32,10 @@ projection and the verdict on every MCP feature beyond tool calls.
   next session there first, under `workspace_enter`'s rule. The
   variable is not documented for MCP servers and cursor-agent sets none: then a resumed
   chat is bound to the main tree and enters again, as after a daemon restart.
+- **A session occupies the linked worktree it enters and the device it acts on**
+  ([ADR-0094](../adr/0094-occupation-by-a-session.md)): another chat is refused
+  `WORKSPACE_OCCUPIED` or `DEVICE_OCCUPIED` with the way out. Entering the main tree releases
+  both; so do the connection's end and the user's release.
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
 - The adapter opens the bound root when the session starts; if any client closes it
@@ -68,12 +72,12 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | Not exposed | Why |
 | --- | --- |
 | `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `operation.watch`, `build.watchOutput`, `workspace.watch`, `session.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
-| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md)). The core rejects them from an MCP session: enforcement, not just omission. |
-| `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
-| `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI's diff, tree, history, fetch, branches and submodules use them. |
+| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget`, `session.release` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md); [ADR-0094](../adr/0094-occupation-by-a-session.md) §3). The core rejects them from an MCP session: enforcement, not just omission. |
+| `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.trash`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
+| `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI uses them. |
 | `device.tap`, `device.swipe`, `device.pressKey` | Audience `human` ([ADR-0079](../adr/0079-screen-input-capabilities.md)): input from the live view. |
 | `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
-| `agent.recordCommand` | Audience `human` ([ADR-0063](../adr/0063-hook-observes-android-commands.md) §5): it is the hook's channel for recording what an agent ran outside droidyard; the CLI calls it. |
+| `agent.recordCommand`, `agent.recordEdit`, `agent.checkWrite` | Audience `human` ([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md) §3): the hook's channel: records of commands and edits, check before a write. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and
@@ -260,7 +264,7 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; two adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md)) |
+| **Assistant-side hooks** | Not part of MCP; three adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md), [ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md): the client's edit tools, checked before and recorded after, joined to the chat's session) |
 
 **Elicitation** closes problems we have written down: SDK licence consent
 ([sdk](../subsystems/sdk.md); fallback: an explicit capability call and an error that

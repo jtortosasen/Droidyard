@@ -833,12 +833,25 @@ func TestStopHoldsTheDeviceWriteKey(t *testing.T) {
 		serial + ".emukill.stays": "",
 	})
 
+	// Each operation is cancelled and waited for before scaleStop's cleanup puts the stop's
+	// bounds back, which a still running stop reads (main's CI -race, 2026-10-18).
+	settle := func(id string) {
+		t.Cleanup(func() {
+			f.ops.Cancel(id)
+			for {
+				snap, err := f.ops.Wait(context.Background(), id, time.Now().Add(5*time.Second))
+				if err != nil || snap.State.Terminal() {
+					return
+				}
+			}
+		})
+	}
 	stopID, err := f.ops.Start(context.Background(), capability.Request{
 		Capability: "emulator.stop", Params: []byte(`{"device":"` + serial + `"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.ops.Cancel(stopID)
+	settle(stopID)
 
 	launchID, err := f.ops.Start(context.Background(), capability.Request{
 		Capability: "device.launch",
@@ -846,7 +859,7 @@ func TestStopHoldsTheDeviceWriteKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.ops.Cancel(launchID)
+	settle(launchID)
 
 	snap, err := f.ops.Wait(context.Background(), launchID, time.Now().Add(-time.Second))
 	if err != nil {
@@ -862,7 +875,7 @@ func TestStopHoldsTheDeviceWriteKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.ops.Cancel(otherID)
+	settle(otherID)
 	other, err := f.ops.Wait(context.Background(), otherID, time.Now().Add(-time.Second))
 	if err != nil {
 		t.Fatal(err)

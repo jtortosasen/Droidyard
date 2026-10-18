@@ -75,4 +75,5 @@ func (o *Operations) RegisterCapabilities() {
 	})
 
 	o.registerSessionWatch()
+	o.registerSessionRelease()
 }

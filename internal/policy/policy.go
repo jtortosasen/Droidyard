@@ -10,14 +10,14 @@
 // the proof is git's own files inside the trusted repository (platform.LinkedWorktree).
 // `droidyard trust <path>` still trusts exactly the path it is given.
 //
-// Version 1 of the file has seven sections: `trust`, `devices`, `shell`, `gradle`,
-// `tools`, `hosting` and `remotes` (ADR-0032 §1; ADR-0098 §6). Every key is optional; a
-// `null` value is its default. Unknown keys, at the top level and inside a known section,
-// are kept on every rewrite and ignored, so a newer droidyard's keys survive an older
-// one's edit. Every path is absolute or the whole file is invalid (ADR-0032 §4): a
-// relative entry would canonicalise against the process's cwd, trusting or enabling the
-// wrong thing. A peer's or a remote's name, fingerprint or address that fails its rule
-// (hosting.go) makes the file invalid in the same way.
+// Version 1 of the file has eight sections: `trust`, `devices`, `shell`, `gradle`,
+// `tools` (ADR-0032 §1), `occupation` (ADR-0094 §7), `hosting` and `remotes` (ADR-0098 §6).
+// Every key is optional; a `null` value is its default. Unknown keys, at the top level and
+// inside a known section, are kept on every rewrite and ignored, so a newer droidyard's
+// keys survive an older one's edit. Every path is absolute or the whole file is invalid
+// (ADR-0032 §4): a relative entry would canonicalise against the process's cwd, trusting or
+// enabling the wrong thing. A peer's or a remote's name, fingerprint or address that fails
+// its rule (hosting.go) makes the file invalid in the same way.
 //
 // The section a check reads — trust, shell, devices, hosting — is read from one
 // size-and-mtime snapshot, so a hand edit or a `droidyard trust` takes effect without a
@@ -212,6 +212,29 @@ func (p *Policy) ShellAllowed(root string) (bool, *capability.Error) {
 		return true, nil
 	}
 	return false, p.shellDisabled(root, "")
+}
+
+// Occupation is `occupation.conflict` and `occupation.staleAfterMinutes` (ADR-0094 §7):
+// what a session that would cross another's worktree is told, and how long a session may
+// go without a request before it is shown idle. The defaults are refuse and 120 minutes;
+// they are also what a missing or unusable file gives, since refuse is the strictest of
+// the three. Read live, by size and mtime, like the rest.
+func (p *Policy) Occupation() (conflict string, staleAfter time.Duration) {
+	conflict, staleAfter = capability.OccupationRefuse, capability.DefaultStaleAfter
+	if p.dirErr != nil {
+		return conflict, staleAfter
+	}
+	snap := p.snapshot()
+	if snap.err != nil || !snap.present {
+		return conflict, staleAfter
+	}
+	if c := snap.doc.occupation.conflict; c != "" {
+		conflict = c
+	}
+	if n := snap.doc.occupation.staleAfterMinutes; n != 0 {
+		staleAfter = time.Duration(n) * time.Minute
+	}
+	return conflict, staleAfter
 }
 
 // Admission is the physical-device policy's answer for one serial (ADR-0032 §2;
@@ -767,6 +790,15 @@ type document struct {
 	tools   toolsSection
 	hosting HostingPolicy
 	remotes []Remote
+
+	occupation occupationSection
+}
+
+// occupationSection is the occupation section (ADR-0094 §7): conflict is "" and
+// staleAfterMinutes 0 for a key that is not set.
+type occupationSection struct {
+	conflict          string
+	staleAfterMinutes int
 }
 
 // trustSection is the trust section: the two known lists plus every other key, kept
@@ -842,7 +874,55 @@ func decode(data []byte) (*document, error) {
 	if err := decodeRemotes(top["remotes"], doc); err != nil {
 		return nil, err
 	}
+	if err := decodeOccupation(top["occupation"], doc); err != nil {
+		return nil, err
+	}
 	return doc, nil
+}
+
+// maxStaleAfterMinutes is the longest idle threshold the file may set: a week
+// (ADR-0094 §7).
+const maxStaleAfterMinutes = 10080
+
+func decodeOccupation(raw json.RawMessage, doc *document) error {
+	if absent(raw) {
+		return nil
+	}
+	var o map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &o); err != nil {
+		return fmt.Errorf("occupation: %w", err)
+	}
+	for k, v := range o {
+		switch k {
+		case "conflict":
+			if isNull(v) {
+				continue
+			}
+			var c string
+			if err := json.Unmarshal(v, &c); err != nil {
+				return fmt.Errorf("occupation.conflict: %w", err)
+			}
+			switch c {
+			case capability.OccupationRefuse, capability.OccupationAsk, capability.OccupationAllow:
+				doc.occupation.conflict = c
+			default:
+				return fmt.Errorf("occupation.conflict: %q is not refuse, ask or allow", c)
+			}
+		case "staleAfterMinutes":
+			if isNull(v) {
+				continue
+			}
+			var n int
+			if err := json.Unmarshal(v, &n); err != nil {
+				return fmt.Errorf("occupation.staleAfterMinutes: %w", err)
+			}
+			if n < 1 || n > maxStaleAfterMinutes {
+				return fmt.Errorf("occupation.staleAfterMinutes: %d is not between 1 and %d", n, maxStaleAfterMinutes)
+			}
+			doc.occupation.staleAfterMinutes = n
+		}
+	}
+	return nil
 }
 
 // rejectDuplicateKeys fails a document that repeats a key within one object, at any

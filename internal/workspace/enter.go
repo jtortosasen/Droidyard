@@ -31,6 +31,11 @@ type EnterParams struct {
 // repository included, is refused and the binding stays. The workspace is opened if it is
 // closed and no trust is granted (ADR-0015 §5): trust comes from the project's own
 // (platform.LinkedWorktree; policy.Trusted).
+//
+// A linked worktree is occupied by the session that enters it (ADR-0094): one that another
+// live, non-idle session of another chat occupies fails WORKSPACE_OCCUPIED and the binding
+// stays, unless occupation.conflict is allow; the main tree is never occupied, and entering
+// it frees what the session occupied.
 func (r *Registry) enter(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(EnterParams)
 	if r.opts.Ops == nil {
@@ -61,6 +66,19 @@ func (r *Registry) enter(ctx context.Context, call *capability.Call) (any, error
 	if err != nil {
 		return nil, err
 	}
-	sessions.Bound(call.Origin.ID, info.ID, info.Root)
+	// The decision and the binding are one step under the registry's lock, so two sessions
+	// entering one free worktree cannot both hold it (ADR-0094 §1). The main tree is never
+	// held; a linked worktree is held, unless another chat does (refused, or allowed and
+	// bound without holding, by occupation.conflict).
+	if holder, refused := sessions.Occupy(call.Origin.ID, info.ID, info.Root, root != project); refused {
+		return nil, occupiedError(info.Root, holder)
+	}
 	return withGradle(info), nil
+}
+
+// occupiedError is WORKSPACE_OCCUPIED for a worktree held by holder; the words are the
+// ones a refused write is told (capability.Holder.Who, OccupiedWayOut).
+func occupiedError(root string, holder capability.Holder) *capability.Error {
+	return capability.Errorf(capability.ErrWorkspaceOccupied, "%s works in %s", holder.Who(), root).
+		WithNextStep(capability.OccupiedWayOut(root))
 }

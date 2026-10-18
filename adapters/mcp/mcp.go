@@ -305,7 +305,9 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 	// again, and Named publishes only a change (ADR-0083 §1).
 	hooks := &server.Hooks{}
 	hooks.AddOnSuccess(func(ctx context.Context, _ any, _ mcpgo.MCPMethod, _ any, _ any) {
-		sessionOf(ctx).named()
+		c := sessionOf(ctx)
+		c.named()
+		c.seen()
 	})
 	srv := server.NewMCPServer("droidyard", s.version,
 		server.WithToolCapabilities(false),
@@ -557,6 +559,14 @@ func (c *session) named() {
 	}
 }
 
+// seen tells the core the session made a request, which ends its idleness (ADR-0094 §4).
+// A context that carries no session does nothing.
+func (c *session) seen() {
+	if c != nil {
+		c.sessions.Seen(c.id)
+	}
+}
+
 // openBound opens the session's bound root, once, before the session reads its first
 // MCP message, so no tool call can precede it (ADR-0019 §Sessions: "The binding opens
 // its root, once"; ADR-0020 §Adapter projections; plan m1c, R4). It runs as client mcp
@@ -568,7 +578,9 @@ func (c *session) named() {
 // tree when the root is a linked worktree, else the root itself (ADR-0082 §3). A chat
 // whose last binding the registry remembers is then moved there, as workspace_enter
 // would, so its rule is the same one (ADR-0088 §3); a root that cannot be entered is
-// forgotten and the session stays where its hello put it.
+// forgotten and the session stays where its hello put it. A worktree another session
+// holds is no root that cannot be entered: the session stays where its hello put it, and
+// the memory is kept (ADR-0094 §3).
 func (s *Server) openBound(ctx context.Context, id, root, chat string) {
 	if root == "" {
 		return
@@ -577,7 +589,7 @@ func (s *Server) openBound(ctx context.Context, id, root, chat string) {
 		(*f)()
 	}
 	sessions := s.ops.Sessions()
-	origin := capability.Origin{ID: id, Root: root}
+	origin := capability.Origin{ID: id, Root: root, Client: capability.ClientMCP}
 	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP, Origin: origin})
 	switch {
 	case err != nil:
@@ -612,13 +624,21 @@ func (s *Server) openBound(ctx context.Context, id, root, chat string) {
 	}
 	params, _ := json.Marshal(map[string]string{"root": remembered})
 	moved, err := s.ops.Invoke(ctx, capability.Request{Capability: enterCapability, Params: params, Client: capability.ClientMCP,
-		Origin: capability.Origin{ID: id, Root: opened.Root}})
+		Origin: capability.Origin{ID: id, Root: opened.Root, Client: capability.ClientMCP}})
+	// A worktree another session now holds is not restored, and the memory stays: it is
+	// the chat's again once the holder moves away (ADR-0094 §3). Any other failure forgets
+	// it, as before.
+	occupied := func(e *capability.Error) bool { return e != nil && e.Code == capability.ErrWorkspaceOccupied }
 	switch {
 	case err != nil:
-		sessions.Forget(chat)
+		if !occupied(capability.AsError(err)) {
+			sessions.Forget(chat)
+		}
 		s.log.Printf("session bound to %s: its chat's last binding %s was not entered: %v", opened.Root, remembered, err)
 	case moved.State != capability.StateCompleted:
-		sessions.Forget(chat)
+		if !occupied(moved.Error) {
+			sessions.Forget(chat)
+		}
 		s.log.Printf("session bound to %s: its chat's last binding %s was not entered: %s: %v", opened.Root, remembered, moved.State, moved.Error)
 	}
 }

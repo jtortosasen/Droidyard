@@ -173,6 +173,20 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
 			if last {
 				end = ""
 			}
+			// The edit tools' entry follows the Bash one, before and after a write only.
+			edit := ""
+			if name != "PostToolUseFailure" {
+				edit = fmt.Sprintf(`,
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/bin/droidyard hook --client claude --root %s"
+          }
+        ]
+      }`, root)
+			}
 			return fmt.Sprintf(`    %q: [
       {
         "matcher": "Bash",
@@ -182,9 +196,9 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
             "command": "/opt/bin/droidyard hook --client claude --root %s"
           }
         ]
-      }
+      }%s
     ]%s
-`, name, root, end)
+`, name, root, edit, end)
 		}
 		return `{
   "permissions": {
@@ -211,12 +225,20 @@ func TestInitWritesEachClientsFiles(t *testing.T) {
       {
         "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
         "matcher": "Delete"
+      },
+      {
+        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
+        "matcher": "Write"
       }
     ],
     "postToolUse": [
       {
         "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
         "matcher": "Shell"
+      },
+      {
+        "command": "/opt/bin/droidyard hook --client cursor --root %[1]s",
+        "matcher": "Write"
       }
     ],
     "postToolUseFailure": [

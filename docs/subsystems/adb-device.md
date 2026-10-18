@@ -71,6 +71,9 @@ target). A call without `device` fails schema validation at `Start`, before any 
   own selection client-side; the CLI would take `--device`, else `ANDROID_SERIAL`, adb's own
   convention (ratified 2026-09-29; not built, the CLI passes `device` in `--params`); an MCP agent
   passes it, since sessions are bound to a workspace, never to a device.
+- An MCP session's first acting call on a free device occupies it; another chat's acting call is
+  `DEVICE_OCCUPIED`, decided after the policy re-check and before any command that changes the
+  device. Reads, the UI and the CLI are never refused ([ADR-0094](../adr/0094-occupation-by-a-session.md)).
 
 ## Transport to the device
 

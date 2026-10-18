@@ -86,7 +86,7 @@ func (a *ADB) authorize(ctx context.Context, who capability.Origin, serial, agai
 	// The client/server version comparison, once per resolved binary and before any
 	// command that could restart the shared server; its warnings go on the result.
 	warnings := a.Check(ctx).Warnings
-	all, err := a.listAll(ctx, res.Path)
+	all, err := a.listAllTracked(ctx, res.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +158,21 @@ func (a *ADB) lentTo(peer string, d Device, all []Device) bool {
 		return false
 	}
 	return a.lending != nil && a.lending.Lent(peer, d.Device)
+}
+
+// authorizeActing is authorize for a capability that acts on the device (Descriptor.Occupies
+// is OccupiesAct): the check of ADR-0094 §2 follows the policy check and the listing, so a
+// serial that is not listed or not admitted is refused as before, and nothing has changed on
+// the device when DEVICE_OCCUPIED is returned.
+func (a *ADB) authorizeActing(ctx context.Context, call *capability.Call, serial, again string) (*target, error) {
+	t, err := a.authorize(ctx, call.Origin, serial, again)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.OccupyFor(call, serial); err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
 // notFound is DEVICE_NOT_FOUND for a serial the listing does not hold. Its online list

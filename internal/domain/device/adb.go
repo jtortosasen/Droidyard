@@ -48,6 +48,9 @@ type ADB struct {
 	lending Lending
 	remotes Remotes
 	uploads *hosting.Uploads
+	// occupation holds who occupies which device (ADR-0094), set once at wiring; nil holds
+	// nothing and refuses nothing.
+	occupation Occupation
 	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
 	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
 	toolKey policy.ToolKey

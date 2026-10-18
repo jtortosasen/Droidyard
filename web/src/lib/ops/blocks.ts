@@ -11,10 +11,10 @@
 //   - another build, or one the console no longer holds: "open in Build output";
 //   - anything else (another client's non-build operation): nothing, as nothing is known.
 import { BUILD_CAPABILITIES } from '../build/mirror';
-import { duration, keyOf } from '../projects/sessions';
+import { duration, isAgentOp, keyOf } from '../projects/sessions';
 import { isTerminal, type Operation } from './activity';
 import { inert } from '../devices/text';
-import { RECORD_COMMAND, type CommandRecord } from './commands';
+import { CHECK_WRITE, isRecord, type CommandRecord } from './commands';
 
 export type BlockTone = 'running' | 'queued' | 'success' | 'failure' | 'cancelled' | 'unseen';
 
@@ -89,15 +89,34 @@ export function targetOf(op: Pick<Operation, 'target'>): string {
 }
 
 export function actorOf(op: Pick<Operation, 'client' | 'session'>, labels: ReadonlyMap<string, string>): string {
+	// An operation whose session has a name is an agent's, under that name, whatever
+	// connection carried it: an agent's `droidyard trash` is a CLI call joined to its
+	// session (ADR-0095 §2).
+	if (op.session && isAgentOp(op)) return labels.get(op.session.id) || op.session.name || 'agent';
 	if (op.client === 'ui' || op.client === 'cli') return 'You';
 	if (op.client === 'mcp') return (op.session && labels.get(op.session.id)) || op.session?.name || 'agent';
 	return 'Unknown';
 }
 
+/** The user's own call: from the UI or the CLI, and joined to no agent's session. */
+function isYours(op: Operation): boolean {
+	return (op.client === 'ui' || op.client === 'cli') && !isAgentOp(op);
+}
+
+/** An agent's call: an MCP call, or a CLI call joined to an agent's session (ADR-0095). */
+function isAgents(op: Operation): boolean {
+	return op.client === 'mcp' || isAgentOp(op);
+}
+
 /** The user's reads (the tab's own, and the CLI's) are not activity: m2b D16. */
 function hidden(op: Operation): boolean {
-	if (op.capability === RECORD_COMMAND) return false; // an agent's record, whatever client carried it
-	return keyOf(op) === null && (op.client === 'ui' || op.client === 'cli');
+	// The hook's question before an edit is plumbing, as the UI's reads are (ADR-0095 §3).
+	if (op.capability === CHECK_WRITE) return true;
+	if (isRecord(op.capability)) return false; // an agent's record, whatever client carried it
+	// Opening a project from the hook or `trash` is connecting, not work, though joined to an
+	// agent's session (ADR-0095 §2); only an MCP session's own bound open is shown.
+	if (op.capability === 'workspace.open' && op.client !== 'mcp') return true;
+	return keyOf(op) === null && isYours(op);
 }
 
 function toneOf(op: Operation): BlockTone {
@@ -127,7 +146,7 @@ export function outputOf(op: Operation, ctx: Pick<BlockContext, 'heldBuild'>, me
 
 /** The block of one operation; `message` is the tab's own failure text for it, when it has one. */
 export function blockOf(op: Operation, ctx: BlockContext, message?: string): Block {
-	if (op.capability === RECORD_COMMAND) return recordBlock(op, ctx);
+	if (isRecord(op.capability)) return recordBlock(op, ctx);
 	return {
 		id: op.id,
 		capability: op.capability,
@@ -135,7 +154,7 @@ export function blockOf(op: Operation, ctx: BlockContext, message?: string): Blo
 		title: titleOf(op.capability),
 		actor: actorOf(op, ctx.labels),
 		target: targetOf(op),
-		you: op.client === 'ui' || op.client === 'cli',
+		you: isYours(op),
 		tone: toneOf(op),
 		stateText: op.state === 'unseen' ? 'ended unseen' : op.state,
 		startedAt: op.startedAt,
@@ -153,8 +172,9 @@ function recordBlock(op: Operation, ctx: BlockContext): Block {
 		id: op.id,
 		capability: op.capability,
 		workspace: op.workspace,
-		title: rec ? `ran \`${rec.command}\` outside droidyard` : titleOf(op.capability),
-		actor: rec?.actor ?? 'Agent',
+		title: rec ? (rec.title ?? `ran \`${rec.command}\` outside droidyard`) : titleOf(op.capability),
+		// Under its session when the record was joined to one (ADR-0095 §2), else the client's.
+		actor: op.session && isAgentOp(op) ? ctx.labels.get(op.session.id) || op.session.name || 'Agent' : (rec?.actor ?? 'Agent'),
 		target: targetOf(op),
 		you: false,
 		tone: toneOf(op),
@@ -164,15 +184,20 @@ function recordBlock(op: Operation, ctx: BlockContext): Block {
 		ticking: !isTerminal(op.state),
 		blockedBy: op.blockedBy,
 		output: { kind: 'none' },
-		command: rec ? { text: rec.command, suggested: rec.suggested } : undefined,
+		command: rec && rec.title === undefined ? { text: rec.command, suggested: rec.suggested } : undefined,
 	};
 }
 
 function admitted(op: Operation, f: BlockFilter): boolean {
 	if (hidden(op)) return false;
-	if (op.capability === RECORD_COMMAND) return f.actor !== 'you' && f.agentKey === null;
-	if (f.actor === 'you' && op.client !== 'ui' && op.client !== 'cli') return false;
-	if (f.actor === 'agents' && op.client !== 'mcp') return false;
+	if (isRecord(op.capability)) {
+		// A record joined to a session narrows with it (ADR-0095 §2); one with no session
+		// shows only when no agent is selected.
+		if (f.actor === 'you') return false;
+		return f.agentKey === null || keyOf(op) === f.agentKey;
+	}
+	if (f.actor === 'you' && !isYours(op)) return false;
+	if (f.actor === 'agents' && !isAgents(op)) return false;
 	return f.agentKey === null || keyOf(op) === f.agentKey;
 }
 

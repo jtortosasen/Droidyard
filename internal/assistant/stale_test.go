@@ -110,10 +110,9 @@ func TestHookEntriesThatAreNotInitsAreKept(t *testing.T) {
 		}
 		cu = append(cu, cursor(strings.ReplaceAll(cmd, "--client claude", "--client cursor")))
 	}
-	// a Cursor element for the other client, and one whose matcher init does not write
-	// for the event
+	// a Cursor element for the other client, and one whose matcher init writes for no event
 	cu = append(cu, cursor("/opt/bin/droidyard hook --client claude --root "+root),
-		`{"command": "/old/droidyard hook --client cursor --root `+root+`", "matcher": "Write"}`)
+		`{"command": "/old/droidyard hook --client cursor --root `+root+`", "matcher": "Read"}`)
 	// a Claude element with another matcher, and one with an extra key
 	cl = append(cl, `{"matcher": "Edit", "hooks": [{"type": "command", "command": "/old/droidyard hook --client claude --root `+root+`"}]}`,
 		`{"matcher": "Bash", "timeout": 5, "hooks": [{"type": "command", "command": "/old/droidyard hook --client claude --root `+root+`"}]}`)
@@ -132,6 +131,9 @@ func TestHookEntriesThatAreNotInitsAreKept(t *testing.T) {
 		}
 		return n
 	}
+	// init adds one element per entry it writes to an event: the Bash one, and the edit
+	// tools' where the event has one (ADR-0095 §3).
+	added := map[string]int{"PreToolUse": 2, "PostToolUse": 2, "PostToolUseFailure": 1, "beforeShellExecution": 1, "preToolUse": 2, "postToolUse": 2, "postToolUseFailure": 1}
 	for _, tc := range []struct {
 		c    Client
 		rel  string
@@ -143,8 +145,8 @@ func TestHookEntriesThatAreNotInitsAreKept(t *testing.T) {
 			o := opts(root, tc.c)
 			mustRun(t, o)
 			for ev, n := range count(t, tc.rel) {
-				if n != tc.n+1 {
-					t.Errorf("%s holds %d elements after init; want the user's %d and one of init's", ev, n, tc.n)
+				if n != tc.n+added[ev] {
+					t.Errorf("%s holds %d elements after init; want the user's %d and init's %d", ev, n, tc.n, added[ev])
 				}
 			}
 			mustRun(t, uninstall(o))

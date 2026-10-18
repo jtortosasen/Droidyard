@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/jtortosasen/droidyard/internal/daemon"
 )
 
 // The reader behind `droidyard hook` (ADR-0061): one hook event in, a decision out,
@@ -45,6 +47,9 @@ type HookEvent struct {
 	Cwd string
 	// DeletePath is the absolute path of a Cursor `Delete` tool call; Command is "" then.
 	DeletePath string
+	// Chat is the event's chat id (Claude Code's session_id, Cursor's conversation_id),
+	// "" when it carries none or one that is not a chat id (ADR-0095 §1).
+	Chat string
 }
 
 // DecodeHookEvent reads one event from the client's stdin. ok is false for malformed
@@ -55,6 +60,8 @@ func DecodeHookEvent(c Client, stdin []byte) (ev HookEvent, ok bool) {
 		Tool      string `json:"tool_name"`
 		Command   string `json:"command"`
 		Cwd       string `json:"cwd"`
+		SessionID string `json:"session_id"`
+		ConvID    string `json:"conversation_id"`
 		ToolInput struct {
 			Command  string `json:"command"`
 			FilePath string `json:"file_path"`
@@ -68,16 +75,26 @@ func DecodeHookEvent(c Client, stdin []byte) (ev HookEvent, ok bool) {
 		if raw.Event != "PreToolUse" || raw.Tool != "Bash" || raw.ToolInput.Command == "" {
 			return HookEvent{}, false
 		}
-		return HookEvent{Command: raw.ToolInput.Command, Cwd: raw.Cwd}, true
+		return HookEvent{Command: raw.ToolInput.Command, Cwd: raw.Cwd, Chat: chatOf(raw.SessionID)}, true
 	case Cursor:
+		chat := chatOf(raw.ConvID)
 		switch {
 		case raw.Event == "beforeShellExecution" && raw.Command != "":
-			return HookEvent{Command: raw.Command, Cwd: raw.Cwd}, true
+			return HookEvent{Command: raw.Command, Cwd: raw.Cwd, Chat: chat}, true
 		case raw.Event == "preToolUse" && raw.Tool == "Delete" && raw.ToolInput.FilePath != "":
-			return HookEvent{DeletePath: raw.ToolInput.FilePath}, true
+			return HookEvent{DeletePath: raw.ToolInput.FilePath, Chat: chat}, true
 		}
 	}
 	return HookEvent{}, false
+}
+
+// chatOf is an event's chat id when it is one the daemon accepts (daemon.ChatPattern), else
+// "": a hello never carries a value the daemon would clear (ADR-0095 §1).
+func chatOf(id string) string {
+	if daemon.ChatPattern.MatchString(id) {
+		return id
+	}
+	return ""
 }
 
 // Route is a delete the hook redirects to `droidyard trash`: the operands as typed and

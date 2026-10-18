@@ -82,6 +82,16 @@ type Described struct {
 type WorktreeInfo struct {
 	Root   string `json:"root" jsonschema:"required" jsonschema_description:"The worktree's root, absolute and canonical; a path workspace.enter accepts."`
 	Branch string `json:"branch,omitempty" jsonschema_description:"The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."`
+	// OccupiedBy is who holds the worktree, when another chat does (ADR-0094 §1).
+	OccupiedBy *OccupiedBy `json:"occupiedBy,omitempty" jsonschema_description:"Another chat that holds this worktree: workspace_enter there from this session is refused unless the configured conflict is allow, and an idle holder (stale) is taken over on entry. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. The main tree is never held."`
+}
+
+// OccupiedBy is the holder of a worktree, as another session is told: no session id
+// (ADR-0048 §2).
+type OccupiedBy struct {
+	Name  string    `json:"name,omitempty" jsonschema_description:"What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."`
+	Since time.Time `json:"since" jsonschema:"required" jsonschema_description:"When the holder took the worktree."`
+	Stale bool      `json:"stale,omitempty" jsonschema_description:"True while the holder has made no request for the configured time: entering takes the worktree over. Absent otherwise."`
 }
 
 // GradleInfo is the Gradle root as workspace.open and workspace.describe report it
@@ -665,7 +675,7 @@ func (r *Registry) mainRoot(root string) string {
 // its main tree when its root is a worktree, else of its root when that holds a `.git`
 // directory. It reads a few small files and runs no git; a project that is no
 // repository, or has no linked worktree, has none (nil).
-func (r *Registry) worktreesOf(info Info) []WorktreeInfo {
+func (r *Registry) worktreesOf(info Info, asking string) []WorktreeInfo {
 	main := info.MainRoot
 	if main == "" {
 		main = info.Root
@@ -675,7 +685,13 @@ func (r *Registry) worktreesOf(info Info) []WorktreeInfo {
 	}
 	var out []WorktreeInfo
 	for _, w := range platform.Worktrees(r.opts.Env, main) {
-		out = append(out, WorktreeInfo{Root: w.Root, Branch: w.Branch})
+		wi := WorktreeInfo{Root: w.Root, Branch: w.Branch}
+		if r.opts.Ops != nil {
+			if h, ok := r.opts.Ops.Sessions().HolderOf(w.Root, asking); ok {
+				wi.OccupiedBy = &OccupiedBy{Name: h.Name, Since: h.Since, Stale: h.Stale}
+			}
+		}
+		out = append(out, wi)
 	}
 	return out
 }

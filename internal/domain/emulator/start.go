@@ -45,6 +45,7 @@ func registerStart(reg *capability.Registry, e *Emulator) {
 		Params:       StartParams{},
 		Target:       func(p any) *capability.OpTarget { return &capability.OpTarget{AVD: p.(StartParams).Avd} },
 		Result:       StartResult{},
+		Occupies:     capability.OccupiesBoot,
 		// Only what the handler returns (close review B1): no preamble runs, and a
 		// long-running call has no queue bound (ADR-0020).
 		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrDisconnected,
@@ -91,6 +92,8 @@ func (e *Emulator) start(ctx context.Context, call *capability.Call) (StartResul
 	if serial, err := e.runningSerialOf(ctx, p.Avd); err != nil {
 		return StartResult{}, err
 	} else if serial != "" {
+		// An adopted emulator is held only when free: adopting is not acting on it.
+		e.adb.AdoptFor(call, serial)
 		if err := e.awaitReady(ctx, serial, deadline, nil); err != nil {
 			return StartResult{}, err
 		}
@@ -99,7 +102,7 @@ func (e *Emulator) start(ctx context.Context, call *capability.Call) (StartResul
 
 	// 2–6. Snapshot, spawn, resolve and wait.
 	started := time.Now()
-	serial, err := e.boot(ctx, "emulator.start", res.Path, p.Avd, startFlags(p), deadline)
+	serial, err := e.boot(ctx, "emulator.start", res.Path, p.Avd, startFlags(p), deadline, func(s string) { e.adb.TakeFor(call, s) })
 	if err != nil {
 		return StartResult{}, err
 	}

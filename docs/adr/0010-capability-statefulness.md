@@ -1,6 +1,7 @@
 # ADR-0010: Statefulness is declared per capability
 
 - Status: Accepted
+- Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0082 (§Decision)
 - Date: 2026-09-27
 - Amended: 2026-09-29. What changed: what a session is on each transport (plain HTTP

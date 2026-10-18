@@ -282,6 +282,13 @@ var (
 	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
 	// sets it.
 	dialogSeam func(d *workspace.Dialog)
+	// sessionClock, when set, is the clock the session registry reads (a session's last
+	// request and the idle sweep): a test advances it to make a holder idle. The shipped
+	// binary never sets it.
+	sessionClock func() time.Time
+	// sessionSweep, when > 0, is how often the idle sweep runs, in place of the minute
+	// (capability.SweepInterval). The shipped binary never sets it.
+	sessionSweep time.Duration
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -311,6 +318,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// daemon that reads no configuration still starts: a bad file is reported, not fatal.
 	pol := policy.New(env)
 	startup := pol.Startup()
+	// The session registry reads the occupation section at each decision (ADR-0094 §7);
+	// capability cannot import policy, so it is handed the reader here.
+	ops.Sessions().UseOccupation(pol.Occupation)
+	if sessionClock != nil {
+		ops.Sessions().UseClock(sessionClock)
+	}
 	// Every adb client is started through the supervisor's locked spawner and given
 	// the daemon's whole environment (plan m1e, R8). Without a supervisor (caps,
 	// schema) adb can be resolved and reported but not run.
@@ -402,6 +415,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// hosting.lend, read live as the policy is, says which of this machine's devices a
 	// paired peer may use (ADR-0099 §1).
 	adb.SetLending(pol)
+	// Who occupies which device (ADR-0094): the one registry of MCP sessions, which also holds
+	// the worktrees, so a session that ends or returns to the main tree frees both.
+	adb.SetOccupation(ops.Sessions())
 	// workspace.chooseRoot's folder dialog is started through the supervisor's recorded
 	// spawner (ADR-0045 §4; ADR-0021 §Pid records), so a daemon killed while it is up leaves
 	// a record the next start reaps; a test replaces the osascript it runs and the platform
@@ -570,9 +586,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
-	// agent.recordCommand is the hook's channel (ADR-0063): audience human, stateless, no
-	// dependency; the record is the operation's result.
-	agent.Register(reg)
+	// agent.recordCommand, agent.recordEdit and agent.checkWrite are the hook's channel
+	// (ADR-0063, ADR-0095 §3): audience human, stateless; a record is the operation's
+	// result. The check reads who holds a worktree from the session registry, and a
+	// recorded edit makes the file watches walk at once.
+	agent.Register(reg, agent.Options{Sessions: ops.Sessions(), Canonical: env.Canonical, Nudge: watchers.Nudge})
 	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
 	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
 	// hook the project-code capabilities share; its command is spawned through the

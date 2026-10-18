@@ -303,7 +303,14 @@ func Hint(obs []Observed) string {
 // (the partial command is dropped). A word keeps its text, `$` and all: only a program
 // whose base name is literal can match.
 func shellSegments(s string) [][]string {
-	var segs [][]string
+	segs, _ := shellScan(s)
+	return segs
+}
+
+// shellScan is shellSegments with the separator that ended each segment: ";", "&&",
+// "||", "|", "&", "\n", "(" or ")", and "" for the end of the line. seps is as long as
+// segs.
+func shellScan(s string) (segs [][]string, seps []string) {
 	var words []string
 	var cur []rune
 	started, skipNext, digitsOnly, heredoc := false, false, true, false
@@ -318,11 +325,12 @@ func shellSegments(s string) [][]string {
 		}
 		cur, started, digitsOnly = nil, false, true
 	}
-	endSeg := func() {
+	endSeg := func(sep string) {
 		endWord()
 		skipNext = false
 		if len(words) > 0 {
 			segs = append(segs, words)
+			seps = append(seps, sep)
 		}
 		words = nil
 	}
@@ -340,15 +348,19 @@ func shellSegments(s string) [][]string {
 		case ' ', '\t', '\r':
 			endWord()
 		case '\n':
-			endSeg()
+			endSeg("\n")
 			if heredoc {
 				// A here-document's body is text, not commands: the reading stops.
-				return segs
+				return segs, seps
 			}
 		case ';', '(', ')':
-			endSeg()
+			endSeg(string(r))
 		case '|':
-			endSeg()
+			sep := "|"
+			if i < len(s) && s[i] == '|' {
+				sep = "||"
+			}
+			endSeg(sep)
 			if i < len(s) && (s[i] == '|' || s[i] == '&') {
 				i++
 			}
@@ -362,8 +374,12 @@ func shellSegments(s string) [][]string {
 				skipNext = true
 				continue
 			}
-			endSeg()
+			sep := "&"
 			if i < len(s) && s[i] == '&' {
+				sep = "&&"
+			}
+			endSeg(sep)
+			if sep == "&&" {
 				i++
 			}
 		case '<', '>':
@@ -390,7 +406,7 @@ func shellSegments(s string) [][]string {
 		case '\'':
 			end := strings.IndexByte(s[i:], '\'')
 			if end < 0 {
-				return segs
+				return segs, seps
 			}
 			for _, q := range s[i : i+end] {
 				add(q, false)
@@ -420,11 +436,11 @@ func shellSegments(s string) [][]string {
 				add(q, false)
 			}
 			if !closed {
-				return segs
+				return segs, seps
 			}
 		case '\\':
 			if i >= len(s) {
-				return segs
+				return segs, seps
 			}
 			q, n := utf8.DecodeRuneInString(s[i:])
 			i += n
@@ -435,8 +451,31 @@ func shellSegments(s string) [][]string {
 			add(r, r >= '0' && r <= '9')
 		}
 	}
-	endSeg()
-	return segs
+	endSeg("")
+	return segs, seps
+}
+
+// LeadingCd is the directory a command changes to before anything else runs: its first
+// simple command is `cd <dir>`, followed by `&&` or `;` (ADR-0095 §5). What the event's
+// directory then is depends on where the shell ended up (plan m2s step 1 (c)), which is
+// for the caller to weigh: this only reads the `cd`. dir is as typed, relative to the
+// command's directory; ok is
+// false for any other first command, a `cd` with an option or no operand, `cd -`, and a
+// directory the shell would expand (`~`, `$`, a command substitution, a glob or brace),
+// which the reader cannot place. Lexical only: nothing is read from the file system.
+func LeadingCd(command string) (dir string, ok bool) {
+	segs, seps := shellScan(command)
+	if len(segs) == 0 || len(segs[0]) != 2 || segs[0][0] != "cd" {
+		return "", false
+	}
+	if seps[0] != "&&" && seps[0] != ";" {
+		return "", false
+	}
+	dir = segs[0][1]
+	if dir == "" || strings.HasPrefix(dir, "-") || strings.HasPrefix(dir, "~") || strings.ContainsAny(dir, "$`*?[{") {
+		return "", false
+	}
+	return dir, true
 }
 
 // AfterEvent is what the reader takes from a Claude Code PostToolUse or
@@ -449,6 +488,9 @@ type AfterEvent struct {
 	// Cwd is the directory the command ran in, as the client reported it; "" when the
 	// client sends none (Cursor, as observed in plan m2q step 1) (ADR-0085).
 	Cwd string
+	// Chat is the event's chat id (Claude Code's session_id, Cursor's conversation_id),
+	// "" when it carries none or one that is not a chat id (ADR-0095 §1).
+	Chat string
 }
 
 // DecodeAfterEvent reads a shell command's after-event. ok is false for malformed JSON,
@@ -462,6 +504,8 @@ func DecodeAfterEvent(c Client, stdin []byte) (ev AfterEvent, ok bool) {
 		Tool        string `json:"tool_name"`
 		Cwd         string `json:"cwd"`
 		FailureType string `json:"failure_type"`
+		SessionID   string `json:"session_id"`
+		ConvID      string `json:"conversation_id"`
 		ToolInput   struct {
 			Command string `json:"command"`
 		} `json:"tool_input"`
@@ -472,13 +516,13 @@ func DecodeAfterEvent(c Client, stdin []byte) (ev AfterEvent, ok bool) {
 	switch c {
 	case Claude:
 		if (raw.Event == "PostToolUse" || raw.Event == "PostToolUseFailure") && raw.Tool == "Bash" {
-			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command, Cwd: raw.Cwd}, true
+			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command, Cwd: raw.Cwd, Chat: chatOf(raw.SessionID)}, true
 		}
 	case Cursor:
 		if (raw.Event == "postToolUse" || raw.Event == "postToolUseFailure") && raw.Tool == "Shell" && raw.FailureType != "permission_denied" {
 			// Cursor's cwd was "" in every observed event (plan m2q step 1): the field is
 			// read all the same, and "" keeps the hook's --root.
-			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command, Cwd: raw.Cwd}, true
+			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command, Cwd: raw.Cwd, Chat: chatOf(raw.ConvID)}, true
 		}
 	}
 	return AfterEvent{}, false

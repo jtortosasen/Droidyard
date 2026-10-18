@@ -326,10 +326,12 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
 	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: who.client, Session: session}
+	creq.Origin.Client = who.client
 	if session != nil {
 		// A WebSocket's calls name their session on operation.state (ADR-0048); a plain
 		// HTTP request has none.
-		creq.Origin = capability.Origin{ID: session.ID(), Name: who.name, Client: who.client}
+		creq.Origin.ID = session.ID()
+		creq.Origin.Name = who.name
 	}
 
 	out, err := c.run(ctx, creq, req.WaitMs)

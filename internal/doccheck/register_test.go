@@ -167,10 +167,15 @@ func checkRegister(fsys fs.FS) []string {
 // line (ADR-0081 to ADR-0084, ADR-0088).
 // Raised by 8 (to 28,294) at milestone 2r's close: README.md's status line names 2r (2r's
 // edits of files.md, workspace-state.md and process-lifecycle.md add nothing in total).
-// Raised by 14 (to 28,308) at milestone 2t step 4: mvp.md's device row and mcp.md's
+// Raised by 282 (to 28,576) at milestone 2s's close, Delegated: workspace-state.md's occupied
+// worktree and held device, adb-device.md's DEVICE_OCCUPIED, mcp.md's occupation paragraph and
+// hooks row, files.md's recorded edits, the glossary's Occupation, the register's eight new 2s
+// rows and three narrowed ones, and README.md's status line (ADR-0094, ADR-0095, ADR-0105);
+// steps 4, 7 and 8 kept their rows within the budget by trimming.
+// Raised by 14 (to 28,590) at milestone 2t step 4: mvp.md's device row and mcp.md's
 // not-exposed table name device.installUpload, which the capability check requires
 // (ADR-0099 §3).
-const liveBudget = 28308
+const liveBudget = 28590
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

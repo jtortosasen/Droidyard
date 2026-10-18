@@ -213,8 +213,9 @@ func registerInputText(reg *capability.Registry, adb *ADB) {
 		Params:       InputTextParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(InputTextParams).Device) },
 		Result:       InputTextResult{},
+		Occupies:     capability.OccupiesAct,
 		Text:         capability.TextOf(typedText),
-		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
+		Errors: append(append([]capability.ErrorCode{}, ActingErrors...),
 			ErrUIDumpFailed, ErrElementNotFound, ErrElementAmbiguous, ErrElementOffscreen, ErrElementDisabled, ErrStaleRef,
 			ErrTextNotDeliverable, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {
@@ -233,7 +234,7 @@ func registerInputText(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, call.Origin, p.Device, "device.inputText")
+			return adb.authorizeActing(ctx, call, p.Device, "device.inputText")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InputTextParams)

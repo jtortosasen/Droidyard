@@ -1,6 +1,7 @@
 # ADR-0048: `session` on the operation events, for the agents panel
 
 - Status: Accepted
+- Superseded in part by: ADR-0095 (§Decision)
 - Superseded in part by: ADR-0083 (§3)
 - Superseded in part by: ADR-0098 (§1)
 - Date: 2026-10-10

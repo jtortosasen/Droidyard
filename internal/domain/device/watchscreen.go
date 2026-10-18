@@ -7,6 +7,7 @@ import (
 	"errors"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -355,7 +356,7 @@ func (a *ADB) attachScreen(id, owner string) (screen.Viewer, error) {
 	if s.timer != nil {
 		s.timer.Stop()
 	}
-	return &screenHandle{s}, nil
+	return &screenHandle{s: s}, nil
 }
 
 // LiveScreenStreams is how many live-view streams are held. Test-only in practice.
@@ -370,12 +371,34 @@ func (a *ADB) LiveRelayedScreens() int { return a.relayedScreens.Live() }
 
 // screenHandle is the viewer AttachScreen hands out. It is a screen.Viewer and nothing
 // more: no Inject, no source.
-type screenHandle struct{ s *screenStream }
+type screenHandle struct {
+	s *screenStream
+	// sourceEnded: Next failed because the source's video ended, not because the socket
+	// went or the stream was ended.
+	sourceEnded atomic.Bool
+}
 
-func (h *screenHandle) Next(ctx context.Context) (screen.Packet, error) { return h.s.viewer.Next(ctx) }
+func (h *screenHandle) Next(ctx context.Context) (screen.Packet, error) {
+	p, err := h.s.viewer.Next(ctx)
+	if err != nil && ctx.Err() == nil && !errors.Is(err, screen.ErrViewerClosed) {
+		h.sourceEnded.Store(true)
+	}
+	return p, err
+}
 
-// Close is the stream socket closing.
-func (h *screenHandle) Close() { h.s.end(StopDetached, "") }
+// Close is the stream socket closing. When the source's video ended under the socket, the
+// source's own reason (deviceGone, exited, failed) is still on its way: its device.list
+// check takes up to streamListBound. Close waits for it, so a device that went is not
+// reported as detached, and ends the stream as detached only if it does not come.
+func (h *screenHandle) Close() {
+	if h.sourceEnded.Load() {
+		select {
+		case <-h.s.quit:
+		case <-time.After(streamListBound + time.Second):
+		}
+	}
+	h.s.end(StopDetached, "")
+}
 
 // newStreamID is 128 random bits in base64url.
 func newStreamID() string {

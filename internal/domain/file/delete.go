@@ -197,7 +197,7 @@ func (r *resolver) deleteOne(ctx context.Context, root *os.Root, rel string) (st
 	id := newTrashID()
 	entry := trashEntry{
 		Path: rel, Type: entryType(fi.Mode()), DeletedAt: trashNow().UTC(),
-		Bytes: bytes, Entries: entries, Truncated: truncated,
+		Bytes: bytes, Entries: entries, Truncated: truncated, By: r.by,
 	}
 	idPath := t.entryDir(r.workspace, id)
 	if err := t.st.Write(entryName(r.workspace, id), entry); err != nil {
