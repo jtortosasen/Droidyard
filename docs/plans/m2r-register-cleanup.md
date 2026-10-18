@@ -313,7 +313,12 @@
 - Needs: steps 1–9 (the job runs their tests).
 - Not here: `-race` in the hook (ADR-0093 §2). A race the run finds goes under Changes before any fix; one in a file lane 2q edits cannot be fixed here, so step 10 is deferred, row 251 stays open, and the race becomes a register row.
 - Rests on: the tree is race-free and fits 40 minutes on the runner, at level 5 (the run itself).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 on GitHub Actions, 2026-10-18. Draft PR #5 (opened only for CI, closed unmerged) ran `ci` run 39121447104 at the step 10 commit.
+  - The `race` job passed in 12 min 40 s (`go test -race -timeout 30m ./...` on ubuntu-24.04): no data race on Linux.
+  - `checks` failed once on `cmd/droidyard` `TestDetachedLogRotates` ("a stray write to standard error landed in daemon.log.1"), a timing flake outside this step. It passed on a rerun and 5 of 5 locally, and joins the load-sensitive tests row at the close.
+  - The job's actions are pinned to the same SHAs as `checks`.
+  - That a tag release skips the job rests on GitHub's documentation for a called workflow; the next tag settles it (Unverified).
+  - Row 251 closes once the job has passed on `main`, at the close.
 
 ### 11. The audit of the open rows
 
