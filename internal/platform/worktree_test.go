@@ -43,6 +43,11 @@ func newMain(t *testing.T) (base, main string) {
 		t.Fatal(err)
 	}
 	gitIn(t, main, "init", "-q")
+	// No auto maintenance: a commit starts a detached `git maintenance run --auto`, whose
+	// worktree-prune task (git 2.50 and later) deleted the entries a test was planting
+	// (main's CI, 2026-10-18: "open …/.git/worktrees/w012/commondir: no such file").
+	gitIn(t, main, "config", "maintenance.auto", "false")
+	gitIn(t, main, "config", "gc.auto", "0")
 	if err := os.WriteFile(filepath.Join(main, "f"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
