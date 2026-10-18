@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,6 +47,7 @@ type remoteLab struct {
 	host, client       *inProcess
 	hostDir, clientDir string
 	stopHost           func()
+	hostConf           map[string]any // the host's configuration as written, for a test that edits it
 }
 
 func callsIn(t *testing.T, dir string) []string {
@@ -108,7 +110,18 @@ type labOptions struct {
 	hostBorrows bool
 	// hostListDelay and clientListDelay are how long each fake's `devices -l` takes.
 	hostListDelay, clientListDelay time.Duration
+	// hostFiles are written to the host's fake adb directory after its defaults, so they
+	// replace them (a live view's forward and window dump, for the stream tests).
+	hostFiles map[string]string
+	// hostProcesses runs the host's fake adb as real processes, not in this one, as the
+	// live view's recorded server child needs (screen_test.go does the same).
+	hostProcesses bool
+	// extraPeers are peers the host pairs besides the client "anna", each lent phone1.
+	extraPeers []labPeer
 }
+
+// labPeer is a peer the host pairs: its name and certificate fingerprint.
+type labPeer struct{ name, fingerprint string }
 
 func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	t.Helper()
@@ -126,6 +139,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostFiles[phone1+".apppidof.out"] = "4242\n"
 	hostFiles[phone1+".pmpath.out"] = "package:/data/app/x/base.apk\n"
 	hostFiles[phone1+".uninstall.out"] = "Success\n"
+	maps.Copy(hostFiles, o.hostFiles)
 	for name, content := range hostFiles {
 		devicetest.Write(t, lab.hostDir, name, []byte(content))
 	}
@@ -155,19 +169,30 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	}
 	hostConf["schemaVersion"] = 1
 	hostConf["devices"] = map[string]any{"allowPhysical": true, "allowlist": hostAllow}
+	peers := []map[string]string{{"name": "anna", "fingerprint": lab.client.host.Identity().Fingerprint()}}
+	phone1To := []string{"anna"}
+	for _, p := range o.extraPeers {
+		peers = append(peers, map[string]string{"name": p.name, "fingerprint": p.fingerprint})
+		phone1To = append(phone1To, p.name)
+	}
+	lab.hostConf = hostConf
 	hostConf["hosting"] = map[string]any{
 		"listen": "127.0.0.1:0",
-		"peers":  []map[string]string{{"name": "anna", "fingerprint": lab.client.host.Identity().Fingerprint()}},
+		"peers":  peers,
 		"lend": []map[string]any{
-			{"device": phone1, "to": []string{"anna"}},
+			{"device": phone1, "to": phone1To},
 			{"device": phone2, "to": []string{"bob"}},
 			{"device": phone3, "to": []string{"anna"}},
 			{"device": hostEmulator, "to": []string{"anna"}},
 		},
 	}
 	hostConfig := jsonObject(t, hostConf)
-	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, lab.hostDir, unusedPort(t)), exec: devicetest.Exec(lab.hostDir)}, 0, hostConfig)
-	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, os.Stderr)
+	hostSeam := &adbSeam{env: devicetest.Env(t, lab.hostDir, unusedPort(t)), exec: devicetest.Exec(lab.hostDir)}
+	if o.hostProcesses {
+		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
+	}
+	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, 0, hostConfig)
+	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.adb, os.Stderr)
 	var once sync.Once
 	lab.stopHost = func() { once.Do(stop) }
 	t.Cleanup(lab.stopHost)
@@ -179,7 +204,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 
 	configAt(t, lab.client.state, clientConfig(t, addr, lab.host.host.Identity().Fingerprint(), true,
 		fullAllowlist()...))
-	stopClient := startPeers(lab.client.host, lab.client.reg, lab.client.ops, lab.client.bus, os.Stderr)
+	stopClient := startPeers(lab.client.host, lab.client.reg, lab.client.ops, lab.client.bus, lab.client.adb, os.Stderr)
 	t.Cleanup(stopClient)
 	eventually(t, "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
 	return lab

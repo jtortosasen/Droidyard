@@ -1,7 +1,8 @@
 // Package peer is the peer adapter: the listener a host serves its paired peers on
 // (ADR-0098 §3). It is a second listener beside the UI's loopback one, never the UI's API
-// on the network: TLS 1.3 with both certificates pinned, one route here (/peer/v1/ws) whose
-// sessions are the UI's WebSocket loop started by a hello, and nothing else. It translates;
+// on the network: TLS 1.3 with both certificates pinned, two routes here (/peer/v1/ws,
+// whose sessions are the UI's WebSocket loop started by a hello, and /peer/v1/screen, a
+// live view's video), and nothing else. It translates;
 // what a peer may call is the core's Lendable set, not this package's to widen
 // (docs/architecture/overview.md §Adapter boundary).
 package peer
@@ -36,6 +37,9 @@ var (
 	sweepEvery = 2 * time.Second
 	// helloTimeout is how long a socket may take to send its hello.
 	helloTimeout = 5 * time.Second
+	// streamFrameTimeout is how long a screen socket may take to send its stream id
+	// (ADR-0078 §4).
+	streamFrameTimeout = 5 * time.Second
 	// closeGrace is how long a close handshake gets before the connection is dropped.
 	closeGrace = time.Second
 )
@@ -67,6 +71,9 @@ type Options struct {
 	Sessions *httpapi.PeerSessions
 	// Listen is hosting.listen as read at daemon start; "" binds nothing.
 	Listen string
+	// Screens claims a live view's stream for the peer it was issued to; nil serves no
+	// video, and /peer/v1/screen answers 404.
+	Screens httpapi.PeerScreenAttach
 	// API is this daemon's API version, named in the hello.
 	API string
 	Log io.Writer
@@ -76,15 +83,19 @@ type Options struct {
 type Server struct {
 	o Options
 
-	mu    sync.Mutex
-	socks map[*sock]struct{}
+	mu      sync.Mutex
+	socks   map[*sock]struct{}
+	screens sync.WaitGroup // the screen sockets' handlers, which the listener's end waits for
+	closing bool           // the listener is stopping: no screen socket is taken
 }
 
-// sock is one open peer session: whose it is, and the connection to close on a revocation.
+// sock is one open peer socket, a session or a live view's video: whose it is, and the
+// connection to close on a revocation.
 type sock struct {
-	cert *x509.Certificate
-	name string
-	conn *websocket.Conn
+	cert   *x509.Certificate
+	name   string
+	conn   *websocket.Conn
+	screen bool
 }
 
 // New returns a server for o. It binds nothing until Run.
@@ -130,6 +141,9 @@ func (s *Server) serveOnce(ctx context.Context, cert tls.Certificate) error {
 	if err != nil {
 		return fmt.Errorf("binding hosting.listen %s: %w", s.o.Listen, err)
 	}
+	s.mu.Lock()
+	s.closing = false
+	s.mu.Unlock()
 	s.o.Host.SetListen(ln.Addr().String(), nil)
 	fmt.Fprintf(s.o.Log, "droidyard: serving peers on %s (fingerprint %s)\n", ln.Addr(), s.o.Host.Fingerprint()[:12])
 
@@ -157,6 +171,7 @@ func (s *Server) serveOnce(ctx context.Context, cert tls.Certificate) error {
 	stopSweep()
 	srv.Close()
 	s.o.Sessions.EndAll(context.WithoutCancel(ctx)) // Run's deferred CloseAll latches at shutdown
+	s.closeScreens()
 	wg.Wait()
 	if err == nil || err == http.ErrServerClosed {
 		err = fmt.Errorf("the listener stopped")
@@ -194,10 +209,12 @@ func (s *Server) tlsConfig(cert tls.Certificate) *tls.Config {
 }
 
 // handler is the peer port's whole surface: a request carrying an Origin is refused (a
-// browser has no business here), the pin is checked again, and only /peer/v1/ws exists.
+// browser has no business here), the pin is checked again, and only /peer/v1/ws and
+// /peer/v1/screen exist.
 func (s *Server) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(capability.PeerPath, s.serveWS)
+	mux.HandleFunc(capability.PeerScreenPath, s.serveScreen)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if len(r.Header.Values("Origin")) > 0 {
@@ -268,6 +285,69 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(s.o.Log, "droidyard: peer %s: link up (%s)\n", name, r.RemoteAddr)
 		return true
 	})
+}
+
+// serveScreen is GET /peer/v1/screen: one live view's video for the peer whose certificate
+// is pinned now. The socket is in the revocation sweep like a session, so a peer removed
+// from hosting.peers loses it within sweepEvery (ADR-0098 §3).
+func (s *Server) serveScreen(w http.ResponseWriter, r *http.Request) {
+	name, cert, ok := s.requestPeer(r)
+	if !ok {
+		http.Error(w, "not paired", http.StatusForbidden)
+		return
+	}
+	if s.o.Screens == nil {
+		http.NotFound(w, r)
+		return
+	}
+	c, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return // Accept has answered
+	}
+	k := &sock{cert: cert, name: name, conn: c, screen: true}
+	s.mu.Lock()
+	if s.closing { // the listener is stopping: closeScreens has already counted the open ones
+		s.mu.Unlock()
+		c.Close(websocket.StatusGoingAway, "the peer listener stopped")
+		return
+	}
+	s.socks[k] = struct{}{}
+	s.screens.Add(1)
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.socks, k)
+		s.mu.Unlock()
+		s.screens.Done()
+	}()
+	httpapi.ServePeerScreen(r.Context(), c, name, streamFrameTimeout, s.o.Screens)
+}
+
+// closeScreens ends every screen socket and waits for their handlers: the listener stopped,
+// and a hijacked connection is not the HTTP server's to close. A socket that does not answer
+// the close within closeGrace is dropped.
+func (s *Server) closeScreens() {
+	s.mu.Lock()
+	s.closing = true
+	var open []*websocket.Conn
+	for k := range s.socks {
+		if k.screen {
+			open = append(open, k.conn)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range open {
+		go func() {
+			done := make(chan struct{})
+			go func() { c.Close(websocket.StatusGoingAway, "the peer listener stopped"); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(closeGrace):
+				c.CloseNow()
+			}
+		}()
+	}
+	s.screens.Wait()
 }
 
 // hello reads the peer's hello and answers it with this daemon's. A peerProtocol that is not

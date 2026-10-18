@@ -50,7 +50,7 @@ func clientHost(t *testing.T, state string) *hosting.Host {
 // client's fingerprint: see peerConfigFor.
 func pairedWith(t *testing.T, p *inProcess, clientState string) *hosting.Link {
 	t.Helper()
-	stop := startPeers(p.host, p.reg, p.ops, p.bus, os.Stderr)
+	stop := startPeers(p.host, p.reg, p.ops, p.bus, p.adb, os.Stderr)
 	t.Cleanup(stop)
 	addr := ""
 	eventually(t, "the host's peer listener", func() bool {

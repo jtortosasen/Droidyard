@@ -62,14 +62,12 @@ func (a *ADB) plain(d capability.Descriptor) capability.Descriptor {
 	authorize, handler := d.Authorize, d.Handler
 	name, result, declared := d.Name, d.Result, d.Errors
 	d.Authorize = func(ctx context.Context, call *capability.Call) (any, error) {
-		rt, ok := a.remoteOf(call)
+		rt, ok, err := a.authorizeRemote(call)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			return authorize(ctx, call)
-		}
-		// The client's own physical policy decides first, before any host call: the host
-		// lending a phone does not admit it here (ADR-0100 §2).
-		if adm := a.admitted(rt.id); !adm.Admitted {
-			return nil, notAllowed(rt.id, adm.Cause)
 		}
 		return rt, nil
 	}
@@ -80,6 +78,20 @@ func (a *ADB) plain(d capability.Descriptor) capability.Descriptor {
 		return handler(ctx, call)
 	}
 	return d
+}
+
+// authorizeRemote is the authorization of a call on a remote id: ok is false for a local
+// device, whose own authorization applies. The client's own physical policy decides first,
+// before any host call: the host lending a phone does not admit it here (ADR-0100 §2).
+func (a *ADB) authorizeRemote(call *capability.Call) (rt *remoteTarget, ok bool, err error) {
+	rt, ok = a.remoteOf(call)
+	if !ok {
+		return nil, false, nil
+	}
+	if adm := a.admitted(rt.id); !adm.Admitted {
+		return nil, true, notAllowed(rt.id, adm.Cause)
+	}
+	return rt, true, nil
 }
 
 // remoteOf reads the device a call's parameters name and, when it is <remote>/<serial> of

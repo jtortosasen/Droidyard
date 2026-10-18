@@ -154,7 +154,7 @@ func TestLendingToPeers(t *testing.T) {
 
 // Decision (ADR-0099 §2): a peer calls only what is Lendable. The core refuses the rest
 // with REQUEST_NOT_ALLOWED_HERE, before an operation exists. This pins which device
-// capabilities this step lends; a capability added to the set must be added here.
+// capabilities are lent so far; a capability added to the set must be added here.
 func TestDeviceLendableSet(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, newFake(t, t.TempDir(), closedPort(t)), testStore(t), nil)
@@ -165,7 +165,7 @@ func TestDeviceLendableSet(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText"}
+	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("lendable device capabilities = %v; want %v", got, want)

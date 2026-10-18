@@ -11,10 +11,13 @@
 //   - ParseSPS reads the frame size and codec string out of a config packet;
 //   - Hub keeps the current config apart from the current GOP and gives every viewer a
 //     stream that starts at a key frame with that config;
+//   - Split undoes the Hub's join form, a key frame carrying its config, for a Hub that
+//     receives a stream another Hub already merged (a relayed remote device);
 //   - Input and EncodeControl turn a tap, a swipe or a key into scrcpy's control
 //     messages against the stream's frame size.
 //
-// Source is the seam the daemon uses: a relayed remote device would implement it too.
+// Source is the seam the daemon uses: a remote device's relayed stream implements it too
+// (ADR-0100), and Split gives its client-side Hub the config and key frame back apart.
 package screen
 
 import (
@@ -97,4 +100,9 @@ type Source interface {
 	// Done is closed when the stream ended; Reason then says why.
 	Done() <-chan struct{}
 	Reason() error
+	// WatchSecure registers fn to hear whether the focused window is secure (FLAG_SECURE,
+	// ADR-0080): at once when the source already knows, then on each change. It is the
+	// seam's, so a relayed source feeds it from its host (ADR-0100 §5). The returned stop
+	// removes fn and, when it returns, no call of fn is running or will start.
+	WatchSecure(fn func(secure bool)) (stop func())
 }

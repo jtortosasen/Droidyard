@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
@@ -55,16 +56,34 @@ type Link struct {
 	conn      *websocket.Conn
 	wmu       sync.Mutex // one writer at a time
 	pending   map[string]chan capability.ResponseEnvelope
+	routes    map[string]*route // by request id: where a response's subscription is routed
 	events    map[string]func(json.RawMessage)
 	next      uint64
 	connected bool
+	lost      chan struct{} // closed when the connection now up is lost; nil while down
 	hostAPI   string
 	lastErr   string
 }
 
 func newLink(r policy.Remote, id *Identity, api string, log io.Writer) *Link {
 	return &Link{remote: r, id: id, api: api, log: log,
-		pending: map[string]chan capability.ResponseEnvelope{}, events: map[string]func(json.RawMessage){}}
+		pending: map[string]chan capability.ResponseEnvelope{}, routes: map[string]*route{},
+		events: map[string]func(json.RawMessage){}}
+}
+
+// closedChan is what Down returns for a link that is down.
+var closedChan = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
+
+// Down is closed when the connection that is up now is lost; it is already closed while the
+// link is down. A stream that lives on one connection (its subscription, its video socket)
+// takes it before the call that starts it, so a connection lost in between counts as lost.
+func (l *Link) Down() <-chan struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.connected || l.lost == nil {
+		return closedChan
+	}
+	return l.lost
 }
 
 // Name is the remote's name.
@@ -88,6 +107,67 @@ func (l *Link) Connected() bool {
 // ErrNotConnected; one lost before the answer came is ErrLinkLost; ctx ending abandons the
 // wait and leaves the host's operation running.
 func (l *Link) Call(ctx context.Context, req capability.RequestEnvelope) (capability.ResponseEnvelope, error) {
+	return l.call(ctx, req, nil)
+}
+
+// CallRouted is Call for a request whose result names a subscription (a subscriptionId, as
+// device.watchScreen's does): when the response arrives, that subscription's events are
+// routed to fn before the next frame is read, so none can fall between the response and a
+// registration made after it. stop ends the route; it is a no-op when the response named
+// none, and the route also ends with the connection.
+func (l *Link) CallRouted(ctx context.Context, req capability.RequestEnvelope, fn func(event json.RawMessage)) (resp capability.ResponseEnvelope, stop func(), err error) {
+	resp, err = l.call(ctx, req, fn)
+	if err != nil {
+		return resp, func() {}, err
+	}
+	id := subscriptionOf(resp.Result)
+	if id == "" {
+		return resp, func() {}, nil
+	}
+	return resp, func() {
+		l.mu.Lock()
+		delete(l.events, id)
+		l.mu.Unlock()
+	}, nil
+}
+
+// subscriptionOf is the subscriptionId a result names, "" if it names none.
+func subscriptionOf(result json.RawMessage) string {
+	var r struct {
+		ID string `json:"subscriptionId"`
+	}
+	if json.Unmarshal(result, &r) != nil {
+		return ""
+	}
+	return r.ID
+}
+
+// route is what a CallRouted request leaves for read: where its response's subscription
+// goes, and which one it was once routed. A caller that gives up before the response leaves
+// the route as a tombstone (abandoned): the host may still open the subscription, and the
+// response that names it is answered with events.unsubscribe, so nothing is held on the host
+// for a stream nobody has.
+type route struct {
+	fn        func(json.RawMessage)
+	sub       string
+	abandoned bool
+}
+
+// maxSubscriptionID bounds a subscription id a host names that this link then sends back.
+const maxSubscriptionID = 128
+
+// endSubscription asks the host to end a subscription this link has no use for.
+func (l *Link) endSubscription(sub string) {
+	if sub == "" || len(sub) > maxSubscriptionID {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+	defer cancel()
+	p, _ := json.Marshal(event.UnsubscribeParams{SubscriptionID: sub})
+	l.Call(ctx, capability.RequestEnvelope{Capability: event.CapUnsubscribe, Params: p})
+}
+
+func (l *Link) call(ctx context.Context, req capability.RequestEnvelope, fn func(json.RawMessage)) (resp capability.ResponseEnvelope, err error) {
 	l.mu.Lock()
 	conn := l.conn
 	if !l.connected || conn == nil {
@@ -98,11 +178,35 @@ func (l *Link) Call(ctx context.Context, req capability.RequestEnvelope) (capabi
 	id := "L" + strconv.FormatUint(l.next, 10)
 	ch := make(chan capability.ResponseEnvelope, 1)
 	l.pending[id] = ch
+	var rt *route
+	if fn != nil {
+		rt = &route{fn: fn}
+		l.routes[id] = rt
+	}
 	l.mu.Unlock()
 	defer func() {
 		l.mu.Lock()
 		delete(l.pending, id)
+		drop := ""
+		switch {
+		case rt == nil || err == nil:
+			delete(l.routes, id)
+		case rt.sub != "":
+			// Routed, then abandoned as it arrived: no route is left for a stream nobody
+			// holds, and the host is told to end its subscription.
+			delete(l.routes, id)
+			delete(l.events, rt.sub)
+			drop = rt.sub
+		case ctx.Err() != nil:
+			// The request is on its way and the answer may name a subscription: read ends it.
+			rt.abandoned = true
+		default:
+			delete(l.routes, id)
+		}
 		l.mu.Unlock()
+		if drop != "" {
+			go l.endSubscription(drop)
+		}
 	}()
 
 	original := req.ID
@@ -184,12 +288,18 @@ func (l *Link) run(ctx context.Context) {
 	}
 }
 
+// pinnedClient is the HTTP client every connection to the remote is made with: TLS 1.3, this
+// daemon's certificate, and the remote's accepted by its pinned fingerprint alone.
+func (l *Link) pinnedClient() *http.Client {
+	cfg := PinnedConfig(l.id, func(fp string) bool { return SamePin(fp, l.remote.Fingerprint) })
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true, ForceAttemptHTTP2: false,
+		TLSHandshakeTimeout: dialTimeout}}
+}
+
 // session dials once and serves the connection until it ends. up reports whether the hello
 // was exchanged, the link having been up; err is why the session ended.
 func (l *Link) session(ctx context.Context) (up bool, err error) {
-	cfg := PinnedConfig(l.id, func(fp string) bool { return SamePin(fp, l.remote.Fingerprint) })
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true, ForceAttemptHTTP2: false,
-		TLSHandshakeTimeout: dialTimeout}}
+	client := l.pinnedClient()
 	defer client.CloseIdleConnections()
 
 	dctx, cancel := context.WithTimeout(ctx, dialTimeout)
@@ -213,6 +323,7 @@ func (l *Link) session(ctx context.Context) (up bool, err error) {
 	defer stop()
 	l.mu.Lock()
 	l.conn, l.connected, l.hostAPI, l.lastErr = conn, true, host.API, ""
+	l.lost = make(chan struct{})
 	l.mu.Unlock()
 	fmt.Fprintf(l.log, "droidyard: remote %s: link up (API %s)\n", l.remote.Name, host.API)
 	defer l.down()
@@ -297,7 +408,22 @@ func (l *Link) read(ctx context.Context, conn *websocket.Conn) error {
 		}
 		l.mu.Lock()
 		ch := l.pending[head.ID]
+		orphan := ""
+		if rt := l.routes[head.ID]; rt != nil && rt.abandoned {
+			// The caller is gone: whatever subscription this answer opened is ended.
+			delete(l.routes, head.ID)
+			orphan = subscriptionOf(env.Result)
+		} else if rt != nil && ch != nil {
+			// Before the response is handed on, so the events behind it find their route.
+			if sub := subscriptionOf(env.Result); sub != "" {
+				l.events[sub], rt.sub = rt.fn, sub
+			}
+		}
 		l.mu.Unlock()
+		if orphan != "" {
+			go l.endSubscription(orphan)
+			continue
+		}
 		if ch != nil {
 			select {
 			case ch <- env:
@@ -312,11 +438,20 @@ func (l *Link) down() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.conn, l.connected = nil, false
+	if l.lost != nil {
+		close(l.lost)
+		l.lost = nil
+	}
 	for id, ch := range l.pending {
 		close(ch)
 		delete(l.pending, id)
 	}
 	l.events = map[string]func(json.RawMessage){}
+	for id, rt := range l.routes {
+		if rt.abandoned { // its answer can no longer come; a live call removes its own
+			delete(l.routes, id)
+		}
+	}
 }
 
 // pings closes a connection that stops answering.

@@ -13,6 +13,10 @@ const (
 	PeerProtocol = 1
 	// PeerPath is the route of the session.
 	PeerPath = "/peer/v1/ws"
+	// PeerScreenPath is the route of a live view's video (ADR-0078 §4 on the peer port):
+	// a socket of its own, TLS-pinned like the session, whose first frame is
+	// {"stream": <id>}, an id from a device.watchScreen of the same peer.
+	PeerScreenPath = "/peer/v1/screen"
 )
 
 // The WebSocket close codes of a peer session, in the application range.

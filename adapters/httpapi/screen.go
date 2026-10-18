@@ -189,6 +189,18 @@ func (h *screenHandler) serve(parent context.Context, c *websocket.Conn, attach 
 	if !ok {
 		return
 	}
+	wt := time.Duration(h.writeTimeout.Load())
+	if wt <= 0 {
+		wt = defaultScreenWriteTimeout
+	}
+	sendScreen(ctx, cancel, c, v, wt)
+}
+
+// sendScreen sends the viewer's packets on c until the stream or the socket ends, then
+// closes the viewer, which ends the stream (as detached when the socket was the reason). It
+// is the part of /v1/screen and /peer/v1/screen that comes after the first frame. cancel
+// ends ctx.
+func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, v ScreenViewer, wt time.Duration) {
 	// Reads: the only thing the socket may still say is that it is gone. Any frame, text
 	// or binary, closes it; nothing it carries is looked at.
 	readerDone := make(chan struct{})
@@ -206,10 +218,6 @@ func (h *screenHandler) serve(parent context.Context, c *websocket.Conn, attach 
 		<-readerDone
 	}()
 
-	wt := time.Duration(h.writeTimeout.Load())
-	if wt <= 0 {
-		wt = defaultScreenWriteTimeout
-	}
 	var buf []byte
 	for {
 		p, err := v.Next(ctx)

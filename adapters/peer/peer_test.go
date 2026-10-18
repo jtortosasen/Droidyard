@@ -93,6 +93,8 @@ type side struct {
 	ops  *capability.Operations
 	bus  *event.Bus
 	log  *safeBuffer
+	// screens, when set before listen, is what the listener claims a video stream with.
+	screens httpapi.PeerScreenAttach
 }
 
 func newSide(t *testing.T, api string) *side {
@@ -137,6 +139,34 @@ func newSide(t *testing.T, api string) *side {
 			id, err := f.Follow([]string{"peertest.tick"})
 			return watching{SubscriptionID: id}, err
 		}})
+	// A capability that opens its subscription late, whatever the caller does meanwhile, as
+	// device.watchScreen does after a slow start.
+	reg.MustRegister(capability.Descriptor{Name: "peertest.slowwatch", Kind: capability.Command, Scope: capability.Global, Lendable: true,
+		Statefulness: capability.Streaming, Description: "Lent, streams after a while.", Params: none{}, Result: watching{},
+		Handler: func(_ context.Context, call *capability.Call) (any, error) {
+			time.Sleep(300 * time.Millisecond)
+			f, ok := call.Session.(capability.Follower)
+			if !ok {
+				return nil, capability.NewError(capability.ErrSessionRequired, "no session")
+			}
+			id, err := f.Follow([]string{"peertest.tick"})
+			return watching{SubscriptionID: id}, err
+		}})
+	// A capability that opens its subscription and has events waiting before it answers, as
+	// device.watchScreen does with its first state.
+	reg.MustRegister(capability.Descriptor{Name: "peertest.burst", Kind: capability.Command, Scope: capability.Global, Lendable: true,
+		Statefulness: capability.Streaming, Description: "Lent, streams at once.", Params: none{}, Result: watching{},
+		Handler: func(_ context.Context, call *capability.Call) (any, error) {
+			f, ok := call.Session.(capability.Follower)
+			if !ok {
+				return nil, capability.NewError(capability.ErrSessionRequired, "no session")
+			}
+			id, err := f.Follow([]string{"peertest.tick"})
+			for n := range 20 {
+				s.bus.Publish("peertest.tick", "tick", "", "", tick{N: n})
+			}
+			return watching{SubscriptionID: id}, err
+		}})
 	return s
 }
 
@@ -146,7 +176,7 @@ func (s *side) listen(t *testing.T, addr string) (bound string, stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Listen: addr, API: "0.0.0", Log: s.log})
+	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Listen: addr, API: "0.0.0", Log: s.log})
 	go func() { defer close(done); srv.Run(ctx) }()
 	stop = func() { cancel(); <-done }
 	t.Cleanup(stop)

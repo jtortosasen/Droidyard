@@ -1274,6 +1274,7 @@ func (a *ADB) Close(ctx context.Context) {
 	// §6): each child is killed and reaped, its record removed and its forward removed
 	// before the supervisor stops.
 	a.screenViews.StopAll(ctx)
+	a.relayedScreens.StopAll(ctx)
 	a.screens.StopAll(ctx)
 	a.rdMu.Lock()
 	clients := make([]*readerClient, 0, len(a.readers))

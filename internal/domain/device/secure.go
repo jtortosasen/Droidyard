@@ -83,7 +83,9 @@ func parseSecureFocus(out string) (bool, error) {
 	return false, errSecureUnreadable
 }
 
-// secureState is a source's last known answer and who hears its changes.
+// secureState is a source's last known answer and who hears its changes. The scrcpy
+// source's poll sets it and a relayed source's host events do; screen.Source's WatchSecure
+// is how the daemon reads it for any source (ADR-0100 §5).
 type secureState struct {
 	mu       sync.Mutex // held across the listeners' calls, so each hears the changes in order
 	known    bool
@@ -92,11 +94,16 @@ type secureState struct {
 	watchers map[int]func(secure bool)
 }
 
-// watchSecure registers fn to hear the focused window's secure state: at once when a
-// check has answered already, then on each change. The returned stop removes it and, when
-// it returns, no call of fn is running or will start.
-func (s *screenSource) watchSecure(fn func(secure bool)) (stop func()) {
-	st := &s.secure
+// WatchSecure implements screen.Source: fn hears the focused window's secure state at once
+// when a check has answered already, then on each change. The returned stop removes it and,
+// when it returns, no call of fn is running or will start.
+func (s *screenSource) WatchSecure(fn func(secure bool)) (stop func()) { return s.secure.watch(fn) }
+
+// setSecure records a check's answer.
+func (s *screenSource) setSecure(secure bool) { s.secure.set(secure) }
+
+// watch registers fn; see WatchSecure.
+func (st *secureState) watch(fn func(secure bool)) (stop func()) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.watchers == nil {
@@ -115,10 +122,8 @@ func (s *screenSource) watchSecure(fn func(secure bool)) (stop func()) {
 	}
 }
 
-// setSecure records a check's answer and tells every watcher when it is the first or a
-// change.
-func (s *screenSource) setSecure(secure bool) {
-	st := &s.secure
+// set records an answer and tells every watcher when it is the first or a change.
+func (st *secureState) set(secure bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.known && st.secure == secure {

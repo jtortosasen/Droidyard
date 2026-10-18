@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -87,6 +88,9 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 		Kind:         capability.Command,
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
+		// A host lends the live view to a peer; for a remote id the client runs it through
+		// a relayed source, not the plain relay (remotescreen.go; ADR-0100 §3).
+		Lendable:     true,
 		Since:        "0.27.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Starts the live view of a device for the calling WebSocket session: H.264 video on GET /v1/screen (its first frame is {\"auth\": <token>, \"stream\": <streamId>}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
@@ -97,7 +101,7 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 			Topic: TopicScreen,
 			Types: map[string]any{EventState: ScreenStateEvent{}, EventStopped: ScreenStoppedEvent{}},
 		},
-		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...), ErrStreamFailed, capability.ErrInvalidParams, capability.ErrSessionRequired),
+		Errors: slices.Clone(watchScreenErrors),
 		Annotations: capability.Annotations{
 			Destructive: &notDestructive,
 			Reason:      "adds a subscription to the calling session and starts a read-only server on the device; changes nothing the device keeps",
@@ -117,6 +121,13 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 			// Before the hook, so a malformed parameter runs no adb command at all.
 			if err := p.validate(); err != nil {
 				return nil, err
+			}
+			rt, remote, err := adb.authorizeRemote(call)
+			if err != nil {
+				return nil, err
+			}
+			if remote {
+				return rt, nil
 			}
 			return adb.authorize(ctx, call.Origin, p.Device, "device.watchScreen")
 		},
@@ -144,7 +155,8 @@ type screenStream struct {
 	id        string
 	device    string
 	operation string
-	src       *screenSource
+	owner     string // "" for the daemon's own clients, "peer:<name>" for a paired peer's (AttachPeerScreen)
+	src       screen.Source
 	viewer    screen.Viewer
 	release   func() // the source reference, idempotent
 
@@ -310,12 +322,25 @@ func (ss *screenStreams) StopAll(ctx context.Context) {
 // AttachScreen is the only thing of the live view the HTTP adapter holds (ADR-0078 §4): it
 // claims the stream id's viewer for one socket, once. The viewer reads packets and closes;
 // closing it ends the stream as detached. Nothing it offers reaches the device.
-func (a *ADB) AttachScreen(id string) (screen.Viewer, error) {
+func (a *ADB) AttachScreen(id string) (screen.Viewer, error) { return a.attachScreen(id, "") }
+
+// AttachPeerScreen is AttachScreen for the video socket of a paired peer (ADR-0100 §3): the
+// id must be one a device.watchScreen of that same peer issued, so a stream id another peer
+// holds is as unknown as one never issued, and a stream of the daemon's own clients is
+// unreachable from the peer port.
+func (a *ADB) AttachPeerScreen(peer, id string) (screen.Viewer, error) {
+	return a.attachScreen(id, peerOwner(peer))
+}
+
+// peerOwner names the paired peer that made a stream.
+func peerOwner(peer string) string { return "peer:" + peer }
+
+func (a *ADB) attachScreen(id, owner string) (screen.Viewer, error) {
 	ss := &a.screenViews
 	ss.mu.Lock()
 	s := ss.byID[id]
 	ss.mu.Unlock()
-	if s == nil {
+	if s == nil || s.owner != owner {
 		return nil, ErrScreenStreamUnknown
 	}
 	s.mu.Lock()
@@ -338,6 +363,10 @@ func (a *ADB) LiveScreenStreams() int { return a.screenViews.Live() }
 
 // LiveScreenSources is how many live-view sources are running. Test-only in practice.
 func (a *ADB) LiveScreenSources() int { return a.screens.Live() }
+
+// LiveRelayedScreens is how many remote devices' live-view sources are running. Test-only in
+// practice.
+func (a *ADB) LiveRelayedScreens() int { return a.relayedScreens.Live() }
 
 // screenHandle is the viewer AttachScreen hands out. It is a screen.Viewer and nothing
 // more: no Inject, no source.
@@ -370,19 +399,18 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 		return nil, capability.NewError(capability.ErrSessionRequired, "device.watchScreen needs the daemon's event bus").
 			WithNextStep("watch over the WebSocket session, GET /v1/ws")
 	}
-	t := call.Authorized.(*target)
-	if err := a.ready(ctx, t); err != nil {
-		return nil, err
-	}
-	src, release, err := a.screens.acquire(ctx, a, t)
+	deviceID, src, release, err := a.screenSourceFor(ctx, call)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &screenStream{
-		set: &a.screenViews, bus: a.bus, id: newStreamID(), device: t.serial, operation: call.OperationID,
+		set: &a.screenViews, bus: a.bus, id: newStreamID(), device: deviceID, operation: call.OperationID,
 		src: src, viewer: src.Join(), release: release,
 		quit: make(chan struct{}), released: make(chan struct{}),
+	}
+	if call.Origin.Client == capability.ClientPeer {
+		s.owner = peerOwner(call.Origin.Name)
 	}
 	subID, sub, err := sess.Open([]string{TopicScreen}, func() { s.end("", "") })
 	if err != nil {
@@ -400,7 +428,7 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 			WithCause(err.Error()).
 			WithNextStep("Start the daemon again, then retry.")
 	}
-	stop := src.watchSecure(s.secureChanged)
+	stop := src.WatchSecure(s.secureChanged)
 	s.mu.Lock()
 	s.stopSecure = stop
 	ended := s.ended
@@ -419,5 +447,30 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 		return nil, ctx.Err()
 	}
 	size := src.Size()
-	return WatchScreenResult{SubscriptionID: subID, Device: t.serial, StreamID: s.id, Width: size.Width, Height: size.Height}, nil
+	return WatchScreenResult{SubscriptionID: subID, Device: deviceID, StreamID: s.id, Width: size.Width, Height: size.Height}, nil
+}
+
+// screenSourceFor joins the live-view source of the device the call names, and returns the
+// device as the caller named it and the release to call when done. For a remote id it is
+// the relayed source of the host's stream, and the answer is another machine's, so the call
+// is marked untrusted (ADR-0100 §3, §4); otherwise it is this machine's scrcpy source.
+func (a *ADB) screenSourceFor(ctx context.Context, call *capability.Call) (device string, src screen.Source, release func(), err error) {
+	if rt, ok := call.Authorized.(*remoteTarget); ok {
+		yes := true
+		call.Untrusted = &yes
+		rs, release, err := a.relayedScreens.acquire(ctx, a, rt)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		return rt.id, rs, release, nil
+	}
+	t := call.Authorized.(*target)
+	if err := a.ready(ctx, t); err != nil {
+		return "", nil, nil, err
+	}
+	ls, release, err := a.screens.acquire(ctx, a, t)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return t.serial, ls, release, nil
 }
