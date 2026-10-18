@@ -9012,6 +9012,33 @@
                     "id"
                   ],
                   "description": "The session that made the call; omitted for a call recorded without one."
+                },
+                "target": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The device serial the call acts on."
+                    },
+                    "avd": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The AVD the call boots or wipes."
+                    },
+                    "module": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The Gradle project path of the module the call builds or installs."
+                    },
+                    "variant": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The variant the call builds or installs."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "What the call acts on; omitted for a capability that declares none."
                 }
               },
               "additionalProperties": false,
@@ -9089,6 +9116,33 @@
                   "id"
                 ],
                 "description": "The session that made the call; omitted for a call recorded without one."
+              },
+              "target": {
+                "properties": {
+                  "device": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The device serial the call acts on."
+                  },
+                  "avd": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The AVD the call boots or wipes."
+                  },
+                  "module": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The Gradle project path of the module the call builds or installs."
+                  },
+                  "variant": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The variant the call builds or installs."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "What the call acts on: the device, AVD, module and variant of its parameters; omitted for a capability that declares none."
               },
               "code": {
                 "type": "string",

@@ -80,6 +80,7 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Starts the live view of a device for the calling WebSocket session: H.264 video on GET /v1/screen (its first frame is {\"auth\": <token>, \"stream\": <streamId>}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
 		Params:       WatchScreenParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(WatchScreenParams).Device) },
 		Result:       WatchScreenResult{},
 		Events: &capability.Events{
 			Topic: TopicScreen,

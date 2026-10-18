@@ -15,7 +15,6 @@
 
 	let building = $state.raw<BuildView['mirror']['building']>(null);
 	let cancelError = $state.raw<string | null>(null);
-	let module = $state('');
 	let labels = $state.raw<ReadonlyMap<string, string>>(new Map());
 	let now = $state(Date.now());
 
@@ -24,7 +23,6 @@
 		const read = () => {
 			building = m.view.mirror.building;
 			cancelError = m.view.mirror.cancelError;
-			module = m.view.module;
 		};
 		read();
 		return m.subscribe(read);
@@ -44,7 +42,7 @@
 		return () => clearInterval(timer);
 	});
 
-	const status = $derived(buildStatus(building, { module, now, labels }));
+	const status = $derived(buildStatus(building, { now, labels }));
 </script>
 
 <div class="status" aria-live="polite">

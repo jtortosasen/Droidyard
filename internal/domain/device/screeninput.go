@@ -165,7 +165,10 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 			Availability: []capability.Requirement{capability.RequiresADB},
 			Description:  s.description,
 			Params:       s.params,
-			Result:       ScreenInputResult{},
+			Target: func(p any) *capability.OpTarget {
+				return deviceTarget(s.device(&capability.Call{Params: p}))
+			},
+			Result: ScreenInputResult{},
 			Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
 				ErrNoStream, ErrStreamFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 			Resource: func(call *capability.Call) string {

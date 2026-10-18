@@ -2,8 +2,8 @@
 // the activity store's rows. Pure: the clock, the session labels and what the console holds
 // come in as arguments, so the rules are tested without a component.
 //
-// Targets are not shown (ADR-0043 §2: the operation view carries none), so a block's title
-// is the capability in words, and its full name is the tooltip. Output is a rule of four:
+// An operation's target (ADR-0076) is not shown in a block, only in the mirrors that use
+// it, so a block's title is the capability in words, and its full name is the tooltip. Output is a rule of four:
 //   - a build the console model holds: its lines, by `buildId` (a build's id is its
 //     operation's id, ADR-0020);
 //   - the tab's own call that failed: its code, and the message when the tab has it;

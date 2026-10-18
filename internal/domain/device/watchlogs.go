@@ -160,6 +160,7 @@ func registerWatchLogs(reg *capability.Registry, adb *ADB) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Streams a device's log to the calling WebSocket session: batches of parsed lines on topic device.logcat at most every 50 ms, from the newest tail lines or from a device-clock time. One stream per session and device (a second replaces the first), ended with events.unsubscribe.",
 		Params:       WatchLogsParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(WatchLogsParams).Device) },
 		Result:       WatchLogsResult{},
 		Events: &capability.Events{
 			Topic: TopicLogcat,

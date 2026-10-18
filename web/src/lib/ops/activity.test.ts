@@ -159,6 +159,21 @@ describe('ActivityStore', () => {
 		expect(fired).toHaveLength(1);
 	});
 
+	// Decision (ADR-0076): the target of a snapshot row and of an event is kept on the row, and
+	// a trigger sees it, so a panel can tell whose device a terminal operation was.
+	it('keeps the target of a snapshot row and of an event, and hands it to a trigger', async () => {
+		const { client, store } = setup();
+		client.answer(0, [live('snap', 'running', { capability: 'emulator.stop', target: { device: 'emulator-5554' } })]);
+		await settle();
+		expect(store.operations.find((o) => o.id === 'snap')?.target).toEqual({ device: 'emulator-5554' });
+		const fired: unknown[] = [];
+		store.onTerminal(['device.tapElement'], (op) => fired.push(op.target));
+		client.event(0, 'operation.state', 'state', { capability: 'device.tapElement', state: 'running', startedAt: '2026-10-10T10:00:00Z', target: { device: 'emulator-5556' } }, 'tap');
+		client.event(0, 'operation.state', 'state', { capability: 'device.tapElement', state: 'completed', startedAt: '2026-10-10T10:00:00Z', target: { device: 'emulator-5556' } }, 'tap');
+		expect(fired).toEqual([{ device: 'emulator-5556' }]);
+		expect(store.operations.find((o) => o.id === 'tap')?.target).toEqual({ device: 'emulator-5556' });
+	});
+
 	// Decision (D11): active() returns only non-terminal operations that satisfy the predicate.
 	it('active() lists the live operations matching a predicate', async () => {
 		const { client, store } = setup();

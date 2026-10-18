@@ -139,7 +139,11 @@ func registerBuilds(reg *capability.Registry, o Options) {
 			Destructive: boolPtr(false),
 			Reason:      "it assembles a variant of a module, replacing only its own, rebuildable outputs",
 		},
-		Params:      AssembleParams{},
+		Params: AssembleParams{},
+		Target: func(p any) *capability.OpTarget {
+			ap := p.(AssembleParams)
+			return &capability.OpTarget{Module: ap.Module, Variant: ap.Variant}
+		},
 		Result:      Result{},
 		Text:        capability.TextOf(resultText),
 		Errors:      buildErrors,
