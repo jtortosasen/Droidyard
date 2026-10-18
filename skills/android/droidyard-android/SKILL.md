@@ -1,6 +1,6 @@
 ---
 name: droidyard-android
-description: Build, install, run and drive an Android app through the droidyard MCP tools instead of adb, Gradle or uiautomator in a shell. Use when the task builds an Android project, starts an emulator, installs or launches an app, reads its logs or UI, taps or types on a device, or debugs a crash.
+description: Build, install, run and drive an Android app through the droidyard MCP tools instead of adb, Gradle or uiautomator in a shell. Use when the task changes code in an Android project (in a worktree), builds one, starts an emulator, installs or launches an app, reads its logs or UI, taps or types on a device, or debugs a crash.
 metadata:
   droidyard.version: "1"
 ---

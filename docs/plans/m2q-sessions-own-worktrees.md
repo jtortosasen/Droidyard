@@ -410,4 +410,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
   - `Sessions.Connect(id, chat)` registers the connection, and `Opened(id, project, wsid, root)` records the hello's binding.
   - `Named` moves to step 6, its first caller.
   - `doccheck`'s `liveBudget` rises by 166 words, for the verbatim instructions and `mcp.md` §Transport and session (Delegated).
+- 2026-10-18, step 5, the one revision of the text the step allows. On the first chat 1, the agent edited and built on main: the instructions said how to enter a worktree but not when, and the skill, which says when, was not loaded. The instructions' first line now states the rule (a task that changes code first gets its own worktree, then `workspace_enter`; a question stays put). The skill's description names the worktree. `mcp.md` follows verbatim, and 3 words were cut from §Transport and session to stay within `liveBudget`.
 - 2026-10-18, step 6: the session's name is set from `server/discover` as well as `initialize`. Claude Code 2.1.302 speaks MCP `2026-07-28`, opens with `server/discover` and sends no `initialize` (step 1, (a)). mcp-go sets the client info from either.

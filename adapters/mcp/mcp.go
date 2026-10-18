@@ -29,9 +29,10 @@ import (
 
 // Instructions is sent in every initialize result: verbatim, the block of
 // docs/interfaces/mcp.md §Server instructions (a core session adds CoreNote).
-const Instructions = `- This server is bound to one project; tools act on it with no workspace argument. To work
-  in a git worktree of it, make or reuse one with git, then call workspace_enter with its
-  path: later calls act there. After a resume, workspace_describe says where you are.
+const Instructions = `- This server is bound to one project; tools act on it with no workspace argument. A task
+  that changes code first gets its own git worktree (reuse the task's, else git worktree
+  add), then workspace_enter with its path; a question stays put. After a resume,
+  workspace_describe says where you are.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not

@@ -21,7 +21,7 @@ projection and the verdict on every MCP feature beyond tool calls.
   grant trust ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
 - **`workspace_enter` moves the session within its project**
   ([ADR-0082](../adr/0082-session-enters-a-worktree.md)): to its main tree or a linked git
-  worktree of it, which the agent makes with its own git. Only the calling session moves:
+  worktree of it, made by the agent's own git. Only the calling session moves:
   the descriptor's `binding` flag makes Start refuse the call from a connection that is not
   an MCP session (`REQUEST_NOT_ALLOWED_HERE`), and another root is
   `WORKSPACE_NOT_A_WORKTREE`.
@@ -31,8 +31,7 @@ projection and the verdict on every MCP feature beyond tool calls.
   `--resume`. The daemon remembers each chat's last binding in memory and binds a new
   session of that chat there before it answers, under `workspace_enter`'s rule. The
   variable is not documented for MCP servers and cursor-agent sets none: then a resumed
-  chat is bound to the main tree and enters again, as every chat does after a daemon
-  restart.
+  chat is bound to the main tree and enters again, as after a daemon restart.
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
 - The adapter opens the bound root when the session starts; if any client closes it
@@ -145,9 +144,10 @@ characters: every session pays for it, and it must not duplicate the tool descri
 test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 
 ```text
-- This server is bound to one project; tools act on it with no workspace argument. To work
-  in a git worktree of it, make or reuse one with git, then call workspace_enter with its
-  path: later calls act there. After a resume, workspace_describe says where you are.
+- This server is bound to one project; tools act on it with no workspace argument. A task
+  that changes code first gets its own git worktree (reuse the task's, else git worktree
+  add), then workspace_enter with its path; a question stays put. After a resume,
+  workspace_describe says where you are.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not
