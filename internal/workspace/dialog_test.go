@@ -2,12 +2,14 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -17,9 +19,49 @@ import (
 
 // startGroup is the spawner the daemon passes, as the supervisor's Spawn does it: the
 // child in a process group of its own, so a group kill reaches what it forked.
-func startGroup(cmd *exec.Cmd) error {
+func startGroup(cmd *exec.Cmd) (func() error, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd.Wait, nil
+}
+
+// recordingSpawn is the recorded spawner as the daemon passes it, with the record
+// reduced to a counter: a dialog is live from its spawn until the wait it was handed
+// returns, and the wait runs at most once, as Recorded.Wait is called once.
+type recordingSpawn struct {
+	mu    sync.Mutex
+	live  int
+	waits int
+}
+
+func (r *recordingSpawn) spawn(cmd *exec.Cmd) (func() error, error) {
+	wait, err := startGroup(cmd)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.live++
+	r.mu.Unlock()
+	var once sync.Once
+	return func() error {
+		var err error
+		once.Do(func() {
+			err = wait()
+			r.mu.Lock()
+			r.live--
+			r.waits++
+			r.mu.Unlock()
+		})
+		return err
+	}, nil
+}
+
+func (r *recordingSpawn) counts() (live, waits int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.live, r.waits
 }
 
 // fakeDialog is a Dialog whose osascript is a shell script with the given body.
@@ -266,7 +308,7 @@ func TestChooseRootIsRefusedToAnAgent(t *testing.T) {
 // reason, so the UI can fall back to a typed field.
 func TestChooseRootUnavailable(t *testing.T) {
 	spawned := false
-	spawn := func(cmd *exec.Cmd) error { spawned = true; return startGroup(cmd) }
+	spawn := func(cmd *exec.Cmd) (func() error, error) { spawned = true; return startGroup(cmd) }
 	for _, c := range []struct {
 		name   string
 		d      Dialog
@@ -292,4 +334,74 @@ func TestChooseRootUnavailable(t *testing.T) {
 	if _, missing := fakeDialog(t, "true").Missing(); missing {
 		t.Error("a darwin dialog with an executable and a spawner is reported missing")
 	}
+}
+
+// TestDialogIsRecordedWhileItRuns: a dialog is spawned through a recorded spawner and
+// reaped through the wait it returns, never through cmd.Wait, so the record (ADR-0021
+// §Pid records: every long-running child) is live while the dialog is up and gone once
+// choose returns, however the dialog ended: an answer, a cancel, the bound, a call's
+// cancel. A choose that waited on cmd.Wait itself would leave the record behind for ever
+// (live stays 1, waits 0). A spawn the supervisor refuses (processes.json cannot be
+// written, or is newer) is WORKSPACE_DIALOG_FAILED with that cause and starts no dialog.
+func TestDialogIsRecordedWhileItRuns(t *testing.T) {
+	ended := func(t *testing.T, rec *recordingSpawn, how string) {
+		t.Helper()
+		if live, waits := rec.counts(); live != 0 || waits != 1 {
+			t.Errorf("%s: %d dialogs recorded, %d waits; want none recorded after exactly one wait", how, live, waits)
+		}
+	}
+	t.Run("an answer and a cancel", func(t *testing.T) {
+		for _, c := range []struct{ how, body string }{
+			{"an answer", `echo /tmp/x/`},
+			{"a cancel", `echo "execution error: (-128)" >&2; exit 1`},
+		} {
+			rec := &recordingSpawn{}
+			d := fakeDialog(t, c.body)
+			d.Spawn = rec.spawn
+			if _, _, err := d.choose(context.Background()); err != nil {
+				t.Fatalf("%s: %v", c.how, err)
+			}
+			ended(t, rec, c.how)
+		}
+	})
+	t.Run("the bound", func(t *testing.T) {
+		rec := &recordingSpawn{}
+		d, dir := sleepingDialog(t)
+		d.Spawn, d.Bound = rec.spawn, 2*time.Second
+		if _, dismissed, err := d.choose(context.Background()); err != nil || !dismissed {
+			t.Fatalf("the bound: dismissed %v, err %v", dismissed, err)
+		}
+		ended(t, rec, "the bound")
+		waitGone(t, "the dialog", pidIn(t, dir, "pid"))
+		waitGone(t, "what the dialog forked", pidIn(t, dir, "child"))
+	})
+	t.Run("a call's cancel", func(t *testing.T) {
+		rec := &recordingSpawn{}
+		d, dir := sleepingDialog(t)
+		d.Spawn = rec.spawn
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { _, _, err := d.choose(ctx); done <- err }()
+		pid := pidIn(t, dir, "pid")
+		if live, _ := rec.counts(); live != 1 {
+			t.Errorf("while the dialog is up %d are recorded; want 1", live)
+		}
+		cancel()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("a call's cancel returned %v; want context.Canceled", err)
+		}
+		ended(t, rec, "a call's cancel")
+		waitGone(t, "the dialog", pid)
+	})
+	t.Run("a spawn refused", func(t *testing.T) {
+		d := fakeDialog(t, "echo /tmp/x/")
+		d.Spawn = func(*exec.Cmd) (func() error, error) {
+			return nil, errors.New("the supervisor cannot record: processes.json is newer")
+		}
+		_, _, err := d.choose(context.Background())
+		var ce *capability.Error
+		if !errors.As(err, &ce) || ce.Code != ErrDialogFailed || !strings.Contains(ce.Cause, "processes.json is newer") {
+			t.Errorf("a refused spawn: %v; want WORKSPACE_DIALOG_FAILED carrying the refusal", err)
+		}
+	})
 }

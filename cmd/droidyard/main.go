@@ -395,9 +395,21 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// edit decides the next call without a restart. The emulator subsystem shares this
 	// ADB, so its policy check uses the same configuration.
 	adb.SetPolicy(pol)
-	// workspace.chooseRoot's folder dialog is started through the same locked spawner
-	// (ADR-0045 §4); a test replaces the osascript it runs and the platform it asks on.
-	dialog := workspace.NewDialog(spawn)
+	// workspace.chooseRoot's folder dialog is started through the supervisor's recorded
+	// spawner (ADR-0045 §4; ADR-0021 §Pid records), so a daemon killed while it is up leaves
+	// a record the next start reaps; a test replaces the osascript it runs and the platform
+	// it asks on. Without a supervisor (caps, schema) the dialog has no spawner.
+	var dialogSpawn func(cmd *exec.Cmd) (func() error, error)
+	if sup != nil {
+		dialogSpawn = func(cmd *exec.Cmd) (func() error, error) {
+			r, err := sup.SpawnRecorded(cmd, proc.FolderDialog)
+			if err != nil {
+				return nil, err
+			}
+			return r.Wait, nil
+		}
+	}
+	dialog := workspace.NewDialog(dialogSpawn)
 	if dialogSeam != nil {
 		dialogSeam(&dialog)
 	}
