@@ -43,7 +43,8 @@ type ScreenshotParams struct {
 // its fields flat, and adb's warnings. Never a path, never the bytes.
 type ScreenshotResult struct {
 	artifact.Ref
-	// Warnings are adb's (client/server version mismatch), not the device's: untagged.
+	// Warnings are adb's (client/server version mismatch) and the daemon's own secure-window
+	// notice (ADR-0080), none of them device text: untagged.
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -90,7 +91,11 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 		if line := disconnectedLine(t.serial, out); line != "" && perr != nil {
 			return ScreenshotResult{}, disconnected(t.serial, line)
 		}
-		return ScreenshotResult{}, screenshotFailed(cmd, out, err, perr)
+		fail := screenshotFailed(cmd, out, err, perr)
+		if secure, cerr := a.secureFocus(ctx, t); cerr == nil && secure {
+			fail.Cause += "; " + secureCause
+		}
+		return ScreenshotResult{}, fail
 	}
 	// The one decode of the capture serves validation and the inline image the MCP
 	// adapter delivers (plan m1e, step 8): the adapter never decodes it again. An image
@@ -107,7 +112,11 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 	if err != nil {
 		return ScreenshotResult{}, err
 	}
-	return ScreenshotResult{Ref: ref, Warnings: t.warnings}, nil
+	warnings := t.warnings
+	if secure, cerr := a.secureFocus(ctx, t); cerr == nil && secure {
+		warnings = append(append([]string(nil), warnings...), secureWarning)
+	}
+	return ScreenshotResult{Ref: ref, Warnings: warnings}, nil
 }
 
 var pngSignature = []byte("\x89PNG\r\n\x1a\n")

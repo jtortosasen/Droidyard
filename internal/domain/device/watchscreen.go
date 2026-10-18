@@ -17,8 +17,8 @@ import (
 // calling WebSocket session. The call joins the device's shared source (screensource.go)
 // as a viewer and returns a stream id; the video itself travels on GET /v1/screen, whose
 // handler holds only AttachScreen: a screen.Viewer, which can read packets and close, and
-// nothing that reaches the device (constraint 2). The events on the session carry only the
-// stream's end.
+// nothing that reaches the device (constraint 2). The events on the session carry the
+// focused window's secure state (secure.go; ADR-0080) and the stream's end.
 
 // TopicScreen is the topic device.watchScreen's events carry. Like device.logcat it is not
 // in events.subscribe's enum: only the subscription the call opened receives it.
@@ -62,6 +62,17 @@ type ScreenStoppedEvent struct {
 	Cause  string `json:"cause,omitempty" jsonschema_description:"The daemon's words for why, never device text."`
 }
 
+// EventState is the type of a state event on topic device.screen (ADR-0080 §3).
+const EventState = "state"
+
+// ScreenStateEvent is the payload of a state event on topic device.screen: whether the
+// focused window is secure (FLAG_SECURE), which Android shows black. It is published once
+// the first check has answered and on each change; a failed check publishes nothing.
+type ScreenStateEvent struct {
+	Device string `json:"device" jsonschema:"required"`
+	Secure bool   `json:"secure" jsonschema:"required" jsonschema_description:"True while the focused window has FLAG_SECURE: the screen is shown black (the platform's rule), and a screenshot of it is black or fails."`
+}
+
 func (p WatchScreenParams) validate() error {
 	if p.Device == "" {
 		return capability.Errorf(capability.ErrInvalidParams, "device is required: a serial from device.list")
@@ -84,7 +95,7 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 		Result:       WatchScreenResult{},
 		Events: &capability.Events{
 			Topic: TopicScreen,
-			Types: map[string]any{EventStopped: ScreenStoppedEvent{}},
+			Types: map[string]any{EventState: ScreenStateEvent{}, EventStopped: ScreenStoppedEvent{}},
 		},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...), ErrStreamFailed, capability.ErrInvalidParams, capability.ErrSessionRequired),
 		Annotations: capability.Annotations{
@@ -139,12 +150,13 @@ type screenStream struct {
 
 	sub *event.Subscription // set before the stream is in the set
 
-	mu       sync.Mutex
-	attached bool
-	ended    bool
-	timer    *time.Timer
-	quit     chan struct{} // closed when the stream ended
-	released chan struct{} // closed when the viewer's source reference was dropped
+	mu         sync.Mutex
+	attached   bool
+	ended      bool
+	timer      *time.Timer
+	stopSecure func()        // ends the secure-state watch (secure.go); set once the stream is in the table
+	quit       chan struct{} // closed when the stream ended
+	released   chan struct{} // closed when the viewer's source reference was dropped
 }
 
 // end ends the stream: the id becomes unknown, the viewer is closed, stopped is published
@@ -163,8 +175,13 @@ func (s *screenStream) end(reason, cause string) {
 		s.timer.Stop()
 	}
 	close(s.quit)
+	stopSecure := s.stopSecure
 	s.mu.Unlock()
 
+	// Before stopped: when it returns no state event is in flight, so none follows the end.
+	if stopSecure != nil {
+		stopSecure()
+	}
 	s.set.forget(s)
 	s.viewer.Close()
 	if reason != "" {
@@ -176,6 +193,19 @@ func (s *screenStream) end(reason, cause string) {
 		defer s.set.remove(s)
 		s.release()
 	}()
+}
+
+// secureChanged publishes the focused window's secure state to this stream's subscription.
+// It runs under the source's secure lock, which end waits for through stopSecure.
+func (s *screenStream) secureChanged(secure bool) {
+	s.mu.Lock()
+	ended := s.ended
+	s.mu.Unlock()
+	if ended {
+		return
+	}
+	s.bus.PublishTo(s.sub, TopicScreen, EventState, "", s.operation,
+		ScreenStateEvent{Device: s.device, Secure: secure})
 }
 
 // watch ends the stream with the source's reason when the source ends first.
@@ -370,11 +400,17 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 			WithCause(err.Error()).
 			WithNextStep("Start the daemon again, then retry.")
 	}
+	stop := src.watchSecure(s.secureChanged)
 	s.mu.Lock()
-	if !s.ended {
+	s.stopSecure = stop
+	ended := s.ended
+	if !ended {
 		s.timer = time.AfterFunc(screenAttachBound, s.unattached)
 	}
 	s.mu.Unlock()
+	if ended { // ended between the table and the watch: nothing else will stop it
+		stop()
+	}
 	go s.watch()
 
 	// A cancel that landed while the stream started ends it: nothing outlives a cancelled call.

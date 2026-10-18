@@ -158,17 +158,24 @@
 	{:else if view.state === 'starting'}
 		<p>Starting...</p>
 	{/if}
-	<canvas
-		bind:this={canvas}
-		hidden={view.state !== 'live'}
-		aria-label="Device screen"
-		class:acts={overFrame}
-		onpointerdown={down}
-		onpointermove={move}
-		onpointerup={up}
-		onpointercancel={() => (recorder = null)}
-		onpointerleave={() => (overFrame = false)}
-	></canvas>
+	<div class="frame">
+		<canvas
+			bind:this={canvas}
+			hidden={view.state !== 'live'}
+			aria-label="Device screen"
+			class:acts={overFrame}
+			onpointerdown={down}
+			onpointermove={move}
+			onpointerup={up}
+			onpointercancel={() => (recorder = null)}
+			onpointerleave={() => (overFrame = false)}
+		></canvas>
+		{#if view.state === 'live' && view.secure}
+			<p class="secure" role="status">
+				The focused window is secure (FLAG_SECURE): Android shows it black.
+			</p>
+		{/if}
+	</div>
 	{#if view.state === 'live'}
 		<div class="keys">
 			{#each NAV_KEYS as k (k.key)}
@@ -186,6 +193,22 @@
 </section>
 
 <style>
+	.frame {
+		position: relative;
+	}
+	.secure {
+		position: absolute;
+		top: 0.5rem;
+		left: 0.5rem;
+		right: 0.5rem;
+		margin: 0;
+		padding: 0.4rem 0.6rem;
+		background: #fff3cd;
+		color: #664d03;
+		border: 1px solid #ffda6a;
+		border-radius: 4px;
+		pointer-events: none;
+	}
 	canvas {
 		display: block;
 		width: 100%;
