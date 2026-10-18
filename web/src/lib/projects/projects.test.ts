@@ -35,13 +35,16 @@ async function setup(rows: ReturnType<typeof row>[] = [], chooser: boolean | 'fa
 		subscribe: (n: string, p: unknown, h: never) => stream.subscribe(n, p, h),
 	} as unknown as ProjectsClient;
 	const navigated: string[] = [];
-	const model = new ProjectsModel(client, (id) => navigated.push(id));
+	const shown: true[] = [];
+	const model = new ProjectsModel(client, (id) => navigated.push(id), () => shown.push(true));
 	model.start();
 	stream.answer(0, { subscriptionId: 'wa1', workspaces: rows, truncated: false });
 	await settle();
 	const ev = (id: string | null, payload: Record<string, unknown>, time = '2026-10-10T11:00:00Z') =>
 		stream.emit(0, { topic: 'workspace.state', type: 'state', workspace: id, time, payload });
-	return { calls, stream, model, navigated, ev };
+	const evType = (type: string, id: string | null) =>
+		stream.emit(0, { topic: 'workspace.state', type, workspace: id, time: '2026-10-10T11:00:00Z', payload: {} });
+	return { calls, stream, model, navigated, ev, evType, shown };
 }
 
 describe('groupProjects', () => {
@@ -260,6 +263,53 @@ describe('ProjectsModel', () => {
 		expect(t.calls.calls.find((c) => c.name === 'workspace.open')?.workspace).toBe('/typed/root');
 		await t.model.openRoot('   ');
 		expect(t.calls.calls.filter((c) => c.name === 'workspace.open')).toHaveLength(1);
+	});
+});
+
+describe('ProjectsModel: one tab, and a project removed', () => {
+	// Decision (ADR-0084 §1): a show event selects its project as a click does: an open one
+	// is shown at once, a closed one is opened by its id first, and the selection stays where
+	// it is (onShow ends the following of a session). Treating it as a state event would
+	// list a row with no name; ignoring it would leave the tab on the old project.
+	it('selects the project a show event names, opening it if it is closed', async () => {
+		const t = await setup([row('open', { state: 'ready' }), row('shut')]);
+		t.evType('show', 'open');
+		await settle();
+		expect(t.navigated).toEqual(['open']);
+		expect(t.shown).toHaveLength(1);
+		t.evType('show', 'shut');
+		await settle();
+		expect(t.calls.calls.find((c) => c.name === 'workspace.open')?.workspace).toBe('shut');
+		expect(t.navigated).toEqual(['open', 'opened']);
+		expect(t.model.view.rows.map((r) => r.id).sort()).toEqual(['open', 'shut']); // no row was made of the event
+	});
+
+	// Decision (ADR-0086): only a closed row can be removed; the daemon refuses an open one,
+	// so the model does not even ask. A removal that fails keeps the row and shows the code.
+	it('removes a closed row, never an open one, and keeps the row when the call fails', async () => {
+		const t = await setup([row('open', { state: 'ready' }), row('shut'), row('stuck')]);
+		t.calls.on('workspace.forget', (p) => {
+			if ((p as { workspace: string }).workspace === 'stuck') throw capError('WORKSPACE_STATE_UNREADABLE');
+			return {};
+		});
+		await t.model.forget('open');
+		expect(t.calls.names()).not.toContain('workspace.forget');
+		await t.model.forget('shut');
+		expect(t.calls.calls.find((c) => c.name === 'workspace.forget')).toMatchObject({ params: { workspace: 'shut' } });
+		expect(t.model.view.rows.map((r) => r.id).sort()).toEqual(['open', 'stuck']);
+		await t.model.forget('stuck');
+		expect(t.model.view.rows.map((r) => r.id).sort()).toEqual(['open', 'stuck']);
+		expect(t.model.view.error).toMatchObject({ code: 'WORKSPACE_STATE_UNREADABLE' });
+	});
+
+	// Decision (ADR-0086 §1): a forgotten event, from another tab or a CLI call, drops the
+	// row here too.
+	it('drops the row a forgotten event names', async () => {
+		const t = await setup([row('a'), row('b')]);
+		t.evType('forgotten', 'a');
+		expect(t.model.view.rows.map((r) => r.id)).toEqual(['b']);
+		t.evType('forgotten', 'unknown');
+		expect(t.model.view.rows.map((r) => r.id)).toEqual(['b']);
 	});
 });
 

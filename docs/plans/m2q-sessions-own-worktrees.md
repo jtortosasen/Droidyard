@@ -295,7 +295,30 @@
 - Not here: raising the browser window (Q4 §3); a desktop window (later, owner 5).
 - Rests on: —
 - Review: the Opus verifier (contract), effort default.
-- [ ] Done. Evidence:
+- [x] Done. Evidence:
+  - **`TestUIReusesTheOpenTab`** (real `serve`, re-executed `ui`, with the launcher recorded):
+    - no tab → the launcher is called;
+    - a WebSocket holding `workspace.watch` → `ui` in project B opens nothing, prints "switched…", and the socket receives `show` for B;
+    - `ui` in project A is the same: one tab for every project, as the owner decided;
+    - the socket closed → the browser opens again.
+  - **`TestWorkspaceForget`:**
+    - an open workspace → `WORKSPACE_OPEN`;
+    - closed → its row leaves `workspace.watch` and `workspaces.json`, and `forgotten` arrives;
+    - a marker in `ws/<wsid>/` survives;
+    - a repeat and an unknown id answer as done;
+    - reopening gives the same id and `createdAt`. The history is kept, proven by the kept `ws/<wsid>/` rather than by a real build;
+    - over MCP both capabilities give `REQUEST_NOT_ALLOWED_HERE`.
+  - **Other tests:** `TestBroadcastCountsTheSubscriptionsItOffered`, plus Vitest for show selecting, Remove only on closed rows, and `forgotten`.
+  - **Reversals:** the implementer saw six of them fail. The verifier's mutation, the open check removed, was caught.
+  - **Schema:** the two entries, plus the `show` and `forgotten` types on `workspace.state`.
+  - **Opus verifier:** proceed after one [contract] fix.
+  - **Fixes by the main session:**
+    - `workspace.show`'s `workspace` description said "absent, they select none", which nobody does. It now says the tabs keep what they show. `ui`'s message with no project reads "a Droidyard tab is already open".
+    - [bug] A forget racing an open is fixed. `forgotten` is broadcast under `pubMu`, and only while the workspace is still closed. The clicking tab deletes the row only if it is still closed.
+    - [nit] `WORKSPACE_OPEN`'s comment names opening and closing.
+
+    After these, `-race` on workspace and capability passes, as do the two `cmd/droidyard` tests and `pnpm -C web run verify` (1,169 tests).
+  - **Not seen:** the Remove button in a browser. That goes to the level-5 run at step 10, and its look to the owner's review.
 
 ### 10. Level 5, the contract meeting with 2p, and the close
 

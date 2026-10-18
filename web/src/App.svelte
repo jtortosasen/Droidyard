@@ -92,6 +92,8 @@
 				refused = false;
 				go({ view: 'project', workspace: id });
 			},
+			// `droidyard` showed a project: a selection that stays where it is, as a project row's (ADR-0084).
+			() => agents.unfollow(),
 		);
 		const agents = new SessionsModel(store, Date.now, {
 			client: {

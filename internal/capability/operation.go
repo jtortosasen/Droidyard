@@ -208,9 +208,9 @@ type Publisher interface {
 // StatePublisher puts an operation.state event on the daemon's bus (ADR-0043). The event
 // layer implements it; capability does not import it. Broadcast takes a seq but never
 // enters the replay ring, and offers the event to every subscription holding the topic.
-// It never blocks on a subscriber.
+// It never blocks on a subscriber, and returns how many subscriptions it offered the event.
 type StatePublisher interface {
-	Broadcast(topic, typ, workspace, operation string, payload any)
+	Broadcast(topic, typ, workspace, operation string, payload any) int
 }
 
 // Progress is published on operation.progress, type progress, with the operation id,

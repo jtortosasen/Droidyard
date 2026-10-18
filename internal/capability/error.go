@@ -45,6 +45,10 @@ const (
 	// or a worktree of it (ADR-0082 §3). Beside WORKSPACE_NOT_OPEN: both say a root is not
 	// one the call may address.
 	ErrWorkspaceNotAWorktree ErrorCode = "WORKSPACE_NOT_A_WORKTREE"
+	// ErrWorkspaceOpen: workspace.forget named a workspace that is not closed (opening, open or closing), so its index entry
+	// stayed: removing a project from the recent list must not stop what runs in it
+	// (ADR-0086 §3). nextStep: close it first. The opposite of WORKSPACE_NOT_OPEN.
+	ErrWorkspaceOpen ErrorCode = "WORKSPACE_OPEN"
 	// ErrWorkspaceUntrusted: the workspace opened in restricted mode and the capability
 	// touches project code (ADR-0015 §5).
 	ErrWorkspaceUntrusted ErrorCode = "WORKSPACE_UNTRUSTED"

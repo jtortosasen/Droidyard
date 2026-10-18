@@ -159,7 +159,9 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 15 (to 28,148) in milestone 2q step 6: session.watch's row and domain in mvp.md,
 // its line in mcp.md's not-exposed table, which doccheck requires of a new capability, and
 // session.state in capability-api.md's list of ring-less topics.
-const liveBudget = 28148
+// Raised by 6 (to 28,154) in milestone 2q step 9: mvp.md's workspace row and mcp.md's
+// not-exposed row name workspace.show and workspace.forget (ADR-0084, ADR-0086).
+const liveBudget = 28154
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

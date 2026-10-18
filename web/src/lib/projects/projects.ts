@@ -6,6 +6,10 @@
 // opens the root it answers with; where the dialog is unavailable the user types a root, as
 // 2b did. Opening never trusts.
 //
+// One tab in all (ADR-0084): a `show` event, which `droidyard` causes through `workspace.show`,
+// selects its project as a click does. A closed project can be removed from the list
+// (`workspace.forget`, ADR-0086); a `forgotten` event, from any tab, drops the row.
+//
 // The watch lives with the page (start/stop); a lost connection or `events.gap` starts it
 // again.
 import { eventTopics, type EventPayload, type Params, type Result } from '../api/capabilities.gen';
@@ -26,7 +30,7 @@ export const MAX_ROWS = 50;
 const TOPIC_STATE = eventTopics['workspace.watch'];
 const TOPIC_GAP = 'events.gap';
 
-type Calls = 'workspace.open' | 'workspace.chooseRoot' | 'system.capabilities' | 'events.unsubscribe';
+type Calls = 'workspace.open' | 'workspace.chooseRoot' | 'workspace.forget' | 'system.capabilities' | 'events.unsubscribe';
 type StateEvent = EventPayload<'workspace.watch', 'state'>;
 
 export interface ProjectsClient {
@@ -71,6 +75,7 @@ export interface ProjectsView {
 export class ProjectsModel {
 	#client: ProjectsClient;
 	#navigate: (workspaceId: string) => void;
+	#onShow: (() => void) | undefined;
 	#rows = new Map<string, ProjectRow>();
 	#truncated = false;
 	#watch: { state: WatchState; detail: string } = { state: 'idle', detail: '' };
@@ -85,9 +90,11 @@ export class ProjectsModel {
 	#listeners = new Set<() => void>();
 	#view: ProjectsView | null = null;
 
-	constructor(client: ProjectsClient, navigate: (workspaceId: string) => void) {
+	/** `onShow` runs before a `show` event selects its project: a selection the daemon made stays, as a project row's does. */
+	constructor(client: ProjectsClient, navigate: (workspaceId: string) => void, onShow?: () => void) {
 		this.#client = client;
 		this.#navigate = navigate;
+		this.#onShow = onShow;
 	}
 
 	get view(): ProjectsView {
@@ -151,6 +158,20 @@ export class ProjectsModel {
 			return Promise.resolve();
 		}
 		return this.#open(id);
+	}
+
+	/** Remove a closed project from the list; an open one is not offered, and the daemon refuses it. */
+	async forget(id: string): Promise<void> {
+		if (this.#rows.get(id)?.open !== false) return;
+		this.#error = null;
+		try {
+			await this.#client.call('workspace.forget', { workspace: id });
+			// Only if still closed: an open that raced the forget brought the row back.
+			if (this.#rows.get(id)?.open === false) this.#rows.delete(id);
+		} catch (e) {
+			this.#error = failure(e);
+		}
+		this.#changed();
 	}
 
 	/** The typed root, where the folder dialog is unavailable. */
@@ -263,6 +284,16 @@ export class ProjectsModel {
 			return;
 		}
 		if (ev.topic !== TOPIC_STATE || ev.workspace === null) return;
+		if (ev.type === 'show') {
+			this.#onShow?.();
+			void this.select(ev.workspace);
+			return;
+		}
+		if (ev.type === 'forgotten') {
+			if (this.#rows.delete(ev.workspace)) this.#changed();
+			return;
+		}
+		if (ev.type !== 'state') return;
 		const p = ev.payload as StateEvent;
 		const prev = this.#rows.get(ev.workspace);
 		this.#rows.set(ev.workspace, {

@@ -11306,6 +11306,43 @@
       }
     },
     {
+      "name": "workspace.forget",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.28.0",
+      "description": "Removes a workspace that is not open from the recent projects workspace.watch lists, keeping its state on disk; an open one fails and an unknown id answers as done. A person's action, refused from an agent session.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "WORKSPACE_OPEN",
+        "WORKSPACE_STATE_UNREADABLE"
+      ],
+      "input": {
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "The id of a workspace that is not open."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspace"
+        ]
+      },
+      "output": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
       "name": "workspace.open",
       "kind": "command",
       "scope": "workspace",
@@ -11444,6 +11481,44 @@
       }
     },
     {
+      "name": "workspace.show",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.28.0",
+      "description": "Tells every open web UI tab to select a workspace, opening it if it is closed, and returns how many tabs were told; no window is brought to the front. A person's action, refused from an agent session.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "input": {
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "The id of the workspace the tabs select; absent, they keep what they show and only the count is returned."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "tabs": {
+            "type": "integer",
+            "description": "How many workspace.watch subscriptions were told, which is how many open tabs there are; 0 when none is."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tabs"
+        ]
+      }
+    },
+    {
       "name": "workspace.watch",
       "kind": "command",
       "scope": "global",
@@ -11538,6 +11613,16 @@
       "events": {
         "topic": "workspace.state",
         "types": {
+          "forgotten": {
+            "properties": {},
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "show": {
+            "properties": {},
+            "additionalProperties": false,
+            "type": "object"
+          },
           "state": {
             "properties": {
               "state": {

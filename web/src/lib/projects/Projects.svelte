@@ -109,6 +109,22 @@
 	</li>
 {/snippet}
 
+{#snippet remove(p: ProjectRow)}
+	<!-- Only a closed project: the daemon refuses an open one (ADR-0086). -->
+	{#if !p.open}
+		<button
+			type="button"
+			class="remove"
+			aria-label="Remove {p.name} from the recent projects"
+			title="Remove from the recent projects"
+			disabled={view?.opening}
+			onclick={() => void projects.forget(p.id)}
+		>
+			<X size={12} />
+		</button>
+	{/if}
+{/snippet}
+
 <section class="projects" aria-label="Projects">
 	<header>
 		<h2>Projects</h2>
@@ -154,22 +170,25 @@
 			<li data-project={g.root}>
 				{#if g.project}
 					{@const p = g.project}
-					<button
-						type="button"
-						class="project"
-						class:selected={p.id === selected}
-						aria-current={p.id === selected ? 'true' : undefined}
-						disabled={view?.opening}
-						title={p.root}
-						onclick={() => chooseProject(p)}
-					>
-						<Folder size={14} />
-						<span class="name" class:closed={!p.open}>{p.name}</span>
-						{#if agentsHere.length > 0}
-							<span class="count" class:working={working > 0} title="{working} working">{agentsHere.length}</span>
-						{/if}
-						<span class="dot" data-state={p.open ? (p.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(p)}></span>
-					</button>
+					<div class="line">
+						<button
+							type="button"
+							class="project"
+							class:selected={p.id === selected}
+							aria-current={p.id === selected ? 'true' : undefined}
+							disabled={view?.opening}
+							title={p.root}
+							onclick={() => chooseProject(p)}
+						>
+							<Folder size={14} />
+							<span class="name" class:closed={!p.open}>{p.name}</span>
+							{#if agentsHere.length > 0}
+								<span class="count" class:working={working > 0} title="{working} working">{agentsHere.length}</span>
+							{/if}
+							<span class="dot" data-state={p.open ? (p.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(p)}></span>
+						</button>
+						{@render remove(p)}
+					</div>
 				{:else}
 					<!-- Its worktrees are listed and the main tree is not: a group row for it, which Open opens. -->
 					<div class="project group" title={g.root}>
@@ -191,7 +210,7 @@
 				{#if g.worktrees.length > 0}
 					<ul class="agents worktrees">
 						{#each g.worktrees as w (w.id)}
-							<li>
+							<li class="line">
 								<button
 									type="button"
 									class="agent worktree"
@@ -205,6 +224,7 @@
 									<span class="label" class:closed={!w.open}>{w.name}</span>
 									<span class="dot" data-state={w.open ? (w.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(w)}></span>
 								</button>
+								{@render remove(w)}
 							</li>
 						{/each}
 					</ul>
@@ -297,6 +317,28 @@
 		flex-direction: column;
 		gap: var(--sp-2);
 		overflow: auto;
+	}
+	.line {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+	}
+	.line > :first-child {
+		flex: 1;
+		min-width: 0;
+	}
+	.remove {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 0;
+		width: var(--row);
+		height: var(--row);
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-3);
 	}
 	.project,
 	.agent {

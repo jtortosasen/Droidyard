@@ -21,7 +21,7 @@ type sessionRecorder struct {
 	raw []string
 }
 
-func (r *sessionRecorder) Broadcast(topic, typ, workspace, operation string, payload any) {
+func (r *sessionRecorder) Broadcast(topic, typ, workspace, operation string, payload any) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if topic != SessionStateTopic || typ != SessionStateType || workspace != "" || operation != "" {
@@ -30,6 +30,7 @@ func (r *sessionRecorder) Broadcast(topic, typ, workspace, operation string, pay
 	b, _ := json.Marshal(payload)
 	r.got = append(r.got, payload.(SessionState))
 	r.raw = append(r.raw, string(b))
+	return 1
 }
 
 func (r *sessionRecorder) events() []SessionState {

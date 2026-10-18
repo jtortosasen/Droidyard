@@ -100,6 +100,30 @@ func TestSubscriptionsFilterByTopic(t *testing.T) {
 	}
 }
 
+// TestBroadcastCountsTheSubscriptionsItOffered: Broadcast returns how many subscriptions
+// held the topic, which is workspace.show's tabs (ADR-0084 §1): none, then two of three,
+// and a closed subscription is no longer counted. A count of every subscription, or a
+// constant, fails the second assertion.
+func TestBroadcastCountsTheSubscriptionsItOffered(t *testing.T) {
+	b := New(Options{})
+	if n := b.Broadcast("workspace.state", "show", "ws-1", "", struct{}{}); n != 0 {
+		t.Errorf("with no subscription Broadcast returned %d; want 0", n)
+	}
+	a := b.Subscribe([]string{"workspace.state"}, nil)
+	c := b.Subscribe([]string{"workspace.state", "other"}, nil)
+	b.Subscribe([]string{"other"}, nil)
+	if n := b.Broadcast("workspace.state", "show", "ws-1", "", struct{}{}); n != 2 {
+		t.Errorf("Broadcast returned %d; want 2, the subscriptions holding the topic", n)
+	}
+	if len(drain(a)) != 1 || len(drain(c)) != 1 {
+		t.Errorf("the two subscriptions did not each receive the event")
+	}
+	a.Close()
+	if n := b.Broadcast("workspace.state", "show", "ws-1", "", struct{}{}); n != 1 {
+		t.Errorf("after one closed, Broadcast returned %d; want 1", n)
+	}
+}
+
 // TestResumeReplaysThenContinuesLive: a subscriber that resumes from a seq the ring
 // still holds, while eight publishers run, receives every event of its topic after
 // that seq exactly once: the replay and the registration are atomic with respect to
