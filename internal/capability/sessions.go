@@ -58,6 +58,11 @@ type Sessions struct {
 	// that holds it (ADR-0094 §1). Under mu with the records, so one lock decides and
 	// binds.
 	holders map[string]string
+	// devHolders is the one holder of each device, by serial (ADR-0094 §1, §2), under mu too.
+	// devSeq counts the holds taken, so a listing read before a hold cannot release it
+	// (ForgetDevicesAbsent).
+	devHolders map[string]devHold
+	devSeq     uint64
 	// occupation is config.json's occupation section, read at each decision (ADR-0094
 	// §7); nil means the defaults. Injected at serve: capability cannot import policy.
 	occupation func() (conflict string, staleAfter time.Duration)
@@ -93,7 +98,7 @@ type sessionRec struct {
 
 // NewSessions returns an empty registry.
 func NewSessions() *Sessions {
-	return &Sessions{byID: map[string]*sessionRec{}, chats: map[string]string{}, holders: map[string]string{}, now: time.Now}
+	return &Sessions{byID: map[string]*sessionRec{}, chats: map[string]string{}, holders: map[string]string{}, devHolders: map[string]devHold{}, now: time.Now}
 }
 
 // UseOccupation gives the registry config.json's occupation section: f returns the
@@ -135,7 +140,7 @@ func (s *Sessions) usePublisher(p StatePublisher) {
 // events of one session arrive in the order its changes were made.
 func (s *Sessions) publish(id string, r *sessionRec) {
 	if s.pub != nil {
-		s.pub.Broadcast(SessionStateTopic, SessionStateType, "", "", SessionState{ID: id, Name: r.name, Workspace: r.workspace, Occupies: r.holdWorkspace, Stale: r.stale})
+		s.pub.Broadcast(SessionStateTopic, SessionStateType, "", "", SessionState{ID: id, Name: r.name, Workspace: r.workspace, Occupies: r.holdWorkspace, Devices: s.devicesOf(id), Stale: r.stale})
 	}
 }
 
@@ -285,8 +290,8 @@ func (s *Sessions) releaseLocked(id string, r *sessionRec) {
 // allow: refused is then true, held describes the holder, and nothing has changed
 // (ask is refuse, where Droidyard cannot ask: ADR-0094 §6). Under allow it is bound, not
 // held. A free one, or one held by an idle session, is held; a session that moves
-// releases what it held before, the main tree included. A session that is not registered
-// is left as it is.
+// releases what it held before, the main tree included, which also frees the devices it
+// held (ADR-0094 §3). A session that is not registered is left as it is.
 func (s *Sessions) Occupy(id, workspace, root string, linked bool) (held Holder, refused bool) {
 	conflict, _ := s.occupationNow()
 	s.mu.Lock()
@@ -312,6 +317,9 @@ func (s *Sessions) Occupy(id, workspace, root string, linked bool) (held Holder,
 		}
 	} else {
 		s.releaseLocked(id, r)
+		// Entering the main tree, also when already there, is the skill's "task done":
+		// the devices the session held go with the worktree (ADR-0094 §3).
+		s.releaseDevicesLocked(id)
 	}
 	s.bindLocked(id, r, workspace, root)
 	return Holder{}, false
@@ -351,6 +359,7 @@ func (s *Sessions) End(id string) {
 		return
 	}
 	s.releaseLocked(id, r)
+	s.releaseDevicesLocked(id)
 	delete(s.byID, id)
 	if s.pub != nil {
 		s.pub.Broadcast(SessionStateTopic, SessionStateType, "", "", SessionState{ID: id, Ended: true})
@@ -371,7 +380,7 @@ func (s *Sessions) listed() []SessionListed {
 	sort.Slice(recs, func(i, j int) bool { return recs[i].seq < recs[j].seq })
 	out := make([]SessionListed, len(recs))
 	for i, r := range recs {
-		out[i] = SessionListed{ID: ids[r], Name: r.name, Workspace: r.workspace, Occupies: r.holdWorkspace, Stale: r.stale, ConnectedAt: r.at}
+		out[i] = SessionListed{ID: ids[r], Name: r.name, Workspace: r.workspace, Occupies: r.holdWorkspace, Devices: s.devicesOf(ids[r]), Stale: r.stale, ConnectedAt: r.at}
 	}
 	return out
 }
@@ -490,10 +499,10 @@ func (s *Sessions) SetWatchHook(f func()) {
 	s.watchHook.Store(&f)
 }
 
-// SetOccupyHook makes every Occupy of a linked worktree run f between its decision (the
-// claim) and its effect (the hold), with the registry's lock held. Test-only: it is where
-// a second Occupy can be started, to see that it cannot decide in that window. Nil removes
-// it.
+// SetOccupyHook makes every Occupy of a linked worktree and every OccupyDevice run f
+// between its decision (the claim) and its effect (the hold), with the registry's lock
+// held. Test-only: it is where a second one can be started, to see that it cannot decide
+// in that window. Nil removes it.
 func (s *Sessions) SetOccupyHook(f func()) {
 	if f == nil {
 		s.occupyHook.Store(nil)

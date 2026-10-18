@@ -37,9 +37,10 @@ func registerStop(reg *capability.Registry, e *Emulator) {
 		Params:       StopParams{},
 		Target:       func(p any) *capability.OpTarget { return &capability.OpTarget{Device: p.(StopParams).Device} },
 		Result:       StopResult{},
+		Occupies:     capability.OccupiesAct,
 		// The hook's codes without readiness (stop skips it) and without a disconnection
 		// it cannot return (review B1).
-		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrNotFound, device.ErrNotAllowed,
+		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrNotFound, device.ErrNotAllowed, device.ErrOccupied,
 			ErrNotAnEmulator, ErrStopTimeout, capability.ErrOperationQueueTimeout},
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(StopParams).Device; s != "" {
@@ -48,7 +49,19 @@ func registerStop(reg *capability.Registry, e *Emulator) {
 			return ""
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
-			return e.adb.Authorize(ctx, call.Params.(StopParams).Device, "emulator.stop")
+			serial := call.Params.(StopParams).Device
+			auth, err := e.adb.Authorize(ctx, serial, "emulator.stop")
+			if err != nil {
+				return nil, err
+			}
+			// Only an emulator console is stopped (the handler refuses any other serial), so a
+			// serial that is not one is neither held nor refused here (ADR-0094 §2).
+			if device.IsEmulatorSerial(serial) {
+				if err := e.adb.OccupyFor(call, serial); err != nil {
+					return nil, err
+				}
+			}
+			return auth, nil
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return e.stop(ctx, call)
@@ -77,6 +90,8 @@ func (e *Emulator) stop(ctx context.Context, call *capability.Call) (StopResult,
 	if err := e.stopSerialWith(ctx, auth.ADB, auth.Serial); err != nil {
 		return StopResult{}, err
 	}
+	// The serial has left adb devices: nobody holds it now (ADR-0094 §3).
+	e.adb.ReleaseDevice(auth.Serial)
 	return StopResult{Device: auth.Serial, Avd: avd, Warnings: auth.Warnings}, nil
 }
 

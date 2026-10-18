@@ -188,8 +188,9 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 		Params:       TapParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(TapParams).Device) },
 		Result:       TapResult{},
+		Occupies:     capability.OccupiesAct,
 		Text:         capability.TextOf(tapText),
-		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
+		Errors: append(append([]capability.ErrorCode{}, ActingErrors...),
 			ErrUIDumpFailed, ErrElementNotFound, ErrElementAmbiguous, ErrElementOffscreen, ErrElementDisabled, ErrStaleRef,
 			capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {
@@ -203,7 +204,7 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 			Reason:      "its effect belongs to the app, and the policy keeps agents on emulators by default (mcp.md §Annotations)",
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
-			return adb.authorize(ctx, call.Params.(TapParams).Device, "device.tapElement")
+			return adb.authorizeActing(ctx, call, call.Params.(TapParams).Device, "device.tapElement")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(TapParams)

@@ -36,8 +36,10 @@ const launchGoneGrace = 2 * time.Second
 // return from here before then ends it, unless its group is already empty. From the
 // resolution on it is a device and is never signalled (ADR-0033 ¶2), so a failure in
 // awaitReady leaves it running. capability is the calling capability's name, used only to
-// phrase the serial-deadline failure (plan m1m, Q1 ¶3).
-func (e *Emulator) boot(ctx context.Context, capability, path, avd string, flags []string, deadline time.Time) (string, error) {
+// phrase the serial-deadline failure (plan m1m, Q1 ¶3). resolved, when set, is told the
+// serial the moment it is resolved, before readiness: the caller holds the device it booted
+// (ADR-0094 §2).
+func (e *Emulator) boot(ctx context.Context, capability, path, avd string, flags []string, deadline time.Time, resolved func(serial string)) (string, error) {
 	before, err := e.emulatorSerials(ctx)
 	if err != nil {
 		return "", err
@@ -65,6 +67,9 @@ func (e *Emulator) boot(ctx context.Context, capability, path, avd string, flags
 		return "", launchNotReleased(avd, err, l.end())
 	}
 	l.setSerial(serial)
+	if resolved != nil {
+		resolved(serial)
+	}
 	if err := e.awaitReady(ctx, serial, deadline, l); err != nil {
 		return "", err
 	}

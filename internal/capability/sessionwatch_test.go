@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -78,7 +79,7 @@ func TestSessionStateFollowsEveryChange(t *testing.T) {
 		{ID: "a", Name: "claude-code", Workspace: "ws-wt", Occupies: "ws-wt"},
 		{ID: "a", Ended: true},
 	}
-	if got := rec.events(); !slices.Equal(got, want) {
+	if got := rec.events(); !reflect.DeepEqual(got, want) {
 		t.Errorf("session.state carried\n  %+v\nwant\n  %+v", got, want)
 	}
 	for _, raw := range rec.raw {

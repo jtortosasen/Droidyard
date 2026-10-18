@@ -2513,6 +2513,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "DEVICE_ELEMENT_NOT_FOUND",
         "DEVICE_ELEMENT_AMBIGUOUS",
@@ -3286,6 +3287,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "BUILD_OUTPUT_NOT_FOUND",
         "BUILD_OUTPUT_STALE",
         "BUILD_OUTPUT_UNSUPPORTED",
@@ -3433,6 +3435,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_LAUNCH_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -3567,6 +3570,29 @@
                 "avdName": {
                   "type": "string",
                   "description": "The emulator's AVD name; best effort, as androidVersion."
+                },
+                "occupiedBy": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When the holder took the device."
+                    },
+                    "stale": {
+                      "type": "boolean",
+                      "description": "True while the holder has made no request for the configured time: an acting call of another session takes the device over. Absent otherwise."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "since"
+                  ],
+                  "description": "Another chat that holds this device: its install, uninstall, launch, tap through an element, text input and emulator stop or wipe from this session are refused unless the configured conflict is allow, and an idle holder (stale) is taken over by an acting call. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. Reading the screen, the tree or the logs is never refused."
                 }
               },
               "additionalProperties": false,
@@ -4366,6 +4392,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "DEVICE_ELEMENT_NOT_FOUND",
         "DEVICE_ELEMENT_AMBIGUOUS",
@@ -5437,6 +5464,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "REQUEST_INVALID_PARAMS",
         "DEVICE_UNINSTALL_FAILED",
         "OPERATION_QUEUE_TIMEOUT"
@@ -6059,6 +6087,7 @@
         "DEVICE_ADB_FAILED",
         "DEVICE_NOT_FOUND",
         "DEVICE_NOT_ALLOWED",
+        "DEVICE_OCCUPIED",
         "EMULATOR_NOT_AN_EMULATOR",
         "EMULATOR_STOP_TIMEOUT",
         "OPERATION_QUEUE_TIMEOUT"
@@ -6128,6 +6157,7 @@
         "EMULATOR_AVD_LOCKED",
         "EMULATOR_BOOT_TIMEOUT",
         "EMULATOR_STOP_TIMEOUT",
+        "DEVICE_OCCUPIED",
         "REQUEST_INVALID_PARAMS"
       ],
       "input": {
@@ -10528,6 +10558,13 @@
                   "type": "string",
                   "description": "The id of the workspace of the linked git worktree the session holds, as on session.state; absent when it holds none."
                 },
+                "devices": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "The serials of the devices the session holds, as on session.state; absent when it holds none."
+                },
                 "stale": {
                   "type": "boolean",
                   "description": "True while the session is idle, as on session.state; absent otherwise."
@@ -10575,6 +10612,13 @@
               "occupies": {
                 "type": "string",
                 "description": "The id of the workspace of the linked git worktree the session holds, so that no other chat enters there (ADR-0094); absent when it holds none."
+              },
+              "devices": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The serials of the devices the session holds, so that no other chat installs, launches or taps on them (ADR-0094); absent when it holds none."
               },
               "stale": {
                 "type": "boolean",

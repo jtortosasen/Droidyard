@@ -76,7 +76,8 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Params:       LaunchParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(LaunchParams).Device) },
 		Result:       LaunchResult{},
-		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
+		Occupies:     capability.OccupiesAct,
+		Errors: append(append([]capability.ErrorCode{}, ActingErrors...),
 			ErrLaunchFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(LaunchParams).Device; s != "" {
@@ -95,7 +96,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.launch")
+			return adb.authorizeActing(ctx, call, p.Device, "device.launch")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LaunchParams)

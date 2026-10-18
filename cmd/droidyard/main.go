@@ -408,6 +408,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// edit decides the next call without a restart. The emulator subsystem shares this
 	// ADB, so its policy check uses the same configuration.
 	adb.SetPolicy(pol)
+	// Who occupies which device (ADR-0094): the one registry of MCP sessions, which also holds
+	// the worktrees, so a session that ends or returns to the main tree frees both.
+	adb.SetOccupation(ops.Sessions())
 	// workspace.chooseRoot's folder dialog is started through the supervisor's recorded
 	// spawner (ADR-0045 §4; ADR-0021 §Pid records), so a daemon killed while it is up leaves
 	// a record the next start reaps; a test replaces the osascript it runs and the platform
