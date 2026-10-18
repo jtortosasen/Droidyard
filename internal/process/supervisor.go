@@ -311,8 +311,9 @@ func (r *Recorded) Wait() error {
 // When the record cannot be written the child is killed and no handle is returned. A
 // shell-command's whole group is killed — nothing outside it was forked into it, and a
 // background child the command left would otherwise outlive the daemon unrecorded; so is a
-// git write's, which holds the transport a fetch started. Every other kind is killed by
-// its pid, never its group, which a forked adb server shares (m1e R8).
+// git write's, which holds the transport a fetch started, and a folder dialog's, whose
+// group every other end kills too. Every other kind is killed by its pid, never its group,
+// which a forked adb server shares (m1e R8).
 func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) {
 	s.mu.Lock()
 	closed, refuse := s.closed, s.refuse
@@ -341,7 +342,7 @@ func (s *Supervisor) SpawnRecorded(cmd *exec.Cmd, kind Kind) (*Recorded, error) 
 		beforeRecord(cmd)
 	}
 	if err := s.addRecord(rec); err != nil {
-		if kind == ShellCommand || kind == GitWrite {
+		if kind == ShellCommand || kind == GitWrite || kind == FolderDialog {
 			unix.Kill(-pid, unix.SIGKILL)
 		} else {
 			cmd.Process.Kill()

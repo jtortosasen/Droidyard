@@ -115,7 +115,16 @@
 - Not here: a real osascript panel (Unverified).
 - Rests on: a dialog this daemon started is in `processes.json` before `choose` waits on it, at level 4 (the real `serve` test); that the real panel goes with its process is level 5, not run.
 - Review: the Opus verifier (process lifetime), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4 (darwin), 2026-10-18.
+  - `TestFolderDialogRecordAndReap` runs against a real `serve`:
+    - While the call runs, `processes.json` holds exactly one `folder-dialog` record, with the script's pid. It is gone after `operation.cancel`.
+    - After a SIGKILL of the daemon, a second `serve` logs `reconcile: record "folder-dialog" pid N …: reaped`, and the script, its child and the record are gone. This subtest is skipped on Linux (Pdeathsig, row 268).
+  - `TestDialogIsRecordedWhileItRuns` covers an answer, a cancel, the bound, a call's cancel and a refused spawn (`WORKSPACE_DIALOG_FAILED`). `TestReconcileReapsAFolderDialog` covers the reconcile side.
+  - Reversals, by the implementer and again by the verifier:
+    - `choose` waiting with `cmd.Wait` fails four cases ("1 dialogs recorded, 0 waits").
+    - `sup.Spawn` without a record fails both daemon subtests ("processes.json holds []").
+  - Opus verifier: proceed. Its [safety] finding was fixed by the main session: a failed record write now kills the dialog's group, not only its pid (`supervisor.go`). `TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails` gains the `folder-dialog` case, which fails with the kind taken back out of the group kill.
+  - The real osascript panel is not run: see Unverified.
 
 ### 3. `droidyard trash` bounds its wait on the daemon
 
