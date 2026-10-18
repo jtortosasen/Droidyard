@@ -822,3 +822,88 @@ func BenchmarkWatchWalkNested(b *testing.B) {
 		}
 	})
 }
+
+// Decision (m2r step 4, row 160): a watch ends with pathGone when the project directory
+// itself is deleted, moved away or replaced, though its descriptor still reads the old
+// directory; a project left in place never stops it.
+func TestWatchStopsWhenTheProjectGoes(t *testing.T) {
+	run := func(t *testing.T, watchRel string, gone func(f *fixture)) (string, []FileChange) {
+		f := newWatchFixture(t)
+		f.write("app/a.txt", "a")
+		w, sub, _ := f.startManualWatch(watchRel)
+		if gone != nil {
+			gone(f)
+		}
+		var changes []FileChange
+		for i := 0; i < 20; i++ {
+			w.tickOnce()
+			for _, e := range drainEvents(sub) {
+				switch e.Type {
+				case TypeStopped:
+					var p StoppedPayload
+					_ = json.Unmarshal(e.Payload, &p)
+					return p.Reason, changes
+				case TypeChanges:
+					var p ChangesPayload
+					_ = json.Unmarshal(e.Payload, &p)
+					changes = append(changes, p.Changes...)
+				}
+			}
+			select {
+			case r := <-w.stop:
+				return r, changes
+			default:
+			}
+		}
+		return "", changes
+	}
+	moved := func(f *fixture) {
+		if err := os.Rename(f.root, f.root+"-moved"); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		name, rel string
+		gone      func(f *fixture)
+		deleted   bool
+	}{
+		{"root removed", ".", func(f *fixture) {
+			if err := os.RemoveAll(f.root); err != nil {
+				f.t.Fatal(err)
+			}
+		}, true},
+		{"root renamed", ".", moved, true},
+		{"subdirectory, project renamed", "app", moved, true},
+		// A new directory of the same name with the same contents: only the identity check
+		// tells it from the one the descriptor holds.
+		{"root replaced", ".", func(f *fixture) {
+			moved(f)
+			if err := os.MkdirAll(filepath.Join(f.root, "app"), 0o755); err != nil {
+				f.t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(f.root, "app", "a.txt"), []byte("a"), 0o644); err != nil {
+				f.t.Fatal(err)
+			}
+		}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			reason, changes := run(t, c.rel, c.gone)
+			if reason != ReasonPathGone {
+				t.Fatalf("stop reason %q; want %q", reason, ReasonPathGone)
+			}
+			if c.deleted && len(changes) == 0 {
+				t.Fatal("no entry was reported deleted before the stop")
+			}
+			for _, ch := range changes {
+				if ch.Kind != "deleted" {
+					t.Fatalf("change %+v; want only deleted", ch)
+				}
+			}
+		})
+	}
+	t.Run("project in place", func(t *testing.T) {
+		if reason, changes := run(t, ".", nil); reason != "" || len(changes) != 0 {
+			t.Fatalf("a project left in place gave stop %q and changes %+v; want neither", reason, changes)
+		}
+	})
+}

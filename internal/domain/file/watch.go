@@ -195,16 +195,14 @@ func (w *watcher) run() {
 // directory that is gone has every entry reported deleted and the watch stops
 // (pathGone); one that cannot be read stops the watch (unreadable).
 func (w *watcher) tickOnce() {
+	if !w.rootStands() {
+		w.pathGone()
+		return
+	}
 	next, truncated, cerr := w.walkFrom(w.root.FS(), w.rel, w.baseline)
 	if cerr != nil {
 		if cerr.Code == capability.ErrFileNotFound || cerr.Code == capability.ErrFileWrongType {
-			changes, cut := diff(w.baseline, map[string]watchEntry{}, false)
-			w.baseline = map[string]watchEntry{}
-			if len(changes) > 0 {
-				w.bus.PublishTo(w.sub, TopicFileChanges, TypeChanges, w.workspace, w.operation,
-					ChangesPayload{Path: w.rel, Changes: changes, Truncated: cut})
-			}
-			w.requestStop(ReasonPathGone)
+			w.pathGone()
 			return
 		}
 		w.requestStop(ReasonUnreadable)
@@ -218,6 +216,29 @@ func (w *watcher) tickOnce() {
 	}
 	w.bus.PublishTo(w.sub, TopicFileChanges, TypeChanges, w.workspace, w.operation,
 		ChangesPayload{Path: w.rel, Changes: changes, Truncated: truncated || cut})
+}
+
+// rootStands reports whether the root's name still names the directory the descriptor
+// holds: a project deleted, moved away or replaced leaves the descriptor on a directory
+// no path reaches, which a walk through it would still read (row 160).
+func (w *watcher) rootStands() bool {
+	byName, err := os.Stat(w.root.Name())
+	if err != nil || !byName.IsDir() {
+		return false
+	}
+	held, err := w.root.Stat(".")
+	return err == nil && os.SameFile(byName, held)
+}
+
+// pathGone reports every baseline entry deleted and stops the watch with pathGone.
+func (w *watcher) pathGone() {
+	changes, cut := diff(w.baseline, map[string]watchEntry{}, false)
+	w.baseline = map[string]watchEntry{}
+	if len(changes) > 0 {
+		w.bus.PublishTo(w.sub, TopicFileChanges, TypeChanges, w.workspace, w.operation,
+			ChangesPayload{Path: w.rel, Changes: changes, Truncated: cut})
+	}
+	w.requestStop(ReasonPathGone)
 }
 
 // diff compares two walks. An entry in next but not prev is created; one in both that
