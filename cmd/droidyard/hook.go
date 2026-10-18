@@ -124,6 +124,12 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 	if err != nil || len(raw) > hookMaxStdin {
 		return pass
 	}
+	if edit, ok := assistant.DecodeEditEvent(client, raw); ok {
+		if edit.After {
+			return hookRecordEdit(client, root, edit, deadline)
+		}
+		return hookCheckEdit(client, edit, deadline)
+	}
 	if after, ok := assistant.DecodeAfterEvent(client, raw); ok {
 		return hookObserve(client, root, after, deadline, fallback)
 	}
@@ -169,6 +175,29 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 	// code and grants no trust (ADR-0015 §5).
 	if _, err := openProject(conn, r, root); err != nil {
 		return pass
+	}
+	// A target in a worktree another chat holds is not this chat's to delete: the verdict
+	// of a write there, not the trash, answers (ADR-0094 §5, ADR-0095 §3). It is asked after
+	// the open, so a daemon that cannot open the workspace is one call, as before.
+	var targets []string
+	for _, p := range route.Paths {
+		if abs := filepath.Join(root, filepath.FromSlash(p)); agent.PathOK(abs) && len(targets) < agent.MaxFiles {
+			targets = append(targets, abs)
+		}
+	}
+	if res, ok := checkWrite(client, ev.Chat, targets, deadline); ok {
+		switch res.Verdict {
+		case capability.VerdictRefuse, capability.VerdictAsk:
+			// Never the client's ask: an approved ask would run the plain `rm`, and the
+			// trash would be lost. The user who chose ask is consulted by the refusal's
+			// words, and the way out is the same (ADR-0094 §6).
+			return assistant.DenyOutput(client, res.Message)
+		case capability.VerdictWarn:
+			// The trash replacement still answers; the warning goes before it.
+			if res.Message != "" {
+				msg = res.Message + " " + msg
+			}
+		}
 	}
 	return assistant.DenyOutput(client, msg)
 }
@@ -294,15 +323,21 @@ func commandRecord(client assistant.Client, obs []assistant.Observed) agent.Reco
 
 // recordCommands calls agent.recordCommand for obs, and gives up quietly: with no daemon
 // (never started here), a refusal or the deadline, nothing is recorded and the caller
-// answers all the same (ADR-0063 §3). Opening the workspace and recording take a
-// connection each, as in `droidyard trash`: a cli.Call reads its connection through a
-// goroutine that outlives it. The open runs no project code and grants no trust
-// (ADR-0015 §5).
+// answers all the same (ADR-0063 §3).
 func recordCommands(client assistant.Client, chat, root string, obs []assistant.Observed, deadline time.Time) {
 	params, err := json.Marshal(commandRecord(client, obs))
 	if err != nil {
 		return
 	}
+	recordIn("agent.recordCommand", chat, root, params, deadline)
+}
+
+// recordIn calls the workspace-scoped record capability name with params in the workspace
+// of root, opened first, as the hook's: it never starts a daemon and gives up quietly.
+// Opening the workspace and recording take a connection each, as in `droidyard trash`: a
+// cli.Call reads its connection through a goroutine that outlives it. The open runs no
+// project code and grants no trust (ADR-0015 §5).
+func recordIn(name, chat, root string, params json.RawMessage, deadline time.Time) {
 	hello := daemon.Hello{Client: capability.ClientCLI, Chat: chat}
 	conn, r, _, err := connectOrStart(hello, false, nil)
 	if err != nil {
@@ -321,6 +356,71 @@ func recordCommands(client assistant.Client, chat, root string, obs []assistant.
 	defer conn.Close()
 	conn.SetDeadline(deadline)
 	var out bytes.Buffer
-	// The result is ignored: the hint does not depend on the record.
-	_, _ = (cli.Call{Capability: "agent.recordCommand", Workspace: id, Params: params}).Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil)
+	// The result is ignored: the answer does not depend on the record.
+	_, _ = (cli.Call{Capability: name, Workspace: id, Params: params}).Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil)
+}
+
+// checkWrite asks agent.checkWrite for the verdict on paths, for the agent of chat (the
+// connection's hello names it, so the daemon can tell it from a holder: ADR-0095 §1). ok
+// is false when no daemon answers within deadline, or answers an error: the caller then
+// lets the write through (fail open).
+func checkWrite(client assistant.Client, chat string, paths []string, deadline time.Time) (res agent.CheckResult, ok bool) {
+	if len(paths) == 0 {
+		return res, false
+	}
+	params, err := json.Marshal(agent.CheckParams{Client: string(client), Paths: paths})
+	if err != nil {
+		return res, false
+	}
+	conn, r, _, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI, Chat: chat}, false, nil)
+	if err != nil {
+		return res, false
+	}
+	defer conn.Close()
+	conn.SetDeadline(deadline)
+	env, err := runCall(conn, r, cli.Call{Capability: "agent.checkWrite", Params: params})
+	if err != nil || env.Error != nil || json.Unmarshal(env.Result, &res) != nil {
+		return agent.CheckResult{}, false
+	}
+	return res, true
+}
+
+// hookCheckEdit is the answer before an agent's edit tool writes (ADR-0095 §3): the
+// verdict of agent.checkWrite on the file, as the client's deny (refuse), ask, or the
+// pass-through that carries the warning (warn) where the client's model reads it. With no
+// daemon, or any failure, it is the pass-through.
+func hookCheckEdit(client assistant.Client, ev assistant.EditEvent, deadline time.Time) []byte {
+	res, ok := checkWrite(client, ev.Chat, []string{ev.Path}, deadline)
+	if !ok || res.Message == "" {
+		return assistant.PassOutput(client)
+	}
+	switch res.Verdict {
+	case capability.VerdictRefuse:
+		return assistant.DenyOutput(client, res.Message)
+	case capability.VerdictAsk:
+		return assistant.AskOutput(client, res.Message)
+	case capability.VerdictWarn:
+		return assistant.WarnOutput(client, res.Message)
+	}
+	return assistant.PassOutput(client)
+}
+
+// hookRecordEdit is the answer after an agent's edit tool wrote a file: the
+// pass-through, and, when a daemon answers within deadline, a record of the file under
+// its place (ADR-0095 §3, §5): the root hookRoot gives for the file's directory, the file
+// relative to it; none, the hook's own --root, marked outside the project, with the
+// absolute path.
+func hookRecordEdit(client assistant.Client, flagRoot string, ev assistant.EditEvent, deadline time.Time) []byte {
+	rec := agent.Edit{Client: string(client), Files: []agent.EditFile{{Path: ev.Path, Created: ev.Created}}, Outside: true}
+	root := flagRoot
+	if place, ok := hookRoot(flagRoot, filepath.Dir(ev.Path)); ok {
+		env := platform.Current()
+		if rel, err := filepath.Rel(env.Canonical(place), env.Canonical(ev.Path)); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			root, rec.Outside, rec.Files[0].Path = place, false, filepath.ToSlash(rel)
+		}
+	}
+	if params, err := json.Marshal(rec); err == nil {
+		recordIn("agent.recordEdit", ev.Chat, root, params, deadline)
+	}
+	return assistant.PassOutput(client)
 }

@@ -19,10 +19,10 @@ type hookCase struct {
 var hookCases = []hookCase{
 	{Claude, ".claude/settings.json",
 		`{"env": {"A": "b"}, "hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}], "PostToolUse": [{"hooks": [{"type": "command", "command": "after"}]}]}}`,
-		`{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}]}}`, 3},
+		`{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "mine"}]}]}}`, 5},
 	{Cursor, ".cursor/hooks.json",
 		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}], "preToolUse": [{"command": "mine", "matcher": "Write"}], "afterFileEdit": [{"command": "after"}], "postToolUse": [{"command": "after", "matcher": "Shell"}]}}`,
-		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}]}}`, 4},
+		`{"version": 1, "hooks": {"beforeShellExecution": [{"command": "mine"}]}}`, 6},
 }
 
 // ADR-0061 §5, ADR-0063 §7: init writes the hook entries (before a shell command, and
@@ -77,12 +77,13 @@ func TestInitWritesTheHookEntry(t *testing.T) {
 	})
 }
 
-// The entries' shape is each client's own format (ADR-0061 §5, ADR-0063 §7): Claude Code's
-// are a Bash matcher on PreToolUse, PostToolUse and PostToolUseFailure; Cursor's cover a
-// shell command before it runs, its Delete tool by matcher, and a shell command after it,
-// on success and on failure, by the Shell matcher (the tool name its events carry). A
-// postToolUse entry without the matcher would run on every Cursor tool; one with another
-// matcher would never see a shell command.
+// The entries' shape is each client's own format (ADR-0061 §5, ADR-0063 §7, ADR-0095 §3):
+// Claude Code's are a Bash matcher on PreToolUse, PostToolUse and PostToolUseFailure, and
+// the edit tools' matcher on PreToolUse and PostToolUse; Cursor's cover a shell command
+// before it runs, its Delete and Write tools by matcher before they run, and a shell command
+// and a Write after them, on success and, for a shell command, on failure, by the matcher
+// (the tool name its events carry). A postToolUse entry without the matcher would run on
+// every Cursor tool; one with another matcher would never see a shell command or a write.
 func TestHookEntryShape(t *testing.T) {
 	root := projectRoot(t)
 	mustRun(t, opts(root, Claude, Cursor))
@@ -100,10 +101,18 @@ func TestHookEntryShape(t *testing.T) {
 	if len(claude.Hooks) != 3 {
 		t.Errorf("claude hooks = %+v; want PreToolUse, PostToolUse and PostToolUseFailure", claude.Hooks)
 	}
-	for _, event := range []string{"PreToolUse", "PostToolUse", "PostToolUseFailure"} {
+	for event, matchers := range map[string][]string{
+		"PreToolUse": {"Bash", "Write|Edit|NotebookEdit"}, "PostToolUse": {"Bash", "Write|Edit|NotebookEdit"}, "PostToolUseFailure": {"Bash"},
+	} {
 		e := claude.Hooks[event]
-		if len(e) != 1 || e[0].Matcher != "Bash" || len(e[0].Hooks) != 1 || e[0].Hooks[0].Type != "command" || e[0].Hooks[0].Command != want {
-			t.Errorf("claude %s = %+v; want one Bash matcher running %q", event, e, want)
+		if len(e) != len(matchers) {
+			t.Errorf("claude %s = %+v; want the matchers %v", event, e, matchers)
+			continue
+		}
+		for i, m := range matchers {
+			if e[i].Matcher != m || len(e[i].Hooks) != 1 || e[i].Hooks[0].Type != "command" || e[i].Hooks[0].Command != want {
+				t.Errorf("claude %s[%d] = %+v; want matcher %q running %q", event, i, e[i], m, want)
+			}
 		}
 	}
 
@@ -118,12 +127,18 @@ func TestHookEntryShape(t *testing.T) {
 	if cursor.Version != 1 || len(cursor.Hooks) != 4 {
 		t.Errorf("cursor hooks.json = %+v; want version 1 and four events", cursor)
 	}
-	for event, matcher := range map[string]string{
-		"beforeShellExecution": "", "preToolUse": "Delete", "postToolUse": "Shell", "postToolUseFailure": "Shell",
+	for event, matchers := range map[string][]string{
+		"beforeShellExecution": {""}, "preToolUse": {"Delete", "Write"}, "postToolUse": {"Shell", "Write"}, "postToolUseFailure": {"Shell"},
 	} {
 		e := cursor.Hooks[event]
-		if len(e) != 1 || e[0].Command != want || e[0].Matcher != matcher {
-			t.Errorf("cursor %s = %+v; want one entry with matcher %q running %q", event, e, matcher, want)
+		if len(e) != len(matchers) {
+			t.Errorf("cursor %s = %+v; want the matchers %q", event, e, matchers)
+			continue
+		}
+		for i, m := range matchers {
+			if e[i].Command != want || e[i].Matcher != m {
+				t.Errorf("cursor %s[%d] = %+v; want matcher %q running %q", event, i, e[i], m, want)
+			}
 		}
 	}
 

@@ -260,7 +260,7 @@ Two practical notes:
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |
-| `agent` | `recordCommand` (human-only; never over MCP) | 2 |
+| `agent` | `recordCommand`, `recordEdit`, `checkWrite` (human-only; never over MCP) | 2 |
 
 `build.test` and `code.*` are **not** part of the MVP. `git.*` is included but scheduled
 last and may slip.

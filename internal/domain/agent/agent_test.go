@@ -13,7 +13,7 @@ import (
 func descriptor(t *testing.T) capability.Descriptor {
 	t.Helper()
 	reg := capability.NewRegistry()
-	Register(reg)
+	Register(reg, Options{})
 	d, ok := reg.Lookup("agent.recordCommand")
 	if !ok {
 		t.Fatal("agent.recordCommand is not registered")
@@ -186,7 +186,7 @@ func (admitAll) Admit(target string, record func(id string)) bool { record(targe
 // first. Accepting nil again fails the first two cases.
 func TestRecordCommandRequiresWords(t *testing.T) {
 	reg := capability.NewRegistry()
-	Register(reg)
+	Register(reg, Options{})
 	ops := capability.NewOperations(reg)
 	ops.UseWorkspaces(admitAll{})
 	call := func(params string) capability.Outcome {

@@ -87,7 +87,7 @@ func registry() *capability.Registry {
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing, AuthorizeGradle: trustNothing})
 	file.Register(reg, file.Options{})
 	git.Register(reg, git.Options{})
-	agent.Register(reg)
+	agent.Register(reg, agent.Options{})
 	// The shell descriptors only: no handler of the golden registry is ever run, so the
 	// policy, trust, starter and store are left nil.
 	shell.Register(reg, shell.Options{})

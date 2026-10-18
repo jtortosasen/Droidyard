@@ -13,7 +13,7 @@
 	import type { SessionsModel, SessionsView } from '../projects/sessions';
 	import type { ActivityStore, Operation, WatchStatus } from './activity';
 	import { buildBlocks, elapsedText, type ActorFilter, type Block } from './blocks';
-	import { RECORD_COMMAND, type CommandRecord, type CommandRecordsModel } from './commands';
+	import { isRecord, type CommandRecord, type CommandRecordsModel } from './commands';
 	import { canRestore, EXPIRED_TEXT, itemText, type RestoreModel, type RestoreState } from './restore';
 
 	// The activity stream (plan m2d step 8, direction C): a block per operation, newest at
@@ -95,10 +95,10 @@
 		read();
 		return m.subscribe(read);
 	});
-	// A completed `agent.recordCommand` row has its result read once; the model caches it.
+	// A completed `agent.recordCommand` or `agent.recordEdit` row has its result read once; the model caches it.
 	$effect(() => {
 		const m = records;
-		for (const o of operations) if (o.capability === RECORD_COMMAND && o.state === 'completed') void m.load(o.id);
+		for (const o of operations) if (isRecord(o.capability) && o.state === 'completed') void m.load(o.id, o.capability);
 		const read = () => {
 			recorded = new Map(
 				operations.flatMap((o) => {

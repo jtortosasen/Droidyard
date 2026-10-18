@@ -72,7 +72,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
 | `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI's diff, tree, history, fetch, branches and submodules use them. |
 | `device.tap`, `device.swipe`, `device.pressKey` | Audience `human` ([ADR-0079](../adr/0079-screen-input-capabilities.md)): input from the live view. |
-| `agent.recordCommand` | Audience `human` ([ADR-0063](../adr/0063-hook-observes-android-commands.md) §5): it is the hook's channel for recording what an agent ran outside droidyard; the CLI calls it. |
+| `agent.recordCommand`, `agent.recordEdit`, `agent.checkWrite` | Audience `human` ([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md) §3): the hook's channel: records of commands and edits, check before a write. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and

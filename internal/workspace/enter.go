@@ -2,9 +2,7 @@ package workspace
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -78,18 +76,9 @@ func (r *Registry) enter(ctx context.Context, call *capability.Call) (any, error
 	return withGradle(info), nil
 }
 
-// occupiedError is WORKSPACE_OCCUPIED for a worktree held by holder. "Another chat" is
-// what it says because every Claude Code chat is named claude-code (ADR-0094 §5).
+// occupiedError is WORKSPACE_OCCUPIED for a worktree held by holder; the words are the
+// ones a refused write is told (capability.Holder.Who, OccupiedWayOut).
 func occupiedError(root string, holder capability.Holder) *capability.Error {
-	who := "another chat"
-	switch {
-	case holder.Name != "" && !holder.Since.IsZero():
-		who = fmt.Sprintf("another chat (%s, since %s)", holder.Name, holder.Since.UTC().Format(time.RFC3339))
-	case holder.Name != "":
-		who = fmt.Sprintf("another chat (%s)", holder.Name)
-	case !holder.Since.IsZero():
-		who = fmt.Sprintf("another chat (since %s)", holder.Since.UTC().Format(time.RFC3339))
-	}
-	return capability.Errorf(capability.ErrWorkspaceOccupied, "%s works in %s", who, root).
-		WithNextStep(fmt.Sprintf("make a worktree of your own (git worktree add) and workspace_enter it, or ask the user to release %s in Droidyard's sessions panel", root))
+	return capability.Errorf(capability.ErrWorkspaceOccupied, "%s works in %s", holder.Who(), root).
+		WithNextStep(capability.OccupiedWayOut(root))
 }

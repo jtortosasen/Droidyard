@@ -237,7 +237,7 @@ func TestAfterOutput(t *testing.T) {
 // 65-character row.
 func TestObservationsAreWhatTheCapabilityAccepts(t *testing.T) {
 	reg := capability.NewRegistry()
-	agent.Register(reg)
+	agent.Register(reg, agent.Options{})
 	d, _ := reg.Lookup("agent.recordCommand")
 	for _, line := range []string{
 		"./gradlew :app:installDebug --info",

@@ -82,3 +82,47 @@ describe('agent.recordCommand rows in Activity', () => {
 		expect(keyOf(op({ client: 'mcp', session: { id: 's1' } }))).toBeNull();
 	});
 });
+
+// ADR-0095 §3: the hook's record of an agent's own edit reads as "<agent> edited|created
+// <path>", "(outside the project)" when so; the question before the edit is never a row.
+describe('agent.recordEdit rows in Activity', () => {
+	const edit = (over: Partial<Operation> = {}) => op({ id: 'e1', capability: 'agent.recordEdit', ...over });
+	const read = async (wire: unknown) => {
+		const m = new CommandRecordsModel(fake(wire).client);
+		await m.load('e1', 'agent.recordEdit');
+		return m.recordOf('e1');
+	};
+
+	it('says edited or created, the path, and the client', async () => {
+		const rec = (await read({ client: 'claude', files: [{ path: 'app/Main.kt' }] }))!;
+		const b = buildBlocks([edit()], f('all'), ctx({ records: new Map([['e1', rec]]) }))[0]!;
+		expect(b.actor).toBe('Claude Code');
+		expect(b.title).toBe('edited app/Main.kt');
+		expect(b.command).toBeUndefined();
+		expect((await read({ client: 'cursor', files: [{ path: 'a.kt', created: true }] }))?.title).toBe('created a.kt');
+	});
+
+	it('counts more files and names an edit outside the project', async () => {
+		expect((await read({ client: 'claude', files: [{ path: '/tmp/x.txt' }, { path: '/tmp/y.txt' }], outside: true }))?.title).toBe(
+			'edited /tmp/x.txt (+1 more) (outside the project)',
+		);
+	});
+
+	it('shows with the agent that made it, under All and Agents, not under You', () => {
+		const joined = edit({ client: 'cli', session: { id: 's1', name: 'claude-code' } });
+		const ids = (a: BlockFilter['actor']) => buildBlocks([joined], f(a), ctx()).length;
+		expect([ids('all'), ids('agents'), ids('you')]).toEqual([1, 1, 0]);
+	});
+
+	it('hides agent.checkWrite whoever carried it', () => {
+		for (const client of ['cli', 'ui', 'mcp']) {
+			const q = op({ id: 'q1', capability: 'agent.checkWrite', client, session: { id: 's1', name: 'claude-code' } });
+			expect(buildBlocks([q], f('all'), ctx())).toEqual([]);
+		}
+	});
+
+	it('is malformed when the client or the files are not what the record holds', async () => {
+		expect(await read({ client: 'vim', files: [{ path: 'a' }] })).toBeUndefined();
+		expect(await read({ client: 'claude', files: [] })).toBeUndefined();
+	});
+});

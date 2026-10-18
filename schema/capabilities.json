@@ -2,6 +2,97 @@
   "version": "0.29.0",
   "capabilities": [
     {
+      "name": "agent.checkWrite",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.29.0",
+      "description": "Says whether an agent's own edit tool may write the given absolute paths (refuse, ask, warn or allow), by whether another live chat works in the git worktree they lie in. The caller is the chat its connection names; it is the hook's channel before an edit, never an MCP tool.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client whose edit tool is about to write."
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The absolute paths the write touches; one to twenty, each at most 4096 bytes and without control or format characters."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "paths"
+        ]
+      },
+      "output": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "warn",
+              "ask",
+              "refuse"
+            ],
+            "description": "The most severe verdict over the paths: refuse (another chat works there and the configured conflict is refuse), ask (the same, conflict ask), warn (the holder is idle, or the caller's chat names no live MCP session, so it cannot be told from the holder), allow (anything else, including the caller's own worktree and any held one under conflict allow)."
+          },
+          "occupiedBy": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said."
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the holder took the worktree."
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "True while the holder has made no request for the configured time. Absent otherwise."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "since"
+            ],
+            "description": "The holder of the worktree that decided the verdict, when another session holds it; absent when none does or the caller is the holder's own."
+          },
+          "message": {
+            "type": "string",
+            "description": "For refuse, ask and warn: who holds the worktree, since when, and the way out. Absent for allow."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verdict"
+        ]
+      }
+    },
+    {
       "name": "agent.recordCommand",
       "kind": "command",
       "scope": "workspace",
@@ -136,6 +227,116 @@
         "required": [
           "client",
           "commands"
+        ]
+      }
+    },
+    {
+      "name": "agent.recordEdit",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.29.0",
+      "description": "Records that an agent's own edit tool wrote files: the client, the paths and, where the client says it, whether each was created. It is the hook's channel after an edit, never an MCP tool; it stores nothing, the record is the operation's result, shown in Activity, and the workspace's file watches walk at once.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client whose edit tool wrote the files."
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "description": "The file: relative to the workspace root, slash-separated; absolute when the edit is outside."
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "True when the edit created the file; absent when it changed one that existed or the client does not say."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path"
+              ]
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The files written; one to twenty. Nothing of their content."
+          },
+          "outside": {
+            "type": "boolean",
+            "description": "True when the files lie outside the project and its worktrees; their paths are then absolute."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "files"
+        ]
+      },
+      "output": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client whose edit tool wrote the files."
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "description": "The file: relative to the workspace root, slash-separated; absolute when the edit is outside."
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "True when the edit created the file; absent when it changed one that existed or the client does not say."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path"
+              ]
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The files written; one to twenty. Nothing of their content."
+          },
+          "outside": {
+            "type": "boolean",
+            "description": "True when the files lie outside the project and its worktrees; their paths are then absolute."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "files"
         ]
       }
     },

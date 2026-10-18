@@ -559,9 +559,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	})
 	workspace.Register(reg, ws)
 	event.Register(reg, ops.Active)
-	// agent.recordCommand is the hook's channel (ADR-0063): audience human, stateless, no
-	// dependency; the record is the operation's result.
-	agent.Register(reg)
+	// agent.recordCommand, agent.recordEdit and agent.checkWrite are the hook's channel
+	// (ADR-0063, ADR-0095 §3): audience human, stateless; a record is the operation's
+	// result. The check reads who holds a worktree from the session registry, and a
+	// recorded edit makes the file watches walk at once.
+	agent.Register(reg, agent.Options{Sessions: ops.Sessions(), Canonical: env.Canonical, Nudge: watchers.Nudge})
 	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
 	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
 	// hook the project-code capabilities share; its command is spawned through the

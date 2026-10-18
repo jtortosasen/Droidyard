@@ -21,6 +21,8 @@ import (
 const (
 	sessionClockEnv = "DROIDYARD_TEST_SESSION_CLOCK"
 	sessionSweepEnv = "DROIDYARD_TEST_SESSION_SWEEP"
+	// watchTickEnv is the file.watch pollers' interval of a re-executed daemon (a Go duration).
+	watchTickEnv = "DROIDYARD_TEST_WATCH_TICK"
 )
 
 // occupationWorld is a real `serve` with a trusted repository `main` and two linked
@@ -34,7 +36,8 @@ type occupationWorld struct {
 	idOf           func(root string) string
 }
 
-func newOccupationWorld(t *testing.T) *occupationWorld {
+// newOccupationWorld takes extra environment variables for the daemon.
+func newOccupationWorld(t *testing.T, extraEnv ...string) *occupationWorld {
 	t.Helper()
 	w := &occupationWorld{state: shortDir(t)}
 	cfg, _ := fakeSidecar(t, gradleRootModel)
@@ -58,8 +61,8 @@ func newOccupationWorld(t *testing.T) *occupationWorld {
 	w.clock = filepath.Join(base, "clock")
 	w.advanceTo(0)
 	w.configure(t, "")
-	w.srv = droidyardEnv(t, w.state, "", []string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t),
-		sessionClockEnv + "=" + w.clock, sessionSweepEnv + "=50ms"}, "serve")
+	w.srv = droidyardEnv(t, w.state, "", append([]string{gradleFakeEnv + "=" + cfg, gradleJVMEnv + "=" + fakeJDK(t),
+		sessionClockEnv + "=" + w.clock, sessionSweepEnv + "=50ms"}, extraEnv...), "serve")
 	w.srv.expect(t, "listening")
 	return w
 }
