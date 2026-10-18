@@ -47,6 +47,9 @@ func TestRecordCommandDescriptor(t *testing.T) {
 }
 
 func cmd(program string, suggested string, words ...string) Command {
+	if words == nil {
+		words = []string{} // words is required: no word is [], never null
+	}
 	return Command{Program: program, Words: words, Suggested: suggested}
 }
 
@@ -170,5 +173,46 @@ func TestTagsMatchTheExportedFacts(t *testing.T) {
 	}
 	if c := tag(record, "Commands"); !strings.Contains(c, "minItems=1") || !strings.Contains(c, "maxItems=4") || MaxCommands != 4 {
 		t.Errorf("Commands tag %q; want 1 to 4 items", c)
+	}
+}
+
+type admitAll struct{}
+
+func (admitAll) Admit(target string, record func(id string)) bool { record(target); return true }
+
+// Decision (ADR-0063 §4, row 211): the schema marks words required, but decoding gives
+// nil for an absent or null field, so the handler refuses it by name; `[]` is the
+// accepted way to say there is no word. Run through Operations so decodeParams comes
+// first. Accepting nil again fails the first two cases.
+func TestRecordCommandRequiresWords(t *testing.T) {
+	reg := capability.NewRegistry()
+	Register(reg)
+	ops := capability.NewOperations(reg)
+	ops.UseWorkspaces(admitAll{})
+	call := func(params string) capability.Outcome {
+		t.Helper()
+		out, err := ops.Invoke(context.Background(), capability.Request{
+			Capability: "agent.recordCommand", Workspace: "/p", Client: capability.ClientCLI,
+			Params: []byte(params),
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", params, err)
+		}
+		return out
+	}
+	for _, c := range []string{
+		`{"client":"claude","commands":[{"program":"adb"}]}`,
+		`{"client":"claude","commands":[{"program":"adb","words":null}]}`,
+	} {
+		out := call(c)
+		if out.State != capability.StateFailed || out.Error == nil ||
+			out.Error.Code != capability.ErrInvalidParams || !strings.Contains(out.Error.Message, "commands[0].words") {
+			t.Errorf("%s: state %v, error %+v; want failed REQUEST_INVALID_PARAMS naming commands[0].words", c, out.State, out.Error)
+		}
+	}
+	out := call(`{"client":"claude","commands":[{"program":"adb","words":[]}]}`)
+	want := Record{Client: "claude", Commands: []Command{{Program: "adb", Words: []string{}}}}
+	if out.State != capability.StateCompleted || !reflect.DeepEqual(out.Result, want) {
+		t.Errorf("words []: state %v, result %+v, error %+v; want completed with words []", out.State, out.Result, out.Error)
 	}
 }
