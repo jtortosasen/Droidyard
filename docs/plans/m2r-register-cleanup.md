@@ -170,7 +170,17 @@
 - Needs: nothing.
 - Not here: Claude Code's `.mcp.json` (not observed to lose the variable); 205's stale entries (Not in this milestone).
 - Rests on: Cursor passing an entry's `env` to the server it starts, level 5 in m1o step 9, not rerun (Unverified).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18.
+  - `TestCursorEntryCarriesACustomStateRoot` (`internal/assistant`):
+    - With `StateDir` `/s`, `.cursor/mcp.json` gets `env {DROIDYARD_STATE_DIR: /s}` and `.mcp.json` gets none.
+    - A second run changes nothing.
+    - `--uninstall` without the state root keeps the entry and says "kept"; with it, the entry is removed.
+    - An entry written without the state root has no env.
+  - `TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot` (`cmd/droidyard`, a real `init` under `DROIDYARD_STATE_DIR`) now also finds the state root in `.cursor/mcp.json`'s env. Added by the main session.
+  - Reversals:
+    - Cursor's entry ignoring `StateDir` fails with "env = map[]; want only DROIDYARD_STATE_DIR=/s".
+    - `.mcp.json` given the env fails with ".mcp.json carries an env".
+  - `go build`, `vet`, `gofmt -l` clean; `go test ./...` ok. Cursor honouring `env` rests on m1o step 9 (Unverified).
 
 ### 6. `agent.recordCommand` requires `words`
 

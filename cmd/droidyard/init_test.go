@@ -447,4 +447,21 @@ func TestInitHookEntriesNameTheBinaryTheRootAndTheStateRoot(t *testing.T) {
 			t.Errorf("init does not print the %s hook it wrote:\n%s", c.client, out)
 		}
 	}
+	// Cursor rebuilds its MCP servers' environment too, so the server entry carries the
+	// state root as env (plan m2r step 5, row 199).
+	raw, err := os.ReadFile(filepath.Join(proj, ".cursor/mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcp struct {
+		Servers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &mcp); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcp.Servers["droidyard"].Env["DROIDYARD_STATE_DIR"]; got != filepath.Clean(state) {
+		t.Errorf(".cursor/mcp.json: the droidyard entry's env names state root %q; want %q:\n%s", got, filepath.Clean(state), raw)
+	}
 }

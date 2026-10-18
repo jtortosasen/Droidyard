@@ -974,3 +974,66 @@ func TestClientNotes(t *testing.T) {
 		t.Errorf("OpenCode has a note: %q", Note(OpenCode))
 	}
 }
+
+// Decision (row 199, ADR-0037 §Decision 2): a custom state root reaches Cursor's server
+// through the entry's env, since Cursor rebuilds the environment; Claude Code's entry has
+// none, and without a state root the entry is as before. Uninstall compares with what
+// this run writes.
+func TestCursorEntryCarriesACustomStateRoot(t *testing.T) {
+	root := projectRoot(t)
+	o := opts(root, Cursor, Claude)
+	o.StateDir = "/s"
+	mustRun(t, o)
+	if env := serverEnv(t, root, ".cursor/mcp.json"); env["DROIDYARD_STATE_DIR"] != "/s" || len(env) != 1 {
+		t.Errorf(".cursor/mcp.json env = %v; want only DROIDYARD_STATE_DIR=/s", env)
+	}
+	if got := read(t, root, ".mcp.json"); strings.Contains(got, "env") || strings.Contains(got, "DROIDYARD_STATE_DIR") {
+		t.Errorf(".mcp.json carries an env:\n%s", got)
+	}
+	before := snapshot(t, root)
+	res := mustRun(t, o)
+	for _, c := range res.Changes {
+		if c.Status != Unchanged {
+			t.Errorf("second run: %s is %s", c.Path, c.Status)
+		}
+	}
+	sameTree(t, before, snapshot(t, root))
+
+	// Without the variable, uninstall keeps the entry written with it and says so.
+	plain := opts(root, Cursor)
+	c := statusOf(t, mustRun(t, uninstall(plain)), ".cursor/mcp.json")
+	if c.Status != Unchanged || !strings.Contains(notesOf(c), "kept") {
+		t.Errorf("uninstall without the state root: %s (%s); want unchanged, kept", c.Status, notesOf(c))
+	}
+	if !strings.Contains(read(t, root, ".cursor/mcp.json"), "DROIDYARD_STATE_DIR") {
+		t.Error("uninstall without the state root removed an entry written with it")
+	}
+
+	// With it, uninstall removes the entry.
+	u := uninstall(o)
+	mustRun(t, u)
+	if exists(root, ".cursor/mcp.json") && strings.Contains(read(t, root, ".cursor/mcp.json"), ServerName) {
+		t.Error("uninstall with the state root left the entry")
+	}
+
+	// Without a state root, no env at all.
+	root2 := projectRoot(t)
+	mustRun(t, opts(root2, Cursor))
+	if strings.Contains(read(t, root2, ".cursor/mcp.json"), "env") {
+		t.Error("an entry written without a state root has an env")
+	}
+}
+
+// serverEnv is the env of the droidyard entry in a client's server file.
+func serverEnv(t *testing.T, root, rel string) map[string]string {
+	t.Helper()
+	var f struct {
+		Servers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(read(t, root, rel)), &f); err != nil {
+		t.Fatal(err)
+	}
+	return f.Servers[ServerName].Env
+}

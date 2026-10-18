@@ -223,6 +223,13 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 
 	server := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}})
 	serverSpec := jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: server}}}
+	// Cursor rebuilds the server's environment, so a custom state root travels in the entry
+	// (row 199, ADR-0037 §Decision 2); Claude Code's .mcp.json is not observed to lose it.
+	cursorServerSpec := serverSpec
+	if o.StateDir != "" {
+		withEnv := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}, Env: map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}})
+		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv}}}
+	}
 	allowSpec := func(c Client) (jsonSpec, error) {
 		if len(tools) == 0 {
 			return jsonSpec{}, fmt.Errorf("no read-only tool to allowlist for %s", c)
@@ -237,7 +244,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 	}
 
 	if has(o.Clients, Cursor) {
-		jobs = append(jobs, jsonJob(".cursor/mcp.json", serverSpec))
+		jobs = append(jobs, jsonJob(".cursor/mcp.json", cursorServerSpec))
 		spec, err := allowSpec(Cursor)
 		if err != nil {
 			return nil, nil, err
@@ -296,6 +303,8 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 type stdioServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+	// Env is set only for Cursor, and only with a custom state root.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // openCodeServer is OpenCode's local server (Mcp.LocalConfig in 2.0.18, whose schema has
