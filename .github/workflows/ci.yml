@@ -46,3 +46,19 @@ jobs:
         run: go test ./...
       - name: Release dry run
         run: release/build.sh v0.0.0 "$RUNNER_TEMP/release"
+
+  # ADR-0093: the race detector, in parallel with the checks. release.yml calls this file
+  # with a tag push, which this condition does not meet, so a release skips the job.
+  race:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Race
+        run: go test -race -timeout 30m ./...
