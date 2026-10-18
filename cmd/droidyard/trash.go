@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/jtortosasen/droidyard/adapters/cli"
 	"github.com/jtortosasen/droidyard/internal/assistant"
@@ -167,50 +169,58 @@ func trashCmd(args []string, stdout, stderr io.Writer) int {
 		return a.refuse(stderr, []string{fmt.Sprintf("%d paths; droidyard trashes at most %d at once", len(targets), trashMaxPaths)})
 	}
 
-	// Never auto-starts: with no daemon nothing is moved (ADR-0062 §1). Opening the
-	// workspace and deleting take a connection each: a cli.Call reads its connection
-	// through a goroutine that outlives it, so a second call cannot share one.
-	hello := daemon.Hello{Client: capability.ClientCLI}
-	conn, r, socket, err := connectOrStart(hello, false, nil)
-	if err != nil {
-		return a.refuse(stderr, []string{dialProblem(socket, err)})
-	}
-	id, err := openProject(conn, r, root)
-	conn.Close()
-	if err != nil {
-		return a.refuse(stderr, []string{fmt.Sprintf("opening %s: %v", root, err)})
-	}
-	conn, r, socket, err = connectOrStart(hello, false, nil)
-	if err != nil {
-		return a.refuse(stderr, []string{dialProblem(socket, err)})
-	}
-	defer conn.Close()
+	// Never auto-starts: with no daemon nothing is moved (ADR-0062 §1). Everything
+	// before the wait on the delete runs in a goroutine raced against trashDeadline
+	// (plan m2r step 3): a daemon that accepts and never answers must not hang the
+	// agent's shell. Only the wait itself, once its connection is up, is unbounded.
 	paths := make([]string, len(targets))
 	for i, t := range targets {
 		paths[i] = t.rel
 	}
-	params, _ := json.Marshal(file.DeleteParams{Paths: paths})
-	var out bytes.Buffer
-	if _, err := (cli.Call{Capability: "file.delete", Workspace: id, Params: params}).Run(r, conn, cli.Streams{Out: &out, Err: stderr}, nil); err != nil {
-		// The call may have reached the daemon, so "nothing was moved" is not known here.
-		fmt.Fprintf(stderr, "droidyard trash: %v\n", err)
-		return 1
+	gate := &trashGate{}
+	ready := make(chan struct{})
+	done := make(chan trashResult, 1)
+	go func() { done <- trashDelete(gate, ready, root, paths) }()
+	timer := time.NewTimer(trashDeadline)
+	defer timer.Stop()
+	var res trashResult
+	select {
+	case <-ready:
+		res = <-done
+	case res = <-done:
+	case <-timer.C:
+		select {
+		case <-ready: // the wait connection came up as the timer fired: wait for the delete
+			res = <-done
+		case res = <-done:
+		default:
+			if gate.giveUp() {
+				return a.refuse(stderr, []string{fmt.Sprintf("the daemon did not answer within %s", trashDeadline)})
+			}
+			return a.unknown(stderr, fmt.Sprintf("the daemon did not finish starting the delete within %s", trashDeadline))
+		}
+	}
+	if len(res.problems) > 0 {
+		return a.refuse(stderr, res.problems)
+	}
+	if res.unknown != "" {
+		return a.unknown(stderr, res.unknown)
 	}
 	var env capability.ResponseEnvelope
-	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+	if err := json.Unmarshal(res.out, &env); err != nil {
 		fmt.Fprintf(stderr, "droidyard trash: the daemon's answer is not an envelope: %v\n", err)
 		return 1
 	}
 	if env.Error != nil {
 		return a.refuse(stderr, []string{fmt.Sprintf("%s: %s", env.Error.Code, env.Error.Message)})
 	}
-	var res file.DeleteResult
-	if err := json.Unmarshal(env.Result, &res); err != nil || len(res.Items) != len(targets) {
+	var deleted file.DeleteResult
+	if err := json.Unmarshal(env.Result, &deleted); err != nil || len(deleted.Items) != len(targets) {
 		fmt.Fprintf(stderr, "droidyard trash: file.delete answered %s, not one item per path\n", env.Result)
 		return 1
 	}
 	code := 0
-	for i, it := range res.Items {
+	for i, it := range deleted.Items {
 		if it.Code != "" {
 			fmt.Fprintf(stdout, "%s: %s\n", targets[i].operand, it.Code)
 			if it.Message != "" {
@@ -277,4 +287,113 @@ func dialProblem(socket string, err error) string {
 		return fmt.Sprintf("%s: %s", e.Code, e.Message)
 	}
 	return fmt.Sprintf("no daemon answers at %s: %v (start one with `droidyard serve`)", socket, err)
+}
+
+// unknown says that the delete was sent and its outcome is not known, and hands back the
+// command that deletes without the trash. An operand already trashed is then reported
+// missing by that rm; one not trashed is deleted as the agent first asked.
+func (a trashArgs) unknown(stderr io.Writer, why string) int {
+	fmt.Fprintf(stderr, "droidyard trash: %s\n", why)
+	fmt.Fprintln(stderr, "droidyard trash: the outcome is unknown: some paths may already be in the trash.")
+	fmt.Fprintf(stderr, "To delete without droidyard's trash (rm reports an operand already trashed as missing): %s\n", a.plainRm())
+	return 1
+}
+
+// trashDeadline bounds everything before the wait on the delete: the dials and hellos, the
+// workspace opening, the delete's start and the wait connection's hello. A live daemon
+// answers each at once (plan m2r step 3). A test lowers it through installTestSeams.
+var trashDeadline = 10 * time.Second
+
+// The states of a trashGate.
+const (
+	trashIdle   int32 = iota // nothing decided
+	trashSent                // the goroutine is writing, or has written, the delete
+	trashGaveUp              // the main goroutine has reported that nothing was moved
+)
+
+// trashGate decides, once, whether the delete request was sent. The goroutine marks it
+// sent before writing the request, only if the main goroutine has not given up; the main
+// goroutine gives up only if it is not marked. So "nothing was moved" is printed only
+// when no request was written, and the abandoned goroutine never writes one afterwards.
+type trashGate struct{ state atomic.Int32 }
+
+// send marks the delete sent, and reports whether the request may be written.
+func (g *trashGate) send() bool {
+	return g.state.CompareAndSwap(trashIdle, trashSent) || g.state.Load() == trashSent
+}
+
+// giveUp reports whether the main goroutine may say nothing was moved.
+func (g *trashGate) giveUp() bool { return g.state.CompareAndSwap(trashIdle, trashGaveUp) }
+
+var errTrashGaveUp = errors.New("the deadline passed before the delete was sent")
+
+// gatedWriter writes to w only when its gate lets the delete go.
+type gatedWriter struct {
+	w    io.Writer
+	gate *trashGate
+}
+
+func (g gatedWriter) Write(p []byte) (int, error) {
+	if !g.gate.send() {
+		return 0, errTrashGaveUp
+	}
+	return g.w.Write(p)
+}
+
+// trashResult is how trashDelete ended: problems when nothing was moved, unknown when the
+// delete was sent and its outcome is not known, else the final response envelope.
+type trashResult struct {
+	problems []string
+	unknown  string
+	out      []byte
+}
+
+// trashDelete opens the workspace and deletes paths through the daemon. It closes ready
+// when only the wait on the delete is left. It prints nothing: the main goroutine reports
+// what it returns, and one that has given up never reads it.
+func trashDelete(gate *trashGate, ready chan<- struct{}, root string, paths []string) trashResult {
+	// Opening the workspace, the delete's start and its wait take a connection each: a
+	// cli.Call reads its connection through a goroutine that outlives it, so a second
+	// call cannot share one.
+	hello := daemon.Hello{Client: capability.ClientCLI}
+	conn, r, socket, err := connectOrStart(hello, false, nil)
+	if err != nil {
+		return trashResult{problems: []string{dialProblem(socket, err)}}
+	}
+	id, err := openProject(conn, r, root)
+	conn.Close()
+	if err != nil {
+		return trashResult{problems: []string{fmt.Sprintf("opening %s: %v", root, err)}}
+	}
+	conn, r, socket, err = connectOrStart(hello, false, nil)
+	if err != nil {
+		return trashResult{problems: []string{dialProblem(socket, err)}}
+	}
+	params, _ := json.Marshal(file.DeleteParams{Paths: paths})
+	var started bytes.Buffer
+	code, err := (cli.Call{Capability: "file.delete", Workspace: id, Params: params, Detach: true}).
+		Run(r, gatedWriter{conn, gate}, cli.Streams{Out: &started, Err: io.Discard}, nil)
+	conn.Close()
+	switch {
+	case errors.Is(err, errTrashGaveUp):
+		return trashResult{} // nobody reads it
+	case err != nil:
+		return trashResult{unknown: fmt.Sprintf("the call to file.delete failed: %v", err)}
+	case code != 0:
+		return trashResult{out: started.Bytes()} // rejected: an error envelope, nothing started
+	}
+	opID := strings.TrimSpace(started.String())
+
+	conn, r, socket, err = connectOrStart(hello, false, nil)
+	if err != nil {
+		return trashResult{unknown: fmt.Sprintf("the delete was started, but the wait for it could not connect: %s", dialProblem(socket, err))}
+	}
+	defer conn.Close()
+	close(ready)
+	wait, _ := json.Marshal(capability.WaitParams{OperationID: opID})
+	var out bytes.Buffer
+	if _, err := (cli.Call{Capability: capability.OperationWait, Params: wait}).Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil); err != nil {
+		return trashResult{unknown: fmt.Sprintf("waiting for the delete failed: %v", err)}
+	}
+	return trashResult{out: out.Bytes()}
 }
