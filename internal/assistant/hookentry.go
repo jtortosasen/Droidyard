@@ -1,7 +1,9 @@
 package assistant
 
 import (
+	"bytes"
 	"encoding/json"
+	"path"
 	"strings"
 )
 
@@ -22,6 +24,74 @@ func HookCommand(o Options, c Client) string {
 		cmd = "DROIDYARD_STATE_DIR=" + shellArg(o.StateDir) + " "
 	}
 	return cmd + shellArg(o.Command) + " hook --client " + string(c) + " --root " + shellArg(o.Root)
+}
+
+// initHookShape reports whether a hook command has the shape HookCommand writes for this
+// client and root, with any absolute binary path and any state root (ADR-0090 §1): an
+// optional DROIDYARD_STATE_DIR=<absolute> word, an absolute path whose base name is
+// droidyard, and exactly `hook --client <c> --root <root>`. The command is split as the
+// hook splits it. A wrapper, `sh -c`, another root or client, or an extra word is not
+// init's, so an entry a user wrote by hand is never taken for one of init's.
+func initHookShape(command string, c Client, root string) bool {
+	words, ok := splitWords(command)
+	if !ok {
+		return false
+	}
+	if len(words) > 0 {
+		if v, found := strings.CutPrefix(words[0].String(), "DROIDYARD_STATE_DIR="); found {
+			if !strings.HasPrefix(v, "/") {
+				return false
+			}
+			words = words[1:]
+		}
+	}
+	if len(words) != 6 {
+		return false
+	}
+	bin := words[0].String()
+	if !strings.HasPrefix(bin, "/") || path.Base(bin) != "droidyard" {
+		return false
+	}
+	for i, want := range []string{"hook", "--client", string(c), "--root", root} {
+		if words[i+1].String() != want {
+			return false
+		}
+	}
+	return true
+}
+
+// strictUnmarshal decodes v from raw, refusing a field the type does not have: an
+// element with an extra key is not init's.
+func strictUnmarshal(raw json.RawMessage, v any) bool {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v) == nil && !dec.More()
+}
+
+// claudeStale recognises a hook array element init wrote for this root, whatever binary
+// path it names: matcher Bash and only commands of init's shape.
+func claudeStale(root string) func(json.RawMessage) bool {
+	return func(raw json.RawMessage) bool {
+		var e claudeHookEntry
+		if !strictUnmarshal(raw, &e) || e.Matcher != "Bash" || len(e.Hooks) == 0 {
+			return false
+		}
+		for _, h := range e.Hooks {
+			if h.Type != "command" || !initHookShape(h.Command, Claude, root) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// cursorStale is the same for one Cursor event, whose elements carry the matcher init
+// writes for it.
+func cursorStale(root, matcher string) func(json.RawMessage) bool {
+	return func(raw json.RawMessage) bool {
+		var e cursorHookEntry
+		return strictUnmarshal(raw, &e) && e.Matcher == matcher && initHookShape(e.Command, Cursor, root)
+	}
 }
 
 // hasHook reports whether init writes a hook entry for the client.
@@ -51,7 +121,7 @@ func claudeHookArrays(o Options) []arrayEntry {
 	elem := rawJSON(claudeHookEntry{Matcher: "Bash", Hooks: []claudeHookCommand{{Type: "command", Command: HookCommand(o, Claude)}}})
 	var out []arrayEntry
 	for _, event := range []string{"PreToolUse", "PostToolUse", "PostToolUseFailure"} {
-		out = append(out, arrayEntry{path: []string{"hooks"}, key: event, elems: []json.RawMessage{elem}})
+		out = append(out, arrayEntry{path: []string{"hooks"}, key: event, elems: []json.RawMessage{elem}, stale: claudeStale(o.Root)})
 	}
 	return out
 }
@@ -65,10 +135,10 @@ func cursorHookSpec(o Options) jsonSpec {
 	return jsonSpec{
 		keys: []keyEntry{{key: "version", value: rawJSON(1), sole: true}},
 		arrays: []arrayEntry{
-			{path: []string{"hooks"}, key: "beforeShellExecution", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd})}},
-			{path: []string{"hooks"}, key: "preToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Delete"})}},
-			{path: []string{"hooks"}, key: "postToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}},
-			{path: []string{"hooks"}, key: "postToolUseFailure", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}},
+			{path: []string{"hooks"}, key: "beforeShellExecution", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd})}, stale: cursorStale(o.Root, "")},
+			{path: []string{"hooks"}, key: "preToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Delete"})}, stale: cursorStale(o.Root, "Delete")},
+			{path: []string{"hooks"}, key: "postToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}, stale: cursorStale(o.Root, "Shell")},
+			{path: []string{"hooks"}, key: "postToolUseFailure", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}, stale: cursorStale(o.Root, "Shell")},
 		},
 	}
 }

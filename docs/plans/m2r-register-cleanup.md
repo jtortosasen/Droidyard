@@ -226,7 +226,18 @@
 - Needs: step 5 (the Cursor entry's own spec, same files).
 - Not here: the keyed MCP server entry after a path change ("kept, yours differs", ADR-0037 §2 unchanged; ADR-0090 covers the hook entries and allow rules only); row 200 (accepted). After this step an `--uninstall` without `DROIDYARD_STATE_DIR` removes the hook entries carrying the prefix (their shape) but keeps Cursor's MCP entry with its `env` (step 5), so step 5's "as the hook entries already do" no longer holds; the step's evidence says so.
 - Rests on: no element a user wrote is matched by the shape test, at level 3 (the kept-entries table).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18, with real files in temporary directories.
+  - `internal/assistant` `stale_test.go`:
+    - `TestStaleHookEntryIsReplaced` (Claude and Cursor, with and without a state-root prefix, the note, idempotence, and `--dry-run` showing the replacement and writing nothing).
+    - `TestUninstallRemovesStaleEntries`.
+    - `TestHookEntriesThatAreNotInitsAreKept`. Kept through install and uninstall: another root or client, `sh -c`, `&& true`, `droidyard-wrapper`, a relative binary, a relative state dir, an extra flag, another matcher, an extra key.
+    - `TestInitHookShape`.
+    - `TestRetiredAllowRulesGo`.
+  - `TestUninstallRemovesOnlyTheEntryItWouldWriteNow` is removed: it pinned the ADR-0037 rule that ADR-0090 supersedes.
+  - Reversals:
+    - The shape test reduced to `strings.Contains(…, "droidyard hook")` fails the kept-entries test ("holds 4 elements after init; want the user's 10…").
+    - `stale` taken off the arrays (`main`'s behaviour) fails the replace test ("9 droidyard entries…; want 3"), the uninstall test and the retired-rule test ("init left mcp__droidyard__file_list").
+  - The golden trees and `TestUninstallRestoresTheTree` are unchanged. `go build`, `vet`, `gofmt -l` clean; `go test ./...` ok.
 
 ### 8. Leftover temporary files are swept, and asides get their own name (ADR-0091)
 
@@ -351,3 +362,4 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
   - `cmd/droidyard` `TestMCPSessionBindsAndOpensItsRoot`: an MCP read timed out.
   - `cmd/droidyard` `TestScreenEndpointFence`: the fake device's `getprop` took over 3 s.
   - `internal/domain/git` `TestUpdateTimeout`: five inconclusive attempts (2q's package).
+- 2026-10-18, step 7. ADR-0090 matches hook entries with any state-root prefix, so an `--uninstall` without `DROIDYARD_STATE_DIR` removes Cursor's hook entries written with it. It keeps Cursor's MCP server entry carrying `env` (step 5) and reports it kept, as ADR-0037 keeps any entry under its key that differs from what it would write now. The asymmetry is accepted. ADR-0090 covers hook entries and retired allow rules only, and a stale MCP server entry (another binary path) was already kept and reported before this milestone.

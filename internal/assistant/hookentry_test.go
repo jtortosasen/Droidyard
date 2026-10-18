@@ -152,29 +152,6 @@ func TestUninstallKeepsCursorsVersionWhileTheUsersHooksRemain(t *testing.T) {
 	}
 }
 
-// --uninstall removes what init would write now (ADR-0037 §2): an entry written for
-// another binary path is the user's as far as it can tell, and stays (the register row).
-func TestUninstallRemovesOnlyTheEntryItWouldWriteNow(t *testing.T) {
-	for _, c := range hookCases {
-		t.Run(string(c.client), func(t *testing.T) {
-			root := projectRoot(t)
-			write(t, root, c.rel, c.only)
-			old := opts(root, c.client)
-			old.Command = "/old/bin/droidyard"
-			mustRun(t, old)
-			now := opts(root, c.client)
-			mustRun(t, uninstall(now))
-			if got := read(t, root, c.rel); !strings.Contains(got, "/old/bin/droidyard hook") {
-				t.Errorf("--uninstall removed an entry that is not the one it would write now:\n%s", got)
-			}
-			mustRun(t, uninstall(old))
-			if got := read(t, root, c.rel); strings.Contains(got, "droidyard") {
-				t.Errorf("--uninstall with the same options left init's entry:\n%s", got)
-			}
-		})
-	}
-}
-
 // A custom state root travels in the command (the client's hook environment lacks it),
 // and any path quotes to one shell word.
 func TestHookCommandCarriesTheStateRootAndQuotesPaths(t *testing.T) {

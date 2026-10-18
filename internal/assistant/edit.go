@@ -51,6 +51,23 @@ type arrayEntry struct {
 	path  []string
 	key   string
 	elems []json.RawMessage
+	// stale, when set, recognises an element an earlier init wrote that differs from
+	// elems: install replaces it, uninstall removes it (ADR-0090). It must match only
+	// what init could have written, never an element a user wrote.
+	stale func(json.RawMessage) bool
+}
+
+// isStale reports whether e is an old element of init's: matched by stale and not one
+// of the elements init writes now.
+func (a arrayEntry) isStale(e json.RawMessage) bool {
+	return a.stale != nil && !containsJSON(a.elems, e) && a.stale(e)
+}
+
+func staleNote(n int) string {
+	if n == 1 {
+		return "a stale entry"
+	}
+	return fmt.Sprintf("%d stale entries", n)
 }
 
 // jsonSpec is everything init writes into one JSON file.
@@ -133,6 +150,14 @@ func (s jsonSpec) mergeInto(root *object) (notes []string, changed bool, err err
 					return false, fmt.Errorf("%q is not a JSON array", name)
 				}
 			}
+			var kept []json.RawMessage
+			for _, e := range have {
+				if !a.isStale(e) {
+					kept = append(kept, e)
+				}
+			}
+			dropped := len(have) - len(kept)
+			have = kept
 			added := 0
 			for _, e := range a.elems {
 				if !containsJSON(have, e) {
@@ -140,11 +165,21 @@ func (s jsonSpec) mergeInto(root *object) (notes []string, changed bool, err err
 					added++
 				}
 			}
-			if added == 0 {
+			if added == 0 && dropped == 0 {
 				notes = append(notes, fmt.Sprintf("%s: already holds all %d", name, len(a.elems)))
 				return false, nil
 			}
 			leaf.set(a.key, marshalArray(have))
+			if dropped > 0 {
+				verb := "removed"
+				if added > 0 {
+					verb = "replaced"
+				}
+				notes = append(notes, fmt.Sprintf("%s: %s %s", name, verb, staleNote(dropped)))
+			}
+			if added == 0 {
+				return true, nil
+			}
 			if added == len(a.elems) {
 				notes = append(notes, fmt.Sprintf("%s: added %d", name, added))
 			} else {
@@ -205,14 +240,20 @@ func uninstallJSON(old []byte, exists bool, s jsonSpec) edit {
 				return false, nil
 			}
 			var keep []json.RawMessage
+			stale := 0
 			for _, e := range have {
-				if !containsJSON(a.elems, e) {
+				if !containsJSON(a.elems, e) && !a.isStale(e) {
 					keep = append(keep, e)
+				} else if a.isStale(e) {
+					stale++
 				}
 			}
 			removed := len(have) - len(keep)
 			if removed == 0 {
 				return false, nil
+			}
+			if stale > 0 {
+				notes = append(notes, fmt.Sprintf("%s: removed %s", label(a.path, a.key), staleNote(stale)))
 			}
 			if len(keep) == 0 {
 				leaf.del(a.key)

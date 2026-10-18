@@ -8,7 +8,12 @@
 // existing entry under droidyard's key is kept and reported, never replaced, and a file
 // that does not parse is refused and left as it is. --uninstall removes only what is
 // equal, after parsing, to what the same run would write now. Every write goes through
-// a temporary file and a rename, and no path may leave the project root. The skill's
+// a temporary file and a rename, and no path may leave the project root. Two kinds of
+// stale entry of init's own are recognised by shape and replaced or removed (ADR-0090):
+// a hook entry whose command is `[DROIDYARD_STATE_DIR=<abs> ]<abs>/droidyard hook
+// --client <this client> --root <this root>` with any binary path, in the matcher shape
+// init writes; and an allow rule for a retired tool. Anything else, a wrapper around the
+// hook, another root or client, an extra word or key, is the user's and stays. The skill's
 // files are init's own and refreshed when they differ: a user's edits there are
 // replaced (reported "updated"), while --uninstall keeps a differing one.
 //
@@ -147,6 +152,25 @@ func AllowRule(c Client, tool string) string {
 	return ""
 }
 
+// retiredTools are tools an earlier init allowlisted and the registry no longer ships
+// (ADR-0060 retired file_list and file_read). Both init and --uninstall remove their
+// allow rules (ADR-0090 §2). Add a tool here when one is retired.
+var retiredTools = []string{"file_list", "file_read"}
+
+// retiredRule recognises an allow rule an earlier init wrote for a retired tool, in the
+// client's own syntax; any other string, a user's rule for another server included, is
+// not matched.
+func retiredRule(c Client) func(json.RawMessage) bool {
+	rules := map[string]bool{}
+	for _, t := range retiredTools {
+		rules[AllowRule(c, t)] = true
+	}
+	return func(raw json.RawMessage) bool {
+		var s string
+		return json.Unmarshal(raw, &s) == nil && rules[s]
+	}
+}
+
 // job is one file init owns part of.
 type job struct {
 	rel       string
@@ -240,7 +264,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 			allowed[c] = append(allowed[c], rule)
 			elems = append(elems, rawJSON(rule))
 		}
-		return jsonSpec{arrays: []arrayEntry{{path: []string{"permissions"}, key: "allow", elems: elems}}}, nil
+		return jsonSpec{arrays: []arrayEntry{{path: []string{"permissions"}, key: "allow", elems: elems, stale: retiredRule(c)}}}, nil
 	}
 
 	if has(o.Clients, Cursor) {
