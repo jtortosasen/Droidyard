@@ -138,7 +138,7 @@ Closing a workspace must not disconnect devices or kill the shared `adb` server.
 
 On graceful close: cancel and drain the workspace's operations (bounded, ADR-0027), stop its
 workspace-owned sidecars (subject to policy), close the connection of each Gradle root no other open
-workspace uses (a root a workspace switched away from closes once its operations end,
+workspace uses (a switched-away root closes once no operation of any workspace holds it,
 [ADR-0092](../adr/0092-switched-gradle-root-closes.md)), release watchers. On a crash the next daemon reaps orphans from pid records (matching pid **and**
 start time), removes the stale socket, and treats every workspace as closed until reopened; it never
 assumes a clean slate, and the kernel reclaims the daemon `flock` when the holder dies.

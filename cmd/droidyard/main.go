@@ -486,7 +486,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 			return nil, err
 		}
 		for _, g := range forgotten {
-			go gradleClient.CloseWhenFree(g)
+			// Asked again once the root's lock is held: a build can hold it for long, and a
+			// workspace may have taken the root meanwhile.
+			go gradleClient.CloseWhenFree(g, func() bool { return ws.GradleRootInUse(g) })
 		}
 		if r.Abs == "" {
 			return nil, r.Err

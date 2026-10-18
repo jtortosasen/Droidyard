@@ -302,7 +302,23 @@
 - Not here: `NoteGradleRoot`, left with no production caller, and the comments in `workspace.go` that describe a growing set (`:144`, `:210-211`, `:354-361`, `:383-387`) stay, since `workspace.go` is 2q's file; the close adds a register row (limit, process, `Work` empty) for removing them after both lanes merge, whichever closes second.
 - Rests on: a close that lands after a switch back only costs a reconnect (`connection.open` at the next call, `client.go:442`), at level 4 (the switch-back case). Not closed by this step (Unverified): a call that resolved the old root just before the switch takes the root's lock after the close and reopens a connection no workspace remembers; it falls back to the sidecar's idle timeout, and a crash in that build degrades no workspace.
 - Review: the Opus verifier (process lifetime: a connection closed under a workspace that may use it), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18, with a real `serve` and the fake sidecar.
+  - `TestSwitchedGradleRootCloses`:
+    - A switch closes the old root, and a switch back reopens it.
+    - A root another open workspace uses is kept.
+    - A build held more than 6 s delays the close until it ends.
+    - A root another workspace takes during the build is kept when the build ends (fix round).
+  - `TestCloseWhenFreeBoundsTheCall` (the 5 s bound only after the lock), `TestCloseWhenFreeNeverStartsASidecar`, `TestCloseWhenFreeWaitsForTheRootsOperation`, `TestCloseWhenFreeAsksKeepAfterTheWait`.
+  - `TestUseGradleRootFollowsTheCurrentRoot`, `TestUseGradleRootRefusesAClosingWorkspace`, `TestGradleRootInUse`.
+  - Reversals:
+    - The growing set fails the workspace and daemon tests ("a crash of the forgotten root A left the workspace degraded"; no `closed`).
+    - The 5 s bound applied to the lock wait never closes after a long build.
+    - No sharing check closes a root another workspace uses.
+    - No re-check after the wait closes the root under the workspace that took it ("the sidecar closed … under the workspace at dev/").
+    - The no-spawn guard removed starts the sidecar twice.
+  - Opus verifier, effort high: proceed. Its [bug] (whether the root is still in use was decided at the switch, not after the wait) is fixed in the fix round by `GradleRootInUse`, asked after the lock is taken.
+  - With 2q merged, `NoteGradleRoot` is removed and its tests moved to `UseGradleRoot`, and `workspace.go`'s growing-set comments are fixed. This replaces the register row the plan had planned.
+  - `go build`, `vet`, `gofmt -l` clean; `go test ./...` ok; `-race` on the workspace and gradle packages ok. The race of a call resolved before the switch goes to the register.
 
 ### 10. CI runs the race detector (ADR-0093)
 

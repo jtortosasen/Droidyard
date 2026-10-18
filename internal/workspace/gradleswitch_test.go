@@ -13,8 +13,8 @@ import (
 // ready and a crash of B degrades it; a resolution that gives no root forgets B, and
 // each switch returns the roots forgotten that no other open workspace remembers (§2),
 // so the caller closes exactly those. A workspace that is closing or closed refuses and
-// records nothing. Seen failing with the set kept growing (NoteGradleRoot's semantics):
-// the crash of A degraded the workspace.
+// records nothing. Seen failing with the set kept growing: the crash of A degraded the
+// workspace.
 func TestUseGradleRootFollowsTheCurrentRoot(t *testing.T) {
 	h := newWatchHarness(t, nil)
 	const ga, gb, gshared = "/gradle/a", "/gradle/b", "/gradle/shared"
@@ -106,9 +106,44 @@ func TestUseGradleRootRefusesAClosingWorkspace(t *testing.T) {
 	if forgotten != nil {
 		t.Errorf("a refused call returned %v; want nothing", forgotten)
 	}
+	if got := rootsOf(h.ws, idA); len(got) != 0 {
+		t.Errorf("the closing workspace remembers %v after a refused call; want nothing", got)
+	}
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the close did not end")
+	}
+}
+
+// TestGradleRootInUse is what a close that waited for a root's operations asks before
+// closing it (ADR-0092 §2): whether an open workspace has it as its current root now. It
+// is true for the current root of any open workspace, false for a forgotten root and for
+// the root of a workspace that is closed. Seen failing with the answer taken from a set
+// that keeps forgotten roots.
+func TestGradleRootInUse(t *testing.T) {
+	h := newWatchHarness(t, nil)
+	const ga, gb = "/gradle/a", "/gradle/b"
+	a, b := project(t), project(t)
+	idA, idB := h.open(t, a).ID, h.open(t, b).ID
+	if h.ws.GradleRootInUse(ga) {
+		t.Fatal("a root nobody resolved is in use")
+	}
+	h.ws.UseGradleRoot(idA, ga)
+	h.ws.UseGradleRoot(idB, ga)
+	if !h.ws.GradleRootInUse(ga) {
+		t.Error("the current root of two open workspaces is not in use")
+	}
+	h.ws.UseGradleRoot(idA, gb)
+	if !h.ws.GradleRootInUse(ga) {
+		t.Error("a root B still has as its current root is not in use after A left it")
+	}
+	h.ws.UseGradleRoot(idB, "")
+	if h.ws.GradleRootInUse(ga) {
+		t.Error("a root every workspace has left is in use")
+	}
+	h.closeWS(t, a)
+	if h.ws.GradleRootInUse(gb) {
+		t.Error("the root of a closed workspace is in use")
 	}
 }

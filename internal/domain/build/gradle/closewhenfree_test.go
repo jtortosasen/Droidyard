@@ -2,6 +2,7 @@ package gradle_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestCloseWhenFreeBoundsTheCall(t *testing.T) {
 
 	start := time.Now()
 	done := make(chan struct{})
-	go func() { c.CloseWhenFree(root); close(done) }()
+	go func() { c.CloseWhenFree(root, nil); close(done) }()
 	waitFor(t, "the fake to receive connection.close", func() bool { return count(events(t, ev), "served connection.close") == 1 })
 	if lockFree(c, root) {
 		t.Fatal("the root's lock was free while connection.close was unanswered; the test does not hold it")
@@ -69,7 +70,7 @@ func TestCloseWhenFreeNeverStartsASidecar(t *testing.T) {
 		t.Fatalf("the sidecar is %q after StopProcess; this test needs it stopped", st)
 	}
 
-	c.CloseWhenFree(root)
+	c.CloseWhenFree(root, nil)
 	if n := started(t, ev); n != 1 {
 		t.Errorf("the sidecar started %d times; want the one start of the model call, none for the close", n)
 	}
@@ -96,7 +97,7 @@ func TestCloseWhenFreeWaitsForTheRootsOperation(t *testing.T) {
 	}()
 
 	done := make(chan struct{})
-	go func() { c.CloseWhenFree(root); close(done) }()
+	go func() { c.CloseWhenFree(root, nil); close(done) }()
 	time.Sleep(700 * time.Millisecond)
 	if n := count(events(t, ev), "served connection.close"); n != 0 {
 		t.Fatalf("connection.close reached the sidecar while a build held the root (%d times)", n)
@@ -113,5 +114,60 @@ func TestCloseWhenFreeWaitsForTheRootsOperation(t *testing.T) {
 	}
 	if got := count(events(t, ev), "closed "+root); got != 1 {
 		t.Errorf("the sidecar closed %s %d times; want once", root, got)
+	}
+}
+
+// Decision (ADR-0092 §2, the re-check): whether a workspace still uses the root is asked
+// after the wait for its lock, not at the call, because the wait can last a whole build.
+// keep is not asked while a build holds the root, is asked once the build's run is
+// closed, and its true skips the close: the sidecar never gets connection.close and the
+// root stays open. Seen failing with keep ignored (the close reached the sidecar) and
+// with keep asked before the lock (it was asked while the build ran).
+func TestCloseWhenFreeAsksKeepAfterTheWait(t *testing.T) {
+	c, _, ev := newClient(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute)
+	root := rootDir(t)
+	run, err := c.BeginBuild(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			run.Close()
+		}
+	}()
+
+	var asked atomic.Int32
+	var askedWhileHeld atomic.Bool
+	var buildRunning atomic.Bool
+	buildRunning.Store(true)
+	done := make(chan struct{})
+	go func() {
+		c.CloseWhenFree(root, func() bool {
+			asked.Add(1)
+			if buildRunning.Load() {
+				askedWhileHeld.Store(true)
+			}
+			return true
+		})
+		close(done)
+	}()
+	time.Sleep(500 * time.Millisecond)
+	if asked.Load() != 0 {
+		t.Fatal("keep was asked while a build held the root; want it asked after the wait")
+	}
+	buildRunning.Store(false)
+	released = true
+	run.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CloseWhenFree did not return after the build's run was closed")
+	}
+	if asked.Load() != 1 || askedWhileHeld.Load() {
+		t.Errorf("keep was asked %d times (while held: %v); want once, after the build", asked.Load(), askedWhileHeld.Load())
+	}
+	if n := count(events(t, ev), "served connection.close"); n != 0 {
+		t.Errorf("connection.close reached the sidecar %d times although keep said the root is in use", n)
 	}
 }

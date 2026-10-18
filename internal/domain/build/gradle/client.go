@@ -315,10 +315,13 @@ const closeBound = 5 * time.Second
 
 // CloseWhenFree closes root's Gradle connection once no operation holds the root: it
 // waits for the root's lock with no deadline, so a build or a model call in flight
-// finishes first (ADR-0092 §2), then does what Close does under closeBound, its
+// finishes first (ADR-0092 §2). The wait can be long, so keep is asked once the lock is
+// held, and the close is skipped when it says true: a workspace has taken the root since
+// (nil keep never skips). Otherwise it does what Close does under closeBound, its
 // not-running guard included, so it never starts a sidecar for a connection that is
-// gone. It is for a root a workspace switched away from; run it in a goroutine of its own.
-func (c *Client) CloseWhenFree(canonical string) {
+// gone. It is for a root a workspace switched away from; run it in a goroutine of its
+// own. keep runs with the root's lock held, so it must not wait for a root's lock.
+func (c *Client) CloseWhenFree(canonical string, keep func() bool) {
 	c.mu.Lock()
 	r := c.roots[canonical]
 	c.mu.Unlock()
@@ -329,6 +332,9 @@ func (c *Client) CloseWhenFree(canonical string) {
 		return
 	}
 	defer r.unlock()
+	if keep != nil && keep() {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), closeBound)
 	defer cancel()
 	c.closeLocked(ctx, r)

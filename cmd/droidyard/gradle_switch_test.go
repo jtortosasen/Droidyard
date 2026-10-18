@@ -182,4 +182,40 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		}
 		stop()
 	})
+
+	t.Run("a root another workspace took during the build is kept when the build ends", func(t *testing.T) {
+		t.Parallel()
+		gate := filepath.Join(t.TempDir(), "gate")
+		build := &gradletest.Build{Steps: []gradletest.Step{{Kind: "gate", Path: gate}}}
+		state, top, events, stop := setup(t, gradletest.Config{Build: build})
+		dev := filepath.Join(top, "dev")
+		call(t, state, top, "workspace.open")
+		call(t, state, dev, "workspace.open")
+
+		useGradleRoot(t, top, "dev")
+		run := droidyardIn(t, state, top, "call", "--no-autostart", "build.run", "--params", `{"tasks":["assembleDebug"]}`)
+		waitLines(t, events, "served build.run", 1)
+
+		// The top switches away while the build holds dev/; then the workspace at dev/
+		// makes a call, which waits for the build behind the root's lock. When the build
+		// ends the close of dev/ is due, but a workspace has it as its root again.
+		useGradleRoot(t, top, "tools/x")
+		call(t, state, top, "build.tasks")
+		tasks := droidyardIn(t, state, dev, "call", "--no-autostart", "build.tasks")
+		time.Sleep(time.Second) // the call has resolved dev/ and waits on its lock
+		if err := os.WriteFile(gate, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if env, code := run.envelope(t); code != 0 || env.Error != nil {
+			t.Errorf("the held build ended with exit %d, %+v; want it to finish", code, env.Error)
+		}
+		if env, code := tasks.envelope(t); code != 0 || env.Error != nil {
+			t.Errorf("build.tasks at dev/ ended with exit %d, %+v; want its tasks", code, env.Error)
+		}
+		time.Sleep(time.Second) // the close, were it to come, is a goroutine of its own
+		if got := linesWithPrefix(t, events, "closed "); len(got) != 0 {
+			t.Errorf("the sidecar closed %q under the workspace at dev/, which took the root during the build", got)
+		}
+		stop()
+	})
 }
