@@ -289,6 +289,11 @@ func TestWatchLogsStreamsBatches(t *testing.T) {
 func TestWatchLogsCountsDrops(t *testing.T) {
 	t.Run("a backlog past the pending cap is counted in dropped", func(t *testing.T) {
 		const n = 15000
+		// The first event waits until the reader has read well past the cap: under -race
+		// on a CI runner the reader can be slower than the publisher, and then nothing
+		// overflows. Registered before the fixture, so it is restored after its streams stop.
+		streamStartDelay = 3 * time.Second
+		t.Cleanup(func() { streamStartDelay = 0 })
 		w := newWatchFixture(t, map[string]string{
 			uiSerial + ".date.out": "1791337500.000000\n",
 			uiSerial + ".log":      wlHeader + wlLog(wlBase, 0, n, 10146, func(i int) string { return fmt.Sprintf("m%d", i) }),

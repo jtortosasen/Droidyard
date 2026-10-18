@@ -440,9 +440,21 @@ func (s *logStream) onLine(line []byte) error {
 	return nil
 }
 
+// streamStartDelay holds a stream's first event back; zero but in a test, which needs a
+// backlog past streamPendingCap however slowly the reader runs (under -race, a reader
+// slower than the publisher's 10,000 lines/s never fills the buffer).
+var streamStartDelay time.Duration
+
 // batch publishes at most one event per tick until the reader is done.
 func (s *logStream) batch(done chan struct{}) {
 	defer close(done)
+	if d := streamStartDelay; d > 0 {
+		select {
+		case <-s.quit:
+			return
+		case <-time.After(d):
+		}
+	}
 	t := time.NewTicker(streamInterval)
 	defer t.Stop()
 	for {
