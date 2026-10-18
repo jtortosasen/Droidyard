@@ -145,7 +145,17 @@
 - Needs: nothing.
 - Not here: the hook's own 2 s bound (ADR-0061 §1); cancelling an abandoned delete (operations belong to the daemon, ADR-0020 §Adapter projections).
 - Rests on: a live daemon answers everything the deadline covers at once (the hellos; `workspace.open`, which registers a root and runs no project code, `internal/workspace/capabilities.go:37-50`; the delete's start with `waitMs 0`, `adapters/cli` package doc), so the deadline never cuts a legitimate delete, at level 3 (the fake's long wait).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18; checked against a fake daemon and, through the existing `TestTrash…` tests, a real one.
+  - `TestTrashGivesUpOnADaemonThatNeverAnswers` has two cases: the daemon accepts and never writes, or it never answers the open. Each exits 1 in under 8 s with a 2 s deadline, prints "nothing was moved" and the `command rm` line. The test lowers the deadline because `daemon.Dial`'s own 10 s hello timeout would mask a 10 s bound. On `main` only the open-hang case hangs; the silent one ends at 10 s through that timeout.
+  - `TestTrashGivesUpOnAHelloAfterTheStart`, `TestTrashAfterATransportFailureHandsBackRm` and `TestTrashAfterAReplacedDaemonIsUnknownNotUntouched` cover the unknown outcome: it says so and prints the line. `TestTrashWaitsForALongDelete` completes a 3 s delete under a 1 s deadline. `TestTrashGateDecidesOnce` checks the compare-and-swap. The seam is read in `installTestSeams` (`sidecar_test.go`), test binary only.
+  - Reversals, by the implementer and the verifier:
+    - The deadline applied to the wait fails the long delete.
+    - The third hello outside the deadline makes the run take 10.03 s.
+    - No deadline hangs the test.
+    - No `rm` line after an unknown outcome fails two tests.
+    - A gate that always gives up fails the gate test and prints "nothing was moved" after a send.
+    - `OPERATION_NOT_FOUND` treated as a refusal prints "nothing was moved".
+  - Opus verifier: proceed. Its [bug] (a replaced daemon's `OPERATION_NOT_FOUND` from the wait printed "nothing was moved") is fixed in the fix round. A `FILE_IO_FAILED` from the wait still refuses. A workspace close mid-delete printing "nothing was moved" is older than this step and goes to the register at the close.
 
 ### 4. A watch stops when the project directory is gone
 

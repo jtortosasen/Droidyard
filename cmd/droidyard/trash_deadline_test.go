@@ -250,3 +250,30 @@ func TestTrashGateDecidesOnce(t *testing.T) {
 		t.Error("the main side gave up after the request was written: it would say nothing was moved")
 	}
 }
+
+// TestTrashAfterAReplacedDaemonIsUnknownNotUntouched holds that a wait answered
+// OPERATION_NOT_FOUND (the daemon that took the delete was replaced before the wait
+// connected) leaves the outcome unknown: the old daemon may have trashed some operands,
+// so the command must not say nothing was moved. Any other error from the wait is the
+// delete's own whole-batch refusal and still says so (the case below).
+func TestTrashAfterAReplacedDaemonIsUnknownNotUntouched(t *testing.T) {
+	t.Parallel()
+	replyError := func(code capability.ErrorCode) func(net.Conn, capability.RequestEnvelope) {
+		return func(c net.Conn, req capability.RequestEnvelope) {
+			b, _ := json.Marshal(capability.ResponseEnvelope{ID: req.ID, Error: &capability.Error{Code: code, Message: "fake"}})
+			c.Write(append(b, '\n'))
+		}
+	}
+	f := &trashFake{wait: replyError(capability.ErrOperationNotFound)}
+	res, _, _ := trashAgainst(t, f, "30s")
+	if res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "the outcome is unknown") ||
+		!strings.Contains(res.stderr, "command rm -- a.kt") || strings.Contains(res.stderr, "nothing was moved") {
+		t.Errorf("trash exited %d with stdout %q, stderr %q; want 1, \"the outcome is unknown\" and the command rm line, not \"nothing was moved\"", res.code, res.stdout, res.stderr)
+	}
+
+	g := &trashFake{wait: replyError(capability.ErrFileIOFailed)}
+	res, _, _ = trashAgainst(t, g, "30s")
+	if res.code != 1 || !strings.Contains(res.stderr, "nothing was moved") || strings.Contains(res.stderr, "unknown") {
+		t.Errorf("a whole-batch error from the wait: exit %d, stderr %q; want \"nothing was moved\" and no \"unknown\"", res.code, res.stderr)
+	}
+}
