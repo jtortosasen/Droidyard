@@ -1,6 +1,97 @@
 {
-  "version": "0.28.0",
+  "version": "0.29.0",
   "capabilities": [
+    {
+      "name": "agent.checkWrite",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.29.0",
+      "description": "Says whether an agent's own edit tool may write the given absolute paths (refuse, ask, warn or allow), by whether another live chat works in the git worktree they lie in. The caller is the chat its connection names; it is the hook's channel before an edit, never an MCP tool.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client whose edit tool is about to write."
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The absolute paths the write touches; one to twenty, each at most 4096 bytes and without control or format characters."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "paths"
+        ]
+      },
+      "output": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "warn",
+              "ask",
+              "refuse"
+            ],
+            "description": "The most severe verdict over the paths: refuse (another chat works there and the configured conflict is refuse), ask (the same, conflict ask), warn (the holder is idle, or the caller's chat names no live MCP session, so it cannot be told from the holder), allow (anything else, including the caller's own worktree and any held one under conflict allow)."
+          },
+          "occupiedBy": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said."
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the holder took the worktree."
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "True while the holder has made no request for the configured time. Absent otherwise."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "since"
+            ],
+            "description": "The holder of the worktree that decided the verdict, when another session holds it; absent when none does or the caller is the holder's own."
+          },
+          "message": {
+            "type": "string",
+            "description": "For refuse, ask and warn: who holds the worktree, since when, and the way out. Absent for allow."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verdict"
+        ]
+      }
+    },
     {
       "name": "agent.recordCommand",
       "kind": "command",
@@ -136,6 +227,116 @@
         "required": [
           "client",
           "commands"
+        ]
+      }
+    },
+    {
+      "name": "agent.recordEdit",
+      "kind": "command",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.29.0",
+      "description": "Records that an agent's own edit tool wrote files: the client, the paths and, where the client says it, whether each was created. It is the hook's channel after an edit, never an MCP tool; it stores nothing, the record is the operation's result, shown in Activity, and the workspace's file watches walk at once.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client whose edit tool wrote the files."
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "description": "The file: relative to the workspace root, slash-separated; absolute when the edit is outside."
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "True when the edit created the file; absent when it changed one that existed or the client does not say."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path"
+              ]
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The files written; one to twenty. Nothing of their content."
+          },
+          "outside": {
+            "type": "boolean",
+            "description": "True when the files lie outside the project and its worktrees; their paths are then absolute."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "files"
+        ]
+      },
+      "output": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor"
+            ],
+            "description": "The agent client whose edit tool wrote the files."
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "description": "The file: relative to the workspace root, slash-separated; absolute when the edit is outside."
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "True when the edit created the file; absent when it changed one that existed or the client does not say."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "path"
+              ]
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "The files written; one to twenty. Nothing of their content."
+          },
+          "outside": {
+            "type": "boolean",
+            "description": "True when the files lie outside the project and its worktrees; their paths are then absolute."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client",
+          "files"
         ]
       }
     },
@@ -2312,6 +2513,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "DEVICE_ELEMENT_NOT_FOUND",
         "DEVICE_ELEMENT_AMBIGUOUS",
@@ -3085,6 +3287,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "BUILD_OUTPUT_NOT_FOUND",
         "BUILD_OUTPUT_STALE",
         "BUILD_OUTPUT_UNSUPPORTED",
@@ -3232,6 +3435,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_LAUNCH_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -3366,6 +3570,29 @@
                 "avdName": {
                   "type": "string",
                   "description": "The emulator's AVD name; best effort, as androidVersion."
+                },
+                "occupiedBy": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When the holder took the device."
+                    },
+                    "stale": {
+                      "type": "boolean",
+                      "description": "True while the holder has made no request for the configured time: an acting call of another session takes the device over. Absent otherwise."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "since"
+                  ],
+                  "description": "Another chat that holds this device: its install, uninstall, launch, tap through an element, text input and emulator stop or wipe from this session are refused unless the configured conflict is allow, and an idle holder (stale) is taken over by an acting call. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. Reading the screen, the tree or the logs is never refused."
                 }
               },
               "additionalProperties": false,
@@ -4165,6 +4392,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "DEVICE_ELEMENT_NOT_FOUND",
         "DEVICE_ELEMENT_AMBIGUOUS",
@@ -5236,6 +5464,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "REQUEST_INVALID_PARAMS",
         "DEVICE_UNINSTALL_FAILED",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5858,6 +6087,7 @@
         "DEVICE_ADB_FAILED",
         "DEVICE_NOT_FOUND",
         "DEVICE_NOT_ALLOWED",
+        "DEVICE_OCCUPIED",
         "EMULATOR_NOT_AN_EMULATOR",
         "EMULATOR_STOP_TIMEOUT",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5927,6 +6157,7 @@
         "EMULATOR_AVD_LOCKED",
         "EMULATOR_BOOT_TIMEOUT",
         "EMULATOR_STOP_TIMEOUT",
+        "DEVICE_OCCUPIED",
         "REQUEST_INVALID_PARAMS"
       ],
       "input": {
@@ -6954,6 +7185,104 @@
           "operationId",
           "capability",
           "state"
+        ]
+      }
+    },
+    {
+      "name": "file.trash",
+      "kind": "query",
+      "scope": "workspace",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.29.0",
+      "description": "Lists the workspace's trash, the newest first, at most 200 entries, each with the id file.restore takes and, when known, who deleted it. It works after a daemon restart.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "FILE_IO_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "entries": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The trash id, as file.delete returned it: what file.restore takes."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Where the item was, relative to the project root."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "dir",
+                    "symlink",
+                    "other"
+                  ],
+                  "description": "The item's kind."
+                },
+                "deletedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "size": {
+                  "type": "integer",
+                  "description": "Bytes of the item's regular files, as counted when it was deleted (a figure for the retention limit, cut at the walk's cap)."
+                },
+                "by": {
+                  "properties": {
+                    "client": {
+                      "type": "string",
+                      "enum": [
+                        "cli",
+                        "mcp",
+                        "ui"
+                      ],
+                      "description": "The kind of connection the delete came in on."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "The MCP session's name when the delete was made by or for one (a CLI call joined to its chat, ADR-0095); absent otherwise."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "client"
+                  ],
+                  "description": "Who deleted it; absent for an item deleted before droidyard recorded that."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "path",
+                "type",
+                "deletedAt",
+                "size"
+              ]
+            },
+            "type": "array",
+            "description": "The workspace's trash, the newest first, at most 200."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "entries"
         ]
       }
     },
@@ -9028,7 +9357,7 @@
                   "required": [
                     "id"
                   ],
-                  "description": "The session that made the call; omitted for a call recorded without one."
+                  "description": "The calling session, or the MCP session a call from its agent's hook or shell was joined to; omitted for a call recorded without one."
                 },
                 "target": {
                   "properties": {
@@ -9132,7 +9461,7 @@
                 "required": [
                   "id"
                 ],
-                "description": "The session that made the call; omitted for a call recorded without one."
+                "description": "The calling session, or the MCP session a call from its agent's hook or shell was joined to; omitted for a call recorded without one."
               },
               "target": {
                 "properties": {
@@ -10281,6 +10610,43 @@
       }
     },
     {
+      "name": "session.release",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.29.0",
+      "description": "Ends the occupation of one linked worktree or one device, whoever holds it; the holder stays bound where it was, and one nobody holds answers as done. Give exactly one of workspace and device; a person's action, refused from an agent session.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "The workspace id of a held linked worktree, as session.watch's occupies. Give this or device."
+          },
+          "device": {
+            "type": "string",
+            "description": "The serial of a held device, as session.watch's devices. Give this or workspace."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    },
+    {
       "name": "session.watch",
       "kind": "command",
       "scope": "global",
@@ -10323,6 +10689,21 @@
                   "type": "string",
                   "description": "The id of the workspace the session is bound to now; absent before it is bound."
                 },
+                "occupies": {
+                  "type": "string",
+                  "description": "The id of the workspace of the linked git worktree the session holds, as on session.state; absent when it holds none."
+                },
+                "devices": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "The serials of the devices the session holds, as on session.state; absent when it holds none."
+                },
+                "stale": {
+                  "type": "boolean",
+                  "description": "True while the session is idle, as on session.state; absent otherwise."
+                },
                 "connectedAt": {
                   "type": "string",
                   "format": "date-time"
@@ -10362,6 +10743,21 @@
               "workspace": {
                 "type": "string",
                 "description": "The id of the workspace the session is bound to now; absent before it is bound."
+              },
+              "occupies": {
+                "type": "string",
+                "description": "The id of the workspace of the linked git worktree the session holds, so that no other chat enters there (ADR-0094); absent when it holds none."
+              },
+              "devices": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The serials of the devices the session holds, so that no other chat installs, launches or taps on them (ADR-0094); absent when it holds none."
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "True while the session has made no request for the configured time (120 minutes by default): another chat may then take over what it holds. Absent otherwise."
               },
               "ended": {
                 "type": "boolean",
@@ -11133,6 +11529,29 @@
                 "branch": {
                   "type": "string",
                   "description": "The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."
+                },
+                "occupiedBy": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When the holder took the worktree."
+                    },
+                    "stale": {
+                      "type": "boolean",
+                      "description": "True while the holder has made no request for the configured time: entering takes the worktree over. Absent otherwise."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "since"
+                  ],
+                  "description": "Another chat that holds this worktree: workspace_enter there from this session is refused unless the configured conflict is allow, and an idle holder (stale) is taken over on entry. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. The main tree is never held."
                 }
               },
               "additionalProperties": false,
@@ -11165,7 +11584,7 @@
       "binding": true,
       "audience": "all",
       "since": "0.28.0",
-      "description": "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
+      "description": "Moves this session into a git worktree of its project, occupying it, or back to the project's root, which frees what it occupies: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -11174,6 +11593,7 @@
       },
       "errors": [
         "WORKSPACE_NOT_A_WORKTREE",
+        "WORKSPACE_OCCUPIED",
         "WORKSPACE_ROOT_INVALID",
         "WORKSPACE_STATE_NEWER",
         "WORKSPACE_STATE_UNREADABLE",

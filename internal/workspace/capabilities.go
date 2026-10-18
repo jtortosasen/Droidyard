@@ -65,13 +65,13 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Binding:     true,
 		Idempotent:  true,
 		Since:       sinceEnter,
-		Description: "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
+		Description: "Moves this session into a git worktree of its project, occupying it, or back to the project's root, which frees what it occupies: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
 		Params:      EnterParams{},
 		Result:      Info{},
-		Errors:      []capability.ErrorCode{ErrNotAWorktree, ErrRootInvalid, ErrStateNewer, ErrStateUnreadable, capability.ErrProjectNoGradleRoot},
+		Errors:      []capability.ErrorCode{ErrNotAWorktree, capability.ErrWorkspaceOccupied, ErrRootInvalid, ErrStateNewer, ErrStateUnreadable, capability.ErrProjectNoGradleRoot},
 		Annotations: capability.Annotations{
 			Destructive: &notDestructive,
-			Reason:      "moves only the calling session's binding; deletes nothing",
+			Reason:      "moves only the calling session's binding, and may take over an idle holder's occupation of a worktree; deletes nothing",
 		},
 		Handler: ws.enter,
 	})
@@ -92,7 +92,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 			}
 			// Resolved again here, not in Registry.Describe, which every root lookup calls.
 			info.MainRoot = ws.mainRoot(info.Root)
-			return Described{Info: withGradle(info), Worktrees: ws.worktreesOf(info)}, nil
+			return Described{Info: withGradle(info), Worktrees: ws.worktreesOf(info, call.Origin.ID)}, nil
 		},
 	})
 

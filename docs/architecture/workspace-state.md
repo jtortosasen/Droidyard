@@ -23,7 +23,13 @@ back ([ADR-0082](../adr/0082-session-enters-a-worktree.md),
 
 A **worktree is a workspace of its project**: its own root, id, builds and state, with
 `mainRoot` naming the project's main tree. The panel never lists it as a project of its own.
-Droidyard creates no worktree; the agent's git does.
+Droidyard creates no worktree; the agent's git does. A live MCP session that enters a linked
+worktree **occupies** it: another chat's `workspace.enter` there, and its own edits there
+through the hooks, are refused with the way out (a worktree of its own, or the user's
+release); an idle holder is taken over on entry, an edit is warned when the holder is idle or
+cannot be told apart, and `conflict: allow` lets both through. The main tree is never occupied. This is coordination, not a security
+boundary ([ADR-0094](../adr/0094-occupation-by-a-session.md),
+[ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md)).
 
 A workspace has two roots ([ADR-0075](../adr/0075-project-root-and-gradle-root.md)): the
 **project root**, the folder opened, and the **Gradle root** inside it, where builds run; so a
@@ -132,7 +138,11 @@ a project (module, variant, device, application id, Gradle root): `<root>/.droid
 Connected devices and emulators are **global**, and `device.*` / `emulator.*` /
 `sdk.status` are global capabilities. A workspace keeps **no** "active device": every
 device call names its `device` explicitly, and the UI keeps its own selection client-side.
-Closing a workspace must not disconnect devices or kill the shared `adb` server.
+Closing a workspace must not disconnect devices or kill the shared `adb` server. A device is
+held by a session, not by a workspace: the MCP session whose acting call reaches a free device
+occupies it until it ends, returns to its main tree, the device stops or goes, or the user
+releases it
+([ADR-0094](../adr/0094-occupation-by-a-session.md)).
 
 ## Cleanup and crash recovery
 

@@ -34,6 +34,8 @@ type resolver struct {
 	// trash folder, and a nil trash (the golden registry) answers FILE_IO_FAILED.
 	workspace string
 	trash     *Trash
+	// by is who a file.delete is made for, recorded in the entry (ADR-0096 §2).
+	by *trashBy
 	// writeLocks serialises file.write per root; maxRevision is the largest file with a
 	// revision, 0 meaning the default (Options.WriteLocks, RevisionMax).
 	writeLocks  *WriteLocks

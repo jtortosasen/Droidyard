@@ -120,9 +120,9 @@ type OperationState struct {
 	StartedAt time.Time  `json:"startedAt" jsonschema:"required"`
 	// DurationMs is set on the terminal event only.
 	DurationMs *int64 `json:"durationMs,omitempty" jsonschema_description:"Set on the terminal event: milliseconds from the operation's record to its end."`
-	// Session is the session that made the call (ADR-0048); omitted for a call recorded
-	// without one.
-	Session *SessionRef `json:"session,omitempty" jsonschema_description:"The session that made the call; omitted for a call recorded without one."`
+	// Session is the calling session, or the MCP session a call from its agent's hook or
+	// shell was joined to (ADR-0048, ADR-0095 §2); omitted for a call recorded without one.
+	Session *SessionRef `json:"session,omitempty" jsonschema_description:"The calling session, or the MCP session a call from its agent's hook or shell was joined to; omitted for a call recorded without one."`
 	// Target is what the call acts on (ADR-0076); omitted when its capability declares
 	// none or every field is empty.
 	Target *OpTarget `json:"target,omitempty" jsonschema_description:"What the call acts on: the device, AVD, module and variant of its parameters; omitted for a capability that declares none."`
@@ -218,7 +218,7 @@ type ActiveOperation struct {
 	State       State       `json:"state" jsonschema:"required,enum=queued,enum=running"`
 	StartedAt   time.Time   `json:"startedAt" jsonschema:"required"`
 	BlockedBy   *BlockedBy  `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
-	Session     *SessionRef `json:"session,omitempty" jsonschema_description:"The session that made the call; omitted for a call recorded without one."`
+	Session     *SessionRef `json:"session,omitempty" jsonschema_description:"The calling session, or the MCP session a call from its agent's hook or shell was joined to; omitted for a call recorded without one."`
 	Target      *OpTarget   `json:"target,omitempty" jsonschema_description:"What the call acts on; omitted for a capability that declares none."`
 }
 

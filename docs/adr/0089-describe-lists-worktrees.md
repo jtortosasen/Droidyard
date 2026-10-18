@@ -1,6 +1,7 @@
 # ADR-0089: `workspace.describe` lists the project's worktrees
 
 - Status: Accepted
+- Superseded in part by: ADR-0094 (§Decision)
 - Date: 2026-10-18
 - Relates to: ADR-0081 §2, ADR-0082 §2, §6; plan m2q step 5
 - Decided by the owner, 2026-10-18 ("Que el daemon enseñe los worktrees"), after step 5's chat 2. The shape is Delegated.

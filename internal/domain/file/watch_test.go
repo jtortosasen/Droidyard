@@ -907,3 +907,57 @@ func TestWatchStopsWhenTheProjectGoes(t *testing.T) {
 		}
 	})
 }
+
+// TestWatchersNudgeWalksAtOnce: a poller whose tick is an hour away walks when its workspace
+// is nudged, so a change the daemon was told of (an agent's recorded edit, ADR-0095 §3)
+// reaches file.changes at once; the nudge of another workspace walks nothing, and one for a
+// workspace with no poller is harmless. Seen failing: with Nudge a no-op, the change never
+// came within the second the test waits.
+func TestWatchersNudgeWalksAtOnce(t *testing.T) {
+	f := newWatchFixtureTick(t, time.Hour)
+	f.write("w/a.txt", "one")
+	res, err := f.watchCall(f.sess, WatchParams{Path: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitLive(t, f.watchers, 1)
+	sub, ok := f.sess.Subscription(res.SubscriptionID)
+	if !ok {
+		t.Fatal("no subscription")
+	}
+
+	f.write("w/b.txt", "new")
+	f.watchers.Nudge("another-workspace")
+	f.watchers.Nudge("") // no poller at all
+	time.Sleep(100 * time.Millisecond)
+	if got := drainEvents(sub); len(got) != 0 {
+		t.Fatalf("a nudge of another workspace published %+v", got)
+	}
+
+	f.watchers.Nudge("ws")
+	var got []event.Event
+	for deadline := time.Now().Add(time.Second); len(got) == 0 && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		got = drainEvents(sub)
+	}
+	if len(got) != 1 {
+		t.Fatalf("the nudge published %d events; want one changes event", len(got))
+	}
+	var p ChangesPayload
+	if err := json.Unmarshal(got[0].Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if k := kinds(p.Changes); len(k) != 1 || k["w/b.txt"] != "created" {
+		t.Errorf("the nudged walk reported %v; want w/b.txt created", k)
+	}
+
+	// Many nudges while the poller works are not a flood: nothing changed, nothing is published.
+	for i := 0; i < 50; i++ {
+		f.watchers.Nudge("ws")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := drainEvents(sub); len(got) != 0 {
+		t.Errorf("nudges with no change published %+v", got)
+	}
+	f.watchers.Stop("ws")
+	waitLive(t, f.watchers, 0)
+}

@@ -8,9 +8,10 @@ Parameters, results, bounds and error lists are the descriptors' (`internal/doma
 ## Why this exists
 
 `file.*` serves the UI and the CLI; it is not on the agent surface
-([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)). Agents use their own tools, so
-their edits bypass the daemon: the tree sees them by polling, and the editor's `ifRevision`
-catches them. `file.*` needs no JVM, device or Gradle.
+([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)). Agents use their own tools:
+their edit tools' writes are recorded through the hooks and the tree walks at once
+([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md)); shell writes are seen by polling;
+the editor's `ifRevision` catches both. `file.*` needs no JVM, device or Gradle.
 
 ## Paths and containment
 
@@ -66,7 +67,7 @@ A move is a batch: what the request's text alone decides (a path outside the roo
 itself, a source equal to its target or holding it) fails the whole call; what only the
 filesystem can say fails its item, and the call completes with every item's outcome.
 
-`file.delete` moves to a trash, `file.restore` puts back ([ADR-0054](../adr/0054-trash.md)).
+`file.delete` moves to a trash, `file.restore` puts back, `file.trash` lists ([ADR-0054](../adr/0054-trash.md), [ADR-0096](../adr/0096-trash-listed-for-activity.md)).
 
 ## The watch
 
@@ -74,7 +75,7 @@ filesystem can say fails its item, and the call completes with every item's outc
 `SESSION_REQUIRED` elsewhere, [ADR-0010](../adr/0010-capability-statefulness.md)). It **polls**
 (D7): the handler walks the directory through the root's `fs.FS` for a baseline, then a
 goroutine walks again **every second** and publishes the differences. No OS notification API is
-used (FSEvents needs cgo, inotify is Linux-only). The baseline is also the result's `entries`, the map the
+used (FSEvents needs cgo, inotify is Linux-only). The baseline is the result's `entries`, the map the
 first tick diffs against and never a second walk, so a client builds the tree from one call and the
 events ([ADR-0049](../adr/0049-file-watch-baseline.md)).
 
@@ -109,13 +110,11 @@ nothing to replay, so after a reconnect the client watches again and re-lists
 
 A watch's poller ends when its **subscription** ends (`events.unsubscribe` of its id, or the session's
 end), when its **workspace closes**, or when its path is gone or unreadable, whichever comes first
-(D9). On a workspace close, or a path gone or unreadable, the poller publishes `stopped` as its own
-last act, so nothing follows it; the subscription stays open until the session or the client ends it,
+(D9). On a workspace close, or a path gone or unreadable, the poller publishes `stopped` as its last act, so nothing follows it; the subscription stays open until the session or the client ends it,
 so `stopped` is delivered. The handler closes its subscription and poller on every path that does not
 return an id and re-checks `ctx.Err()` as its last act; the close hook signals the poller and never
 waits for it while holding the bus's lock. A watcher belongs to the **session's subscription**, not to
-the workspace ([`workspace-state.md`](../architecture/workspace-state.md) §State model). One narrow
-window remains, a stated limit: a close's forced cancel landing after the handler's last check ends
+the workspace ([`workspace-state.md`](../architecture/workspace-state.md) §State model). One narrow window remains: a close's forced cancel landing after the handler's last check ends
 the operation `cancelled` with the subscription created, which then holds `stopped` until the session
 ends.
 

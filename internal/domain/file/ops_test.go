@@ -708,8 +708,8 @@ func TestOpsAnnotations(t *testing.T) {
 }
 
 // Decision (ADR-0060 §1): every file.* capability has audience human, so no MCP profile
-// lists it and the core refuses it from an MCP session. The test counts the nine in the
-// registry, so a tenth file.* that forgets the audience, or a descriptor that loses it,
+// lists it and the core refuses it from an MCP session. The test counts the ten in the
+// registry, so an eleventh file.* that forgets the audience, or a descriptor that loses it,
 // fails here rather than appearing in tools/list.
 func TestEveryFileCapabilityIsHumanAudience(t *testing.T) {
 	f := newFixture(t)
@@ -723,7 +723,7 @@ func TestEveryFileCapabilityIsHumanAudience(t *testing.T) {
 			t.Errorf("%s has audience %v; every file.* is human (ADR-0060 §1)", d.Name, d.Audience)
 		}
 	}
-	if len(names) != 9 {
-		t.Errorf("found %d file.* descriptors %v; want the nine", len(names), names)
+	if len(names) != 10 {
+		t.Errorf("found %d file.* descriptors %v; want the ten", len(names), names)
 	}
 }

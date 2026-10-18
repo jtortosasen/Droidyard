@@ -87,7 +87,7 @@ func registry() *capability.Registry {
 	build.Register(reg, build.Options{Client: noSidecar{}, Authorize: trustNothing, AuthorizeGradle: trustNothing})
 	file.Register(reg, file.Options{})
 	git.Register(reg, git.Options{})
-	agent.Register(reg)
+	agent.Register(reg, agent.Options{})
 	// The shell descriptors only: no handler of the golden registry is ever run, so the
 	// policy, trust, starter and store are left nil.
 	shell.Register(reg, shell.Options{})
@@ -335,7 +335,8 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	}
 	want := []string{"build.assemble", "device.inputText", "device.install", "device.launch", "device.logs",
 		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiTree",
-		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe"}
+		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe",
+		"session.release"}
 	var got []string
 	for name := range declared {
 		got = append(got, name)
@@ -343,5 +344,43 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Errorf("the capabilities that declare a Target are\n%v\nwant (ADR-0076 §2)\n%v", got, want)
+	}
+}
+
+// TestOccupiesFollowsTheDeviceOccupationRule is the decision of ADR-0094 §2: the capabilities
+// that hold a device for the calling session are stated, not inferred, and the schema says
+// which of them can be refused. Seven acting capabilities list DEVICE_OCCUPIED in their
+// errors; emulator.start holds the serial it boots and is never refused, so it does not;
+// and no capability lists the code without being one that occupies. A new acting
+// capability, or a code listed on a read, fails here.
+func TestOccupiesFollowsTheDeviceOccupationRule(t *testing.T) {
+	acting := []string{"device.inputText", "device.install", "device.launch", "device.tapElement",
+		"device.uninstall", "emulator.stop", "emulator.wipe"}
+	var gotActing, gotBoot []string
+	for _, d := range registry().All() {
+		lists := slices.Contains(d.Errors, device.ErrOccupied)
+		switch d.Occupies {
+		case capability.OccupiesAct:
+			gotActing = append(gotActing, d.Name)
+			if !lists {
+				t.Errorf("%s can be refused a held device and does not list %s", d.Name, device.ErrOccupied)
+			}
+		case capability.OccupiesBoot:
+			gotBoot = append(gotBoot, d.Name)
+			if lists {
+				t.Errorf("%s is never refused, yet lists %s", d.Name, device.ErrOccupied)
+			}
+		default:
+			if lists {
+				t.Errorf("%s lists %s and occupies nothing", d.Name, device.ErrOccupied)
+			}
+		}
+	}
+	slices.Sort(gotActing)
+	if !slices.Equal(gotActing, acting) {
+		t.Errorf("capabilities that act on a held device = %v; want %v", gotActing, acting)
+	}
+	if !slices.Equal(gotBoot, []string{"emulator.start"}) {
+		t.Errorf("capabilities that boot a held device = %v; want [emulator.start]", gotBoot)
 	}
 }

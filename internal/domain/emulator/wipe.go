@@ -38,9 +38,10 @@ func registerWipe(reg *capability.Registry, e *Emulator) {
 		Params:       WipeParams{},
 		Target:       func(p any) *capability.OpTarget { return &capability.OpTarget{AVD: p.(WipeParams).Avd} },
 		Result:       WipeResult{},
+		Occupies:     capability.OccupiesAct,
 		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrDisconnected,
 			ErrLauncherNotFound, ErrAVDNotFound, ErrLaunchFailed, ErrAVDLocked, ErrBootTimeout, ErrStopTimeout,
-			capability.ErrInvalidParams},
+			device.ErrOccupied, capability.ErrInvalidParams},
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(true),
@@ -80,9 +81,16 @@ func (e *Emulator) wipe(ctx context.Context, call *capability.Call) (WipeResult,
 		return WipeResult{}, err
 	}
 	if serial != "" {
+		// A running emulator another session holds is not wiped (ADR-0094 §2): the check is
+		// here, once the serial is known and before anything is killed.
+		if err := e.adb.OccupyFor(call, serial); err != nil {
+			return WipeResult{}, err
+		}
 		if err := e.stopSerial(ctx, serial); err != nil {
 			return WipeResult{}, err
 		}
+		// It has left adb devices: nobody holds it now (ADR-0094 §3).
+		e.adb.ReleaseDevice(serial)
 	}
 	// Cancelling after the stop and before the spawn leaves the AVD stopped and unwiped
 	// (emulator.md §Wipe).
@@ -91,7 +99,7 @@ func (e *Emulator) wipe(ctx context.Context, call *capability.Call) (WipeResult,
 	}
 
 	deadline := time.Now().Add(bootTimeout)
-	booted, err := e.boot(ctx, "emulator.wipe", res.Path, p.Avd, wipeFlags(p), deadline)
+	booted, err := e.boot(ctx, "emulator.wipe", res.Path, p.Avd, wipeFlags(p), deadline, func(s string) { e.adb.TakeFor(call, s) })
 	if err != nil {
 		return WipeResult{}, err
 	}

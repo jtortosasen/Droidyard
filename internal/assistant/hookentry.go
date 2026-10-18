@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"path"
+	"slices"
 	"strings"
 )
 
-// The hook entries init writes (ADR-0061 §5, ADR-0063 §7): one before a shell command,
-// for the trash, and one after it, for the observation, each client's own event names.
+// The hook entries init writes (ADR-0061 §5, ADR-0063 §7, ADR-0095 §3): one before a shell
+// command, for the trash, and one after it, for the observation, and one before and one
+// after the client's edit tools, for the verdict and the record, each client's own event
+// names.
 // Claude Code's go into the settings file that already carries its allowlist; Cursor's
 // have a file of their own. All run the same `droidyard hook` command line, which
 // decides what an event is.
@@ -69,11 +72,12 @@ func strictUnmarshal(raw json.RawMessage, v any) bool {
 }
 
 // claudeStale recognises a hook array element init wrote for this root, whatever binary
-// path it names: matcher Bash and only commands of init's shape.
+// path it names: matcher Bash or the edit tools' (ADR-0095 §3) and only commands of init's
+// shape.
 func claudeStale(root string) func(json.RawMessage) bool {
 	return func(raw json.RawMessage) bool {
 		var e claudeHookEntry
-		if !strictUnmarshal(raw, &e) || e.Matcher != "Bash" || len(e.Hooks) == 0 {
+		if !strictUnmarshal(raw, &e) || (e.Matcher != "Bash" && e.Matcher != claudeEditMatcher) || len(e.Hooks) == 0 {
 			return false
 		}
 		for _, h := range e.Hooks {
@@ -85,12 +89,12 @@ func claudeStale(root string) func(json.RawMessage) bool {
 	}
 }
 
-// cursorStale is the same for one Cursor event, whose elements carry the matcher init
-// writes for it.
-func cursorStale(root, matcher string) func(json.RawMessage) bool {
+// cursorStale is the same for one Cursor event, whose elements carry one of the matchers
+// init writes for it.
+func cursorStale(root string, matchers ...string) func(json.RawMessage) bool {
 	return func(raw json.RawMessage) bool {
 		var e cursorHookEntry
-		return strictUnmarshal(raw, &e) && e.Matcher == matcher && initHookShape(e.Command, Cursor, root)
+		return strictUnmarshal(raw, &e) && slices.Contains(matchers, e.Matcher) && initHookShape(e.Command, Cursor, root)
 	}
 }
 
@@ -116,29 +120,38 @@ type cursorHookEntry struct {
 
 // claudeHookArrays are the array entries added to .claude/settings.json: a Bash command
 // before it runs, and after it (PostToolUse after an exit 0, PostToolUseFailure after a
-// non-zero exit).
+// non-zero exit), and the edit tools before and after a write (ADR-0095 §3).
 func claudeHookArrays(o Options) []arrayEntry {
-	elem := rawJSON(claudeHookEntry{Matcher: "Bash", Hooks: []claudeHookCommand{{Type: "command", Command: HookCommand(o, Claude)}}})
+	cmd := []claudeHookCommand{{Type: "command", Command: HookCommand(o, Claude)}}
+	bash := rawJSON(claudeHookEntry{Matcher: "Bash", Hooks: cmd})
+	edit := rawJSON(claudeHookEntry{Matcher: claudeEditMatcher, Hooks: cmd})
 	var out []arrayEntry
 	for _, event := range []string{"PreToolUse", "PostToolUse", "PostToolUseFailure"} {
-		out = append(out, arrayEntry{path: []string{"hooks"}, key: event, elems: []json.RawMessage{elem}, stale: claudeStale(o.Root)})
+		elems := []json.RawMessage{bash}
+		if event != "PostToolUseFailure" {
+			elems = append(elems, edit)
+		}
+		out = append(out, arrayEntry{path: []string{"hooks"}, key: event, elems: elems, stale: claudeStale(o.Root)})
 	}
 	return out
 }
 
 // cursorHookSpec is everything written into .cursor/hooks.json: a shell command before
-// it runs, Cursor's own Delete tool, and a shell command after it (postToolUse, and
-// postToolUseFailure for a non-zero exit). `version` is the file's format number; it is a
-// sole key, so --uninstall keeps a user's while their hooks remain.
+// it runs, Cursor's own Delete tool and its Write tool before it writes, and a shell
+// command after it (postToolUse, and postToolUseFailure for a non-zero exit) and a Write
+// after it (ADR-0095 §3). `version` is the file's format number; it is a sole key, so
+// --uninstall keeps a user's while their hooks remain.
 func cursorHookSpec(o Options) jsonSpec {
 	cmd := HookCommand(o, Cursor)
+	entry := func(matcher string) json.RawMessage { return rawJSON(cursorHookEntry{Command: cmd, Matcher: matcher}) }
+	hooks := []string{"hooks"}
 	return jsonSpec{
 		keys: []keyEntry{{key: "version", value: rawJSON(1), sole: true}},
 		arrays: []arrayEntry{
-			{path: []string{"hooks"}, key: "beforeShellExecution", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd})}, stale: cursorStale(o.Root, "")},
-			{path: []string{"hooks"}, key: "preToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Delete"})}, stale: cursorStale(o.Root, "Delete")},
-			{path: []string{"hooks"}, key: "postToolUse", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}, stale: cursorStale(o.Root, "Shell")},
-			{path: []string{"hooks"}, key: "postToolUseFailure", elems: []json.RawMessage{rawJSON(cursorHookEntry{Command: cmd, Matcher: "Shell"})}, stale: cursorStale(o.Root, "Shell")},
+			{path: hooks, key: "beforeShellExecution", elems: []json.RawMessage{entry("")}, stale: cursorStale(o.Root, "")},
+			{path: hooks, key: "preToolUse", elems: []json.RawMessage{entry("Delete"), entry(cursorEditMatcher)}, stale: cursorStale(o.Root, "Delete", cursorEditMatcher)},
+			{path: hooks, key: "postToolUse", elems: []json.RawMessage{entry("Shell"), entry(cursorEditMatcher)}, stale: cursorStale(o.Root, "Shell", cursorEditMatcher)},
+			{path: hooks, key: "postToolUseFailure", elems: []json.RawMessage{entry("Shell")}, stale: cursorStale(o.Root, "Shell")},
 		},
 	}
 }

@@ -1,0 +1,40 @@
+{
+ "_note": "Recorded in plan m2s step 1 (docs/research/spike-c2-occupation-2026-10.md), home path and email removed.",
+ "session_id": "c4f176e6-5e16-466a-9850-1d68bd64d9a2",
+ "transcript_path": "/Users/dev/.claude/projects/-Users-dev-spike-repo/c4f176e6-5e16-466a-9850-1d68bd64d9a2.jsonl",
+ "cwd": "/Users/dev/spike/repo",
+ "prompt_id": "d7848ec5-a47f-4c2d-90bc-adbc6e85d28e",
+ "permission_mode": "default",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Write",
+ "tool_input": {
+  "file_path": "/Users/dev/spike/repo/notes/new.txt",
+  "content": "two"
+ },
+ "tool_response": {
+  "type": "update",
+  "filePath": "/Users/dev/spike/repo/notes/new.txt",
+  "content": "two",
+  "structuredPatch": [
+   {
+    "oldStart": 1,
+    "oldLines": 1,
+    "newStart": 1,
+    "newLines": 1,
+    "lines": [
+     "-one",
+     "\\ No newline at end of file",
+     "+two",
+     "\\ No newline at end of file"
+    ]
+   }
+  ],
+  "originalFile": "one",
+  "userModified": false
+ },
+ "tool_use_id": "toolu_01Nd8U3PMB16wrHgZdwXn64Z",
+ "duration_ms": 3
+}

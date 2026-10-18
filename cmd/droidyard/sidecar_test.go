@@ -138,6 +138,23 @@ func installTestSeams() {
 		}
 		adbEnviron = func() []string { return env }
 	}
+	// A test may move the session registry's clock (a file holding the seconds to add to
+	// the real time, read at each use) and shorten the idle sweep (ADR-0094 §4).
+	if path := os.Getenv(sessionClockEnv); path != "" {
+		sessionClock = func() time.Time {
+			raw, _ := os.ReadFile(path)
+			secs, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+			return time.Now().Add(time.Duration(secs) * time.Second)
+		}
+	}
+	if d, err := time.ParseDuration(os.Getenv(sessionSweepEnv)); err == nil {
+		sessionSweep = d
+	}
+	// A test may set the file.watch pollers' tick, a long one to see what makes a poller walk
+	// before it.
+	if d, err := time.ParseDuration(os.Getenv(watchTickEnv)); err == nil {
+		watchTick = d
+	}
 	// A test may give the daemon a fake osascript, so workspace.chooseRoot runs on any
 	// host without raising a window.
 	if bin := os.Getenv(dialogFakeEnv); bin != "" {

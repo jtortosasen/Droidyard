@@ -32,6 +32,7 @@
 	import { WorkspaceModel } from '../build/workspace';
 	import { CommandRecordsModel, type CommandsClient } from '../ops/commands';
 	import { RestoreModel, type RestoreClient } from '../ops/restore';
+	import { TrashModel, type TrashClient } from '../ops/trash';
 	import Workspace from '../build/Workspace.svelte';
 	import { TrustModel } from './trust';
 	import { ProjectFileModel } from './projectfile';
@@ -120,6 +121,8 @@
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	// Restore of a delete any client made (plan m2j step 10): the workspace root is read at click.
 	const restore = $derived(new RestoreModel({ call: ((n, p, o) => client.call(n, p, o)) as RestoreClient['call'] }, () => workspace?.root ?? ''));
+	// The trash lists what was deleted before this tab (ADR-0096); Activity reads it.
+	const trash = $derived(new TrashModel({ call: ((n, p, o) => client.call(n, p, o)) as TrashClient['call'] }, () => workspace?.root ?? ''));
 	const records = $derived(new CommandRecordsModel({ call: ((n, p) => client.call(n, p)) as CommandsClient['call'] }));
 	let trust = $state.raw<TrustModel | null>(null);
 	let projectFile = $state.raw<ProjectFileModel | null>(null);
@@ -361,6 +364,8 @@
 		void ws.openById(workspaceId).then((ok) => {
 			const why = ws.view.error;
 			if (!ok && !gone && why?.code) onmissing(why);
+			// The root is known now: what was deleted before this tab is listed (ADR-0096).
+			if (ok && !gone) void trash.load();
 			if (ok && !gone) {
 				// A remembered tab whose file is gone is dropped; any other failure keeps it.
 				void tabs.restore(async (path) => {
@@ -582,7 +587,7 @@
 		{/if}
 	{:else if id === 'activity'}
 		{#if buildConsole && build}
-			<Activity store={activity} {sessions} console={buildConsole} {build} {restore} {records} {workspaceId} onopenoutput={() => shell.show('console')} />
+			<Activity store={activity} {sessions} console={buildConsole} {build} {restore} {trash} {records} {workspaceId} onopenoutput={() => shell.show('console')} />
 		{/if}
 	{:else if id === 'gradleroot'}
 		{#if workspace && projectFile}
@@ -594,7 +599,7 @@
 		{/if}
 	{:else if id === 'devices'}
 		{#if devices && emulators && install}
-			<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+			<Devices {devices} {emulators} {install} {sessions} connected={connection === 'open'} />
 		{/if}
 	{:else if id === 'liveview'}
 		{#if liveView}

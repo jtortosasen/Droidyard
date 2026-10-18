@@ -180,7 +180,7 @@ func trashCmd(args []string, stdout, stderr io.Writer) int {
 	gate := &trashGate{}
 	ready := make(chan struct{})
 	done := make(chan trashResult, 1)
-	go func() { done <- trashDelete(gate, ready, root, paths) }()
+	go func() { done <- trashDelete(gate, ready, trashChat(), root, paths) }()
 	timer := time.NewTimer(trashDeadline)
 	defer timer.Stop()
 	var res trashResult
@@ -340,6 +340,21 @@ func (g gatedWriter) Write(p []byte) (int, error) {
 	return g.w.Write(p)
 }
 
+// trashChat is the chat the delete is joined to (ADR-0095 §1): the id Claude Code sets in
+// its Bash tool's environment (plan m2s step 1 (d)), so Activity shows the delete under
+// the agent. It is empty when the variable is not set or is not a chat id, and when
+// CURSOR_AGENT=1 marks the shell as cursor-agent's: a client started from a Claude Code
+// shell inherits that variable, which then names another client's chat.
+func trashChat() string {
+	if os.Getenv("CURSOR_AGENT") == "1" {
+		return ""
+	}
+	if v := os.Getenv(chatEnv); daemon.ChatPattern.MatchString(v) {
+		return v
+	}
+	return ""
+}
+
 // trashResult is how trashDelete ended: problems when nothing was moved, unknown when the
 // delete was sent and its outcome is not known, else the final response envelope.
 type trashResult struct {
@@ -351,11 +366,11 @@ type trashResult struct {
 // trashDelete opens the workspace and deletes paths through the daemon. It closes ready
 // when only the wait on the delete is left. It prints nothing: the main goroutine reports
 // what it returns, and one that has given up never reads it.
-func trashDelete(gate *trashGate, ready chan<- struct{}, root string, paths []string) trashResult {
+func trashDelete(gate *trashGate, ready chan<- struct{}, chat, root string, paths []string) trashResult {
 	// Opening the workspace, the delete's start and its wait take a connection each: a
 	// cli.Call reads its connection through a goroutine that outlives it, so a second
 	// call cannot share one.
-	hello := daemon.Hello{Client: capability.ClientCLI}
+	hello := daemon.Hello{Client: capability.ClientCLI, Chat: chat}
 	conn, r, socket, err := connectOrStart(hello, false, nil)
 	if err != nil {
 		return trashResult{problems: []string{dialProblem(socket, err)}}

@@ -159,6 +159,10 @@ type watcher struct {
 	// never blocks, however it races the poller's own end (D9).
 	stop     chan string
 	stopOnce sync.Once
+	// nudge asks the poller for a walk now, without waiting for the tick (Watchers.Nudge).
+	// Buffered by one: a request made while a walk is under way is not lost, and a second
+	// one before the walk starts is the same walk.
+	nudge chan struct{}
 }
 
 // requestStop asks the poller to end, with the reason a stopped event carries ("" for a
@@ -185,6 +189,8 @@ func (w *watcher) run() {
 			}
 			return
 		case <-t.C:
+			w.tickOnce()
+		case <-w.nudge:
 			w.tickOnce()
 		}
 	}
@@ -532,6 +538,25 @@ func (ws *Watchers) Stop(workspaceID string) {
 	}
 }
 
+// Nudge asks every poller of the workspace to walk now instead of at its next tick, so a
+// change the daemon was told of (an agent's edit, ADR-0095 §3) reaches file.changes at
+// once. It returns without waiting for the walk, and a poller that is busy walking walks
+// once more when it is done.
+func (ws *Watchers) Nudge(workspaceID string) {
+	ws.mu.Lock()
+	list := make([]*watcher, 0, len(ws.byWS[workspaceID]))
+	for w := range ws.byWS[workspaceID] {
+		list = append(list, w)
+	}
+	ws.mu.Unlock()
+	for _, w := range list {
+		select {
+		case w.nudge <- struct{}{}:
+		default:
+		}
+	}
+}
+
 // Live is how many pollers are running: zero once every watch has ended.
 func (ws *Watchers) Live() int { return int(ws.live.Load()) }
 
@@ -577,6 +602,7 @@ func (o Options) watch(ctx context.Context, call *capability.Call) (any, error) 
 		tick:      tick,
 		trash:     o.Trash,
 		stop:      make(chan string, 1),
+		nudge:     make(chan struct{}, 1),
 	}
 	// The subscription exists before the baseline walks, so a cancel during the walk has
 	// something to clean up; its close hook ends the poller (D9).

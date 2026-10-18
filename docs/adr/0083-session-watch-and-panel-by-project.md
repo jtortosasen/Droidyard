@@ -1,6 +1,7 @@
 # ADR-0083: `session.watch`, and the sessions panel grouped by project
 
 - Status: Accepted
+- Superseded in part by: ADR-0094 (§Decision)
 - Date: 2026-10-18
 - Supersedes: ADR-0048 §3 (in part: agent rows also come from `session.watch`); ADR-0047 §1 (in part: worktrees nest under their project)
 - Relates to: ADR-0010, ADR-0045 §3, ADR-0048 §1–§2, ADR-0050, ADR-0052, ADR-0082; plan m2q Q3

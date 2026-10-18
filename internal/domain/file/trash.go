@@ -84,6 +84,8 @@ type trashEntry struct {
 	Entries   int       `json:"entries"`
 	Truncated bool      `json:"truncated,omitempty"`
 	Aside     string    `json:"aside,omitempty"`
+	// By is who deleted (ADR-0096 §2); nil for an entry written before it existed.
+	By *trashBy `json:"by,omitempty"`
 }
 
 // Trash is the state directory's trash for every workspace (ADR-0054). It is safe for

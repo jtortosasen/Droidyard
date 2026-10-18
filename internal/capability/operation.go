@@ -95,6 +95,18 @@ type Origin struct {
 	Name string
 	// Root is the session's bound root; empty for an unbound session.
 	Root string
+	// Client is the kind of the connection the call came in on. A capability that holds
+	// something for a session (a device, ADR-0094) acts for a connection whose Client is
+	// mcp and whose ID is the session, never for one that was only joined to it.
+	Client ClientKind
+	// Chat is the chat id the connection's hello named, when it did (ADR-0088); empty
+	// otherwise.
+	Chat string
+	// Joined is the id of the MCP session a non-MCP connection was joined to by its chat
+	// (ADR-0095 §1); empty when none. ID stays the connection's own, so a joined call
+	// moves no binding: Joined only attributes the call to the session (the operation's
+	// session ref) and keeps the session from going idle.
+	Joined string
 }
 
 // SessionNameMax is the most runes a SessionRef's name keeps (ADR-0048 §1).
@@ -342,7 +354,11 @@ func (o *Operations) sessionRef(origin Origin) *SessionRef {
 	if origin.ID == "" {
 		return nil
 	}
-	ref := &SessionRef{ID: origin.ID, Name: SessionName(origin.Name)}
+	id := origin.ID
+	if origin.Joined != "" {
+		id = origin.Joined
+	}
+	ref := &SessionRef{ID: id, Name: SessionName(origin.Name)}
 	if origin.Root != "" && o.ws != nil {
 		o.ws.Admit(origin.Root, func(id string) { ref.Workspace = id })
 	}
@@ -889,9 +905,10 @@ func (o *Operations) prepare(req Request) (Descriptor, any, error) {
 		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is for humans and cannot be called over MCP", d.Name).
 			WithNextStep("ask the user to run it from the UI or the CLI")
 	}
-	if d.Binding && !o.sessions.Registered(req.Origin.ID) {
+	if d.Binding && (req.Client != ClientMCP || !o.sessions.Registered(req.Origin.ID)) {
 		// Before anything is recorded, for every adapter: the CLI, the WebSocket and plain
-		// HTTP have no MCP session whose binding could move (ADR-0082 §4).
+		// HTTP have no MCP session whose binding could move (ADR-0082 §4), and a CLI
+		// connection joined to one (ADR-0095 §1) is not it.
 		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s moves the calling MCP session's binding, and only an MCP session can call it", d.Name).
 			WithNextStep("call it from the agent's MCP session; the UI and the CLI cannot move a session")
 	}

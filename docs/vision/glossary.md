@@ -26,6 +26,12 @@ owns subscriptions and watches. An MCP session is bound to one root at a time, w
 `workspace.enter` moves within its project ([ADR-0082](../adr/0082-session-enters-a-worktree.md)).
 It does not own operations.
 
+## Occupation
+
+A live MCP session holding a linked worktree or a device, so that another chat does not write
+in it or act on it ([ADR-0094](../adr/0094-occupation-by-a-session.md)). The main tree is never
+occupied.
+
 ## Operation
 
 The record of one invocation: id, state (`queued | running | completed | failed |

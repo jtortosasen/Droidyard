@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,19 +67,21 @@ func TestHookRecordsInTheWorktree(t *testing.T) {
 		// setup returns --root, the command's directory, the workspace that must be open
 		// afterwards and one that must not be ("" for none).
 		setup func(t *testing.T) (flagRoot, cwd, open, closed string)
+		// command is what ran; "" is cmd.
+		command string
 	}
 	rows := []row{
-		{"a linked worktree outside the project", func(t *testing.T) (string, string, string, string) {
+		{name: "a linked worktree outside the project", setup: func(t *testing.T) (string, string, string, string) {
 			base, main := worktreeRepo(t, false)
 			wt := addWT(t, main, filepath.Join(base, "wt"))
 			return main, wt, wt, main
 		}},
-		{"a subfolder of the worktree", func(t *testing.T) (string, string, string, string) {
+		{name: "a subfolder of the worktree", setup: func(t *testing.T) (string, string, string, string) {
 			base, main := worktreeRepo(t, false)
 			wt := addWT(t, main, filepath.Join(base, "wt"))
 			return main, filepath.Join(wt, "dev"), wt, main
 		}},
-		{"a worktree nested in the project, in a subfolder", func(t *testing.T) (string, string, string, string) {
+		{name: "a worktree nested in the project, in a subfolder", setup: func(t *testing.T) (string, string, string, string) {
 			_, main := worktreeRepo(t, false)
 			x := addWT(t, main, filepath.Join(main, ".claude", "worktrees", "x"))
 			if err := os.MkdirAll(filepath.Join(x, "app"), 0o700); err != nil {
@@ -86,11 +89,11 @@ func TestHookRecordsInTheWorktree(t *testing.T) {
 			}
 			return main, filepath.Join(x, "app"), x, main
 		}},
-		{"the project's dev/ where only dev/ holds the settings file", func(t *testing.T) (string, string, string, string) {
+		{name: "the project's dev/ where only dev/ holds the settings file", setup: func(t *testing.T) (string, string, string, string) {
 			_, main := worktreeRepo(t, true)
 			return main, filepath.Join(main, "dev"), main, filepath.Join(main, "dev")
 		}},
-		{"--root through a symlink, a physical directory", func(t *testing.T) (string, string, string, string) {
+		{name: "--root through a symlink, a physical directory", setup: func(t *testing.T) (string, string, string, string) {
 			base, main := worktreeRepo(t, false)
 			link := filepath.Join(base, "link")
 			if err := os.Symlink(main, link); err != nil {
@@ -98,7 +101,7 @@ func TestHookRecordsInTheWorktree(t *testing.T) {
 			}
 			return link, filepath.Join(main, "app"), main, ""
 		}},
-		{"a submodule of a worktree nested in the project", func(t *testing.T) (string, string, string, string) {
+		{name: "a submodule of a worktree nested in the project", setup: func(t *testing.T) (string, string, string, string) {
 			_, main := worktreeRepo(t, false)
 			x := addWT(t, main, filepath.Join(main, ".claude", "worktrees", "x"))
 			sub := filepath.Join(x, "sub")
@@ -108,10 +111,81 @@ func TestHookRecordsInTheWorktree(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(sub, ".git"), []byte("gitdir: "+filepath.Join(main, ".git", "modules", "sub")+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			// The walk stops at the submodule's .git, which is no worktree; the directory
-			// lies under --root, so the record goes to --root (pinned as behaviour; a
-			// register row at step 10).
-			return main, sub, main, x
+			// The walk passes the submodule's .git, which is no worktree of the project
+			// (ADR-0095 §5), and finds the worktree x around it.
+			return main, sub, x, main
+		}},
+		{name: "--root a worktree, the command in the main tree (ADR-0095 §5)", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return wt, main, main, wt
+		}},
+		{name: "--root a worktree, the command in a subfolder of the main tree", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return wt, filepath.Join(main, "dev"), main, wt
+		}},
+		{name: "a submodule inside a worktree outside the project (ADR-0095 §5)", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			sub := filepath.Join(wt, "sub")
+			if err := os.MkdirAll(sub, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sub, ".git"), []byte("gitdir: "+filepath.Join(main, ".git", "modules", "sub")+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return main, sub, wt, main
+		}},
+		// A leading `cd` (ADR-0095 §5). Each row's cwd is a PostToolUse's, as Claude Code 2.1.302
+		// reports it (plan m2s step 1, (c1) and run c5): a cd out of the project resets the
+		// shell and the event's cwd is the project's; a cd inside the project persists and the
+		// cwd is already where the command ran. The rule uses the cd's target only when it is
+		// a different root of the project than the cwd's.
+		{name: "a leading cd into a worktree beside the project (reset: cwd is the project's)", command: "cd ../wt && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return main, main, wt, main
+		}},
+		{name: "a leading cd to an absolute worktree path", command: "cd {open} && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return main, main, wt, main
+		}},
+		{name: "a leading cd back to the main tree from --root a worktree (reset)", command: "cd ../M && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return wt, wt, main, wt
+		}},
+		{name: "a persisted cd .. from main/app: cwd is main, the target lies outside the project", command: "cd .. && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			_, main := worktreeRepo(t, false)
+			return main, main, main, ""
+		}},
+		{name: "a persisted cd app: cwd is main/app already", command: "cd app && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			_, main := worktreeRepo(t, false)
+			if err := os.MkdirAll(filepath.Join(main, "app", "app"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return main, filepath.Join(main, "app"), main, ""
+		}},
+		{name: "a persisted cd .. inside a worktree: cwd is the worktree, the target is its parent", command: "cd .. && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return main, wt, wt, main
+		}},
+		{name: "a leading cd after ; into a worktree beside the project", command: "cd ../wt ; ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			wt := addWT(t, main, filepath.Join(base, "wt"))
+			return main, main, wt, main
+		}},
+		{name: "a cd that is not first leaves the directory", command: "./gradlew assembleDebug && cd ../wt", setup: func(t *testing.T) (string, string, string, string) {
+			base, main := worktreeRepo(t, false)
+			addWT(t, main, filepath.Join(base, "wt"))
+			return main, main, main, filepath.Join(base, "wt")
+		}},
+		{name: "a leading cd into a directory that does not exist leaves the directory", command: "cd ../nowhere && ./gradlew assembleDebug", setup: func(t *testing.T) (string, string, string, string) {
+			_, main := worktreeRepo(t, false)
+			return main, main, main, ""
 		}},
 	}
 	for _, r := range rows {
@@ -119,9 +193,10 @@ func TestHookRecordsInTheWorktree(t *testing.T) {
 			t.Parallel()
 			p := startInProcess(t)
 			flagRoot, cwd, open, closed := r.setup(t)
+			command := strings.ReplaceAll(cmp.Or(r.command, cmd), "{open}", open)
 			sub := p.bus.Subscribe([]string{capability.StateTopic}, nil)
 			defer sub.Close()
-			res := runHook(t, p.state, claudeAfter(t, cmd, cwd), nil, "--client", "claude", "--root", flagRoot)
+			res := runHook(t, p.state, claudeAfter(t, command, cwd), nil, "--client", "claude", "--root", flagRoot)
 			if res.code != 0 || res.stderr != "" {
 				t.Fatalf("hook exited %d with stderr %q; want 0 and none", res.code, res.stderr)
 			}

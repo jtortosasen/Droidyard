@@ -134,7 +134,7 @@ func (p UninstallParams) validate() error {
 // buildId and WORKSPACE_STATE_UNREADABLE for a state root that will not read), the
 // params check and its own. It is long-running, so it need not list
 // OPERATION_QUEUE_TIMEOUT (registry.go).
-var installErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
+var installErrors = append(append([]capability.ErrorCode{}, ActingErrors...),
 	build.ErrBuildOutputNotFound, build.ErrBuildOutputStale, build.ErrBuildOutputUnsupported,
 	capability.ErrBuildNotFound, capability.ErrWorkspaceStateUnreadable,
 	capability.ErrInvalidParams, ErrInstallFailed)
@@ -142,7 +142,7 @@ var installErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
 // uninstallErrors are the codes device.uninstall can return: the device preamble's, the
 // params check, its own, and the queue bound the scheduler may return (it holds the
 // device's write lock and is not long-running).
-var uninstallErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
+var uninstallErrors = append(append([]capability.ErrorCode{}, ActingErrors...),
 	capability.ErrInvalidParams, ErrUninstallFailed, capability.ErrOperationQueueTimeout)
 
 // registerInstall adds device.install, resolving its build reference through builds.
@@ -162,6 +162,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 			return &capability.OpTarget{Device: ip.Device, Module: ip.Build.Module, Variant: ip.Build.Variant}
 		},
 		Result:      InstallResult{},
+		Occupies:    capability.OccupiesAct,
 		Errors:      installErrors,
 		Description: "Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. buildId absent means the newest finished build with an output for module and variant.",
 		Resource: func(call *capability.Call) string {
@@ -181,7 +182,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.install")
+			return adb.authorizeActing(ctx, call, p.Device, "device.install")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InstallParams)
@@ -216,6 +217,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UninstallParams).Device) },
 		Result:       UninstallResult{},
 		Errors:       uninstallErrors,
+		Occupies:     capability.OccupiesAct,
 		Description:  "Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. It removes the app's data.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(UninstallParams).Device; s != "" {
@@ -228,7 +230,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.uninstall")
+			return adb.authorizeActing(ctx, call, p.Device, "device.uninstall")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(UninstallParams)

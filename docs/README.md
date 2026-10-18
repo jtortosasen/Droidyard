@@ -43,6 +43,6 @@ gh api -H 'Accept: application/vnd.github.raw' repos/jtortosasen/Droidyard/conte
 
 ## Where the work stands
 
-Phase 2 accepted (2b); 2c–2g UI, files; 2h the Definition of done; 2i the editor; 2j file capabilities off MCP, an agent's `rm` to the trash; 2k Cursor on par, agents' Android commands in Activity; 2l the Git tab and a Review diff; 2m CI, release builds and the one-line installer; 2n the Git history and its writes; 2o a Gradle build in a subfolder of the project; 2p the live device view, with input (C3); 2q sessions that own worktrees, one tab for every project (C2); 2r the quick rows and a register cleanup; next, the owner's choice (`work-board`). Status is in
+Phase 2 accepted (2b); 2c–2g UI, files; 2h the Definition of done; 2i the editor; 2j file capabilities off MCP, an agent's `rm` to the trash; 2k Cursor on par, agents' Android commands in Activity; 2l the Git tab and a Review diff; 2m CI, release builds and the one-line installer; 2n the Git history and its writes; 2o a Gradle build in a subfolder of the project; 2p the live device view, with input (C3); 2q sessions that own worktrees, one tab for every project (C2); 2r the quick rows and a register cleanup; 2s a session occupies its worktree and the device it acts on, its hooks joined to it (C2); next, the owner's choice (`work-board`). Status is in
 [`plans/README.md`](plans/README.md); what is open is in
 [`roadmap/known-limits.md`](roadmap/known-limits.md).

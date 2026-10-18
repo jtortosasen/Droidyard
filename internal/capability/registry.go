@@ -77,6 +77,9 @@ func (r *Registry) Register(d Descriptor) error {
 		// connection can make (ADR-0082 §4).
 		return fmt.Errorf("capability %q: Binding is for a stateless capability of every audience, the MCP tool that moves a session's binding", d.Name)
 	}
+	if d.Occupies != "" && d.Occupies != OccupiesAct && d.Occupies != OccupiesBoot {
+		return fmt.Errorf("capability %q: Occupies %q is neither %q nor %q", d.Name, d.Occupies, OccupiesAct, OccupiesBoot)
+	}
 	if d.Audience == AudienceHuman && d.Scope == Global {
 		// Not an error by itself, but worth stating: human-only capabilities are
 		// rejected at the MCP transport, not hidden (ADR-0015 §6).

@@ -1,6 +1,7 @@
 # ADR-0032: The configuration file, version 1: policy and tool keys
 
 - Status: Accepted
+- Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0081 (§2)
 - Date: 2026-10-07
 - Relates to: ADR-0031 (the file and its trust section, which this extends), ADR-0015

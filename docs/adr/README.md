@@ -122,6 +122,10 @@ edits made before this rule and are not added to.
 | [0091](0091-leftover-temporary-files-swept.md) | Leftover temporary files are swept, and asides get their own name | Accepted |
 | [0092](0092-switched-gradle-root-closes.md) | A Gradle root switched away from closes its connection | Accepted |
 | [0093](0093-race-detector-in-ci.md) | CI also runs the race detector | Accepted |
+| [0094](0094-occupation-by-a-session.md) | A session occupies its worktree and the device it acts on | Accepted |
+| [0095](0095-hooks-joined-and-agent-edits.md) | A hook is joined to its chat's session, and the agent's own edits pass through the hooks | Accepted |
+| [0096](0096-trash-listed-for-activity.md) | The trash is listed, so Activity restores a delete made before the tab opened | Accepted |
+| [0105](0105-trash-rows-outside-delete-spans.md) | Activity shows a trash entry no restorable delete row accounts for | Accepted |
 
 ## Open decisions (not yet ADRs)
 

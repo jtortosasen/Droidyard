@@ -1,6 +1,8 @@
 # ADR-0088: A session carries its chat's id, and a resumed chat gets its worktree back
 
 - Status: Accepted
+- Superseded in part by: ADR-0095 (§Decision)
+- Superseded in part by: ADR-0094 (§Decision)
 - Date: 2026-10-18
 - Supersedes: ADR-0082 §Decision (in part: §1's "a resumed chat is bound to the main tree again", and §5's "never persisted" gains a memory by chat id for the daemon's life)
 - Relates to: ADR-0019 §7 (the hello), ADR-0048 §2, ADR-0083 §1; `docs/research/spike-c2-sessions-2026-10.md` (a), (b); plan m2q step 1

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Operation, OperationState } from '../ops/activity';
 import { FakeStream, settle } from '../build/testing';
-import { AGENT_ROW_TTL_MS, duration, SessionsModel, YOU, type SessionsClient, type SessionsSource } from './sessions';
+import { AGENT_ROW_TTL_MS, deviceHolds, duration, heldByText, inUseText, holderOf, occupiesText, SessionsModel, YOU, type AgentRow, type SessionsClient, type SessionsSource } from './sessions';
 
 // A source the test drives: the store's operations, newest first, and its listeners.
 class Source implements SessionsSource {
@@ -55,6 +55,14 @@ describe('SessionsModel', () => {
 				['s3', 'agent'],
 			]),
 		);
+	});
+
+	// Decision (ADR-0063 §6, kept by ADR-0095 §2): the hook's record is shown in Activity under
+	// its session, but it makes no row and marks none unread, joined or not.
+	it("counts a hook's record for no row and no unread mark", () => {
+		const t = setup();
+		t.src.set(op({ id: 'r1', state: 'completed', client: 'cli', capability: 'agent.recordCommand', session: mcp('s9', 'claude') }));
+		expect(t.model.view.rows).toEqual([]);
 	});
 
 	// Decision (D30): `ui` and `cli` commands are one "You" row, and the tab's own reads are
@@ -188,7 +196,7 @@ async function watched() {
 		stream.answer(0, { subscriptionId: 'sw1', sessions });
 		return settle();
 	};
-	const ev = (id: string, p: { name?: string; workspace?: string; ended?: boolean }) =>
+	const ev = (id: string, p: { name?: string; workspace?: string; occupies?: string; devices?: string[]; stale?: boolean; ended?: boolean }) =>
 		stream.emit(0, { topic: 'session.state', type: 'state', payload: { id, ended: false, ...p } });
 	return { src, model, stream, moves, snapshot, ev, clock };
 }
@@ -291,6 +299,86 @@ describe('SessionsModel with session.watch', () => {
 		await settle();
 		expect(t.model.view.rows.map((r) => r.key).sort()).toEqual(['s1', 's2']);
 		expect(t.moves).toEqual(['wt']);
+	});
+});
+
+// --- occupation (ADR-0094) ------------------------------------------------------------
+
+describe('a session that occupies', () => {
+	// Decision (ADR-0094 §3, §4): a row carries what its session holds and whether it is idle,
+	// from the snapshot and the events alike; a session that holds nothing says so with an
+	// empty list and no worktree, and idleness ends with the next event that does not carry it.
+	it('shows occupies, devices and idle from the snapshot and the events', async () => {
+		const t = await watched();
+		await t.snapshot([
+			{ id: 's1', name: 'claude', workspace: 'wt1', occupies: 'wt1', devices: ['emulator-5554'], stale: true, connectedAt: at },
+			{ id: 's2', name: 'cursor', workspace: 'main', connectedAt: at },
+		]);
+		const by = () => new Map(t.model.view.rows.map((r) => [r.key, r]));
+		expect(by().get('s1')).toMatchObject({ occupies: 'wt1', devices: ['emulator-5554'], idle: true });
+		expect(by().get('s2')).toMatchObject({ occupies: null, devices: [], idle: false });
+		// The owner's release: the event no longer carries occupies or stale, and the row follows.
+		t.ev('s1', { name: 'claude', workspace: 'wt1' });
+		expect(by().get('s1')).toMatchObject({ occupies: null, devices: [], idle: false, workspace: 'wt1' });
+	});
+
+	// Decision (ADR-0094 §3): the owner's release names the worktree by its workspace id or the
+	// device by its serial, one of them, and nothing else: it never moves a session.
+	it("releases with exactly the worktree's workspace id or the device's serial", async () => {
+		const calls: [string, unknown][] = [];
+		const client = {
+			call: (n: string, p: unknown) => {
+				calls.push([n, p]);
+				return Promise.resolve({});
+			},
+			subscribe: () => new Promise(() => {}),
+		} as unknown as SessionsClient;
+		const model = new SessionsModel(new Source(), Date.now, { client });
+		await model.release({ workspace: 'wt1-abc' });
+		await model.release({ device: 'emulator-5554' });
+		expect(calls).toEqual([
+			['session.release', { workspace: 'wt1-abc' }],
+			['session.release', { device: 'emulator-5554' }],
+		]);
+	});
+
+	// Decision (ADR-0094 §3, §4): the devices panel's lines are the live rows' devices, so an
+	// event that drops a session's devices (it ended, moved to the main tree, was released)
+	// removes the line, and one that sets stale words it "(idle)". Read from device.list, which
+	// is not re-read on those events, a line would outlive its hold.
+	it('derives the held-device lines from the live rows', async () => {
+		const t = await watched();
+		await t.snapshot([
+			{ id: 's1', name: 'claude', workspace: 'wt1', devices: ['emulator-5556', 'emulator-5554'], connectedAt: at },
+			{ id: 's2', name: 'cursor', workspace: 'main', connectedAt: at },
+		]);
+		const lines = () => deviceHolds(t.model.view.rows).map((h) => `${h.serial}: ${inUseText(h)}`);
+		expect(lines()).toEqual(['emulator-5554: in use by claude', 'emulator-5556: in use by claude']);
+		t.ev('s1', { name: 'claude', workspace: 'wt1', devices: ['emulator-5556', 'emulator-5554'], stale: true });
+		expect(lines()).toEqual(['emulator-5554: in use by claude (idle)', 'emulator-5556: in use by claude (idle)']);
+		t.ev('s1', { name: 'claude', workspace: 'wt1', devices: ['emulator-5556'] });
+		expect(lines()).toEqual(['emulator-5556: in use by claude']);
+		t.ev('s1', { ended: true });
+		expect(lines()).toEqual([]);
+	});
+
+	// Decision (ADR-0094 §1, §4): the worktree row names its holder and says idle when it is,
+	// and the session row names the worktree (by the panel's name for it) and the devices.
+	it('words the holder of a worktree and what a session holds', () => {
+		const row = (over: Partial<AgentRow>): AgentRow => ({
+			key: 'k', label: 'claude', you: false, workspace: null, running: false, result: null, unread: false, operations: [],
+			occupies: null, devices: [], idle: false, ...over,
+		});
+		const rows = [row({ key: 'a', label: 'claude', occupies: 'wt1' }), row({ key: 'b', label: 'claude 2', occupies: 'wt2', idle: true }), row({ key: 'y', you: true, occupies: 'wt3' })];
+		expect(holderOf(rows, 'wt1')?.key).toBe('a');
+		expect(heldByText('claude', false)).toBe('held by claude');
+		expect(heldByText('claude 2', true)).toBe('held by claude 2 (idle)');
+		expect(holderOf(rows, 'wt3')).toBeUndefined(); // "You" holds nothing
+		expect(holderOf(rows, 'wt9')).toBeUndefined();
+		const names = new Map([['wt1', 'task-one']]);
+		expect(occupiesText(row({ occupies: 'wt1', devices: ['emulator-5554', 'emulator-5556'] }), (id) => names.get(id))).toBe('task-one, emulator-5554, emulator-5556');
+		expect(occupiesText(row({ occupies: 'wt2' }), (id) => names.get(id))).toBe('wt2');
+		expect(occupiesText(row({}), () => undefined)).toBe('');
 	});
 });
 

@@ -252,15 +252,15 @@ Two practical notes:
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
 | `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `watchScreen`, `screenshot`, `uiTree`, `tapElement`, `inputText`, `tap`, `swipe`, `pressKey` | 1–2 |
-| `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore` (human-only; never over MCP) | 1–2 |
+| `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore`, `trash` (human-only; never over MCP) | 1–2 |
 | `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch`, `pull`, `checkout`, `createBranch`, `submodules`, `updateSubmodules` (human-only; never over MCP) | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
-| `session` | `watch` | 2 |
+| `session` | `watch`, `release` (human-only; never over MCP) | 2 |
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |
-| `agent` | `recordCommand` (human-only; never over MCP) | 2 |
+| `agent` | `recordCommand`, `recordEdit`, `checkWrite` (human-only; never over MCP) | 2 |
 
 `build.test` and `code.*` are **not** part of the MVP. `git.*` is included but scheduled
 last and may slip.

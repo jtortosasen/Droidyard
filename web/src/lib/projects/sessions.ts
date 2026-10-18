@@ -17,9 +17,12 @@
 //   - The rail's count and spinner follow agent rows only, never "You".
 //   - The UI follows a session and never moves it (ADR-0083 §3): `follow` names the session
 //     whose moves the selection takes; `unfollow` is a selection made from a project row.
+//   - A session may occupy a linked worktree and devices (ADR-0094): its row says which and
+//     whether it is idle, and the owner's Release (`release`) ends one occupation without
+//     moving the session.
 import { capabilityInfo, eventTopics, type CapabilityName, type EventPayload, type Params, type Result } from '../api/capabilities.gen';
-import { ConnectionError, type ConnectionState, type EventFrame, type SubscribeHandlers, type Subscription } from '../api/client';
-import { failure, failureText } from '../build/failure';
+import { CapabilityError, ConnectionError, type ConnectionState, type EventFrame, type SubscribeHandlers, type Subscription } from '../api/client';
+import { failure, failureText, type Failure } from '../build/failure';
 import { isTerminal, type Operation, type OperationState } from '../ops/activity';
 
 /** Working default (plan D26): an agent row leaves the panel this long after its last terminal event. */
@@ -52,6 +55,12 @@ export interface AgentRow {
 	unread: boolean;
 	/** Not terminal, oldest first. */
 	operations: RunningOperation[];
+	/** The workspace id of the linked worktree the session holds (ADR-0094); null for none. */
+	occupies: string | null;
+	/** The serials of the devices it holds. */
+	devices: readonly string[];
+	/** No request for the configured time: another chat may take over what it holds. */
+	idle: boolean;
 }
 
 export interface SessionsView {
@@ -72,6 +81,7 @@ interface Track {
 /** The daemon's side `session.watch` needs (ADR-0083 §1). */
 export interface SessionsClient {
 	call(name: 'events.unsubscribe', params: Params<'events.unsubscribe'>): Promise<Result<'events.unsubscribe'>>;
+	call(name: 'session.release', params: Params<'session.release'>): Promise<Result<'session.release'>>;
 	subscribe(
 		name: 'session.watch',
 		params: Params<'session.watch'>,
@@ -90,6 +100,20 @@ export interface SessionsOptions {
 interface Listed {
 	name?: string;
 	workspace?: string;
+	occupies?: string;
+	devices?: readonly string[];
+	stale?: boolean;
+}
+
+/** What the watch said of a session, in the model's shape: absent stays absent. */
+function listedFrom(s: { name?: string; workspace?: string; occupies?: string; devices?: string[]; stale?: boolean }): Listed {
+	return {
+		...(s.name !== undefined ? { name: s.name } : {}),
+		...(s.workspace !== undefined ? { workspace: s.workspace } : {}),
+		...(s.occupies !== undefined ? { occupies: s.occupies } : {}),
+		...(s.devices !== undefined ? { devices: s.devices } : {}),
+		...(s.stale === true ? { stale: true } : {}),
+	};
 }
 
 const TOPIC_STATE = eventTopics['session.watch'];
@@ -167,6 +191,20 @@ export class SessionsModel {
 		};
 	}
 
+	/**
+	 * The owner's release of one occupation (ADR-0094 §3): the worktree by its workspace id or
+	 * the device by its serial. It never moves a session; the rows change by the watch's events.
+	 */
+	async release(what: { workspace: string } | { device: string }): Promise<Failure | null> {
+		try {
+			await this.#client?.call('session.release', what);
+			return null;
+		} catch (e) {
+			// A lost connection is shown by the connection state; a capability error by its code.
+			return e instanceof CapabilityError ? failure(e) : null;
+		}
+	}
+
 	/** The row selected (D30: it filters Activity); null when none. */
 	get selectedKey(): string | null {
 		return this.#selected;
@@ -189,7 +227,7 @@ export class SessionsModel {
 		const ops = this.#source.operations; // newest first
 		const bySession = new Map<string, Operation[]>();
 		for (const op of ops) {
-			const key = keyOf(op);
+			const key = forRows(op);
 			if (key === null) continue;
 			let list = bySession.get(key);
 			if (!list) bySession.set(key, (list = []));
@@ -229,6 +267,9 @@ export class SessionsModel {
 				operations: live
 					.map((o) => ({ id: o.id, capability: o.capability, startedAt: o.startedAt }))
 					.reverse(),
+				occupies: listed?.occupies ?? null,
+				devices: listed?.devices ?? [],
+				idle: listed?.stale === true,
 			});
 		}
 		const activity = (r: AgentRow) => this.#tracks.get(r.key)?.lastEndAt ?? 0;
@@ -274,7 +315,7 @@ export class SessionsModel {
 				const next = new Map<string, Listed>();
 				let moved: string | null = null;
 				for (const s of sub.result.sessions) {
-					next.set(s.id, { ...(s.name !== undefined ? { name: s.name } : {}), ...(s.workspace !== undefined ? { workspace: s.workspace } : {}) });
+					next.set(s.id, listedFrom(s));
 					// Listed now, so not ended, whatever an earlier read concluded.
 					this.#gone.delete(s.id);
 					this.#track(s.id);
@@ -315,7 +356,7 @@ export class SessionsModel {
 			if (this.#following === p.id) this.#following = null;
 		} else {
 			const prev = this.#listed.get(p.id);
-			this.#listed.set(p.id, { ...(p.name !== undefined ? { name: p.name } : {}), ...(p.workspace !== undefined ? { workspace: p.workspace } : {}) });
+			this.#listed.set(p.id, listedFrom(p));
 			this.#track(p.id);
 			if (this.#following === p.id && p.workspace !== undefined && p.workspace !== prev?.workspace) this.#onFollow?.(p.workspace);
 		}
@@ -341,7 +382,7 @@ export class SessionsModel {
 		// Oldest first, so the newest ended operation decides the row's last result.
 		for (let i = ops.length - 1; i >= 0; i--) {
 			const op = ops[i]!;
-			const key = keyOf(op);
+			const key = forRows(op);
 			if (key === null) continue;
 			const t = this.#track(key);
 			if (!isTerminal(op.state) || this.#ended.has(op.id)) continue;
@@ -366,15 +407,34 @@ export function keyOf(op: Operation): string | null {
 	// workspace is open and would place it under "No project", and it would mark the row
 	// unread (ADR-0048 §3: an agent that has run nothing is not listed).
 	if (op.capability === 'workspace.open') return null;
-	// The hook's record of an agent's command is shown in Activity but is no one's session
-	// (ADR-0063 §6): no "You" row lights up, and no agent row appears.
-	if (op.capability === 'agent.recordCommand') return null;
+	// The hook's record of an agent's command is shown in Activity, never as the user's
+	// (ADR-0063 §6). Joined to an MCP session (ADR-0095 §2) it has that session's key, so
+	// Activity shows it under that agent and narrows to it; the panel's rows and unread
+	// marks do not count it (see forRows), as before. Else it has no key.
+	if (op.capability === 'agent.recordCommand') return op.session && isAgentOp(op) ? op.session.id : null;
+	// A call from an agent's hook or shell was joined to its MCP session (ADR-0095): it
+	// carries the session's ref, with its name, whatever connection it came in on.
+	if (op.session && isAgentOp(op)) return op.session.id;
 	if (op.client === 'ui' || op.client === 'cli') {
 		// A read, or one of the tab's own subscriptions (a streaming watch), is not activity.
 		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean; statefulness: string } | undefined;
 		return info?.readOnly === true || info?.statefulness === 'streaming' ? null : YOU;
 	}
 	return op.client === 'mcp' && op.session ? op.session.id : null;
+}
+
+/** The key the panel's rows and unread marks count an operation under: keyOf, but a hook's record counts for none. */
+function forRows(op: Operation): string | null {
+	return op.capability === 'agent.recordCommand' ? null : keyOf(op);
+}
+
+/**
+ * An agent's operation: its session has a name, whatever client carried it. An MCP call
+ * names its session; so does a CLI call joined to one (ADR-0095 §2: an agent's `droidyard
+ * trash`). The user's own calls carry none, or a WebSocket session with no name.
+ */
+export function isAgentOp(op: Pick<Operation, 'session'>): boolean {
+	return !!op.session?.name;
 }
 
 /** Labels by session name, a repeated name numbered in the order the sessions were first seen. */
@@ -389,6 +449,49 @@ function labelsFor(order: readonly string[], nameOf: (key: string) => string | u
 		labels.set(key, n === 1 ? name : `${name} ${n}`);
 	}
 	return labels;
+}
+
+/** The agent row that holds the linked worktree with this workspace id, if one does. */
+export function holderOf(rows: readonly AgentRow[], workspace: string): AgentRow | undefined {
+	return rows.find((r) => !r.you && r.occupies === workspace);
+}
+
+/**
+ * What a session row says it occupies: the worktree's name (the id where the panel does not
+ * know it) and the serials of its devices, comma separated; '' when it holds nothing.
+ */
+export function occupiesText(a: Pick<AgentRow, 'occupies' | 'devices'>, nameOf: (workspace: string) => string | undefined): string {
+	const parts: string[] = [];
+	if (a.occupies !== null) parts.push(nameOf(a.occupies) ?? a.occupies);
+	parts.push(...a.devices);
+	return parts.join(', ');
+}
+
+export interface DeviceHold {
+	serial: string;
+	/** The holding session's row label. */
+	holder: string;
+	idle: boolean;
+}
+
+/** The devices the sessions hold now, by serial, from the live rows (never "You"). */
+export function deviceHolds(rows: readonly AgentRow[]): DeviceHold[] {
+	const out: DeviceHold[] = [];
+	for (const r of rows) {
+		if (r.you) continue;
+		for (const serial of r.devices) out.push({ serial, holder: r.label, idle: r.idle });
+	}
+	return out.sort((a, b) => a.serial.localeCompare(b.serial));
+}
+
+/** "in use by claude", "in use by claude (idle)": the line a held device wears. */
+export function inUseText(h: Pick<DeviceHold, 'holder' | 'idle'>): string {
+	return h.idle ? `in use by ${h.holder} (idle)` : `in use by ${h.holder}`;
+}
+
+/** "held by claude","held by claude (idle)": the line a worktree or a device wears while another session holds it. */
+export function heldByText(holder: string, idle: boolean): string {
+	return idle ? `held by ${holder} (idle)` : `held by ${holder}`;
 }
 
 /** "12 s", "3 m 05 s", "1 h 02 m": a running operation's age. */
