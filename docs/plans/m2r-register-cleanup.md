@@ -259,7 +259,30 @@
 - Not here: directories no tab watches (ADR-0091 Consequences); `file.write`'s temporary name, unchanged.
 - Rests on: the watch removes only a day-old `.droidyard-<16 hex>.tmp` that no trash entry of this state root records and that is not a new-style aside, never through a link, at level 4 (real files and links).
 - Review: the Opus verifier (deletes files inside the user's project), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18, with real files, folders and links through `tickOnce`.
+  - `sweep_test.go` holds the sweep's tests:
+    - `TestWatchSweepsOldTemporaryFiles`.
+    - `TestWatchNeverSweepsAnAside`: either name, recorded by this workspace or another under the state root.
+    - `TestWatchSweepRemovesALinkNotItsTarget`.
+    - `TestWatchSkipsTheSweepWhenTheTrashCannotBeRead`: corrupt, unreadable, quarantined, a newer binary, no trash; each tick that cannot read the trash sweeps nothing, and a later tick sweeps once it is repaired.
+    - `TestCrossVolumeDeleteUsesTheAsideName`, `TestRestoreResolvesAnOldNamedAside`.
+    - Added in the fix round: `TestWatchSweepClaimsBeforeRemoving`, `TestWatchSweepSkipsWhenTheClaimFails`, `TestWatchSweepClaimKeepsTheAge`.
+  - Reversals, each failing its test:
+    - the age check;
+    - the exact pattern swapped for `tempWatchName`;
+    - the recorded-name check;
+    - reading only the watching workspace's trash;
+    - following the link;
+    - ignoring read errors;
+    - dropping the old aside name;
+    - `tempName()` back in `deleteAcross`;
+    - the claim removed ("the writer's rename of the old name committed while the sweep was removing it");
+    - the version check (after the fix round).
+  - Opus verifier, effort high: proceed. Two findings are fixed in the fix round:
+    - [safety] the sweep claims a candidate by a no-replace rename to a fresh temporary name before removing it, so a writer committing the old name fails with ENOENT;
+    - [test] the newer-binary case now records another name.
+    - Its [doc] finding goes to the register at the close: one corrupt record turns the sweep off for the state root.
+  - `go build`, `vet`, `gofmt -l` clean; `go test ./...` ok; the schema is unchanged.
 
 ### 9. A Gradle root switched away from closes its connection (ADR-0092)
 

@@ -455,7 +455,28 @@ func (s *tempSweeper) consider(p, name string) {
 	if s.failed || s.recorded[name] {
 		return
 	}
-	_ = removeAside(s.w.root, p)
+	s.claimAndRemove(p, name)
+}
+
+// claimAndRemove renames the candidate to a fresh temporary name in its folder, with the
+// no-replace rename, and removes it under that name. Removing under the old name could
+// empty a folder a writer renames into place (file.copy, file.restore) while the removal
+// is inside it; after the claim the writer's rename of the old name fails ENOENT, and a
+// writer that won the race makes the claim fail. Any failure of the claim skips the
+// entry for this tick. The rename keeps the entry's own mtime, so a removal that stops
+// part-way is retried by a later tick under the new name.
+func (s *tempSweeper) claimAndRemove(p, name string) {
+	dir, _ := splitDir(p)
+	parent, cerr := (&resolver{root: s.w.root.Name()}).openParent(s.w.root, dir)
+	if cerr != nil {
+		return
+	}
+	defer parent.Close()
+	claimed := tempName()
+	if noReplace(parent, name, parent, claimed) != nil {
+		return
+	}
+	_ = removeAside(s.w.root, path.Join(dir, claimed))
 }
 
 // Watchers is every live watch poller, by workspace (plan m1j, D9). Its Stop is wired

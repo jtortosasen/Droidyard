@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -268,7 +269,7 @@ func TestWatchSkipsTheSweepWhenTheTrashCannotBeRead(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(p, []byte(`{"schemaVersion":99,"aside":"`+sweepA+`"}`), 0o600); err != nil {
+			if err := os.WriteFile(p, []byte(`{"schemaVersion":99,"aside":"`+sweepB+`"}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			return func() { os.Remove(p) }
@@ -323,4 +324,89 @@ func TestWatchSkipsTheSweepWhenTheTrashCannotBeRead(t *testing.T) {
 			t.Error("a watch that cannot read the trash swept")
 		}
 	})
+}
+
+// Decision (ADR-0091 §2, step 8 fix round): the sweep claims a candidate by renaming it to
+// a fresh temporary name before removing it, so a writer that renames its in-flight folder
+// into place during the removal (file.copy, file.restore) finds the old name gone
+// (ENOENT) instead of committing a folder that is being emptied. The seam stands for the
+// writer acting between the claim and the removal.
+func TestWatchSweepClaimsBeforeRemoving(t *testing.T) {
+	f := newSweepFixture(t)
+	f.write("x/"+sweepA+"/inner/f.kt", "THE COPY'S CONTENT")
+	sweepClock(t, 30*24*time.Hour)
+	w, _ := f.sweepWatch("x")
+
+	var writerErr error
+	removeAll = func(root *os.Root, rel string) error {
+		parent, err := os.Open(filepath.Join(f.root, "x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer parent.Close()
+		writerErr = noReplace(parent, sweepA, parent, "final")
+		return root.RemoveAll(rel)
+	}
+	w.tickOnce()
+
+	if writerErr == nil {
+		t.Error("the writer's rename of the old name committed while the sweep was removing it; the claim must make it fail")
+	} else if !errors.Is(writerErr, os.ErrNotExist) {
+		t.Errorf("the writer's rename failed with %v; want ENOENT", writerErr)
+	}
+	if f.present("x/final") && !f.present("x/final/inner/f.kt") {
+		t.Error("the committed folder was emptied")
+	}
+	if left := asides(t, filepath.Join(f.root, "x")); len(left) != 0 {
+		t.Errorf("the claimed leftover was not removed: %v", left)
+	}
+}
+
+// Decision (step 8 fix round): a claim that fails, for any reason, skips the entry for
+// this tick; it is neither removed under its old name nor lost, and a later tick sweeps it.
+func TestWatchSweepSkipsWhenTheClaimFails(t *testing.T) {
+	f := newSweepFixture(t)
+	f.write("x/"+sweepA+"/f.kt", "LEFTOVER")
+	sweepClock(t, 30*24*time.Hour)
+	w, _ := f.sweepWatch("x")
+
+	noReplace = func(*os.File, string, *os.File, string) error { return syscall.EEXIST }
+	w.tickOnce()
+	if !f.present("x/" + sweepA + "/f.kt") {
+		t.Fatal("the entry was removed although the claim failed")
+	}
+
+	noReplace = renameNoReplace
+	w.tickOnce()
+	if f.present("x/" + sweepA) {
+		t.Error("the next tick, with the claim working, did not sweep")
+	}
+}
+
+// Decision (step 8 fix round): the claim's rename does not change the entry's own
+// modification time, so a leftover whose removal stops part-way keeps its age under the
+// new name. (Removing children from a folder does set its mtime, which is not the rename.)
+func TestWatchSweepClaimKeepsTheAge(t *testing.T) {
+	f := newSweepFixture(t)
+	f.write("x/"+sweepA+"/f.kt", "LEFTOVER")
+	f.age("x/"+sweepA, 30*24*time.Hour)
+	before, err := os.Lstat(filepath.Join(f.root, "x", sweepA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := os.Open(filepath.Join(f.root, "x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	if err := noReplace(parent, sweepA, parent, sweepB); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Lstat(filepath.Join(f.root, "x", sweepB))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Errorf("the rename changed the folder's mtime from %v to %v", before.ModTime(), after.ModTime())
+	}
 }
