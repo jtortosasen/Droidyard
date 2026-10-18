@@ -42,6 +42,12 @@ builds, installs and `workspace_describe` that follow act on that worktree, and
 worktree. A new chat enters again; after a resume, `workspace_describe` shows whether it is
 still there.
 
+A chat that enters a worktree occupies it. `WORKSPACE_OCCUPIED` means another chat works
+there: do not look for a way around it, make a worktree of your own and enter that
+(`workspace_describe` gives `occupiedBy` for a worktree another chat holds, and only for
+that). When the task is done,
+`workspace_enter` the project's root: that frees the worktree for the next chat.
+
 ## Selectors
 
 - Target by `id` (without the package prefix) when the node has one, else `text` or

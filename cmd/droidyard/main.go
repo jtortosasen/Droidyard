@@ -278,6 +278,13 @@ var (
 	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
 	// sets it.
 	dialogSeam func(d *workspace.Dialog)
+	// sessionClock, when set, is the clock the session registry reads (a session's last
+	// request and the idle sweep): a test advances it to make a holder idle. The shipped
+	// binary never sets it.
+	sessionClock func() time.Time
+	// sessionSweep, when > 0, is how often the idle sweep runs, in place of the minute
+	// (capability.SweepInterval). The shipped binary never sets it.
+	sessionSweep time.Duration
 )
 
 // registry builds the shipped registry, the operation store that dispatches from it
@@ -307,6 +314,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// daemon that reads no configuration still starts: a bad file is reported, not fatal.
 	pol := policy.New(env)
 	startup := pol.Startup()
+	// The session registry reads the occupation section at each decision (ADR-0094 §7);
+	// capability cannot import policy, so it is handed the reader here.
+	ops.Sessions().UseOccupation(pol.Occupation)
+	if sessionClock != nil {
+		ops.Sessions().UseClock(sessionClock)
+	}
 	// Every adb client is started through the supervisor's locked spawner and given
 	// the daemon's whole environment (plan m1e, R8). Without a supervisor (caps,
 	// schema) adb can be resolved and reported but not run.

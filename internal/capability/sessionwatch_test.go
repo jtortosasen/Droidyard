@@ -60,22 +60,22 @@ func TestSessionStateFollowsEveryChange(t *testing.T) {
 	s.Named("a", "claude-code") // the same name once bounded
 	s.Named("a", "‮ ")          // nothing once bounded
 	s.Opened("a", "/main", "ws-main", "/main")
-	s.Bound("a", "ws-wt", "/wt")
+	s.Occupy("a", "ws-wt", "/wt", true)
 	s.End("a")
 	// Nothing follows the end, and nothing is published for a session never connected.
 	s.Named("a", "late")
-	s.Bound("a", "ws-late", "/late")
+	s.Occupy("a", "ws-late", "/late", false)
 	s.Opened("a", "/main", "ws-late", "/late")
 	s.End("a")
 	s.Named("never", "x")
-	s.Bound("never", "ws", "/x")
+	s.Occupy("never", "ws", "/x", false)
 	s.End("never")
 
 	want := []SessionState{
 		{ID: "a"},
 		{ID: "a", Name: "claude-code"},
 		{ID: "a", Name: "claude-code", Workspace: "ws-main"},
-		{ID: "a", Name: "claude-code", Workspace: "ws-wt"},
+		{ID: "a", Name: "claude-code", Workspace: "ws-wt", Occupies: "ws-wt"},
 		{ID: "a", Ended: true},
 	}
 	if got := rec.events(); !slices.Equal(got, want) {
@@ -100,7 +100,7 @@ func TestSessionListedIsOldestFirstWithoutTheChat(t *testing.T) {
 	for _, id := range []string{"z", "m", "a"} {
 		s.Connect(id, "chat-"+id)
 	}
-	s.Bound("z", "ws-z", "/z") // the oldest changes last: it stays first
+	s.Occupy("z", "ws-z", "/z", false) // the oldest changes last: it stays first
 	s.Named("m", "agent")
 	s.Connect("gone", "")
 	s.End("gone")
@@ -142,7 +142,7 @@ func TestSessionStatesNeverFollowAnEnd(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 5; j++ {
-				s.Bound(id, "ws", "/r")
+				s.Occupy(id, "ws", "/r", false)
 			}
 		}()
 		go func() {

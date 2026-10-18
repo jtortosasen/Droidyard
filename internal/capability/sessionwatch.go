@@ -23,6 +23,8 @@ type SessionState struct {
 	ID        string `json:"id" jsonschema:"required" jsonschema_description:"The daemon's id for the MCP session. It grants nothing."`
 	Name      string `json:"name,omitempty" jsonschema_description:"What the client called itself, bounded to 64 characters; absent until the client has said."`
 	Workspace string `json:"workspace,omitempty" jsonschema_description:"The id of the workspace the session is bound to now; absent before it is bound."`
+	Occupies  string `json:"occupies,omitempty" jsonschema_description:"The id of the workspace of the linked git worktree the session holds, so that no other chat enters there (ADR-0094); absent when it holds none."`
+	Stale     bool   `json:"stale,omitempty" jsonschema_description:"True while the session has made no request for the configured time (120 minutes by default): another chat may then take over what it holds. Absent otherwise."`
 	Ended     bool   `json:"ended" jsonschema:"required" jsonschema_description:"True on the session's last event, which carries nothing else: the session is gone."`
 }
 
@@ -31,6 +33,8 @@ type SessionListed struct {
 	ID          string    `json:"id" jsonschema:"required" jsonschema_description:"The daemon's id for the MCP session, as on session.state. It grants nothing."`
 	Name        string    `json:"name,omitempty" jsonschema_description:"What the client called itself, bounded to 64 characters; absent until the client has said."`
 	Workspace   string    `json:"workspace,omitempty" jsonschema_description:"The id of the workspace the session is bound to now; absent before it is bound."`
+	Occupies    string    `json:"occupies,omitempty" jsonschema_description:"The id of the workspace of the linked git worktree the session holds, as on session.state; absent when it holds none."`
+	Stale       bool      `json:"stale,omitempty" jsonschema_description:"True while the session is idle, as on session.state; absent otherwise."`
 	ConnectedAt time.Time `json:"connectedAt" jsonschema:"required"`
 }
 

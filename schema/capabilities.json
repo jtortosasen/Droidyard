@@ -1,5 +1,5 @@
 {
-  "version": "0.28.0",
+  "version": "0.29.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -10323,6 +10323,14 @@
                   "type": "string",
                   "description": "The id of the workspace the session is bound to now; absent before it is bound."
                 },
+                "occupies": {
+                  "type": "string",
+                  "description": "The id of the workspace of the linked git worktree the session holds, as on session.state; absent when it holds none."
+                },
+                "stale": {
+                  "type": "boolean",
+                  "description": "True while the session is idle, as on session.state; absent otherwise."
+                },
                 "connectedAt": {
                   "type": "string",
                   "format": "date-time"
@@ -10362,6 +10370,14 @@
               "workspace": {
                 "type": "string",
                 "description": "The id of the workspace the session is bound to now; absent before it is bound."
+              },
+              "occupies": {
+                "type": "string",
+                "description": "The id of the workspace of the linked git worktree the session holds, so that no other chat enters there (ADR-0094); absent when it holds none."
+              },
+              "stale": {
+                "type": "boolean",
+                "description": "True while the session has made no request for the configured time (120 minutes by default): another chat may then take over what it holds. Absent otherwise."
               },
               "ended": {
                 "type": "boolean",
@@ -11133,6 +11149,29 @@
                 "branch": {
                   "type": "string",
                   "description": "The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."
+                },
+                "occupiedBy": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When the holder took the worktree."
+                    },
+                    "stale": {
+                      "type": "boolean",
+                      "description": "True while the holder has made no request for the configured time: entering takes the worktree over. Absent otherwise."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "since"
+                  ],
+                  "description": "Another chat that holds this worktree: workspace_enter there from this session is refused unless the configured conflict is allow, and an idle holder (stale) is taken over on entry. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. The main tree is never held."
                 }
               },
               "additionalProperties": false,
@@ -11165,7 +11204,7 @@
       "binding": true,
       "audience": "all",
       "since": "0.28.0",
-      "description": "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
+      "description": "Moves this session into a git worktree of its project, occupying it, or back to the project's root, which frees what it occupies: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -11174,6 +11213,7 @@
       },
       "errors": [
         "WORKSPACE_NOT_A_WORKTREE",
+        "WORKSPACE_OCCUPIED",
         "WORKSPACE_ROOT_INVALID",
         "WORKSPACE_STATE_NEWER",
         "WORKSPACE_STATE_UNREADABLE",

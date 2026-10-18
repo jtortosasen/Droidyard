@@ -178,6 +178,12 @@ func serve(args []string) int {
 	sup := proc.New(proc.Options{Store: st, Log: logw})
 	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, logw)
 	defer artifacts.Close()
+	// The idle sweep of the session registry runs for the daemon's life (ADR-0094 §4).
+	sweep := capability.SweepInterval
+	if sessionSweep > 0 {
+		sweep = sessionSweep
+	}
+	go ops.Sessions().Run(ctx, sweep)
 	socket := env.SocketPath(state)
 	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb, logw)
 	if err != nil {

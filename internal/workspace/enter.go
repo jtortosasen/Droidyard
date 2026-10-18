@@ -2,7 +2,9 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -31,6 +33,11 @@ type EnterParams struct {
 // repository included, is refused and the binding stays. The workspace is opened if it is
 // closed and no trust is granted (ADR-0015 §5): trust comes from the project's own
 // (platform.LinkedWorktree; policy.Trusted).
+//
+// A linked worktree is occupied by the session that enters it (ADR-0094): one that another
+// live, non-idle session of another chat occupies fails WORKSPACE_OCCUPIED and the binding
+// stays, unless occupation.conflict is allow; the main tree is never occupied, and entering
+// it frees what the session occupied.
 func (r *Registry) enter(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(EnterParams)
 	if r.opts.Ops == nil {
@@ -61,6 +68,28 @@ func (r *Registry) enter(ctx context.Context, call *capability.Call) (any, error
 	if err != nil {
 		return nil, err
 	}
-	sessions.Bound(call.Origin.ID, info.ID, info.Root)
+	// The decision and the binding are one step under the registry's lock, so two sessions
+	// entering one free worktree cannot both hold it (ADR-0094 §1). The main tree is never
+	// held; a linked worktree is held, unless another chat does (refused, or allowed and
+	// bound without holding, by occupation.conflict).
+	if holder, refused := sessions.Occupy(call.Origin.ID, info.ID, info.Root, root != project); refused {
+		return nil, occupiedError(info.Root, holder)
+	}
 	return withGradle(info), nil
+}
+
+// occupiedError is WORKSPACE_OCCUPIED for a worktree held by holder. "Another chat" is
+// what it says because every Claude Code chat is named claude-code (ADR-0094 §5).
+func occupiedError(root string, holder capability.Holder) *capability.Error {
+	who := "another chat"
+	switch {
+	case holder.Name != "" && !holder.Since.IsZero():
+		who = fmt.Sprintf("another chat (%s, since %s)", holder.Name, holder.Since.UTC().Format(time.RFC3339))
+	case holder.Name != "":
+		who = fmt.Sprintf("another chat (%s)", holder.Name)
+	case !holder.Since.IsZero():
+		who = fmt.Sprintf("another chat (since %s)", holder.Since.UTC().Format(time.RFC3339))
+	}
+	return capability.Errorf(capability.ErrWorkspaceOccupied, "%s works in %s", who, root).
+		WithNextStep(fmt.Sprintf("make a worktree of your own (git worktree add) and workspace_enter it, or ask the user to release %s in Droidyard's sessions panel", root))
 }

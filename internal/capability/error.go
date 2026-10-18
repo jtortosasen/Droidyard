@@ -45,6 +45,14 @@ const (
 	// or a worktree of it (ADR-0082 §3). Beside WORKSPACE_NOT_OPEN: both say a root is not
 	// one the call may address.
 	ErrWorkspaceNotAWorktree ErrorCode = "WORKSPACE_NOT_A_WORKTREE"
+	// ErrWorkspaceOccupied: workspace.enter's root is a linked git worktree another live,
+	// non-idle MCP session of another chat holds (ADR-0094 §1, §5), and the configuration's
+	// occupation.conflict is refuse or ask (ask is refuse where Droidyard cannot ask,
+	// ADR-0094 §6), so the binding did not move. The message names the holder as
+	// "another chat" with its client's name and since when; nextStep: make a worktree of
+	// its own and enter that, or ask the user to release this one. The main tree is never
+	// occupied.
+	ErrWorkspaceOccupied ErrorCode = "WORKSPACE_OCCUPIED"
 	// ErrWorkspaceOpen: workspace.forget named a workspace that is not closed (opening, open or closing), so its index entry
 	// stayed: removing a project from the recent list must not stop what runs in it
 	// (ADR-0086 §3). nextStep: close it first. The opposite of WORKSPACE_NOT_OPEN.

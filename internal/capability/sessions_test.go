@@ -92,7 +92,7 @@ func TestBindingNeedsAStatelessCapabilityOfEveryAudience(t *testing.T) {
 	}
 }
 
-// TestSessionsRemembersEachChatsLastMove holds ADR-0088 §2: a move (Bound) is remembered
+// TestSessionsRemembersEachChatsLastMove holds ADR-0088 §2: a move (Occupy) is remembered
 // under the session's chat; the hello's own binding (Opened) is not, so a new connection
 // can read what the chat's last move was; a session with no chat remembers nothing; the
 // memory outlives the session; it holds MaxChats chats, dropping the one moved longest
@@ -105,7 +105,7 @@ func TestSessionsRemembersEachChatsLastMove(t *testing.T) {
 	if _, ok := s.Remembered("chat-x"); ok {
 		t.Fatalf("the hello's binding was remembered; only a move is")
 	}
-	s.Bound("a", "ws-wt", "/wt")
+	s.Occupy("a", "ws-wt", "/wt", true)
 	if root, ok := s.Binding("a"); !ok || root != "/wt" {
 		t.Fatalf("Binding = (%q, %v) after a move to /wt", root, ok)
 	}
@@ -122,7 +122,7 @@ func TestSessionsRemembersEachChatsLastMove(t *testing.T) {
 
 	s.Connect("b", "")
 	s.Opened("b", "/main", "ws-main", "/main")
-	s.Bound("b", "ws-wt", "/wt")
+	s.Occupy("b", "ws-wt", "/wt", true)
 	if _, ok := s.Remembered(""); ok {
 		t.Errorf("a session with no chat left a memory")
 	}
@@ -137,11 +137,11 @@ func TestSessionsRemembersEachChatsLastMove(t *testing.T) {
 	for i := 0; i < MaxChats; i++ {
 		id := fmt.Sprintf("s%d", i)
 		s.Connect(id, fmt.Sprintf("chat-%d", i))
-		s.Bound(id, "w", fmt.Sprintf("/r%d", i))
+		s.Occupy(id, "w", fmt.Sprintf("/r%d", i), false)
 	}
-	s.Bound("s0", "w", "/again") // chat-0 is the newest now, chat-1 the oldest
+	s.Occupy("s0", "w", "/again", false) // chat-0 is the newest now, chat-1 the oldest
 	s.Connect("extra", "chat-extra")
-	s.Bound("extra", "w", "/extra")
+	s.Occupy("extra", "w", "/extra", false)
 	if _, ok := s.Remembered("chat-1"); ok {
 		t.Errorf("chat-1, moved longest ago, survived the %dth chat", MaxChats+1)
 	}
