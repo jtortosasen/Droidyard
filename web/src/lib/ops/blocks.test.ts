@@ -93,6 +93,60 @@ describe('activity blocks: stream, actor and filters', () => {
 		expect(ids({ actor: 'all', agentKey: 'you' })).toEqual(['u1']);
 	});
 
+	// Decision (ADR-0095 §2): an operation whose session has a name is an agent's, under that
+	// name, whatever connection carried it: a `droidyard trash` is a CLI call joined to its
+	// session. One with no session name, a CLI call or the tab's own, stays the user's.
+	it("puts a CLI call joined to an agent's session under the agent, and the user's CLI call under You", () => {
+		const trash = op('t1', { capability: 'file.delete', client: 'cli', session: { id: 's1', name: 'claude-code' } });
+		const mine = op('m1', { capability: 'file.delete', client: 'cli', session: { id: 'c9' } });
+		const ui = op('u1', { capability: 'file.delete', client: 'ui', session: undefined });
+		expect(one(trash).actor).toBe('claude-code');
+		expect(one(trash).you).toBe(false);
+		expect(one(trash, ctx({ labels: new Map([['s1', 'claude-code 2']]) })).actor).toBe('claude-code 2');
+		expect(one(mine).actor).toBe('You');
+		expect(one(mine).you).toBe(true);
+		const ids = (f: BlockFilter) => buildBlocks([trash, mine, ui], f, ctx()).map((b) => b.id).sort();
+		expect(ids({ actor: 'agents', agentKey: null })).toEqual(['t1']);
+		expect(ids({ actor: 'you', agentKey: null })).toEqual(['m1', 'u1']);
+		expect(ids({ actor: 'all', agentKey: 's1' })).toEqual(['t1']);
+	});
+
+	// Decision (ADR-0095 §2, A3): a hook's record joined to a session shows under that session's
+	// label, and the selected agent narrows to its own records; two sessions of one client are
+	// told apart. A record with no session keeps the client's actor and shows only unselected.
+	it("shows a hook's record under its session and narrows with the selected agent", () => {
+		const rec = (id: string, session?: { id: string; name?: string }) =>
+			op(id, { capability: 'agent.recordCommand', client: 'cli', session, workspace: 'w1' });
+		const ra = rec('ra', { id: 's1', name: 'claude-code' });
+		const rb = rec('rb', { id: 's2', name: 'claude-code' });
+		const rn = rec('rn', { id: 'c9' });
+		const records = new Map([
+			['ra', { actor: 'Claude Code', command: 'gradle a' }],
+			['rb', { actor: 'Claude Code', command: 'gradle b' }],
+			['rn', { actor: 'Claude Code', command: 'gradle n' }],
+		]);
+		const c = ctx({ labels: new Map([['s1', 'claude-code'], ['s2', 'claude-code 2']]), records });
+		expect(one(ra, c).actor).toBe('claude-code');
+		expect(one(rb, c).actor).toBe('claude-code 2');
+		expect(one(rn, c).actor).toBe('Claude Code');
+		const ids = (f: BlockFilter) => buildBlocks([ra, rb, rn], f, c).map((b) => b.id).sort();
+		expect(ids({ actor: 'all', agentKey: 's1' })).toEqual(['ra']);
+		expect(ids({ actor: 'all', agentKey: 's2' })).toEqual(['rb']);
+		expect(ids({ actor: 'all', agentKey: null })).toEqual(['ra', 'rb', 'rn']);
+		expect(ids({ actor: 'agents', agentKey: null })).toEqual(['ra', 'rb', 'rn']);
+		expect(ids({ actor: 'you', agentKey: null })).toEqual([]);
+		expect(ids({ actor: 'all', agentKey: 'you' })).toEqual([]);
+	});
+
+	// Decision (ADR-0095 §2): the open a hook or `trash` makes is connecting, not work, though it
+	// is joined to an agent's session; an MCP session's own bound open is shown, as before.
+	it("hides the workspace.open of a hook or trash, joined to a session or not", () => {
+		const joined = op('o1', { capability: 'workspace.open', client: 'cli', session: { id: 's1', name: 'claude-code' } });
+		const plain = op('o2', { capability: 'workspace.open', client: 'cli', session: { id: 'c9' } });
+		const bound = op('o3', { capability: 'workspace.open', client: 'mcp', session: { id: 's1', name: 'claude-code' } });
+		expect(buildBlocks([joined, plain, bound], all, ctx()).map((b) => b.id)).toEqual(['o3']);
+	});
+
 	it('puts the capability in words', () => {
 		expect(titleOf('build.assemble')).toBe('Build');
 		expect(titleOf('device.listAll')).toBe('List all');

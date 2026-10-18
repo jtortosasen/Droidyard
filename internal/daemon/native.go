@@ -54,6 +54,23 @@ func Native(reg *capability.Registry, ops *capability.Operations) Handler {
 	}
 }
 
+// originOf is who a request of this connection comes from. Its ID is the connection's
+// own. A hello that names a chat which is a live MCP session's joins the connection to
+// that session (ADR-0095 §1): the request is attributed to it (Name, Root and Joined
+// make the operation's session its ref) and ends its idleness (ADR-0094 §4), once per
+// request. The join adds no ID, so the request moves no binding and holds nothing.
+func originOf(ops *capability.Operations, hello Hello, sessionID string) capability.Origin {
+	origin := capability.Origin{ID: sessionID, Client: hello.Client, Chat: hello.Chat}
+	if hello.Chat == "" {
+		return origin
+	}
+	if j, ok := ops.Sessions().Joined(hello.Chat); ok {
+		ops.Sessions().Seen(j.ID)
+		origin.Joined, origin.Name, origin.Root = j.ID, j.Name, j.Root
+	}
+	return origin
+}
+
 // handle answers one request line. It reports false when the caller is gone and
 // nothing should be written. A workspace-scoped request that names no workspace gets
 // the root the session's hello named, the CLI's cwd root (ADR-0020 §Scope: "the CLI
@@ -72,7 +89,7 @@ func handle(ctx context.Context, reg *capability.Registry, ops *capability.Opera
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
 	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: hello.Client,
-		Origin: capability.Origin{ID: sessionID}}
+		Origin: originOf(ops, hello, sessionID)}
 	if d, ok := reg.Lookup(req.Capability); ok && d.Scope == capability.Workspace && creq.Workspace == "" {
 		creq.Workspace = hello.Root
 	}

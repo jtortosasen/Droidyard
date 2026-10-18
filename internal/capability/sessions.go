@@ -377,8 +377,9 @@ func (s *Sessions) listed() []SessionListed {
 }
 
 // Seen records that the session made a request, which ends its idleness (ADR-0094 §4).
-// The adapter calls it on every MCP request that succeeds. A session that is not
-// registered is left as it is.
+// The adapter calls it on every MCP request that succeeds, and the daemon on every request
+// of a connection joined to the session (ADR-0095 §2). A session that is not registered
+// is left as it is.
 func (s *Sessions) Seen(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -391,6 +392,40 @@ func (s *Sessions) Seen(id string) {
 		r.stale = false
 		s.publish(id, r)
 	}
+}
+
+// Join is the MCP session a non-MCP connection was joined to (ADR-0095 §1): what its
+// requests are attributed to, and nothing else.
+type Join struct {
+	// ID, Name and Root are the session's id, the name its client gave and its bound root,
+	// as they stood when the connection asked.
+	ID, Name, Root string
+}
+
+// Joined is the live MCP session of the chat, if there is one: the most recently seen when
+// two share it (ADR-0095 §1). A connection joined to it is attributed to it and keeps it
+// from going idle (Seen); it gains no binding and holds nothing. An empty chat joins no
+// one.
+func (s *Sessions) Joined(chat string) (Join, bool) {
+	if chat == "" {
+		return Join{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var best *sessionRec
+	var bestID string
+	for id, r := range s.byID {
+		if r.chat != chat {
+			continue
+		}
+		if best == nil || r.seen.After(best.seen) || (r.seen.Equal(best.seen) && r.seq > best.seq) {
+			best, bestID = r, id
+		}
+	}
+	if best == nil {
+		return Join{}, false
+	}
+	return Join{ID: bestID, Name: best.name, Root: best.root}, true
 }
 
 // Sweep marks idle every session whose last request is older than the configured

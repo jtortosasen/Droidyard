@@ -9028,7 +9028,7 @@
                   "required": [
                     "id"
                   ],
-                  "description": "The session that made the call; omitted for a call recorded without one."
+                  "description": "The calling session, or the MCP session a call from its agent's hook or shell was joined to; omitted for a call recorded without one."
                 },
                 "target": {
                   "properties": {
@@ -9132,7 +9132,7 @@
                 "required": [
                   "id"
                 ],
-                "description": "The session that made the call; omitted for a call recorded without one."
+                "description": "The calling session, or the MCP session a call from its agent's hook or shell was joined to; omitted for a call recorded without one."
               },
               "target": {
                 "properties": {

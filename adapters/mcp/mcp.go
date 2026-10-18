@@ -531,7 +531,7 @@ func (c *session) root() string {
 // initialize (empty before it), and the bound root (ADR-0048): the binding as it stands
 // when the call is made, so it follows a workspace_enter. The core bounds the name.
 func (c *session) origin() capability.Origin {
-	return capability.Origin{ID: c.id, Root: c.root(), Name: c.clientName()}
+	return capability.Origin{ID: c.id, Root: c.root(), Name: c.clientName(), Client: capability.ClientMCP}
 }
 
 // clientName is what the client called itself, "" before it has.
@@ -580,7 +580,7 @@ func (s *Server) openBound(ctx context.Context, id, root, chat string) {
 		(*f)()
 	}
 	sessions := s.ops.Sessions()
-	origin := capability.Origin{ID: id, Root: root}
+	origin := capability.Origin{ID: id, Root: root, Client: capability.ClientMCP}
 	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP, Origin: origin})
 	switch {
 	case err != nil:
@@ -615,7 +615,7 @@ func (s *Server) openBound(ctx context.Context, id, root, chat string) {
 	}
 	params, _ := json.Marshal(map[string]string{"root": remembered})
 	moved, err := s.ops.Invoke(ctx, capability.Request{Capability: enterCapability, Params: params, Client: capability.ClientMCP,
-		Origin: capability.Origin{ID: id, Root: opened.Root}})
+		Origin: capability.Origin{ID: id, Root: opened.Root, Client: capability.ClientMCP}})
 	// A worktree another session now holds is not restored, and the memory stays: it is
 	// the chat's again once the holder moves away (ADR-0094 §3). Any other failure forgets
 	// it, as before.

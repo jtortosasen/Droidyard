@@ -57,6 +57,14 @@ describe('SessionsModel', () => {
 		);
 	});
 
+	// Decision (ADR-0063 §6, kept by ADR-0095 §2): the hook's record is shown in Activity under
+	// its session, but it makes no row and marks none unread, joined or not.
+	it("counts a hook's record for no row and no unread mark", () => {
+		const t = setup();
+		t.src.set(op({ id: 'r1', state: 'completed', client: 'cli', capability: 'agent.recordCommand', session: mcp('s9', 'claude') }));
+		expect(t.model.view.rows).toEqual([]);
+	});
+
 	// Decision (D30): `ui` and `cli` commands are one "You" row, and the tab's own reads are
 	// not in it. A read-only capability from the UI would otherwise keep "You" running.
 	it('folds ui and cli commands into one You row, without reads', () => {

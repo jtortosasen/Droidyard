@@ -159,7 +159,7 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 		return pass
 	}
 	// Dial without auto-start: with no daemon the command passes and none is started.
-	conn, r, _, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, false, nil)
+	conn, r, _, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI, Chat: ev.Chat}, false, nil)
 	if err != nil {
 		return pass
 	}
@@ -185,8 +185,8 @@ func hookObserve(client assistant.Client, root string, ev assistant.AfterEvent, 
 	out := assistant.AfterOutput(client, ev.Name, assistant.Hint(obs))
 	fallback.Store(&out)
 	// A command run outside the project and its worktrees is not recorded (ADR-0085 §1).
-	if r, ok := hookRoot(root, ev.Cwd); ok {
-		recordCommands(client, r, obs, deadline)
+	if r, ok := hookRoot(root, commandCwd(root, ev.Command, ev.Cwd)); ok {
+		recordCommands(client, ev.Chat, r, obs, deadline)
 	}
 	return out
 }
@@ -194,7 +194,9 @@ func hookObserve(client assistant.Client, root string, ev assistant.AfterEvent, 
 // hookRoot is the root a hook event belongs to (ADR-0085 §1): file reads only, no git.
 // cwd and flagRoot are canonicalised first, since `init` writes --root from a logical
 // path and a client's cwd is usually physical. From cwd upwards the nearest directory
-// holding a .git entry decides: a linked worktree of flagRoot's project is the root;
+// holding a .git entry decides: a linked worktree of flagRoot's project is the root, and
+// so is the project's main tree when flagRoot is one of its worktrees; a .git that is
+// neither (a submodule, a nested clone) is passed and the walk goes on (ADR-0095 §5);
 // else flagRoot when cwd is flagRoot or lies under it at a component boundary; else
 // there is none. An empty cwd (a client that sends none) gives flagRoot (§2).
 func hookRoot(flagRoot, cwd string) (root string, ok bool) {
@@ -213,7 +215,16 @@ func hookRoot(flagRoot, cwd string) (root string, ok bool) {
 			if main, ok := platform.LinkedWorktree(env, d); ok && main == flagMain {
 				return d, true
 			}
-			break
+			// With --root a linked worktree, its main tree is the project too; with --root
+			// the main tree, this is flagRoot and the under-flag rule below says so.
+			if d == flagMain && d != flag {
+				return d, true
+			}
+			if d == flag {
+				return flagRoot, true
+			}
+			// Any other .git is a repository nested in the way (a submodule, a nested
+			// clone): it is not where the command belongs, so the walk goes on (ADR-0095 §5).
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
@@ -225,6 +236,46 @@ func hookRoot(flagRoot, cwd string) (root string, ok bool) {
 		return flagRoot, true
 	}
 	return "", false
+}
+
+// commandCwd is the directory a shell command ran in, from the event's cwd and a leading
+// `cd <dir> &&` or `;` (ADR-0095 §5). What Claude Code 2.1.302 reports depends on where
+// the `cd` took the shell (plan m2s step 1, (c1) and run c5): inside the project the
+// directory persists, and PostToolUse's cwd is already the directory after the command
+// (`cd app && pwd` from repo gave repo/app; `cd .. && pwd` from repo/app gave repo); out of
+// the project the shell is reset, and cwd is the project's whatever the `cd` said
+// (`cd ../wt && ...` reported the repository). So a relative target resolved against the
+// event's cwd P is right only in the second case and wrong in the first (`cd ..` from
+// repo/app would land outside the project). The rule therefore compares places: the
+// target C is used only if it exists and its place (hookRoot) is a root of the project,
+// its main tree or a linked worktree, other than P's place; else P. Persisted cds stay in
+// P's place or leave the project, and a reset one is the case where C is a different root.
+// An absolute target follows the same rule. A directory that does not exist leaves P: the
+// `cd` failed, so the command did not run (`&&`) or ran in P (`;`). A relative target needs
+// an absolute P to be placed.
+func commandCwd(flagRoot, command, cwd string) string {
+	dir, ok := assistant.LeadingCd(command)
+	if !ok {
+		return cwd
+	}
+	if !filepath.IsAbs(dir) {
+		if !filepath.IsAbs(cwd) {
+			return cwd
+		}
+		dir = filepath.Join(cwd, dir)
+	}
+	dir = filepath.Clean(dir)
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return cwd
+	}
+	target, ok := hookRoot(flagRoot, dir)
+	if !ok {
+		return cwd
+	}
+	if here, ok := hookRoot(flagRoot, cwd); ok && here == target {
+		return cwd
+	}
+	return dir
 }
 
 // commandRecord is the parameters of agent.recordCommand for obs: what the reader kept,
@@ -247,12 +298,12 @@ func commandRecord(client assistant.Client, obs []assistant.Observed) agent.Reco
 // connection each, as in `droidyard trash`: a cli.Call reads its connection through a
 // goroutine that outlives it. The open runs no project code and grants no trust
 // (ADR-0015 §5).
-func recordCommands(client assistant.Client, root string, obs []assistant.Observed, deadline time.Time) {
+func recordCommands(client assistant.Client, chat, root string, obs []assistant.Observed, deadline time.Time) {
 	params, err := json.Marshal(commandRecord(client, obs))
 	if err != nil {
 		return
 	}
-	hello := daemon.Hello{Client: capability.ClientCLI}
+	hello := daemon.Hello{Client: capability.ClientCLI, Chat: chat}
 	conn, r, _, err := connectOrStart(hello, false, nil)
 	if err != nil {
 		return

@@ -189,7 +189,7 @@ export class SessionsModel {
 		const ops = this.#source.operations; // newest first
 		const bySession = new Map<string, Operation[]>();
 		for (const op of ops) {
-			const key = keyOf(op);
+			const key = forRows(op);
 			if (key === null) continue;
 			let list = bySession.get(key);
 			if (!list) bySession.set(key, (list = []));
@@ -341,7 +341,7 @@ export class SessionsModel {
 		// Oldest first, so the newest ended operation decides the row's last result.
 		for (let i = ops.length - 1; i >= 0; i--) {
 			const op = ops[i]!;
-			const key = keyOf(op);
+			const key = forRows(op);
 			if (key === null) continue;
 			const t = this.#track(key);
 			if (!isTerminal(op.state) || this.#ended.has(op.id)) continue;
@@ -366,15 +366,34 @@ export function keyOf(op: Operation): string | null {
 	// workspace is open and would place it under "No project", and it would mark the row
 	// unread (ADR-0048 §3: an agent that has run nothing is not listed).
 	if (op.capability === 'workspace.open') return null;
-	// The hook's record of an agent's command is shown in Activity but is no one's session
-	// (ADR-0063 §6): no "You" row lights up, and no agent row appears.
-	if (op.capability === 'agent.recordCommand') return null;
+	// The hook's record of an agent's command is shown in Activity, never as the user's
+	// (ADR-0063 §6). Joined to an MCP session (ADR-0095 §2) it has that session's key, so
+	// Activity shows it under that agent and narrows to it; the panel's rows and unread
+	// marks do not count it (see forRows), as before. Else it has no key.
+	if (op.capability === 'agent.recordCommand') return op.session && isAgentOp(op) ? op.session.id : null;
+	// A call from an agent's hook or shell was joined to its MCP session (ADR-0095): it
+	// carries the session's ref, with its name, whatever connection it came in on.
+	if (op.session && isAgentOp(op)) return op.session.id;
 	if (op.client === 'ui' || op.client === 'cli') {
 		// A read, or one of the tab's own subscriptions (a streaming watch), is not activity.
 		const info = capabilityInfo[op.capability as CapabilityName] as { readOnly: boolean; statefulness: string } | undefined;
 		return info?.readOnly === true || info?.statefulness === 'streaming' ? null : YOU;
 	}
 	return op.client === 'mcp' && op.session ? op.session.id : null;
+}
+
+/** The key the panel's rows and unread marks count an operation under: keyOf, but a hook's record counts for none. */
+function forRows(op: Operation): string | null {
+	return op.capability === 'agent.recordCommand' ? null : keyOf(op);
+}
+
+/**
+ * An agent's operation: its session has a name, whatever client carried it. An MCP call
+ * names its session; so does a CLI call joined to one (ADR-0095 §2: an agent's `droidyard
+ * trash`). The user's own calls carry none, or a WebSocket session with no name.
+ */
+export function isAgentOp(op: Pick<Operation, 'session'>): boolean {
+	return !!op.session?.name;
 }
 
 /** Labels by session name, a repeated name numbered in the order the sessions were first seen. */
