@@ -9,6 +9,7 @@
 // A remote's `HEAD` pointer (origin/HEAD) is not a branch: it is in neither the panel nor the badges.
 // Every name here is git's text; nothing becomes markup.
 import type { Result } from '../api/capabilities.gen';
+import { rootKey } from '../projects/projects';
 import type { KeyValueStorage } from '../ui/layout';
 import { firstHolder, inWorkspace, type BranchUnion, type Holder } from './branchroots';
 
@@ -79,6 +80,8 @@ export interface WorktreeRow {
 	branch?: string;
 	oid?: string;
 	current: boolean;
+	/** The sessions whose workspace root is this path (ADR-0083 §4): names only, no action. */
+	sessions: readonly string[];
 }
 
 export type PanelRow = FolderRow | RefRow | WorktreeRow;
@@ -100,6 +103,8 @@ export interface PanelInput {
 	collapsed: ReadonlySet<string>;
 	/** The branches of every root (branchroots.ts), when the log has more than one: the lists show their union with a mark per root. */
 	union?: BranchUnion;
+	/** The labels of the sessions at each worktree root (projects.ts sessionsByRoot), keyed by the root without a trailing separator. */
+	worktreeSessions?: ReadonlyMap<string, readonly string[]>;
 }
 
 interface Leaf<T> {
@@ -263,6 +268,7 @@ export function panelModel(refs: RefsResult, input: PanelInput): Section[] {
 			...(w.branch !== undefined ? { branch: w.branch } : {}),
 			...(w.oid !== undefined ? { oid: w.oid } : {}),
 			current: w.current,
+			sessions: input.worktreeSessions?.get(rootKey(w.path)) ?? [],
 		}));
 
 	return [

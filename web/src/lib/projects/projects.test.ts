@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { landing, ProjectsModel, type ProjectsClient } from './projects';
+import { groupProjects, landing, ProjectsModel, sessionsByRoot, type ProjectRow, type ProjectsClient } from './projects';
 import type { Route } from '../start/route';
 import { ConnectionError } from '../api/client';
 import { capError, FakeCalls, FakeStream, settle } from '../build/testing';
@@ -44,7 +44,64 @@ async function setup(rows: ReturnType<typeof row>[] = [], chooser: boolean | 'fa
 	return { calls, stream, model, navigated, ev };
 }
 
+describe('groupProjects', () => {
+	const r = (id: string, root: string, over: Record<string, unknown> = {}): ProjectRow => ({ ...row(id, { state: 'ready', root, name: id }), open: true, ...over }) as ProjectRow;
+	const ses = (key: string, workspace: string | null) => ({ key, you: false, workspace });
+
+	// Decision (ADR-0083 §2): worktrees nest under their main, a main whose tree is not listed
+	// gets a group row, and a worktree is never a top-level row. Rows in one flat list would
+	// show the worktrees as projects.
+	it('nests worktrees under their main, and an orphan worktree under a group row', () => {
+		const rows = [
+			r('wt1', '/p/app-wt1', { mainRoot: '/p/app' }),
+			r('app', '/p/app'),
+			r('wt2', '/p/app-wt2', { mainRoot: '/p/app/' }),
+			r('lone', '/q/lone-wt', { mainRoot: '/q/lone' }),
+		];
+		const { groups } = groupProjects(rows, []);
+		expect(groups.map((g) => [g.root, g.project?.id ?? null, g.name, g.worktrees.map((w) => w.id)])).toEqual([
+			['/p/app', 'app', 'app', ['wt1', 'wt2']],
+			['/q/lone', null, 'lone', ['lone']],
+		]);
+	});
+
+	// Decision (ADR-0083 §2): sessions name their worktree or "main", and a worktree with a
+	// session is listed through it, not again among the worktrees without one.
+	it('puts each session under its project naming its worktree, and lists only worktrees without one', () => {
+		const rows = [r('app', '/p/app'), r('wt1', '/p/wt1', { mainRoot: '/p/app' }), r('wt2', '/p/wt2', { mainRoot: '/p/app' })];
+		const { groups, loose } = groupProjects(rows, [ses('a', 'wt1'), ses('b', 'app'), ses('c', 'wt1'), ses('d', 'gone'), ses('e', null)]);
+		expect(groups[0]!.sessions.map((s) => [s.session.key, s.where])).toEqual([
+			['a', 'wt1'],
+			['b', 'main'],
+			['c', 'wt1'],
+		]);
+		expect(groups[0]!.worktrees.map((w) => w.id)).toEqual(['wt2']);
+		expect(loose.map((s) => s.key)).toEqual(['d', 'e']);
+	});
+
+	// Decision (ADR-0083 §4): the Git panel names the sessions of a worktree by the root of their workspace.
+	it('lists the sessions at each root for the Git panel, never You', () => {
+		const rows = [r('app', '/p/app'), r('wt1', '/p/wt1', { mainRoot: '/p/app' })];
+		const m = sessionsByRoot(rows, [
+			{ ...ses('a', 'wt1'), label: 'claude' },
+			{ ...ses('b', 'wt1'), label: 'codex' },
+			{ ...ses('c', 'app'), label: 'main-one' },
+			{ ...ses('y', 'wt1'), label: 'You', you: true },
+		]);
+		expect(m.get('/p/wt1')).toEqual(['claude', 'codex']);
+		expect(m.get('/p/app')).toEqual(['main-one']);
+	});
+});
+
 describe('ProjectsModel', () => {
+	// Decision (ADR-0081): the row carries mainRoot, from the snapshot and from the event; without it nothing can nest.
+	it('keeps mainRoot from the snapshot and from a state event', async () => {
+		const t = await setup([row('wt', { mainRoot: '/r/app' })]);
+		expect(t.model.view.rows[0]!.mainRoot).toBe('/r/app');
+		t.ev('wt2', { state: 'ready', name: 'wt2', root: '/r/wt2', trusted: true, mainRoot: '/r/app' });
+		expect(t.model.view.rows.find((x) => x.id === 'wt2')!.mainRoot).toBe('/r/app');
+	});
+
 	it('lists the snapshot newest first, with the open ones marked', async () => {
 		const t = await setup([
 			row('old', { lastOpenedAt: '2026-10-01T10:00:00Z' }),

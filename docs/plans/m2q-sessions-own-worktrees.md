@@ -263,7 +263,23 @@
 - Needs: steps 3, 4, 6.
 - Not here: the look (the owner's, at the UI review); acting on a worktree from the Git panel.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence:
+  - **Unit tests (Vitest):** `projects.test.ts`, `sessions.test.ts` and `refs.test.ts` pass; `pnpm -C web run verify` passes 1,166 tests.
+  - **Seen failing with operations-only rows** (main session: `#listed` left out of the row keys). Two tests fail: "lists connected sessions that ran nothing" and the gap re-read.
+  - **Level 4, headless Chrome over CDP** against an isolated daemon (`$R` `/private/tmp/dy8q.leea`), with two scripted MCP sessions: `agent-a` entered `repo8-wt`, `agent-b` stayed on main.
+    - The panel shows `repo8` with `agent-a` and `repo8-wt` on its row, and `agent-b` with `main` on its row. The worktree is not a top-level row (`cdp/panel.png`).
+    - The Git panel's Worktrees section reads `repo8 main agent-b` and `repo8-wt task agent-a`.
+    - Clicking `agent-a`, then moving it into `repo8-wt`, takes the hash to `#w=repo8-wt-…`.
+    - After a project-row click, a second move leaves the hash on `#w=repo8-…`.
+  - **Code review at `low`**, two findings fixed by the main session:
+    - A re-read now takes the ids it lists out of `#gone`.
+    - A re-read moves the selection of a followed session that moved while events were lost.
+
+    One test covers both, and is seen failing with each fix removed.
+  - **For the register at step 10:**
+    - A followed session's move still pulls the selection after a navigation by another route (the address bar, the start page).
+    - The Git panel matches worktree paths to session roots as strings, so a worktree added through a symlinked path does not match.
+  - **For the owner's UI review:** the toolbar names the selected worktree (`repo8-wt`), not its project.
 
 ### 9. One tab, and a recent project removed
 

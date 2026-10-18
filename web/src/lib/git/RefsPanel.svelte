@@ -69,8 +69,10 @@
 		updateView: UpdateView;
 		/** An enabled entry of a branch's menu was chosen. */
 		onentry: (id: MenuId, target: BranchTarget) => void;
+		/** The sessions at each worktree root (ADR-0083 §4): the WORKTREES rows name them. */
+		worktreeSessions?: ReadonlyMap<string, readonly string[]>;
 	}
-	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, names, rootRefs, subjects, updater, updateView, onentry }: Props = $props();
+	let { view, store, workspaceId, storage, fetcher, fetchView, submodules, onretrysubmodules, names, rootRefs, subjects, updater, updateView, onentry, worktreeSessions }: Props = $props();
 
 	// The remotes that have a remote-tracking branch listed; a remote never fetched has none and
 	// is not named by git.refs, so it has no button of its own (the toolbar's Fetch reaches it).
@@ -85,7 +87,7 @@
 
 	// The branches of every loaded root, only with more than one (the marks say which roots have a branch).
 	const union = $derived(view.roots.length > 1 ? branchUnion(view.roots, view.refs, rootRefs) : undefined);
-	const sections = $derived(view.refs === null ? null : panelModel(view.refs, { filter, favourites, collapsed: collapsedFolders(view.refs, folderChoice, union), ...(union !== undefined ? { union } : {}) }));
+	const sections = $derived(view.refs === null ? null : panelModel(view.refs, { filter, favourites, collapsed: collapsedFolders(view.refs, folderChoice, union), ...(union !== undefined ? { union } : {}), ...(worktreeSessions !== undefined ? { worktreeSessions } : {}) }));
 	const rootName = (root: string): string => names.get(root) ?? root;
 	const markTitle = (h: Holder): string => (h.current ? `${rootName(h.root)}: checked out` : rootName(h.root));
 
@@ -332,6 +334,7 @@
 										<Folder size={13} />
 										<span class="text">{row.label}</span>
 										{#if row.branch !== undefined}<span class="sub">{row.branch}</span>{/if}
+										{#if row.sessions.length > 0}<span class="sub sessions" title="Sessions in this worktree">{row.sessions.join(', ')}</span>{/if}
 										{#if row.current}<span class="mark" title="This work tree"><Check size={13} /></span>{/if}
 									</div>
 								{/if}

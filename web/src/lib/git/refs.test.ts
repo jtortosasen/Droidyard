@@ -130,6 +130,12 @@ describe('panelModel', () => {
 		expect(wt.kind === 'worktree' && wt.branch).toBe('main');
 		expect(wt.kind === 'worktree' && wt.current).toBe(true);
 	});
+
+	// Decision (ADR-0083 §4): a worktree row names the sessions whose workspace root is its path; the path match ignores a trailing slash.
+	it('names the sessions at each work tree', () => {
+		const rows = section('worktrees', { worktreeSessions: new Map([['/work/app-fix', ['claude', 'codex']]]) }).rows;
+		expect(rows.map((r) => r.kind === 'worktree' && r.sessions)).toEqual([[], ['claude', 'codex']]);
+	});
 });
 
 describe('badgesByOid', () => {

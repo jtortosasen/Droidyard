@@ -47,6 +47,8 @@ export interface ProjectRow {
 	trusted: boolean;
 	/** Open in the daemon now: anything but closed. */
 	open: boolean;
+	/** The project's main tree, when `root` is a linked git worktree of it (ADR-0081). */
+	mainRoot?: string;
 }
 
 export type Chooser = 'unknown' | 'available' | 'unavailable';
@@ -272,6 +274,7 @@ export class ProjectsModel {
 			state: p.state,
 			trusted: p.trusted,
 			open: p.state !== 'closed',
+			...(p.mainRoot !== undefined ? { mainRoot: p.mainRoot } : {}),
 		});
 		if (this.#rows.size > MAX_ROWS) {
 			const oldest = [...this.#rows.values()].sort((a, b) => time(a.lastOpenedAt) - time(b.lastOpenedAt))[0];
@@ -323,4 +326,85 @@ export function landing(route: Route, view: ProjectsView, refused: boolean): Lan
 	if (view.watch.state === 'idle' || view.watch.state === 'starting') return { kind: 'waiting' };
 	const newest = view.rows.find((r) => r.open);
 	return newest ? { kind: 'project', workspace: newest.id } : { kind: 'panel' };
+}
+
+// --- the panel by project (ADR-0083 §2) ----------------------------------------------
+
+/** A root without its trailing separators, so "/a/b/" and "/a/b" are one tree. */
+export const rootKey = (root: string): string => root.replace(/[\\/]+$/, '');
+const baseName = (root: string): string => rootKey(root).split(/[\\/]/).pop() || root;
+
+/** The part of a session row the grouping reads. */
+export interface GroupedSession {
+	key: string;
+	you: boolean;
+	workspace: string | null;
+}
+
+export interface ProjectGroup<S extends GroupedSession> {
+	/** The main tree's root: the group's identity. */
+	key: string;
+	/** The main tree's row; null when it is not listed (the group row then stands for `root`). */
+	project: ProjectRow | null;
+	name: string;
+	root: string;
+	/** Sessions in this project, in the main tree or in a worktree, each naming where. */
+	sessions: { session: S; where: string; workspace: string }[];
+	/** The worktrees with no session in them. */
+	worktrees: ProjectRow[];
+}
+
+export interface Grouping<S extends GroupedSession> {
+	groups: ProjectGroup<S>[];
+	/** Sessions with no workspace, or one the list does not hold. */
+	loose: S[];
+}
+
+/**
+ * Split the rows by project (ADR-0083 §2): a row with `mainRoot` nests under the row whose
+ * root that is, else under a group row for that root; no worktree is ever a top-level row.
+ * Groups keep the order of their first row (rows arrive newest first). A session sits under
+ * its workspace's project and names the worktree's name, or "main".
+ */
+export function groupProjects<S extends GroupedSession>(rows: readonly ProjectRow[], sessions: readonly S[]): Grouping<S> {
+	const groups = new Map<string, ProjectGroup<S>>();
+	const mainOf = (r: ProjectRow): string => rootKey(r.mainRoot ?? r.root);
+	for (const r of rows) {
+		const key = mainOf(r);
+		let g = groups.get(key);
+		if (!g) groups.set(key, (g = { key, project: null, name: baseName(key), root: key, sessions: [], worktrees: [] }));
+		if (r.mainRoot === undefined) {
+			g.project = r;
+			g.name = r.name;
+			g.root = r.root;
+		}
+	}
+	const byId = new Map(rows.map((r) => [r.id, r]));
+	const loose: S[] = [];
+	const inside = new Set<string>();
+	for (const s of sessions) {
+		const r = s.workspace === null ? undefined : byId.get(s.workspace);
+		if (r === undefined) {
+			loose.push(s);
+			continue;
+		}
+		groups.get(mainOf(r))!.sessions.push({ session: s, where: r.mainRoot === undefined ? 'main' : r.name, workspace: r.id });
+		inside.add(r.id);
+	}
+	for (const r of rows) if (r.mainRoot !== undefined && !inside.has(r.id)) groups.get(mainOf(r))!.worktrees.push(r);
+	return { groups: [...groups.values()], loose };
+}
+
+/** The labels of the sessions whose workspace root is each path, for the Git panel's worktree rows (ADR-0083 §4). */
+export function sessionsByRoot(rows: readonly ProjectRow[], sessions: readonly (GroupedSession & { label: string })[]): Map<string, string[]> {
+	const byId = new Map(rows.map((r) => [r.id, r]));
+	const out = new Map<string, string[]>();
+	for (const s of sessions) {
+		if (s.you || s.workspace === null) continue;
+		const r = byId.get(s.workspace);
+		if (r === undefined) continue;
+		const key = rootKey(r.root);
+		out.set(key, [...(out.get(key) ?? []), s.label]);
+	}
+	return out;
 }
