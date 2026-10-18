@@ -402,8 +402,15 @@ func TestScreenSourceStreams(t *testing.T) {
 
 	// The fake's log: push, then forward, then the server, with the digest-named path and
 	// the pinned version. The options are spelled out here: they are the contract.
+	// The source's FLAG_SECURE poll (ADR-0080 §3) may have run its `shell dumpsys window`
+	// already: it is not part of the start.
 	jar := ssJar + scrcpyserver.SHA256[:12] + ".jar"
-	calls := f.calls(t)
+	var calls []string
+	for _, c := range f.calls(t) {
+		if !strings.HasSuffix(c, " shell dumpsys window") {
+			calls = append(calls, c)
+		}
+	}
 	if len(calls) != 3 {
 		t.Fatalf("calls %q, want push, forward, shell", calls)
 	}
