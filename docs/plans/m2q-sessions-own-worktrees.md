@@ -420,5 +420,11 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
     - a plain project, and a non-repository, omit the field;
     - the bound of 50 holds.
   - **Schema:** `worktrees` on `workspace.describe` only. The Opus verifier reviews it (contract), and then step 5's chats 0 to 3 run again.
+- 2026-10-18, step 5b, as built:
+  - Describe's result is a new `Described{Info; Worktrees}`, so `Info`, the result of open and enter, stays without the field. The wire is flat.
+  - After the step verifier's block ([safety], 82 s for one describe with 4,000 planted entries), the scan reads at most 101 names of `C/worktrees` and lists nothing past 100 (a working default under ADR-0089 §1's bound, Delegated).
+  - A branch is kept only when it is a valid git refname of at most 255 bytes, with no control or format characters, and a root with such characters is skipped ([safety]).
+  - The verifier's re-check said commit. 4,000 planted entries now give nil in 2.5 ms, where they took 82 s.
+  - For the register at step 10: `Canonical` lists every ancestor directory of a path, so 100 entries whose roots share a parent of 20,000 files take 8.1 s for one describe. That is linear in the parent's size, and the trust check's `LinkedWorktree` pays the same, 43 ms. `Worktrees` takes no context. A per-scan cache of directory listings would close it.
 - 2026-10-18, merge of `main` after 2p's close: the API goes to `0.28.0` (2p published 0.27.0), so `workspace.enter`'s `since` becomes `0.28.0`, and `liveBudget` is the sum of both lanes' raises (28,133).
 - 2026-10-18, step 6: the session's name is set from `server/discover` as well as `initialize`. Claude Code 2.1.302 speaks MCP `2026-07-28`, opens with `server/discover` and sends no `initialize` (step 1, (a)). mcp-go sets the client info from either.

@@ -5,8 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
+	"unicode"
+	"unicode/utf8"
 )
 
 // maxWorktreeFile bounds every file LinkedWorktree reads: a path and a prefix are far
@@ -125,4 +128,136 @@ func readSmallRegular(path string) ([]byte, bool) {
 		return nil, false
 	}
 	return data, true
+}
+
+// MaxWorktrees bounds the list Worktrees returns (ADR-0089).
+const MaxWorktrees = 50
+
+// maxWorktreeEntries is how many administrative entries Worktrees reads: twice the list
+// it returns, room for stale entries. A repository with more has none listed.
+const maxWorktreeEntries = 2 * MaxWorktrees
+
+// Worktree is one linked worktree of a repository: its canonical root and, when its
+// HEAD is a branch, the branch's short name (empty when it is detached).
+type Worktree struct {
+	Root   string
+	Branch string
+}
+
+// Worktrees lists the linked worktrees of the non-bare repository whose main tree is
+// main, sorted by root, at most MaxWorktrees (ADR-0089 §1, §2). It reads the repository's
+// own administrative entries, `<main>/.git/worktrees/<name>/`, as LinkedWorktree reads
+// one, and runs no git: each entry's `gitdir` names its worktree's `.git` file, and the
+// entry is kept only when that worktree passes LinkedWorktree with exactly this main
+// tree and names this very entry back, so a removed directory, a moved or broken
+// back-link, or a second entry claiming the same root is left out. Branch is the `HEAD`
+// of that entry when it reads `ref: refs/heads/<name>` and is a valid, plain name
+// (validBranch), else empty. A repository whose `.git` is not a directory, that has no
+// `worktrees` directory, or that has more than 100 entries in it, has none; so does a
+// worktree whose root holds a control or format character.
+func Worktrees(env Env, main string) []Worktree {
+	main = env.Canonical(main)
+	common := filepath.Join(main, ".git")
+	if fi, err := os.Lstat(common); err != nil || !fi.IsDir() {
+		return nil
+	}
+	admins := filepath.Join(common, "worktrees")
+	if fi, err := os.Lstat(admins); err != nil || !fi.IsDir() {
+		return nil
+	}
+	// At most maxWorktreeEntries names are read, however many the directory holds: the
+	// entries of an untrusted repository are planted, every one costs several path
+	// canonicalisations, and each of those lists the directory again (onDiskName), so
+	// the scan is quadratic in the entry count. More than the limit lists none.
+	dir, err := os.Open(admins)
+	if err != nil {
+		return nil
+	}
+	defer dir.Close()
+	entries, err := dir.ReadDir(maxWorktreeEntries + 1)
+	if err != nil && err != io.EOF || len(entries) > maxWorktreeEntries {
+		return nil
+	}
+	var out []Worktree
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		admin := filepath.Join(admins, e.Name())
+		dotGit, ok := readNamedPath(env, filepath.Join(admin, "gitdir"), "", admin)
+		if !ok || filepath.Base(dotGit) != ".git" {
+			continue
+		}
+		root := filepath.Dir(dotGit)
+		if !plainText(root) {
+			continue
+		}
+		if got, ok := LinkedWorktree(env, root); !ok || got != main || seen[root] {
+			continue
+		}
+		// The worktree's own `.git` file must name this entry: with two entries for one
+		// root, the branch is the one of the entry the worktree uses.
+		if named, ok := readNamedPath(env, filepath.Join(root, ".git"), "gitdir: ", root); !ok || named != env.Canonical(admin) {
+			continue
+		}
+		seen[root] = true
+		out = append(out, Worktree{Root: root, Branch: worktreeBranch(admin)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Root < out[j].Root })
+	if len(out) > MaxWorktrees {
+		out = out[:MaxWorktrees]
+	}
+	return out
+}
+
+// worktreeBranch is the short branch name admin/HEAD holds when it is a symbolic ref
+// under refs/heads, else "": a detached HEAD, a ref elsewhere, or a file that is not one
+// git wrote.
+func worktreeBranch(admin string) string {
+	data, ok := readSmallRegular(filepath.Join(admin, "HEAD"))
+	if !ok {
+		return ""
+	}
+	name, ok := strings.CutPrefix(strings.TrimRight(string(data), "\r\n\t "), "ref: refs/heads/")
+	if !ok || !validBranch(name) {
+		return ""
+	}
+	return name
+}
+
+// validBranch reports whether name is a branch name git could have written (the rules
+// of git check-ref-format) and one that is safe to show: the daemon's reader is an agent
+// that acts on it, and the file is written by whoever controls the repository. So it also
+// refuses what git would not write anyway, control and format characters (bidi
+// overrides) included, and anything over 255 bytes.
+func validBranch(name string) bool {
+	if name == "" || len(name) > 255 || !utf8.ValidString(name) || !plainText(name) {
+		return false
+	}
+	if strings.ContainsAny(name, " ~^:?*[\\") || strings.Contains(name, "..") || strings.Contains(name, "@{") {
+		return false
+	}
+	if strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.HasPrefix(name, ".") ||
+		strings.HasSuffix(name, ".") || strings.HasSuffix(name, ".lock") {
+		return false
+	}
+	return true
+}
+
+// plainText reports whether s holds no control character (a byte below 0x20, 0x7f) and
+// no Unicode format character (the bidi overrides, zero-width marks): text an agent
+// reads as it appears.
+func plainText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return false
+		}
+	}
+	for _, r := range s {
+		if unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }

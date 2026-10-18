@@ -10909,7 +10909,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.2.0",
-      "description": "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, and, when degraded, why.",
+      "description": "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, when degraded why, and the project's git worktrees with their branches.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -11024,6 +11024,27 @@
             "required": [
               "candidates"
             ]
+          },
+          "worktrees": {
+            "items": {
+              "properties": {
+                "root": {
+                  "type": "string",
+                  "description": "The worktree's root, absolute and canonical; a path workspace.enter accepts."
+                },
+                "branch": {
+                  "type": "string",
+                  "description": "The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "root"
+              ]
+            },
+            "type": "array",
+            "description": "The linked git worktrees of the project's repository, sorted by root, at most 50, the same whether root is the main tree or one of them. Each is read from the repository's own files and kept only while it names the repository back, so a removed or moved worktree is absent, as is one whose path holds a control or format character. Absent when the project has none, is not a git repository, or the repository has more than 100 worktree entries."
           }
         },
         "additionalProperties": false,

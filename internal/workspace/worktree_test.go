@@ -124,7 +124,7 @@ func TestMainRootIsResolvedAtEveryOpenAndDescribe(t *testing.T) {
 	// handler's re-resolution removed: the open's main tree came back).
 	if out, err := h.ops.Invoke(context.Background(), capability.Request{Capability: CapDescribe, Workspace: wt}); err != nil || out.State != capability.StateCompleted {
 		t.Fatalf("describe: %v %+v", err, out)
-	} else if d := out.Result.(Info); d.MainRoot != "" {
+	} else if d := out.Result.(Described); d.MainRoot != "" {
 		t.Errorf("workspace.describe after the back-link broke: mainRoot = %q; want none, resolved afresh", d.MainRoot)
 	}
 	if again := h.open(t, wt); again.MainRoot != "" {

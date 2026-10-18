@@ -69,6 +69,21 @@ type Info struct {
 	Gradle GradleInfo `json:"gradle" jsonschema:"required"`
 }
 
+// Described is workspace.describe's result: the workspace object, and the project's
+// linked worktrees (ADR-0089). Only describe carries them, so open, enter and the
+// panel's streams, which share Info, advertise and read nothing more.
+type Described struct {
+	Info
+	// Worktrees is filled by the describe handler only (Registry.worktreesOf).
+	Worktrees []WorktreeInfo `json:"worktrees,omitempty" jsonschema_description:"The linked git worktrees of the project's repository, sorted by root, at most 50, the same whether root is the main tree or one of them. Each is read from the repository's own files and kept only while it names the repository back, so a removed or moved worktree is absent, as is one whose path holds a control or format character. Absent when the project has none, is not a git repository, or the repository has more than 100 worktree entries."`
+}
+
+// WorktreeInfo is one entry of Described.Worktrees.
+type WorktreeInfo struct {
+	Root   string `json:"root" jsonschema:"required" jsonschema_description:"The worktree's root, absolute and canonical; a path workspace.enter accepts."`
+	Branch string `json:"branch,omitempty" jsonschema_description:"The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."`
+}
+
 // GradleInfo is the Gradle root as workspace.open and workspace.describe report it
 // (ADR-0075 §5), resolved again at every call (ResolveGradleRoot).
 type GradleInfo struct {
@@ -621,6 +636,25 @@ func (r *Registry) mainRoot(root string) string {
 	}
 	main, _ := platform.LinkedWorktree(r.opts.Env, root)
 	return main
+}
+
+// worktreesOf lists the linked worktrees of the project info describes (ADR-0089): of
+// its main tree when its root is a worktree, else of its root when that holds a `.git`
+// directory. It reads a few small files and runs no git; a project that is no
+// repository, or has no linked worktree, has none (nil).
+func (r *Registry) worktreesOf(info Info) []WorktreeInfo {
+	main := info.MainRoot
+	if main == "" {
+		main = info.Root
+	}
+	if main == "" {
+		return nil
+	}
+	var out []WorktreeInfo
+	for _, w := range platform.Worktrees(r.opts.Env, main) {
+		out = append(out, WorktreeInfo{Root: w.Root, Branch: w.Branch})
+	}
+	return out
 }
 
 // loadIndex reads workspaces.json once. One of a newer version is neither read nor

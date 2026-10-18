@@ -81,9 +81,9 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Kind:        capability.Query,
 		Scope:       capability.Workspace,
 		Since:       since,
-		Description: "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, and, when degraded, why.",
+		Description: "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, when degraded why, and the project's git worktrees with their branches.",
 		Params:      None{},
-		Result:      Info{},
+		Result:      Described{},
 		Errors:      []capability.ErrorCode{ErrStateNewer, capability.ErrProjectNoGradleRoot},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			info, err := ws.Describe(call.Workspace)
@@ -92,7 +92,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 			}
 			// Resolved again here, not in Registry.Describe, which every root lookup calls.
 			info.MainRoot = ws.mainRoot(info.Root)
-			return withGradle(info), nil
+			return Described{Info: withGradle(info), Worktrees: ws.worktreesOf(info)}, nil
 		},
 	})
 

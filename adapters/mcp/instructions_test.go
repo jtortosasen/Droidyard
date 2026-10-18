@@ -46,6 +46,9 @@ func TestInstructionsCarryTheManual(t *testing.T) {
 		"artifact references are read with a reader": "references are read with artifact_read",
 		"the tree is preferred to screenshots":       "Prefer device_uiTree to screenshots",
 		"the server is bound to one project":         "bound to one project",
+		"describe lists the worktrees (ADR-0089)":    "workspace_describe lists its worktrees",
+		"a task with a worktree is done there":       "a task that has one (its branch names it) is done there, so workspace_enter it first",
+		"a code task with none makes one":            "a task that changes code first gets one (git worktree add)",
 	} {
 		// Lines wrap in the block; a point is a phrase, wherever the line breaks.
 		if !strings.Contains(strings.Join(strings.Fields(Instructions), " "), want) {
