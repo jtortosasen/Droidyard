@@ -194,6 +194,32 @@ func TestScreenStreamEnds(t *testing.T) {
 		w.requireGone(t, res.StreamID)
 	})
 
+	// The HTTP side's order: it reads until Next fails, then closes the handle at once. The
+	// close must not win over the source's reason (CI saw "detached" for a device that went).
+	// Seen failing with Close ending the stream at once: "reason detached, want deviceGone".
+	t.Run("the device goes while the socket drains", func(t *testing.T) {
+		w := newWSFix(t)
+		res, sub := w.watch(t)
+		h, err := w.adb.AttachScreen(res.StreamID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		devicetest.Write(t, w.dir, "devices.out", []byte(uiList()))
+		devicetest.Write(t, w.dir, uiSerial+".scrcpy.stop", []byte("3"))
+		ctx, cancel := ssCtx()
+		defer cancel()
+		for {
+			if _, err := h.Next(ctx); err != nil {
+				break
+			}
+		}
+		h.Close()
+		if se := stopped(t, sub); se.Reason != StopDeviceGone {
+			t.Errorf("reason %s, want deviceGone", se.Reason)
+		}
+		w.requireGone(t, res.StreamID)
+	})
+
 	t.Run("the daemon stops", func(t *testing.T) {
 		w := newWSFix(t)
 		res, sub := w.watch(t)
