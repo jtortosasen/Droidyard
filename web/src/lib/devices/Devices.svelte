@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { DevicesModel, DevicesView } from './devices';
+	import { deviceHolds, inUseText, type DeviceHold, type SessionsModel } from '../projects/sessions';
 	import { deviceLine } from '../toolbar/devicemenu';
 	import type { EmulatorsModel, EmulatorsView } from './emulators';
 	import type { InstallModel, InstallView } from './install';
@@ -20,8 +21,25 @@
 		emulators: EmulatorsModel;
 		install: InstallModel;
 		connected: boolean;
+		/** Who holds which device comes from its live rows (ADR-0094), not from device.list. */
+		sessions: SessionsModel;
 	}
-	let { devices, emulators, install, connected }: Props = $props();
+	let { devices, emulators, install, connected, sessions }: Props = $props();
+
+	let holds = $state.raw<DeviceHold[]>([]);
+	let releaseError = $state<string | null>(null);
+	$effect(() => {
+		const s = sessions;
+		const read = () => {
+			holds = deviceHolds(s.view.rows);
+		};
+		read();
+		return s.subscribe(read);
+	});
+	async function release(serial: string) {
+		const f = await sessions.release({ device: serial });
+		releaseError = f === null ? null : failureText(f);
+	}
 
 	let dv = $state.raw<DevicesView | null>(null);
 	let ev = $state.raw<EmulatorsView | null>(null);
@@ -76,6 +94,16 @@
 			<p class="err small">device.list failed: {failureText(dv.error)}</p>
 		{:else if dv.devices.length === 0}
 			<p class="muted small">No device is connected.</p>
+		{/if}
+		<!-- Another chat holds these (ADR-0094): the owner's Release frees one and moves no session. -->
+		{#each holds as h (h.serial)}
+			<div class="line held">
+				<span class="grow small" title={h.serial}>{h.serial}: {inUseText(h)}</span>
+				<button type="button" class="btn-icon" disabled={!connected} onclick={() => void release(h.serial)}>Release</button>
+			</div>
+		{/each}
+		{#if releaseError}
+			<p class="err small">Release refused: {releaseError}</p>
 		{/if}
 
 		<div class="head">

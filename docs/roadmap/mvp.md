@@ -256,7 +256,7 @@ Two practical notes:
 | `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch`, `pull`, `checkout`, `createBranch`, `submodules`, `updateSubmodules` (human-only; never over MCP) | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
-| `session` | `watch` | 2 |
+| `session` | `watch`, `release` (human-only; never over MCP) | 2 |
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |

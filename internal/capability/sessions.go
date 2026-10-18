@@ -282,6 +282,24 @@ func (s *Sessions) releaseLocked(id string, r *sessionRec) {
 	}
 }
 
+// ReleaseWorkspace ends the occupation of the linked worktree whose workspace id is
+// workspace, whoever holds it, and publishes the holder's row (ADR-0094 §3). The owner
+// frees it outright: no other session of the holder's chat is handed it, and the holder's
+// binding stays. A worktree nobody holds is already free.
+func (s *Sessions) ReleaseWorkspace(workspace string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for root, hid := range s.holders {
+		r := s.byID[hid]
+		if r == nil || r.holdWorkspace != workspace {
+			continue
+		}
+		delete(s.holders, root)
+		r.holdRoot, r.holdWorkspace, r.holdSince = "", "", time.Time{}
+		s.publish(hid, r)
+	}
+}
+
 // Occupy moves the session's binding to root, workspace being its id, and decides in the
 // same critical section whether the session holds it (ADR-0094 §1 to §6), so two sessions
 // entering one worktree cannot both succeed. linked says root is a linked worktree of the

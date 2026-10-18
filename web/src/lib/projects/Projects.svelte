@@ -7,7 +7,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import { failureText } from '../build/failure';
 	import { groupProjects, type ProjectsModel, type ProjectsView, type ProjectRow } from './projects';
-	import { duration, type AgentRow, type SessionsModel, type SessionsView } from './sessions';
+	import { duration, heldByText, holderOf, occupiesText, type AgentRow, type SessionsModel, type SessionsView } from './sessions';
 	import Spinner from './Spinner.svelte';
 
 	// The projects and agents panel (plan m2d step 7, ADR-0047, D30): the projects this
@@ -21,8 +21,10 @@
 		selected: string | null;
 		/** A project or an agent row was chosen (the overlay closes). */
 		onchosen?: () => void;
+		/** The connection is open: Release needs it. */
+		connected?: boolean;
 	}
-	let { projects, sessions, selected, onchosen }: Props = $props();
+	let { projects, sessions, selected, onchosen, connected = true }: Props = $props();
 
 	let view = $state.raw<ProjectsView | null>(null);
 	let agents = $state.raw<SessionsView>({ rows: [], runningAgents: 0 });
@@ -80,6 +82,13 @@
 		e.preventDefault();
 		void projects.openRoot(typed);
 	}
+	// The owner's release of a worktree a session holds (ADR-0094 §3): it moves no session.
+	let releaseError = $state<string | null>(null);
+	async function release(w: ProjectRow) {
+		const f = await sessions.release({ workspace: w.id });
+		releaseError = f === null ? null : failureText(f);
+	}
+	const worktreeName = (id: string) => rows.find((r) => r.id === id)?.name;
 	const age = (startedAt: string) => duration(now - Date.parse(startedAt));
 	const dotLabel = (p: ProjectRow) => `${p.state}${p.trusted ? '' : ', not trusted'}`;
 </script>
@@ -101,6 +110,10 @@
 			{#if !a.you}<Bot size={12} />{/if}
 			<span class="label">{a.label}</span>
 			{#if where !== null}<span class="where" title="Worktree">{where}</span>{/if}
+			{#if occupiesText(a, worktreeName) !== ''}
+				<span class="holds" title="Holds this worktree or device, so that no other chat writes or acts there">holds {occupiesText(a, worktreeName)}</span>
+			{/if}
+			{#if a.idle && occupiesText(a, worktreeName) !== ''}<span class="stale" title="No request for a while: another chat may take over what it holds">idle holder</span>{/if}
 			{#if a.unread}<span class="unread" title="Finished since you last looked"></span>{/if}
 		</button>
 		{#each a.operations as o (o.id)}
@@ -159,6 +172,10 @@
 		<p class="note">Project list: {view.watch.state} {view.watch.detail}</p>
 	{/if}
 
+	{#if releaseError}
+		<p class="note bad">Release refused: {releaseError}</p>
+	{/if}
+
 	{#if view && rows.length === 0 && loose.length === 0}
 		<p class="note">No projects yet.</p>
 	{/if}
@@ -210,6 +227,7 @@
 				{#if g.worktrees.length > 0}
 					<ul class="agents worktrees">
 						{#each g.worktrees as w (w.id)}
+							{@const holder = holderOf(agents.rows, w.id)}
 							<li class="line">
 								<button
 									type="button"
@@ -222,8 +240,12 @@
 								>
 									<GitBranch size={12} />
 									<span class="label" class:closed={!w.open}>{w.name}</span>
+									{#if holder}<span class="where" title="Another chat may not enter or write here">{heldByText(holder.label, holder.idle)}</span>{/if}
 									<span class="dot" data-state={w.open ? (w.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(w)}></span>
 								</button>
+								{#if holder}
+									<button type="button" class="release" title="End the occupation; the session stays where it is" disabled={!connected} onclick={() => void release(w)}>Release</button>
+								{/if}
 								{@render remove(w)}
 							</li>
 						{/each}
@@ -443,6 +465,26 @@
 		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		color: var(--text-3);
+	}
+	.holds,
+	.stale {
+		flex: none;
+		max-width: 40%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--fs-small);
+		color: var(--text-3);
+	}
+	.stale {
+		color: var(--warning);
+	}
+	.release {
+		flex: none;
+		min-height: 0;
+		height: calc(var(--row) - 2px);
+		padding: 0 var(--sp-4);
+		font-size: var(--fs-small);
 	}
 	.agent.selected {
 		background: var(--accent-soft);

@@ -594,7 +594,7 @@
 		{/if}
 	{:else if id === 'devices'}
 		{#if devices && emulators && install}
-			<Devices {devices} {emulators} {install} connected={connection === 'open'} />
+			<Devices {devices} {emulators} {install} {sessions} connected={connection === 'open'} />
 		{/if}
 	{:else if id === 'liveview'}
 		{#if liveView}

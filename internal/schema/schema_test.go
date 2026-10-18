@@ -335,7 +335,8 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	}
 	want := []string{"build.assemble", "device.inputText", "device.install", "device.launch", "device.logs",
 		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiTree",
-		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe"}
+		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe",
+		"session.release"}
 	var got []string
 	for name := range declared {
 		got = append(got, name)

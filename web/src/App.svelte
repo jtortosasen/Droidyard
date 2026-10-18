@@ -186,7 +186,7 @@
 
 {#snippet sessionsPanel()}
 	{#if projects && sessions}
-		<Projects {projects} {sessions} selected={route.view === 'project' ? route.workspace : null} />
+		<Projects {projects} {sessions} connected={connection === 'open'} selected={route.view === 'project' ? route.workspace : null} />
 	{/if}
 {/snippet}
 
@@ -234,7 +234,7 @@
 		<!-- No project to show: the panel itself, with recents, "Open folder..." and any reason. -->
 		<main class="solo">
 			<h1>Droidyard {@render status()}</h1>
-			<Projects {projects} {sessions} selected={null} />
+			<Projects {projects} {sessions} connected={connection === 'open'} selected={null} />
 		</main>
 	{/if}
 {/if}
