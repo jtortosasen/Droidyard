@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DevicesModel, type DevicesClient } from './devices';
 import { EmulatorsModel, type EmulatorsClient } from './emulators';
 import { InstallModel, type InstallClient } from './install';
-import { DevicesMirror } from './mirror';
+import { DevicesMirror, targetText } from './mirror';
 import { activityWith, FakeCalls, liveOp, settle, stateEvent } from '../build/testing';
 
 const dev = (device: string, online = true) => ({ device, state: online ? 'device' : 'offline', kind: 'emulator', online });
@@ -57,6 +57,22 @@ describe('the devices mirror', () => {
 		expect(t.emulators.view.mirror.booting).toBeNull();
 		await t.emulators.stop('emulator-5554');
 		expect(t.calls.names()).not.toContain('emulator.stop');
+	});
+
+	// Decision (ADR-0076, closing R2): the mirror carries the operation's target, so the
+	// panel names the device being stopped and the AVD being booted, and says nothing for
+	// an operation that names none.
+	it('names the device being stopped and the AVD being booted from the operation target', async () => {
+		const t = await setup([startOp('op-b', { target: { avd: 'Pixel_8' } })]);
+		stateEvent(t.watch, 'op-s', { capability: 'emulator.stop', state: 'running', target: { device: 'emulator-5556' } }, null);
+		const booting = t.emulators.view.mirror.booting;
+		const stopping = t.emulators.view.mirror.stopping;
+		expect(booting?.target).toEqual({ avd: 'Pixel_8' });
+		expect(stopping?.target).toEqual({ device: 'emulator-5556' });
+		expect(targetText(booting!)).toBe(' Pixel_8');
+		expect(targetText(stopping!)).toBe(' emulator-5556');
+		expect(targetText({ target: undefined })).toBe('');
+		expect(targetText({ target: { module: ':app' } })).toBe('');
 	});
 
 	// Decision (D11): installing is any client's device.install and blocks Install here.

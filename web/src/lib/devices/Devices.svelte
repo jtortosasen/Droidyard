@@ -4,7 +4,7 @@
 	import type { EmulatorsModel, EmulatorsView } from './emulators';
 	import type { InstallModel, InstallView } from './install';
 	import { failureText } from '../build/failure';
-	import type { ActiveOp } from './mirror';
+	import { targetText, type ActiveOp } from './mirror';
 	import Play from '@lucide/svelte/icons/play';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Smartphone from '@lucide/svelte/icons/smartphone';
@@ -53,7 +53,7 @@
 	});
 
 	function opText(verb: string, op: ActiveOp): string {
-		return `${verb} (${op.client ?? 'unknown client'}): ${op.capability}, ${op.state}.`;
+		return `${verb}${targetText(op)} (${op.client ?? 'unknown client'}): ${op.capability}, ${op.state}.`;
 	}
 
 	function refresh() {

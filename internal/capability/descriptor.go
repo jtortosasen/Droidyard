@@ -213,6 +213,14 @@ type Descriptor struct {
 	// (ADR-0020 §Core primitives; ADR-0015 §2). Not published.
 	Authorize func(ctx context.Context, call *Call) (any, error)
 
+	// Target names what a call acts on, as a function of its decoded parameters, cleaned of control and format characters
+	// (Call.Params), for the operation.state events and operation.watch rows (ADR-0076).
+	// It reads only the caller's own parameters, never device or project text, and may
+	// return nil. Each field is cut to OpTargetMax bytes when the operation is recorded.
+	// Nil means the capability has none. Not published as such: the schema carries the
+	// event field.
+	Target func(params any) *OpTarget
+
 	// Params and Result are struct instances; the JSON Schema is generated from them.
 	Params any
 	Result any

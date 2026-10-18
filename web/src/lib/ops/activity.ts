@@ -41,6 +41,14 @@ export interface OperationSession {
 	readonly workspace?: string;
 }
 
+/** What a call acts on (ADR-0076): the caller's own parameters; absent for a capability that declares none. */
+export interface OperationTarget {
+	readonly device?: string;
+	readonly avd?: string;
+	readonly module?: string;
+	readonly variant?: string;
+}
+
 export interface Operation {
 	readonly id: string;
 	readonly capability: string;
@@ -49,6 +57,7 @@ export interface Operation {
 	/** cli, mcp or ui; undefined for a call recorded without a kind. */
 	readonly client: string | undefined;
 	readonly session?: OperationSession;
+	readonly target?: OperationTarget;
 	readonly state: OperationState;
 	readonly startedAt: string;
 	readonly durationMs?: number;
@@ -288,6 +297,7 @@ export class ActivityStore {
 				workspace: ev.workspace,
 				client: p.client,
 				session: p.session,
+				target: p.target,
 				state: p.state,
 				startedAt: p.startedAt,
 				durationMs: p.durationMs,
@@ -311,6 +321,7 @@ export class ActivityStore {
 					workspace: o.workspace ?? null,
 					client: o.client,
 					session: o.session,
+					target: o.target,
 					state: o.state,
 					startedAt: o.startedAt,
 					blockedBy: o.blockedBy,

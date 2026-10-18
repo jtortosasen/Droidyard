@@ -162,6 +162,15 @@ func (p TapParams) validate() error {
 // (ui-automation.md §Concurrency; plan m1f, R2).
 func writeKey(serial string) string { return "device.write:" + serial }
 
+// deviceTarget is the operation target of a capability that acts on one device
+// (ADR-0076): the serial the caller gave, nil when it gave none.
+func deviceTarget(serial string) *capability.OpTarget {
+	if serial == "" {
+		return nil
+	}
+	return &capability.OpTarget{Device: serial}
+}
+
 // WriteKey is writeKey, exported so emulator.stop shares the exact key a device.launch
 // or an install on the same serial holds, instead of a copy that could drift (plan m1i,
 // D12: the key serialises a stop with the writes to that device and lets it end a stuck
@@ -177,6 +186,7 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Taps one UI element once and verifies the effect in the same call: it resolves target with the device.uiTree selector, taps it, then polls the accessibility tree until every expect condition holds or timeoutMs elapses. An unmet expectation is a completed call (matched false, with candidates), not an error, and a resolution failure taps nothing. Never repeat it: a repeat taps again; an expect already true before the tap is reported in vacuous, and gone needs two reads.",
 		Params:       TapParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(TapParams).Device) },
 		Result:       TapResult{},
 		Text:         capability.TextOf(tapText),
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),

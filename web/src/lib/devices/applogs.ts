@@ -10,7 +10,7 @@ import { CapabilityError, type CallOptions } from '../api/client';
 import { failure, type Failure } from '../build/failure';
 import type { DevicesActivity } from './mirror';
 import type { DeviceSelection } from './install';
-import { UI_TRIGGERS } from './uitree';
+import { concernsDevice, UI_TRIGGERS } from './uitree';
 import { inert, quoted } from './text';
 
 export interface AppLogsClient {
@@ -90,7 +90,9 @@ export class AppLogsModel {
 		this.#source = source;
 		this.#offs.push(devices.subscribe(() => this.#deviceChanged()));
 		this.#offs.push(source.subscribe(() => this.#changed()));
-		this.#offs.push(activity.onTerminal(UI_TRIGGERS, () => void this.#reload()));
+		this.#offs.push(activity.onTerminal(UI_TRIGGERS, (op) => {
+			if (concernsDevice(op, this.#for)) void this.#reload();
+		}));
 	}
 
 	get view(): AppLogsView {

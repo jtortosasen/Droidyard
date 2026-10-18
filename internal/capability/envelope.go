@@ -3,6 +3,7 @@ package capability
 import (
 	"encoding/json"
 	"time"
+	"unicode/utf8"
 
 	"github.com/invopop/jsonschema"
 )
@@ -108,8 +109,8 @@ const (
 
 // OperationState is the payload of an operation.state event. The envelope's operation
 // and workspace name the operation. It carries who asked and where the operation
-// stands, never what was asked or answered: no parameter, result, message or cause (the
-// trace line's rule; ADR-0043 §2).
+// stands, never what was asked or answered: no parameter but the descriptor's declared
+// target (ADR-0076), no result, message or cause (the trace line's rule; ADR-0043 §2).
 type OperationState struct {
 	Capability string `json:"capability" jsonschema:"required"`
 	// Client is the kind of session that made the call; omitted for a call recorded
@@ -122,9 +123,64 @@ type OperationState struct {
 	// Session is the session that made the call (ADR-0048); omitted for a call recorded
 	// without one.
 	Session *SessionRef `json:"session,omitempty" jsonschema_description:"The session that made the call; omitted for a call recorded without one."`
+	// Target is what the call acts on (ADR-0076); omitted when its capability declares
+	// none or every field is empty.
+	Target *OpTarget `json:"target,omitempty" jsonschema_description:"What the call acts on: the device, AVD, module and variant of its parameters; omitted for a capability that declares none."`
 	// Code is set on a failed operation's terminal event only.
 	Code      ErrorCode  `json:"code,omitempty" jsonschema_description:"Set on a failed operation's terminal event."`
 	BlockedBy *BlockedBy `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
+}
+
+// OpTargetMax is the most bytes each field of an OpTarget keeps (ADR-0076 §1).
+const OpTargetMax = 200
+
+// OpTarget names what a recorded call acts on, on operation.state events and
+// operation.watch rows (ADR-0076): the caller's own validated parameters, declared per
+// descriptor by Descriptor.Target and fixed when the operation is recorded. Never device
+// or project text, so it is not untrusted; no other parameter travels with it.
+type OpTarget struct {
+	Device  string `json:"device,omitempty" jsonschema:"maxLength=200" jsonschema_description:"The device serial the call acts on."`
+	AVD     string `json:"avd,omitempty" jsonschema:"maxLength=200" jsonschema_description:"The AVD the call boots or wipes."`
+	Module  string `json:"module,omitempty" jsonschema:"maxLength=200" jsonschema_description:"The Gradle project path of the module the call builds or installs."`
+	Variant string `json:"variant,omitempty" jsonschema:"maxLength=200" jsonschema_description:"The variant the call builds or installs."`
+}
+
+// boundTarget is the target an operation records: each field cleaned of invalid UTF-8 and
+// of control and format characters (the decoded parameters are not checked against the
+// schema's patterns before the operation is recorded, so a value may hold a bidirectional
+// override), cut to OpTargetMax bytes on a character boundary, and nil when every field
+// ends empty (ADR-0076 §1).
+func boundTarget(t *OpTarget) *OpTarget {
+	if t == nil {
+		return nil
+	}
+	clean := func(s string) string { return cutBytes(stripInvisible(s), OpTargetMax) }
+	b := OpTarget{Device: clean(t.Device), AVD: clean(t.AVD), Module: clean(t.Module), Variant: clean(t.Variant)}
+	if b == (OpTarget{}) {
+		return nil
+	}
+	return &b
+}
+
+// cutBytes cuts s to at most n bytes without splitting a character.
+func cutBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// copy returns a copy of the target, so no event shares memory with the record; nil stays
+// nil.
+func (t *OpTarget) copy() *OpTarget {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
 }
 
 // SessionRef names the session that made a recorded call, on operation.state events and
@@ -163,6 +219,7 @@ type ActiveOperation struct {
 	StartedAt   time.Time   `json:"startedAt" jsonschema:"required"`
 	BlockedBy   *BlockedBy  `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`
 	Session     *SessionRef `json:"session,omitempty" jsonschema_description:"The session that made the call; omitted for a call recorded without one."`
+	Target      *OpTarget   `json:"target,omitempty" jsonschema_description:"What the call acts on; omitted for a capability that declares none."`
 }
 
 // Object is a JSON object whose shape is named elsewhere: for operation_wait, by the

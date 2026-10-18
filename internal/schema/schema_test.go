@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -283,5 +284,64 @@ func TestNoCapabilityTakesASessionID(t *testing.T) {
 	}
 	if len(doc.Capabilities) == 0 {
 		t.Fatal("the schema has no capabilities")
+	}
+}
+
+// TestTargetsFollowTheParameters is the decision of ADR-0076 §2: a capability that takes a
+// device declares a target naming it, so its operations mirror per device, and one that
+// does not take one declares none; the AVD and module capabilities likewise. A new
+// capability with a `device` parameter and no Target fails here, which is the point: it
+// would otherwise mirror as untargeted and reload every device's panels (ADR-0076
+// Consequences). The expected set is stated, so build.run (its tasks are not a target)
+// and the capabilities whose parameters name nothing are pinned too.
+func TestTargetsFollowTheParameters(t *testing.T) {
+	declared := map[string]bool{}
+	for _, d := range registry().All() {
+		pt := reflect.TypeOf(d.Params)
+		fieldOf := func(json string) (reflect.StructField, bool) {
+			if pt == nil || pt.Kind() != reflect.Struct {
+				return reflect.StructField{}, false
+			}
+			for i := 0; i < pt.NumField(); i++ {
+				if strings.Split(pt.Field(i).Tag.Get("json"), ",")[0] == json && pt.Field(i).Type.Kind() == reflect.String {
+					return pt.Field(i), true
+				}
+			}
+			return reflect.StructField{}, false
+		}
+		dev, hasDevice := fieldOf("device")
+		avd, hasAVD := fieldOf("avd")
+		if d.Target == nil {
+			if hasDevice || hasAVD {
+				t.Errorf("%s takes a device or an AVD and declares no Target (ADR-0076 §2)", d.Name)
+			}
+			continue
+		}
+		declared[d.Name] = true
+		v := reflect.New(pt).Elem()
+		if hasDevice {
+			v.FieldByName(dev.Name).SetString("serial-1")
+		}
+		if hasAVD {
+			v.FieldByName(avd.Name).SetString("avd-1")
+		}
+		got := d.Target(v.Interface())
+		switch {
+		case hasDevice && (got == nil || got.Device != "serial-1"):
+			t.Errorf("%s: Target = %+v; want the device parameter, serial-1", d.Name, got)
+		case hasAVD && (got == nil || got.AVD != "avd-1"):
+			t.Errorf("%s: Target = %+v; want the avd parameter, avd-1", d.Name, got)
+		}
+	}
+	want := []string{"build.assemble", "device.inputText", "device.install", "device.launch", "device.logs",
+		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiTree",
+		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe"}
+	var got []string
+	for name := range declared {
+		got = append(got, name)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("the capabilities that declare a Target are\n%v\nwant (ADR-0076 §2)\n%v", got, want)
 	}
 }

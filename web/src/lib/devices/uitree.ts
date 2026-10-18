@@ -8,6 +8,7 @@
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { failure, type Failure } from '../build/failure';
+import type { Operation } from '../ops/activity';
 import type { DevicesActivity } from './mirror';
 import type { DeviceSelection } from './install';
 import { inert, quoted } from './text';
@@ -112,6 +113,16 @@ export function shortClass(cls: string): string {
 /** What a tap, a typed text, a launch or an install changes on the screen. */
 export const UI_TRIGGERS = ['device.tapElement', 'device.inputText', 'device.launch', 'device.install'] as const;
 
+/**
+ * Whether a terminal operation may have changed `device`'s screen (ADR-0076): it is on that
+ * device, or names no device (a capability that declares no target, so it mirrors as it did
+ * before the target existed).
+ */
+export function concernsDevice(op: Pick<Operation, 'target'>, device: string): boolean {
+	const named = op.target?.device;
+	return named === undefined || named === '' || named === device;
+}
+
 export class UiTreeModel {
 	#client: UiTreeClient;
 	#devices: DeviceSelection;
@@ -131,9 +142,11 @@ export class UiTreeModel {
 		this.#client = client;
 		this.#devices = devices;
 		this.#offs.push(devices.subscribe(() => this.#deviceChanged()));
-		// Only while a tree is shown, and only for the selected device (the operation view
-		// does not name the device, so an action on another device costs one extra read).
-		this.#offs.push(activity.onTerminal(UI_TRIGGERS, () => void this.#reload()));
+		// Only while a tree is shown, and only for an operation on its device or on none in
+		// particular (ADR-0076): another device's tap costs no read.
+		this.#offs.push(activity.onTerminal(UI_TRIGGERS, (op) => {
+			if (concernsDevice(op, this.#for)) void this.#reload();
+		}));
 	}
 
 	get view(): UiTreeView {

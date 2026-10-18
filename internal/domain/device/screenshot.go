@@ -56,6 +56,7 @@ func registerScreenshot(reg *capability.Registry, adb *ADB, store *artifact.Stor
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Captures the device's screen as a PNG and returns an ephemeral artifact reference with its size, not the bytes. Read it with artifact.read, which can downscale or crop it; prefer device.uiTree when text is enough.",
 		Params:       ScreenshotParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(ScreenshotParams).Device) },
 		Result:       ScreenshotResult{},
 		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrScreenshotFailed),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
