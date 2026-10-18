@@ -395,5 +395,12 @@ func trashDelete(gate *trashGate, ready chan<- struct{}, root string, paths []st
 	if _, err := (cli.Call{Capability: capability.OperationWait, Params: wait}).Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil); err != nil {
 		return trashResult{unknown: fmt.Sprintf("waiting for the delete failed: %v", err)}
 	}
+	// A daemon that replaced the one that took the delete knows no such operation: some
+	// paths may already be in the old daemon's trash. Any other error envelope is the
+	// delete's own answer (a whole-batch refusal), which moved nothing.
+	var env capability.ResponseEnvelope
+	if json.Unmarshal(out.Bytes(), &env) == nil && env.Error != nil && env.Error.Code == capability.ErrOperationNotFound {
+		return trashResult{unknown: fmt.Sprintf("the daemon no longer knows the delete (%s: %s)", env.Error.Code, env.Error.Message)}
+	}
 	return trashResult{out: out.Bytes()}
 }
