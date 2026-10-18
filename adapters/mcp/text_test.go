@@ -36,8 +36,12 @@ func renderNote(r noteResult) string {
 }
 
 type fixture struct {
-	s     *Server
-	ops   *capability.Operations
+	s   *Server
+	ops *capability.Operations
+	// ctx carries the one MCP session the fixture's calls come from: operation_wait
+	// reaches the operations of its own session (ADR-0101), so a test that starts an
+	// operation itself starts it as this session.
+	ctx   context.Context
 	note  string // the note the fixtures return
 	texts bool   // whether the fixtures declare their rendering
 }
@@ -78,7 +82,8 @@ func newFixture(t *testing.T, note string, withText bool) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{s: s, ops: ops, note: note, texts: withText}
+	ctx := context.WithValue(context.Background(), sessionKey{}, &session{ctx: context.Background(), budget: DefaultBudget, sessions: ops.Sessions(), id: "fixture-session"})
+	return &fixture{s: s, ops: ops, ctx: ctx, note: note, texts: withText}
 }
 
 func (f *fixture) call(t *testing.T, tool string, args string) *mcpgo.CallToolResult {
@@ -88,7 +93,7 @@ func (f *fixture) call(t *testing.T, tool string, args string) *mcpgo.CallToolRe
 			var req mcpgo.CallToolRequest
 			req.Params.Name = tool
 			req.Params.RawArguments = json.RawMessage(args)
-			r, err := st.Handler(context.Background(), req)
+			r, err := st.Handler(f.ctx, req)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +138,7 @@ func TestTheTextBlockIsTheDeclaredRendering(t *testing.T) {
 func TestOperationWaitRendersLikeTheTool(t *testing.T) {
 	f := newFixture(t, hostile, true)
 	direct := f.call(t, "fixture_long", `{}`)
-	id, err := f.ops.Start(context.Background(), capability.Request{Capability: "fixture.long", Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+	id, err := f.ops.Start(context.Background(), capability.Request{Capability: "fixture.long", Params: json.RawMessage(`{}`), Client: capability.ClientMCP, Origin: originOf(f.ctx)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +161,7 @@ func TestOperationWaitRendersLikeTheTool(t *testing.T) {
 func TestStructuredContentUnchanged(t *testing.T) {
 	with, without := newFixture(t, hostile, true), newFixture(t, hostile, false)
 	id := func(f *fixture) string {
-		id, err := f.ops.Start(context.Background(), capability.Request{Capability: "fixture.long", Params: json.RawMessage(`{}`), Client: capability.ClientMCP})
+		id, err := f.ops.Start(context.Background(), capability.Request{Capability: "fixture.long", Params: json.RawMessage(`{}`), Client: capability.ClientMCP, Origin: originOf(f.ctx)})
 		if err != nil {
 			t.Fatal(err)
 		}

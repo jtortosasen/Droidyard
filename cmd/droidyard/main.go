@@ -37,6 +37,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	proc "github.com/jtortosasen/droidyard/internal/process"
@@ -245,6 +246,9 @@ func (r requirements) Missing(req capability.Requirement) (string, bool) {
 var (
 	// testCapabilities registers test-only capabilities beside the shipped ones.
 	testCapabilities func(reg *capability.Registry, sup *proc.Supervisor)
+	// testHosting registers test-only capabilities that reach the peer link, which the
+	// shipped binary reaches through no capability until a later step relays a device.
+	testHosting func(reg *capability.Registry, host *hosting.Host)
 	// testDrain replaces workspace.close's drain bound; zero keeps the default.
 	testDrain time.Duration
 	// adbEnviron is the environment adb is resolved in and its clients run with: the
@@ -285,12 +289,12 @@ var (
 // to log. internal/schema's test builds the same set for the golden file. caps and
 // schema, which run no capability, pass nil for all three. The device ADB is returned
 // so the daemon's shutdown can stop the UI readers and remove their forwards
-// (plan m1f step 5).
+// (plan m1f step 5); the peer link (ADR-0098) so serve can start it once it holds the lock.
 //
 // env is the daemon's environment: it decides where the state root and, with it, the
 // user configuration live, so an in-process test daemon reads its own configuration
 // and not this machine's (plan m1g step 3).
-func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *file.Watchers) {
+func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Writer) (*capability.Registry, *capability.Operations, *event.Bus, *artifact.Store, *device.ADB, *file.Watchers, *hosting.Host) {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	// The daemon's one event bus (overview.md §Events).
@@ -413,7 +417,19 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if dialogSeam != nil {
 		dialogSeam(&dialog)
 	}
-	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient, dialog: dialog}, adb, ops, problems, gradleClient, pol)
+	// The peer link (ADR-0098): the daemon's identity, the links it dials and what its
+	// listener reports. Nothing is read or written until serve starts it, once the daemon
+	// holds the lock, since the identity has one writer. Without a state store (caps,
+	// schema) there is none.
+	var host *hosting.Host
+	var hostHealth system.Hosting
+	if st != nil {
+		host = hosting.New(pol, stateRoot, system.Version, log)
+		hostHealth = host
+		base := problems
+		problems = func() []store.Problem { return append(base(), host.Problems()...) }
+	}
+	system.Register(reg, requirements{adb: adb, emulator: emulatorClient, gradle: gradleClient, dialog: dialog}, adb, ops, problems, gradleClient, pol, hostHealth)
 	artifacts, err := artifact.New(artifact.Options{Epoch: bus.Position().Epoch, StateRoot: stateRoot})
 	if err != nil {
 		panic(err) // the bus mints a well-formed epoch
@@ -576,7 +592,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if testCapabilities != nil {
 		testCapabilities(reg, sup)
 	}
-	return reg, ops, bus, artifacts, adb, watchers
+	if testHosting != nil && host != nil {
+		testHosting(reg, host)
+	}
+	return reg, ops, bus, artifacts, adb, watchers, host
 }
 
 // shellStarter adapts the supervisor's recorded spawner to shell.exec's starter: the
@@ -610,7 +629,7 @@ func gitWriteStarter(sup *proc.Supervisor) gitdomain.RecordedStarter {
 }
 
 func printCaps() error {
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	for _, d := range reg.All() {
 		a := d.ResolveAnnotations()
 
@@ -647,7 +666,7 @@ func printCaps() error {
 }
 
 func printSchema() error {
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return err

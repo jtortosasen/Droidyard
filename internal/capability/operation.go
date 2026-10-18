@@ -18,15 +18,18 @@ import (
 	"unicode"
 )
 
-// ClientKind is what a session's hello says it is (ADR-0019 §7), or ui for an HTTP
-// request (ADR-0015 §6). The core reads it for one rule: human-audience capabilities
-// are refused to MCP (ADR-0015 §6).
+// ClientKind is what a session's hello says it is (ADR-0019 §7), ui for an HTTP request
+// (ADR-0015 §6), or peer for a paired Droidyard on the peer link (ADR-0098 §5). The core
+// reads it for three rules: human-audience capabilities are refused to MCP (ADR-0015 §6),
+// only a Lendable capability is served to a peer (ADR-0098 §3), and an MCP session or a
+// peer reaches only its own operations (ADR-0101).
 type ClientKind string
 
 const (
-	ClientCLI ClientKind = "cli"
-	ClientMCP ClientKind = "mcp"
-	ClientUI  ClientKind = "ui"
+	ClientCLI  ClientKind = "cli"
+	ClientMCP  ClientKind = "mcp"
+	ClientUI   ClientKind = "ui"
+	ClientPeer ClientKind = "peer"
 )
 
 // Session is a session that can carry the state and the stream of a stateful or
@@ -91,10 +94,15 @@ type Origin struct {
 	// ID is the daemon session's id; empty means the call has no session.
 	ID string
 	// Name is what the client calls itself (for MCP, clientInfo.name); empty before it
-	// is known. The store bounds it (SessionName).
+	// is known. For a peer it is the name the host's configuration gives it, never one the
+	// peer sends (ADR-0098 §5). The store bounds it (SessionName).
 	Name string
 	// Root is the session's bound root; empty for an unbound session.
 	Root string
+	// Client is the kind of the connection the call came in on. Invoke and Start fill it
+	// from Request.Client when an adapter left it empty, so the core never reads a kind the
+	// adapter did not state.
+	Client ClientKind
 }
 
 // SessionNameMax is the most runes a SessionRef's name keeps (ADR-0048 §1).
@@ -160,6 +168,10 @@ type operation struct {
 	// parameters; nil when it declares none. Fixed when the operation is recorded
 	// (ADR-0076).
 	target *OpTarget
+	// owner is who may wait on and cancel the operation besides the UI and the CLI
+	// (ADR-0101). Fixed when the operation is recorded, so it holds after the session that
+	// started the operation has gone.
+	owner opOwner
 
 	// Guarded by Operations.mu.
 	// announced is set where the operation's start event is queued, so Active never
@@ -181,6 +193,16 @@ type operation struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+}
+
+// opOwner is what the core remembers of the session that started an operation, for the
+// check operation.wait and operation.cancel make (ADR-0101). The chat is read from the
+// session registry when the operation starts, not when it is asked about: the session may
+// have ended by then, and a session of the same chat that connects later reaches it.
+type opOwner struct {
+	session string // the starting session's id; empty without one
+	chat    string // an MCP session's chat id (ADR-0088); empty without one
+	peer    string // a peer's configured name
 }
 
 // Workspaces admits workspace-scoped calls. The workspace registry implements it;
@@ -331,7 +353,53 @@ func (o *Operations) Start(ctx context.Context, req Request) (string, error) {
 	if !d.Recorded() {
 		return "", fmt.Errorf("capability %s is not an operation: call it through Invoke", d.Name)
 	}
-	return o.start(ctx, d, params, req.Workspace, req.Session, req.Client, req.Origin)
+	return o.start(ctx, d, params, req.Workspace, req.Session, req.Client, req.Origin.stamped(req.Client))
+}
+
+// stamped is the origin with Client set to the request's client: the core, not the
+// adapter, says who is calling, so the Lendable gate and a wait's reach read one kind
+// (ADR-0101).
+func (g Origin) stamped(client ClientKind) Origin {
+	g.Client = client
+	return g
+}
+
+// ownerOf is the owner an operation of this client and origin records (ADR-0101): an MCP
+// session's chat as the registry holds it now, a peer's configured name.
+func (o *Operations) ownerOf(client ClientKind, origin Origin) opOwner {
+	owner := opOwner{session: origin.ID}
+	switch client {
+	case ClientMCP:
+		owner.chat = o.sessions.Chat(origin.ID)
+	case ClientPeer:
+		owner.peer = SessionName(origin.Name)
+	}
+	return owner
+}
+
+// reaches reports whether the caller may wait on or cancel op (ADR-0101): the UI and the
+// CLI any operation (Activity, and resuming after a reconnect); an MCP session its own
+// session's or its chat's; a peer the operations of its own name. Any other kind reaches
+// none. It reads only what the record fixed when it was made, so it needs no lock of the
+// store's.
+func (o *Operations) reaches(op *operation, who Origin) bool {
+	switch who.Client {
+	case ClientUI, ClientCLI, "":
+		return true
+	case ClientMCP:
+		if op.client != ClientMCP {
+			return false
+		}
+		if who.ID != "" && who.ID == op.owner.session {
+			return true
+		}
+		chat := o.sessions.Chat(who.ID)
+		return chat != "" && chat == op.owner.chat
+	case ClientPeer:
+		name := SessionName(who.Name)
+		return op.client == ClientPeer && name != "" && name == op.owner.peer
+	}
+	return false
 }
 
 // sessionRef is the SessionRef an origin becomes when its operation is recorded: nil
@@ -361,7 +429,7 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 	if d.Target != nil {
 		tgt = boundTarget(d.Target(params))
 	}
-	op := &operation{id: id, capability: d.Name, client: client, session: o.sessionRef(origin), target: tgt, started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
+	op := &operation{id: id, capability: d.Name, client: client, session: o.sessionRef(origin), target: tgt, owner: o.ownerOf(client, origin), started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
 	call := &Call{
 		OperationID: id,
 		Workspace:   target,
@@ -734,12 +802,28 @@ func (o *Operations) execute(ctx context.Context, op *operation, d Descriptor, c
 // snapshot. Waiting changes no operation's state, though a snapshot slims a retained
 // result (ADR-0020, 2026-10-04). When ctx ends, Wait returns ctx's error and the
 // operation runs on.
+//
+// Wait is for the session that started the operation, which holds its id: it checks no
+// owner. A call that came with an id from elsewhere goes through WaitAs.
 func (o *Operations) Wait(ctx context.Context, id string, deadline time.Time) (Outcome, error) {
 	op, err := o.lookup(id)
 	if err != nil {
 		return Outcome{}, err
 	}
+	return o.wait(ctx, op, deadline)
+}
 
+// WaitAs is Wait for a caller that named the id: an operation the caller does not reach
+// (ADR-0101) is OPERATION_NOT_FOUND, as an unknown one is.
+func (o *Operations) WaitAs(ctx context.Context, who Origin, id string, deadline time.Time) (Outcome, error) {
+	op, err := o.lookupFor(id, who)
+	if err != nil {
+		return Outcome{}, err
+	}
+	return o.wait(ctx, op, deadline)
+}
+
+func (o *Operations) wait(ctx context.Context, op *operation, deadline time.Time) (Outcome, error) {
 	var expired <-chan time.Time
 	if !deadline.IsZero() {
 		d := deadline.Sub(o.now())
@@ -761,24 +845,39 @@ func (o *Operations) Wait(ctx context.Context, id string, deadline time.Time) (O
 
 // Cancel asks a running operation to stop by cancelling its handler's context. It
 // does not wait. A queued operation is cancelled at once and never runs. Cancelling a
-// terminal operation is a no-op.
+// terminal operation is a no-op. Like Wait, it checks no owner; CancelAs does.
 func (o *Operations) Cancel(id string) error {
 	op, err := o.lookup(id)
 	if err != nil {
 		return err
 	}
+	o.cancelOp(op)
+	return nil
+}
+
+// CancelAs is Cancel for a caller that named the id: an operation the caller does not
+// reach (ADR-0101) is OPERATION_NOT_FOUND, as an unknown one is.
+func (o *Operations) CancelAs(who Origin, id string) error {
+	op, err := o.lookupFor(id, who)
+	if err != nil {
+		return err
+	}
+	o.cancelOp(op)
+	return nil
+}
+
+func (o *Operations) cancelOp(op *operation) {
 	defer o.flush() // runs after the unlock below
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if op.state.Terminal() {
-		return nil
+		return
 	}
 	op.cancelRequested = true
 	op.cancel()
 	if op.state == StateQueued {
 		o.endQueuedLocked(op)
 	}
-	return nil
 }
 
 // CancelWorkspace cancels every operation of the workspace id, running or queued,, as a close
@@ -853,15 +952,18 @@ func (o *Operations) Invoke(ctx context.Context, req Request) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
+	origin := req.Origin.stamped(req.Client)
 	if d.Recorded() {
-		id, err := o.start(ctx, d, params, req.Workspace, req.Session, req.Client, req.Origin)
+		id, err := o.start(ctx, d, params, req.Workspace, req.Session, req.Client, origin)
 		if err != nil {
 			return Outcome{}, err
 		}
 		return o.Wait(ctx, id, time.Time{})
 	}
 
-	call := &Call{Params: params, Session: req.Session, Progress: func(int, int, string) {}}
+	// The origin reaches the handler of a call that is not an operation: operation.wait and
+	// operation.cancel compare it with the operation's owner (ADR-0101).
+	call := &Call{Params: params, Session: req.Session, Origin: origin, Progress: func(int, int, string) {}}
 	res, err := d.Handler(ctx, call)
 	if err != nil {
 		return Outcome{}, err
@@ -884,6 +986,12 @@ func (o *Operations) prepare(req Request) (Descriptor, any, error) {
 	if !ok {
 		return Descriptor{}, nil, Errorf(ErrCapabilityNotFound, "no capability named %q", req.Capability).
 			WithNextStep("call system.capabilities to list what exists")
+	}
+	if req.Client == ClientPeer && !d.Lendable {
+		// Before anything is recorded, for every adapter, as the audience check below is for
+		// MCP: a peer reaches the capabilities a host lends and no other (ADR-0098 §3).
+		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is not lent to peers", d.Name).
+			WithNextStep("a peer can call only the capabilities a host lends; this one runs on the host's own channels")
 	}
 	if d.Audience == AudienceHuman && req.Client == ClientMCP {
 		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is for humans and cannot be called over MCP", d.Name).
@@ -1166,9 +1274,27 @@ func (o *Operations) lookup(id string) (*operation, error) {
 	o.prune()
 	op, ok := o.ops[id]
 	if !ok {
-		return nil, Errorf(ErrOperationNotFound, "no operation %q: it never existed or is past retention", id)
+		return nil, notFound(id)
 	}
 	return op, nil
+}
+
+// lookupFor is lookup for a caller that named the id. An operation it does not reach is
+// answered with the very error an unknown id gets, text included, so the answer tells it
+// nothing about another session's operations (ADR-0101).
+func (o *Operations) lookupFor(id string, who Origin) (*operation, error) {
+	op, err := o.lookup(id)
+	if err != nil {
+		return nil, err
+	}
+	if !o.reaches(op, who) {
+		return nil, notFound(id)
+	}
+	return op, nil
+}
+
+func notFound(id string) *Error {
+	return Errorf(ErrOperationNotFound, "no operation %q: it never existed or is past retention", id)
 }
 
 // prune drops terminal operations older than retainFor, keeping at least the last

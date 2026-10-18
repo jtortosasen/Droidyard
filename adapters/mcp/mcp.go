@@ -529,7 +529,16 @@ func (c *session) root() string {
 // initialize (empty before it), and the bound root (ADR-0048): the binding as it stands
 // when the call is made, so it follows a workspace_enter. The core bounds the name.
 func (c *session) origin() capability.Origin {
-	return capability.Origin{ID: c.id, Root: c.root(), Name: c.clientName()}
+	return capability.Origin{ID: c.id, Root: c.root(), Name: c.clientName(), Client: capability.ClientMCP}
+}
+
+// originOf is the origin of the calls the context's session makes; a context that carries
+// none is an MCP call without a session.
+func originOf(ctx context.Context) capability.Origin {
+	if c := sessionOf(ctx); c != nil {
+		return c.origin()
+	}
+	return capability.Origin{Client: capability.ClientMCP}
 }
 
 // clientName is what the client called itself, "" before it has.
@@ -736,7 +745,10 @@ func (s *Server) operationWait(ctx context.Context, req mcpgo.CallToolRequest) (
 	if token := progressTokenOf(req); token != nil && s.bus != nil && target.OperationID != "" {
 		p = s.watch(ctx, token, target.OperationID, s.bus.Position())
 	}
-	out, err := s.ops.Invoke(ctx, capability.Request{Capability: capability.OperationWait, Params: args, Client: capability.ClientMCP})
+	// The session's origin goes with the call: operation_wait reaches the operations of the
+	// session and of its chat, and no other's (ADR-0101).
+	origin := originOf(ctx)
+	out, err := s.ops.Invoke(ctx, capability.Request{Capability: capability.OperationWait, Params: args, Client: capability.ClientMCP, Origin: origin})
 	p.end()
 	if err == nil {
 		return viewOf(out, s.texts[out.Capability]), nil
@@ -744,9 +756,9 @@ func (s *Server) operationWait(ctx context.Context, req mcpgo.CallToolRequest) (
 	if ctx.Err() == nil {
 		return errorResult(capability.AsError(err)), nil
 	}
-	// Abandoned: say where the operation stands. A session that is gone is written
-	// nothing anyway.
-	snap, err := s.ops.Wait(context.Background(), target.OperationID, time.Now())
+	// Abandoned: say where the operation stands, through the same check. A session that is
+	// gone is written nothing anyway.
+	snap, err := s.ops.WaitAs(context.Background(), origin, target.OperationID, time.Now())
 	if err != nil {
 		return errorResult(capability.AsError(err)), nil
 	}
@@ -793,8 +805,9 @@ func (s *Server) abandoned(ctx context.Context, id string, answer func(capabilit
 		// Never written: the session's writer drops everything once it is gone.
 		return &mcpgo.CallToolResult{IsError: true}
 	}
-	s.ops.Cancel(id)
-	if out, err := s.ops.Wait(context.Background(), id, time.Now()); err == nil && out.State.Terminal() {
+	origin := c.origin()
+	s.ops.CancelAs(origin, id)
+	if out, err := s.ops.WaitAs(context.Background(), origin, id, time.Now()); err == nil && out.State.Terminal() {
 		return answer(out)
 	}
 	return errorResult(capability.Errorf(capability.ErrOperationCancelled, "operation %s was cancelled at the client's request", id))

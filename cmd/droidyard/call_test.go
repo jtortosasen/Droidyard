@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	proc "github.com/jtortosasen/droidyard/internal/process"
@@ -39,6 +40,8 @@ type slowResult struct {
 
 type inProcess struct {
 	d        *daemon.Daemon
+	reg      *capability.Registry
+	host     *hosting.Host // the peer link, not started: a test that wants it calls startPeers
 	mcp      *mcpadapter.Server
 	http     *httpapi.Server // the UI's HTTP side, for its test seams
 	ops      *capability.Operations
@@ -170,11 +173,12 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 		gradleLaunch, gradleFinder = adb.gradle.launch, adb.gradle.finder
 	}
 	watchTick = tick
-	reg, ops, bus, artifacts, deviceADB, watchers := registry(env, st, sup, os.Stderr)
+	reg, ops, bus, artifacts, deviceADB, watchers, host := registry(env, st, sup, os.Stderr)
 	adbEnviron, adbExec, adbStreamWrap, watchTick = oldEnv, oldExec, oldWrap, oldTick
 	gradleLaunch, gradleFinder = oldLaunch, oldFinder
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
+	p.reg, p.host = reg, host
 	p.ops, p.bus, p.store = ops, bus, artifacts
 	p.watchers = watchers
 	p.adb = deviceADB

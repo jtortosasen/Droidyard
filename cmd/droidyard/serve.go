@@ -19,6 +19,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/adapters/httpapi"
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
+	"github.com/jtortosasen/droidyard/adapters/peer"
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
@@ -26,6 +27,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
@@ -176,7 +178,7 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: logw})
-	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, logw)
+	reg, ops, bus, artifacts, adb, _, host := registry(env, st, sup, logw)
 	defer artifacts.Close()
 	socket := env.SocketPath(state)
 	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb, logw)
@@ -194,17 +196,49 @@ func serve(args []string) int {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
 	}
+	// The peer link (ADR-0098), once the lock is held: the identity has one writer. A daemon
+	// that cannot make one runs without peers.
+	stopPeers := startPeers(host, reg, ops, bus, logw)
 	fmt.Fprintf(logw, "droidyard serve (pid %d): holding %s/%s, listening on %s\n", os.Getpid(), state, daemon.LockFile, socket)
 
 	<-ctx.Done()
 	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	// The peers first: no peer request reaches the operations the shutdown cancels.
+	stopPeers()
 	if err := d.Shutdown(sctx); err != nil {
 		fmt.Fprintln(logw, "droidyard serve: shutdown:", err)
 		return 1
 	}
 	fmt.Fprintf(logw, "droidyard serve (pid %d): stopped\n", os.Getpid())
 	return 0
+}
+
+// startPeers makes the daemon's identity, binds the peer listener when hosting.listen is
+// set and dials each remote, and returns the function that stops them all and waits. A
+// configuration that cannot be used binds and dials nothing: system.health says so through
+// its config (ADR-0032 §4).
+func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, logw io.Writer) (stop func()) {
+	if err := host.Init(); err != nil {
+		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer identity: %v\n", os.Getpid(), err)
+		return func() {}
+	}
+	listen := ""
+	if h, err := host.Hosting(); err != nil {
+		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer listener: %s\n", os.Getpid(), err.Cause)
+	} else {
+		listen = h.Listen
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Listen: listen, API: system.Version, Log: logw})
+	go func() { defer close(done); srv.Run(ctx) }()
+	host.Start()
+	return func() {
+		cancel()
+		<-done
+		host.Stop()
+	}
 }
 
 // logFile is the detached daemon's stdout and stderr (ADR-0021 §Layout).

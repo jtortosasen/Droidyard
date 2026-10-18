@@ -156,7 +156,7 @@ func initCmd(args []string, out, errw io.Writer) int {
 			return 1
 		}
 	}
-	reg, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	tools := readOnlyTools(mcpTools(reg))
 
 	res, err := assistant.Run(assistant.Options{

@@ -105,7 +105,10 @@ Written before 2s merges: 2s's decisions are named by their m2s question (its oc
 - Not here: devices (step 2); the lease (step 6); the CLI (step 7). The browser never reaches the peer port.
 - Rests on: only a peer whose fingerprint is in `hosting.peers` at that moment reaches the capability layer, only for a `Lendable` capability, and no session but a human channel reaches another's operation. Level 4 (real processes, real TLS, real shims).
 - Review: the Opus verifier (security, contract, process lifetime), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18.
+  - `TestPeerLink` (two real `serve` processes, real TLS; eight subtests), `TestWaitOwnOperations` (real shims, the UI's WebSocket, the CLI, a peer link), `TestIdentity`, `TestHostingConfig`, `adapters/peer`'s round trip, revocation, bind retry and hello rows; `TestToolListModelFacingBytes` unchanged. `go test ./...` green at the step's commit.
+  - Reversals, each seen failing: the host's pin removed; the client's pin skipped; the pin read only at the handshake; the Lendable gate removed; a failed bind ending `serve`; the chat read from the live registry. `mcp.go` passing no `Origin` fails closed (A's own wait is refused) rather than at B's. The Opus verifier (effort `high`) reran three by `-overlay`: gate, sweep, chat; all caught. Verdict proceed, no blocking finding.
+  - Review fixes by the main session: a listener that failed after binding latched its sessions closed, so the rebound one refused every peer (`EndAll`, `TestPeerEndAllKeepsAccepting`); the core stamps `Origin.Client` from the request always, so the gate and a wait's reach read one kind.
 
 ### 2. Lent devices on the client, called through the link (the first end to end)
 
@@ -389,3 +392,4 @@ Each has a recommendation, applied as Delegated under the owner's standing instr
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-18, at approval: ADR-A to ADR-E and ADR-G are numbered ADR-0097 to ADR-0101 and ADR-0103. ADR-F (Q6) keeps its letter until it is written after step 8 (a), with the reserved number 0102. Q3 is split: ADR-0099 decides §1–§4 and §6; §5, the lease, is **ADR-L** (reserved number 0104), written at step 6 once 2s's occupation ADR (m2s Q1) is on `main`, since it supersedes that ADR in part and `doccheck` needs both files. Where this plan says ADR-0099 for the lease, read ADR-L.
+- 2026-10-18, step 1: the wire types (hello, `PeerProtocol`, `PeerPath`, close codes 4400, 4401, 4403) live in `internal/capability/peerwire.go`, since an adapter imports only the core (`TestAdaptersImportOnlyTheCore`); `adapters/peer` declares its own `Host` interface. `policy.get`'s and `policy.update`'s descriptions name the two new sections (human-only, no MCP text changes): step 1's Schema line gains them. `Registry.Register` refuses `Lendable` on a workspace-scoped, `RawTarget` or `Binding` capability; `lend` validation also requires a non-empty `to` and one entry per device. `Origin.Client` is added here (2s adds the same field; the core stamps it from the request). Not taken from the verifier: refusing `Lendable` with audience `human`, since `device.installUpload` is both (ADR-0099 §3); the peer is a human's channel.

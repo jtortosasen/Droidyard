@@ -162,15 +162,15 @@ func TestMCPLongRunning(t *testing.T) {
 
 	t.Run("notifications/cancelled on operation_wait abandons only the wait", func(t *testing.T) {
 		p := startInProcess(t)
-		detached := droidyard(t, p.state, "call", "--no-autostart", "--detach", "fixture.slow")
-		id := p.startedID(t)
-		if code := detached.wait(t); code != 0 {
-			t.Fatalf("the detached start exited %d", code)
+		// An operation of the chat's earlier session, still running.
+		id := earlierOp(t, p, "chat-abandon", "fixture.slow", false)
+		if got := p.startedID(t); got != id {
+			t.Fatalf("fixture.slow started as %s; want %s", got, id)
 		}
 
 		// A budget far above the test's patience: only the notification can end
 		// this wait early.
-		c := startShim(t, p.state, "client", "--wait", "60s")
+		c := shimInChat(t, p, "client", "chat-abandon", "--wait", "60s")
 		c.initialize("abandon")
 		c.callTool(1, "operation_wait", `{"operationId":"`+id+`"}`)
 		time.Sleep(300 * time.Millisecond)

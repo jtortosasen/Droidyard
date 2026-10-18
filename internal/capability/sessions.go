@@ -206,6 +206,17 @@ func (s *Sessions) Binding(id string) (root string, ok bool) {
 	return r.root, true
 }
 
+// Chat is the chat id the session's hello named, "" when it named none or the session is
+// not registered.
+func (s *Sessions) Chat(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.byID[id]; r != nil {
+		return r.chat
+	}
+	return ""
+}
+
 // Project is the session's project root, "" when it has none (not registered, or
 // registered without a hello root).
 func (s *Sessions) Project(id string) string {

@@ -33,12 +33,16 @@ func TestQueuedOperationOnEveryAdapter(t *testing.T) {
 	})
 	t.Cleanup(func() { close(release) })
 
-	first, err := p.ops.Start(context.Background(), capability.Request{Capability: "fixture.keyed"})
+	// The operations are an MCP session's, of a chat the MCP subtest's shim resumes: an
+	// MCP session reaches the operations of its own chat only (ADR-0101).
+	p.ops.Sessions().Connect("earlier", "chat-queued")
+	earlier := capability.Request{Capability: "fixture.keyed", Client: capability.ClientMCP, Origin: capability.Origin{ID: "earlier"}}
+	first, err := p.ops.Start(context.Background(), earlier)
 	if err != nil {
 		t.Fatal(err)
 	}
 	<-started
-	second, err := p.ops.Start(context.Background(), capability.Request{Capability: "fixture.keyed"})
+	second, err := p.ops.Start(context.Background(), earlier)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +64,7 @@ func TestQueuedOperationOnEveryAdapter(t *testing.T) {
 		}
 	})
 	t.Run("MCP", func(t *testing.T) {
-		c := startShim(t, p.state, "client", "--wait", "200ms")
+		c := startShimEnv(t, p.state, "", "client", []string{chatEnv + "=chat-queued"}, []string{"mcp", "--no-autostart", "--wait", "200ms"})
 		c.initialize("queued")
 		c.callTool(1, "operation_wait", params)
 		r := decodeTool(t, c.recv(), 1)

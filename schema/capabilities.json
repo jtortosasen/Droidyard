@@ -1,5 +1,5 @@
 {
-  "version": "0.28.0",
+  "version": "0.29.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -8815,7 +8815,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.1.0",
-      "description": "Asks a running operation to stop, whichever session started it; cancelling a finished one does nothing. It does not wait: call operation.wait to see the operation end cancelled.",
+      "description": "Asks a running operation of your session or chat to stop; cancelling a finished one does nothing. It does not wait: call operation.wait to see the operation end cancelled.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -8978,7 +8978,8 @@
                   "enum": [
                     "cli",
                     "mcp",
-                    "ui"
+                    "ui",
+                    "peer"
                   ]
                 },
                 "state": {
@@ -9091,7 +9092,8 @@
                 "enum": [
                   "cli",
                   "mcp",
-                  "ui"
+                  "ui",
+                  "peer"
                 ]
               },
               "state": {
@@ -9200,7 +9202,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.10.0",
-      "description": "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices and shell sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
+      "description": "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices, shell, hosting and remotes sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -9297,6 +9299,100 @@
               "roots"
             ]
           },
+          "hosting": {
+            "properties": {
+              "listen": {
+                "type": "string",
+                "description": "The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."
+              },
+              "peers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                      "description": "The peer's name: the session name its operations carry. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the peers."
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The peer's certificate fingerprint as droidyard id prints it: 64 lowercase hex digits. Unique among the peers."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "fingerprint"
+                  ]
+                },
+                "type": "array",
+                "description": "The peers paired with this host; read at each request."
+              },
+              "lend": {
+                "items": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."
+                    },
+                    "to": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array",
+                      "minItems": 1,
+                      "description": "The names of the peers it is lent to."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "device",
+                    "to"
+                  ]
+                },
+                "type": "array",
+                "description": "The devices lent, and to whom; read at each call."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "peers",
+              "lend"
+            ]
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                  "description": "The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."
+                },
+                "address": {
+                  "type": "string",
+                  "description": "The host's peer listener, an IP literal and a port."
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "address",
+                "fingerprint"
+              ]
+            },
+            "type": "array",
+            "description": "The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
+          },
           "revision": {
             "type": "string",
             "description": "The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."
@@ -9310,6 +9406,8 @@
           "trust",
           "devices",
           "shell",
+          "hosting",
+          "remotes",
           "revision"
         ]
       }
@@ -9321,7 +9419,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.10.0",
-      "description": "Applies a JSON Merge Patch (RFC 7386) to the trust, devices and shell sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
+      "description": "Applies a JSON Merge Patch (RFC 7386) to the trust, devices, shell, hosting and remotes sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -9455,6 +9553,132 @@
               }
             ]
           },
+          "hosting": {
+            "oneOf": [
+              {
+                "properties": {
+                  "listen": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "description": "The address the peer listener binds, an IP literal and a port; read at daemon start."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "peers": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                              "description": "The peer's name: the session name its operations carry. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the peers."
+                            },
+                            "fingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "description": "The peer's certificate fingerprint as droidyard id prints it: 64 lowercase hex digits. Unique among the peers."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "fingerprint"
+                          ]
+                        },
+                        "type": "array",
+                        "description": "The peers paired with this host. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lend": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "properties": {
+                            "device": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."
+                            },
+                            "to": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array",
+                              "minItems": 1,
+                              "description": "The names of the peers it is lent to."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "device",
+                            "to"
+                          ]
+                        },
+                        "type": "array",
+                        "description": "The devices lent and to whom. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "The hosting section to merge: an object with listen, peers and/or lend, or null to remove the section and lend nothing."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remotes": {
+            "oneOf": [
+              {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                      "description": "The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."
+                    },
+                    "address": {
+                      "type": "string",
+                      "description": "The host's peer listener, an IP literal and a port."
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "address",
+                    "fingerprint"
+                  ]
+                },
+                "type": "array",
+                "description": "The remotes list, replacing the whole list, or null to remove it. Read at daemon start."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ifRevision": {
             "type": "string",
             "description": "The revision policy.get returned; the patch applies only if the file still has it, else POLICY_REVISION_CONFLICT."
@@ -9548,6 +9772,100 @@
               "roots"
             ]
           },
+          "hosting": {
+            "properties": {
+              "listen": {
+                "type": "string",
+                "description": "The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."
+              },
+              "peers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                      "description": "The peer's name: the session name its operations carry. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the peers."
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The peer's certificate fingerprint as droidyard id prints it: 64 lowercase hex digits. Unique among the peers."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "fingerprint"
+                  ]
+                },
+                "type": "array",
+                "description": "The peers paired with this host; read at each request."
+              },
+              "lend": {
+                "items": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."
+                    },
+                    "to": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array",
+                      "minItems": 1,
+                      "description": "The names of the peers it is lent to."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "device",
+                    "to"
+                  ]
+                },
+                "type": "array",
+                "description": "The devices lent, and to whom; read at each call."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "peers",
+              "lend"
+            ]
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                  "description": "The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."
+                },
+                "address": {
+                  "type": "string",
+                  "description": "The host's peer listener, an IP literal and a port."
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "address",
+                "fingerprint"
+              ]
+            },
+            "type": "array",
+            "description": "The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
+          },
           "revision": {
             "type": "string",
             "description": "The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."
@@ -9561,6 +9879,8 @@
           "trust",
           "devices",
           "shell",
+          "hosting",
+          "remotes",
           "revision"
         ]
       }
@@ -10875,6 +11195,86 @@
               "state",
               "toolKeys"
             ]
+          },
+          "identity": {
+            "properties": {
+              "fingerprint": {
+                "type": "string",
+                "description": "This daemon's certificate fingerprint, as droidyard id prints it: what a host pins to admit this daemon."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "fingerprint"
+            ]
+          },
+          "hosting": {
+            "properties": {
+              "listen": {
+                "type": "string",
+                "description": "The address the peer listener is bound to; absent when it is not."
+              },
+              "error": {
+                "type": "string",
+                "description": "Why hosting.listen is set and the listener is not bound; it is tried again every 30 s."
+              },
+              "peers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean",
+                      "description": "Whether the peer has a link open to this host now."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "connected"
+                  ]
+                },
+                "type": "array",
+                "description": "The peers in hosting.peers."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "peers"
+            ]
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "connected": {
+                  "type": "boolean",
+                  "description": "Whether the link to the remote is up: its host accepted this daemon and speaks the peer protocol."
+                },
+                "api": {
+                  "type": "string",
+                  "description": "The API version the remote's daemon reported; absent until the link has been up."
+                },
+                "error": {
+                  "type": "string",
+                  "description": "Why the link is down: the last failure to connect."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "connected"
+              ]
+            },
+            "type": "array",
+            "description": "The hosts in remotes, each with whether its link is up."
           }
         },
         "additionalProperties": false,

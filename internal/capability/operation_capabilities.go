@@ -29,14 +29,16 @@ type CancelParams struct {
 type CancelResult struct{}
 
 // RegisterCapabilities adds operation.wait, operation.cancel and session.watch to the
-// store's registry. Operation ids are daemon-wide, so the first two are global: any session,
-// or none, may wait on or cancel any operation (ADR-0020 §Operation capabilities). Their
-// calls are not operations and leave no record.
+// store's registry. Operation ids are daemon-wide, so the first two are global; what a
+// caller reaches by id is its own operations, an MCP session's or a peer's, and any for the
+// UI and the CLI (ADR-0101). Their calls are not operations and leave no record, and a
+// peer may call them (Lendable).
 func (o *Operations) RegisterCapabilities() {
 	o.reg.MustRegister(Descriptor{
 		Name:        OperationWait,
 		Kind:        Query,
 		Scope:       Global,
+		Lendable:    true,
 		Since:       "0.1.0",
 		Description: "Waits for an operation to finish, up to timeoutMs, and returns its state, progress and, once completed, its result. A timeoutMs of 0 reports the current state without waiting, and waiting never affects the operation.",
 		Params:      WaitParams{},
@@ -48,7 +50,7 @@ func (o *Operations) RegisterCapabilities() {
 			if p.TimeoutMs != nil {
 				deadline = o.now().Add(time.Duration(*p.TimeoutMs) * time.Millisecond)
 			}
-			return o.Wait(ctx, p.OperationID, deadline)
+			return o.WaitAs(ctx, call.Origin, p.OperationID, deadline)
 		},
 		unrecorded: true,
 	})
@@ -57,17 +59,17 @@ func (o *Operations) RegisterCapabilities() {
 		Name:        OperationCancel,
 		Kind:        Command,
 		Scope:       Global,
+		Lendable:    true,
 		Idempotent:  true,
 		Since:       "0.1.0",
-		Description: "Asks a running operation to stop, whichever session started it; cancelling a finished one does nothing. It does not wait: call operation.wait to see the operation end cancelled.",
+		Description: "Asks a running operation of your session or chat to stop; cancelling a finished one does nothing. It does not wait: call operation.wait to see the operation end cancelled.",
 		Params:      CancelParams{},
 		Result:      CancelResult{},
 		Errors:      []ErrorCode{ErrOperationNotFound},
 		// Destructive by the command default, kept on purpose: it stops in-flight
-		// work, possibly work the UI or another agent started
-		// (docs/interfaces/mcp.md §Annotations).
+		// work, possibly work the UI started (docs/interfaces/mcp.md §Annotations).
 		Handler: func(ctx context.Context, call *Call) (any, error) {
-			return CancelResult{}, o.Cancel(call.Params.(CancelParams).OperationID)
+			return CancelResult{}, o.CancelAs(call.Origin, call.Params.(CancelParams).OperationID)
 		},
 		unrecorded: true,
 	})

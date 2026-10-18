@@ -71,7 +71,7 @@ func registry() *capability.Registry {
 	// its descriptors matter here — no handler of the golden registry is ever run.
 	pol := policy.New(platform.Env{Getenv: func(string) string { return "" }})
 	policy.Register(reg, pol)
-	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil, pol)
+	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil, pol, nil)
 	store, err := artifact.New(artifact.Options{Epoch: "schema"})
 	if err != nil {
 		panic(err)

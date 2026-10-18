@@ -10,16 +10,19 @@
 // the proof is git's own files inside the trusted repository (platform.LinkedWorktree).
 // `droidyard trust <path>` still trusts exactly the path it is given.
 //
-// Version 1 of the file has five sections: `trust`, `devices`, `shell`, `gradle` and
-// `tools` (ADR-0032 §1). Every key is optional; a `null` value is its default. Unknown
-// keys, at the top level and inside a known section, are kept on every rewrite and
-// ignored, so a newer droidyard's keys survive an older one's edit. Every path is
-// absolute or the whole file is invalid (ADR-0032 §4): a relative entry would
-// canonicalise against the process's cwd, trusting or enabling the wrong thing.
+// Version 1 of the file has seven sections: `trust`, `devices`, `shell`, `gradle`,
+// `tools`, `hosting` and `remotes` (ADR-0032 §1; ADR-0098 §6). Every key is optional; a
+// `null` value is its default. Unknown keys, at the top level and inside a known section,
+// are kept on every rewrite and ignored, so a newer droidyard's keys survive an older
+// one's edit. Every path is absolute or the whole file is invalid (ADR-0032 §4): a
+// relative entry would canonicalise against the process's cwd, trusting or enabling the
+// wrong thing. A peer's or a remote's name, fingerprint or address that fails its rule
+// (hosting.go) makes the file invalid in the same way.
 //
-// The section a check reads — trust, shell, devices — is read from one size-and-mtime
-// snapshot, so a hand edit or a `droidyard trust` takes effect without a restart
-// (ADR-0031 §4; ADR-0032 §6). The tool keys are read once, at daemon start.
+// The section a check reads — trust, shell, devices, hosting — is read from one
+// size-and-mtime snapshot, so a hand edit or a `droidyard trust` takes effect without a
+// restart (ADR-0031 §4; ADR-0032 §6). The tool keys, `hosting.listen` and `remotes` are
+// read once, at daemon start.
 package policy
 
 import (
@@ -419,6 +422,9 @@ type GetResult struct {
 	Trust   TrustPolicy  `json:"trust" jsonschema:"required"`
 	Devices DevicePolicy `json:"devices" jsonschema:"required"`
 	Shell   ShellPolicy  `json:"shell" jsonschema:"required"`
+	// Hosting and Remotes are the peer sections (ADR-0098 §6).
+	Hosting HostingPolicy `json:"hosting" jsonschema:"required"`
+	Remotes []Remote      `json:"remotes" jsonschema:"required" jsonschema_description:"The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as <name>/<serial>."`
 	// Revision is the token policy.update's ifRevision compares against.
 	Revision string `json:"revision" jsonschema:"required" jsonschema_description:"The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."`
 }
@@ -455,6 +461,8 @@ func (p *Policy) Get() GetResult {
 		Trust:   TrustPolicy{Roots: []string{}, Prefixes: []string{}},
 		Devices: DevicePolicy{Allowlist: []string{}},
 		Shell:   ShellPolicy{Roots: []string{}},
+		Hosting: HostingPolicy{Peers: []HostPeer{}, Lend: []Lend{}},
+		Remotes: []Remote{},
 	}
 	if p.dirErr != nil {
 		res.State, res.Error = StateInvalid, p.dirErr.Error()
@@ -474,6 +482,8 @@ func (p *Policy) Get() GetResult {
 	res.Trust = TrustPolicy{Roots: nonNil(snap.doc.trust.roots), Prefixes: nonNil(snap.doc.trust.prefixes)}
 	res.Devices = DevicePolicy{AllowPhysical: snap.doc.devices.allowPhysical, Allowlist: nonNil(snap.doc.devices.allowlist)}
 	res.Shell = ShellPolicy{Enabled: snap.doc.shell.enabled, Roots: nonNil(snap.doc.shell.roots)}
+	res.Hosting, _ = p.Hosting()
+	res.Remotes, _ = p.Remotes()
 	return res
 }
 
@@ -491,7 +501,7 @@ func Register(reg *capability.Registry, p *Policy) {
 		Scope:       capability.Global,
 		Audience:    capability.AudienceHuman,
 		Since:       "0.10.0",
-		Description: "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices and shell sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
+		Description: "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices, shell, hosting and remotes sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
 		Params:      None{},
 		Result:      GetResult{},
 		Handler:     func(context.Context, *capability.Call) (any, error) { return p.Get(), nil },
@@ -503,7 +513,7 @@ func Register(reg *capability.Registry, p *Policy) {
 		Audience:    capability.AudienceHuman,
 		Since:       "0.10.0",
 		Idempotent:  true,
-		Description: "Applies a JSON Merge Patch (RFC 7386) to the trust, devices and shell sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
+		Description: "Applies a JSON Merge Patch (RFC 7386) to the trust, devices, shell, hosting and remotes sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
 		Params:      UpdateParams{},
 		Result:      GetResult{},
 		Errors:      []capability.ErrorCode{capability.ErrPolicyConfigUnusable, capability.ErrInvalidParams, capability.ErrPolicyRevisionConflict},
@@ -755,6 +765,8 @@ type document struct {
 	shell   shellSection
 	gradle  gradleSection
 	tools   toolsSection
+	hosting HostingPolicy
+	remotes []Remote
 }
 
 // trustSection is the trust section: the two known lists plus every other key, kept
@@ -822,6 +834,12 @@ func decode(data []byte) (*document, error) {
 		return nil, err
 	}
 	if err := decodeTools(top["tools"], doc); err != nil {
+		return nil, err
+	}
+	if err := decodeHosting(top["hosting"], doc); err != nil {
+		return nil, err
+	}
+	if err := decodeRemotes(top["remotes"], doc); err != nil {
 		return nil, err
 	}
 	return doc, nil

@@ -374,6 +374,7 @@ func Register(reg *capability.Registry, active func() []capability.ActiveOperati
 		Name:         CapUnsubscribe,
 		Kind:         capability.Command,
 		Scope:        capability.Global,
+		Lendable:     true,
 		Statefulness: capability.Stateful,
 		Idempotent:   true,
 		Since:        introduced,

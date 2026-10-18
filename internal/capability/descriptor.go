@@ -204,6 +204,13 @@ type Descriptor struct {
 
 	Audience Audience
 
+	// Lendable says a host serves the capability to a paired peer (ADR-0098 §3; ADR-0099
+	// §2). A peer's call to any other capability is REQUEST_NOT_ALLOWED_HERE, before
+	// anything is recorded. A host-global capability only: a peer names no workspace of
+	// the host's, holds no binding, and Register refuses the flag on any other. Not
+	// published: the peer protocol is internal to the two daemons.
+	Lendable bool
+
 	// Resource names the per-resource lock a call holds while it runs, as a function
 	// of the call: its decoded params (Call.Params) and, for a workspace-scoped
 	// capability, the canonical workspace id (Call.Workspace) — the key a build takes

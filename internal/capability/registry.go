@@ -77,6 +77,11 @@ func (r *Registry) Register(d Descriptor) error {
 		// connection can make (ADR-0082 §4).
 		return fmt.Errorf("capability %q: Binding is for a stateless capability of every audience, the MCP tool that moves a session's binding", d.Name)
 	}
+	if d.Lendable && (d.Scope != Global || d.RawTarget || d.Binding) {
+		// A peer is another person's daemon: a workspace capability would let it name the
+		// host's workspaces, and a binding belongs to a local MCP session (ADR-0099 §2).
+		return fmt.Errorf("capability %q: Lendable is for a global capability that is neither RawTarget nor Binding", d.Name)
+	}
 	if d.Audience == AudienceHuman && d.Scope == Global {
 		// Not an error by itself, but worth stating: human-only capabilities are
 		// rejected at the MCP transport, not hidden (ADR-0015 §6).
