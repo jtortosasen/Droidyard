@@ -312,6 +312,26 @@ func Register(reg *capability.Registry, opts Options) {
 		},
 	})
 
+	reg.MustRegister(capability.Descriptor{
+		Name:        "file.trash",
+		Kind:        capability.Query,
+		Scope:       capability.Workspace,
+		Audience:    capability.AudienceHuman,
+		Since:       trashVersion,
+		Description: "Lists the workspace's trash, the newest first, at most 200 entries, each with the id file.restore takes and, when known, who deleted it. It works after a daemon restart.",
+		Params:      TrashParams{},
+		Result:      TrashResult{},
+		// FILE_IO_FAILED: a daemon built without a trash, or a trash folder that cannot be read.
+		Errors: []capability.ErrorCode{capability.ErrFileIOFailed},
+		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			r, err := opts.resolver(call)
+			if err != nil {
+				return nil, err
+			}
+			return r.trashList(ctx)
+		},
+	})
+
 	// A watch creates a subscription, so it is a command, not a query (mcp.md
 	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
 	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
@@ -383,7 +403,7 @@ func (o Options) resolver(call *capability.Call) (*resolver, *capability.Error) 
 			WithNextStep("call workspace.open on it, then retry")
 	}
 	return &resolver{root: root, env: o.Env, maxCopyEntries: o.CopyMaxEntries, maxCopyBytes: o.CopyMaxBytes,
-		workspace: call.Workspace, trash: o.Trash, writeLocks: o.WriteLocks, maxRevision: o.RevisionMax}, nil
+		workspace: call.Workspace, trash: o.Trash, by: byOf(call.Origin), writeLocks: o.WriteLocks, maxRevision: o.RevisionMax}, nil
 }
 
 // openRoot opens the canonical root as an os.Root. Containment is the root's, so every
