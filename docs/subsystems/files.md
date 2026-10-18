@@ -8,9 +8,10 @@ Parameters, results, bounds and error lists are the descriptors' (`internal/doma
 ## Why this exists
 
 `file.*` serves the UI and the CLI; it is not on the agent surface
-([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)). Agents use their own tools, so
-their edits bypass the daemon: the tree sees them by polling, and the editor's `ifRevision`
-catches them. `file.*` needs no JVM, device or Gradle.
+([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)). Agents use their own tools:
+their edit tools' writes are recorded through the hooks and the tree walks at once
+([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md)); shell writes are seen by polling;
+the editor's `ifRevision` catches both. `file.*` needs no JVM, device or Gradle.
 
 ## Paths and containment
 

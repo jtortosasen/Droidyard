@@ -47,4 +47,4 @@ the output.
 | [m2p-live-device-view.md](m2p-live-device-view.md) | 2p — C3, a live device view: the screen streamed to the UI, with input | Done |
 | [m2q-sessions-own-worktrees.md](m2q-sessions-own-worktrees.md) | 2q — C2, sessions that own worktrees | Done |
 | [m2r-register-cleanup.md](m2r-register-cleanup.md) | 2r — Register cleanup: the quick rows, a block of fixes without devices, and an audit of the open rows | Done |
-| [m2s-occupation-of-worktrees-and-devices.md](m2s-occupation-of-worktrees-and-devices.md) | 2s — C2 completed: a session occupies its worktree and its device | Approved |
+| [m2s-occupation-of-worktrees-and-devices.md](m2s-occupation-of-worktrees-and-devices.md) | 2s — C2 completed: a session occupies its worktree and its device | Done |

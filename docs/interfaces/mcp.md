@@ -32,6 +32,10 @@ projection and the verdict on every MCP feature beyond tool calls.
   next session there first, under `workspace_enter`'s rule. The
   variable is not documented for MCP servers and cursor-agent sets none: then a resumed
   chat is bound to the main tree and enters again, as after a daemon restart.
+- **A session occupies the linked worktree it enters and the device it acts on**
+  ([ADR-0094](../adr/0094-occupation-by-a-session.md)): another chat is refused
+  `WORKSPACE_OCCUPIED` or `DEVICE_OCCUPIED` with the way out. Entering the main tree releases
+  both; so do the connection's end and the user's release.
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
 - The adapter opens the bound root when the session starts; if any client closes it
@@ -259,7 +263,7 @@ documented degradation path, or not advertised.
 | **Roots** | Cheap, an optional input that can only narrow |
 | **Progress** | Used during bounded waits |
 | **Sampling** | Rejected |
-| **Assistant-side hooks** | Not part of MCP; two adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md)) |
+| **Assistant-side hooks** | Not part of MCP; three adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md), [ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md): the client's edit tools, checked before and recorded after, joined to the chat's session) |
 
 **Elicitation** closes problems we have written down: SDK licence consent
 ([sdk](../subsystems/sdk.md); fallback: an explicit capability call and an error that
