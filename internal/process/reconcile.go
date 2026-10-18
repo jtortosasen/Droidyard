@@ -37,6 +37,11 @@ const (
 	// uploadpack a fetch started; the group is killed when the record cannot be written and at
 	// every end of the call. It is its own session leader (Setsid), so it has no terminal.
 	GitWrite Kind = "git-write"
+	// FolderDialog is the osascript folder dialog of a workspace.chooseRoot call (plan m2r
+	// step 2; ADR-0021 §Pid records), recorded for as long as the dialog is up. It keeps
+	// the death signal and is reaped by Reconcile's default branch, group included, so a
+	// panel a killed daemon left on the screen is closed by the next start.
+	FolderDialog Kind = "folder-dialog"
 	// EmulatorLaunch is an emulator launcher recorded from its spawn until its serial is
 	// resolved (plan m1p Q1; ADR-0021's 2026-10-08 line). Unlike every other kind, a
 	// matching record is signalled only if the Judge says so.

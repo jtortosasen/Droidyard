@@ -23,8 +23,14 @@ type trashRun struct {
 // there), and DROIDYARD_STATE_DIR only when state is not "".
 func runTrash(t *testing.T, dir, state string, args ...string) trashRun {
 	t.Helper()
+	return runTrashEnv(t, dir, state, nil, args...)
+}
+
+// runTrashEnv is runTrash with more environment variables for the re-executed binary.
+func runTrashEnv(t *testing.T, dir, state string, extra []string, args ...string) trashRun {
+	t.Helper()
 	home := shortDir(t)
-	env := []string{reexec + "=1", testParentEnv + "=" + strconv.Itoa(os.Getpid()), "HOME=" + home, "PATH=/nonexistent"}
+	env := append([]string{reexec + "=1", testParentEnv + "=" + strconv.Itoa(os.Getpid()), "HOME=" + home, "PATH=/nonexistent"}, extra...)
 	if state != "" {
 		env = append(env, "DROIDYARD_STATE_DIR="+state)
 	}

@@ -118,6 +118,10 @@ edits made before this rule and are not added to.
 | [0086](0086-workspace-forget.md) | A recent project can be removed: `workspace.forget` | Accepted |
 | [0088](0088-chat-id-recovers-binding.md) | A session carries its chat's id, and a resumed chat gets its worktree back | Accepted |
 | [0089](0089-describe-lists-worktrees.md) | `workspace.describe` lists the project's worktrees | Accepted |
+| [0090](0090-init-recognises-its-own-entries.md) | `init` recognises its own stale entries by their shape | Accepted |
+| [0091](0091-leftover-temporary-files-swept.md) | Leftover temporary files are swept, and asides get their own name | Accepted |
+| [0092](0092-switched-gradle-root-closes.md) | A Gradle root switched away from closes its connection | Accepted |
+| [0093](0093-race-detector-in-ci.md) | CI also runs the race detector | Accepted |
 
 ## Open decisions (not yet ADRs)
 

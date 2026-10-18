@@ -42,14 +42,15 @@ func TestDeathSignalPerKind(t *testing.T) {
 // record is left. The beforeRecord hook holds the write until the command has forked
 // and named its child, so the group-versus-pid decision is observed here.
 func TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails(t *testing.T) {
-	for _, kind := range []Kind{ShellCommand, GitWrite} {
+	for _, kind := range []Kind{ShellCommand, GitWrite, FolderDialog} {
 		t.Run(string(kind), func(t *testing.T) { killsTheGroupWhenTheRecordWriteFails(t, kind) })
 	}
 }
 
 // killsTheGroupWhenTheRecordWriteFails is the body for the kinds whose whole group is
 // killed (shell-command, and git-write since plan m2n P2: a fetch's transport child is in
-// its group and would otherwise run unrecorded). Seen failing with the kind's leader
+// its group and would otherwise run unrecorded; folder-dialog since plan m2r step 2, whose
+// group every other end kills). Seen failing with the kind's leader
 // killed by pid.
 func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	t.Helper()
@@ -79,8 +80,11 @@ func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	pidFile := filepath.Join(t.TempDir(), "bg.pid")
 	cmd := exec.Command("/bin/sh", "-c", "sleep 60 & echo $! > "+pidFile+"; sleep 60")
 	bgPid := 0
+	// 10 s here and below: a killed orphan stays a zombie until launchd reaps it, and
+	// `dead` reads a zombie as alive; load delays both. eventually returns as soon as
+	// the condition holds, so the bound costs nothing on a quiet host.
 	beforeRecord = func(*exec.Cmd) {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
 			if b, err := os.ReadFile(pidFile); err == nil {
 				if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && n > 0 {
@@ -105,7 +109,7 @@ func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	}
 	// SIGKILL to the group is delivered asynchronously and the orphaned child is reaped
 	// by init: poll briefly rather than read a zombie as alive.
-	eventually(t, 2*time.Second, fmt.Sprintf("the background child (pid %d) gone after a record that could not be written", bgPid),
+	eventually(t, 10*time.Second, fmt.Sprintf("the background child (pid %d) gone after a record that could not be written", bgPid),
 		func() bool { return dead(bgPid) })
 	if cmd.Process == nil {
 		t.Fatal("no command was started; this case must exercise the write failing after it starts")
@@ -113,7 +117,7 @@ func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	if !dead(cmd.Process.Pid) {
 		t.Errorf("the command (pid %d) survived a record that could not be written", cmd.Process.Pid)
 	}
-	eventually(t, 2*time.Second, fmt.Sprintf("the process group %d gone after the record write failed", cmd.Process.Pid),
+	eventually(t, 10*time.Second, fmt.Sprintf("the process group %d gone after the record write failed", cmd.Process.Pid),
 		func() bool { return errors.Is(syscall.Kill(-cmd.Process.Pid, 0), syscall.ESRCH) })
 	if recs := onDisk(t, st); len(recs) != 0 {
 		t.Errorf("processes.json holds %+v, want none: the write failed", recs)

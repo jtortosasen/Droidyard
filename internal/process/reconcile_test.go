@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
@@ -150,5 +152,59 @@ func TestReconcileWithoutAFileWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(st.Root(), RecordsFile)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("processes.json: %v", err)
+	}
+}
+
+// Decision (plan m2r step 2; ADR-0021 §Pid records): a folder-dialog record is an ordinary
+// kind to Reconcile, whose default branch ends the recorded group, so a kind added for
+// the dialog needs no RecordsVersion change and an older binary reaps it alike. The
+// supervisor is abandoned, as a killed daemon's is; the leader is reaped by the test. It
+// passes on a Reconcile that signals the group and fails on one that signals the leader's
+// pid only (the sleep child survives).
+func TestReconcileReapsAFolderDialog(t *testing.T) {
+	root := t.TempDir()
+	st, err := store.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{Store: st, Log: testLog{t}})
+	if err := s.Load(); err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	cmd := exec.Command("/bin/sh", "-c", "sleep 60 & echo $! > "+pidFile+"; wait")
+	r, err := s.SpawnRecorded(cmd, FolderDialog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader := r.Pid()
+	go cmd.Wait()
+	child := 0
+	eventually(t, 5*time.Second, "the dialog named its child", func() bool {
+		b, err := os.ReadFile(pidFile)
+		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		child = n
+		return err == nil && n > 0
+	})
+	t.Cleanup(func() { syscall.Kill(-leader, syscall.SIGKILL) })
+	if recs := onDisk(t, st); len(recs) != 1 || recs[0].Kind != FolderDialog || recs[0].PID != leader {
+		t.Fatalf("processes.json holds %+v while the dialog runs; want its one folder-dialog record", recs)
+	}
+
+	st2, err := store.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	if err := Reconcile(st2, &log, nil); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 3*time.Second, "the dialog's leader reaped", func() bool { return dead(leader) })
+	eventually(t, 3*time.Second, "the dialog's child gone with its group", func() bool { return dead(child) })
+	if !strings.Contains(log.String(), "reaped") {
+		t.Errorf("Reconcile's log does not name the dialog reaped:\n%s", log.String())
+	}
+	if recs := onDisk(t, st2); len(recs) != 0 {
+		t.Errorf("processes.json holds %+v after reconciling, want none", recs)
 	}
 }

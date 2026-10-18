@@ -24,11 +24,12 @@ func rootsOf(r *Registry, id string) []string {
 	return out
 }
 
-// TestDegradeByGradleRoot is ADR-0075 §8: a sidecar crash is reported with a Gradle root,
-// and it degrades the open workspaces whose calls resolved that root, not the workspace
-// whose project root happens to be the same path, and not one that is closed. Two
-// workspaces that resolved the same root both degrade (Q1 §8, accepted), and a workspace
-// that resolved nothing is never degraded by a crash.
+// TestDegradeByGradleRoot is ADR-0075 §8, ADR-0092 §3: a sidecar crash is reported with a
+// Gradle root, and it degrades the open workspaces whose current root it is, not the
+// workspace whose project root happens to be the same path, and not one that is closed.
+// Two workspaces on the same root both degrade (Q1 §8, accepted), a workspace that
+// resolved nothing is never degraded by a crash, and one that moved off a root is not
+// degraded by it (the growing-set case of a workspace that used both roots became this).
 func TestDegradeByGradleRoot(t *testing.T) {
 	h := newWatchHarness(t, nil)
 	a, b, shared, closed, none := project(t), project(t), project(t), project(t), project(t)
@@ -39,11 +40,11 @@ func TestDegradeByGradleRoot(t *testing.T) {
 	for _, root := range []string{a, b, shared, closed, none} {
 		ids[root] = h.open(t, root).ID
 	}
-	h.ws.NoteGradleRoot(ids[a], g1)
-	h.ws.NoteGradleRoot(ids[b], g2)
-	h.ws.NoteGradleRoot(ids[shared], g1)
-	h.ws.NoteGradleRoot(ids[shared], g2)
-	h.ws.NoteGradleRoot(ids[closed], g1)
+	h.ws.UseGradleRoot(ids[a], g1)
+	h.ws.UseGradleRoot(ids[b], g2)
+	h.ws.UseGradleRoot(ids[shared], g2)
+	h.ws.UseGradleRoot(ids[shared], g1) // moved off g2: a crash of g2 no longer concerns it
+	h.ws.UseGradleRoot(ids[closed], g1)
 	h.closeWS(t, closed)
 
 	// A crash reported with the project root of a workspace that resolved nothing: the root
@@ -66,8 +67,8 @@ func TestDegradeByGradleRoot(t *testing.T) {
 	}
 }
 
-// TestNoteRacingClose is the lifetime of the recorded roots (ADR-0075 §8) under -race: an
-// operation that outlives a close's drain keeps noting roots while the workspace closes,
+// TestNoteRacingClose is the lifetime of the recorded root (ADR-0075 §8) under -race: an
+// operation that outlives a close's drain keeps recording roots while the workspace closes,
 // and none of what it notes in closing or closed survives to the next open; and an Open of
 // an open workspace, which every new tab and MCP session calls, leaves the set alone.
 func TestNoteRacingClose(t *testing.T) {
@@ -87,7 +88,7 @@ func TestNoteRacingClose(t *testing.T) {
 				return
 			default:
 			}
-			h.ws.NoteGradleRoot(id, "/gradle/stale")
+			h.ws.UseGradleRoot(id, "/gradle/stale")
 			noted.Add(1)
 		}
 	}()
@@ -115,7 +116,7 @@ func TestNoteRacingClose(t *testing.T) {
 	}
 
 	// An open of an open workspace is a no-op for the set.
-	h.ws.NoteGradleRoot(id, "/gradle/kept")
+	h.ws.UseGradleRoot(id, "/gradle/kept")
 	h.open(t, root)
 	if got := rootsOf(h.ws, id); !reflect.DeepEqual(got, []string{"/gradle/kept"}) {
 		t.Fatalf("a second open left the recorded roots %v; want [/gradle/kept]", got)
@@ -123,14 +124,15 @@ func TestNoteRacingClose(t *testing.T) {
 }
 
 // TestCloseReleasesTheRootsNoOtherWorkspaceUses is ADR-0075 §8 at the registry: a close
-// hands CloseRoot each Gradle root its workspace resolved and no other open workspace
-// did, and the call runs outside every lock, so a callback that takes the registry's
-// locks (as a crashing build's path does through Degrade, and a describe does) does not
-// deadlock. Two workspaces closing one after the other release a shared root once, at
-// the second.
+// hands CloseRoot the workspace's Gradle root when no other open workspace has it, and
+// the call runs outside every lock, so a callback that takes the registry's locks (as a
+// crashing build's path does through Degrade, and a describe does) does not deadlock.
+// Two workspaces on one root, closing one after the other, release it once, at the
+// second. (With one current root per workspace, the old case of one workspace holding an
+// own root and a shared one became a third workspace on the own root.)
 func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 	h := newWatchHarness(t, nil)
-	a, b := project(t), project(t)
+	a, b, c := project(t), project(t), project(t)
 	var mu sync.Mutex
 	var released []string
 	called := make(chan struct{}, 8)
@@ -144,10 +146,10 @@ func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 		mu.Unlock()
 		called <- struct{}{}
 	}
-	idA, idB := h.open(t, a).ID, h.open(t, b).ID
-	h.ws.NoteGradleRoot(idA, "/gradle/own")
-	h.ws.NoteGradleRoot(idA, "/gradle/shared")
-	h.ws.NoteGradleRoot(idB, "/gradle/shared")
+	idA, idB, idC := h.open(t, a).ID, h.open(t, b).ID, h.open(t, c).ID
+	h.ws.UseGradleRoot(idA, "/gradle/own")
+	h.ws.UseGradleRoot(idB, "/gradle/shared")
+	h.ws.UseGradleRoot(idC, "/gradle/shared")
 
 	closed := make(chan struct{})
 	go func() { h.closeWS(t, a); close(closed) }()
@@ -160,15 +162,23 @@ func TestCloseReleasesTheRootsNoOtherWorkspaceUses(t *testing.T) {
 	got := append([]string(nil), released...)
 	mu.Unlock()
 	if want := []string{"/gradle/own"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("closing A released %v; want %v (the shared root belongs to B, still open)", got, want)
+		t.Errorf("closing A released %v; want %v (the shared root belongs to B and C, still open)", got, want)
 	}
 
 	h.closeWS(t, b)
 	mu.Lock()
 	got = append([]string(nil), released...)
 	mu.Unlock()
+	if want := []string{"/gradle/own"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after closing B the released roots are %v; want %v (C still has the shared root)", got, want)
+	}
+
+	h.closeWS(t, c)
+	mu.Lock()
+	got = append([]string(nil), released...)
+	mu.Unlock()
 	if want := []string{"/gradle/own", "/gradle/shared"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("after closing B the released roots are %v; want %v", got, want)
+		t.Errorf("after closing C the released roots are %v; want %v", got, want)
 	}
 }
 
@@ -189,17 +199,17 @@ func TestCloseKeepsARootResolvedDuringItsDrain(t *testing.T) {
 	}
 	a, b := project(t), project(t)
 	idA, idB := h.open(t, a).ID, h.open(t, b).ID
-	if err := h.ws.NoteGradleRoot(idA, "/gradle/shared"); err != nil {
+	if _, err := h.ws.UseGradleRoot(idA, "/gradle/shared"); err != nil {
 		t.Fatal(err)
 	}
 	h.start(t, "fixture.ignores", a)
 	done := h.run(CapClose, a)
 	waitState(t, h.ws, a, Closing)
 
-	if err := h.ws.NoteGradleRoot(idA, "/gradle/late"); err == nil {
+	if _, err := h.ws.UseGradleRoot(idA, "/gradle/late"); err == nil {
 		t.Error("a closing workspace recorded a Gradle root; want its call refused")
 	}
-	if err := h.ws.NoteGradleRoot(idB, "/gradle/shared"); err != nil {
+	if _, err := h.ws.UseGradleRoot(idB, "/gradle/shared"); err != nil {
 		t.Fatal(err)
 	}
 	select {

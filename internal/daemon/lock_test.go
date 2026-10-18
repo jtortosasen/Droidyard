@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -96,23 +97,38 @@ func TestSetHTTPNeverShowsAnEmptyLock(t *testing.T) {
 		}
 	}()
 	// Every record after the first is as long as the one before: a port of fixed width.
-	for i := range 1000 {
-		if err := lock.SetHTTP(fmt.Sprintf("127.0.0.1:%d", 10001+i)); err != nil {
+	// The writer keeps rewriting until the reader has read enough, not for a fixed count:
+	// with one CPU or on a loaded host a fixed number of rewrites can end before the
+	// reader is scheduled, and the property is "never empty", not a rate. Gosched after
+	// each rewrite lets the reader run on one CPU.
+	const minRewrites, minReads = 1000, 200
+	last := ""
+	rewrites := 0
+	deadline := time.Now().Add(30 * time.Second)
+	for rewrites < minRewrites || reads.Load() < minReads {
+		if time.Now().After(deadline) {
+			close(stop)
+			<-done
+			t.Fatalf("the reader read the lock only %d times across %d rewrites in 30s: the test did not race", reads.Load(), rewrites)
+		}
+		last = fmt.Sprintf("127.0.0.1:%d", 10001+rewrites%10000)
+		if err := lock.SetHTTP(last); err != nil {
+			close(stop)
+			<-done
 			t.Fatal(err)
 		}
+		rewrites++
+		runtime.Gosched()
 	}
 	close(stop)
 	<-done
 	if f := failure.Load(); f != nil {
 		t.Fatalf("the reader saw %s after %d reads", f, reads.Load())
 	}
-	if reads.Load() < 10 {
-		t.Fatalf("the reader read the lock only %d times across 1000 rewrites: the test did not race", reads.Load())
-	}
-	t.Logf("%d reads across 1000 rewrites", reads.Load())
+	t.Logf("%d reads across %d rewrites", reads.Load(), rewrites)
 	info, err := ReadLock(state)
-	if err != nil || info.HTTP == nil || *info.HTTP != "127.0.0.1:11000" || info.PID != os.Getpid() {
-		t.Fatalf("after the rewrites the lock says (%+v, %v); want http 127.0.0.1:11000 and the pid kept", info, err)
+	if err != nil || info.HTTP == nil || *info.HTTP != last || info.PID != os.Getpid() {
+		t.Fatalf("after the rewrites the lock says (%+v, %v); want http %s and the pid kept", info, err, last)
 	}
 }
 

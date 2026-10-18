@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-11
+- Superseded in part by: ADR-0091 (§Decision)
 - Supersedes: ADR-0021 §Layout (in part: adds `ws/<wsid>/trash/`)
 - Relates to: ADR-0021 §Location, §Format, ADR-0046 §4, ADR-0053; plan m2g Q2, D48, D50
 - Decided by the main session under the owner's standing instruction (apply the recommended

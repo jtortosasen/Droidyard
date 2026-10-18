@@ -73,8 +73,8 @@ func oneOf(s string, set []string) bool {
 	return false
 }
 
-// validate checks a record against the bounds above and returns it normalised: every
-// command has a (possibly empty) words list.
+// validate checks a record against the bounds above and returns it: every command has
+// a words list, empty or not, and a missing one is refused (ADR-0063 §4; row 211).
 func validate(r Record) (Record, error) {
 	if !oneOf(r.Client, Clients) {
 		return Record{}, invalid("client %q is not one of claude, cursor", r.Client)
@@ -87,6 +87,10 @@ func validate(r Record) (Record, error) {
 		at := "commands[" + strconv.Itoa(i) + "]"
 		if !oneOf(c.Program, Programs) {
 			return Record{}, invalid("%s.program %q is not one of the observed programs", at, c.Program)
+		}
+		if c.Words == nil {
+			// Absent or null: the schema marks words required, and a bare list can only be [].
+			return Record{}, invalid("%s.words is required (an empty list when there is no word)", at)
 		}
 		if len(c.Words) > MaxWords {
 			return Record{}, invalid("%s.words has %d entries; want at most %d", at, len(c.Words), MaxWords)

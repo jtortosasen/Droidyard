@@ -85,6 +85,11 @@ func installTestSeams() {
 	if d, err := time.ParseDuration(os.Getenv(shutdownEnv)); err == nil {
 		shutdownTimeout = d
 	}
+	// A re-executed `droidyard trash` gives up on a daemon that does not answer sooner
+	// (plan m2r step 3).
+	if d, err := time.ParseDuration(os.Getenv(trashDeadlineEnv)); err == nil {
+		trashDeadline = d
+	}
 	// A test may give the daemon a fake adb (plan m1i step 3): its clients are then this
 	// binary, which TestMain turns into the fake — as devicetest.Main, before the reexec
 	// branch, when DROIDYARD_FAKE_ADB_DIR is set — so a follow's client is a real process

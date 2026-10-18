@@ -16,19 +16,20 @@ the core is the `droidyard serve` daemon, started, found and kept single by
 | **Shared daemon** | `adb` server | global (core) | long-lived, shared across workspaces; not ours to kill |
 | **Shared sidecar** | **Gradle TAPI sidecar** (JVM) | global (core) | one per core, serving every open root; idles out when no root is active |
 | **Workspace sidecar** | Kotlin LSP (JVM, post-MVP) | workspace | long-lived while the workspace is open |
-| **Per-operation** | `adb` client commands, `git` (a `git.watch`'s per tick, its group killed at the watch's stop), the live view's `adb shell` running the screen server (kind `device-stream`, ended with its last viewer); a `shell.exec` command (kind `shell-command`); a UI write git (kind `git-write`, [ADR-0071](../adr/0071-git-writes-for-the-ui.md)), recorded | operation | short, tied to an operation; a `shell.exec` command's or a write git's whole process group is killed when its call ends |
+| **Per-operation** | `adb` client commands, `git` (a `git.watch`'s per tick, its group killed at the watch's stop), the live view's screen server (kind `device-stream`); a `shell.exec` command (kind `shell-command`); the folder dialog (kind `folder-dialog`); a UI write git (kind `git-write`, [ADR-0071](../adr/0071-git-writes-for-the-ui.md)), recorded | operation | short, tied to an operation; a `shell.exec` command's or a write git's whole process group is killed when its call ends |
 | **Device process** | emulator (qemu), the app under test | global / device | managed via emulator/adb, **not** a child of the core once its serial is resolved; a launch the core started is ended if its boot fails before then ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md)), and is pid-recorded until then (kind `emulator-launch`, ADR-0021) |
 | **Tool-owned daemon** | Gradle daemon, Kotlin compile daemon | Gradle | spawned and detached by Gradle; never a child of ours |
 
 The last two rows are **not** children of the core: we do not own their process tree.
 
 **One TAPI sidecar for all roots.** The sidecar protocol passes `root` on every call, and
-each extra JVM costs hundreds of megabytes for nothing: per-root isolation comes from the
+each extra JVM costs hundreds of megabytes: per-root isolation comes from the
 core serialising TAPI work per root ([overview](overview.md) §Concurrency), not from
-separate processes. Closing a workspace closes the connection of each Gradle root no other
-open workspace uses (`connection.close`), not the sidecar. The cost: a sidecar crash fails in-flight
-operations on every root. The choice is reversible without a protocol change, since one
-sidecar per root speaks the same protocol.
+separate processes. A workspace's close, or its switch to another Gradle root, closes the
+connection (`connection.close`) of each root no other open workspace uses, not the sidecar
+([ADR-0092](../adr/0092-switched-gradle-root-closes.md)). The cost: a sidecar crash fails
+in-flight operations on every root. Reversible without a protocol change: one sidecar per
+root speaks the same protocol.
 
 ## Model
 

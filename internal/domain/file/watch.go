@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -148,6 +149,8 @@ type watcher struct {
 	workspace string
 	operation string
 	tick      time.Duration
+	// trash names the asides that a tick's sweep must leave alone (ADR-0091 §3).
+	trash *Trash
 
 	baseline map[string]watchEntry
 
@@ -195,16 +198,14 @@ func (w *watcher) run() {
 // directory that is gone has every entry reported deleted and the watch stops
 // (pathGone); one that cannot be read stops the watch (unreadable).
 func (w *watcher) tickOnce() {
+	if !w.rootStands() {
+		w.pathGone()
+		return
+	}
 	next, truncated, cerr := w.walkFrom(w.root.FS(), w.rel, w.baseline)
 	if cerr != nil {
 		if cerr.Code == capability.ErrFileNotFound || cerr.Code == capability.ErrFileWrongType {
-			changes, cut := diff(w.baseline, map[string]watchEntry{}, false)
-			w.baseline = map[string]watchEntry{}
-			if len(changes) > 0 {
-				w.bus.PublishTo(w.sub, TopicFileChanges, TypeChanges, w.workspace, w.operation,
-					ChangesPayload{Path: w.rel, Changes: changes, Truncated: cut})
-			}
-			w.requestStop(ReasonPathGone)
+			w.pathGone()
 			return
 		}
 		w.requestStop(ReasonUnreadable)
@@ -218,6 +219,29 @@ func (w *watcher) tickOnce() {
 	}
 	w.bus.PublishTo(w.sub, TopicFileChanges, TypeChanges, w.workspace, w.operation,
 		ChangesPayload{Path: w.rel, Changes: changes, Truncated: truncated || cut})
+}
+
+// rootStands reports whether the root's name still names the directory the descriptor
+// holds: a project deleted, moved away or replaced leaves the descriptor on a directory
+// no path reaches, which a walk through it would still read (row 160).
+func (w *watcher) rootStands() bool {
+	byName, err := os.Stat(w.root.Name())
+	if err != nil || !byName.IsDir() {
+		return false
+	}
+	held, err := w.root.Stat(".")
+	return err == nil && os.SameFile(byName, held)
+}
+
+// pathGone reports every baseline entry deleted and stops the watch with pathGone.
+func (w *watcher) pathGone() {
+	changes, cut := diff(w.baseline, map[string]watchEntry{}, false)
+	w.baseline = map[string]watchEntry{}
+	if len(changes) > 0 {
+		w.bus.PublishTo(w.sub, TopicFileChanges, TypeChanges, w.workspace, w.operation,
+			ChangesPayload{Path: w.rel, Changes: changes, Truncated: cut})
+	}
+	w.requestStop(ReasonPathGone)
 }
 
 // diff compares two walks. An entry in next but not prev is created; one in both that
@@ -275,6 +299,7 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 
 	entries := make(map[string]watchEntry)
 	truncated := false
+	sweeper := &tempSweeper{w: w}
 	var descend func(dir string) *capability.Error
 	descend = func(dir string) *capability.Error {
 		if watchWalkHook != nil {
@@ -307,6 +332,9 @@ func (w *watcher) walkFrom(fsys fs.FS, rel string, prev map[string]watchEntry) (
 			// A temporary name is skipped whatever it is: file.copy builds a folder under
 			// one, and a watch must see only the final name appear (plan m2g step 4).
 			if tempWatchName(name) {
+				if tick {
+					sweeper.consider(p, name)
+				}
 				continue
 			}
 			if isDir && (excludedDir(name) || (name == "build" && hasGradleMarker(fsys, dir))) {
@@ -377,6 +405,78 @@ func hasGradleMarker(fsys fs.FS, dir string) bool {
 // of create-and-delete noise.
 func tempWatchName(name string) bool {
 	return strings.HasPrefix(name, ".") && strings.Contains(name, ".droidyard-") && strings.HasSuffix(name, ".tmp")
+}
+
+// tempMaxAge is how old a file.write or file.copy temporary file or folder must be before
+// a watch tick removes it (ADR-0091 §2): far past any write, so no live one is taken.
+const tempMaxAge = 24 * time.Hour
+
+// tempSweepPattern is the one name a tick removes: exactly a file.write or file.copy
+// temporary name. A new-style aside (.droidyard-aside-...) does not match it, and the
+// looser tempWatchName, which hides names from events, is never the sweep's test.
+var tempSweepPattern = regexp.MustCompile(`^\.droidyard-[0-9a-f]{16}\.tmp$`)
+
+// sweepNow is the clock of the sweep's age rule; a test replaces it.
+var sweepNow = time.Now
+
+// tempSweeper removes the leftover temporary files and folders one tick's walk meets
+// (ADR-0091). It is silent: no event, no Activity row, and a failed removal is ignored
+// and retried by a later tick. Nothing is removed unless the trash's records, of every
+// workspace under the state root, could be read in full and do not name the entry as an
+// aside.
+type tempSweeper struct {
+	w *watcher
+	// recorded is the trash's aside names, read once per tick and only when a candidate is
+	// met; failed means they could not be read, so this tick sweeps nothing.
+	recorded map[string]bool
+	read     bool
+	failed   bool
+}
+
+// consider removes the entry at p (named name, which tempWatchName matched) if it is an
+// old temporary file or folder that no trash entry records. The removal goes through the
+// watcher's os.Root, which removes a link as a link and never follows it.
+func (s *tempSweeper) consider(p, name string) {
+	if !tempSweepPattern.MatchString(name) {
+		return
+	}
+	fi, err := s.w.root.Lstat(p)
+	if err != nil || sweepNow().Sub(fi.ModTime()) <= tempMaxAge {
+		return
+	}
+	if !s.read {
+		s.read = true
+		if s.w.trash == nil {
+			s.failed = true
+		} else if s.recorded, err = s.w.trash.RecordedAsides(); err != nil {
+			s.failed = true
+		}
+	}
+	if s.failed || s.recorded[name] {
+		return
+	}
+	s.claimAndRemove(p, name)
+}
+
+// claimAndRemove renames the candidate to a fresh temporary name in its folder, with the
+// no-replace rename, and removes it under that name. Removing under the old name could
+// empty a folder a writer renames into place (file.copy, file.restore) while the removal
+// is inside it; after the claim the writer's rename of the old name fails ENOENT, and a
+// writer that won the race makes the claim fail. Any failure of the claim skips the
+// entry for this tick. The rename keeps the entry's own mtime, so a removal that stops
+// part-way is retried by a later tick under the new name.
+func (s *tempSweeper) claimAndRemove(p, name string) {
+	dir, _ := splitDir(p)
+	parent, cerr := (&resolver{root: s.w.root.Name()}).openParent(s.w.root, dir)
+	if cerr != nil {
+		return
+	}
+	defer parent.Close()
+	claimed := tempName()
+	if noReplace(parent, name, parent, claimed) != nil {
+		return
+	}
+	_ = removeAside(s.w.root, path.Join(dir, claimed))
 }
 
 // Watchers is every live watch poller, by workspace (plan m1j, D9). Its Stop is wired
@@ -475,6 +575,7 @@ func (o Options) watch(ctx context.Context, call *capability.Call) (any, error) 
 		workspace: call.Workspace,
 		operation: call.OperationID,
 		tick:      tick,
+		trash:     o.Trash,
 		stop:      make(chan string, 1),
 	}
 	// The subscription exists before the baseline walks, so a cancel during the walk has

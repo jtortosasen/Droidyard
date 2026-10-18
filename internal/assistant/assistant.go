@@ -8,7 +8,12 @@
 // existing entry under droidyard's key is kept and reported, never replaced, and a file
 // that does not parse is refused and left as it is. --uninstall removes only what is
 // equal, after parsing, to what the same run would write now. Every write goes through
-// a temporary file and a rename, and no path may leave the project root. The skill's
+// a temporary file and a rename, and no path may leave the project root. Two kinds of
+// stale entry of init's own are recognised by shape and replaced or removed (ADR-0090):
+// a hook entry whose command is `[DROIDYARD_STATE_DIR=<abs> ]<abs>/droidyard hook
+// --client <this client> --root <this root>` with any binary path, in the matcher shape
+// init writes; and an allow rule for a retired tool. Anything else, a wrapper around the
+// hook, another root or client, an extra word or key, is the user's and stays. The skill's
 // files are init's own and refreshed when they differ: a user's edits there are
 // replaced (reported "updated"), while --uninstall keeps a differing one.
 //
@@ -147,6 +152,25 @@ func AllowRule(c Client, tool string) string {
 	return ""
 }
 
+// retiredTools are tools an earlier init allowlisted and the registry no longer ships
+// (ADR-0060 retired file_list and file_read). Both init and --uninstall remove their
+// allow rules (ADR-0090 §2). Add a tool here when one is retired.
+var retiredTools = []string{"file_list", "file_read"}
+
+// retiredRule recognises an allow rule an earlier init wrote for a retired tool, in the
+// client's own syntax; any other string, a user's rule for another server included, is
+// not matched.
+func retiredRule(c Client) func(json.RawMessage) bool {
+	rules := map[string]bool{}
+	for _, t := range retiredTools {
+		rules[AllowRule(c, t)] = true
+	}
+	return func(raw json.RawMessage) bool {
+		var s string
+		return json.Unmarshal(raw, &s) == nil && rules[s]
+	}
+}
+
 // job is one file init owns part of.
 type job struct {
 	rel       string
@@ -223,6 +247,13 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 
 	server := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}})
 	serverSpec := jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: server}}}
+	// Cursor rebuilds the server's environment, so a custom state root travels in the entry
+	// (row 199, ADR-0037 §Decision 2); Claude Code's .mcp.json is not observed to lose it.
+	cursorServerSpec := serverSpec
+	if o.StateDir != "" {
+		withEnv := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}, Env: map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}})
+		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv}}}
+	}
 	allowSpec := func(c Client) (jsonSpec, error) {
 		if len(tools) == 0 {
 			return jsonSpec{}, fmt.Errorf("no read-only tool to allowlist for %s", c)
@@ -233,11 +264,11 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 			allowed[c] = append(allowed[c], rule)
 			elems = append(elems, rawJSON(rule))
 		}
-		return jsonSpec{arrays: []arrayEntry{{path: []string{"permissions"}, key: "allow", elems: elems}}}, nil
+		return jsonSpec{arrays: []arrayEntry{{path: []string{"permissions"}, key: "allow", elems: elems, stale: retiredRule(c)}}}, nil
 	}
 
 	if has(o.Clients, Cursor) {
-		jobs = append(jobs, jsonJob(".cursor/mcp.json", serverSpec))
+		jobs = append(jobs, jsonJob(".cursor/mcp.json", cursorServerSpec))
 		spec, err := allowSpec(Cursor)
 		if err != nil {
 			return nil, nil, err
@@ -296,6 +327,8 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 type stdioServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+	// Env is set only for Cursor, and only with a custom state root.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // openCodeServer is OpenCode's local server (Mcp.LocalConfig in 2.0.18, whose schema has
