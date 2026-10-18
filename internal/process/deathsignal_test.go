@@ -42,14 +42,15 @@ func TestDeathSignalPerKind(t *testing.T) {
 // record is left. The beforeRecord hook holds the write until the command has forked
 // and named its child, so the group-versus-pid decision is observed here.
 func TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails(t *testing.T) {
-	for _, kind := range []Kind{ShellCommand, GitWrite} {
+	for _, kind := range []Kind{ShellCommand, GitWrite, FolderDialog} {
 		t.Run(string(kind), func(t *testing.T) { killsTheGroupWhenTheRecordWriteFails(t, kind) })
 	}
 }
 
 // killsTheGroupWhenTheRecordWriteFails is the body for the kinds whose whole group is
 // killed (shell-command, and git-write since plan m2n P2: a fetch's transport child is in
-// its group and would otherwise run unrecorded). Seen failing with the kind's leader
+// its group and would otherwise run unrecorded; folder-dialog since plan m2r step 2, whose
+// group every other end kills). Seen failing with the kind's leader
 // killed by pid.
 func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	t.Helper()
