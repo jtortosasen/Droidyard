@@ -161,7 +161,11 @@ func checkRegister(fsys fs.FS) []string {
 // session.state in capability-api.md's list of ring-less topics.
 // Raised by 6 (to 28,154) in milestone 2q step 9: mvp.md's workspace row and mcp.md's
 // not-exposed row name workspace.show and workspace.forget (ADR-0084, ADR-0086).
-const liveBudget = 28154
+// Raised by 132 (to 28,286) at milestone 2q's close, Delegated: workspace-state.md's
+// worktrees, the moving binding and inherited trust, overview.md's binding, the glossary's
+// Session, http-websocket.md's one tab, mvp.md's human-only note and README.md's status
+// line (ADR-0081 to ADR-0084, ADR-0088).
+const liveBudget = 28286
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -1,6 +1,6 @@
 # Plan: Milestone 2q — C2, sessions that own worktrees
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-18. Reviewed in two rounds by `plan-reviewer`, round 2 `approve` (Review). The owner decided Q7 (out of 2q: a small milestone after 2p closes) and Q2 §8 (owning is not exclusive). The main session decided Q1–Q6 as drafted, Delegated, into ADR-0081 to ADR-0086.
 - Date: 2026-10-18
 - Milestone: "2q — C2, sessions that own worktrees" (owner, 2026-10-17; `docs/vision/beyond.md` §The capabilities, C2, refined by the owner's seven decisions of 2026-10-17, quoted in the brief and listed under Scope).
@@ -52,16 +52,19 @@
 
 ## Acceptance
 
-- [ ] A1. A worktree of a trusted repository is trusted with no human act, and builds; a directory whose `.git` file names a trusted repository's worktree data without that data naming it back is not; trusting a worktree trusts neither its main tree nor its siblings. Source: owner 4; Q1. Proven by: steps 2, 3.
-- [ ] A2. A session moves into a worktree of its own project only through its own `workspace_enter`, and back to the main tree the same way; another project, a planted `.git`, another session's binding, the UI and the CLI cannot move it. Source: owner 1–3; Q2. Proven by: step 4.
-- [ ] A3. After `workspace_enter`, the session's builds, `workspace_describe` and the `session.workspace` of its operations are the worktree's, while a second session on the main tree is unaffected. Source: owner 1, 3; Q2. Proven by: steps 4, 5.
-- [ ] A4. A real Claude Code chat given a development task creates or reuses a worktree by its own means, enters it and builds there; a second chat on the same task reuses it. Source: owner 1; brief ("the level-5 check"). Proven by: steps 5, 10.
-- [ ] A5. A connected MCP session is listed from its connection on, before any call, with its name once known and its workspace as it moves, and leaves at its end. Source: register row (web UI, C2); Q3. Proven by: steps 6, 8.
-- [ ] A6. An agent's observed command in a worktree of its project is recorded under that worktree, one anywhere else under the project root (`dev/`, `docs/`) under the project as today, and one outside the project is not recorded and opens nothing. Source: register row (MCP/agents, C2); Q5. Proven by: step 7.
-- [ ] A7. The sessions panel groups by project, lists each project's sessions with the worktree each is in, never lists a worktree as a project, and follows a session that moves; the Git panel's worktree rows name their sessions. Source: owner 2, 5, 6; Q3. Proven by: step 8.
-- [ ] A8. `droidyard` with a Droidyard tab open switches it to the project and opens no browser; with none open, it opens one. A closed recent project can be removed, its state kept. Source: register row (web UI); Q4, Q6. Proven by: step 9.
-- [ ] A9. The schema diff is the milestone's: one minor version, `mainRoot`, `workspace.enter`, `session.watch`, `workspace.show`, `workspace.forget`, their events and codes; the MCP tool list stays within its budget. Source: `capability-api.md` §Discovery and versioning; ADR-0036. Proven by: steps 3, 4, 6, 9.
-- [ ] A10. A level-5 run with two real chats and the UI shows A1–A8 together. Source: brief. Proven by: step 10.
+- [x] A1. A worktree of a trusted repository is trusted with no human act, and builds; a directory whose `.git` file names a trusted repository's worktree data without that data naming it back is not; trusting a worktree trusts neither its main tree nor its siblings. Source: owner 4; Q1. Proven by: steps 2, 3.
+- [x] A2. A session moves into a worktree of its own project only through its own `workspace_enter`, and back to the main tree the same way; another project, a planted `.git`, another session's binding, the UI and the CLI cannot move it. Source: owner 1–3; Q2. Proven by: step 4.
+- [x] A3. After `workspace_enter`, the session's builds, `workspace_describe` and the `session.workspace` of its operations are the worktree's, while a second session on the main tree is unaffected. Source: owner 1, 3; Q2. Proven by: steps 4, 5.
+- [x] A4. A real Claude Code chat given a development task creates or reuses a worktree by its own means, enters it and builds there; a second chat on the same task reuses it. Source: owner 1; brief ("the level-5 check"). Proven by: steps 5, 10.
+- [x] A5. A connected MCP session is listed from its connection on, before any call, with its name once known and its workspace as it moves, and leaves at its end. Source: register row (web UI, C2); Q3. Proven by: steps 6, 8.
+- [ ] A6. An agent's observed command in a worktree of its project is recorded under that worktree, one anywhere else under the project root (`dev/`, `docs/`) under the project as today, and one outside the project is not recorded and opens nothing. Source: register row (MCP/agents, C2); Q5. Proven by: step 7. *Proven in part:* proven at level 4, given the command's directory (step 7). At level 5 (step 10), Claude Code reported the project's directory for a command in a worktree beside the project, so that command was recorded under main; see the register row on the cwd reset.
+- [x] A7. The sessions panel groups by project, lists each project's sessions with the worktree each is in, never lists a worktree as a project, and follows a session that moves; the Git panel's worktree rows name their sessions. Source: owner 2, 5, 6; Q3. Proven by: step 8.
+- [x] A8. `droidyard` with a Droidyard tab open switches it to the project and opens no browser; with none open, it opens one. A closed recent project can be removed, its state kept. Source: register row (web UI); Q4, Q6. Proven by: step 9.
+- [x] A9. The schema diff is the milestone's: one minor version, `mainRoot`, `worktrees` on describe, `workspace.enter`, `session.watch`, `workspace.show`, `workspace.forget`, their events and codes; the MCP tool list stays within its budget. Source: `capability-api.md` §Discovery and versioning; ADR-0036. Proven by: steps 3, 4, 6, 9.
+- [ ] A10. A level-5 run with two real chats and the UI shows A1–A8 together. Source: brief. Proven by: step 10. *Proven in part:* step 10's run, with real Claude Code and cursor-agent chats, showed:
+  - A1, A2, A4, A5 and A8 in full;
+  - A3 and A7 in part: the row moved under its worktree, while the selection that follows and the Git panel's names were shown at level 4 (step 8), and there was no concurrent main-tree session during the build;
+  - not A6 (see A6).
 
 ## Run rules (steps 1, 5, 8, 9, 10)
 
@@ -338,7 +341,17 @@
 - Not here: the Cursor app (the owner's trial).
 - Rests on: —
 - Review: the Opus verifier at the close.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the run was on `3ae29e0`, `$R` `/private/tmp/dy5q.MeSA`, with the UI held open in headless Chrome over CDP (`evidence/ui/watch.log`, `panel-final.png`).
+  - **(a)** Two concurrent Claude Code chats that called no tool appeared as two rows, `claude-code 3` and `claude-code 4` on main, and left when they ended. Their connections show no `tools/call`.
+  - **(b)** Chat A, a development task, made `repo5-fix-greeting`, entered it, and built there (`build.assemble workspace=repo5-fix-greeting-…`). Its row read `claude-code repo5-fix-greeting`. A selection that follows a session, and the Git panel's session names, were shown at level 4 in step 8.
+  - **(c)** Chat A's own `./gradlew tasks`, run with `cd <worktree> && …`, was recorded under `repo5`, not the worktree. Claude Code printed "Shell cwd was reset to …/repo5" (a register row).
+  - **(d)** `droidyard ui` in `repo5` and then in `other10`, with `open` replaced: both printed "switched the open Droidyard tab", the launcher was called 0 times, and the tab's hash went to `#w=other10-…`. The watcher's Chrome had 1 page target at the end.
+  - **(e)** The worktree's workspace was closed, then Remove clicked in the panel. The row left the panel and `workspaces.json`. Reopening gave the same id, `trusted: true`, and the last build `op-9b31f2b24dc80ac6`.
+  - **(f)** A directory whose `.git` file was copied from the worktree's opened with `trusted: false` and no `mainRoot`. `build.tasks` there answered `WORKSPACE_UNTRUSTED`.
+  - **cursor-agent**, one development chat: `workspace_describe`, a new worktree `repo5-rename-label`, `workspace_enter`, and a build there. Main has no tracked change.
+  - The evidence holds no email address, and the owner's adb server is unchanged (pid 70176).
+  - **Contract meeting:** `main` was merged after 2p's close (`a234c99`, API 0.28.0) and has not moved since.
+  - **Documents:** `workspace-state.md` (worktrees, the moving binding, inherited trust), `overview.md`, and `http-websocket.md` (one tab). The register closes three rows and adds fifteen. The close verifier found `docs/vision/glossary.md`, whose Session entry now says the binding moves (ADR-0082 §Consequences).
 
 ## Not in this milestone
 
