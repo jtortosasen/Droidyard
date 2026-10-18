@@ -1,6 +1,7 @@
 # ADR-0077: The live view's source is scrcpy's server, vendored and pinned
 
 - Status: Accepted
+- Superseded in part by: ADR-0100 (§4)
 - Date: 2026-10-17
 - Relates to: ADR-0005, ADR-0021 §Pid records, ADR-0029, ADR-0068; `adb-device.md` §Screen viewing, §Transport to the device; plan m2p Q1, Q2; [`spike-screen-stream-2026-10.md`](../research/spike-screen-stream-2026-10.md)
 - Decided by the owner, 2026-10-17: the live view is C3 of [`beyond.md`](../vision/beyond.md), with no stills (2026-10-09), its stream relayable to another Droidyard later (C4) and every input a capability call (C5). The source is Delegated (plan m2p Q1, Q2, reviewed in two rounds; the version, the plan's Changes).

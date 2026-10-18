@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0083 (§3)
+- Superseded in part by: ADR-0098 (§1)
 - Date: 2026-10-10
 - Supersedes: ADR-0043 §2 (in part: the payload names the calling session)
 - Relates to: ADR-0010, ADR-0015 §1, ADR-0036, ADR-0043 §1, §3, ADR-0047; plan m2d Q2

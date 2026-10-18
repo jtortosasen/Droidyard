@@ -122,6 +122,12 @@ edits made before this rule and are not added to.
 | [0091](0091-leftover-temporary-files-swept.md) | Leftover temporary files are swept, and asides get their own name | Accepted |
 | [0092](0092-switched-gradle-root-closes.md) | A Gradle root switched away from closes its connection | Accepted |
 | [0093](0093-race-detector-in-ci.md) | CI also runs the race detector | Accepted |
+| [0097](0097-local-first-with-peers.md) | Local-first, with peers that lend devices | Accepted |
+| [0098](0098-peer-transport-identity-pairing.md) | Peers: mutual TLS between daemons, pinned identities, pairing by hand | Accepted |
+| [0099](0099-what-a-host-lends.md) | What a host lends, to whom, and what a peer may call | Accepted |
+| [0100](0100-remote-devices-on-the-client.md) | Remote devices on the client, the same capabilities relayed | Accepted |
+| [0101](0101-waits-reach-own-operations.md) | `operation.wait` and `operation.cancel` reach one's own operations | Accepted |
+| [0103](0103-shared-serial-and-emulator-class.md) | A shared serial is refused; a product makes an emulator only on an emulator's serial | Accepted |
 
 ## Open decisions (not yet ADRs)
 
