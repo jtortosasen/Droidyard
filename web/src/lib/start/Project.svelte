@@ -17,7 +17,7 @@
 	import { RunModel } from '../toolbar/run';
 	import BuildStatus from '../toolbar/BuildStatus.svelte';
 	import type { SessionsModel } from '../projects/sessions';
-	import type { ProjectsModel } from '../projects/projects';
+	import { sessionsByRoot, type ProjectsModel } from '../projects/projects';
 	import { buildCommands, FileIndex, PaletteModel } from '../palette/palette';
 	import Palette from '../palette/Palette.svelte';
 	import type { ShellApi } from '../ui/panels';
@@ -105,6 +105,18 @@
 	}
 	let { client, activity, sessions, projects, hub, connection, workspaceId, token, guard, onmissing, status, sessionsToggle, sessionsPanel }: Props = $props();
 
+	// The sessions at each worktree root, for the Git panel's WORKTREES rows (ADR-0083 §4).
+	let worktreeSessions = $state.raw<ReadonlyMap<string, readonly string[]>>(new Map());
+	$effect(() => {
+		const read = () => (worktreeSessions = sessionsByRoot(projects.view.rows, sessions.view.rows));
+		read();
+		const offP = projects.subscribe(read);
+		const offS = sessions.subscribe(read);
+		return () => {
+			offP();
+			offS();
+		};
+	});
 	let workspace = $state.raw<WorkspaceModel | null>(null);
 	// Restore of a delete any client made (plan m2j step 10): the workspace root is read at click.
 	const restore = $derived(new RestoreModel({ call: ((n, p, o) => client.call(n, p, o)) as RestoreClient['call'] }, () => workspace?.root ?? ''));
@@ -519,6 +531,7 @@
 				compare={gitCompare}
 				submodules={gitSubmodules}
 				updater={gitUpdater}
+				{worktreeSessions}
 				watch={gitWatch}
 				{workspaceId}
 				onopenfile={(file) => {

@@ -19,6 +19,19 @@ projection and the verdict on every MCP feature beyond tool calls.
   fills the envelope's `workspace` from this binding, so no tool takes a workspace
   argument. An agent that needs two projects configures two servers. Binding does not
   grant trust ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
+- **`workspace_enter` moves the session within its project**
+  ([ADR-0082](../adr/0082-session-enters-a-worktree.md)): to its main tree or a linked git
+  worktree of it, made by the agent's own git. Only the calling session moves:
+  the descriptor's `binding` flag makes Start refuse the call from a connection that is not
+  an MCP session (`REQUEST_NOT_ALLOWED_HERE`), and another root is
+  `WORKSPACE_NOT_A_WORKTREE`.
+- **A resumed chat gets its worktree back**
+  ([ADR-0088](../adr/0088-chat-id-recovers-binding.md)). `droidyard mcp` sends
+  `CLAUDE_CODE_SESSION_ID` in the hello: Claude Code 2.1.302's chat id, unchanged by
+  `--resume`. The daemon remembers each chat's last binding in memory and binds that chat's
+  next session there first, under `workspace_enter`'s rule. The
+  variable is not documented for MCP servers and cursor-agent sets none: then a resumed
+  chat is bound to the main tree and enters again, as after a daemon restart.
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
   nothing.
 - The adapter opens the bound root when the session starts; if any client closes it
@@ -54,8 +67,8 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
-| `policy.get`, `policy.update`, `workspace.chooseRoot` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4). The core rejects them from an MCP session: enforcement, not just omission. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `operation.watch`, `build.watchOutput`, `workspace.watch`, `session.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md)). The core rejects them from an MCP session: enforcement, not just omission. |
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
 | `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI's diff, tree, history, fetch, branches and submodules use them. |
 | `device.tap`, `device.swipe`, `device.pressKey` | Audience `human` ([ADR-0079](../adr/0079-screen-input-capabilities.md)): input from the live view. |
@@ -132,7 +145,10 @@ characters: every session pays for it, and it must not duplicate the tool descri
 test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 
 ```text
-- This server is bound to one project; tools act on it with no workspace argument.
+- This server is bound to one project; tools take no workspace argument.
+  workspace_describe lists its worktrees: a task that has one (its branch names it) is
+  done there, so workspace_enter it first. Else a task that changes code first gets one
+  (git worktree add) and enters it; a question stays put.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not

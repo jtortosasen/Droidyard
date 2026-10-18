@@ -89,7 +89,7 @@ func TestUntrustedMetaReachesTheWire(t *testing.T) {
 	defer conn.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go s.Serve(ctx, bufio.NewReader(conn), conn, 0, "", "")
+	go s.Serve(ctx, bufio.NewReader(conn), conn, 0, "", "", "")
 
 	for _, m := range []string{
 		`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`,

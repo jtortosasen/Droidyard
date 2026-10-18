@@ -110,6 +110,14 @@ edits made before this rule and are not added to.
 | [0078](0078-screen-watch-and-endpoint.md) | `device.watchScreen`, the `device.screen` topic and `GET /v1/screen` | Accepted |
 | [0079](0079-screen-input-capabilities.md) | Input from the live view: `device.tap`, `device.swipe`, `device.pressKey` | Accepted |
 | [0080](0080-flag-secure-detection.md) | `FLAG_SECURE` is read from the focused window | Accepted |
+| [0081](0081-worktree-inherits-trust.md) | A linked worktree of a trusted repository is trusted | Accepted |
+| [0082](0082-session-enters-a-worktree.md) | A session enters a worktree of its project; a worktree is a workspace of its project | Accepted |
+| [0083](0083-session-watch-and-panel-by-project.md) | `session.watch`, and the sessions panel grouped by project | Accepted |
+| [0084](0084-one-tab-workspace-show.md) | One tab: `droidyard` switches an open tab instead of opening another | Accepted |
+| [0085](0085-hook-root-from-command-directory.md) | The hook records where the command ran | Accepted |
+| [0086](0086-workspace-forget.md) | A recent project can be removed: `workspace.forget` | Accepted |
+| [0088](0088-chat-id-recovers-binding.md) | A session carries its chat's id, and a resumed chat gets its worktree back | Accepted |
+| [0089](0089-describe-lists-worktrees.md) | `workspace.describe` lists the project's worktrees | Accepted |
 
 ## Open decisions (not yet ADRs)
 

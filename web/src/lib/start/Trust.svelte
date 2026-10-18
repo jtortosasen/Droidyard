@@ -23,6 +23,9 @@
 
 <div>
 	<p>Trusting lets this project's Gradle build scripts run as you.</p>
+	{#if model.mainRoot !== ''}
+		<p>This is a worktree, and trust is the project's: Trust trusts the project at {model.mainRoot}, and with it every worktree of it.</p>
+	{/if}
 	<button type="button" disabled={!!view?.busy} onclick={() => void model.grant()}>Trust</button>
 	{#if view?.busy}
 		<p>Trusting...</p>

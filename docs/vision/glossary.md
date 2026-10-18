@@ -22,8 +22,9 @@ the core ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 ## Session
 
 One adapter connection: one shim, one `droidyard call` invocation, or one WebSocket. It
-owns subscriptions and watches. An MCP session is bound to one project root. It does
-not own operations.
+owns subscriptions and watches. An MCP session is bound to one root at a time, which
+`workspace.enter` moves within its project ([ADR-0082](../adr/0082-session-enters-a-worktree.md)).
+It does not own operations.
 
 ## Operation
 

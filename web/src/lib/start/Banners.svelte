@@ -41,6 +41,9 @@
 	<div class="banner warn" role="status">
 		<ShieldAlert size={14} />
 		<span>This project is not trusted: its Gradle build scripts will not run.</span>
+		{#if view?.info?.mainRoot}
+			<span>This is a worktree: Trust trusts the project at {view.info.mainRoot}, and with it every worktree of it.</span>
+		{/if}
 		<button type="button" disabled={!!trustView?.busy} onclick={() => void trust.grant()}>Trust</button>
 		{#if trustView?.busy}
 			<span>Trusting...</span>

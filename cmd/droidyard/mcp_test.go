@@ -48,10 +48,24 @@ func startShimArgs(t *testing.T, state, name string, args []string) *shim {
 // the test's.
 func startShimIn(t *testing.T, state, dir, name string, args []string) *shim {
 	t.Helper()
+	return startShimEnv(t, state, dir, name, nil, args)
+}
+
+// startShimEnv is startShimIn with more variables in the shim's environment. The test
+// process's own CLAUDE_CODE_SESSION_ID (a test run from inside Claude Code has one) is
+// never inherited: a shim names a chat only when env says so (ADR-0088 §1).
+func startShimEnv(t *testing.T, state, dir, name string, env, args []string) *shim {
+	t.Helper()
+	full := []string{reexec + "=1", "DROIDYARD_STATE_DIR=" + state}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, chatEnv+"=") {
+			full = append(full, kv)
+		}
+	}
 	cmd := &exec.Cmd{
 		Path: os.Args[0],
 		Args: append([]string{"droidyard"}, args...),
-		Env:  append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+state),
+		Env:  append(full, env...),
 		Dir:  dir,
 	}
 	s := &shim{t: t, name: name, cmd: cmd, lines: make(chan []byte, 64), stderr: new(bytes.Buffer), exited: make(chan error, 1)}
@@ -315,8 +329,8 @@ func TestMCPTranscript(t *testing.T) {
 			t.Errorf("tools/list has %s: events.* are not tools", name)
 		}
 	}
-	if shipped != 31 || stateless != 31 {
-		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 31 of each", shipped, stateless)
+	if shipped != 32 || stateless != 32 {
+		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 32 of each", shipped, stateless)
 	}
 	for name := range listed {
 		if _, ok := golden[strings.Replace(name, "_", ".", 1)]; !ok && name != "fixture_block" && name != "fixture_slow" {

@@ -1,6 +1,8 @@
 # ADR-0047: One tab for every project: the projects panel replaces the picker
 
 - Status: Accepted
+- Superseded in part by: ADR-0083 (§1)
+- Superseded in part by: ADR-0084 (§3)
 - Date: 2026-10-10
 - Supersedes: ADR-0045 §1 (in part: the page without `w` is no longer the picker)
 - Supersedes: ADR-0045 §2 (in part: several projects are not several tabs)

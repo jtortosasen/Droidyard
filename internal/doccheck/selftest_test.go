@@ -213,9 +213,10 @@ func TestADRChecksCatchDrift(t *testing.T) {
 		tr := adrFixture.with(t, adrIndex, "| [0002](0002-second.md)", "| [0002](0002-secnd.md)")
 		expect(t, checkADRIndex(tr.fs()), adrIndex+":8", "0002-secnd.md", "does not exist", "the file is 0002-second.md")
 	})
-	t.Run("a gap", func(t *testing.T) {
-		tr := adrFixture.with(t, "docs/adr/0004-fourth.md", "", adr("0004", "Fourth", "Accepted", "Other."))
-		expect(t, checkADRIndex(tr.fs()), "expected 0003, found 0004")
+	t.Run("a gap is allowed", func(t *testing.T) {
+		tr := adrFixture.with(t, "docs/adr/0004-fourth.md", "", adr("0004", "Fourth", "Accepted", "Other.")).
+			with(t, adrIndex, "| Second | Superseded by ADR-0001 |", "| Second | Superseded by ADR-0001 |\n| [0004](0004-fourth.md) | Fourth | Accepted |")
+		expectClean(t, checkADRIndex(tr.fs()))
 	})
 	t.Run("a duplicate number", func(t *testing.T) {
 		tr := adrFixture.with(t, "docs/adr/0002-again.md", "", adr("0002", "Again", "Accepted", "Other."))

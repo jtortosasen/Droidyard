@@ -1,6 +1,6 @@
 ---
 name: droidyard-android
-description: Build, install, run and drive an Android app through the droidyard MCP tools instead of adb, Gradle or uiautomator in a shell. Use when the task builds an Android project, starts an emulator, installs or launches an app, reads its logs or UI, taps or types on a device, or debugs a crash.
+description: Build, install, run and drive an Android app through the droidyard MCP tools instead of adb, Gradle or uiautomator in a shell. Use when the task changes code in an Android project (in a worktree), builds one, starts an emulator, installs or launches an app, reads its logs or UI, taps or types on a device, or debugs a crash.
 metadata:
   droidyard.version: "1"
 ---
@@ -30,6 +30,17 @@ restart the shared adb server.
 6. **Act**: `device_tapElement` on a `target` selector, `device_inputText` into a `target`
    (or the focused field), each with an `expect` that says what must change, so one call
    acts and verifies.
+
+## Development in a worktree
+
+A chat that only reads or answers stays on the project's checkout. When it starts a task
+that changes code, give the task a git worktree of its own: reuse the one whose branch
+names the task (`git worktree list`), else create one with `git worktree add` or your
+client's worktree feature. Then call `workspace_enter {root}` with its absolute path: the
+builds, installs and `workspace_describe` that follow act on that worktree, and
+`workspace_enter` with the project's root goes back. droidyard creates and deletes no
+worktree. A new chat enters again; after a resume, `workspace_describe` shows whether it is
+still there.
 
 ## Selectors
 

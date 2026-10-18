@@ -38,8 +38,8 @@ const (
 	worktreeDir  = ".claude/worktrees"
 )
 
-// touchesKnown are the shared resources a lane declares. Only devices is exclusive;
-// the others say where two lanes will meet at the close.
+// touchesKnown are the shared resources a lane declares. None is exclusive: they say
+// where two lanes will meet, at run time (devices) or at the close (the others).
 var touchesKnown = []string{"devices", "contract", "web", "docs", "git", "build", "release", "process"}
 
 var (
@@ -81,7 +81,7 @@ type lane struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: board status | claim <id> <touches> <what> | adr <id> | closing <id> | release <id> | page <out.html>")
+		fail("usage: board status | claim <id> <touches> <what> | touches <id> <touches> | adr <id> | closing <id> | release <id> | page <out.html>")
 	}
 	var err error
 	switch args := os.Args[2:]; os.Args[1] {
@@ -92,6 +92,11 @@ func main() {
 			fail("usage: board claim <id> <touches,comma-separated> <what>")
 		}
 		err = claim(args[0], args[1], args[2])
+	case "touches":
+		if len(args) != 2 {
+			fail("usage: board touches <id> <touches,comma-separated>")
+		}
+		err = setTouches(args[0], args[1])
 	case "adr":
 		err = needOne(args, reserveADR)
 	case "closing":
@@ -354,10 +359,8 @@ func claim(id, touches, what string) error {
 	default:
 		return fmt.Errorf("id %q: a milestone such as 2p, or a lowercase slug such as fix-init", id)
 	}
-	for _, t := range strings.Split(touches, ",") {
-		if !has(strings.Join(touchesKnown, ","), t) {
-			return fmt.Errorf("touches %q: each one of %s", t, strings.Join(touchesKnown, ", "))
-		}
+	if err := checkTouches(touches); err != nil {
+		return err
 	}
 	root, err := mainTree()
 	if err != nil {
@@ -373,11 +376,6 @@ func claim(id, touches, what string) error {
 				if p.ID == id {
 					return nil, fmt.Errorf("%s is in the plans index already (%s)", id, p.Status)
 				}
-			}
-		}
-		for _, l := range lanes {
-			if has(touches, "devices") && has(l.Touches, "devices") {
-				return nil, fmt.Errorf("%s already uses the devices; only one lane at a time may", l.ID)
 			}
 		}
 		if _, err := git("rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
@@ -434,6 +432,30 @@ func reserveADR(id string) error {
 	}
 	fmt.Printf("ADR-%04d reserved for %s\n", got, id)
 	return nil
+}
+
+func checkTouches(touches string) error {
+	for _, t := range strings.Split(touches, ",") {
+		if !has(strings.Join(touchesKnown, ","), t) {
+			return fmt.Errorf("touches %q: each one of %s", t, strings.Join(touchesKnown, ", "))
+		}
+	}
+	return nil
+}
+
+// setTouches replaces a lane's touches, when its work turns out to reach further.
+func setTouches(id, touches string) error {
+	if err := checkTouches(touches); err != nil {
+		return err
+	}
+	return withLanes(func(lanes []lane) ([]lane, error) {
+		i := find(lanes, id)
+		if i < 0 {
+			return nil, fmt.Errorf("%s has no lane", id)
+		}
+		lanes[i].Touches = touches
+		return lanes, nil
+	})
 }
 
 func markClosing(id string) error {

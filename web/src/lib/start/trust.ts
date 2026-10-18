@@ -15,9 +15,13 @@ export interface TrustClient {
 	call<N extends Calls>(name: N, params: Params<N>, opts?: CallOptions): Promise<Result<N>>;
 }
 
-/** The workspace being trusted: its root, and a re-read of its trusted mark. */
+/**
+ * The workspace being trusted: its root, the main tree when the root is a linked worktree
+ * (trust is the project's, ADR-0081 §5), and a re-read of its trusted mark.
+ */
 export interface TrustWorkspace {
 	readonly root: string;
+	readonly mainRoot?: string;
 	refresh(): Promise<void>;
 }
 
@@ -42,6 +46,11 @@ export class TrustModel {
 		this.#ws = ws;
 	}
 
+	/** The main tree a grant trusts when the workspace is a linked worktree; '' otherwise. */
+	get mainRoot(): string {
+		return this.#ws.mainRoot ?? '';
+	}
+
 	get view(): TrustView {
 		this.#view ??= { busy: this.#busy, conflict: this.#conflict, error: this.#error };
 		return this.#view;
@@ -56,7 +65,8 @@ export class TrustModel {
 
 	/** The user's click on Trust. */
 	async grant(): Promise<void> {
-		const root = this.#ws.root;
+		// On a worktree the grant is for the project: its main tree (ADR-0081 §5).
+		const root = this.#ws.mainRoot || this.#ws.root;
 		if (root === '' || this.#busy) return;
 		this.#busy = true;
 		this.#conflict = false;

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -130,6 +131,11 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 	if !ok {
 		return pass
 	}
+	// The route resolves against the root the command's directory gives (ADR-0085 §3);
+	// with none, --root's rules stand.
+	if r, ok := hookRoot(root, ev.Cwd); ok {
+		root = r
+	}
 	route, ok := assistant.RouteRm(ev, root)
 	if !ok {
 		return pass
@@ -178,8 +184,47 @@ func hookObserve(client assistant.Client, root string, ev assistant.AfterEvent, 
 	}
 	out := assistant.AfterOutput(client, ev.Name, assistant.Hint(obs))
 	fallback.Store(&out)
-	recordCommands(client, root, obs, deadline)
+	// A command run outside the project and its worktrees is not recorded (ADR-0085 §1).
+	if r, ok := hookRoot(root, ev.Cwd); ok {
+		recordCommands(client, r, obs, deadline)
+	}
 	return out
+}
+
+// hookRoot is the root a hook event belongs to (ADR-0085 §1): file reads only, no git.
+// cwd and flagRoot are canonicalised first, since `init` writes --root from a logical
+// path and a client's cwd is usually physical. From cwd upwards the nearest directory
+// holding a .git entry decides: a linked worktree of flagRoot's project is the root;
+// else flagRoot when cwd is flagRoot or lies under it at a component boundary; else
+// there is none. An empty cwd (a client that sends none) gives flagRoot (§2).
+func hookRoot(flagRoot, cwd string) (root string, ok bool) {
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return flagRoot, true
+	}
+	env := platform.Current()
+	flag := env.Canonical(flagRoot)
+	dir := env.Canonical(cwd)
+	flagMain, isWorktree := platform.LinkedWorktree(env, flag)
+	if !isWorktree {
+		flagMain = flag
+	}
+	for d := dir; ; {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			if main, ok := platform.LinkedWorktree(env, d); ok && main == flagMain {
+				return d, true
+			}
+			break
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+		d = parent
+	}
+	if rel, err := filepath.Rel(flag, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return flagRoot, true
+	}
+	return "", false
 }
 
 // commandRecord is the parameters of agent.recordCommand for obs: what the reader kept,

@@ -350,7 +350,7 @@ func TestNewerWorkspaceFileDegrades(t *testing.T) {
 	wantNext := "upgrade droidyard, or delete `" + filepath.Join(h.st.Root(), "ws", id) + "/` to reset this workspace"
 	opened := h.open(t, root)
 	described := h.invoke(t, CapDescribe, root)
-	for name, info := range map[string]any{"open": opened, "describe": described.Result} {
+	for name, info := range map[string]any{"open": opened, "describe": described.Result.(Described).Info} {
 		i, ok := info.(Info)
 		if !ok || i.State != Degraded || i.DegradedBy == nil || i.DegradedBy.Code != ErrStateNewer || i.DegradedBy.NextStep != wantNext {
 			t.Errorf("%s: %+v", name, info)

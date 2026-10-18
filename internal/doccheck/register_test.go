@@ -153,7 +153,19 @@ func checkRegister(fsys fs.FS) []string {
 // the server's upgrade procedure, what it leaves on a device), ui-automation.md's live input,
 // http-websocket.md's GET /v1/screen, capability-api.md's device.screen, the register's fourteen 2p
 // rows and README.md's status line (ADR-0077 to ADR-0080).
-const liveBudget = 27967
+// Raised by 166 (to 28,133, merged over 2p's) in milestone 2q step 4: mcp.md's server instructions block, which
+// a test holds verbatim, and its two paragraphs on workspace_enter and the chat id
+// (ADR-0082, ADR-0088), and mvp.md's workspace row.
+// Raised by 15 (to 28,148) in milestone 2q step 6: session.watch's row and domain in mvp.md,
+// its line in mcp.md's not-exposed table, which doccheck requires of a new capability, and
+// session.state in capability-api.md's list of ring-less topics.
+// Raised by 6 (to 28,154) in milestone 2q step 9: mvp.md's workspace row and mcp.md's
+// not-exposed row name workspace.show and workspace.forget (ADR-0084, ADR-0086).
+// Raised by 132 (to 28,286) at milestone 2q's close, Delegated: workspace-state.md's
+// worktrees, the moving binding and inherited trust, overview.md's binding, the glossary's
+// Session, http-websocket.md's one tab, mvp.md's human-only note and README.md's status
+// line (ADR-0081 to ADR-0084, ADR-0088).
+const liveBudget = 28286
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

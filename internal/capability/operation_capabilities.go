@@ -28,10 +28,10 @@ type CancelParams struct {
 // operation.wait.
 type CancelResult struct{}
 
-// RegisterCapabilities adds operation.wait and operation.cancel to the store's
-// registry. Operation ids are daemon-wide, so both are global: any session, or none,
-// may wait on or cancel any operation (ADR-0020 §Operation capabilities). Their calls
-// are not operations and leave no record.
+// RegisterCapabilities adds operation.wait, operation.cancel and session.watch to the
+// store's registry. Operation ids are daemon-wide, so the first two are global: any session,
+// or none, may wait on or cancel any operation (ADR-0020 §Operation capabilities). Their
+// calls are not operations and leave no record.
 func (o *Operations) RegisterCapabilities() {
 	o.reg.MustRegister(Descriptor{
 		Name:        OperationWait,
@@ -71,4 +71,6 @@ func (o *Operations) RegisterCapabilities() {
 		},
 		unrecorded: true,
 	})
+
+	o.registerSessionWatch()
 }

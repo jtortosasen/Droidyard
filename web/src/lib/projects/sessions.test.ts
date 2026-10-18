@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Operation, OperationState } from '../ops/activity';
-import { AGENT_ROW_TTL_MS, duration, SessionsModel, YOU, type SessionsSource } from './sessions';
+import { FakeStream, settle } from '../build/testing';
+import { AGENT_ROW_TTL_MS, duration, SessionsModel, YOU, type SessionsClient, type SessionsSource } from './sessions';
 
 // A source the test drives: the store's operations, newest first, and its listeners.
 class Source implements SessionsSource {
@@ -167,6 +168,129 @@ describe('SessionsModel', () => {
 		t.src.set(op({ id: 'a', state: 'running', capability: 'build.assemble', startedAt: '2026-10-10T10:00:00Z', session: mcp('s1', 'a') }));
 		t.src.set(op({ id: 'b', state: 'running', capability: 'device.install', startedAt: '2026-10-10T10:00:05Z', session: mcp('s1', 'a') }));
 		expect(t.model.view.rows[0]!.operations.map((o) => o.capability)).toEqual(['build.assemble', 'device.install']);
+	});
+});
+
+// --- session.watch (ADR-0083) ---------------------------------------------------------
+
+async function watched() {
+	const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
+	const src = new Source();
+	const stream = new FakeStream('sw');
+	const moves: string[] = [];
+	const client = {
+		call: (n: string, p: unknown) => stream.call(n as 'events.unsubscribe', p as { subscriptionId: string }),
+		subscribe: (n: string, p: unknown, h: never) => stream.subscribe(n, p, h),
+	} as unknown as SessionsClient;
+	const model = new SessionsModel(src, () => clock.t, { client, onFollow: (w) => moves.push(w) });
+	model.start();
+	const snapshot = (sessions: unknown[]) => {
+		stream.answer(0, { subscriptionId: 'sw1', sessions });
+		return settle();
+	};
+	const ev = (id: string, p: { name?: string; workspace?: string; ended?: boolean }) =>
+		stream.emit(0, { topic: 'session.state', type: 'state', payload: { id, ended: false, ...p } });
+	return { src, model, stream, moves, snapshot, ev, clock };
+}
+const at = '2026-10-10T10:00:00Z';
+
+describe('SessionsModel with session.watch', () => {
+	// Decision (ADR-0083 §1): a connected session is a row before it runs anything, and
+	// several sit in one worktree. With operations only, both would be invisible.
+	it('lists connected sessions that ran nothing, several in one workspace', async () => {
+		const t = await watched();
+		await t.snapshot([
+			{ id: 's1', name: 'claude', workspace: 'wt', connectedAt: at },
+			{ id: 's2', name: 'claude', workspace: 'wt', connectedAt: at },
+			{ id: 's3', connectedAt: at },
+		]);
+		// Idle rows keep the existing order: by label.
+		expect(t.model.view.rows.map((r) => [r.key, r.label, r.workspace, r.running])).toEqual([
+			['s3', 'agent', null, false],
+			['s1', 'claude', 'wt', false],
+			['s2', 'claude 2', 'wt', false],
+		]);
+	});
+
+	// Decision (ADR-0083 §1): the watch's workspace is the session's, and operations still give running.
+	it('takes the workspace from the state event and keeps the operations for running', async () => {
+		const t = await watched();
+		await t.snapshot([{ id: 's1', name: 'a', workspace: 'main', connectedAt: at }]);
+		t.src.set(op({ id: 'x', state: 'running', session: mcp('s1', 'a', 'main') }));
+		t.ev('s1', { name: 'a', workspace: 'wt' });
+		const row = t.model.view.rows[0]!;
+		expect([row.workspace, row.running]).toEqual(['wt', true]);
+	});
+
+	// Decision (ADR-0083 §3): a selection made from a session's row follows its moves; one
+	// that was not (never followed, or ended by a project click) does not.
+	it('moves the selection of a followed session only', async () => {
+		const t = await watched();
+		await t.snapshot([{ id: 's1', name: 'a', workspace: 'main', connectedAt: at }]);
+		t.ev('s1', { name: 'a', workspace: 'wt' });
+		expect(t.moves).toEqual([]); // never followed: the UI never moves it
+		t.model.follow('s1');
+		t.ev('s1', { name: 'a', workspace: 'wt2' });
+		t.ev('s1', { name: 'a', workspace: 'wt2' }); // not a move
+		expect(t.moves).toEqual(['wt2']);
+		t.model.unfollow(); // a click on a project or worktree row
+		t.ev('s1', { name: 'a', workspace: 'main' });
+		expect(t.moves).toEqual(['wt2']);
+	});
+
+	// Decision (ADR-0083 §1, plan step 8): an ended idle session leaves at once, a running one after its last operation.
+	it('drops an ended idle session at once and a running one when it finishes', async () => {
+		const t = await watched();
+		await t.snapshot([
+			{ id: 'idle', name: 'i', workspace: 'w', connectedAt: at },
+			{ id: 'busy', name: 'b', workspace: 'w', connectedAt: at },
+		]);
+		t.src.set(op({ id: 'r', state: 'running', session: mcp('busy', 'b', 'w') }));
+		t.ev('idle', { ended: true });
+		t.ev('busy', { ended: true });
+		expect(t.model.view.rows.map((r) => r.key)).toEqual(['busy']);
+		t.src.set(op({ id: 'r', state: 'completed', session: mcp('busy', 'b', 'w') }));
+		expect(t.model.view.rows).toEqual([]);
+	});
+
+	// A session absent from a new snapshot ended while the watch was blind (events.gap).
+	it('reads the list again after a gap and drops a session no longer listed', async () => {
+		const t = await watched();
+		await t.snapshot([
+			{ id: 's1', name: 'a', connectedAt: at },
+			{ id: 's2', name: 'b', connectedAt: at },
+		]);
+		t.stream.emit(0, { topic: 'events.gap', type: 'gap', payload: {} });
+		t.stream.answer(1, { subscriptionId: 'sw2', sessions: [{ id: 's2', name: 'b', connectedAt: at }] });
+		await settle();
+		expect(t.model.view.rows.map((r) => r.key)).toEqual(['s2']);
+	});
+
+	// A re-read is the truth: a session it lists is not ended, whatever an earlier read
+	// concluded, and a followed session that moved while events were lost still moves the
+	// selection (code review of step 8).
+	it('a re-read lists a session again and moves the selection of a followed one', async () => {
+		const t = await watched();
+		await t.snapshot([
+			{ id: 's1', name: 'a', workspace: 'main', connectedAt: at },
+			{ id: 's2', name: 'b', workspace: 'main', connectedAt: at },
+		]);
+		t.model.follow('s1');
+		t.stream.emit(0, { topic: 'events.gap', type: 'gap', payload: {} });
+		t.stream.answer(1, { subscriptionId: 'sw2', sessions: [{ id: 's1', name: 'a', workspace: 'main', connectedAt: at }] });
+		await settle();
+		expect(t.model.view.rows.map((r) => r.key)).toEqual(['s1']);
+		t.stream.emit(1, { topic: 'events.gap', type: 'gap', payload: {} });
+		t.stream.answer(2, {
+			subscriptionId: 'sw3',
+			sessions: [
+				{ id: 's1', name: 'a', workspace: 'wt', connectedAt: at },
+				{ id: 's2', name: 'b', workspace: 'main', connectedAt: at },
+			],
+		});
+		await settle();
+		expect(t.model.view.rows.map((r) => r.key).sort()).toEqual(['s1', 's2']);
+		expect(t.moves).toEqual(['wt']);
 	});
 });
 

@@ -156,17 +156,22 @@ func (b *Bus) PublishTo(sub *Subscription, topic, typ, workspace, operation stri
 // Broadcast delivers one event to every subscription that holds its topic: it takes a seq
 // like Publish but appends nothing to the replay ring, so a busy stream of a capability's
 // own (operation.state, ADR-0043) never flushes what other subscribers resume from, and
-// the topic is not one events.subscribe can name. It implements capability.StatePublisher.
-func (b *Bus) Broadcast(topic, typ, workspace, operation string, payload any) {
+// the topic is not one events.subscribe can name. It returns how many subscriptions it
+// offered the event to (workspace.show's tabs, ADR-0084 §1), those whose queue dropped it
+// included. It implements capability.StatePublisher.
+func (b *Bus) Broadcast(topic, typ, workspace, operation string, payload any) int {
 	e := stamp(topic, typ, workspace, operation, payload)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.assign(&e)
+	n := 0
 	for s := range b.subs {
 		if s.topics[topic] {
 			s.offer(e)
+			n++
 		}
 	}
+	return n
 }
 
 var _ capability.StatePublisher = (*Bus)(nil)

@@ -29,7 +29,10 @@ import (
 
 // Instructions is sent in every initialize result: verbatim, the block of
 // docs/interfaces/mcp.md §Server instructions (a core session adds CoreNote).
-const Instructions = `- This server is bound to one project; tools act on it with no workspace argument.
+const Instructions = `- This server is bound to one project; tools take no workspace argument.
+  workspace_describe lists its worktrees: a task that has one (its branch names it) is
+  done there, so workspace_enter it first. Else a task that changes code first gets one
+  (git worktree add) and enters it; a question stays put.
 - Golden order: project_modules, build_assemble, emulator_start (or device_list), device_install,
   device_launch, device_uiTree, then device_tapElement or device_inputText with expect. Use
   these tools, not adb or Gradle in a shell, for what they cover, and call them directly, not
@@ -64,7 +67,7 @@ const (
 // reopen ADR-0020 allows, and the tools a core tool's nextStep sends the agent to
 // (TestCoreNextStepsNameCoreTools, in cmd/droidyard, finds them).
 var CoreTools = []string{
-	"workspace_open", "workspace_describe", "project_modules", "project_variants",
+	"workspace_open", "workspace_enter", "workspace_describe", "project_modules", "project_variants",
 	"build_assemble", "build_run", "build_errors", "build_lastResult",
 	"emulator_list", "emulator_start", "emulator_stop",
 	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
@@ -192,7 +195,10 @@ func sessionIDOf(ctx context.Context) string {
 
 // openCapability is the call that opens a session's bound root. Adapters name
 // capabilities, never import their domains (overview.md §Adapter boundary).
-const openCapability = "workspace.open"
+const (
+	openCapability  = "workspace.open"
+	enterCapability = "workspace.enter"
+)
 
 // SetBoundOpenHook makes every later session run f before it opens its bound root.
 // Test-only: it lets a test hold the open and see that no MCP message is answered
@@ -258,10 +264,13 @@ func ToolName(capabilityName string) string {
 // Serve runs one MCP session until its input ends or ctx does. r must be the reader
 // that read the connection's hello, since it may already hold what followed. budget
 // bounds the session's waits (`droidyard mcp --wait`); zero means DefaultBudget. root
-// is the session's binding, the hello's root (ADR-0019 §Sessions): Serve opens it
-// before it reads the first MCP message, and every workspace-scoped tool call names
-// it. Empty: no binding, and workspace tools get REQUEST_MISSING_WORKSPACE.
-func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget time.Duration, root, profile string) error {
+// is the session's first binding, the hello's root (ADR-0019 §Sessions): Serve opens it
+// before it reads the first MCP message, and every workspace-scoped tool call names the
+// session's binding, which workspace_enter can move (ADR-0082). Empty: no binding, and
+// workspace tools get REQUEST_MISSING_WORKSPACE. chat is the hello's chat id, "" for none:
+// a chat whose last binding the core remembers is bound there before the first message
+// (ADR-0088 §3).
+func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget time.Duration, root, profile, chat string) error {
 	if budget <= 0 {
 		budget = DefaultBudget
 	}
@@ -282,14 +291,26 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 		inProfile = func(name string) bool { return core[name] }
 	}
 	id := sessionIDOf(ctx)
-	s.openBound(ctx, id, root)
+	sessions := s.ops.Sessions()
+	sessions.Connect(id, chat)
+	defer sessions.End(id)
+	s.openBound(ctx, id, root, chat)
 	// One mcp-go server per connection, and on it one session of the connection's
 	// own: notifications, client info, the protocol version and the requests
 	// notifications/cancelled can reach all belong to it (ADR-0025 §Decision, as
 	// amended 2026-10-03).
+	// The client names itself in initialize, or, at protocol 2026-07-28, in the _meta of
+	// every request (server/discover first, for Claude Code): mcp-go has set the
+	// session's client info by the time a request succeeds, so every success names it
+	// again, and Named publishes only a change (ADR-0083 §1).
+	hooks := &server.Hooks{}
+	hooks.AddOnSuccess(func(ctx context.Context, _ any, _ mcpgo.MCPMethod, _ any, _ any) {
+		sessionOf(ctx).named()
+	})
 	srv := server.NewMCPServer("droidyard", s.version,
 		server.WithToolCapabilities(false),
 		server.WithInstructions(instructions),
+		server.WithHooks(hooks),
 	)
 	// A tool outside the profile is never added, so a call to it gets the answer
 	// for a name that does not exist: MCP's "tool not found".
@@ -310,7 +331,7 @@ func (s *Server) Serve(ctx context.Context, r *bufio.Reader, w io.Writer, budget
 	if err := srv.RegisterSession(ctx, sess); err != nil {
 		return fmt.Errorf("register session: %w", err)
 	}
-	c := &session{ctx: ctx, budget: budget, root: root, id: id, client: sess}
+	c := &session{ctx: ctx, budget: budget, sessions: sessions, id: id, client: sess}
 	rctx, cancelRequests := context.WithCancel(context.WithValue(srv.WithContext(ctx, sess), sessionKey{}, c))
 	defer cancelRequests()
 
@@ -489,7 +510,8 @@ func (wr *writer) write(m any) {
 type session struct {
 	ctx    context.Context // the one given to Serve; it ends when the daemon stops
 	budget time.Duration
-	root   string // the bound root
+	// sessions holds the session's binding, which workspace_enter moves.
+	sessions *capability.Sessions
 	// id is the daemon's id for the session; client is the mcp-go session, which holds
 	// the clientInfo that initialize sets (ADR-0048).
 	id     string
@@ -497,14 +519,33 @@ type session struct {
 	gone   atomic.Bool
 }
 
+// root is the session's binding now, "" when it has none.
+func (c *session) root() string {
+	root, _ := c.sessions.Binding(c.id)
+	return root
+}
+
 // origin is who the session's calls come from: its id, the name its client gave in
-// initialize (empty before it), and the bound root (ADR-0048). The core bounds the name.
+// initialize (empty before it), and the bound root (ADR-0048): the binding as it stands
+// when the call is made, so it follows a workspace_enter. The core bounds the name.
 func (c *session) origin() capability.Origin {
-	o := capability.Origin{ID: c.id, Root: c.root}
+	return capability.Origin{ID: c.id, Root: c.root(), Name: c.clientName()}
+}
+
+// clientName is what the client called itself, "" before it has.
+func (c *session) clientName() string {
 	if ci, ok := c.client.(server.SessionWithClientInfo); ok {
-		o.Name = ci.GetClientInfo().Name
+		return ci.GetClientInfo().Name
 	}
-	return o
+	return ""
+}
+
+// named gives the core the name the client has just given (ADR-0083 §1). The registry
+// bounds it. A context that carries no session does nothing.
+func (c *session) named() {
+	if c != nil {
+		c.sessions.Named(c.id, c.clientName())
+	}
 }
 
 // openBound opens the session's bound root, once, before the session reads its first
@@ -513,20 +554,63 @@ func (c *session) origin() capability.Origin {
 // and grants no trust (ADR-0015 §5). A failure does not fail the session: it is
 // logged, and workspace tools get WORKSPACE_NOT_OPEN until workspace_open shows the
 // cause (ADR-0026). Nothing reopens the workspace later (R13).
-func (s *Server) openBound(ctx context.Context, id, root string) {
+//
+// The binding goes to the core's session registry with the session's project: the main
+// tree when the root is a linked worktree, else the root itself (ADR-0082 §3). A chat
+// whose last binding the registry remembers is then moved there, as workspace_enter
+// would, so its rule is the same one (ADR-0088 §3); a root that cannot be entered is
+// forgotten and the session stays where its hello put it.
+func (s *Server) openBound(ctx context.Context, id, root, chat string) {
 	if root == "" {
 		return
 	}
 	if f := s.boundOpenHook.Load(); f != nil {
 		(*f)()
 	}
-	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP,
-		Origin: capability.Origin{ID: id, Root: root}})
+	sessions := s.ops.Sessions()
+	origin := capability.Origin{ID: id, Root: root}
+	out, err := s.ops.Invoke(ctx, capability.Request{Capability: openCapability, Workspace: root, Client: capability.ClientMCP, Origin: origin})
 	switch {
 	case err != nil:
 		s.log.Printf("session bound to %s: %s was rejected: %v", root, openCapability, err)
 	case out.State != capability.StateCompleted:
 		s.log.Printf("session bound to %s: %s ended %s: %v", root, openCapability, out.State, out.Error)
+	}
+	// The workspace object names the root canonically; a failed open leaves the root as
+	// the hello gave it.
+	var opened struct {
+		ID       string `json:"id"`
+		Root     string `json:"root"`
+		MainRoot string `json:"mainRoot"`
+	}
+	if err == nil && out.State == capability.StateCompleted {
+		if raw, merr := json.Marshal(out.Result); merr == nil {
+			json.Unmarshal(raw, &opened)
+		}
+	}
+	if opened.Root == "" {
+		opened.Root = root
+	}
+	project := opened.MainRoot
+	if project == "" {
+		project = opened.Root
+	}
+	sessions.Opened(id, project, opened.ID, opened.Root)
+
+	remembered, ok := sessions.Remembered(chat)
+	if !ok || remembered == opened.Root {
+		return
+	}
+	params, _ := json.Marshal(map[string]string{"root": remembered})
+	moved, err := s.ops.Invoke(ctx, capability.Request{Capability: enterCapability, Params: params, Client: capability.ClientMCP,
+		Origin: capability.Origin{ID: id, Root: opened.Root}})
+	switch {
+	case err != nil:
+		sessions.Forget(chat)
+		s.log.Printf("session bound to %s: its chat's last binding %s was not entered: %v", opened.Root, remembered, err)
+	case moved.State != capability.StateCompleted:
+		sessions.Forget(chat)
+		s.log.Printf("session bound to %s: its chat's last binding %s was not entered: %s: %v", opened.Root, remembered, moved.State, moved.Error)
 	}
 }
 
@@ -627,9 +711,11 @@ func (s *Server) handler(d capability.Descriptor) server.ToolHandlerFunc {
 func (s *Server) request(ctx context.Context, d capability.Descriptor, args json.RawMessage) capability.Request {
 	req := capability.Request{Capability: d.Name, Params: args, Client: capability.ClientMCP}
 	if c := sessionOf(ctx); c != nil {
+		// One read of the binding for both, so a workspace_enter completing in between
+		// cannot give the call one workspace and its session.workspace another.
 		req.Origin = c.origin()
 		if d.Scope == capability.Workspace {
-			req.Workspace = c.root
+			req.Workspace = req.Origin.Root
 		}
 	}
 	return req

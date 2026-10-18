@@ -1,6 +1,7 @@
 # ADR-0019: Process topology — one daemon, attached by stdio and CLI shims
 
 - Status: Accepted
+- Superseded in part by: ADR-0082 (§Sessions)
 - Superseded in part by: ADR-0036 (§Processes)
 - Superseded in part by: ADR-0037 (§Processes)
 - Superseded in part by: ADR-0045 (§Processes)

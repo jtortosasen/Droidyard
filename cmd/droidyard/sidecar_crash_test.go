@@ -80,11 +80,11 @@ func TestSidecarCrashDegradesTheWorkspace(t *testing.T) {
 	describe := func(root string) workspace.Info {
 		t.Helper()
 		out := invoke("workspace.describe", root, "")
-		info, ok := out.Result.(workspace.Info)
+		info, ok := out.Result.(workspace.Described)
 		if !ok {
 			t.Fatalf("workspace.describe %s: %+v", root, out)
 		}
-		return info
+		return info.Info
 	}
 	if s := describe(newer); s.State != workspace.Degraded || s.DegradedBy == nil || s.DegradedBy.Code != workspace.ErrStateNewer {
 		t.Fatalf("the newer-version workspace is %+v; want degraded by WORKSPACE_STATE_NEWER", s)
@@ -199,7 +199,8 @@ func TestSidecarDyingUnderTheRunRequestDegradesTheWorkspace(t *testing.T) {
 	if built.State != capability.StateFailed || built.Error == nil || built.Error.Code != capability.ErrBuildSidecarCrashed {
 		t.Fatalf("build.run = %+v; want failed with BUILD_SIDECAR_CRASHED", built)
 	}
-	info, ok := invoke("workspace.describe", "").Result.(workspace.Info)
+	described, ok := invoke("workspace.describe", "").Result.(workspace.Described)
+	info := described.Info
 	if !ok || info.State != workspace.Degraded || info.DegradedBy == nil || info.DegradedBy.Code != capability.ErrBuildSidecarCrashed {
 		t.Errorf("after the sidecar died under build.run the workspace is %+v; want degraded by BUILD_SIDECAR_CRASHED", info)
 	}
@@ -249,11 +250,11 @@ func TestSidecarCrashDegradesTheTopWorkspace(t *testing.T) {
 	}
 	describe := func(root string) workspace.Info {
 		t.Helper()
-		info, ok := invoke("workspace.describe", root, "").Result.(workspace.Info)
+		described, ok := invoke("workspace.describe", root, "").Result.(workspace.Described)
 		if !ok {
 			t.Fatalf("workspace.describe %s failed", root)
 		}
-		return info
+		return described.Info
 	}
 	// The other workspace resolves its own root first; the model fetch starts the sidecar.
 	if out := invoke("project.modules", other, ""); out.State != capability.StateCompleted {
