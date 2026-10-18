@@ -186,11 +186,14 @@ The delivery paths, the read-back, the partial-result and the timing bounds are
 
 ## Input primitives
 
-The adb verbs beneath UI actions. The MVP exposes `tapElement` and `inputText`; coordinate taps,
-swipes and scroll-to-find are later capabilities and use these rules and the same `expect`
-vocabulary. **Coordinates for coordinate-based actions are normalised 0..1**, resolved to pixels using
-the **display size from a fresh screencap**, not `wm size`, which commonly reports the portrait panel
-size even in landscape; this removes rotation math entirely. **Tree-derived actions work in display
+The adb verbs beneath UI actions. Agents get `tapElement` and `inputText`; scroll-to-find and
+coordinate actions for agents are later and use these rules and the same `expect` vocabulary. **The
+live view's input** ([ADR-0079](../adr/0079-screen-input-capabilities.md), people only) normalises
+coordinates against the **stream's frame size** and needs a live view; on an emulator a click
+reaches the next decoded frame in p50 51–53 ms, a tap's operation takes p50 76–83 ms (plan m2p
+step 7). **Coordinates for agents' coordinate actions are normalised 0..1** too, resolved to
+pixels using the **display size from a fresh screencap**, not `wm size`, which commonly reports the
+portrait panel size even in landscape; this removes rotation math entirely. **Tree-derived actions work in display
 pixels**, because the tree's bounds are already in that space. Text and taps go through the persistent
 reader when it can run; `input tap`, `input text` and the ADBKeyboard IME are the fallback.
 **Rotation** pins `accelerometer_rotation=0` before setting `user_rotation`, so auto-rotate cannot

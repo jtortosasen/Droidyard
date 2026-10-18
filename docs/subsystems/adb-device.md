@@ -193,7 +193,7 @@ workspace; no arbitrary host paths.
 ## Lifecycle and concurrency
 
 - **The adb server is shared and never killed implicitly**; other tools use it.
-- Long-lived children (logcat follow, screen recording) are per-operation and die with their
+- Long-lived children (logcat follow, the screen server's `adb shell`) are per-operation and die with their
   operation.
 - **The UI reader** ([ADR-0030](../adr/0030-persistent-ui-reader.md)) is what Droidyard leaves on a
   device: `/data/local/tmp/droidyard-reader-<sha256>.dex`, pushed once and kept; a process named
@@ -203,6 +203,11 @@ workspace; no arbitrary host paths.
   reader (adopted); a reader of another digest is killed, since it holds the device's one
   `UiAutomation`. The one-shot fallback uses its own `...-oneshot.dex`, pushed and removed per read.
   Nothing else is listed, removed or killed (`persistent.go`).
+- **The screen server** (ADR-0077) runs only while a live view does: its jar is pushed at each start
+  and deletes itself as it starts, the server leaves the device about a second after its last viewer,
+  its device, a protocol error or the daemon's stop, and its `adb forward` is removed then. A daemon
+  killed outright leaves that forward until adb restarts or the device goes; the next start reaps the
+  recorded `adb shell` client (`screensource.go`).
 - **Multi-device is a first-class assumption**: per-device locking, writes serialised per
   device, reads in parallel, one frame pipeline per device. We do not inherit the
   single-stream-slot design of the prior art.
@@ -217,13 +222,19 @@ failing on the host (the server cannot start, `devices -l` times out or cannot b
 `screencap` carry the decisive line as the cause (1e, Q3); an adb client/server version mismatch is
 **a warning, not an error**. UI automation failures: [ui-automation](ui-automation.md) §Failure modes.
 
-## Screen viewing: on demand, not streamed
+## Screen viewing: a live H.264 view
 
-Evidence from the prior art: `dsh-android` streams (a persistent `screencap` loop and multipart
-fan-out; ~8 fps on an emulator, **2-5 fps over USB**); `codex-android-mcp` kept the loop only to map
-coordinates; `mobile-mcp` does not stream and offers screenshots on demand plus screen **recording**
-to a file. The one that streams is the one with a live device panel, and even it is a slideshow on
-real hardware. **Decision: the MVP does not stream.** Screenshots are captured on demand and returned
-as artifact references; the UI panel uses a refresh affordance. If a smooth live view is ever needed,
-the right answer is an **H.264 path** (scrcpy-style) behind a `StreamSource` seam, not a PNG-per-frame
-loop. We design the seam and do not build the pipeline.
+The UI's live view streams the device's own H.264 from scrcpy's pinned server
+([ADR-0077](../adr/0077-screen-stream-source.md)) behind the `screen.Source` seam, so a relayed
+device could feed the same seam unchanged; its wire, sharing and lifetimes are
+[ADR-0078](../adr/0078-screen-watch-and-endpoint.md), its input
+[ADR-0079](../adr/0079-screen-input-capabilities.md), and `FLAG_SECURE`
+[ADR-0080](../adr/0080-flag-secure-detection.md). Agents keep `device.screenshot`, on demand. The
+facts it rests on are [the spike](../research/spike-screen-stream-2026-10.md).
+
+**Upgrading the server** is deliberate, never automatic: take the new release's `scrcpy-server`
+asset, compare its SHA-256 with the release's `SHA256SUMS.txt`, replace the file and its `LICENSE`
+in `internal/domain/device/screen/scrcpyserver`, set `Version` and `SHA256`, re-record the fixtures
+with `TestSpikeScrcpy` and run `TestRealScreenSource` on a scratch AVD of the newest system image.
+A new Android release on a device is the usual reason; a start that fails says so as
+`DEVICE_STREAM_FAILED` with its phase.

@@ -20,6 +20,13 @@ import (
 // preamble.
 const ErrScreenshotFailed capability.ErrorCode = "DEVICE_SCREENSHOT_FAILED"
 
+// ErrStreamFailed is the live view's source failing to start: the push of the server, the
+// forward, the server's start, the connect to its sockets, or the first bytes of its
+// stream not being the expected protocol (ADR-0077, ADR-0078 §1; plan m2p step 3). Its
+// cause names the phase and the exit status, never device output. adb itself that cannot
+// be run is DEVICE_ADB_FAILED, as in the preamble.
+const ErrStreamFailed capability.ErrorCode = "DEVICE_STREAM_FAILED"
+
 // screencapTimeout bounds `exec-out screencap -p`; a variable so a test is quick.
 var screencapTimeout = 10 * time.Second
 
@@ -36,7 +43,8 @@ type ScreenshotParams struct {
 // its fields flat, and adb's warnings. Never a path, never the bytes.
 type ScreenshotResult struct {
 	artifact.Ref
-	// Warnings are adb's (client/server version mismatch), not the device's: untagged.
+	// Warnings are adb's (client/server version mismatch) and the daemon's own secure-window
+	// notice (ADR-0080), none of them device text: untagged.
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -49,6 +57,7 @@ func registerScreenshot(reg *capability.Registry, adb *ADB, store *artifact.Stor
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Captures the device's screen as a PNG and returns an ephemeral artifact reference with its size, not the bytes. Read it with artifact.read, which can downscale or crop it; prefer device.uiTree when text is enough.",
 		Params:       ScreenshotParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(ScreenshotParams).Device) },
 		Result:       ScreenshotResult{},
 		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrScreenshotFailed),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -82,7 +91,11 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 		if line := disconnectedLine(t.serial, out); line != "" && perr != nil {
 			return ScreenshotResult{}, disconnected(t.serial, line)
 		}
-		return ScreenshotResult{}, screenshotFailed(cmd, out, err, perr)
+		fail := screenshotFailed(cmd, out, err, perr)
+		if secure, cerr := a.secureFocus(ctx, t); cerr == nil && secure {
+			fail.Cause += "; " + secureCause
+		}
+		return ScreenshotResult{}, fail
 	}
 	// The one decode of the capture serves validation and the inline image the MCP
 	// adapter delivers (plan m1e, step 8): the adapter never decodes it again. An image
@@ -99,7 +112,11 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 	if err != nil {
 		return ScreenshotResult{}, err
 	}
-	return ScreenshotResult{Ref: ref, Warnings: t.warnings}, nil
+	warnings := t.warnings
+	if secure, cerr := a.secureFocus(ctx, t); cerr == nil && secure {
+		warnings = append(append([]string(nil), warnings...), secureWarning)
+	}
+	return ScreenshotResult{Ref: ref, Warnings: warnings}, nil
 }
 
 var pngSignature = []byte("\x89PNG\r\n\x1a\n")

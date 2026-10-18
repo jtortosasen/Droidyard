@@ -34,6 +34,8 @@ export interface Building {
 	client: string | undefined;
 	/** The daemon session that made the call (ADR-0048); the toolbar names an agent's build by it. */
 	session?: Operation['session'];
+	/** What the build acts on (ADR-0076): the module and variant of a build.assemble; none for build.run. */
+	target?: Operation['target'];
 	startedAt: string;
 	state: 'queued' | 'running';
 	/**
@@ -118,6 +120,7 @@ export class BuildMirror {
 			capability: op.capability,
 			client: op.client,
 			session: op.session,
+			target: op.target,
 			startedAt: op.startedAt,
 			state: op.state,
 			blockedBy: op.blockedBy,

@@ -204,6 +204,9 @@
 					<span class="status" data-tone={b.tone} title={b.stateText}>{@render icon(b)}</span>
 					<span class="title" title={b.capability}>{b.title}</span>
 					<span class="actor" class:you={b.you}>{b.actor}</span>
+					{#if b.target !== ''}
+						<span class="target">{b.target}</span>
+					{/if}
 					<span class="time">{new Date(b.startedAt).toLocaleTimeString()}</span>
 					<span class="elapsed">{elapsedText(b, now)}</span>
 					{#if expandable}
@@ -383,6 +386,7 @@
 		background: transparent;
 		border: 1px solid var(--border);
 	}
+	.target,
 	.time,
 	.elapsed {
 		color: var(--text-3);

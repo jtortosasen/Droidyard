@@ -211,6 +211,7 @@ func registerInputText(reg *capability.Registry, adb *ADB) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Types text into the focused field, or into target after tapping it once, and verifies the effect in the same call; clear empties the field first and submit presses ENTER. A read-back that differs from the text is a warning, never a second typing, and expect follows device.tapElement's rules. Never repeat it: a repeat types again; an expect already true before typing is reported vacuous, and gone needs two reads.",
 		Params:       InputTextParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(InputTextParams).Device) },
 		Result:       InputTextResult{},
 		Text:         capability.TextOf(typedText),
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),

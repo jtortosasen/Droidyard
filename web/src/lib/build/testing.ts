@@ -108,7 +108,7 @@ export async function activityWith(operations: ReturnType<typeof liveOp>[] = [])
 export function stateEvent(
 	watch: FakeStream,
 	operation: string,
-	p: { capability?: string; state: string; client?: string },
+	p: { capability?: string; state: string; client?: string; target?: Record<string, string> },
 	workspace: string | null = 'w1',
 ): void {
 	watch.emit(0, {

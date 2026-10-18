@@ -42,7 +42,7 @@ export const PANELS: readonly PanelDef[] = [
 	{ id: 'git', region: 'bottom', label: 'Git' },
 
 	{ id: 'devices', region: 'right', label: 'Devices' },
-	{ id: 'liveview', region: 'right', label: 'Live view', disabled: { milestone: 'live emulator view' } },
+	{ id: 'liveview', region: 'right', label: 'Live view' },
 	{ id: 'tree', region: 'right', label: 'UI tree' },
 	{ id: 'act', region: 'right', label: 'Actions' },
 ];
@@ -80,6 +80,8 @@ export interface ShellApi {
 	openSessions: () => void;
 	/** Opens the left panel on the file tree. */
 	showFiles: () => void;
+	/** The right region is open (a collapsed one keeps its panels mounted but unseen). */
+	rightOpen: () => boolean;
 	/** Shows a panel's tab. */
 	show: (id: string) => void;
 }

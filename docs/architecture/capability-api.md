@@ -160,11 +160,14 @@ another's ids.
   (count and byte caps in `internal/event/event.go`), then continues live. If `since` is
   older than the buffer, or from another epoch, delivery starts with an `events.gap`
   marker. Events are never persisted.
-- `file.changes`, `git.changes` and `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md))
-  are the exceptions: each takes a `seq` but never enters the ring, which a busy stream
-  would flush for other subscribers. It is offered only to the subscription that
-  `file.watch`, `git.watch` or `device.watchLogs` created, is not subscribable and accepts no `since`:
-  after a reconnect the client starts the stream again. `operation.state`
+- `file.changes`, `git.changes`, `device.logcat` ([ADR-0041](../adr/0041-device-watchlogs-stream.md))
+  and `device.screen` ([ADR-0078](../adr/0078-screen-watch-and-endpoint.md)) are the exceptions:
+  each takes a `seq` but never enters the ring, which a busy stream would flush for other
+  subscribers. It is offered only to the subscription that `file.watch`, `git.watch`,
+  `device.watchLogs` or `device.watchScreen` created, is not subscribable and accepts no `since`:
+  after a reconnect the client starts the stream again. A stream ended by its own subscription
+  publishes nothing more on it, since no one is left to receive it; the live view's video is not
+  an event but `GET /v1/screen`'s binary messages. `operation.state`
   ([ADR-0043](../adr/0043-operation-watch.md)) is ring-less, offered to **every**
   `operation.watch` subscription, and `build.output`
   ([ADR-0044](../adr/0044-build-watchoutput.md)) to every `build.watchOutput` subscription of

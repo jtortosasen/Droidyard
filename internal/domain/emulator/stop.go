@@ -35,6 +35,7 @@ func registerStop(reg *capability.Registry, e *Emulator) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Stops one running emulator with adb emu kill and returns once its serial leaves adb devices. Only emulator serials qualify, not a physical device.",
 		Params:       StopParams{},
+		Target:       func(p any) *capability.OpTarget { return &capability.OpTarget{Device: p.(StopParams).Device} },
 		Result:       StopResult{},
 		// The hook's codes without readiness (stop skips it) and without a disconnection
 		// it cannot return (review B1).
