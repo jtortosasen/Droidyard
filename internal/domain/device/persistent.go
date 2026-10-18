@@ -1260,7 +1260,8 @@ func boundBy(a, b time.Time) time.Time {
 	return b
 }
 
-// Close ends every device.watchLogs stream, waiting for each child to be reaped, then stops
+// Close ends every device.watchLogs stream and every live-view source, waiting for each
+// child to be reaped, then stops
 // every UI reader this daemon used and removes every forward it made: `quit`
 // to each reader and `adb forward --remove tcp:<port>` for each forward, per device in
 // parallel, all within readerCloseBound (plan m1f step 5). It is called after the
@@ -1269,6 +1270,11 @@ func (a *ADB) Close(ctx context.Context) {
 	// The Logcat streams first: each child is killed and reaped, and its pid record
 	// removed, before the daemon's supervisor stops (ADR-0041 §6).
 	a.streams.StopAll(ctx)
+	// The live view's streams drop their references, then the servers likewise (ADR-0078
+	// §6): each child is killed and reaped, its record removed and its forward removed
+	// before the supervisor stops.
+	a.screenViews.StopAll(ctx)
+	a.screens.StopAll(ctx)
 	a.rdMu.Lock()
 	clients := make([]*readerClient, 0, len(a.readers))
 	for _, c := range a.readers {

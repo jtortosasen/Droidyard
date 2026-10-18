@@ -43,6 +43,7 @@ func registerStart(reg *capability.Registry, e *Emulator) {
 		Availability: []capability.Requirement{capability.RequiresEmulator, capability.RequiresADB},
 		Description:  "Boots one AVD and returns {device, avd, adopted} once its device has finished booting. An AVD that is already running is adopted, not restarted, and boots are serialised. Cancelling it before the device appears ends the launch, and afterwards only stops waiting and leaves the emulator running.",
 		Params:       StartParams{},
+		Target:       func(p any) *capability.OpTarget { return &capability.OpTarget{AVD: p.(StartParams).Avd} },
 		Result:       StartResult{},
 		// Only what the handler returns (close review B1): no preamble runs, and a
 		// long-running call has no queue bound (ADR-0020).

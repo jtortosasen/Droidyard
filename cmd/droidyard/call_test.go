@@ -215,7 +215,7 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 			return struct{}{}, nil
 		},
 	})
-	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, artifacts, deviceADB.Close, io.MultiWriter(os.Stderr, p.log))
+	opts, mcpServer, err := daemonOptions(st, sup, env.SocketPath(p.state), httpAddr, reg, ops, bus, artifacts, deviceADB, io.MultiWriter(os.Stderr, p.log))
 	if err != nil {
 		t.Fatal(err)
 	}

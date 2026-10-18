@@ -39,9 +39,10 @@ type ListResult struct {
 
 // Register adds the device capabilities to reg: device.list, device.uiTree and
 // device.screenshot (which stores its image in store), device.tapElement,
-// device.launch, device.logs (which stores its capture in store), device.watchLogs, device.install
+// device.launch, device.logs (which stores its capture in store), device.watchLogs, device.watchScreen, device.install
 // (which resolves its build reference through builds), device.uninstall and
-// device.inputText. builds may be nil in a descriptor-only registry, where
+// device.inputText, and the live view's input: device.tap, device.swipe and
+// device.pressKey. builds may be nil in a descriptor-only registry, where
 // device.install reports no build registry rather than panicking.
 func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds BuildResolver) {
 	reg.MustRegister(capability.Descriptor{
@@ -68,9 +69,11 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 	registerLaunch(reg, adb)
 	registerLogs(reg, adb, store)
 	registerWatchLogs(reg, adb)
+	registerWatchScreen(reg, adb)
 	registerInstall(reg, adb, builds)
 	registerUninstall(reg, adb)
 	registerInputText(reg, adb)
+	registerScreenInput(reg, adb)
 }
 
 // List runs `adb devices -l`, drops what the policy hides (a physical device is listed

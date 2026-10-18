@@ -59,8 +59,8 @@ async function setup() {
 
 let seq = 0;
 // Each ended operation is a new one: a terminal state is never replaced, so an id is used once.
-const done = (t: Awaited<ReturnType<typeof setup>>, capability: string, id = `op-${++seq}`) => {
-	stateEvent(t.watch, id, { capability, state: 'completed', client: 'mcp' }, null);
+const done = (t: Awaited<ReturnType<typeof setup>>, capability: string, id = `op-${++seq}`, target?: Record<string, string>) => {
+	stateEvent(t.watch, id, { capability, state: 'completed', client: 'mcp', target }, null);
 	return settle();
 };
 
@@ -113,6 +113,36 @@ describe('the UI tree model', () => {
 			await done(t, c);
 			expect(t.calls.names().filter((n) => n === 'device.uiTree'), c).toHaveLength(1);
 			t.calls.calls.length = 0;
+		}
+	});
+
+	// Decision (ADR-0076, closing R2): an operation that names another device does not
+	// re-read this device's tree; one on this device, or naming none, does.
+	it('re-reads only for an operation on its own device or on none', async () => {
+		const t = await setup();
+		await t.treeModel.load();
+		t.calls.calls.length = 0;
+		await done(t, 'device.tapElement', undefined, { device: 'emulator-5556' });
+		await done(t, 'device.install', undefined, { device: 'emulator-5556', module: ':app', variant: 'debug' });
+		expect(t.calls.names()).toEqual([]);
+		await done(t, 'device.tapElement', undefined, { device: 'emulator-5554' });
+		expect(t.calls.names().filter((n) => n === 'device.uiTree')).toHaveLength(1);
+		t.calls.calls.length = 0;
+		await done(t, 'device.launch');
+		expect(t.calls.names().filter((n) => n === 'device.uiTree')).toHaveLength(1);
+	});
+
+	// Decision (plan m2p step 7): the live view's gestures and keys re-read a shown tree, but
+	// not App logs, which keep UI_TRIGGERS: a gesture does not cost a device.logs read.
+	it("re-reads the tree for the view's input and the logs do not", async () => {
+		const t = await setup();
+		await t.treeModel.load();
+		await t.logModel.load();
+		for (const c of ['device.tap', 'device.swipe', 'device.pressKey']) {
+			t.calls.calls.length = 0;
+			await done(t, c, undefined, { device: 'emulator-5554' });
+			expect(t.calls.names().filter((n) => n === 'device.uiTree'), c).toHaveLength(1);
+			expect(t.calls.names().filter((n) => n === 'device.logs'), c).toHaveLength(0);
 		}
 	});
 
@@ -391,6 +421,22 @@ describe('the app logs model', () => {
 		}
 		for (const c of ['device.logs', 'device.watchLogs', 'device.list']) await done(t, c);
 		expect(t.calls.names().filter((n) => n === 'device.logs')).toEqual([]);
+	});
+
+	// Decision (ADR-0076, closing R2): the same filter as the tree's: another device's
+	// operation re-reads nothing, this device's or an untargeted one does.
+	it('re-reads shown logs only for an operation on its own device or on none', async () => {
+		const t = await setup();
+		await t.logModel.load();
+		t.calls.calls.length = 0;
+		await done(t, 'device.launch', undefined, { device: 'emulator-5556' });
+		await done(t, 'device.tapElement', undefined, { device: 'emulator-5556' });
+		expect(t.calls.names()).toEqual([]);
+		await done(t, 'device.launch', undefined, { device: 'emulator-5554' });
+		expect(t.calls.names().filter((n) => n === 'device.logs')).toHaveLength(1);
+		t.calls.calls.length = 0;
+		await done(t, 'device.launch');
+		expect(t.calls.names().filter((n) => n === 'device.logs')).toHaveLength(1);
 	});
 
 	// Decision: logs belong to the device they were read from.

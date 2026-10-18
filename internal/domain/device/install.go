@@ -157,9 +157,13 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 		Since:        "0.6.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Params:       InstallParams{},
-		Result:       InstallResult{},
-		Errors:       installErrors,
-		Description:  "Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. buildId absent means the newest finished build with an output for module and variant.",
+		Target: func(p any) *capability.OpTarget {
+			ip := p.(InstallParams)
+			return &capability.OpTarget{Device: ip.Device, Module: ip.Build.Module, Variant: ip.Build.Variant}
+		},
+		Result:      InstallResult{},
+		Errors:      installErrors,
+		Description: "Installs a build's APK on the device with adb install -r, which keeps the app's data, and returns its applicationId and versionCode. buildId absent means the newest finished build with an output for module and variant.",
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(InstallParams).Device; s != "" {
 				return writeKey(s)
@@ -209,6 +213,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 		Since:        "0.6.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Params:       UninstallParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UninstallParams).Device) },
 		Result:       UninstallResult{},
 		Errors:       uninstallErrors,
 		Description:  "Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. It removes the app's data.",

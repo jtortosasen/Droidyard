@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
@@ -79,6 +80,18 @@ type ADB struct {
 	// live stream: Close ends them all and waits for each child to be reaped.
 	bus     *event.Bus
 	streams streamSet
+
+	// screens is every live-view source, one per device (plan m2p step 3); Close ends
+	// them all beside the log streams.
+	screens screenSources
+
+	// screenViews is every device.watchScreen stream (plan m2p step 4): each holds one
+	// reference on a source in screens. Close ends them before the sources.
+	screenViews screenStreams
+
+	// screenLookup replaces the lookup of a device's running source in a test (a fake
+	// screen.Source recording Inject); nil in production.
+	screenLookup func(serial string) screen.Source
 
 	// log is the daemon's log (daemon.log when the daemon is detached), where reader
 	// restarts, fallbacks and slow warm reads are recorded (plan m1n step 2). Nil, the

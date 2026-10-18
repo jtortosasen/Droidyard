@@ -22,6 +22,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
@@ -55,7 +57,7 @@ func newToken() string {
 // the published schemas from here, so it never imports internal/schema
 // (docs/architecture/overview.md §Adapter boundary), and reads operation progress
 // from bus and resolves an image reference against artifacts.
-func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, artifacts *artifact.Store, afterOps func(context.Context), log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
+func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr string, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, artifacts *artifact.Store, adb *device.ADB, log io.Writer) (daemon.Options, *mcpadapter.Server, error) {
 	doc, err := schema.Generate(reg, system.Version)
 	if err != nil {
 		return daemon.Options{}, nil, err
@@ -71,6 +73,8 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 	mcpServer.UseBus(bus)
 	mcpServer.UseArtifacts(artifacts)
 	token := newToken()
+	ui := httpapi.New(reg, ops, bus, token, web.Assets())
+	ui.UseScreens(screenAttach(adb))
 	return daemon.Options{
 		State:      st.Root(),
 		Store:      st,
@@ -79,7 +83,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		Version:    system.Version,
 		UID:        os.Getuid(),
 		Ops:        ops,
-		AfterOps:   afterOps,
+		AfterOps:   adb.Close,
 		Handlers: map[capability.ClientKind]daemon.Handler{
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
@@ -92,12 +96,44 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		HTTP: &daemon.HTTP{
 			Addr:    httpAddr,
 			Listen:  httpapi.Listen,
-			Handler: httpapi.New(reg, ops, bus, token, web.Assets()),
+			Handler: ui,
 			Token:   token,
 		},
 		Log: log,
 	}, mcpServer, nil
 }
+
+// screenAttach is the live view as the HTTP adapter may hold it (ADR-0078 §4): the
+// device's AttachScreen, with the viewer's packets and the two refusals in the adapter's
+// own terms. A viewer of the adapter's has Next and Close and nothing else, so nothing a
+// socket sends can reach the source's Inject.
+func screenAttach(adb *device.ADB) httpapi.ScreenAttach {
+	return func(id string) (httpapi.ScreenViewer, error) {
+		v, err := adb.AttachScreen(id)
+		switch {
+		case errors.Is(err, device.ErrScreenStreamUnknown):
+			return nil, httpapi.ErrScreenUnknown
+		case errors.Is(err, device.ErrScreenStreamAttached):
+			return nil, httpapi.ErrScreenAttached
+		case err != nil:
+			return nil, err
+		}
+		return screenViewer{v}, nil
+	}
+}
+
+// screenViewer adapts a screen.Viewer to the adapter's, packet for packet and byte for byte.
+type screenViewer struct{ v screen.Viewer }
+
+func (s screenViewer) Next(ctx context.Context) (httpapi.ScreenPacket, error) {
+	p, err := s.v.Next(ctx)
+	if err != nil {
+		return httpapi.ScreenPacket{}, err
+	}
+	return httpapi.ScreenPacket{Key: p.Key, Config: p.Config, PTS: p.PTS, Data: p.Data}, nil
+}
+
+func (s screenViewer) Close() { s.v.Close() }
 
 // serve runs the daemon until SIGTERM or SIGINT (ADR-0019 §5). It returns the exit
 // status: 0 after a graceful stop, 1 when it could not start, including when another
@@ -143,7 +179,7 @@ func serve(args []string) int {
 	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, logw)
 	defer artifacts.Close()
 	socket := env.SocketPath(state)
-	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb.Close, logw)
+	opts, _, err := daemonOptions(st, sup, socket, net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort)), reg, ops, bus, artifacts, adb, logw)
 	if err != nil {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1

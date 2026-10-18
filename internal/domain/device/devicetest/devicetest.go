@@ -55,6 +55,20 @@
 //	<serial>.pmpath             `-s <serial> shell pm path <applicationId>`
 //	<serial>.pm                 `-s <serial> shell pm list packages -U <filter>` (see below)
 //	<serial>.log                `-s <serial> logcat …` (see below)
+//	<serial>.pushscrcpy         `-s <serial> push <local> /data/local/tmp/droidyard-scrcpy-<d12>.jar` (the live view's server)
+//	<serial>.forwardscrcpy      `-s <serial> forward tcp:0 localabstract:scrcpy_<scid>` (.out holds the port, see below)
+//	<serial>.scrcpyserver       `-s <serial> shell CLASSPATH=<that file> app_process / com.genymobile.scrcpy.Server <version> …` (see below)
+//
+// The fake models the live view's server (plan m2p step 3). A push creates the jar on the
+// fake device and copies its bytes to `<serial>.scrcpypushed`. A forward prints the port in
+// `<serial>.forwardscrcpy.out` (a test's own listener serving the video and control
+// sockets; there is no proxy, since each invocation is a process of its own) and records
+// the forward in `forwards.list`, so `forward --remove tcp:<port>` and `forward --list`
+// see it. The shell command is the long-lived child: with the jar missing it exits 1; else
+// it deletes the jar, as the real server does as it starts, appends its pid to
+// `<serial>.scrcpy.pids` and runs until it is killed or `<serial>.scrcpy.stop` exists,
+// when it exits with the status that file holds. `<serial>.scrcpyserver.exit` (non-zero),
+// `.err`, `.delay` and `.hang` script a start that fails, as for any served command.
 //
 // The fake models the device's log (§D20): `<serial>.log` holds logcat text with the
 // `--------- beginning of <buffer>` markers, and a logcat command reads only the buffers
@@ -252,7 +266,7 @@ func wait(ctx context.Context, d time.Duration) bool {
 
 func run(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) int {
 	raw := args
-	if len(args) == 5 && args[0] == "-s" && args[2] == "push" && isReaderFile(args[4]) {
+	if len(args) == 5 && args[0] == "-s" && args[2] == "push" && (isReaderFile(args[4]) || isScrcpyFile(args[4])) {
 		args = []string{args[0], args[1], args[2], "LOCAL", args[4]}
 	}
 	n := logCall(dir, args)
@@ -432,6 +446,12 @@ func servedPrefix(args []string) string {
 		return args[1] + ".emukill"
 	case len(args) == 5 && args[2] == "push" && args[3] == "LOCAL" && isReaderFile(args[4]):
 		return args[1] + ".push"
+	case len(args) == 5 && args[2] == "push" && args[3] == "LOCAL" && isScrcpyFile(args[4]):
+		return args[1] + ".pushscrcpy"
+	case len(args) == 5 && args[2] == "forward" && args[3] == "tcp:0" && strings.HasPrefix(args[4], "localabstract:scrcpy_"):
+		return args[1] + ".forwardscrcpy"
+	case len(args) >= 8 && args[2] == "shell" && isScrcpyClasspath(args[3]) && args[4] == "app_process" && args[5] == "/" && args[6] == "com.genymobile.scrcpy.Server":
+		return args[1] + ".scrcpyserver"
 	case len(args) == 7 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader":
 		return args[1] + ".reader"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "rm" && args[4] == "-f" && isReaderFile(args[5]):
@@ -502,6 +522,14 @@ func servedPrefix(args []string) string {
 
 func isReaderFile(p string) bool {
 	return strings.HasPrefix(p, "/data/local/tmp/droidyard-reader-") && strings.HasSuffix(p, ".dex")
+}
+
+func isScrcpyFile(p string) bool {
+	return strings.HasPrefix(p, "/data/local/tmp/droidyard-scrcpy-") && strings.HasSuffix(p, ".jar")
+}
+
+func isScrcpyClasspath(a string) bool {
+	return strings.HasPrefix(a, "CLASSPATH=") && isScrcpyFile(strings.TrimPrefix(a, "CLASSPATH="))
 }
 
 func isReaderClasspath(a string) bool {
@@ -581,6 +609,12 @@ func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout,
 	if b, err := os.ReadFile(filepath.Join(dir, name+".exit")); err == nil {
 		code, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 	}
+	// The live view's server runs until it is killed or told to stop; one that is scripted
+	// to fail (a non-zero .exit) takes the generic answer below.
+	if strings.HasSuffix(prefix, ".scrcpyserver") && code == 0 && len(raw) >= 8 {
+		event("end")
+		return serveScrcpyServer(ctx, dir, raw, stderr)
+	}
 	// A stat of the reader's dex answers from the fake device's files unless the scenario
 	// scripts it: the size, or the failure of a file that is not there.
 	if strings.HasSuffix(prefix, ".stat") && code == 0 && len(raw) == 7 && !has(name+".out") {
@@ -655,6 +689,17 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 				writeDeviceFile(dir, raw[4], b)
 			}
 		}
+	case strings.HasSuffix(prefix, ".pushscrcpy"):
+		if code == 0 && len(raw) == 5 {
+			if b, err := os.ReadFile(raw[3]); err == nil {
+				os.WriteFile(filepath.Join(dir, raw[1]+".scrcpypushed"), b, 0o600)
+				writeDeviceFile(dir, raw[4], b)
+			}
+		}
+	case strings.HasSuffix(prefix, ".forwardscrcpy"):
+		if code == 0 && len(raw) == 5 {
+			addForward(dir, raw[1], dirString(dir, name+".out"), raw[4])
+		}
 	case strings.HasSuffix(prefix, ".rmreader"):
 		if code == 0 && len(raw) == 6 {
 			removeDeviceFile(dir, raw[5])
@@ -688,6 +733,32 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 		}
 	}
 	return code
+}
+
+// serveScrcpyServer is the fake live-view server (see the package comment): it fails as
+// app_process does when the jar is missing, deletes the jar as the real server does as it
+// starts, and then runs until it is killed or `<serial>.scrcpy.stop` exists.
+func serveScrcpyServer(ctx context.Context, dir string, raw []string, stderr io.Writer) int {
+	serial, jar := raw[1], strings.TrimPrefix(raw[3], "CLASSPATH=")
+	if _, ok := readDeviceFile(dir, jar); !ok {
+		fmt.Fprintf(stderr, "%s: No such file or directory\n", jar)
+		return 1
+	}
+	removeDeviceFile(dir, jar)
+	procMu.Lock()
+	if f, err := os.OpenFile(filepath.Join(dir, serial+".scrcpy.pids"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+		fmt.Fprintln(f, os.Getpid())
+		f.Close()
+	}
+	procMu.Unlock()
+	for ctx.Err() == nil {
+		if b, err := os.ReadFile(filepath.Join(dir, serial+".scrcpy.stop")); err == nil {
+			n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+			return n
+		}
+		wait(ctx, 5*time.Millisecond)
+	}
+	return 0
 }
 
 // classpathOf reads the CLASSPATH= path out of a serve start script.

@@ -45,6 +45,7 @@ func (s *Server) SetAuthTimeout(d time.Duration) {
 	if s.ws != nil {
 		s.ws.authTimeout.Store(int64(d))
 	}
+	s.screen.authTimeout.Store(int64(d))
 }
 
 // SetPingInterval sets the WebSocket ping interval of connections accepted from now
@@ -167,9 +168,13 @@ func (s *Server) Sessions() int {
 // close with the others (plan m1d, R10). It is called from the start of the shutdown,
 // not registered on first use, so a connection upgrading during it is refused too.
 func (s *Server) CloseSessions(ctx context.Context) {
+	var wg sync.WaitGroup
 	if s.ws != nil {
-		s.ws.closeAll(ctx)
+		wg.Add(1)
+		go func() { defer wg.Done(); s.ws.closeAll(ctx) }()
 	}
+	s.screen.closeAll(ctx)
+	wg.Wait()
 }
 
 // closeAll ends every open session and waits for them.

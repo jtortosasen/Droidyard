@@ -105,6 +105,11 @@ edits made before this rule and are not added to.
 | [0073](0073-git-writes-never-ask.md) | A Git write never asks: no askpass program either, and the user's own credential helpers on a trusted root | Accepted |
 | [0074](0074-pull-fast-forward-and-roots-with-the-branch.md) | Pull is a fast-forward only, and a synchronised branch applies to the roots that have it | Accepted |
 | [0075](0075-project-root-and-gradle-root.md) | The project root and the Gradle root | Accepted |
+| [0076](0076-operation-target.md) | The operation's target on `operation.state` | Accepted |
+| [0077](0077-screen-stream-source.md) | The live view's source is scrcpy's server, vendored and pinned | Accepted |
+| [0078](0078-screen-watch-and-endpoint.md) | `device.watchScreen`, the `device.screen` topic and `GET /v1/screen` | Accepted |
+| [0079](0079-screen-input-capabilities.md) | Input from the live view: `device.tap`, `device.swipe`, `device.pressKey` | Accepted |
+| [0080](0080-flag-secure-detection.md) | `FLAG_SECURE` is read from the focused window | Accepted |
 
 ## Open decisions (not yet ADRs)
 
