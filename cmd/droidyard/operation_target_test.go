@@ -83,10 +83,16 @@ func TestOperationStateCarriesTarget(t *testing.T) {
 
 	// The events by capability, until every call but the blocked one has ended and the
 	// blocked one is running.
+	// Only the calls above count: operation.watch is an operation too (ADR-0043 §4), and its
+	// own terminal event may reach the subscription.
 	type seen struct{ states []capability.OperationState }
 	byCap := map[string]*seen{}
 	blockedOp := ""
 	ended := map[string]bool{}
+	called := map[string]bool{}
+	for _, c := range calls {
+		called[c.name] = true
+	}
 	for len(ended) < len(calls)-1 || blockedOp == "" {
 		fr := w.must("the operation.state events")
 		if fr.Event == nil || fr.SubscriptionID != snap.SubscriptionID {
@@ -102,7 +108,7 @@ func TestOperationStateCarriesTarget(t *testing.T) {
 		byCap[pl.Capability].states = append(byCap[pl.Capability].states, pl)
 		if pl.Capability == "fixture.targeted" {
 			blockedOp = fr.Event.Operation
-		} else if pl.State.Terminal() {
+		} else if pl.State.Terminal() && called[pl.Capability] {
 			ended[pl.Capability] = true
 		}
 	}
