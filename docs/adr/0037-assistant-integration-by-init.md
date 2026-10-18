@@ -5,6 +5,7 @@
 - Date: 2026-10-08
 - Superseded in part by: ADR-0061 (§Consequences)
 - Superseded in part by: ADR-0061 (§Decision)
+- Superseded in part by: ADR-0090 (§Decision)
 - Supersedes: ADR-0014 §Decision (in part: per-assistant configuration is written into the project, not only printed)
 - Supersedes: ADR-0019 §Processes (in part: items 3 and 4, the subcommand set gains `init`, which never auto-starts the daemon)
 - Supersedes: ADR-0024 §Decision (in part: the subcommands row gains `init`)
