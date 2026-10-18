@@ -147,7 +147,10 @@
 - Needs: nothing.
 - Not here: 164's forced-cancel window (Not in this milestone); a path that reappears (m1j's recorded race, unchanged).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18.
+  - `TestWatchStopsWhenTheProjectGoes`, on real directories, has four gone cases: the root removed, the root renamed, `app` watched with the project renamed, and the root replaced by a new directory with the same contents (added by the main session). Each stops with `pathGone` after only `deleted` changes; a project left in place gives neither in 20 ticks.
+  - Reversal: with the `rootStands` check off, the first three fail with `stop reason ""; want "pathGone"`, and so does the replaced case (main session, `-overlay`).
+  - `go build`, `vet`, `gofmt -l` clean; `go test ./...` ok. `files.md` §The watch is the same length.
 
 ### 5. `init` writes a custom state root into Cursor's server entry
 

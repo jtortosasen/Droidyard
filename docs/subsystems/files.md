@@ -92,9 +92,9 @@ publishes nothing. A walk:
   re-lists; one that later falls under the cap is reported `created`;
 - on a tick, a subdirectory that cannot be read keeps its last known entries, reported
   unchanged, and an entry gone between the listing and its stat is skipped. A failed walk is
-  never "nothing changed": if the watched directory itself is gone (or no longer a directory),
-  every entry is reported `deleted` and the watch stops with reason `pathGone`; if it can no
-  longer be read, it stops with reason `unreadable`.
+  never "nothing changed": if the watched directory is gone, not a directory, or the project
+  was deleted or moved, every entry is reported `deleted` and the watch stops with
+  `pathGone`; if it can no longer be read, with `unreadable`.
 
 ### The topic `file.changes`
 
