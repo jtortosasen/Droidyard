@@ -84,7 +84,7 @@
 - Needs: nothing built; real `claude` and `cursor-agent` (versions recorded); a daemon from `c4bb5c5` for (f).
 - Not here: the Cursor IDE (the owner's trial); an interactive `ask` without a terminal (Unverified).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: [`spike-c2-occupation-2026-10.md`](../research/spike-c2-occupation-2026-10.md), (a) to (f), each fact `[obs]` or "not observed"; `$R` = `/private/tmp/dy2s.gKln`. No stop rule fired: Claude Code's `deny` stopped the write and the model took the reason's way out (b1). What it changes in steps 3, 4 and 9 is under Changes, 2026-10-18.
 
 ### 2. Occupation of worktrees in the core: the first end to end
 
@@ -298,3 +298,8 @@ The ADRs keep the drafts' numbering: a clause of Q1, Q2 or Q3 cited in this plan
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-18, step 1's findings (`spike-c2-occupation-2026-10.md`), none of which changes an ADR:
+  - Step 3: ADR-0095 §5's leading-`cd` rule is built: after `cd ../wt && <cmd>` both events' `cwd` is the repository (c). `droidyard trash` reads the chat from `CLAUDE_CODE_SESSION_ID`, present in Claude Code's Bash environment (d), so no `--chat` flag is built; it ignores that variable when `CURSOR_AGENT=1`, because a client started from a Claude Code shell inherits it (d). Delegated.
+  - Step 4: Claude Code's entries match `Write|Edit|NotebookEdit` (2.1.302 has no `MultiEdit`); created or updated comes from `Write`'s `tool_response.type`, `Edit` being an update. Cursor's verdict applies to tool `Write` only, never to the `Read` it makes first of the same path (e); its refusal puts the way out in `user_message`, the only text its model sees (e); a Cursor `ask` is answered `deny`, since `-p` lets an `ask` through (e; ADR-0094 §6). Claude Code's `ask` is passed as the client's own, which `-p` treats as a refusal (b).
+  - Step 9's register: a new limit row: a worktree made from a commit that lacks `init`'s `.claude/settings.json` (`claude -w`, `git worktree add`) has no hook entries, so a chat started there records no edit or command, is not checked, and goes idle while it edits (c). Row 234 closes: after `EnterWorktree` the shell and the edits move and the MCP binding does not, until `workspace_enter` (c).
