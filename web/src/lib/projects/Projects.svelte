@@ -84,8 +84,8 @@
 	}
 	// The owner's release of a worktree a session holds (ADR-0094 §3): it moves no session.
 	let releaseError = $state<string | null>(null);
-	async function release(w: ProjectRow) {
-		const f = await sessions.release({ workspace: w.id });
+	async function release(workspace: string) {
+		const f = await sessions.release({ workspace });
 		releaseError = f === null ? null : failureText(f);
 	}
 	const worktreeName = (id: string) => rows.find((r) => r.id === id)?.name;
@@ -116,6 +116,11 @@
 			{#if a.idle && occupiesText(a, worktreeName) !== ''}<span class="stale" title="No request for a while: another chat may take over what it holds">idle holder</span>{/if}
 			{#if a.unread}<span class="unread" title="Finished since you last looked"></span>{/if}
 		</button>
+		<!-- A held worktree always has its holder in it, so its Release is on the holder's row. -->
+		{#if a.occupies}
+			{@const held = a.occupies}
+			<button type="button" class="release" title="End the occupation of {worktreeName(held) ?? 'this worktree'}; the session stays where it is" disabled={!connected} onclick={() => void release(held)}>Release</button>
+		{/if}
 		{#each a.operations as o (o.id)}
 			<div class="op">{o.capability} · {age(o.startedAt)}</div>
 		{/each}
@@ -244,7 +249,7 @@
 									<span class="dot" data-state={w.open ? (w.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(w)}></span>
 								</button>
 								{#if holder}
-									<button type="button" class="release" title="End the occupation; the session stays where it is" disabled={!connected} onclick={() => void release(w)}>Release</button>
+									<button type="button" class="release" title="End the occupation; the session stays where it is" disabled={!connected} onclick={() => void release(w.id)}>Release</button>
 								{/if}
 								{@render remove(w)}
 							</li>
