@@ -110,6 +110,10 @@ edits made before this rule and are not added to.
 | [0078](0078-screen-watch-and-endpoint.md) | `device.watchScreen`, the `device.screen` topic and `GET /v1/screen` | Accepted |
 | [0079](0079-screen-input-capabilities.md) | Input from the live view: `device.tap`, `device.swipe`, `device.pressKey` | Accepted |
 | [0080](0080-flag-secure-detection.md) | `FLAG_SECURE` is read from the focused window | Accepted |
+| [0090](0090-init-recognises-its-own-entries.md) | `init` recognises its own stale entries by their shape | Accepted |
+| [0091](0091-leftover-temporary-files-swept.md) | Leftover temporary files are swept, and asides get their own name | Accepted |
+| [0092](0092-switched-gradle-root-closes.md) | A Gradle root switched away from closes its connection | Accepted |
+| [0093](0093-race-detector-in-ci.md) | CI also runs the race detector | Accepted |
 
 ## Open decisions (not yet ADRs)
 

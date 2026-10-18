@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-12
+- Superseded in part by: ADR-0093 (§Decision)
 - Supersedes: ADR-0002 §Consequences (in part: "CI runs on two operating systems from the start"; CI runs on Linux only, and macOS is tested by the owner's pre-commit hook)
 - Relates to: ADR-0014 §Decision (items 1 and 2), ADR-0002, ADR-0040, ADR-0037
 - The owner set the frame on 2026-10-12: a GitHub CI that builds a release the owner can run on their Mac, and a one-line installer of the kind other tools have; while the repository is private the installer goes through `gh`, and becomes a plain `curl | sh` when it is made public. The rest was decided by the main session under the owner's standing instruction (apply the recommended option), Delegated.
