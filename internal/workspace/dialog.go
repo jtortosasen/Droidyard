@@ -43,15 +43,18 @@ type Dialog struct {
 	GOOS string
 	// Binary is the osascript executable.
 	Binary string
-	// Spawn starts cmd, in a process group of its own; the daemon passes the
-	// supervisor's locked spawner. The dialog reaps the child itself.
-	Spawn func(cmd *exec.Cmd) error
+	// Spawn starts cmd, in a process group of its own, and records it for as long as it
+	// runs (process.FolderDialog); the daemon passes the supervisor's recorded spawner.
+	// The dialog reaps the child through wait, which also removes the record, and calls
+	// it exactly once. A spawn refused, because the record cannot be written among
+	// other causes, is an error and no wait.
+	Spawn func(cmd *exec.Cmd) (wait func() error, err error)
 	// Bound is how long the dialog waits for the user; zero means DialogBound.
 	Bound time.Duration
 }
 
 // NewDialog is the dialog the daemon raises: osascript on macOS, started through spawn.
-func NewDialog(spawn func(cmd *exec.Cmd) error) Dialog {
+func NewDialog(spawn func(cmd *exec.Cmd) (wait func() error, err error)) Dialog {
 	return Dialog{GOOS: runtime.GOOS, Binary: osascript, Spawn: spawn}
 }
 
@@ -97,12 +100,13 @@ func (d Dialog) choose(ctx context.Context) (folder string, dismissed bool, err 
 	// The group is killed with the leader, so a pipe a grandchild holds cannot keep Wait
 	// from returning past this bound.
 	cmd.WaitDelay = 2 * time.Second
-	if err := d.Spawn(cmd); err != nil {
+	wait, err := d.Spawn(cmd)
+	if err != nil {
 		return "", false, dialogFailed(fmt.Sprintf("starting %s: %v", argv[0], err))
 	}
 	pid := cmd.Process.Pid
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() { done <- wait() }()
 	bound := d.Bound
 	if bound <= 0 {
 		bound = DialogBound

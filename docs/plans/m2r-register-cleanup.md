@@ -306,11 +306,11 @@ Each row keeps its line in the register. At the close, row 284 loses `Work` `qui
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
+- 2026-10-18, before approval (Delegated). The main session took the plan's draft decisions as ADR-0090 (rows 202, 205; 201 as decided, 200 accepted), ADR-0091 (rows 163, 166), ADR-0092 (row 39) and ADR-0093 (row 251), and cherry-picked 2q's gap-tolerant doccheck (`db0a3f9` from `0e060f4`) so their numbers can sit above 2q's. Steps 7–10 added, one per ADR; the audit is now step 11; Scope, Acceptance (A8–A11), the lane's touches and Not in this milestone follow. Reviewed in round 3.
+
 - 2026-10-18, step 1. Two full `go test -count=1 ./...` runs at once on this host failed five tests step 1 does not name. Each is a timing bound under a doubled load, a heavier load than the plan's single loaded run. They are not fixed here: the close adds them to the new load-sensitive tests row, with the git ones.
   - `cmd/droidyard` `TestCtrlCDuringAutoStart`: "exited before printing interrupted".
   - `cmd/droidyard` `TestCloseBoundsADrainALeaseHolderIgnores`: the close took 3.67 s.
   - `cmd/droidyard` `TestMCPSessionBindsAndOpensItsRoot`: an MCP read timed out.
   - `cmd/droidyard` `TestScreenEndpointFence`: the fake device's `getprop` took over 3 s.
   - `internal/domain/git` `TestUpdateTimeout`: five inconclusive attempts (2q's package).
-
-- 2026-10-18, before approval (Delegated). The main session took the plan's draft decisions as ADR-0090 (rows 202, 205; 201 as decided, 200 accepted), ADR-0091 (rows 163, 166), ADR-0092 (row 39) and ADR-0093 (row 251), and cherry-picked 2q's gap-tolerant doccheck (`db0a3f9` from `0e060f4`) so their numbers can sit above 2q's. Steps 7–10 added, one per ADR; the audit is now step 11; Scope, Acceptance (A8–A11), the lane's touches and Not in this milestone follow. Reviewed in round 3.
