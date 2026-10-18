@@ -30,8 +30,8 @@ type CloseResult struct{}
 // (plan m2c D17: one version for the milestone).
 const sinceWatch = "0.16.0"
 
-// Register adds workspace.open, workspace.describe, workspace.close, workspace.watch and
-// workspace.chooseRoot.
+// Register adds workspace.open, workspace.enter, workspace.describe, workspace.close, workspace.watch,
+// workspace.show, workspace.forget and workspace.chooseRoot.
 func Register(reg *capability.Registry, ws *Registry) {
 	notDestructive := false
 	reg.MustRegister(capability.Descriptor{
@@ -59,20 +59,40 @@ func Register(reg *capability.Registry, ws *Registry) {
 	})
 
 	reg.MustRegister(capability.Descriptor{
+		Name:        CapEnter,
+		Kind:        capability.Command,
+		Scope:       capability.Global,
+		Binding:     true,
+		Idempotent:  true,
+		Since:       sinceEnter,
+		Description: "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
+		Params:      EnterParams{},
+		Result:      Info{},
+		Errors:      []capability.ErrorCode{ErrNotAWorktree, ErrRootInvalid, ErrStateNewer, ErrStateUnreadable, capability.ErrProjectNoGradleRoot},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "moves only the calling session's binding; deletes nothing",
+		},
+		Handler: ws.enter,
+	})
+
+	reg.MustRegister(capability.Descriptor{
 		Name:        CapDescribe,
 		Kind:        capability.Query,
 		Scope:       capability.Workspace,
 		Since:       since,
-		Description: "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, and, when degraded, why.",
+		Description: "Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, when degraded why, and the project's git worktrees with their branches.",
 		Params:      None{},
-		Result:      Info{},
+		Result:      Described{},
 		Errors:      []capability.ErrorCode{ErrStateNewer, capability.ErrProjectNoGradleRoot},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			info, err := ws.Describe(call.Workspace)
 			if err != nil {
 				return nil, err
 			}
-			return withGradle(info), nil
+			// Resolved again here, not in Registry.Describe, which every root lookup calls.
+			info.MainRoot = ws.mainRoot(info.Root)
+			return Described{Info: withGradle(info), Worktrees: ws.worktreesOf(info)}, nil
 		},
 	})
 
@@ -106,7 +126,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Result:       WatchResult{},
 		Events: &capability.Events{
 			Topic: StateTopic,
-			Types: map[string]any{EventState: StateEvent{}},
+			Types: map[string]any{EventState: StateEvent{}, EventShow: ShowEvent{}, EventForgotten: ForgottenEvent{}},
 		},
 		Errors: []capability.ErrorCode{capability.ErrSessionRequired, ErrStateUnreadable},
 		Annotations: capability.Annotations{
@@ -116,6 +136,40 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return ws.watch(ctx, call)
 		},
+	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:        CapShow,
+		Kind:        capability.Command,
+		Scope:       capability.Global,
+		Audience:    capability.AudienceHuman,
+		Since:       sinceShow,
+		Description: "Tells every open web UI tab to select a workspace, opening it if it is closed, and returns how many tabs were told; no window is brought to the front. A person's action, refused from an agent session.",
+		Params:      ShowParams{},
+		Result:      ShowResult{},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "publishes an event to the open tabs; changes no workspace",
+		},
+		Handler: ws.show,
+	})
+
+	reg.MustRegister(capability.Descriptor{
+		Name:        CapForget,
+		Kind:        capability.Command,
+		Scope:       capability.Global,
+		Audience:    capability.AudienceHuman,
+		Idempotent:  true,
+		Since:       sinceShow,
+		Description: "Removes a workspace that is not open from the recent projects workspace.watch lists, keeping its state on disk; an open one fails and an unknown id answers as done. A person's action, refused from an agent session.",
+		Params:      ForgetParams{},
+		Result:      ForgetResult{},
+		Errors:      []capability.ErrorCode{capability.ErrWorkspaceOpen, ErrStateUnreadable},
+		Annotations: capability.Annotations{
+			Destructive: &notDestructive,
+			Reason:      "removes one index entry; the workspace's own state stays on disk",
+		},
+		Handler: ws.forget,
 	})
 
 	reg.MustRegister(capability.Descriptor{

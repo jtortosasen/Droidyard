@@ -3,9 +3,10 @@
 	import Check from '@lucide/svelte/icons/check';
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import X from '@lucide/svelte/icons/x';
 	import { failureText } from '../build/failure';
-	import type { ProjectsModel, ProjectsView, ProjectRow } from './projects';
+	import { groupProjects, type ProjectsModel, type ProjectsView, type ProjectRow } from './projects';
 	import { duration, type AgentRow, type SessionsModel, type SessionsView } from './sessions';
 	import Spinner from './Spinner.svelte';
 
@@ -51,21 +52,29 @@
 	});
 
 	const rows = $derived(view?.rows ?? []);
-	const known = $derived(new Set(rows.map((r) => r.id)));
-	const agentsOf = (id: string | null): AgentRow[] =>
-		agents.rows.filter((r) => (id === null ? r.workspace === null || !known.has(r.workspace) : r.workspace === id));
-	const loose = $derived(agentsOf(null));
+	// The panel by project (ADR-0083 §2): a worktree is never a top-level row.
+	const grouping = $derived(groupProjects(rows, agents.rows));
+	const groups = $derived(grouping.groups);
+	const loose = $derived(grouping.loose);
 
+	// A project or worktree row: a selection that stays where it is, whatever the sessions do.
 	function chooseProject(p: ProjectRow) {
+		sessions.unfollow();
 		void projects.select(p.id);
 		onchosen?.();
 	}
-	function chooseAgent(a: AgentRow) {
+	// A session row: the selection follows that session's moves (ADR-0083 §3).
+	function chooseAgent(a: AgentRow, workspace: string | null) {
 		sessions.select(a.key);
-		if (a.workspace !== null && known.has(a.workspace)) {
-			void projects.select(a.workspace);
+		if (a.you) sessions.unfollow();
+		else sessions.follow(a.key);
+		if (workspace !== null) {
+			void projects.select(workspace);
 			onchosen?.();
 		}
+	}
+	function openGroup(root: string) {
+		void projects.openRoot(root);
 	}
 	function openTyped(e: SubmitEvent) {
 		e.preventDefault();
@@ -75,9 +84,9 @@
 	const dotLabel = (p: ProjectRow) => `${p.state}${p.trusted ? '' : ', not trusted'}`;
 </script>
 
-{#snippet agentRow(a: AgentRow)}
+{#snippet agentRow(a: AgentRow, workspace: string | null, where: string | null)}
 	<li>
-		<button type="button" class="agent" onclick={() => chooseAgent(a)}>
+		<button type="button" class="agent" onclick={() => chooseAgent(a, workspace)}>
 			<span class="status">
 				{#if a.running}
 					<Spinner size={11} />
@@ -91,12 +100,29 @@
 			</span>
 			{#if !a.you}<Bot size={12} />{/if}
 			<span class="label">{a.label}</span>
+			{#if where !== null}<span class="where" title="Worktree">{where}</span>{/if}
 			{#if a.unread}<span class="unread" title="Finished since you last looked"></span>{/if}
 		</button>
 		{#each a.operations as o (o.id)}
 			<div class="op">{o.capability} · {age(o.startedAt)}</div>
 		{/each}
 	</li>
+{/snippet}
+
+{#snippet remove(p: ProjectRow)}
+	<!-- Only a closed project: the daemon refuses an open one (ADR-0086). -->
+	{#if !p.open}
+		<button
+			type="button"
+			class="remove"
+			aria-label="Remove {p.name} from the recent projects"
+			title="Remove from the recent projects"
+			disabled={view?.opening}
+			onclick={() => void projects.forget(p.id)}
+		>
+			<X size={12} />
+		</button>
+	{/if}
 {/snippet}
 
 <section class="projects" aria-label="Projects">
@@ -138,30 +164,68 @@
 	{/if}
 
 	<ul class="list">
-		{#each rows as p (p.id)}
-			{@const mine = agentsOf(p.id)}
-			{@const working = mine.filter((a) => a.running && !a.you).length}
-			<li>
-				<button
-					type="button"
-					class="project"
-					class:selected={p.id === selected}
-					aria-current={p.id === selected ? 'true' : undefined}
-					disabled={view?.opening}
-					title={p.root}
-					onclick={() => chooseProject(p)}
-				>
-					<Folder size={14} />
-					<span class="name" class:closed={!p.open}>{p.name}</span>
-					{#if mine.some((a) => !a.you)}
-						<span class="count" class:working={working > 0} title="{working} working">{mine.filter((a) => !a.you).length}</span>
-					{/if}
-					<span class="dot" data-state={p.open ? (p.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(p)}></span>
-				</button>
-				{#if mine.length > 0}
+		{#each groups as g (g.key)}
+			{@const agentsHere = g.sessions.filter((s) => !s.session.you)}
+			{@const working = agentsHere.filter((s) => s.session.running).length}
+			<li data-project={g.root}>
+				{#if g.project}
+					{@const p = g.project}
+					<div class="line">
+						<button
+							type="button"
+							class="project"
+							class:selected={p.id === selected}
+							aria-current={p.id === selected ? 'true' : undefined}
+							disabled={view?.opening}
+							title={p.root}
+							onclick={() => chooseProject(p)}
+						>
+							<Folder size={14} />
+							<span class="name" class:closed={!p.open}>{p.name}</span>
+							{#if agentsHere.length > 0}
+								<span class="count" class:working={working > 0} title="{working} working">{agentsHere.length}</span>
+							{/if}
+							<span class="dot" data-state={p.open ? (p.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(p)}></span>
+						</button>
+						{@render remove(p)}
+					</div>
+				{:else}
+					<!-- Its worktrees are listed and the main tree is not: a group row for it, which Open opens. -->
+					<div class="project group" title={g.root}>
+						<Folder size={14} />
+						<span class="name closed">{g.name}</span>
+						{#if agentsHere.length > 0}
+							<span class="count" class:working={working > 0} title="{working} working">{agentsHere.length}</span>
+						{/if}
+						<button type="button" class="open" disabled={view?.opening} onclick={() => openGroup(g.root)}>Open</button>
+					</div>
+				{/if}
+				{#if g.sessions.length > 0}
 					<ul class="agents">
-						{#each mine as a (a.key)}
-							{@render agentRow(a)}
+						{#each g.sessions as s (s.session.key)}
+							{@render agentRow(s.session, s.workspace, s.session.you ? null : s.where)}
+						{/each}
+					</ul>
+				{/if}
+				{#if g.worktrees.length > 0}
+					<ul class="agents worktrees">
+						{#each g.worktrees as w (w.id)}
+							<li class="line">
+								<button
+									type="button"
+									class="agent worktree"
+									class:selected={w.id === selected}
+									aria-current={w.id === selected ? 'true' : undefined}
+									disabled={view?.opening}
+									title={w.root}
+									onclick={() => chooseProject(w)}
+								>
+									<GitBranch size={12} />
+									<span class="label" class:closed={!w.open}>{w.name}</span>
+									<span class="dot" data-state={w.open ? (w.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(w)}></span>
+								</button>
+								{@render remove(w)}
+							</li>
 						{/each}
 					</ul>
 				{/if}
@@ -172,7 +236,7 @@
 				<div class="project group"><Folder size={14} /> <span class="name">No project</span></div>
 				<ul class="agents">
 					{#each loose as a (a.key)}
-						{@render agentRow(a)}
+						{@render agentRow(a, null, null)}
 					{/each}
 				</ul>
 			</li>
@@ -253,6 +317,28 @@
 		flex-direction: column;
 		gap: var(--sp-2);
 		overflow: auto;
+	}
+	.line {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+	}
+	.line > :first-child {
+		flex: 1;
+		min-width: 0;
+	}
+	.remove {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 0;
+		width: var(--row);
+		height: var(--row);
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-3);
 	}
 	.project,
 	.agent {
@@ -347,6 +433,22 @@
 	}
 	.unread {
 		background: var(--accent);
+	}
+	.where {
+		flex: none;
+		max-width: 40%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
+		color: var(--text-3);
+	}
+	.agent.selected {
+		background: var(--accent-soft);
+	}
+	.label.closed {
+		color: var(--text-3);
 	}
 	.op {
 		margin-left: calc(var(--sp-4) + 14px + var(--sp-3));

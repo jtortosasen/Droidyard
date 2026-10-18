@@ -385,6 +385,9 @@ func (d *Daemon) serve(conn *net.UnixConn) {
 		return
 	}
 	conn.SetReadDeadline(time.Time{})
+	if !ChatPattern.MatchString(h.Chat) {
+		h.Chat = "" // a value the pattern refuses is not a chat id (ADR-0088 §1)
+	}
 
 	s := &Session{ID: newSessionID(), Hello: h, Conn: conn, Reader: r}
 	if !d.add(s) {

@@ -24,7 +24,9 @@ func afterEvent(t *testing.T, client, name, command string) string {
 		if name == "PostToolUseFailure" {
 			fixture = "claude-postToolUseFailure"
 		}
-		return cursorFixture(t, fixture, map[string]any{"tool_input": map[string]any{"command": command}})
+		// The fixture's cwd names a directory of no project: "" keeps --root (ADR-0085 §2);
+		// the worktree tests set one.
+		return cursorFixture(t, fixture, map[string]any{"cwd": "", "tool_input": map[string]any{"command": command}})
 	default:
 		fixture := "cursor-4-postToolUse"
 		if name == "postToolUseFailure" {

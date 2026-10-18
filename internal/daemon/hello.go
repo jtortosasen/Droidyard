@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -30,7 +31,14 @@ type Hello struct {
 	// Tools is an MCP session's tool profile, from `droidyard mcp --tools core`
 	// (ADR-0036 Decision 4). Empty means every tool.
 	Tools string `json:"tools,omitempty"`
+	// Chat is the id of the assistant's chat an MCP session belongs to, when the client
+	// names one: `droidyard mcp` fills it from CLAUDE_CODE_SESSION_ID (ADR-0088 §1). It
+	// matches ChatPattern or is empty; the daemon clears one that does not.
+	Chat string `json:"chat,omitempty"`
 }
+
+// ChatPattern is what a hello's chat id must match (ADR-0088 §1).
+var ChatPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 
 type helloLine struct {
 	Hello *Hello `json:"hello"`

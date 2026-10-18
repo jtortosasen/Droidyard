@@ -34,5 +34,6 @@ A session started with `--tools core` lists only the tools marked core.
 | `system_capabilities` |  | read-only | Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point. |
 | `system_health` |  | read-only | Reports whether the core is alive, its version, uptime and operations in flight, where adb and the JVM were found, any state file it could not use, ... |
 | `workspace_close` |  | changes state | Closes the workspace for every session: cancels its running operations, waits up to 10 s for them, and stops its processes. |
-| `workspace_describe` | core | read-only | Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, and, when degraded, why. |
+| `workspace_describe` | core | read-only | Describes the open workspace: its id, root, Gradle root, state, whether it is trusted, when degraded why, and the project's git worktrees with their ... |
+| `workspace_enter` | core | changes state | Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), ... |
 | `workspace_open` | core | changes state | Opens the workspace for a project root, or returns its state if it is already open. |

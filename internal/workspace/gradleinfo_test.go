@@ -35,7 +35,7 @@ func TestOpenAndDescribeReportTheGradleRoot(t *testing.T) {
 		if out.State != capability.StateCompleted {
 			t.Fatalf("describe: %s %v", out.State, out.Error)
 		}
-		described := out.Result.(Info)
+		described := out.Result.(Described)
 		if !reflect.DeepEqual(opened.Gradle, described.Gradle) {
 			t.Fatalf("open reported %+v, describe %+v", opened.Gradle, described.Gradle)
 		}
@@ -110,12 +110,12 @@ func TestOpenAndDescribeReportTheGradleRoot(t *testing.T) {
 		}
 		write(t, root, ".droidyard/project.json", `{"schemaVersion":1,"gradleRoot":"b"}`)
 		out := h.invoke(t, CapDescribe, root) // no reopen
-		g := out.Result.(Info).Gradle
+		g := out.Result.(Described).Gradle
 		if g.Root != "b" || g.Error != nil || !reflect.DeepEqual(g.Candidates, []string{"a", "b"}) {
 			t.Fatalf("after the choice gradle = %+v; want root b, candidates [a b]", g)
 		}
 		write(t, root, ".droidyard/project.json", `{"schemaVersion":1,"gradleRoot":"gone"}`)
-		g = h.invoke(t, CapDescribe, root).Result.(Info).Gradle
+		g = h.invoke(t, CapDescribe, root).Result.(Described).Gradle
 		if g.Root != "" || g.Error == nil || g.Error.Code != capability.ErrProjectNoGradleRoot {
 			t.Fatalf("with a bad key gradle = %+v; want no root, PROJECT_NO_GRADLE_ROOT", g)
 		}

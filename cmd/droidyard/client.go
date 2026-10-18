@@ -29,6 +29,12 @@ import (
 // stopTimeout bounds how long `stop` waits for the daemon to release its lock.
 const stopTimeout = 30 * time.Second
 
+// chatEnv is the variable Claude Code 2.1.302 sets in an MCP server's environment to the
+// chat's own id, unchanged by --resume (ADR-0088; docs/research/spike-c2-sessions-2026-10.md).
+// It is not documented as an interface for MCP servers: without it, or with a release that
+// renames it, a resumed chat enters its worktree again.
+const chatEnv = "CLAUDE_CODE_SESSION_ID"
+
 // connect resolves the socket from the environment, as the daemon did, and says
 // hello as the given client kind.
 func connect(client capability.ClientKind) (net.Conn, *bufio.Reader, string, error) {
@@ -240,6 +246,10 @@ func mcpShim(args []string) int {
 			return 2
 		}
 	}
+	// The chat Claude Code names in the server's environment, if it does (ADR-0088 §1).
+	if v := os.Getenv(chatEnv); daemon.ChatPattern.MatchString(v) {
+		hello.Chat = v
+	}
 	// The session's binding (ADR-0019 §Sessions): --root, made absolute against the
 	// cwd, else the cwd's project root. The daemon opens it and canonicalises it.
 	if cwd, err := os.Getwd(); err == nil {
@@ -382,7 +392,8 @@ func openBrowser(url string) error {
 
 // ui runs `droidyard ui`, and `droidyard` alone: it connects as `call` does, starting a
 // daemon when none answers unless --no-autostart, opens the project of the working
-// directory when there is one (ADR-0045 §1), then opens the browser at the tokenised URL
+// directory when there is one (ADR-0045 §1), then asks the open tab, if there is one, to
+// show it (workspace.show, ADR-0084) and otherwise opens the browser at the tokenised URL
 // the lock and run/http-token give (ADR-0019 §3, §4). It does not print the token.
 func ui(args []string) int {
 	autostart := true
@@ -401,15 +412,26 @@ func ui(args []string) int {
 	// The project is found by the MCP binding's rule. Opening it runs no project code
 	// and grants no trust (ADR-0015 §5); when it cannot be opened the browser still
 	// opens, on the projects panel, with the reason said here.
-	var id string
+	var id, name string
 	if cwd, err := os.Getwd(); err == nil {
 		if root, ok := projectOf(cwd); ok {
 			if id, err = openProject(conn, r, root); err != nil {
 				fmt.Fprintf(os.Stderr, "droidyard ui: opening %s: %v\nThe browser opens on the projects panel instead.\n", root, err)
 			}
+			name = filepath.Base(root)
 		}
 	}
 	conn.Close()
+	// One tab in all (ADR-0084 §2): a tab that answers selects the project and no browser
+	// opens; none, or a call that failed, falls through to opening one.
+	if showInOpenTab(id) > 0 {
+		if id == "" {
+			fmt.Println("a Droidyard tab is already open")
+		} else {
+			fmt.Printf("switched the open Droidyard tab to %s\n", name)
+		}
+		return 0
+	}
 	state, err := platform.Current().StateDir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "droidyard ui:", err)
@@ -438,17 +460,47 @@ func ui(args []string) int {
 	return 0
 }
 
+// showInOpenTab calls workspace.show for id on a connection of its own (a cli.Call reads
+// its connection through a goroutine that outlives it) and returns how many tabs it told:
+// 0 when none was, and when the call failed, since either way a browser has to open.
+func showInOpenTab(id string) int {
+	conn, r, _, err := connectOrStart(daemon.Hello{Client: capability.ClientCLI}, false, nil)
+	if err != nil {
+		return 0
+	}
+	defer conn.Close()
+	params, _ := json.Marshal(workspace.ShowParams{Workspace: id})
+	env, err := runCall(conn, r, cli.Call{Capability: workspace.CapShow, Params: params})
+	if err != nil || env.Error != nil {
+		return 0
+	}
+	var res workspace.ShowResult
+	if json.Unmarshal(env.Result, &res) != nil {
+		return 0
+	}
+	return res.Tabs
+}
+
+// runCall runs call over the connection and returns the response envelope; an error the
+// daemon answered with is the envelope's, not this function's.
+func runCall(conn net.Conn, r *bufio.Reader, call cli.Call) (capability.ResponseEnvelope, error) {
+	var out bytes.Buffer
+	var env capability.ResponseEnvelope
+	if _, err := call.Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil); err != nil {
+		return env, err
+	}
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		return env, fmt.Errorf("the daemon's answer is not an envelope: %w", err)
+	}
+	return env, nil
+}
+
 // openProject calls workspace.open on root over the connection and returns the
 // workspace's id.
 func openProject(conn net.Conn, r *bufio.Reader, root string) (string, error) {
-	var out bytes.Buffer
-	call := cli.Call{Capability: workspace.CapOpen, Workspace: root}
-	if _, err := call.Run(r, conn, cli.Streams{Out: &out, Err: io.Discard}, nil); err != nil {
+	env, err := runCall(conn, r, cli.Call{Capability: workspace.CapOpen, Workspace: root})
+	if err != nil {
 		return "", err
-	}
-	var env capability.ResponseEnvelope
-	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
-		return "", fmt.Errorf("the daemon's answer is not an envelope: %w", err)
 	}
 	if env.Error != nil {
 		return "", fmt.Errorf("%s: %s", env.Error.Code, env.Error.Message)

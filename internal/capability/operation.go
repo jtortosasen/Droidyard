@@ -208,9 +208,9 @@ type Publisher interface {
 // StatePublisher puts an operation.state event on the daemon's bus (ADR-0043). The event
 // layer implements it; capability does not import it. Broadcast takes a seq but never
 // enters the replay ring, and offers the event to every subscription holding the topic.
-// It never blocks on a subscriber.
+// It never blocks on a subscriber, and returns how many subscriptions it offered the event.
 type StatePublisher interface {
-	Broadcast(topic, typ, workspace, operation string, payload any)
+	Broadcast(topic, typ, workspace, operation string, payload any) int
 }
 
 // Progress is published on operation.progress, type progress, with the operation id,
@@ -256,6 +256,10 @@ type Operations struct {
 	locks map[string]*lock
 	// queueBound is the queued-call bound; a field so a test can shorten it.
 	queueBound time.Duration
+
+	// sessions are the MCP sessions in progress, which a Binding capability's caller must
+	// be one of (Descriptor.Binding).
+	sessions *Sessions
 }
 
 // stateEvent is one queued operation.state event.
@@ -283,8 +287,12 @@ type waiter struct {
 // NewOperations returns an empty store that dispatches from reg.
 func NewOperations(reg *Registry) *Operations {
 	return &Operations{reg: reg, ops: make(map[string]*operation), now: time.Now,
-		locks: make(map[string]*lock), queueBound: queueBound}
+		locks: make(map[string]*lock), queueBound: queueBound, sessions: NewSessions()}
 }
+
+// Sessions is the registry of MCP sessions: the adapter registers each connection in it,
+// and a Binding capability moves the calling session's binding through it.
+func (o *Operations) Sessions() *Sessions { return o.sessions }
 
 // UseWorkspaces gives the store the registry that admits workspace-scoped calls.
 // Without one, no workspace is open.
@@ -298,8 +306,10 @@ func (o *Operations) UsePublisher(p Publisher) { o.pub = p }
 // published on (ADR-0043). Without one, none is published.
 func (o *Operations) UseStatePublisher(p StatePublisher) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.spub = p
+	o.mu.Unlock()
+	// The same bus carries session.state (ADR-0083 §1).
+	o.sessions.usePublisher(p)
 }
 
 // UseTrace sets where the trace lines go (flush); the default is the standard
@@ -357,6 +367,7 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 		Workspace:   target,
 		Params:      params,
 		Session:     session,
+		Origin:      origin,
 		Progress: func(done, total int, message string) {
 			p := Progress{Done: done, Total: total, Message: message}
 			o.mu.Lock()
@@ -877,6 +888,12 @@ func (o *Operations) prepare(req Request) (Descriptor, any, error) {
 	if d.Audience == AudienceHuman && req.Client == ClientMCP {
 		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s is for humans and cannot be called over MCP", d.Name).
 			WithNextStep("ask the user to run it from the UI or the CLI")
+	}
+	if d.Binding && !o.sessions.Registered(req.Origin.ID) {
+		// Before anything is recorded, for every adapter: the CLI, the WebSocket and plain
+		// HTTP have no MCP session whose binding could move (ADR-0082 §4).
+		return Descriptor{}, nil, Errorf(ErrNotAllowedHere, "%s moves the calling MCP session's binding, and only an MCP session can call it", d.Name).
+			WithNextStep("call it from the agent's MCP session; the UI and the CLI cannot move a session")
 	}
 	if d.Statefulness != Stateless && noSession(req.Session) {
 		// Before anything is recorded, for every adapter: a stateful or streaming

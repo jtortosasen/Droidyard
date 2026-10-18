@@ -184,6 +184,24 @@ func TestDecodeAfterEvents(t *testing.T) {
 	}
 }
 
+// TestDecodeAfterEventCwd pins ADR-0085: Claude Code's after-event carries the directory
+// the command ran in; Cursor's carries "" (plan m2q step 1), which keeps the hook's root.
+func TestDecodeAfterEventCwd(t *testing.T) {
+	for _, c := range []struct {
+		client Client
+		raw    string
+		want   string
+	}{
+		{Claude, `{"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":"/w/x","tool_input":{"command":"adb devices"}}`, "/w/x"},
+		{Cursor, `{"hook_event_name":"postToolUse","tool_name":"Shell","cwd":"","tool_input":{"command":"adb devices","cwd":""}}`, ""},
+	} {
+		ev, ok := DecodeAfterEvent(c.client, []byte(c.raw))
+		if !ok || ev.Cwd != c.want {
+			t.Errorf("%s: %+v, %v; want cwd %q", c.client, ev, ok, c.want)
+		}
+	}
+}
+
 // TestAfterOutput pins where each client reads the hint: Claude Code's
 // additionalContext under the event name it received, Cursor's additional_context; and
 // the pass-through with no hint.

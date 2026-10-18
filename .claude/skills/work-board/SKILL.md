@@ -34,14 +34,14 @@ The main tree stays on a clean `main` while any lane is open: it is where merges
 
 | Touch | Means | Rule |
 | --- | --- | --- |
-| `devices` | adb, an emulator or a phone | **exclusive**: the tool refuses a second lane |
+| `devices` | adb, an emulator or a phone | shared (owner, 2026-10-17): each lane boots its own emulator and acts on its serial only, stops only what it started, never runs `adb kill-server` or `adb start-server` (the adb server is everyone's), and asks the owner before using a phone |
 | `contract` | `schema/capabilities.json` and the API version | the second to close merges `main`, regenerates the schema and bumps the version once more |
 | `web` | `web/` | conflicts are textual; merge `main` early when both touch one component |
 | `docs` | area documents and the README's status line | the second to close rewrites its status line over the first's |
 | `git`, `build`, `process` | those domains and the process layer | meeting is a warning, not a block |
 | `release` | CI, the release workflow, the installer | one at a time in practice |
 
-The register is touched by almost every close; its rows are ordered by Area, so two lanes in different Areas rarely conflict. Usual touches: C3 and C5 `devices,contract,web`; C2 `contract,web,process`; Git work `git,contract,web`; the UI review `web`; `v1-device` and `v1-sdk` `devices,contract`.
+The register is touched by almost every close; its rows are ordered by Area, so two lanes in different Areas rarely conflict. Usual touches: C3 and C5 `devices,contract,web`; C2 `contract,web,process,git`; Git work `git,contract,web`; the UI review `web`; `v1-device` and `v1-sdk` `devices,contract`.
 
 **Each session runs its own daemon** for checks, through `verify-daemon`'s isolated launch, and its own fixtures under `~/Library/Caches/droidyard-dev/<id>/`. Never the owner's daemon, never another lane's.
 

@@ -54,6 +54,11 @@ type Info struct {
 	Root    string `json:"root" jsonschema:"required"`
 	State   State  `json:"state" jsonschema:"required,enum=ready,enum=degraded"`
 	Trusted bool   `json:"trusted" jsonschema:"required"`
+	// MainRoot is the main working tree of the repository when Root is one of its linked
+	// worktrees (ADR-0082 §6; platform.LinkedWorktree), absolute and canonical; absent for
+	// any other root. On the wire it is resolved at every open, describe and event;
+	// Registry.Describe returns the open's (its callers use only Root).
+	MainRoot string `json:"mainRoot,omitempty" jsonschema_description:"The project's main tree when root is a linked git worktree of it, absolute; absent otherwise. A worktree is a workspace of its project, trusted when that tree is."`
 	// CreatedAt is when the workspace was first opened, from workspace.json. Absent
 	// while that file is of a newer version and unread: the time is not known.
 	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
@@ -62,6 +67,21 @@ type Info struct {
 	// describe handlers, not by the registry: Registry.Describe, which every root lookup
 	// calls, resolves nothing.
 	Gradle GradleInfo `json:"gradle" jsonschema:"required"`
+}
+
+// Described is workspace.describe's result: the workspace object, and the project's
+// linked worktrees (ADR-0089). Only describe carries them, so open, enter and the
+// panel's streams, which share Info, advertise and read nothing more.
+type Described struct {
+	Info
+	// Worktrees is filled by the describe handler only (Registry.worktreesOf).
+	Worktrees []WorktreeInfo `json:"worktrees,omitempty" jsonschema_description:"The linked git worktrees of the project's repository, sorted by root, at most 50, the same whether root is the main tree or one of them. Each is read from the repository's own files and kept only while it names the repository back, so a removed or moved worktree is absent, as is one whose path holds a control or format character. Absent when the project has none, is not a git repository, or the repository has more than 100 worktree entries."`
+}
+
+// WorktreeInfo is one entry of Described.Worktrees.
+type WorktreeInfo struct {
+	Root   string `json:"root" jsonschema:"required" jsonschema_description:"The worktree's root, absolute and canonical; a path workspace.enter accepts."`
+	Branch string `json:"branch,omitempty" jsonschema_description:"The branch checked out in it; absent when its HEAD is detached or names a branch with characters git does not write in one."`
 }
 
 // GradleInfo is the Gradle root as workspace.open and workspace.describe report it
@@ -80,7 +100,7 @@ type GradleInfo struct {
 }
 
 // withGradle returns info with its Gradle root resolved against the project root. The
-// open and describe handlers call it; an info without a root (none is returned that way)
+// open, describe and enter handlers call it; an info without a root (none is returned that way)
 // gets an empty candidate list, never null.
 func withGradle(info Info) Info {
 	if info.Root == "" {
@@ -106,8 +126,11 @@ type index struct {
 }
 
 type indexEntry struct {
-	Root         string    `json:"root"`
-	Name         string    `json:"name"`
+	Root string `json:"root"`
+	Name string `json:"name"`
+	// MainRoot is the main tree when Root was a linked worktree at its last open, written
+	// at every open (ADR-0082 §6): an additive key, so the index keeps its version.
+	MainRoot     string    `json:"mainRoot,omitempty"`
 	LastOpenedAt time.Time `json:"lastOpenedAt"`
 }
 
@@ -196,6 +219,7 @@ type StateEvent struct {
 	Name       string            `json:"name" jsonschema:"required"`
 	Root       string            `json:"root" jsonschema:"required"`
 	Trusted    bool              `json:"trusted" jsonschema:"required" jsonschema_description:"Whether the root is trusted when the transition happened; a trust granted afterwards publishes no event."`
+	MainRoot   string            `json:"mainRoot,omitempty" jsonschema_description:"The project's main tree when root is a linked git worktree of it, absolute; absent otherwise."`
 }
 
 type workspace struct {
@@ -347,7 +371,7 @@ func (r *Registry) publishLocked(id string, s State, degradedBy *capability.Erro
 	}
 	if r.opts.States != nil {
 		r.opts.States.Broadcast(StateTopic, EventState, id, "",
-			StateEvent{State: s, DegradedBy: degradedBy, Name: name, Root: root, Trusted: r.trusted(root)})
+			StateEvent{State: s, DegradedBy: degradedBy, Name: name, Root: root, Trusted: r.trusted(root), MainRoot: r.mainRoot(root)})
 	}
 }
 
@@ -503,9 +527,10 @@ func (r *Registry) Open(target string) (Info, error) {
 		// (ADR-0015 §6), and reading the configuration does I/O we keep out of the
 		// admission lock.
 		info.Trusted = r.trusted(info.Root)
+		info.MainRoot = r.mainRoot(info.Root)
 		// Opening again is still opening it: the projects panel lists the newest first
 		// (ADR-0045 §3). A failed write does not fail an open that is otherwise a no-op.
-		if err := r.recordOpen(id, info.Root, info.Name); err != nil {
+		if err := r.recordOpen(id, info.Root, info.Name, info.MainRoot); err != nil {
 			fmt.Fprintf(r.opts.Log, "droidyard: workspace %s: recording its reopen in %s: %v\n", id, indexFile, err)
 		}
 		return info, nil
@@ -558,7 +583,7 @@ func readableDir(root string) error {
 // (ADR-0026).
 func (r *Registry) load(id, root string) (Info, error) {
 	name := filepath.Base(root)
-	info := Info{ID: id, Name: name, Root: root, State: Ready, Trusted: false}
+	info := Info{ID: id, Name: name, Root: root, State: Ready, Trusted: false, MainRoot: r.mainRoot(root)}
 	var cfg config
 	out, err := r.opts.Store.Read(configFile(id), store.Version, &cfg)
 	switch {
@@ -579,7 +604,7 @@ func (r *Registry) load(id, root string) (Info, error) {
 		created := cfg.CreatedAt
 		info.CreatedAt = &created
 	}
-	if err := r.recordOpen(id, root, name); err != nil {
+	if err := r.recordOpen(id, root, name, info.MainRoot); err != nil {
 		return Info{}, err
 	}
 	if r.opts.OnOpen != nil {
@@ -601,6 +626,35 @@ func (r *Registry) trusted(root string) bool {
 	}
 	ok, _ := r.opts.Policy.Trusted(root)
 	return ok
+}
+
+// mainRoot is the main tree of the repository when root is a linked worktree of it, else
+// "" (platform.LinkedWorktree; ADR-0082 §6). It reads a few small files and runs no git.
+func (r *Registry) mainRoot(root string) string {
+	if root == "" {
+		return ""
+	}
+	main, _ := platform.LinkedWorktree(r.opts.Env, root)
+	return main
+}
+
+// worktreesOf lists the linked worktrees of the project info describes (ADR-0089): of
+// its main tree when its root is a worktree, else of its root when that holds a `.git`
+// directory. It reads a few small files and runs no git; a project that is no
+// repository, or has no linked worktree, has none (nil).
+func (r *Registry) worktreesOf(info Info) []WorktreeInfo {
+	main := info.MainRoot
+	if main == "" {
+		main = info.Root
+	}
+	if main == "" {
+		return nil
+	}
+	var out []WorktreeInfo
+	for _, w := range platform.Worktrees(r.opts.Env, main) {
+		out = append(out, WorktreeInfo{Root: w.Root, Branch: w.Branch})
+	}
+	return out
 }
 
 // loadIndex reads workspaces.json once. One of a newer version is neither read nor
@@ -644,13 +698,13 @@ func (r *Registry) knownRoot(id string) (string, bool, error) {
 	return e.Root, ok && e.Root != "", nil
 }
 
-func (r *Registry) recordOpen(id, root, name string) error {
+func (r *Registry) recordOpen(id, root, name, mainRoot string) error {
 	r.indexMu.Lock()
 	defer r.indexMu.Unlock()
 	if err := r.loadIndex(); err != nil {
 		return err
 	}
-	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, LastOpenedAt: r.now().UTC()}
+	r.idx.Workspaces[id] = indexEntry{Root: root, Name: name, MainRoot: mainRoot, LastOpenedAt: r.now().UTC()}
 	if r.indexNewer {
 		// Kept for this daemon's life only, so workspace.watch lists what it opened:
 		// a file of a newer version is neither read nor written.
@@ -659,7 +713,9 @@ func (r *Registry) recordOpen(id, root, name string) error {
 	return r.opts.Store.Write(indexFile, r.idx)
 }
 
-// Describe is the state of an open workspace. Its trusted flag is read from the
+// Describe is the state of an open workspace. Its MainRoot is the one resolved at the
+// open: Describe is called by every root lookup, so the workspace.describe handler
+// resolves it again and this does not. Its trusted flag is read from the
 // configuration each time, so a `droidyard trust` after the open shows without a
 // restart (ADR-0015 §6; plan m1g D3).
 func (r *Registry) Describe(id string) (Info, error) {

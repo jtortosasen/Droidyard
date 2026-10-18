@@ -103,7 +103,8 @@ Fixed by [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md):
 ## Workspace model
 
 A daemon hosts several **workspaces**. Every workspace-scoped call names its target
-([ADR-0020](../adr/0020-operation-contract.md)); an MCP session is bound to one root. A
+([ADR-0020](../adr/0020-operation-contract.md)); an MCP session is bound to one root at a
+time, which `workspace.enter` moves within its project. A
 workspace holds identity (id derived from the canonical root, root, name, trusted),
 project facts, builds (running operations, the build registry, last result, console
 artifacts) and workspace-owned sidecars (the Kotlin LSP, later). Not in a workspace:

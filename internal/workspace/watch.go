@@ -2,6 +2,9 @@ package workspace
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
 	"sort"
 	"time"
 
@@ -23,6 +26,7 @@ type Listed struct {
 	LastOpenedAt time.Time `json:"lastOpenedAt" jsonschema:"required" jsonschema_description:"When it was last opened, an open workspace asked for again included."`
 	State        State     `json:"state" jsonschema:"required,enum=opening,enum=ready,enum=degraded,enum=closing,enum=closed" jsonschema_description:"closed when this daemon holds no open workspace for it."`
 	Trusted      bool      `json:"trusted" jsonschema:"required"`
+	MainRoot     string    `json:"mainRoot,omitempty" jsonschema_description:"The project's main tree when root is a linked git worktree of it, absolute, as of its last open; absent otherwise. A closed worktree whose directory is gone is not listed."`
 }
 
 // WatchResult is workspace.watch's result (ADR-0045 §3).
@@ -93,7 +97,16 @@ func (r *Registry) listed() ([]Listed, bool, error) {
 		if state == "" {
 			state = Closed
 		}
-		out = append(out, Listed{ID: id, Name: e.Name, Root: e.Root, LastOpenedAt: e.LastOpenedAt, State: state, Trusted: r.trusted(e.Root)})
+		// A removed worktree is gone for good, and a project's worktrees come and go by the
+		// dozen: a closed one neither shows nor takes one of the MaxListed places
+		// (ADR-0082 §6). One still open stays, so the panel can see and close it. A
+		// project whose directory is gone stays listed, as it always was.
+		if e.MainRoot != "" && state == Closed {
+			if _, err := os.Stat(e.Root); errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+		}
+		out = append(out, Listed{ID: id, Name: e.Name, Root: e.Root, LastOpenedAt: e.LastOpenedAt, State: state, Trusted: r.trusted(e.Root), MainRoot: e.MainRoot})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].LastOpenedAt.Equal(out[j].LastOpenedAt) {

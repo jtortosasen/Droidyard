@@ -170,7 +170,7 @@ func mapError(root string, err error) error {
 		// on an untrusted root (ADR-0066 §3); trusting the root is the way on.
 		return capability.Errorf(capability.ErrWorkspaceUntrusted, "the project root %q is not trusted, and a git filter driver configured for it cannot be switched off, so git was not run", root).
 			WithCause(err.Error()).
-			WithNextStep(policy.UntrustedError(root).NextStep)
+			WithNextStep(policy.UntrustedNextStep(root))
 	case errors.Is(err, context.Canceled):
 		return err
 	case errors.Is(err, ErrGitFailed):

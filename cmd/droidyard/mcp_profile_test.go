@@ -19,11 +19,11 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
-// goldenPath is plan m1o D3 without the file tools (ADR-0060): the golden path's tools and
-// the reopen ADR-0020 allows. It is written out here, apart from mcpadapter.CoreTools, so a change to the profile
-// is a change to two places.
+// goldenPath is plan m1o D3 without the file tools (ADR-0060): the golden path's tools, the
+// reopen ADR-0020 allows and the worktree entry of ADR-0082 §5. It is written out here, apart
+// from mcpadapter.CoreTools, so a change to the profile is a change to two places.
 var goldenPath = []string{
-	"workspace_open", "workspace_describe", "project_modules", "build_assemble", "build_errors",
+	"workspace_open", "workspace_enter", "workspace_describe", "project_modules", "build_assemble", "build_errors",
 	"build_lastResult", "emulator_list", "emulator_start",
 	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
 	"device_inputText", "device_logs", "device_screenshot", "operation_wait", "operation_cancel",
@@ -208,8 +208,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 31 {
-			t.Errorf("%v lists %d tools; want 31", args, len(names))
+		if len(names) != 32 {
+			t.Errorf("%v lists %d tools; want 32", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)

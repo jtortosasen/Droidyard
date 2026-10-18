@@ -64,8 +64,10 @@
 		compare?: CompareModel;
 		/** The toolbar's Pull (plan m2n R3), a fast-forward of the current branch. */
 		puller?: PullModel;
+		/** The sessions at each worktree root (ADR-0083 §4), for the side panel's WORKTREES rows. */
+		worktreeSessions?: ReadonlyMap<string, readonly string[]>;
 	}
-	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater, compare, puller }: Props = $props();
+	let { store, watch, workspaceId, onopenfile, fetcher, branches, submodules, updater, compare, puller, worktreeSessions }: Props = $props();
 
 	const storage = browserStorage(window);
 
@@ -400,7 +402,7 @@
 	{/if}
 	<div class="body">
 		<aside class="side" style:width="{sideWidth}px" aria-label="Branches, tags, submodules and work trees">
-			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} {names} rootRefs={view.rootRefs} subjects={view.subjects} onretrysubmodules={() => void submodules.load()} {updater} {updateView} {onentry} />
+			<RefsPanel {view} {store} {workspaceId} {storage} {fetcher} {fetchView} submodules={submodulesView} {names} rootRefs={view.rootRefs} subjects={view.subjects} onretrysubmodules={() => void submodules.load()} {updater} {updateView} {onentry} {worktreeSessions} />
 		</aside>
 		<Splitter axis="x" sign={1} value={sideWidth} clamp={clampSide} onchange={(n) => (sideWidth = clampSide(n))} label="Resize the refs list" />
 		{#if compare && compareView?.open}

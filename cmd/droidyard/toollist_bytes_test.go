@@ -47,8 +47,8 @@ func TestToolListModelFacingBytes(t *testing.T) {
 		delete(tool, "outputSchema")
 		shipped = append(shipped, tool)
 	}
-	if len(shipped) != 31 {
-		t.Fatalf("tools/list has %d shipped tools; want 31", len(shipped))
+	if len(shipped) != 32 {
+		t.Fatalf("tools/list has %d shipped tools; want 32", len(shipped))
 	}
 	raw, err := json.Marshal(shipped)
 	if err != nil {

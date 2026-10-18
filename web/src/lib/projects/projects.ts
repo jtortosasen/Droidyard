@@ -6,6 +6,10 @@
 // opens the root it answers with; where the dialog is unavailable the user types a root, as
 // 2b did. Opening never trusts.
 //
+// One tab in all (ADR-0084): a `show` event, which `droidyard` causes through `workspace.show`,
+// selects its project as a click does. A closed project can be removed from the list
+// (`workspace.forget`, ADR-0086); a `forgotten` event, from any tab, drops the row.
+//
 // The watch lives with the page (start/stop); a lost connection or `events.gap` starts it
 // again.
 import { eventTopics, type EventPayload, type Params, type Result } from '../api/capabilities.gen';
@@ -26,7 +30,7 @@ export const MAX_ROWS = 50;
 const TOPIC_STATE = eventTopics['workspace.watch'];
 const TOPIC_GAP = 'events.gap';
 
-type Calls = 'workspace.open' | 'workspace.chooseRoot' | 'system.capabilities' | 'events.unsubscribe';
+type Calls = 'workspace.open' | 'workspace.chooseRoot' | 'workspace.forget' | 'system.capabilities' | 'events.unsubscribe';
 type StateEvent = EventPayload<'workspace.watch', 'state'>;
 
 export interface ProjectsClient {
@@ -47,6 +51,8 @@ export interface ProjectRow {
 	trusted: boolean;
 	/** Open in the daemon now: anything but closed. */
 	open: boolean;
+	/** The project's main tree, when `root` is a linked git worktree of it (ADR-0081). */
+	mainRoot?: string;
 }
 
 export type Chooser = 'unknown' | 'available' | 'unavailable';
@@ -69,6 +75,7 @@ export interface ProjectsView {
 export class ProjectsModel {
 	#client: ProjectsClient;
 	#navigate: (workspaceId: string) => void;
+	#onShow: (() => void) | undefined;
 	#rows = new Map<string, ProjectRow>();
 	#truncated = false;
 	#watch: { state: WatchState; detail: string } = { state: 'idle', detail: '' };
@@ -83,9 +90,11 @@ export class ProjectsModel {
 	#listeners = new Set<() => void>();
 	#view: ProjectsView | null = null;
 
-	constructor(client: ProjectsClient, navigate: (workspaceId: string) => void) {
+	/** `onShow` runs before a `show` event selects its project: a selection the daemon made stays, as a project row's does. */
+	constructor(client: ProjectsClient, navigate: (workspaceId: string) => void, onShow?: () => void) {
 		this.#client = client;
 		this.#navigate = navigate;
+		this.#onShow = onShow;
 	}
 
 	get view(): ProjectsView {
@@ -149,6 +158,20 @@ export class ProjectsModel {
 			return Promise.resolve();
 		}
 		return this.#open(id);
+	}
+
+	/** Remove a closed project from the list; an open one is not offered, and the daemon refuses it. */
+	async forget(id: string): Promise<void> {
+		if (this.#rows.get(id)?.open !== false) return;
+		this.#error = null;
+		try {
+			await this.#client.call('workspace.forget', { workspace: id });
+			// Only if still closed: an open that raced the forget brought the row back.
+			if (this.#rows.get(id)?.open === false) this.#rows.delete(id);
+		} catch (e) {
+			this.#error = failure(e);
+		}
+		this.#changed();
 	}
 
 	/** The typed root, where the folder dialog is unavailable. */
@@ -261,6 +284,16 @@ export class ProjectsModel {
 			return;
 		}
 		if (ev.topic !== TOPIC_STATE || ev.workspace === null) return;
+		if (ev.type === 'show') {
+			this.#onShow?.();
+			void this.select(ev.workspace);
+			return;
+		}
+		if (ev.type === 'forgotten') {
+			if (this.#rows.delete(ev.workspace)) this.#changed();
+			return;
+		}
+		if (ev.type !== 'state') return;
 		const p = ev.payload as StateEvent;
 		const prev = this.#rows.get(ev.workspace);
 		this.#rows.set(ev.workspace, {
@@ -272,6 +305,7 @@ export class ProjectsModel {
 			state: p.state,
 			trusted: p.trusted,
 			open: p.state !== 'closed',
+			...(p.mainRoot !== undefined ? { mainRoot: p.mainRoot } : {}),
 		});
 		if (this.#rows.size > MAX_ROWS) {
 			const oldest = [...this.#rows.values()].sort((a, b) => time(a.lastOpenedAt) - time(b.lastOpenedAt))[0];
@@ -323,4 +357,85 @@ export function landing(route: Route, view: ProjectsView, refused: boolean): Lan
 	if (view.watch.state === 'idle' || view.watch.state === 'starting') return { kind: 'waiting' };
 	const newest = view.rows.find((r) => r.open);
 	return newest ? { kind: 'project', workspace: newest.id } : { kind: 'panel' };
+}
+
+// --- the panel by project (ADR-0083 §2) ----------------------------------------------
+
+/** A root without its trailing separators, so "/a/b/" and "/a/b" are one tree. */
+export const rootKey = (root: string): string => root.replace(/[\\/]+$/, '');
+const baseName = (root: string): string => rootKey(root).split(/[\\/]/).pop() || root;
+
+/** The part of a session row the grouping reads. */
+export interface GroupedSession {
+	key: string;
+	you: boolean;
+	workspace: string | null;
+}
+
+export interface ProjectGroup<S extends GroupedSession> {
+	/** The main tree's root: the group's identity. */
+	key: string;
+	/** The main tree's row; null when it is not listed (the group row then stands for `root`). */
+	project: ProjectRow | null;
+	name: string;
+	root: string;
+	/** Sessions in this project, in the main tree or in a worktree, each naming where. */
+	sessions: { session: S; where: string; workspace: string }[];
+	/** The worktrees with no session in them. */
+	worktrees: ProjectRow[];
+}
+
+export interface Grouping<S extends GroupedSession> {
+	groups: ProjectGroup<S>[];
+	/** Sessions with no workspace, or one the list does not hold. */
+	loose: S[];
+}
+
+/**
+ * Split the rows by project (ADR-0083 §2): a row with `mainRoot` nests under the row whose
+ * root that is, else under a group row for that root; no worktree is ever a top-level row.
+ * Groups keep the order of their first row (rows arrive newest first). A session sits under
+ * its workspace's project and names the worktree's name, or "main".
+ */
+export function groupProjects<S extends GroupedSession>(rows: readonly ProjectRow[], sessions: readonly S[]): Grouping<S> {
+	const groups = new Map<string, ProjectGroup<S>>();
+	const mainOf = (r: ProjectRow): string => rootKey(r.mainRoot ?? r.root);
+	for (const r of rows) {
+		const key = mainOf(r);
+		let g = groups.get(key);
+		if (!g) groups.set(key, (g = { key, project: null, name: baseName(key), root: key, sessions: [], worktrees: [] }));
+		if (r.mainRoot === undefined) {
+			g.project = r;
+			g.name = r.name;
+			g.root = r.root;
+		}
+	}
+	const byId = new Map(rows.map((r) => [r.id, r]));
+	const loose: S[] = [];
+	const inside = new Set<string>();
+	for (const s of sessions) {
+		const r = s.workspace === null ? undefined : byId.get(s.workspace);
+		if (r === undefined) {
+			loose.push(s);
+			continue;
+		}
+		groups.get(mainOf(r))!.sessions.push({ session: s, where: r.mainRoot === undefined ? 'main' : r.name, workspace: r.id });
+		inside.add(r.id);
+	}
+	for (const r of rows) if (r.mainRoot !== undefined && !inside.has(r.id)) groups.get(mainOf(r))!.worktrees.push(r);
+	return { groups: [...groups.values()], loose };
+}
+
+/** The labels of the sessions whose workspace root is each path, for the Git panel's worktree rows (ADR-0083 §4). */
+export function sessionsByRoot(rows: readonly ProjectRow[], sessions: readonly (GroupedSession & { label: string })[]): Map<string, string[]> {
+	const byId = new Map(rows.map((r) => [r.id, r]));
+	const out = new Map<string, string[]>();
+	for (const s of sessions) {
+		if (s.you || s.workspace === null) continue;
+		const r = byId.get(s.workspace);
+		if (r === undefined) continue;
+		const key = rootKey(r.root);
+		out.set(key, [...(out.get(key) ?? []), s.label]);
+	}
+	return out;
 }

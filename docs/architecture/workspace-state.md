@@ -16,7 +16,14 @@ The core, one daemon per user ([ADR-0019](../adr/0019-process-topology-daemon-an
 hosts **multiple workspaces**. Every workspace-scoped call names its target in the
 envelope's `workspace` field ([ADR-0020](../adr/0020-operation-contract.md)); the core has
 no implicit "current workspace". An MCP session is bound to one root at attach, and its
-adapter fills the field.
+adapter fills the field; `workspace.enter` moves the calling session to its project's main
+tree or a linked git worktree of it, and a resumed Claude Code chat gets its last binding
+back ([ADR-0082](../adr/0082-session-enters-a-worktree.md),
+[ADR-0088](../adr/0088-chat-id-recovers-binding.md)).
+
+A **worktree is a workspace of its project**: its own root, id, builds and state, with
+`mainRoot` naming the project's main tree. The panel never lists it as a project of its own.
+Droidyard creates no worktree; the agent's git does.
 
 A workspace has two roots ([ADR-0075](../adr/0075-project-root-and-gradle-root.md)): the
 **project root**, the folder opened, and the **Gradle root** inside it, where builds run; so a
@@ -86,8 +93,9 @@ workspace; the shipped design ties each watch to the session's subscription.)
   in it, guarded by the daemon's `flock` (ADR-0019). No per-workspace lock file exists.
 - A workspace is **trusted or not**
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). Trust comes from a
-  configured path prefix or an explicit human act (the UI, or `droidyard trust`) and
-  **never** from an MCP binding, because a repository can ship its own `.mcp.json`. Both
+  configured path prefix or an explicit human act (the UI, or `droidyard trust`), or, for a
+  linked worktree, from its trusted main tree, proven by git's own files
+  ([ADR-0081](../adr/0081-worktree-inherits-trust.md)); **never** from an MCP binding, because a repository can ship its own `.mcp.json`. Both
   are policy: they live in the user configuration, not in workspace state, so deleting
   `ws/<wsid>/` never grants or revokes trust. Trust is re-evaluated before each call, so a
   grant takes effect without reopening. An untrusted workspace opens in restricted mode,

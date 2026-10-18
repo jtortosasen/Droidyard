@@ -25,7 +25,7 @@ type stateRecorder struct {
 	got []published
 }
 
-func (r *stateRecorder) Broadcast(topic, typ, workspace, operation string, payload any) {
+func (r *stateRecorder) Broadcast(topic, typ, workspace, operation string, payload any) int {
 	r.ops.Active()
 	e := published{topic, typ, workspace, operation, payload}
 	if r.gate != nil {
@@ -34,6 +34,7 @@ func (r *stateRecorder) Broadcast(topic, typ, workspace, operation string, paylo
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.got = append(r.got, e)
+	return 1
 }
 
 func (r *stateRecorder) all() []published {

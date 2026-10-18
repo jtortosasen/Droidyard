@@ -29,11 +29,14 @@ type Document struct {
 
 // CapabilitySchema is one capability's published contract.
 type CapabilitySchema struct {
-	Name         string   `json:"name"`
-	Kind         string   `json:"kind"`
-	Scope        string   `json:"scope"`
-	Statefulness string   `json:"statefulness"`
-	LongRunning  bool     `json:"longRunning,omitempty"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	Scope        string `json:"scope"`
+	Statefulness string `json:"statefulness"`
+	LongRunning  bool   `json:"longRunning,omitempty"`
+	// Binding marks a capability that acts on the calling MCP session's binding, so only
+	// an MCP session can call it (ADR-0082 §4).
+	Binding      bool     `json:"binding,omitempty"`
 	Audience     string   `json:"audience"`
 	Since        string   `json:"since,omitempty"`
 	Description  string   `json:"description"`
@@ -329,6 +332,7 @@ func Generate(reg *capability.Registry, version string) (*Document, error) {
 			Scope:        d.Scope.String(),
 			Statefulness: d.Statefulness.String(),
 			LongRunning:  d.LongRunning,
+			Binding:      d.Binding,
 			Audience:     d.Audience.String(),
 			Since:        d.Since,
 			Description:  d.Description,

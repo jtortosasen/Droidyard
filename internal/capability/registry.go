@@ -71,6 +71,12 @@ func (r *Registry) Register(d Descriptor) error {
 			return err
 		}
 	}
+	if d.Binding && (d.Statefulness != Stateless || d.Audience != AudienceAll) {
+		// The binding belongs to an MCP session, so only a tool can move it: a stateful
+		// or human-only capability is never one, and the flag would promise a call no
+		// connection can make (ADR-0082 §4).
+		return fmt.Errorf("capability %q: Binding is for a stateless capability of every audience, the MCP tool that moves a session's binding", d.Name)
+	}
 	if d.Audience == AudienceHuman && d.Scope == Global {
 		// Not an error by itself, but worth stating: human-only capabilities are
 		// rejected at the MCP transport, not hidden (ADR-0015 §6).

@@ -45,4 +45,5 @@ the output.
 | [m2n-git-history.md](m2n-git-history.md) | 2n — Git history | Done |
 | [m2o-gradle-root-below.md](m2o-gradle-root-below.md) | 2o — A project whose Gradle build is in a subfolder | Done |
 | [m2p-live-device-view.md](m2p-live-device-view.md) | 2p — C3, a live device view: the screen streamed to the UI, with input | Done |
+| [m2q-sessions-own-worktrees.md](m2q-sessions-own-worktrees.md) | 2q — C2, sessions that own worktrees | Done |
 | [m2r-register-cleanup.md](m2r-register-cleanup.md) | 2r — Register cleanup: the quick rows, a block of fixes without devices, and an audit of the open rows | Approved |

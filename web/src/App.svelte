@@ -92,8 +92,17 @@
 				refused = false;
 				go({ view: 'project', workspace: id });
 			},
+			// `droidyard` showed a project: a selection that stays where it is, as a project row's (ADR-0084).
+			() => agents.unfollow(),
 		);
-		const agents = new SessionsModel(store);
+		const agents = new SessionsModel(store, Date.now, {
+			client: {
+				call: (name, params) => c.call(name, params),
+				subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+			},
+			// The selection made from a session's row follows its moves (ADR-0083 §3).
+			onFollow: (id) => void list.select(id),
+		});
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -103,6 +112,7 @@
 				store.onConnection(s);
 				events.onConnection(s);
 				list.onConnection(s);
+				agents.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
