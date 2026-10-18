@@ -446,16 +446,21 @@ type AfterEvent struct {
 	Name string
 	// Command is the shell command that ran.
 	Command string
+	// Cwd is the directory the command ran in, as the client reported it; "" when the
+	// client sends none (Cursor, as observed in plan m2q step 1) (ADR-0085).
+	Cwd string
 }
 
 // DecodeAfterEvent reads a shell command's after-event. ok is false for malformed JSON,
 // another event or tool, an empty command, and a Cursor failure that was a hook's deny
 // (`failure_type: "permission_denied"`: the command did not run). It reads the command
-// and the names only: never the output, the error text or the user's email (ADR-0063 §4).
+// the directory and the names only: never the output, the error text or the user's email
+// (ADR-0063 §4).
 func DecodeAfterEvent(c Client, stdin []byte) (ev AfterEvent, ok bool) {
 	var raw struct {
 		Event       string `json:"hook_event_name"`
 		Tool        string `json:"tool_name"`
+		Cwd         string `json:"cwd"`
 		FailureType string `json:"failure_type"`
 		ToolInput   struct {
 			Command string `json:"command"`
@@ -467,11 +472,13 @@ func DecodeAfterEvent(c Client, stdin []byte) (ev AfterEvent, ok bool) {
 	switch c {
 	case Claude:
 		if (raw.Event == "PostToolUse" || raw.Event == "PostToolUseFailure") && raw.Tool == "Bash" {
-			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command}, true
+			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command, Cwd: raw.Cwd}, true
 		}
 	case Cursor:
 		if (raw.Event == "postToolUse" || raw.Event == "postToolUseFailure") && raw.Tool == "Shell" && raw.FailureType != "permission_denied" {
-			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command}, true
+			// Cursor's cwd was "" in every observed event (plan m2q step 1): the field is
+			// read all the same, and "" keeps the hook's --root.
+			return AfterEvent{Name: raw.Event, Command: raw.ToolInput.Command, Cwd: raw.Cwd}, true
 		}
 	}
 	return AfterEvent{}, false

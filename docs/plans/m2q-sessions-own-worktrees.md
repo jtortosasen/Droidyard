@@ -235,7 +235,20 @@
 - Needs: steps 2, 3; step 1 (c).
 - Not here: tying a record to its chat's session (no link from a hook to the MCP connection; step 1 records whether the ids could ever join; register row). The record's fields (ADR-0063 §4) are unchanged.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestHookRecordsInTheWorktree` passes, using real `git worktree` repositories and the real `droidyard hook` against an in-process daemon. Its rows:
+  - a worktree outside the project, and a subfolder of it, record under the worktree;
+  - a nested worktree `M/.claude/worktrees/x/app` records under `x`;
+  - `cwd` `M/dev`, with settings only in `dev/`, records under `M`, and `dev` is not opened;
+  - `--root` through a symlink with a physical `cwd` records under `--root`;
+  - a submodule inside a nested worktree records under `M`;
+  - an unrelated project gives no record, and `workspaces.json` is byte-identical;
+  - a Cursor event with no `cwd` records under `--root`.
+
+  `TestHookRmInTheWorktree` passes: `rm` in a worktree outside main is handed to `droidyard trash --root <wt>`. So does `TestDecodeAfterEventCwd`.
+
+  The implementer saw each of these reversals fail: `--root` always, the settings rule from `cwd`, the "under `--root`" test before the worktree test, a lexical comparison, no "none" result, and a settings stand-in for the `.git` walk.
+
+  The main session reviewed the diff (no verifier, per the risk table). One limit: when `--root` is itself a worktree, a command in the main tree is dropped. `init` writes `--root` at the project root, so this is a register row at step 10, with the submodule-outside-`M` case.
 
 ### 8. The sessions panel by project, and the Git panel's worktrees by session
 
