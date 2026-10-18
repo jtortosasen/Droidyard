@@ -165,7 +165,9 @@ func checkRegister(fsys fs.FS) []string {
 // worktrees, the moving binding and inherited trust, overview.md's binding, the glossary's
 // Session, http-websocket.md's one tab, mvp.md's human-only note and README.md's status
 // line (ADR-0081 to ADR-0084, ADR-0088).
-const liveBudget = 28286
+// Raised by 8 (to 28,294) at milestone 2r's close: README.md's status line names 2r (each of
+// 2r's steps cut what it added to files.md, workspace-state.md and process-lifecycle.md).
+const liveBudget = 28294
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

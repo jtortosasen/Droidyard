@@ -1,6 +1,6 @@
 # Plan: Milestone 2r — Register cleanup: the quick rows, a block of fixes without devices, and an audit of the open rows
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-18, Delegated (the main session under the owner's standing instruction to apply the recommended option): the block of rows and ADR-0090 to ADR-0093 as drafted; review round 4 asked for one fix, applied without a fifth round. The owner may revert any.
 - Date: 2026-10-18
 - Milestone: the owner, 2026-10-18: "Hagamos la tanda quick, y de paso mira todas las líneas pendientes del known-limits a ver si puedes aprovechar y meter un buen bloque de tareas, y limpiamos." The seven `quick` rows, a block of other open rows fixable without devices, and a pass over the whole register. The block was chosen by the main session under the owner's standing instruction (Delegated); `docs/README.md` §Where the work stands says "next, the owner's choice".
@@ -57,17 +57,17 @@
 
 ## Acceptance
 
-- [ ] A1. The flaky tests of rows 277 and 278 (`lock_test`) and the baseline's two load failures outside 2q's packages pass repeatedly on a loaded host, each still failing when the decision it guards is reversed, with the reason for its bound or retry in the test. Source: rows 277, 278; the baseline. Proven by: step 1.
-- [ ] A2. While the folder dialog is up its process is in `processes.json` as kind `folder-dialog`; the record is gone after an answer, a cancel, the bound or a call's cancel; a daemon killed with SIGKILL during a dialog leaves a record the next daemon's reconcile reaps, group included. Source: row 270; ADR-0021 §Pid records. Proven by: step 2.
-- [ ] A3. `droidyard trash` against a daemon that accepts and never answers exits 1 within its bound, says nothing was moved and prints the `command rm` line; after a transport failure or a hang once the delete was sent it says the outcome is unknown and prints the line; a delete longer than the bound completes. Source: row 210; ADR-0062 §2. Proven by: step 3.
-- [ ] A4. A `file.watch` of any path stops with `pathGone`, after reporting its entries deleted, when the project directory is deleted, moved away or replaced. Source: row 160; `files.md` §The watch. Proven by: step 4.
-- [ ] A5. `droidyard init --client cursor` with `DROIDYARD_STATE_DIR` set writes it into `.cursor/mcp.json`'s droidyard entry as `env`; without it the entry is as today; `--uninstall` under the same variable removes the entry. Source: row 199; ADR-0037 §Decision 2; ADR-0061 §3. Proven by: step 5.
-- [ ] A6. `agent.recordCommand` refuses a command whose `words` is absent or `null` with `REQUEST_INVALID_PARAMS` naming the field, accepts `[]`, and the published schema is unchanged. Source: row 211; ADR-0063 §4. Proven by: step 6.
-- [ ] A7. Each row the audit closes carries `Closed by` `2r (audit: <evidence>)` with a file and line, a test or a commit that the close verifier reproduced as showing its whole claim untrue; the evidence states, per area, the rows read, closed and given a `Work` value; the register tests pass. Source: the owner's "y limpiamos". Proven by: step 11.
-- [ ] A8. A later `init` replaces a droidyard hook entry of init's shape whose binary path changed instead of adding a second; `--uninstall` removes every such entry and the retired `file_list`/`file_read` allow rules; entries of another root, client or shape, and Cursor's empty `deny`, are left. Source: ADR-0090; rows 202, 205, 201. Proven by: step 7.
-- [ ] A9. A `file.watch` tick removes a non-aside `.droidyard-<16 hex>.tmp` file or folder older than 24 h, a link as a link; it never removes an aside (new name, or old name recorded by any workspace's trash under this state root) or a younger one; new asides are `.droidyard-aside-<16 hex>.tmp` and old-named entries still restore. Source: ADR-0091; rows 163, 166. Proven by: step 8.
-- [ ] A10. A workspace that resolves a new Gradle root (or none) forgets the old one; the old root's connection is closed once its in-flight operation ends, unless another open workspace remembers it; a sidecar crash degrades only the workspaces whose current root crashed. Source: ADR-0092; row 39. Proven by: step 9.
-- [ ] A11. CI's `race` job, `go test -race -timeout 30m ./...` on Linux, passes on the branch's pull-request run; a tag release does not run it, and the pre-commit hook is unchanged. Source: ADR-0093; row 251 (closed when the job passes on `main` after the merge). Proven by: step 10.
+- [x] A1. The flaky tests of rows 277 and 278 (`lock_test`) and the baseline's two load failures outside 2q's packages pass repeatedly on a loaded host, each still failing when the decision it guards is reversed, with the reason for its bound or retry in the test. Source: rows 277, 278; the baseline. Proven by: step 1. Proven: step 1.
+- [x] A2. While the folder dialog is up its process is in `processes.json` as kind `folder-dialog`; the record is gone after an answer, a cancel, the bound or a call's cancel; a daemon killed with SIGKILL during a dialog leaves a record the next daemon's reconcile reaps, group included. Source: row 270; ADR-0021 §Pid records. Proven by: step 2. Proven: step 2 (level 4; the real osascript panel is a register row).
+- [x] A3. `droidyard trash` against a daemon that accepts and never answers exits 1 within its bound, says nothing was moved and prints the `command rm` line; after a transport failure or a hang once the delete was sent it says the outcome is unknown and prints the line; a delete longer than the bound completes. Source: row 210; ADR-0062 §2. Proven by: step 3. Proven: step 3.
+- [x] A4. A `file.watch` of any path stops with `pathGone`, after reporting its entries deleted, when the project directory is deleted, moved away or replaced. Source: row 160; `files.md` §The watch. Proven by: step 4. Proven: step 4.
+- [x] A5. `droidyard init --client cursor` with `DROIDYARD_STATE_DIR` set writes it into `.cursor/mcp.json`'s droidyard entry as `env`; without it the entry is as today; `--uninstall` under the same variable removes the entry. Source: row 199; ADR-0037 §Decision 2; ADR-0061 §3. Proven by: step 5. Proven: step 5.
+- [x] A6. `agent.recordCommand` refuses a command whose `words` is absent or `null` with `REQUEST_INVALID_PARAMS` naming the field, accepts `[]`, and the published schema is unchanged. Source: row 211; ADR-0063 §4. Proven by: step 6. Proven: step 6.
+- [x] A7. Each row the audit closes carries `Closed by` `2r (audit: <evidence>)` with a file and line, a test or a commit that the close verifier reproduced as showing its whole claim untrue; the evidence states, per area, the rows read, closed and given a `Work` value; the register tests pass. Source: the owner's "y limpiamos". Proven by: step 11. Proven: step 11: the audit closed no row; its evidence gives the rows read per area.
+- [x] A8. A later `init` replaces a droidyard hook entry of init's shape whose binary path changed instead of adding a second; `--uninstall` removes every such entry and the retired `file_list`/`file_read` allow rules; entries of another root, client or shape, and Cursor's empty `deny`, are left. Source: ADR-0090; rows 202, 205, 201. Proven by: step 7. Proven: step 7.
+- [x] A9. A `file.watch` tick removes a non-aside `.droidyard-<16 hex>.tmp` file or folder older than 24 h, a link as a link; it never removes an aside (new name, or old name recorded by any workspace's trash under this state root) or a younger one; new asides are `.droidyard-aside-<16 hex>.tmp` and old-named entries still restore. Source: ADR-0091; rows 163, 166. Proven by: step 8. Proven: step 8.
+- [x] A10. A workspace that resolves a new Gradle root (or none) forgets the old one; the old root's connection is closed once its in-flight operation ends, unless another open workspace remembers it; a sidecar crash degrades only the workspaces whose current root crashed. Source: ADR-0092; row 39. Proven by: step 9. Proven: step 9.
+- [ ] A11. CI's `race` job, `go test -race -timeout 30m ./...` on Linux, passes on the branch's pull-request run; a tag release does not run it, and the pre-commit hook is unchanged. Source: ADR-0093; row 251 (closed when the job passes on `main` after the merge). Proven by: step 10. In part: the `race` job passed on the branch's pull-request run and the hook is unchanged (step 10); a tag release skipping it is unverified (a register row), and the `-race` row closes after the job passes on `main`.
 
 ## Steps
 
@@ -350,7 +350,19 @@
 - Needs: steps 1–10 (their rows are not audited while a step changes them).
 - Not here: closing a row by judgement (a "won't fix" is the owner's or an ADR's); any device run.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-18, by the main session, reading code only. Done twice: at 74d2d66, and again after `main` (with 2q's close) was merged in at 4e85d0e.
+  - Rows read: 244 open rows. Left out are the rows steps 1–10 close and every row whose `Work` is `2q` or `C2`. Per area: build 21, CLI 2, code 3, configuration 5, device 29, device/UI 27, emulator 12, files 14, git 16, MCP/agents 30, platform 11, policy/security 10, process 18, SDK 5, web UI 41.
+  - Rows closed: **none**. No row's whole claim is now untrue. The register has been kept at every close, and the rows recorded since 2n are fresh.
+  - `Work` values filled: none. No Done plan or ADR names the owning work of a row whose `Work` is empty (for example, m2p's Not in this milestone leaves the live view's input extras to "later minor changes on ADR-0079", with no work named).
+  - Spot checks, each still true:
+    - CLI 59, 60: no `--follow`, `--device` or `ANDROID_SERIAL` in `cmd/droidyard`.
+    - Device: 76 (`parse.go` `emulatorProducts`), 83 (no backoff in the device package).
+    - Build: 38 (no wrapper-download handling in `client.go` or `sidecar.go`), 53 (`BUILD_QUEUE_FULL` appears only in doccheck tests), 55 (no consumer of `minSdk` or `kotlinBuiltIn`).
+    - Configuration 74: `trust.go` calls `policy.Trust`, not `policy.update`.
+    - Process 264: `RecordsVersion = 2`.
+    - MCP/agents 228: no `idempotencyKey` or `raw` in `envelope.go`.
+    - Web UI 303 (no event on a trust change after 2q) and 329 (no producer of `build.progress`, `device.state` or `process.*`).
+  - The close verifier re-reads this evidence.
 
 ## Not in this milestone
 
