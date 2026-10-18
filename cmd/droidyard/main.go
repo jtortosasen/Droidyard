@@ -476,14 +476,20 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		projectRoot := v.(string)
 		// Without candidates: a failure lists them anyway, and a valid key skips the scan.
 		r := workspace.ResolveGradleRoot(projectRoot, false)
+		// The workspace's current root, also when there is none, so a crash of this root
+		// degrades it and its close releases the connection (ADR-0075 §8). A root it
+		// switched away from that no other workspace remembers is closed once no operation
+		// holds it (ADR-0092 §2), each in a goroutine of its own: the wait has no deadline.
+		// A workspace that began closing since the trust check refuses the call.
+		forgotten, err := ws.UseGradleRoot(call.Workspace, r.Abs)
+		if err != nil {
+			return nil, err
+		}
+		for _, g := range forgotten {
+			go gradleClient.CloseWhenFree(g)
+		}
 		if r.Abs == "" {
 			return nil, r.Err
-		}
-		// Remembered per workspace, so a crash of this root degrades it and its close
-		// releases the connection (ADR-0075 §8). A workspace that began closing since the
-		// trust check refuses the call: its connection would be recorded nowhere.
-		if err := ws.NoteGradleRoot(call.Workspace, r.Abs); err != nil {
-			return nil, err
 		}
 		return gradle.Roots{Project: projectRoot, Gradle: r.Abs}, nil
 	}

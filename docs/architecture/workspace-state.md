@@ -31,7 +31,7 @@ repository whose build is `dev/` opens at its top.
 | `created` | Registered, root validated, nothing started yet. |
 | `opening` | Loading durable configuration and any cached project facts. Runs **no** project code and spawns nothing in the MVP (below). |
 | `ready` | Usable. The project model has not necessarily been fetched: that happens lazily. |
-| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build (every open workspace that used the crashed Gradle root degrades, with `BUILD_SIDECAR_CRASHED`, and the next successful sidecar start returns it to `ready`, clearing that cause only), or its `workspace.json` is from a newer version ([ADR-0056](../adr/0056-newer-daemon-wide-state-file.md)). Capabilities report availability accordingly. |
+| `degraded` | Partially usable: a workspace-owned sidecar is down (e.g. the LSP failed), the TAPI sidecar crashed mid-build (every open workspace whose current Gradle root is the crashed one degrades, with `BUILD_SIDECAR_CRASHED`; the next successful sidecar start returns it to `ready`, clearing that cause only), or its `workspace.json` is from a newer version ([ADR-0056](../adr/0056-newer-daemon-wide-state-file.md)). |
 | `closing` | Cancelling the workspace's operations, shutting down workspace-owned sidecars. |
 | `closed` | All resources released. |
 
@@ -129,8 +129,9 @@ Closing a workspace must not disconnect devices or kill the shared `adb` server.
 ## Cleanup and crash recovery
 
 On graceful close: cancel and drain the workspace's operations (bounded, ADR-0027), stop its
-workspace-owned sidecars (subject to policy), close in the shared TAPI sidecar each Gradle root's connection no other open workspace uses,
-release watchers. On a crash the next daemon reaps orphans from pid records (matching pid **and**
+workspace-owned sidecars (subject to policy), close the connection of each Gradle root no other open
+workspace uses (a root a workspace switched away from closes once its operations end,
+[ADR-0092](../adr/0092-switched-gradle-root-closes.md)), release watchers. On a crash the next daemon reaps orphans from pid records (matching pid **and**
 start time), removes the stale socket, and treats every workspace as closed until reopened; it never
 assumes a clean slate, and the kernel reclaims the daemon `flock` when the holder dies.
 

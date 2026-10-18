@@ -306,6 +306,36 @@ func (c *Client) Close(ctx context.Context, canonical string) {
 		return
 	}
 	defer r.unlock()
+	c.closeLocked(ctx, r)
+}
+
+// closeBound bounds the connection.close call itself, as the daemon bounds the close of
+// a root for a closing workspace.
+const closeBound = 5 * time.Second
+
+// CloseWhenFree closes root's Gradle connection once no operation holds the root: it
+// waits for the root's lock with no deadline, so a build or a model call in flight
+// finishes first (ADR-0092 §2), then does what Close does under closeBound, its
+// not-running guard included, so it never starts a sidecar for a connection that is
+// gone. It is for a root a workspace switched away from; run it in a goroutine of its own.
+func (c *Client) CloseWhenFree(canonical string) {
+	c.mu.Lock()
+	r := c.roots[canonical]
+	c.mu.Unlock()
+	if r == nil {
+		return
+	}
+	if err := r.lock(context.Background()); err != nil {
+		return
+	}
+	defer r.unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), closeBound)
+	defer cancel()
+	c.closeLocked(ctx, r)
+}
+
+// closeLocked is Close's body, run with r's lock held.
+func (c *Client) closeLocked(ctx context.Context, r *root) {
 	// A sidecar that is not running has no connection to close: never start one for
 	// this (step 5 review B1). Running is ready, busy or idle: after any call the sidecar
 	// is idle, and a close that skipped it left the root open there (plan m1p step 2).
@@ -319,7 +349,7 @@ func (c *Client) Close(ctx context.Context, canonical string) {
 		return
 	}
 	defer lease.Release()
-	_, _ = c.call(ctx, lease, "connection.close", map[string]any{"root": canonical})
+	_, _ = c.call(ctx, lease, "connection.close", map[string]any{"root": r.canonical})
 	r.clearConn()
 }
 
