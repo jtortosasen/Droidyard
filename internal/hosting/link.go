@@ -111,8 +111,19 @@ func (l *Link) Call(ctx context.Context, req capability.RequestEnvelope) (capabi
 	if err != nil {
 		return capability.ResponseEnvelope{}, err
 	}
-	if err := l.write(ctx, conn, frame); err != nil {
-		return capability.ResponseEnvelope{}, fmt.Errorf("%w: %v", ErrLinkLost, err)
+	// The frame is written on a context of its own: coder/websocket closes the whole
+	// connection when the context of a Write ends before the frame is out, so one caller
+	// giving up must not be able to cut every other call on the link. The caller stops
+	// waiting; the write finishes, or fails on its own bound.
+	written := make(chan error, 1)
+	go func() { written <- l.write(conn, frame) }()
+	select {
+	case err := <-written:
+		if err != nil {
+			return capability.ResponseEnvelope{}, fmt.Errorf("%w: %v", ErrLinkLost, err)
+		}
+	case <-ctx.Done():
+		return capability.ResponseEnvelope{}, ctx.Err()
 	}
 	select {
 	case env, ok := <-ch:
@@ -140,10 +151,11 @@ func (l *Link) OnEvent(subscriptionID string, fn func(event json.RawMessage)) (s
 	}
 }
 
-func (l *Link) write(ctx context.Context, conn *websocket.Conn, frame []byte) error {
+// write sends one frame, bounded by dialTimeout and by nothing a caller can cancel.
+func (l *Link) write(conn *websocket.Conn, frame []byte) error {
 	l.wmu.Lock()
 	defer l.wmu.Unlock()
-	wctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	wctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
 	return conn.Write(wctx, websocket.MessageText, frame)
 }

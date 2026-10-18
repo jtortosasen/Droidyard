@@ -203,7 +203,7 @@ func (p InputTextParams) validate() error {
 }
 
 func registerInputText(reg *capability.Registry, adb *ADB) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plain(capability.Descriptor{
 		Name:         "device.inputText",
 		Kind:         capability.Command,
 		Scope:        capability.Global,
@@ -233,7 +233,7 @@ func registerInputText(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.inputText")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.inputText")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InputTextParams)
@@ -251,7 +251,7 @@ func registerInputText(reg *capability.Registry, adb *ADB) {
 			}
 			return *res, nil
 		},
-	})
+	}))
 }
 
 // inputText runs the sequence of ui-automation.md §Typing. It returns an error only

@@ -177,7 +177,7 @@ func registerWatchLogs(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.watchLogs")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.watchLogs")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return adb.watchLogs(ctx, call)

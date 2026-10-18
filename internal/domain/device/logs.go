@@ -222,7 +222,7 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.logs")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.logs")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LogsParams)

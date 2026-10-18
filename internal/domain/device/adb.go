@@ -40,6 +40,11 @@ type ADB struct {
 	// before any call, and read at each device check; nil is the emulators-only
 	// default.
 	policy Policy
+	// lending says which of the host's devices a paired peer may use (ADR-0099 §1), and
+	// remotes are the hosts this daemon borrows devices from (ADR-0100). Both are set once
+	// at wiring; nil lends nothing and has no remote.
+	lending Lending
+	remotes Remotes
 	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
 	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
 	toolKey policy.ToolKey
@@ -215,6 +220,14 @@ func (a *ADB) SetBus(b *event.Bus) { a.bus = b }
 // wiring, before any call. Without one the emulators-only default applies, which is what
 // every registry that predates the configuration file gets.
 func (a *ADB) SetPolicy(p Policy) { a.policy = p }
+
+// SetLending gives the ADB the lending of hosting.lend, read live at each call by the
+// calls of a paired peer (ADR-0099 §1). Without one nothing is lent.
+func (a *ADB) SetLending(l Lending) { a.lending = l }
+
+// SetRemotes gives the ADB the links to the hosts this daemon borrows devices from
+// (ADR-0100). Without them every device is local.
+func (a *ADB) SetRemotes(r Remotes) { a.remotes = r }
 
 // SetToolKey gives the ADB `tools.adb` as the daemon read it at start (ADR-0032 §3, §6;
 // plan m1k D8): the first candidate of every resolution. The value is a snapshot, so an

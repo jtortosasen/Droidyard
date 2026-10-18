@@ -66,7 +66,7 @@ func (p LaunchParams) validate() error {
 }
 
 func registerLaunch(reg *capability.Registry, adb *ADB) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plain(capability.Descriptor{
 		Name:         "device.launch",
 		Kind:         capability.Command,
 		Scope:        capability.Global,
@@ -95,7 +95,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.launch")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.launch")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LaunchParams)
@@ -109,7 +109,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 			}
 			return *res, nil
 		},
-	})
+	}))
 }
 
 // launch runs the launch sequence of adb-device.md §Launch under the running bound.

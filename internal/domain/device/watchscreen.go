@@ -118,7 +118,7 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.watchScreen")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.watchScreen")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return adb.watchScreen(ctx, call)

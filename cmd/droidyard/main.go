@@ -399,6 +399,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// edit decides the next call without a restart. The emulator subsystem shares this
 	// ADB, so its policy check uses the same configuration.
 	adb.SetPolicy(pol)
+	// hosting.lend, read live as the policy is, says which of this machine's devices a
+	// paired peer may use (ADR-0099 §1).
+	adb.SetLending(pol)
 	// workspace.chooseRoot's folder dialog is started through the supervisor's recorded
 	// spawner (ADR-0045 §4; ADR-0021 §Pid records), so a daemon killed while it is up leaves
 	// a record the next start reaps; a test replaces the osascript it runs and the platform
@@ -426,6 +429,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if st != nil {
 		host = hosting.New(pol, stateRoot, system.Version, log)
 		hostHealth = host
+		// The hosts this daemon borrows devices from: <remote>/<serial> is relayed over
+		// their links (ADR-0100). The links exist once serve starts them.
+		adb.SetRemotes(host)
 		base := problems
 		problems = func() []store.Problem { return append(base(), host.Problems()...) }
 	}

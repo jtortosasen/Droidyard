@@ -39,7 +39,7 @@ const (
 	emuLine   = serial + " device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:1\n"
 	emuLine2  = serial2 + " device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:2\n"
 	emuOff    = serial + " offline product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:1\n"
-	ipLine    = "192.168.0.2:5555 device product:sdk_gphone16k_arm64 model:remote transport_id:3\n"
+	ipLine    = "127.0.0.1:5555 device product:sdk_gphone16k_arm64 model:remote transport_id:3\n"
 	physLine  = "abc12345 device product:oriole model:Pixel_6 usb:1 transport_id:4\n"
 	loadedAVD = "droidyard_m1i"
 )
@@ -791,10 +791,11 @@ func TestStopKillsAnOfflineOrBootingEmulatorWithoutReadiness(t *testing.T) {
 }
 
 // Decision (plan m1i step 4, check): an emulator reached over ip:port is
-// EMULATOR_NOT_AN_EMULATOR before any `emu` command.
+// EMULATOR_NOT_AN_EMULATOR before any `emu` command. The address is a loopback one: off
+// loopback a device reporting an emulator's product is physical (ADR-0103 §2).
 func TestStopRefusesAnEmulatorOverIP(t *testing.T) {
 	f := newFixture(t, map[string]string{"devices.out": listOf(ipLine)})
-	out := f.invoke(t, "emulator.stop", `{"device":"192.168.0.2:5555"}`)
+	out := f.invoke(t, "emulator.stop", `{"device":"127.0.0.1:5555"}`)
 	mustFail(t, out, ErrNotAnEmulator)
 	if anyContains(f.calls(t), "emu") {
 		t.Errorf("an emu command ran: %v", f.calls(t))

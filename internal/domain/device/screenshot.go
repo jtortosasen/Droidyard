@@ -61,7 +61,7 @@ func registerScreenshot(reg *capability.Registry, adb *ADB, store *artifact.Stor
 		Result:       ScreenshotResult{},
 		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrScreenshotFailed),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
-			return adb.authorize(ctx, call.Params.(ScreenshotParams).Device, "device.screenshot")
+			return adb.authorize(ctx, call.Origin, call.Params.(ScreenshotParams).Device, "device.screenshot")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			t := call.Authorized.(*target)

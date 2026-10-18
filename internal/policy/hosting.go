@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"slices"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
@@ -314,4 +315,21 @@ func (p *Policy) Remotes() ([]Remote, *capability.Error) {
 		return []Remote{}, nil
 	}
 	return append([]Remote(nil), snap.doc.remotes...), nil
+}
+
+// Lent reports whether the host lends serial to the peer named peer now (ADR-0099 §1). It
+// is the lending list alone: that the device is physical and that the host's own devices
+// policy admits it are the caller's to check, since lending never widens either. A
+// configuration that cannot be used lends nothing.
+func (p *Policy) Lent(peer, serial string) bool {
+	h, err := p.Hosting()
+	if err != nil {
+		return false
+	}
+	for _, l := range h.Lend {
+		if l.Device == serial {
+			return slices.Contains(l.To, peer)
+		}
+	}
+	return false
 }

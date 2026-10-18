@@ -37,6 +37,7 @@ type Device struct {
 	AndroidVersion string `json:"androidVersion,omitempty" jsonschema_description:"Best effort, from getprop; absent when the device did not answer in time."`
 	SDK            int    `json:"sdk,omitempty" jsonschema_description:"The API level; best effort, as androidVersion."`
 	AvdName        string `json:"avdName,omitempty" jsonschema_description:"The emulator's AVD name; best effort, as androidVersion."`
+	Host           string `json:"host,omitempty" jsonschema_description:"The name of the remote that lends the device, the prefix of its serial (<host>/<serial>); absent on a device of this machine."`
 
 	usb bool // devices -l reported usb:
 }
@@ -110,10 +111,15 @@ func IsEmulatorSerial(serial string) bool { return emulatorSerial.MatchString(se
 // for phones, sdk_gtablet… for the tablet.
 var emulatorProducts = []string{"sdk_gphone", "sdk_gtablet"}
 
-// classify decides kind (adb-device.md §Device model): physical if devices -l reports
-// usb:, whatever the product says; else emulator if the serial is emulator-<port> or
-// the product is a recorded emulator product; else physical, so the emulators-only
-// default never admits what it cannot recognise.
+// loopbackSerial matches the serials a local emulator attaches under when it has no
+// emulator-<port> serial: a loopback address and a port.
+var loopbackSerial = regexp.MustCompile(`^(127\.0\.0\.1|localhost):[0-9]+$`)
+
+// classify decides kind (adb-device.md §Device model; ADR-0103 §2): physical if devices -l
+// reports usb:, whatever the product says; else emulator if the serial is emulator-<port>,
+// or the product is a recorded emulator product and the serial is a loopback address, so a
+// device on the network that reports an emulator's product is not taken for one; else
+// physical, so the emulators-only default never admits what it cannot recognise.
 func classify(d Device) string {
 	if d.usb {
 		return KindPhysical
@@ -121,9 +127,11 @@ func classify(d Device) string {
 	if emulatorSerial.MatchString(d.Device) {
 		return KindEmulator
 	}
-	for _, p := range emulatorProducts {
-		if strings.HasPrefix(d.Product, p) {
-			return KindEmulator
+	if loopbackSerial.MatchString(d.Device) {
+		for _, p := range emulatorProducts {
+			if strings.HasPrefix(d.Product, p) {
+				return KindEmulator
+			}
 		}
 	}
 	return KindPhysical

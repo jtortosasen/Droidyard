@@ -181,7 +181,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.install")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.install")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(InstallParams)
@@ -206,7 +206,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 // registerUninstall adds device.uninstall (D18). It is global: its only input is an
 // applicationId.
 func registerUninstall(reg *capability.Registry, adb *ADB) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plain(capability.Descriptor{
 		Name:         "device.uninstall",
 		Kind:         capability.Command,
 		Scope:        capability.Global,
@@ -228,7 +228,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
-			return adb.authorize(ctx, p.Device, "device.uninstall")
+			return adb.authorize(ctx, call.Origin, p.Device, "device.uninstall")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(UninstallParams)
@@ -238,7 +238,7 @@ func registerUninstall(reg *capability.Registry, adb *ADB) {
 			t := call.Authorized.(*target)
 			return adb.uninstall(ctx, t, p)
 		},
-	})
+	}))
 }
 
 // install runs `adb -s <serial> install -r <apk>` for a resolved output and maps its

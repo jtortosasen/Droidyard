@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
 // getpropOutputCap bounds a readiness probe's output; `sys.boot_completed` is one digit.
@@ -45,7 +47,7 @@ type Authorized struct {
 // DEVICE_NOT_FOUND, exactly as a device call refuses them. again names the capability,
 // for the error's nextStep.
 func (a *ADB) Authorize(ctx context.Context, serial, again string) (*Authorized, error) {
-	t, err := a.authorize(ctx, serial, again)
+	t, err := a.authorize(ctx, capability.Origin{}, serial, again)
 	if err != nil {
 		return nil, err
 	}

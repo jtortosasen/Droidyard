@@ -156,7 +156,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		},
 	}
 	for _, s := range specs {
-		reg.MustRegister(capability.Descriptor{
+		reg.MustRegister(adb.plain(capability.Descriptor{
 			Name:         s.name,
 			Kind:         capability.Command,
 			Scope:        capability.Global,
@@ -186,7 +186,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 				if _, err := s.build(call); err != nil {
 					return nil, err
 				}
-				return adb.authorize(ctx, s.device(call), s.name)
+				return adb.authorize(ctx, call.Origin, s.device(call), s.name)
 			},
 			Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 				in, err := s.build(call)
@@ -195,7 +195,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 				}
 				return adb.injectScreen(ctx, call.Authorized.(*target).serial, in)
 			},
-		})
+		}))
 	}
 }
 

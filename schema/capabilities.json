@@ -3366,6 +3366,10 @@
                 "avdName": {
                   "type": "string",
                   "description": "The emulator's AVD name; best effort, as androidVersion."
+                },
+                "host": {
+                  "type": "string",
+                  "description": "The name of the remote that lends the device, the prefix of its serial (\u003chost\u003e/\u003cserial\u003e); absent on a device of this machine."
                 }
               },
               "additionalProperties": false,

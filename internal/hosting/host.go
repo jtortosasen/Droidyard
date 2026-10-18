@@ -168,6 +168,19 @@ func (h *Host) Remote(name string) *Link {
 	return h.links[name]
 }
 
+// Links are the links to every remote of the configuration read at start, in the order of
+// their names.
+func (h *Host) Links() []*Link {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]*Link, 0, len(h.links))
+	for _, l := range h.links {
+		out = append(out, l)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].remote.Name < out[j].remote.Name })
+	return out
+}
+
 // SetListen is the peer listener's report: the address it is bound to, or why it is not.
 // Either clears the other.
 func (h *Host) SetListen(addr string, err error) {
