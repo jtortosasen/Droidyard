@@ -1,7 +1,7 @@
 // Package httpapi is the HTTP adapter for the web UI (docs/interfaces/http-websocket.md):
 // a loopback listener, the security baseline run on every request before any route,
-// the built UI at / and /assets/, POST /v1/call and GET /v1/ws. Requests identify their adapter as ui (ADR-0015 §6). It
-// translates; it adds no domain logic.
+// the built UI at / and /assets/, POST /v1/call, GET /v1/ws and GET /v1/screen. Requests
+// identify their adapter as ui (ADR-0015 §6). It translates; it adds no domain logic.
 package httpapi
 
 import (
@@ -69,6 +69,7 @@ func Listen(addr string) (net.Listener, error) {
 type Server struct {
 	handler http.Handler
 	ws      *wsHandler
+	screen  *screenHandler
 }
 
 // New builds the UI's HTTP side. A nil bus serves no WebSocket. ui is the built web
@@ -78,7 +79,8 @@ func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, t
 	mux := http.NewServeMux()
 	mux.Handle("/v1/call", c)
 	mux.Handle(artifactsPath, &artifactRoute{c})
-	s := &Server{}
+	s := &Server{screen: newScreenHandler(token)}
+	mux.Handle(screenPath, s.screen)
 	if bus != nil {
 		s.ws = newWSHandler(c, bus, token)
 		mux.Handle(wsPath, s.ws)
@@ -126,7 +128,8 @@ func (f *fence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden origin", http.StatusForbidden) // rule 3
 		return
 	}
-	if r.URL.Path == wsPath && len(origins) == 0 {
+	socket := r.URL.Path == wsPath || r.URL.Path == screenPath
+	if socket && len(origins) == 0 {
 		http.Error(w, "the WebSocket needs an Origin", http.StatusForbidden) // rule 3: mandatory on the upgrade
 		return
 	}
@@ -134,9 +137,9 @@ func (f *fence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no CORS", http.StatusForbidden) // rule 5
 		return
 	}
-	// The WebSocket authenticates by its first frame (rule 4): a browser's upgrade
-	// cannot carry Authorization. Every other method on that path still needs the token.
-	if api && !(r.URL.Path == wsPath && r.Method == http.MethodGet) {
+	// The WebSockets authenticate by their first frame (rule 4): a browser's upgrade
+	// cannot carry Authorization. Every other method on those paths still needs the token.
+	if api && !(socket && r.Method == http.MethodGet) {
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		// An empty token refuses everything: "" equals "" in a constant-time compare.
 		if !ok || len(f.token) == 0 || subtle.ConstantTimeCompare([]byte(got), f.token) != 1 {

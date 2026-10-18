@@ -411,4 +411,14 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
   - `Named` moves to step 6, its first caller.
   - `doccheck`'s `liveBudget` rises by 166 words, for the verbatim instructions and `mcp.md` §Transport and session (Delegated).
 - 2026-10-18, step 5, the one revision of the text the step allows. On the first chat 1, the agent edited and built on main: the instructions said how to enter a worktree but not when, and the skill, which says when, was not loaded. The instructions' first line now states the rule (a task that changes code first gets its own worktree, then `workspace_enter`; a question stays put). The skill's description names the worktree. `mcp.md` follows verbatim, and 3 words were cut from §Transport and session to stay within `liveBudget`.
+- 2026-10-18, step 5 and a new step 5b, ADR-0089 (owner). Chat 1 passed on the second run: the agent loaded the skill, created `../repo5-fix-greeting`, entered it, edited there and built there (`build.assemble` in `repo5-fix-greeting-…`, `trusted: true`). Chat 3 passed: a `--resume` of chat 1 sent only `build_assemble`, and the daemon restored the binding (ADR-0088). Chat 2 missed: told to "continue task `fix-greeting`: check that the debug build still passes", it called `workspace_describe`, then built on main. That was the second miss after the one revision, so it went to the owner, who chose the daemon showing the worktrees.
+  - **Step 5b:** `workspace.describe`'s result gains `worktrees: [{root, branch?}]` (ADR-0089), read from `C/worktrees/*` and each entry kept only when `platform.LinkedWorktree` passes. The instructions say that work on a task with a worktree happens there.
+  - **Check:** `TestDescribeListsWorktrees`:
+    - two worktrees, one detached, are listed with their branch, and the detached one with none;
+    - the same list comes from the main tree and from a worktree;
+    - a removed directory and a broken back-link are not listed (seen failing with the `LinkedWorktree` filter removed);
+    - a plain project, and a non-repository, omit the field;
+    - the bound of 50 holds.
+  - **Schema:** `worktrees` on `workspace.describe` only. The Opus verifier reviews it (contract), and then step 5's chats 0 to 3 run again.
+- 2026-10-18, merge of `main` after 2p's close: the API goes to `0.28.0` (2p published 0.27.0), so `workspace.enter`'s `since` becomes `0.28.0`, and `liveBudget` is the sum of both lanes' raises (28,133).
 - 2026-10-18, step 6: the session's name is set from `server/discover` as well as `initialize`. Claude Code 2.1.302 speaks MCP `2026-07-28`, opens with `server/discover` and sends no `initialize` (step 1, (a)). mcp-go sets the client info from either.

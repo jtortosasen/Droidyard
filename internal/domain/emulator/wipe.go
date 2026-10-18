@@ -36,6 +36,7 @@ func registerWipe(reg *capability.Registry, e *Emulator) {
 		Availability: []capability.Requirement{capability.RequiresEmulator, capability.RequiresADB},
 		Description:  "Factory-resets one AVD's user data by booting it again with -wipe-data, stopping it first if it is running, and returns {device, avd} once it has booted. A wipe that fails or is cancelled may be partial: call it again.",
 		Params:       WipeParams{},
+		Target:       func(p any) *capability.OpTarget { return &capability.OpTarget{AVD: p.(WipeParams).Avd} },
 		Result:       WipeResult{},
 		Errors: []capability.ErrorCode{device.ErrADBNotFound, device.ErrADBFailed, device.ErrDisconnected,
 			ErrLauncherNotFound, ErrAVDNotFound, ErrLaunchFailed, ErrAVDLocked, ErrBootTimeout, ErrStopTimeout,

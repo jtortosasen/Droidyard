@@ -212,6 +212,7 @@
 				{hub}
 				{connection}
 				workspaceId={route.workspace}
+				{token}
 				{guard}
 				onmissing={missing}
 				{status}

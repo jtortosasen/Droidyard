@@ -13,7 +13,7 @@ const CapEnter = "workspace.enter"
 
 // sinceEnter is the API version that introduced workspace.enter (plan m2q: one version
 // for the milestone).
-const sinceEnter = "0.27.0"
+const sinceEnter = "0.28.0"
 
 // ErrNotAWorktree is WORKSPACE_NOT_A_WORKTREE (ADR-0082 §3).
 const ErrNotAWorktree = capability.ErrWorkspaceNotAWorktree

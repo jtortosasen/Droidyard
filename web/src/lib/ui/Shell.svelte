@@ -87,6 +87,7 @@
 			set(setRegion($state.snapshot(layout), 'left', true));
 			active = activate(active, 'files');
 		},
+		rightOpen: () => layout.open.right,
 		show,
 	};
 	function region(r: Region, open: boolean) {

@@ -7,8 +7,9 @@
 // result from it).
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
-import type { Operation } from '../ops/activity';
+import type { Operation, OperationTarget } from '../ops/activity';
 import { failure, failureText } from '../build/failure';
+import { inert } from './text';
 
 export const BOOT_CAPABILITIES = ['emulator.start', 'emulator.wipe'] as const;
 export const STOP_CAPABILITIES = ['emulator.stop'] as const;
@@ -44,6 +45,18 @@ export interface ActiveOp {
 	/** cli, mcp or ui. */
 	client: string | undefined;
 	state: 'queued' | 'running';
+	/** What the operation acts on (ADR-0076): the device being stopped, the AVD being booted. */
+	target: OperationTarget | undefined;
+}
+
+/**
+ * What an operation shown acts on, as a sentence part (ADR-0076): " emulator-5554" for the
+ * device being stopped, " Pixel_8" for the AVD being booted; "" when the operation names
+ * none. The values are the caller's parameters; `inert` still shows control characters.
+ */
+export function targetText(op: Pick<ActiveOp, 'target'>): string {
+	const name = op.target?.device || op.target?.avd;
+	return name ? ` ${inert(name)}` : '';
 }
 
 export interface DevicesMirrorView {
@@ -108,7 +121,7 @@ export class DevicesMirror {
 			// Newest first from the store; the one running, if any, is the one to show.
 			.sort((a, b) => (a.state === b.state ? 0 : a.state === 'running' ? -1 : 1))[0];
 		if (op === undefined || (op.state !== 'queued' && op.state !== 'running')) return null;
-		return { operationId: op.id, capability: op.capability, client: op.client, state: op.state };
+		return { operationId: op.id, capability: op.capability, client: op.client, state: op.state, target: op.target };
 	}
 
 	#changed(): void {

@@ -35,7 +35,7 @@ describe('panels', () => {
 	// Decision: a panel that does not exist yet is shown and names the milestone that builds it.
 	it('names a milestone on each disabled entry', () => {
 		const disabled = PANELS.filter((p) => p.disabled !== undefined);
-		expect(disabled.map((p) => p.id).sort()).toEqual(['liveview', 'terminal']);
+		expect(disabled.map((p) => p.id).sort()).toEqual(['terminal']);
 		for (const p of disabled) {
 			expect(p.disabled?.milestone.trim(), p.id).toBeTruthy();
 			expect(disabledTitle(p)).toContain(p.disabled!.milestone);

@@ -84,8 +84,8 @@ trips, fewer tokens, no image interpretation.
   authentication get no effort in the MVP. *Ratified 2026-09-29: remote access comes
   after v1*, though it is where the project started. The loopback HTTP baseline is
   still required before the UI ships.
-- **Live screen streaming** to the UI: a stretch 2b weighs; no stills (owner,
-  2026-10-09).
+- **Live screen streaming** to the UI: left out of the MVP (no stills, owner, 2026-10-09);
+  built after it, in 2p (ADR-0077).
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
 - **Distribution** beyond the binaries and the one-line installer
   ([ADR-0014](../adr/0014-agent-distribution-model.md)): registries, `llms-install.md`,
@@ -251,7 +251,7 @@ Two practical notes:
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult`, `watchOutput` | 1–2 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
-| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `screenshot`, `uiTree`, `tapElement`, `inputText` | 1–2 |
+| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `watchScreen`, `screenshot`, `uiTree`, `tapElement`, `inputText`, `tap`, `swipe`, `pressKey` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore` (human-only; never over MCP) | 1–2 |
 | `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch`, `pull`, `checkout`, `createBranch`, `submodules`, `updateSubmodules` (human-only; never over MCP) | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |

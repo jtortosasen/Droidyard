@@ -74,6 +74,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Starts an application's launcher activity and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, typically a crash on start). A later device.logs of the same applicationId reads from this launch by default.",
 		Params:       LaunchParams{},
+		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(LaunchParams).Device) },
 		Result:       LaunchResult{},
 		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
 			ErrLaunchFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),

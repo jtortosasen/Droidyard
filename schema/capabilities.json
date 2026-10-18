@@ -1,5 +1,5 @@
 {
-  "version": "0.27.0",
+  "version": "0.28.0",
   "capabilities": [
     {
       "name": "agent.recordCommand",
@@ -3799,6 +3799,81 @@
       }
     },
     {
+      "name": "device.pressKey",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.27.0",
+      "description": "Presses and releases a system key on the device. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "key": {
+            "type": "string",
+            "enum": [
+              "back",
+              "home",
+              "appSwitch",
+              "enter",
+              "delete"
+            ],
+            "description": "The system key to press and release."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "key"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
+        ]
+      }
+    },
+    {
       "name": "device.screenshot",
       "kind": "query",
       "scope": "global",
@@ -3881,6 +3956,188 @@
           "durability",
           "expiresAt",
           "untrusted"
+        ]
+      }
+    },
+    {
+      "name": "device.swipe",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.27.0",
+      "description": "Drags a finger along a path of points of the open live view, normalised to the frame and replayed with the points' timing. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "path": {
+            "items": {
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0,
+                  "description": "From the left edge of the frame (0) to the right edge (1)."
+                },
+                "y": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0,
+                  "description": "From the top edge of the frame (0) to the bottom edge (1)."
+                },
+                "t": {
+                  "type": "integer",
+                  "maximum": 5000,
+                  "minimum": 0,
+                  "description": "Milliseconds from the first point (the first point's is 0); strictly greater than the point before, at most 5000."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "x",
+                "y",
+                "t"
+              ]
+            },
+            "type": "array",
+            "maxItems": 64,
+            "minItems": 2,
+            "description": "The finger's path: down at the first point, through the others at their t, up at the last. 2 to 64 points."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "path"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
+        ]
+      }
+    },
+    {
+      "name": "device.tap",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.27.0",
+      "description": "Touches the device's screen at a point of its open live view, normalised to the frame, and lifts after durationMs (a long press). With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "x": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "description": "Where to touch, from the left edge of the frame (0) to the right edge (1)."
+          },
+          "y": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "description": "Where to touch, from the top edge of the frame (0) to the bottom edge (1)."
+          },
+          "durationMs": {
+            "type": "integer",
+            "maximum": 2000,
+            "minimum": 0,
+            "description": "How long to hold the touch, in milliseconds (default 0, a tap; a longer one is a long press). At most 2000."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "x",
+          "y"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
         ]
       }
     },
@@ -5204,6 +5461,129 @@
               "cause": {
                 "type": "string",
                 "description": "For exited and deviceGone, the exit status of adb logcat; never device text."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "device",
+              "reason"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "device.watchScreen",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.27.0",
+      "description": "Starts the live view of a device for the calling WebSocket session: H.264 video on GET /v1/screen (its first frame is {\"auth\": \u003ctoken\u003e, \"stream\": \u003cstreamId\u003e}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "SESSION_REQUIRED"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the stream's events arrive on, over the WebSocket session that made the call. Ending it (events.unsubscribe) ends the stream."
+          },
+          "device": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string",
+            "description": "The id to send, with the daemon's token, as the first frame of GET /v1/screen within 10 s. It works once, for as long as the subscription lives."
+          },
+          "width": {
+            "type": "integer",
+            "description": "The frame width in pixels when the stream started; a rotation announces a new size in the stream itself."
+          },
+          "height": {
+            "type": "integer",
+            "description": "The frame height in pixels when the stream started."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "device",
+          "streamId",
+          "width",
+          "height"
+        ]
+      },
+      "events": {
+        "topic": "device.screen",
+        "types": {
+          "state": {
+            "properties": {
+              "device": {
+                "type": "string"
+              },
+              "secure": {
+                "type": "boolean",
+                "description": "True while the focused window has FLAG_SECURE: the screen is shown black (the platform's rule), and a screenshot of it is black or fails."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "device",
+              "secure"
+            ]
+          },
+          "stopped": {
+            "properties": {
+              "device": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "deviceGone",
+                  "exited",
+                  "failed",
+                  "detached"
+                ],
+                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
+              },
+              "cause": {
+                "type": "string",
+                "description": "The daemon's words for why, never device text."
               }
             },
             "additionalProperties": false,
@@ -8649,6 +9029,33 @@
                     "id"
                   ],
                   "description": "The session that made the call; omitted for a call recorded without one."
+                },
+                "target": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The device serial the call acts on."
+                    },
+                    "avd": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The AVD the call boots or wipes."
+                    },
+                    "module": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The Gradle project path of the module the call builds or installs."
+                    },
+                    "variant": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "The variant the call builds or installs."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "What the call acts on; omitted for a capability that declares none."
                 }
               },
               "additionalProperties": false,
@@ -8726,6 +9133,33 @@
                   "id"
                 ],
                 "description": "The session that made the call; omitted for a call recorded without one."
+              },
+              "target": {
+                "properties": {
+                  "device": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The device serial the call acts on."
+                  },
+                  "avd": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The AVD the call boots or wipes."
+                  },
+                  "module": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The Gradle project path of the module the call builds or installs."
+                  },
+                  "variant": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "The variant the call builds or installs."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "What the call acts on: the device, AVD, module and variant of its parameters; omitted for a capability that declares none."
               },
               "code": {
                 "type": "string",
@@ -10611,7 +11045,7 @@
       "statefulness": "stateless",
       "binding": true,
       "audience": "all",
-      "since": "0.27.0",
+      "since": "0.28.0",
       "description": "Moves this session into a git worktree of its project, or back to the project's root: later calls act on root (absolute; any other root fails), opening the workspace if it is closed and granting no trust. A new chat starts where its client started it and enters again; a resumed one may already be in its worktree, which workspace_describe shows.",
       "annotations": {
         "readOnlyHint": false,

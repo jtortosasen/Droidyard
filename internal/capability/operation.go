@@ -100,17 +100,23 @@ type Origin struct {
 // SessionNameMax is the most runes a SessionRef's name keeps (ADR-0048 §1).
 const SessionNameMax = 64
 
-// SessionName bounds a client-chosen name for the events: invalid UTF-8, control (Cc)
-// and format (Cf) characters are removed, surrounding white space is trimmed, and at
-// most SessionNameMax runes are kept.
-func SessionName(name string) string {
-	name = strings.ToValidUTF8(name, "")
-	name = strings.Map(func(r rune) rune {
+// stripInvisible removes invalid UTF-8 and the control (Cc) and format (Cf) characters,
+// which include the bidirectional overrides, from a string a client chose.
+func stripInvisible(s string) string {
+	s = strings.ToValidUTF8(s, "")
+	return strings.Map(func(r rune) rune {
 		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
-	}, name)
+	}, s)
+}
+
+// SessionName bounds a client-chosen name for the events: invalid UTF-8, control (Cc)
+// and format (Cf) characters are removed, surrounding white space is trimmed, and at
+// most SessionNameMax runes are kept.
+func SessionName(name string) string {
+	name = stripInvisible(name)
 	name = strings.TrimSpace(name)
 	if r := []rune(name); len(r) > SessionNameMax {
 		name = strings.TrimSpace(string(r[:SessionNameMax]))
@@ -150,6 +156,10 @@ type operation struct {
 	// session is who made the call, as the events name it; nil without one. Fixed when
 	// the operation is recorded.
 	session *SessionRef
+	// target is what the call acts on, as its descriptor declares it from the validated
+	// parameters; nil when it declares none. Fixed when the operation is recorded
+	// (ADR-0076).
+	target *OpTarget
 
 	// Guarded by Operations.mu.
 	// announced is set where the operation's start event is queued, so Active never
@@ -345,7 +355,11 @@ func (o *Operations) start(ctx context.Context, d Descriptor, params any, target
 	// The handler's context carries the caller's values but not its cancellation:
 	// only Cancel ends it.
 	hctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	op := &operation{id: id, capability: d.Name, client: client, session: o.sessionRef(origin), started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
+	var tgt *OpTarget
+	if d.Target != nil {
+		tgt = boundTarget(d.Target(params))
+	}
+	op := &operation{id: id, capability: d.Name, client: client, session: o.sessionRef(origin), target: tgt, started: o.now(), state: StateRunning, cancel: cancel, done: make(chan struct{})}
 	call := &Call{
 		OperationID: id,
 		Workspace:   target,
@@ -566,13 +580,14 @@ func traceLine(op *operation) string {
 // queueStateLocked queues the operation.state event for op's current state: at the start
 // (running, or queued with blockedBy), when a queued operation is granted (running), and
 // at its terminal state (durationMs, and code when failed). The payload is built from the
-// record's own fields and never from a parameter, result, message or cause (ADR-0043 §2).
+// record's own fields and never from a parameter but the declared target (ADR-0076), result, message or cause
+// (ADR-0043 §2).
 // Called with o.mu held; flush publishes it.
 func (o *Operations) queueStateLocked(op *operation) {
 	if o.spub == nil {
 		return
 	}
-	p := OperationState{Capability: op.capability, Client: op.client, State: op.state, StartedAt: op.started.UTC(), Session: op.session.copy()}
+	p := OperationState{Capability: op.capability, Client: op.client, State: op.state, StartedAt: op.started.UTC(), Session: op.session.copy(), Target: op.target.copy()}
 	if op.state.Terminal() {
 		ms := op.finished.Sub(op.started).Milliseconds()
 		p.DurationMs = &ms
@@ -600,7 +615,7 @@ func (o *Operations) Active() []ActiveOperation {
 			continue
 		}
 		a := ActiveOperation{OperationID: op.id, Capability: op.capability, Workspace: op.workspace,
-			Client: op.client, State: op.state, StartedAt: op.started.UTC(), Session: op.session.copy()}
+			Client: op.client, State: op.state, StartedAt: op.started.UTC(), Session: op.session.copy(), Target: op.target.copy()}
 		if op.blockedBy != nil {
 			b := *op.blockedBy
 			a.BlockedBy = &b

@@ -28,8 +28,8 @@ projection and the verdict on every MCP feature beyond tool calls.
 - **A resumed chat gets its worktree back**
   ([ADR-0088](../adr/0088-chat-id-recovers-binding.md)). `droidyard mcp` sends
   `CLAUDE_CODE_SESSION_ID` in the hello: Claude Code 2.1.302's chat id, unchanged by
-  `--resume`. The daemon remembers each chat's last binding in memory and binds a new
-  session of that chat there before it answers, under `workspace_enter`'s rule. The
+  `--resume`. The daemon remembers each chat's last binding in memory and binds that chat's
+  next session there first, under `workspace_enter`'s rule. The
   variable is not documented for MCP servers and cursor-agent sets none: then a resumed
   chat is bound to the main tree and enters again, as after a daemon restart.
 - Operations belong to the daemon, not to the session: a client that disconnects cancels
@@ -67,10 +67,11 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `operation.watch`, `build.watchOutput`, `workspace.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
 | `policy.get`, `policy.update`, `workspace.chooseRoot` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4). The core rejects them from an MCP session: enforcement, not just omission. |
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
 | `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI's diff, tree, history, fetch, branches and submodules use them. |
+| `device.tap`, `device.swipe`, `device.pressKey` | Audience `human` ([ADR-0079](../adr/0079-screen-input-capabilities.md)): input from the live view. |
 | `agent.recordCommand` | Audience `human` ([ADR-0063](../adr/0063-hook-observes-android-commands.md) §5): it is the hook's channel for recording what an agent ran outside droidyard; the CLI calls it. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
