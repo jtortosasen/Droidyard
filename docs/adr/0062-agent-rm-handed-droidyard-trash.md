@@ -1,6 +1,7 @@
 # ADR-0062: An agent's `rm` is handed `droidyard trash`, which resolves operands in the agent's shell
 
 - Status: Accepted
+- Superseded in part by: ADR-0095 (§Decision)
 - Superseded in part by: ADR-0085 (§Decision)
 - Superseded in part by: ADR-0064 (§Decision)
 - Date: 2026-10-12

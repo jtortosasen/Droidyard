@@ -1,6 +1,7 @@
 # ADR-0063: The hook observes an agent's Android commands: a hint, and a record in Activity
 
 - Status: Accepted
+- Superseded in part by: ADR-0095 (§Decision)
 - Superseded in part by: ADR-0085 (§3)
 - Superseded in part by: ADR-0065 (§Decision)
 - Date: 2026-10-12
