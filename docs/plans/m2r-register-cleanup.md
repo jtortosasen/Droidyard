@@ -191,7 +191,12 @@
 - Needs: nothing.
 - Not here: a nested `required` check in the core's `decodeParams` (`internal/capability/operation.go`, 2q's file); the evidence lists any other nested parameter field tagged `required` (a grep), each a candidate register row.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, 2026-10-18.
+  - `TestRecordCommandRequiresWords` goes through `Operations.Invoke`, so the core's `decodeParams` runs first. A command without `words`, or with `"words": null`, ends failed with `REQUEST_INVALID_PARAMS` naming `commands[0].words`; `[]` completes.
+  - Reversal: with the check off, both refused cases complete ("state completed, error <nil>").
+  - `go test ./internal/schema` passes without `-update`, so the published schema is unchanged.
+  - `internal/assistant` `TestObservationsAreWhatTheCapabilityAccepts` now turns the reader's nil words into `[]`, as `hook.go` `commandRecord` does. This is a departure (2q's test file, a different hunk from 2q's at :184).
+  - `go build`, `vet`, `gofmt -l` clean; `go test ./...` ok.
 
 ### 7. `init` recognises its own stale entries (ADR-0090)
 

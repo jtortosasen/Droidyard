@@ -237,7 +237,11 @@ func TestObservationsAreWhatTheCapabilityAccepts(t *testing.T) {
 		}
 		rec := agent.Record{Client: "cursor"}
 		for _, o := range obs {
-			rec.Commands = append(rec.Commands, agent.Command{Program: o.Program, Words: o.Words, Suggested: o.Suggested})
+			words := o.Words
+			if words == nil {
+				words = []string{} // as the hook sends it: words is required, never null
+			}
+			rec.Commands = append(rec.Commands, agent.Command{Program: o.Program, Words: words, Suggested: o.Suggested})
 		}
 		if _, err := d.Handler(context.Background(), &capability.Call{Params: rec}); err != nil {
 			t.Errorf("%q: the capability refuses what the reader made: %v", line, err)
