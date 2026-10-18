@@ -26,6 +26,18 @@ class FakeClient implements ScreenClient {
 			stop: () => this.stoppedLocally.push(id),
 		});
 	}
+	state(i: number, secure: boolean): void {
+		const event: BusEvent = {
+			epoch: 'e',
+			seq: 1,
+			time: 't',
+			workspace: null,
+			topic: 'device.screen',
+			type: 'state',
+			payload: { device: this.watches[i]!.device, secure },
+		};
+		this.watches[i]!.handlers.onEvent({ subscriptionId: `sub${i + 1}`, event });
+	}
 	stopped(i: number, reason: string, cause?: string): void {
 		const event: BusEvent = {
 			epoch: 'e',
@@ -217,5 +229,39 @@ describe('LiveViewModel', () => {
 		expect(t.model.view).toMatchObject({ state: 'starting', streamId: '' });
 		t.model.onConnection('open');
 		expect(t.client.watches).toHaveLength(2);
+	});
+
+	// Decision (ADR-0080 §3): the banner follows the daemon's state events (`secure` in the
+	// view, which LiveView.svelte shows over the canvas), starts false with each watch and
+	// does not outlive it; a state event of a watch that was left is ignored.
+	it('follows the secure state of its watch', async () => {
+		const t = await live();
+		expect(t.model.view.secure).toBe(false);
+		t.client.state(0, true);
+		expect(t.model.view).toMatchObject({ state: 'live', secure: true });
+		t.client.state(0, false);
+		expect(t.model.view.secure).toBe(false);
+
+		t.client.state(0, true);
+		t.devices.select('emulator-5556');
+		expect(t.model.view.secure).toBe(false);
+		t.client.state(0, true); // the left watch speaks on
+		expect(t.model.view.secure).toBe(false);
+	});
+
+	it('notifies once per change of the secure state', async () => {
+		const t = await live();
+		let n = 0;
+		t.model.subscribe(() => n++);
+		t.client.state(0, true);
+		t.client.state(0, true);
+		expect(n).toBe(1);
+	});
+
+	it('drops the secure state when the stream stops', async () => {
+		const t = await live();
+		t.client.state(0, true);
+		t.client.stopped(0, 'deviceGone');
+		expect(t.model.view).toMatchObject({ state: 'stopped', secure: false });
 	});
 });

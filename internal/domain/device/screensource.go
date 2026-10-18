@@ -154,6 +154,8 @@ type screenSource struct {
 	wg          sync.WaitGroup // the demux, control and monitor goroutines
 
 	inj chan struct{} // holds a token while an Inject runs
+
+	secure secureState // the focused window's FLAG_SECURE, polled while the source runs (secure.go)
 }
 
 var _ screen.Source = (*screenSource)(nil)
@@ -338,8 +340,9 @@ func (s *screenSource) run() {
 		return
 	}
 	close(s.ready)
-	s.wg.Add(1)
+	s.wg.Add(2)
 	go s.monitor()
+	go s.pollSecure()
 	<-s.ctx.Done()
 	s.teardown()
 	s.finish()

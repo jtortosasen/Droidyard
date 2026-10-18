@@ -7,6 +7,9 @@
 //   stopped      the stream ended; the reason is shown with Restart
 //   unsupported  the browser has no WebCodecs video decoder
 //
+// `secure` is the daemon's `state` event (ADR-0080 §3): the focused window has FLAG_SECURE
+// and the screen is shown black. It belongs to one watch and starts false with each.
+//
 // It watches the toolbar's device only while the panel is shown (its tab is current and
 // its region open), and unsubscribes otherwise. One re-watch is allowed per failure
 // streak, whether it came from a `detached` event or a decoder error; a frame that
@@ -48,6 +51,8 @@ export interface LiveViewView {
 	device: string;
 	/** The stream the socket attaches to; '' until `device.watchScreen` was answered. */
 	streamId: string;
+	/** The focused window is secure (FLAG_SECURE): the screen is black by the platform's rule. */
+	secure: boolean;
 	/** Counts the answered watches: a new value means a new socket and a new decoder. */
 	generation: number;
 	width: number;
@@ -82,6 +87,7 @@ export class LiveViewModel {
 	#cause = '';
 	#device = ''; // the device the current watch (or stop) is for
 	#streamId = '';
+	#secure = false;
 	#generation = 0;
 	#width = 0;
 	#height = 0;
@@ -105,6 +111,7 @@ export class LiveViewModel {
 			cause: this.#cause,
 			device: this.#device,
 			streamId: this.#streamId,
+			secure: this.#secure,
 			generation: this.#generation,
 			width: this.#width,
 			height: this.#height,
@@ -199,6 +206,7 @@ export class LiveViewModel {
 		this.#waiting = false;
 		this.#device = device;
 		this.#streamId = '';
+		this.#secure = false;
 		this.#reason = null;
 		this.#cause = '';
 		this.#state = 'starting';
@@ -207,7 +215,16 @@ export class LiveViewModel {
 		const handlers: SubscribeHandlers = {
 			onEvent: (frame) => {
 				const ev = frame.event;
-				if (this.#run !== run || run.ended || ev.topic !== TOPIC || ev.type !== 'stopped') return;
+				if (this.#run !== run || run.ended || ev.topic !== TOPIC) return;
+				if (ev.type === 'state') {
+					const secure = (ev.payload as { secure?: unknown }).secure === true;
+					if (secure !== this.#secure) {
+						this.#secure = secure;
+						this.#changed();
+					}
+					return;
+				}
+				if (ev.type !== 'stopped') return;
 				this.#stopped(run, frame.subscriptionId, ev.payload as { reason?: unknown; cause?: unknown });
 			},
 			onEnd: (why) => {
@@ -288,6 +305,7 @@ export class LiveViewModel {
 		this.#reason = null;
 		this.#cause = '';
 		this.#streamId = '';
+		this.#secure = false;
 		this.#device = state === 'idle' ? '' : this.#device;
 		this.#waiting = false;
 		this.#changed();

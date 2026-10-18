@@ -5549,6 +5549,23 @@
       "events": {
         "topic": "device.screen",
         "types": {
+          "state": {
+            "properties": {
+              "device": {
+                "type": "string"
+              },
+              "secure": {
+                "type": "boolean",
+                "description": "True while the focused window has FLAG_SECURE: the screen is shown black (the platform's rule), and a screenshot of it is black or fails."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "device",
+              "secure"
+            ]
+          },
           "stopped": {
             "properties": {
               "device": {
