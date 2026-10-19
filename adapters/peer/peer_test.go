@@ -99,6 +99,8 @@ type side struct {
 	screens httpapi.PeerScreenAttach
 	// artifacts, when set before listen, is what the listener serves artifacts from.
 	artifacts peer.ArtifactReader
+	// admit, when set before listen, is what the listener admits a join with.
+	admit peer.Admit
 }
 
 func newSide(t *testing.T, api string) *side {
@@ -182,7 +184,7 @@ func (s *side) listen(t *testing.T, addr string) (bound string, stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Listen: addr, API: "0.0.0", Log: s.log})
+	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, Listen: addr, API: "0.0.0", Log: s.log})
 	go func() { defer close(done); srv.Run(ctx) }()
 	stop = func() { cancel(); <-done }
 	t.Cleanup(stop)

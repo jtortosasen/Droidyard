@@ -30,7 +30,34 @@ const (
 	PeerArtifactsPath = "/peer/v1/artifacts/"
 	// PeerMaxUpload is the largest APK a host takes, in bytes (ADR-0099 §3).
 	PeerMaxUpload = 512 << 20
+	// PeerJoinPath is the one route a connection that offered PeerJoinALPN reaches
+	// (ADR-0107 §3): a POST of a PeerJoinRequest, answered with a PeerJoinReply. It is not on
+	// the port's main mux: only a join connection is served it, and only one request.
+	PeerJoinPath = "/peer/v1/join"
+	// PeerJoinALPN is the application protocol a TLS hello offers to join. A hello that
+	// offers it may present a certificate that is not paired while a code is pending; every
+	// other hello must present a paired one.
+	PeerJoinALPN = "droidyard-join/1"
+	// PeerMaxJoinBody is the largest body a join request or its answer may have, in bytes.
+	PeerMaxJoinBody = 4 << 10
 )
+
+// PeerJoinRequest is the body of a join (ADR-0107 §3): the code's secret as unpadded
+// base64url, the name the joining side proposes for itself and the API version it runs.
+// The name is another machine's text: the host cleans it before it keeps it.
+type PeerJoinRequest struct {
+	Secret string `json:"secret"`
+	Name   string `json:"name"`
+	API    string `json:"api"`
+}
+
+// PeerJoinReply is the host's answer to a join: the name it proposes for itself and the
+// device it lent. Both are another machine's text: the joining side cleans and checks them
+// before anything is written (ADR-0100 §4).
+type PeerJoinReply struct {
+	Host   string `json:"host"`
+	Device string `json:"device"`
+}
 
 // ErrPeerUploadBusy is what a store answers an upload with while the same peer's earlier
 // one is still arriving: a peer has one slot, so its concurrent uploads cannot fill the

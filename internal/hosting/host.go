@@ -30,6 +30,7 @@ type Host struct {
 	log   io.Writer
 
 	uploads *Uploads
+	pending *Pending
 
 	mu        sync.Mutex
 	identity  *Identity
@@ -48,12 +49,24 @@ func New(cfg Config, state, api string, log io.Writer) *Host {
 	if log == nil {
 		log = io.Discard
 	}
-	return &Host{cfg: cfg, state: state, api: api, log: log, uploads: NewUploads(state, log),
+	return &Host{cfg: cfg, state: state, api: api, log: log, uploads: NewUploads(state, log), pending: NewPending(),
 		open: map[string]int{}, links: map[string]*Link{}}
 }
 
 // Uploads are the APKs paired peers uploaded to this daemon (ADR-0099 §3).
 func (h *Host) Uploads() *Uploads { return h.uploads }
+
+// Pending is the unused join codes of this daemon's shares (ADR-0107 §2).
+func (h *Host) Pending() *Pending { return h.pending }
+
+// CodePending reports whether any join code is unused: the peer listener lets a certificate
+// that is not paired through a join handshake only while it is true.
+func (h *Host) CodePending() bool { return h.pending.Any() }
+
+// ConsumeCode uses up the secret of an unused code and names the device it was issued for.
+func (h *Host) ConsumeCode(secret [16]byte) (device string, ok bool) {
+	return h.pending.Consume(secret)
+}
 
 // Init sweeps the uploads an earlier daemon left and loads the identity, making it when
 // absent (ADR-0098 §1). A daemon whose identity cannot be made runs without peers: the

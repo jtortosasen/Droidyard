@@ -4,7 +4,9 @@
 // whose sessions are the UI's WebSocket loop started by a hello, /peer/v1/screen, a
 // live view's video, /peer/v1/upload, an APK for device.installUpload, and
 // /peer/v1/artifacts/{id}, the bytes of an artifact one of the peer's own calls made), and
-// nothing else. It translates;
+// nothing else. The one exception is the join (ADR-0107, join.go): a hello offering
+// droidyard-join/1 may present a certificate that is not paired while a code is unused, and
+// that connection is served one POST /peer/v1/join and closed. It translates;
 // what a peer may call is the core's Lendable set, not this package's to widen
 // (docs/architecture/overview.md §Adapter boundary).
 package peer
@@ -20,6 +22,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -69,7 +72,19 @@ type Host interface {
 	// PeerOpened and PeerClosed count a peer's open sockets.
 	PeerOpened(name string)
 	PeerClosed(name string)
+	// CodePending reports whether any join code is unused: only then does a handshake that
+	// offers the join protocol accept a certificate that is not paired (ADR-0107 §3).
+	CodePending() bool
+	// ConsumeCode uses up the secret of an unused code, at most once, and names the device
+	// it was issued for.
+	ConsumeCode(secret [16]byte) (device string, ok bool)
 }
+
+// Admit is the host's side of an accepted join (ADR-0107 §3), called once a secret was
+// consumed: it pairs the certificate with the fingerprint under a name made from the one
+// the joining side proposed (a text from another machine, which the policy cleans), lends
+// it the device, and answers the name this host gives itself. An error refuses the join.
+type Admit func(fingerprint, proposedName, device string) (peer, host string, err error)
 
 // Uploads stores the APKs a peer uploads (ADR-0099 §3): *hosting.Uploads. Put reads exactly
 // size bytes of body, which is never larger than capability.PeerMaxUpload, as the named
@@ -111,6 +126,9 @@ type Options struct {
 	// Artifacts serves a peer the artifacts of its own calls; nil serves none, and
 	// /peer/v1/artifacts/ answers 404.
 	Artifacts ArtifactReader
+	// Admit pairs a peer that joined with a code; nil serves no join, and a hello that
+	// offers the join protocol is refused at the handshake.
+	Admit Admit
 	// API is this daemon's API version, named in the hello.
 	API string
 	Log io.Writer
@@ -119,6 +137,11 @@ type Options struct {
 // Server is the peer listener. Run binds it and keeps it bound until its context ends.
 type Server struct {
 	o Options
+
+	// joinSlots holds one token per join connection being served or handshaking (ADR-0107
+	// §4); a token is returned when the connection closes.
+	joinSlots   chan struct{}
+	joinTimeout time.Duration // the package's joinTimeout when the server was made
 
 	mu      sync.Mutex
 	socks   map[*sock]struct{}
@@ -142,7 +165,7 @@ func New(o Options) *Server {
 	if o.Log == nil {
 		o.Log = io.Discard
 	}
-	return &Server{o: o, socks: map[*sock]struct{}{}}
+	return &Server{o: o, socks: map[*sock]struct{}{}, joinSlots: make(chan struct{}, maxJoins), joinTimeout: joinTimeout}
 }
 
 // Run binds hosting.listen and serves it until ctx ends, then closes the listener and every
@@ -193,6 +216,11 @@ func (s *Server) serveOnce(ctx context.Context, cert tls.Certificate) error {
 		// An empty map keeps HTTP/2 off: a WebSocket needs HTTP/1.1.
 		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
 	}
+	if s.o.Admit != nil {
+		// A connection that negotiated the join protocol is served one request here and
+		// closed; any other protocol the server has no entry for closes the connection.
+		srv.TLSNextProto[capability.PeerJoinALPN] = s.serveJoinConn
+	}
 	srv.SetKeepAlivesEnabled(false)
 
 	var wg sync.WaitGroup
@@ -200,7 +228,7 @@ func (s *Server) serveOnce(ctx context.Context, cert tls.Certificate) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); s.sweep(sweepCtx) }()
 	done := make(chan error, 1)
-	go func() { done <- srv.Serve(tls.NewListener(ln, s.tlsConfig(cert))) }()
+	go func() { done <- srv.Serve(tls.NewListener(&joinListener{Listener: ln, s: s}, s.tlsConfig(cert))) }()
 
 	select {
 	case err = <-done:
@@ -232,6 +260,9 @@ func (s *Server) tlsConfig(cert tls.Certificate) *tls.Config {
 		c := base.Clone()
 		c.GetConfigForClient = nil
 		addr := chi.Conn.RemoteAddr().String()
+		if s.o.Admit != nil && slices.Contains(chi.SupportedProtos, capability.PeerJoinALPN) {
+			return s.joinConfig(c, chi)
+		}
 		c.VerifyConnection = func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {
 				return errNotPinned
