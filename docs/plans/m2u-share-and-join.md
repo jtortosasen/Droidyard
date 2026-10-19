@@ -202,7 +202,7 @@
 - Not here: the phone (8).
 - Rests on: —
 - Review: the Opus verifier at the close.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 5 at 933d05a (`$B/evidence/step7/run.txt`, `run-c2.txt`, screenshots): host h and clients A, B, D on this Mac, the stand-in its one physical device. (a) `droidyard share` with no serial shared it in the foreground on 192.168.0.118 (lan) and 100.64.0.17 (vpn); A pasted the line and listed it at once; `launch`, `tapElement` (Likes 2), `screenshot` 1080×2340 from A's CLI; the host's CLI printed joined and connected. (b) SIGINT to the host's CLI: A's Live view in headless Chrome ended after 190 ms, its list empty, the CLI exited 0 with "stopped sharing". (c) `share -d` said the share resumes when the daemon next starts; A rejoined under the same name; the host daemon stopped and started: A's view ended after 1.1 s, A relinked with no code and its view played again after 7.3 s, on Refresh (the first run's driver pressed Refresh once, while the link was still down: a register row). (d) `share -d` again: a fresh line; B joined as `…-2` and got DEVICE_OCCUPIED naming A; A's used line pasted by D: refused at the handshake (no code unused). (e) `unshare`: A and B lists empty. (f) the host's join lines name peer, address, fingerprint prefix and device; every call a `peer=` trace; `shares.json` 0600; the clients' guards ran `devices -l` and `version` only; the host guard refused nothing; the owner's adb server pid 70176 unchanged; the firewall disabled. (g) peer.md, adb-device.md, http-websocket.md, the register (two rows closed in part, nine new, the load-sensitive row), `liveBudget` +216.
 
 ### 8. The owner's phone, and the release (the last step)
 
