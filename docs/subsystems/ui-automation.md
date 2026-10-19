@@ -191,7 +191,9 @@ coordinate actions for agents are later and use these rules and the same `expect
 live view's input** ([ADR-0079](../adr/0079-screen-input-capabilities.md), people only) normalises
 coordinates against the **stream's frame size** and needs a live view; on an emulator a click
 reaches the next decoded frame in p50 51–53 ms, a tap's operation takes p50 76–83 ms (plan m2p
-step 7). **Coordinates for agents' coordinate actions are normalised 0..1** too, resolved to
+step 7). On a device another Droidyard lends, each input is the host's own capability call
+([ADR-0100](../adr/0100-remote-devices-on-the-client.md) §3); over loopback that added about
+1 ms (plan m2t step 3). **Coordinates for agents' coordinate actions are normalised 0..1** too, resolved to
 pixels using the **display size from a fresh screencap**, not `wm size`, which commonly reports the
 portrait panel size even in landscape; this removes rotation math entirely. **Tree-derived actions work in display
 pixels**, because the tree's bounds are already in that space. Text and taps go through the persistent

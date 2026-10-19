@@ -32,8 +32,10 @@ bare HTTP error and never reaches the capability layer.
    ([ADR-0032](../adr/0032-configuration-file-v1.md), Q2 `Amended:` line). If the port is taken, an ephemeral port is used
    instead. `daemon.lock` (`http`) and
    `droidyard status` report the actual address. A non-loopback address is **refused at
-   startup** in the MVP: LAN exposure needs its own ADR covering TLS and
-   authentication ([adr/README](../adr/README.md) §Open decisions).
+   startup**: this listener stays loopback ([ADR-0097](../adr/0097-local-first-with-peers.md)
+   §3), and LAN access to the UI needs its own ADR. Paired Droidyards reach a separate peer
+   listener with its own TLS and pinning ([ADR-0098](../adr/0098-peer-transport-identity-pairing.md);
+   [peer.md](peer.md)).
 2. **Host allowlist (stops DNS rebinding).** `Host` must be exactly
    `127.0.0.1:<port>` or `localhost:<port>`. Anything else gets `403`. A rebinding page
    sends its own hostname, so it is rejected here.

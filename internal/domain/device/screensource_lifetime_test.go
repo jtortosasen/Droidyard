@@ -121,7 +121,7 @@ func TestScreenSourceAdbCannotBeRun(t *testing.T) {
 		if ce := capability.AsError(err); ce == nil || ce.Code != ErrADBFailed || !strings.HasPrefix(ce.Cause, "start: ") {
 			t.Fatalf("error %v, want DEVICE_ADB_FAILED in the start phase", err)
 		}
-		if len(f.callsWith(t, "forward --remove tcp:")) != 1 {
+		if len(f.callsWith(t, "forward --remove localfilesystem:")) != 1 {
 			t.Errorf("calls %q, want the forward removed", f.calls(t))
 		}
 		f.requireClean(t)

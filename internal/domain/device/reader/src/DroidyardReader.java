@@ -84,7 +84,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * are bounded at {@link #ACT_BOUND_BASE_MS}; a {@code keys} grows with its text's length so
  * a long one is not cut off before the keys are typed. An acting request is answered
  * {@code denied} unless its peer's uid is 0 or 2000 — adbd, through which the daemon's
- * forward arrives (ADR-0035 §2); reads are not checked. A request line is capped at
+ * forward arrives (ADR-0035 §2); so is every other request, {@code dump}, {@code ping} and
+ * {@code quit} (ADR-0102), a read or a stop as much as an act. A request line is capped at
  * {@link #REQUEST_CAP} bytes; a longer one is drained a bounded way and answered
  * {@code refused too-long} before it is parsed or executed, never cut and acted on, and a
  * line cut by EOF is answered {@code refused unterminated} rather than parsed.
@@ -285,31 +286,38 @@ public class DroidyardReader {
                     } else if (request.line.equals("ping")) {
                         // Answered on the accept thread, so a blocked dump never blocks
                         // it (ADR-0034 §1): a reader that answers ping is never restarted.
-                        write(conn, "ok " + android.os.Process.myPid());
-                        closeQuietly(conn);
-                    } else if (request.line.equals("quit")) {
-                        done.set(true);
-                        closeQuietly(conn);
-                    } else if (request.line.equals("dump") || request.line.startsWith("dump ")) {
-                        long[] wait = dumpIdle(request.line);
-                        if (wait == null) {
-                            write(conn, PREFIX + " bad dump arguments");
+                        // The fence first, as for a dump (ADR-0102).
+                        if (!denied(conn)) {
+                            write(conn, "ok " + android.os.Process.myPid());
                             closeQuietly(conn);
-                        } else {
-                            lastDump.set(SystemClock.elapsedRealtime());
-                            // The connection is owned by the worker (or the bound's timer)
-                            // now: whichever writes first closes it.
-                            submitDump(conn, a.ua, workers, timer, out, lastPackage, wait[0], wait[1]);
+                        }
+                    } else if (request.line.equals("quit")) {
+                        // Fenced too: any peer that reached the socket could otherwise stop
+                        // the reader (ADR-0102).
+                        if (!denied(conn)) {
+                            done.set(true);
+                            closeQuietly(conn);
+                        }
+                    } else if (request.line.equals("dump") || request.line.startsWith("dump ")) {
+                        // The fence first, before anything is parsed or read: a dump is the
+                        // device's screen, so it is answered only to adbd's peer (ADR-0102).
+                        if (!denied(conn)) {
+                            long[] wait = dumpIdle(request.line);
+                            if (wait == null) {
+                                write(conn, PREFIX + " bad dump arguments");
+                                closeQuietly(conn);
+                            } else {
+                                lastDump.set(SystemClock.elapsedRealtime());
+                                // The connection is owned by the worker (or the bound's
+                                // timer) now: whichever writes first closes it.
+                                submitDump(conn, a.ua, workers, timer, out, lastPackage, wait[0], wait[1]);
+                            }
                         }
                     } else if (actingRequest(request.line)) {
                         // The fence first, before anything is parsed or executed (ADR-0035
                         // §2): an acting request from any peer but adbd is answered
-                        // `denied`. Reads keep ADR-0030's rule and are never checked.
-                        int uid = peerUid(conn);
-                        if (!actorUid(uid)) {
-                            write(conn, PREFIX + " denied " + uid);
-                            closeQuietly(conn);
-                        } else {
+                        // `denied`.
+                        if (!denied(conn)) {
                             Acting act = Acting.parse(request.line);
                             if (act == null) {
                                 // Malformed: refused on the accept thread, so the acting
@@ -492,13 +500,23 @@ public class DroidyardReader {
         return line;
     }
 
-    // Whether a request is one of the acting verbs (ADR-0035 §1): the uid fence applies to
-    // these and to nothing else, so reads keep ADR-0030's unauthenticated rule.
+    // Whether a request is one of the acting verbs (ADR-0035 §1). The uid fence applies to
+    // these, and since ADR-0102 to `dump`, `ping` and `quit` too; it is the same check.
     private static boolean actingRequest(String request) {
         for (String verb : ACTING_VERBS) {
             if (request.equals(verb) || request.startsWith(verb + " ")) return true;
         }
         return false;
+    }
+
+    // Answers `denied <uid>` and closes the connection when its peer is not adbd's (ADR-0035
+    // §2; ADR-0102 for the reads). True when it did: nothing is parsed or run for that peer.
+    private static boolean denied(LocalSocket conn) throws IOException {
+        int uid = peerUid(conn);
+        if (actorUid(uid)) return false;
+        write(conn, PREFIX + " denied " + uid);
+        closeQuietly(conn);
+        return true;
     }
 
     // A connection's peer uid (ADR-0035 §2). -1 when it cannot be read, which admits

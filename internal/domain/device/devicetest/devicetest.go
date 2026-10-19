@@ -30,8 +30,8 @@
 //	<serial>.push               `-s <serial> push <local> /data/local/tmp/droidyard-reader-*.dex` (persistent or one-shot)
 //	<serial>.reader             `-s <serial> exec-out CLASSPATH=<that file> app_process /system/bin DroidyardReader`
 //	<serial>.rmreader           `-s <serial> shell rm -f <that file>`
-//	<serial>.forward            `-s <serial> forward tcp:0 localabstract:droidyard-reader-<d12>` (.out holds the port)
-//	<serial>.forwardremove      `-s <serial> forward --remove tcp:<port>`
+//	<serial>.forward            `-s <serial> forward localfilesystem:<path> localabstract:droidyard-reader-<d12>` (.out holds the reader's port)
+//	<serial>.forwardremove      `-s <serial> forward --remove localfilesystem:<path>`
 //	<serial>.forwardlist        `-s <serial> forward --list` (see below)
 //	<serial>.stat               `-s <serial> shell stat -c %s <reader file>` (answers the fake device file's size, or fails as a missing file does, unless scripted)
 //	<serial>.start              `-s <serial> shell "CLASSPATH=<dex> nohup app_process /system/bin --nice-name=… DroidyardReader serve …"`
@@ -56,15 +56,15 @@
 //	<serial>.pm                 `-s <serial> shell pm list packages -U <filter>` (see below)
 //	<serial>.log                `-s <serial> logcat …` (see below)
 //	<serial>.pushscrcpy         `-s <serial> push <local> /data/local/tmp/droidyard-scrcpy-<d12>.jar` (the live view's server)
-//	<serial>.forwardscrcpy      `-s <serial> forward tcp:0 localabstract:scrcpy_<scid>` (.out holds the port, see below)
+//	<serial>.forwardscrcpy      `-s <serial> forward localfilesystem:<path> localabstract:scrcpy_<scid>` (.out holds the listener's socket path, see below; with a non-zero .exit and a .made file it makes the forward and then fails)
 //	<serial>.scrcpyserver       `-s <serial> shell CLASSPATH=<that file> app_process / com.genymobile.scrcpy.Server <version> …` (see below)
 //
 // The fake models the live view's server (plan m2p step 3). A push creates the jar on the
-// fake device and copies its bytes to `<serial>.scrcpypushed`. A forward prints the port in
-// `<serial>.forwardscrcpy.out` (a test's own listener serving the video and control
-// sockets; there is no proxy, since each invocation is a process of its own) and records
-// the forward in `forwards.list`, so `forward --remove tcp:<port>` and `forward --list`
-// see it. The shell command is the long-lived child: with the jar missing it exits 1; else
+// fake device and copies its bytes to `<serial>.scrcpypushed`. A forward makes the socket
+// file a symlink to the Unix socket in `<serial>.forwardscrcpy.out` (a test's own listener
+// serving the video and control sockets; there is no proxy, since each invocation is a
+// process of its own) and records the forward in `forwards.list`, so `forward --remove
+// localfilesystem:<path>` and `forward --list` see it. The shell command is the long-lived child: with the jar missing it exits 1; else
 // it deletes the jar, as the real server does as it starts, appends its pid to
 // `<serial>.scrcpy.pids` and runs until it is killed or `<serial>.scrcpy.stop` exists,
 // when it exits with the status that file holds. `<serial>.scrcpyserver.exit` (non-zero),
@@ -98,12 +98,14 @@
 // `.delay`, `.exit` and `.err` script its outcome, and `<serial>.pm#N.<ext>` the Nth call's;
 // `<serial>.pm.pids` records the pid of each call.
 //
-// The fake models the host's forwards in `forwards.list`, one `<serial> tcp:<port>
-// <remote>` line per forward. A `forward tcp:0 localabstract:<remote>` binds a real host
-// proxy on a free port, prints that port and records the line, so a client reaches the
-// reader at `<serial>.forward.out` (its port) through it; `forward --remove tcp:<port>`
-// drops the line and closes the proxy, and `forward --list` prints the table. So a
-// removed forward refuses a dial, as real adb does (plan m1f step 7). A test seeds a
+// The fake models the host's forwards in `forwards.list`, one `<serial>
+// localfilesystem:<path> <remote>` line per forward (ADR-0102). A `forward
+// localfilesystem:<path> localabstract:<remote>` listens on a real Unix socket at <path>
+// and records the line, so a client reaches the reader at `<serial>.forward.out` (its port)
+// through it; `forward --remove localfilesystem:<path>` drops the line and stops the
+// listener but, as adb does, leaves the file, and `forward --list` prints the table (with
+// or without `-s`). So a removed forward refuses a dial, as real adb does (plan m1f
+// step 7). A test seeds a
 // forward another daemon or another digest made with AddForward, and drops one as an adb
 // server restart would with ForgetForward.
 //
@@ -360,6 +362,15 @@ func run(ctx context.Context, dir string, args []string, stdout, stderr io.Write
 		}
 		cat(args[1] + ".avd")
 		return 0
+	case len(args) == 2 && args[0] == "forward" && args[1] == "--list":
+		// The host's whole table, as adb prints it without a serial; `forwardlist.exit` scripts
+		// its failure.
+		if b, err := os.ReadFile(filepath.Join(dir, "forwardlist.exit")); err == nil {
+			n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+			return n
+		}
+		writeForwardList(dir, stdout)
+		return 0
 	case len(args) == 4 && args[0] == "-s" && args[2] == "forward" && args[3] == "--list":
 		if has(args[1] + ".forwardlist.hang") {
 			return hang()
@@ -448,7 +459,7 @@ func servedPrefix(args []string) string {
 		return args[1] + ".push"
 	case len(args) == 5 && args[2] == "push" && args[3] == "LOCAL" && isScrcpyFile(args[4]):
 		return args[1] + ".pushscrcpy"
-	case len(args) == 5 && args[2] == "forward" && args[3] == "tcp:0" && strings.HasPrefix(args[4], "localabstract:scrcpy_"):
+	case len(args) == 5 && args[2] == "forward" && strings.HasPrefix(args[3], "localfilesystem:") && strings.HasPrefix(args[4], "localabstract:scrcpy_"):
 		return args[1] + ".forwardscrcpy"
 	case len(args) >= 8 && args[2] == "shell" && isScrcpyClasspath(args[3]) && args[4] == "app_process" && args[5] == "/" && args[6] == "com.genymobile.scrcpy.Server":
 		return args[1] + ".scrcpyserver"
@@ -456,9 +467,9 @@ func servedPrefix(args []string) string {
 		return args[1] + ".reader"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "rm" && args[4] == "-f" && isReaderFile(args[5]):
 		return args[1] + ".rmreader"
-	case len(args) == 5 && args[2] == "forward" && args[3] == "tcp:0" && strings.HasPrefix(args[4], "localabstract:droidyard-reader-"):
+	case len(args) == 5 && args[2] == "forward" && strings.HasPrefix(args[3], "localfilesystem:") && strings.HasPrefix(args[4], "localabstract:droidyard-reader-"):
 		return args[1] + ".forward"
-	case len(args) == 5 && args[2] == "forward" && args[3] == "--remove" && strings.HasPrefix(args[4], "tcp:"):
+	case len(args) == 5 && args[2] == "forward" && args[3] == "--remove" && strings.HasPrefix(args[4], "localfilesystem:"):
 		return args[1] + ".forwardremove"
 	case len(args) == 4 && args[2] == "shell" && isReaderServe(args[3]):
 		return args[1] + ".start"
@@ -627,13 +638,14 @@ func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout,
 		event("end")
 		return 1
 	}
-	// A successful forward binds a host proxy and prints its port, so a later dial
-	// reaches the reader through it and a removed forward refuses the dial (plan m1f
-	// step 7). A forward that failed falls through to the generic answer below.
+	// A successful forward makes the socket file the client named and listens on it, relaying
+	// to the reader at <serial>.forward.out (its port), so a later dial reaches the reader
+	// through it and a removed forward refuses the dial (plan m1f step 7; ADR-0102). A
+	// forward that failed falls through to the generic answer below.
 	if strings.HasSuffix(prefix, ".forward") && code == 0 && len(raw) == 5 {
-		if port, err := startForwardProxy(strings.TrimSpace(dirString(dir, name+".out"))); err == nil {
-			fmt.Fprintln(stdout, port)
-			addForward(dir, raw[1], port, raw[4])
+		sock := strings.TrimPrefix(raw[3], "localfilesystem:")
+		if err := startForwardProxy(strings.TrimSpace(dirString(dir, name+".out")), sock); err == nil {
+			addForward(dir, raw[1], sock, raw[4])
 			event("end")
 			return 0
 		} else {
@@ -641,6 +653,29 @@ func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout,
 			event("end")
 			return 1
 		}
+	}
+	// A forward cut short: <serial>.forwardscrcpy.made makes the forward and then fails with
+	// the scripted status, as an adb client killed after its server made the forward does.
+	if strings.HasSuffix(prefix, ".forwardscrcpy") && code != 0 && has(name+".made") && len(raw) == 5 {
+		sock := strings.TrimPrefix(raw[3], "localfilesystem:")
+		if err := linkForward(strings.TrimSpace(dirString(dir, name+".out")), sock); err == nil {
+			addForward(dir, raw[1], sock, raw[4])
+		}
+	}
+	// The live view's forward is a symlink at the socket file to the test's own listener
+	// (<serial>.forwardscrcpy.out holds that listener's socket path): the fake is one
+	// process per call here, so nothing of its own outlives it, and a connect follows the
+	// link as it would a socket.
+	if strings.HasSuffix(prefix, ".forwardscrcpy") && code == 0 && len(raw) == 5 {
+		sock := strings.TrimPrefix(raw[3], "localfilesystem:")
+		if err := linkForward(strings.TrimSpace(dirString(dir, name+".out")), sock); err != nil {
+			fmt.Fprintln(stderr, "fake adb: "+err.Error())
+			event("end")
+			return 1
+		}
+		addForward(dir, raw[1], sock, raw[4])
+		event("end")
+		return 0
 	}
 	out := dirBytes(dir, name+".out")
 	if strings.HasSuffix(prefix, ".pidof") {
@@ -678,8 +713,9 @@ func dirBytes(dir, name string) []byte {
 // commands that change them, and returns the exit code the command ends with. A push
 // that exited 0 creates its remote path; an rm removes it; a serve start whose
 // CLASSPATH= file is missing fails with status 1, the way app_process cannot start a
-// class that is not there; a forward (handled in serve) adds its printed port to the
-// listing and a remove drops that port; a kill records the pid as gone.
+// class that is not there; a forward (handled in serve) adds its socket to the listing
+// and a remove drops that socket from it and stops its listener, leaving the file as adb
+// does; a kill records the pid as gone.
 func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Writer) int {
 	switch {
 	case strings.HasSuffix(prefix, ".push"):
@@ -704,10 +740,6 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 				os.WriteFile(filepath.Join(dir, raw[1]+".scrcpypushed"), b, 0o600)
 				writeDeviceFile(dir, raw[4], b)
 			}
-		}
-	case strings.HasSuffix(prefix, ".forwardscrcpy"):
-		if code == 0 && len(raw) == 5 {
-			addForward(dir, raw[1], dirString(dir, name+".out"), raw[4])
 		}
 	case strings.HasSuffix(prefix, ".rmreader"):
 		if code == 0 && len(raw) == 6 {
@@ -738,7 +770,7 @@ func deviceEffect(dir, prefix, name string, raw []string, code int, stderr io.Wr
 		}
 	case strings.HasSuffix(prefix, ".forwardremove"):
 		if code == 0 && len(raw) == 5 {
-			removeForwardPort(dir, strings.TrimPrefix(raw[4], "tcp:"))
+			removeForwardSocket(dir, strings.TrimPrefix(raw[4], "localfilesystem:"))
 		}
 	}
 	return code
@@ -834,8 +866,8 @@ func Events(t *testing.T, dir string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
-// The host's forwards live in forwards.list, one `<serial> tcp:<port> <remote>` line
-// each, as `adb forward --list` prints them.
+// The host's forwards live in forwards.list, one `<serial> localfilesystem:<path> <remote>`
+// line each, as `adb forward --list` prints them.
 
 // readForwards reads the forward table; callers take fwdMu.
 func readForwards(dir string) []string {
@@ -869,13 +901,16 @@ func writeForwardList(dir string, w io.Writer) {
 	}
 }
 
-func addForward(dir, serial, port, remote string) {
-	if serial == "" || port == "" || remote == "" {
+// localSpec is the local side of a forward as the table prints it.
+const localSpec = "localfilesystem:"
+
+func addForward(dir, serial, sock, remote string) {
+	if serial == "" || sock == "" || remote == "" {
 		return
 	}
 	fwdMu.Lock()
 	defer fwdMu.Unlock()
-	line := serial + " tcp:" + port + " " + remote
+	line := serial + " " + localSpec + sock + " " + remote
 	lines := readForwards(dir)
 	for _, l := range lines {
 		if l == line {
@@ -885,50 +920,58 @@ func addForward(dir, serial, port, remote string) {
 	writeForwards(dir, append(lines, line))
 }
 
-func removeForwardPort(dir, port string) {
+// removeForwardSocket drops the forward at sock and stops its listener. The socket file
+// stays, as real adb leaves it: the client removes it.
+func removeForwardSocket(dir, sock string) {
 	fwdMu.Lock()
 	var out []string
 	for _, l := range readForwards(dir) {
-		f := strings.Fields(l)
-		if len(f) >= 2 && f[1] == "tcp:"+port {
+		if _, local, _, ok := splitForward(l); ok && local == localSpec+sock {
 			continue
 		}
 		out = append(out, l)
 	}
 	writeForwards(dir, out)
 	fwdMu.Unlock()
-	// The host port stops listening when its forward is removed: a dial then refuses,
-	// as real adb does (plan m1f step 7). A seeded forward has no proxy.
-	closeForwardProxy(port)
+	// The listener stops when its forward is removed: a dial then refuses, as real adb
+	// does (plan m1f step 7). A seeded forward has none, a live view's is a link.
+	closeForwardProxy(sock)
 }
 
-// AddForward seeds a forward in the fake's `forward --list`, as another daemon's or
-// another digest's would be. remote is "localabstract:<name>".
-func AddForward(t testing.TB, dir, serial, port, remote string) {
+// AddForward seeds a forward at the socket file sock in the fake's `forward --list`, as
+// another daemon's or another digest's would be. remote is "localabstract:<name>".
+// upstream, when it is not empty, is the port of a reader the forward relays to, so it
+// answers a dial; an empty one is only listed.
+func AddForward(t testing.TB, dir, serial, sock, upstream, remote string) {
 	t.Helper()
-	addForward(dir, serial, port, remote)
+	if upstream != "" {
+		if err := startForwardProxy(upstream, sock); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { closeForwardProxy(sock) })
+	}
+	addForward(dir, serial, sock, remote)
 }
 
 // ForgetForward drops the forward to remote, as an adb server restart drops host
-// forwards; the reader behind it is untouched, but its host port stops listening, so a
-// dial refuses (plan m1f step 7).
+// forwards; the reader behind it is untouched, but its socket stops listening, so a dial
+// refuses (plan m1f step 7), and its file stays.
 func ForgetForward(t testing.TB, dir, remote string) {
 	t.Helper()
 	fwdMu.Lock()
 	var dropped []string
 	var out []string
 	for _, l := range readForwards(dir) {
-		f := strings.Fields(l)
-		if len(f) >= 3 && f[2] == remote {
-			dropped = append(dropped, strings.TrimPrefix(f[1], "tcp:"))
+		if _, local, r, ok := splitForward(l); ok && r == remote {
+			dropped = append(dropped, strings.TrimPrefix(local, localSpec))
 			continue
 		}
 		out = append(out, l)
 	}
 	writeForwards(dir, out)
 	fwdMu.Unlock()
-	for _, port := range dropped {
-		closeForwardProxy(port)
+	for _, sock := range dropped {
+		closeForwardProxy(sock)
 	}
 }
 
@@ -940,23 +983,36 @@ func Forwards(t testing.TB, dir string) []string {
 	return readForwards(dir)
 }
 
-// ForwardPort returns the host port of the first forward to remote, "" when none.
-func ForwardPort(t testing.TB, dir, remote string) string {
+// ForwardSocket returns the socket file of the first forward to remote, "" when none.
+func ForwardSocket(t testing.TB, dir, remote string) string {
 	t.Helper()
 	fwdMu.Lock()
 	defer fwdMu.Unlock()
 	for _, l := range readForwards(dir) {
-		f := strings.Fields(l)
-		if len(f) >= 3 && strings.TrimPrefix(f[2], "localabstract:") == remote {
-			return strings.TrimPrefix(f[1], "tcp:")
+		if _, local, r, ok := splitForward(l); ok && strings.TrimPrefix(r, "localabstract:") == remote {
+			return strings.TrimPrefix(local, localSpec)
 		}
 	}
 	return ""
 }
 
-// The host forwards are real proxies: `forward tcp:0` binds one to the reader and prints
-// it, `forward --remove` and ForgetForward close it. A removed forward therefore refuses
-// a dial, driving recovery from the failed read (plan m1f step 7).
+// splitForward reads a line of the forward table as adb prints it: the serial up to the
+// first space, the remote after the last, and between them the local spec as it is, spaces
+// of a path included (`emulator-5554 localfilesystem:/Users/me/Application Support/x
+// localabstract:y`).
+func splitForward(line string) (serial, local, remote string, ok bool) {
+	line = strings.TrimSpace(line)
+	i, j := strings.IndexByte(line, ' '), strings.LastIndexByte(line, ' ')
+	if i < 0 || j <= i {
+		return "", "", "", false
+	}
+	return line[:i], strings.TrimSpace(line[i+1 : j]), line[j+1:], true
+}
+
+// The reader's forwards are real listeners: `forward localfilesystem:<path>` binds one to
+// the reader, `forward --remove` and ForgetForward close it. A removed forward therefore
+// refuses a dial, driving recovery from the failed read (plan m1f step 7), and the socket
+// file stays behind, as real adb leaves it (ADR-0102).
 
 type forwardProxy struct {
 	ln       net.Listener
@@ -965,35 +1021,45 @@ type forwardProxy struct {
 
 var (
 	proxyMu sync.Mutex
-	proxies = map[string]*forwardProxy{} // proxy port -> proxy
+	proxies = map[string]*forwardProxy{} // socket path -> proxy
 )
 
-// startForwardProxy binds a host listener on a free port and relays it to upstream (a
-// port or host:port). It is the port `adb forward tcp:0` prints.
-func startForwardProxy(upstream string) (string, error) {
+// startForwardProxy listens on the socket file sock and relays to upstream (a port or
+// host:port). A file already there is replaced, as adb replaces it.
+func startForwardProxy(upstream, sock string) error {
 	if upstream == "" {
-		return "", fmt.Errorf("no upstream port for the forward")
+		return fmt.Errorf("no upstream port for the forward")
 	}
 	if !strings.Contains(upstream, ":") {
 		upstream = "127.0.0.1:" + upstream
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	os.Remove(sock)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
-		return "", err
+		return err
 	}
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	ln.SetUnlinkOnClose(false)
 	p := &forwardProxy{ln: ln, upstream: upstream}
 	proxyMu.Lock()
-	proxies[port] = p
+	proxies[sock] = p
 	proxyMu.Unlock()
 	go p.serve()
-	return port, nil
+	return nil
 }
 
-func closeForwardProxy(port string) {
+// linkForward makes sock a symlink to the listener at target, replacing a file there.
+func linkForward(target, sock string) error {
+	if target == "" {
+		return fmt.Errorf("no listener for the forward")
+	}
+	os.Remove(sock)
+	return os.Symlink(target, sock)
+}
+
+func closeForwardProxy(sock string) {
 	proxyMu.Lock()
-	p := proxies[port]
-	delete(proxies, port)
+	p := proxies[sock]
+	delete(proxies, sock)
 	proxyMu.Unlock()
 	if p != nil {
 		p.ln.Close()

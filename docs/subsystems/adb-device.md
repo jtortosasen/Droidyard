@@ -15,7 +15,9 @@ particular emulator product. The `emulator` launcher is **optional**: only the b
 verbs need it. This is the single most portable idea in the prior art
 ([dsh-android](../research/dsh-android.md),
 [concepts](../research/dsh-codex-android-concepts.md)) and it halves the surface compared
-with a per-platform split.
+with a per-platform split. A device another Droidyard lends is named `<remote>/<serial>`
+and runs no local adb: its calls are relayed to the host, which applies this document
+([ADR-0100](../adr/0100-remote-devices-on-the-client.md); [peer.md](../interfaces/peer.md)).
 
 ## adb resolution and degradation
 
@@ -47,10 +49,12 @@ resolved binary, version and source. Devices are global, so no workspace is degr
 
 ## Device model
 
-Details are best-effort: a flaky device still lists, its details stay sparse. Emulator detection uses the serial prefix **or** known
-product strings, so it does not depend on naming alone. A device that `devices -l` reports
-with `usb:` is `physical` whatever its product says, and an unclassifiable device is
-`physical`, so the emulators-only default never admits an unknown device (1e).
+Details are best-effort: a flaky device still lists, its details stay sparse. A device that
+`devices -l` reports with `usb:` is `physical` whatever its product says; otherwise an
+`emulator-<port>` serial is an emulator, and a known emulator product makes one only on a
+loopback serial; anything else is `physical`, so the emulators-only default never admits an
+unknown device ([ADR-0103](../adr/0103-shared-serial-and-emulator-class.md) §2). A serial two
+devices report is refused for both and never lent (§1).
 
 ## Targeting: `device` is required
 
@@ -74,13 +78,19 @@ target). A call without `device` fails schema validation at `Start`, before any 
 - An MCP session's first acting call on a free device occupies it; another chat's acting call is
   `DEVICE_OCCUPIED`, decided after the policy re-check and before any command that changes the
   device. Reads, the UI and the CLI are never refused ([ADR-0094](../adr/0094-occupation-by-a-session.md)).
+- On a host, a paired peer's call of any kind on a lent device leases it: one peer at a time,
+  host agents refused too, the host's UI and CLI never
+  ([ADR-0104](../adr/0104-lease-of-a-lent-device.md)).
 
 ## Transport to the device
 
 Text commands run as `adb -s <serial> shell ...` (CRLF-normalised); binary output uses
 `exec-out`, which skips the pty so PNG bytes survive; long-lived children use `spawn`, in a
 process group killed as a group. Every invocation has an explicit timeout and a bounded
-buffer: no unbounded accumulation anywhere.
+buffer: no unbounded accumulation anywhere. The reader and the screen server are reached
+through `adb forward localfilesystem:` sockets in `<state>/run/fwd/` (0700), never a TCP port;
+adb prints their paths raw in `forward --list`, spaces included
+([ADR-0102](../adr/0102-local-channels-to-the-device.md)).
 
 ## Capabilities
 
@@ -181,9 +191,10 @@ specific to them:
   ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §4,
   [ADR-0032](../adr/0032-configuration-file-v1.md) §2). A string that is not a listed serial is
   `DEVICE_NOT_FOUND` before anything runs (adb's `-s` also accepts `usb:`, `model:`, `product:`
-  selectors that would name a device under another name). Known limits: the allowlist's identity is
-  the serial the device reports, so devices sharing one are admitted together; off USB a
-  self-reported `sdk_gphone` product classifies a device as an emulator.
+  selectors that would name a device under another name). A host lends only devices this
+  policy admits, to the peers `hosting.lend` names
+  ([ADR-0099](../adr/0099-what-a-host-lends.md) §1); a client admits a remote device by its
+  `<remote>/<serial>` id in its own allowlist.
 
 What is *not* code is the procedure around them (enabling developer options, vendor quirks,
 accepting the prompt); that belongs in a skill

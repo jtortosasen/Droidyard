@@ -62,6 +62,7 @@ func newFollowFixture(t *testing.T, files map[string]string) *followFixture {
 	}
 	adb := NewADB(devicetest.Env(t, dir, closedPort(t)), sup.Spawn)
 	adb.SetStreamStarter(recordedStarter(sup))
+	adb.SetForwardDir(forwardDirFor(t, dir))
 	reg := capability.NewRegistry()
 	Register(reg, adb, testStore(t), nil)
 	ops := capability.NewOperations(reg)

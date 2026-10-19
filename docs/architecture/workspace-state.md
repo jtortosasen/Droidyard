@@ -142,7 +142,8 @@ Closing a workspace must not disconnect devices or kill the shared `adb` server.
 held by a session, not by a workspace: the MCP session whose acting call reaches a free device
 occupies it until it ends, returns to its main tree, the device stops or goes, or the user
 releases it
-([ADR-0094](../adr/0094-occupation-by-a-session.md)).
+([ADR-0094](../adr/0094-occupation-by-a-session.md)). On a host, a paired peer's link holds a
+lent device through any call: the lease ([ADR-0104](../adr/0104-lease-of-a-lent-device.md)).
 
 ## Cleanup and crash recovery
 

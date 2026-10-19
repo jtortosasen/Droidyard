@@ -175,7 +175,11 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 14 (to 28,590) at milestone 2t step 4: mvp.md's device row and mcp.md's
 // not-exposed table name device.installUpload, which the capability check requires
 // (ADR-0099 §3).
-const liveBudget = 28590
+// Raised by 710 (to 29,300) at milestone 2t steps 8–9, Delegated: interfaces/peer.md, the one
+// document of the peer role (the routes, the two roles, what a peer may call), and the lines
+// that name the peers in adb-device.md, http-websocket.md, ui-automation.md, workspace-state.md,
+// vision.md, beyond.md, mvp.md and the glossary (ADR-0097 to ADR-0106).
+const liveBudget = 29300
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

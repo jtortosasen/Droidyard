@@ -62,7 +62,9 @@ local ones. Authenticated, encrypted, audited, every action a capability call.
 Transport: the company VPN first; internet reach later, through a relay or an overlay
 network rather than a protocol of our own. Exposing raw adb to the network is rejected:
 adb grants full control with no authentication, and does not survive NAT or version
-skew.
+skew. Its first slice, lending physical devices to a paired Droidyard over the VPN, was
+built in 2t ([peer.md](../interfaces/peer.md)); debugging, a relay and other codecs are
+left.
 
 **C5. Flow recording and replay.** Nodes are screens, identified by a signature of
 their UI tree; edges are actions with a semantic selector and a postcondition, as

@@ -32,11 +32,19 @@ A live MCP session holding a linked worktree or a device, so that another chat d
 in it or act on it ([ADR-0094](../adr/0094-occupation-by-a-session.md)). The main tree is never
 occupied.
 
+## Host, peer, lease
+
+A **host** is a Droidyard that lends devices; a **peer** is a Droidyard it paired with, by
+certificate fingerprint ([ADR-0098](../adr/0098-peer-transport-identity-pairing.md)). A peer's
+link holds a lent device through any call, one peer at a time: the **lease**
+([ADR-0104](../adr/0104-lease-of-a-lent-device.md)).
+
 ## Operation
 
 The record of one invocation: id, state (`queued | running | completed | failed |
-cancelled`), result. Every call is one. Callers wait on it for a bounded time, and any
-session can cancel it ([ADR-0020](../adr/0020-operation-contract.md)).
+cancelled`), result. Every call is one. Callers wait on it for a bounded time; an agent or
+a peer waits on and cancels only its own, the UI and the CLI any
+([ADR-0101](../adr/0101-waits-reach-own-operations.md)).
 
 ## Artifact
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,9 @@ import (
 //
 // It starts the source, swipes the screen while it reads, wants at least one key frame and
 // 20 packets within 5 s, sends the home key, releases, and then wants the server gone from
-// the device's process list within 2 s and its forward gone from the forward list.
+// the device's process list within 2 s, its forward gone from the forward list and its
+// socket file gone from the forward directory (ADR-0102: adb leaves the file, the source
+// unlinks it). The forward is to a socket file in a directory of the test's own, under /tmp.
 func TestRealScreenSource(t *testing.T) {
 	serial := os.Getenv("DROIDYARD_SCREEN_SERIAL")
 	if serial == "" {
@@ -48,6 +51,13 @@ func TestRealScreenSource(t *testing.T) {
 	}
 	a := NewADB(os.Environ(), sup.Spawn)
 	a.SetStreamStarter(recordedStarter(sup))
+	root, err := os.MkdirTemp("/tmp", "dyreal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	fwd := filepath.Join(root, "fwd")
+	a.SetForwardDir(fwd)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -61,6 +71,9 @@ func TestRealScreenSource(t *testing.T) {
 		t.Fatalf("acquire: %v", err)
 	}
 	t.Logf("size %v", src.Size())
+	if left, _ := os.ReadDir(fwd); len(left) != 1 || !strings.HasPrefix(left[0].Name(), "screen-") {
+		t.Errorf("forward directory holds %v while the source runs, want its one screen-<12 hex> socket", left)
+	}
 
 	swiper := exec.Command(adbPath, "-s", serial, "shell",
 		"for i in 1 2 3 4 5 6 7 8; do input swipe 540 1600 540 600 300; input swipe 540 600 540 1600 300; done")
@@ -111,5 +124,8 @@ func TestRealScreenSource(t *testing.T) {
 		if strings.Contains(l, serial) && strings.Contains(l, "localabstract:scrcpy_") {
 			t.Errorf("a forward is left: %s", l)
 		}
+	}
+	if left, _ := os.ReadDir(fwd); len(left) != 0 {
+		t.Errorf("socket files are left in the forward directory: %v", left)
 	}
 }

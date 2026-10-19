@@ -72,7 +72,7 @@ func newScreenLab(t *testing.T, stopAtKey int, o labOptions) *screenLab {
 	if o.hostFiles == nil {
 		o.hostFiles = map[string]string{}
 	}
-	o.hostFiles[phone1+".forwardscrcpy.out"] = ln.Port + "\n"
+	o.hostFiles[phone1+".forwardscrcpy.out"] = ln.Path + "\n"
 	o.hostFiles[phone1+".dumpsyswindow.out"] = secureDumpFile(t, "off")
 	o.hostProcesses = true
 	return &screenLab{remoteLab: newRemoteLabWith(t, o), ln: ln, pkts: pkts, keys: keys}

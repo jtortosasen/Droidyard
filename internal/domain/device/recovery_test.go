@@ -20,8 +20,8 @@ var readerNameTest = readerNamePrefix + reader.SHA256[:12]
 func localAbstract(name string) string { return "localabstract:" + name }
 
 // listedForward is one expected `forwards.list` line.
-func listedForward(serial, port, name string) string {
-	return serial + " tcp:" + port + " " + localAbstract(name)
+func listedForward(serial, sock, name string) string {
+	return serial + " localfilesystem:" + sock + " " + localAbstract(name)
 }
 
 // pidofCall, killCall and forwardListCall are the fake's argument lines for the process
@@ -348,6 +348,12 @@ func TestLostForwardIsRecreated(t *testing.T) {
 	if got := devicetest.Forwards(t, f.dir); len(got) != 1 {
 		t.Errorf("forwards %q, want exactly one after the recreation", got)
 	}
+	// The dead forward's file stays behind when the server drops it (ADR-0102): the
+	// recreation unlinks it, so one file is left, the new forward's. Seen failing with the
+	// unlink dropped from the lost-forward path (two files).
+	if got := dirEntries(t, forwardDirFor(t, f.dir)); len(got) != 1 {
+		t.Errorf("forward directory holds %q after the recreation, want only the new forward's socket", got)
+	}
 }
 
 // Decision (plan m1f step 7, check a; item 4): after a lost forward is recreated the
@@ -401,7 +407,7 @@ func TestReconcileValidatesNamesAndPids(t *testing.T) {
 		uiSerial + ".forward.out": r.Port,
 		uiSerial + ".ps.out":      "  PID NAME\n zzz droidyard-reader-000000000000\n",
 	})
-	devicetest.AddForward(t, f.dir, uiSerial, "41000", localAbstract(hostile))
+	devicetest.AddForward(t, f.dir, uiSerial, seedSock(t, f.dir, "reader-000000000041"), "", localAbstract(hostile))
 
 	mustComplete(t, f.tree(t, uiSerial))
 	calls := f.calls(t)
@@ -433,7 +439,7 @@ func TestRestartOfAnAdoptedReaderPushesTheDex(t *testing.T) {
 	})
 	// An earlier daemon's forward to our socket: the first read adopts it, pushing and
 	// starting nothing.
-	devicetest.AddForward(t, f.dir, uiSerial, r.Port, localAbstract(readerNameTest))
+	devicetest.AddForward(t, f.dir, uiSerial, seedSock(t, f.dir, "reader-0000000000aa"), r.Port, localAbstract(readerNameTest))
 	mustComplete(t, f.tree(t, uiSerial))
 	if n := count(f.calls(t), prPushCall); n != 0 {
 		t.Fatalf("the adopted read pushed the dex (%q)", f.calls(t))
@@ -462,9 +468,8 @@ func TestRestartOfAnAdoptedReaderPushesTheDex(t *testing.T) {
 // parsed (the partial listing would drive an adoption or a removal).
 func TestTruncatedForwardListIsAnErrorNotAPartialList(t *testing.T) {
 	filler := strings.Repeat("emulator-5554 tcp:1 localabstract:junk\n", forwardListCap/30) // past forwardListCap
-	f := newUIFixture(t, withReader(map[string]string{
-		uiSerial + ".forwardlist.out": listedForward(uiSerial, "1", readerNameTest) + filler,
-	}, pixelDoc(t)))
+	f := newUIFixture(t, withReader(nil, pixelDoc(t)))
+	devicetest.Write(t, f.dir, uiSerial+".forwardlist.out", []byte(listedForward(uiSerial, seedSock(t, f.dir, "reader-0000000000bb"), readerNameTest)+filler))
 	s := mustComplete(t, f.tree(t, uiSerial))
 	if len(s.Nodes) == 0 {
 		t.Fatal("no tree from the one-shot fallback")
@@ -483,20 +488,26 @@ func TestTruncatedForwardListIsAnErrorNotAPartialList(t *testing.T) {
 	}
 }
 
-// Decision (plan m1f step 1's recorded format, step 7): `forward --list` lines are
-// `<serial> tcp:<port> localabstract:<name>`; a non-local remote and a malformed line
-// are ignored.
-func TestParseForwardListReadsStepOnesLineFormat(t *testing.T) {
-	const out = "emulator-5554 tcp:63552 localabstract:droidyard-reader-31edb33baa07\n" +
-		"emulator-5554 tcp:40002 localabstract:other\n" +
-		"emulator-5556 tcp:40003 localabstract:droidyard-reader-ffeeddccbbaa\n" +
+// Decision (plan m2t step 8 (a)'s recorded format, ADR-0102): `forward --list` lines are
+// `<serial> localfilesystem:<path> localabstract:<name>`; a loopback port (the first
+// form of the forwards, which this daemon no longer makes), a non-local remote and a
+// malformed line are ignored; the path is printed raw, so one with spaces in it (macOS's
+// default state root is under "Application Support") is one path. Seen failing with the line
+// split on every space.
+func TestParseForwardListReadsTheSocketFormat(t *testing.T) {
+	const out = "emulator-5554 localfilesystem:/s/run/fwd/reader-0123456789ab localabstract:droidyard-reader-31edb33baa07\n" +
+		"emulator-5554 localfilesystem:/s/run/fwd/screen-0123456789ab localabstract:other\n" +
+		"emulator-5556 localfilesystem:/s/run/fwd/reader-ba9876543210 localabstract:droidyard-reader-ffeeddccbbaa\n" +
+		"emulator-5554 tcp:63552 localabstract:droidyard-reader-31edb33baa07\n" +
+		"emulator-5554 localfilesystem:/Users/me/Library/Application Support/droidyard/run/fwd/reader-0123456789ab localabstract:droidyard-reader-31edb33baa07\n" +
 		"garbage\n" +
-		"emulator-5554 localfilesystem:/x localabstract:not-tcp\n"
+		"emulator-5554 localfilesystem:/x tcp:5555\n"
 	got := parseForwardList([]byte(out))
 	want := []forwardEntry{
-		{serial: "emulator-5554", port: "63552", remote: "droidyard-reader-31edb33baa07"},
-		{serial: "emulator-5554", port: "40002", remote: "other"},
-		{serial: "emulator-5556", port: "40003", remote: "droidyard-reader-ffeeddccbbaa"},
+		{serial: "emulator-5554", sock: "/s/run/fwd/reader-0123456789ab", remote: "droidyard-reader-31edb33baa07"},
+		{serial: "emulator-5554", sock: "/s/run/fwd/screen-0123456789ab", remote: "other"},
+		{serial: "emulator-5556", sock: "/s/run/fwd/reader-ba9876543210", remote: "droidyard-reader-ffeeddccbbaa"},
+		{serial: "emulator-5554", sock: "/Users/me/Library/Application Support/droidyard/run/fwd/reader-0123456789ab", remote: "droidyard-reader-31edb33baa07"},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("parseForwardList = %+v, want %+v", got, want)
@@ -532,13 +543,13 @@ func TestEarlierDaemonsForwardIsAdoptedAndStopped(t *testing.T) {
 	if len(devicetest.Forwards(t, f.dir)) != 1 {
 		t.Errorf("forwards %q, want the one adopted", devicetest.Forwards(t, f.dir))
 	}
-	port := adb2.reader(uiSerial).portValue()
+	sock := adb2.reader(uiSerial).sockValue()
 
 	adb2.Close(context.Background())
 	if r.Quits() != 1 {
 		t.Errorf("the adopted reader saw %d quits, want 1", r.Quits())
 	}
-	if n := count(f.calls(t), "-s "+uiSerial+" forward --remove tcp:"+port); n != 1 {
+	if n := count(f.calls(t), "-s "+uiSerial+" forward --remove localfilesystem:"+sock); n != 1 {
 		t.Errorf("%d removals of the adopted forward, want 1 (%q)", n, f.calls(t))
 	}
 	if got := devicetest.Forwards(t, f.dir); len(got) != 0 {
@@ -560,8 +571,9 @@ func TestReconcileTouchesOnlyItsOwn(t *testing.T) {
 		uiSerial + ".forward.out": r.Port,
 		uiSerial + ".pidof.out":   "7777\n",
 	})
-	devicetest.AddForward(t, f.dir, uiSerial, "40001", localAbstract(foreign))
-	devicetest.AddForward(t, f.dir, uiSerial, "40002", "localabstract:other")
+	sockForeign, sockOther := seedSock(t, f.dir, "reader-000000040001"), seedSock(t, f.dir, "reader-000000040002")
+	devicetest.AddForward(t, f.dir, uiSerial, sockForeign, "", localAbstract(foreign))
+	devicetest.AddForward(t, f.dir, uiSerial, sockOther, "", "localabstract:other")
 
 	mustComplete(t, f.tree(t, uiSerial))
 	calls := f.calls(t)
@@ -584,14 +596,14 @@ func TestReconcileTouchesOnlyItsOwn(t *testing.T) {
 	}
 	fwds := devicetest.Forwards(t, f.dir)
 	for _, want := range []string{
-		listedForward(uiSerial, "40001", foreign),
-		listedForward(uiSerial, "40002", "other"),
+		listedForward(uiSerial, sockForeign, foreign),
+		listedForward(uiSerial, sockOther, "other"),
 	} {
 		if !slices.Contains(fwds, want) {
 			t.Errorf("forwards %q miss %q", fwds, want)
 		}
 	}
-	if port := devicetest.ForwardPort(t, f.dir, readerNameTest); port == "" {
+	if sock := devicetest.ForwardSocket(t, f.dir, readerNameTest); sock == "" {
 		t.Errorf("forwards %q miss our own reader's forward", fwds)
 	}
 }
@@ -614,7 +626,7 @@ func TestWedgedReaderIsKilledAndStartedAgainOnce(t *testing.T) {
 		uiSerial + ".forward.out": r.Port,
 		uiSerial + ".pidof.out":   "4242\n",
 	})
-	devicetest.AddForward(t, f.dir, uiSerial, stale.Port, localAbstract(readerNameTest))
+	devicetest.AddForward(t, f.dir, uiSerial, seedSock(t, f.dir, "reader-0000000000cc"), stale.Port, localAbstract(readerNameTest))
 
 	mustComplete(t, f.tree(t, uiSerial))
 	calls := f.calls(t)

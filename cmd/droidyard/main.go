@@ -411,6 +411,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	var stateRoot string
 	if st != nil {
 		stateRoot = st.Root()
+		// The sockets the reader and the screen server are forwarded to (ADR-0102): in the
+		// state root's run directory, within sun_path as the daemon's socket is.
+		adb.SetForwardDir(env.ForwardDir(stateRoot))
 	}
 	// The emulator subsystem (plan m1i steps 4–5): it resolves the launcher in the
 	// daemon's environment, shares adb for the device side, runs `-list-avds` through the

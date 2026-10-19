@@ -407,18 +407,17 @@ func TestCloseQuitsReadersAndRemovesOnlyItsForwards(t *testing.T) {
 	mustComplete(t, f.tree(t, uiSerial))
 	mustComplete(t, f.tree(t, "emulator-5556"))
 
-	// The forward ports are the fake's proxies, not the readers' ports: read them from
-	// the clients (a proxy port is picked by the fake's `forward tcp:0`).
-	portA := f.adb.reader(uiSerial).portValue()
-	portB := f.adb.reader("emulator-5556").portValue()
+	// The forward sockets are named by the clients (forwardSocket): read them from them.
+	sockA := f.adb.reader(uiSerial).sockValue()
+	sockB := f.adb.reader("emulator-5556").sockValue()
 
 	f.adb.Close(context.Background())
 	if rA.Quits() != 1 || rB.Quits() != 1 {
 		t.Errorf("quits = %d and %d, want 1 each", rA.Quits(), rB.Quits())
 	}
 	calls := f.calls(t)
-	wantA := "-s " + uiSerial + " forward --remove tcp:" + portA
-	wantB := "-s emulator-5556 forward --remove tcp:" + portB
+	wantA := "-s " + uiSerial + " forward --remove localfilesystem:" + sockA
+	wantB := "-s emulator-5556 forward --remove localfilesystem:" + sockB
 	if count(calls, wantA) != 1 || count(calls, wantB) != 1 {
 		t.Errorf("calls %q: want exactly one removal of each of our forwards (%q, %q)", calls, wantA, wantB)
 	}
@@ -576,11 +575,11 @@ func TestCloseRemovesForwardsDespiteADrainedContext(t *testing.T) {
 		uiSerial + ".forward.out": r.Port,
 	})
 	mustComplete(t, f.tree(t, uiSerial))
-	port := f.adb.reader(uiSerial).portValue()
+	sock := f.adb.reader(uiSerial).sockValue()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	f.adb.Close(ctx)
-	want := "-s " + uiSerial + " forward --remove tcp:" + port
+	want := "-s " + uiSerial + " forward --remove localfilesystem:" + sock
 	if n := count(f.calls(t), want); n != 1 {
 		t.Errorf("the forward removal ran %d times with a drained context, want 1", n)
 	}

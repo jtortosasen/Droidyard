@@ -352,3 +352,35 @@ func TestWorkspaceIDIsOneIDPerRoot(t *testing.T) {
 		t.Errorf("the filesystem root's id is %q; want root-<hash>", id)
 	}
 }
+
+// TestForwardDirHoldsTheLongestForwardName: the sockets the device's reader and screen server
+// are forwarded to (ADR-0102) live in run/fwd/ beside the daemon's socket, and a state root
+// whose forward names would not fit sun_path moves them to a directory of their own under
+// /tmp, as ADR-0019 §6 moves the socket. Where the socket fits and a forward does not (the
+// forward's path is longer than the socket's), the forwards move and the socket stays.
+func TestForwardDirHoldsTheLongestForwardName(t *testing.T) {
+	for goos, max := range map[string]int{"darwin": 103, "linux": 107} {
+		e := env(goos, map[string]string{"DROIDYARD_STATE_DIR": "/s"})
+		if got := e.ForwardDir("/s"); got != "/s/run/fwd" {
+			t.Errorf("%s: forward directory %q, want /s/run/fwd", goos, got)
+		}
+		// The socket's path fits with this root, exactly; the longest forward name does not.
+		suffix := "/run/droidyard.sock"
+		root := "/" + strings.Repeat("s", max-len(suffix)-1)
+		e = env(goos, map[string]string{"DROIDYARD_STATE_DIR": root})
+		if got := e.SocketPath(root); got != root+suffix {
+			t.Fatalf("%s: the socket moved (%q): the test needs one that fits", goos, got)
+		}
+		dir := e.ForwardDir(root)
+		if want := "/tmp/droidyard-501/fwd-" + e.discriminator(root); dir != want {
+			t.Errorf("%s: forward directory %q, want the /tmp fallback %q", goos, dir, want)
+		}
+		if name := filepath.Join(dir, strings.Repeat("x", ForwardNameMax)); !e.SocketFits(name) {
+			t.Errorf("%s: the longest forward name does not fit in %q (%d bytes)", goos, dir, len(name))
+		}
+		// One byte past the boundary is not a socket address.
+		if e.SocketFits("/" + strings.Repeat("s", max)) {
+			t.Errorf("%s: a %d-byte path fits", goos, max+1)
+		}
+	}
+}

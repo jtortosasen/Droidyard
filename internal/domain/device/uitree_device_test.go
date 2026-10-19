@@ -151,7 +151,7 @@ func countServeStarts(calls []string) int {
 func countForward(calls []string) int {
 	n := 0
 	for _, c := range calls {
-		if strings.HasPrefix(c, "-s "+uiSerial+" forward tcp:0 localabstract:droidyard-reader-") {
+		if strings.HasPrefix(c, "-s "+uiSerial+" forward localfilesystem:") && strings.Contains(c, " localabstract:droidyard-reader-") {
 			n++
 		}
 	}

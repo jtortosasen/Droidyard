@@ -76,6 +76,10 @@ type ADB struct {
 	rdMu    sync.Mutex
 	readers map[string]*readerClient
 
+	// fwd is the directory of the sockets the forwards to the device are made at
+	// (forwardsock.go; ADR-0102).
+	fwd forwardDir
+
 	// appMu guards apps, the per-(serial, applicationId) launch and pid records
 	// device.logs filters an app by when its logcat has no uid column (plan m1i D11).
 	appMu sync.Mutex

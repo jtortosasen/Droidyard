@@ -54,7 +54,7 @@ var (
 	readerActMargin = 1500 * time.Millisecond
 	// warmReadTimeout bounds one dump over the forward.
 	warmReadTimeout = 4 * time.Second
-	// readerForwardTimeout bounds `adb forward tcp:0 ...`.
+	// readerForwardTimeout bounds `adb forward` and the other short adb commands of a forward.
 	readerForwardTimeout = 5 * time.Second
 	// psOutputCap bounds `ps -A -o PID,NAME`; forwardListCap bounds `adb forward --list`,
 	// which lists the host's forwards for every device.
@@ -180,7 +180,7 @@ type readerClient struct {
 	lock chan struct{}
 
 	mu       sync.Mutex
-	port     string // the forward's host port, "" until forwarded
+	sock     string // the forward's socket file, "" until forwarded
 	launched bool   // the serve command ran at least once (or a reader was adopted)
 	pushed   bool   // the dex was pushed by this daemon; not proof it is still there (dexNeedsPush)
 	// reconciled is true once `forward --list` has been read for this client: the
@@ -224,10 +224,10 @@ func (c *readerClient) acquire(ctx context.Context) error {
 
 func (c *readerClient) release() { <-c.lock }
 
-func (c *readerClient) portValue() string {
+func (c *readerClient) sockValue() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.port
+	return c.sock
 }
 
 func (c *readerClient) setPushed() {
@@ -242,10 +242,10 @@ func (c *readerClient) isPushed() bool {
 	return c.pushed
 }
 
-func (c *readerClient) havePort() bool {
+func (c *readerClient) haveSock() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.port != ""
+	return c.sock != ""
 }
 
 // wasStarted reports whether a serve command ran or a reader was adopted: this daemon
@@ -287,19 +287,19 @@ func (c *readerClient) rememberForeign(name string) bool {
 	return true
 }
 
-// clearPort forgets a forward that is gone, so the caller makes a new one.
-func (c *readerClient) clearPort() {
+// clearSock forgets a forward that is gone, so the caller makes a new one.
+func (c *readerClient) clearSock() {
 	c.mu.Lock()
-	c.port = ""
+	c.sock = ""
 	c.mu.Unlock()
 }
 
-// setPort remembers a forward this daemon did not make under it (an earlier daemon's,
+// setSock remembers a forward this daemon did not make under it (an earlier daemon's,
 // still listed): the reader at the other end is the same one.
-func (c *readerClient) setPort(port string) {
+func (c *readerClient) setSock(sock string) {
 	c.mu.Lock()
-	if port != "" {
-		c.port = port
+	if sock != "" {
+		c.sock = sock
 	}
 	c.mu.Unlock()
 }
@@ -307,15 +307,15 @@ func (c *readerClient) setPort(port string) {
 // adopt takes over an earlier daemon's forward: the reader is this daemon's to use, so
 // it counts as started and Close quits it and removes its forward (plan m1f step 7,
 // ADR-0030).
-func (c *readerClient) adopt(port string) {
-	c.setStarted(port)
+func (c *readerClient) adopt(sock string) {
+	c.setStarted(sock)
 }
 
-func (c *readerClient) setStarted(port string) {
+func (c *readerClient) setStarted(sock string) {
 	c.mu.Lock()
 	c.launched = true
-	if port != "" {
-		c.port = port
+	if sock != "" {
+		c.sock = sock
 	}
 	c.mu.Unlock()
 }
@@ -342,8 +342,8 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	if cerr := parent.Err(); cerr != nil {
 		return nil, dumpOther, "", cerr.Error(), "", rfNone
 	}
-	port := c.portValue()
-	if port == "" {
+	sock := c.sockValue()
+	if sock == "" {
 		return nil, dumpOther, "", "the reader's forward is gone", "", rfNone
 	}
 	deadline := time.Now().Add(warmReadTimeout)
@@ -351,7 +351,7 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 		deadline = end
 	}
 	warmStart := time.Now()
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), warmReadTimeout)
+	conn, err := net.DialTimeout("unix", sock, warmReadTimeout)
 	if err != nil {
 		// The forward no longer answers: it may have been removed (a lost forward) or
 		// the reader may be gone. The chain restarts the reader once, which reconciles
@@ -513,7 +513,7 @@ func readerFenceError(uid string) error {
 // now (ADR-0035 §3; plan m1n step 5): it takes the device's read lock, makes the reader
 // reachable (ensureReader pushes, starts and forwards it when it is not up), and pings the
 // forward. The explicit ping is the point (plan m1n step 4, fix round N2): a cached forward
-// can be stale — the reader may have died — and ensureReader returns true for a cached port
+// can be stale — the reader may have died — and ensureReader returns true for a cached socket
 // without pinging it, so a caller that acted on that alone could send an acting request to
 // a reader that is not there and report the failure as may-have-applied. A false answer
 // means nothing was sent to the reader, so a caller may use the non-reader path.
@@ -525,11 +525,11 @@ func (a *ADB) readerReady(parent context.Context, t *target, c *readerClient, en
 	if ok, _ := a.ensureReader(parent, t, c, end); !ok {
 		return false
 	}
-	port := c.portValue()
-	if port == "" {
+	sock := c.sockValue()
+	if sock == "" {
 		return false
 	}
-	return a.pingPort(parent, port, boundBy(time.Now().Add(readerPingCheck), end))
+	return a.pingSock(parent, sock, boundBy(time.Now().Add(readerPingCheck), end))
 }
 
 // actOnReader sends one acting request (ADR-0035 §1) to a device's persistent reader over
@@ -555,15 +555,15 @@ func (a *ADB) actOnReader(ctx context.Context, t *target, c *readerClient, reque
 	if cerr := ctx.Err(); cerr != nil {
 		return readerAct{}, cerr
 	}
-	port := c.portValue()
-	if port == "" {
+	sock := c.sockValue()
+	if sock == "" {
 		return readerAct{}, errors.New("the persistent UI reader's forward is gone")
 	}
 	deadline := time.Now().Add(bound)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), bound)
+	conn, err := net.DialTimeout("unix", sock, bound)
 	if err != nil {
 		// Nothing was sent, so this is not the may-have-applied case: the caller may use
 		// another delivery method. The reader is not restarted here — an acting request
@@ -692,22 +692,22 @@ func (a *ADB) ensureReader(parent context.Context, t *target, c *readerClient, e
 
 	if !c.didReconcile() {
 		stale, why := a.reconcileForward(ctx, t, c)
-		// A listing failure with a cached port is ignored and the dump is tried (plan
+		// A listing failure with a cached socket is ignored and the dump is tried (plan
 		// m1f step 7); on the first read there is nothing to try.
-		if why != "" && !c.havePort() {
+		if why != "" && !c.haveSock() {
 			return false, why
 		}
 		c.markReconciled()
 		// The first read is a slow path: stop a reader of another digest found by
 		// process name, before this daemon uses or starts its own (plan m1f step 7).
 		a.clearForeignReaders(ctx, t, c)
-		if !c.havePort() && stale {
+		if !c.haveSock() && stale {
 			// A forward to our socket that did not answer: kill its process before the
 			// new start (plan m1f step 7).
 			a.killOwnReader(ctx, t, c)
 		}
 	}
-	if c.havePort() {
+	if c.haveSock() {
 		return true, ""
 	}
 
@@ -718,7 +718,7 @@ func (a *ADB) ensureReader(parent context.Context, t *target, c *readerClient, e
 		if ok, why := a.forwardReader(ctx, t, c); !ok {
 			return false, why
 		}
-		if a.pingPort(ctx, c.portValue(), boundBy(time.Now().Add(readerPingCheck), end)) {
+		if a.pingSock(ctx, c.sockValue(), boundBy(time.Now().Add(readerPingCheck), end)) {
 			return true, ""
 		}
 		a.killOwnReader(ctx, t, c)
@@ -740,7 +740,7 @@ func (a *ADB) ensureReader(parent context.Context, t *target, c *readerClient, e
 	if ok, why := a.startServe(ctx, t, c); !ok {
 		return false, why
 	}
-	if !c.havePort() {
+	if !c.haveSock() {
 		if ok, why := a.forwardReader(ctx, t, c); !ok {
 			return false, why
 		}
@@ -759,11 +759,11 @@ func (a *ADB) restartReader(parent context.Context, t *target, c *readerClient, 
 	defer cancel()
 
 	// The failed read is what drove this restart: reconcile the forward (it may have
-	// been removed). A listing failure with a cached port is ignored: the dump is tried.
-	if _, why := a.reconcileForward(ctx, t, c); why != "" && !c.havePort() {
+	// been removed). A listing failure with a cached socket is ignored: the dump is tried.
+	if _, why := a.reconcileForward(ctx, t, c); why != "" && !c.haveSock() {
 		return false, why
 	}
-	if !c.havePort() {
+	if !c.haveSock() {
 		if !c.wasStarted() {
 			return false, "the reader's forward is gone"
 		}
@@ -773,7 +773,7 @@ func (a *ADB) restartReader(parent context.Context, t *target, c *readerClient, 
 	}
 	// A reader of our name may be alive and merely unreachable. If it answers ping the
 	// same forward is usable and no second reader is started (plan m1f step 7).
-	if a.pingPort(ctx, c.portValue(), time.Now().Add(readerPingCheck)) {
+	if a.pingSock(ctx, c.sockValue(), time.Now().Add(readerPingCheck)) {
 		return true, ""
 	}
 	a.killOwnReader(ctx, t, c)
@@ -797,7 +797,7 @@ func (a *ADB) restartReader(parent context.Context, t *target, c *readerClient, 
 // forwardEntry is one line of `adb forward --list`.
 type forwardEntry struct {
 	serial string
-	port   string
+	sock   string
 	remote string // the local socket's name, without "localabstract:"
 }
 
@@ -818,24 +818,27 @@ func (a *ADB) reconcileForward(ctx context.Context, t *target, c *readerClient) 
 	ours, found := forwardByName(entries, t.serial, c.name)
 	switch {
 	case !found:
-		// Gone, as after an adb server restart: forget the port so it is recreated.
-		c.clearPort()
+		// Gone, as after an adb server restart: forget the socket so it is recreated, and
+		// unlink the file the server left.
+		a.unlinkForward(c.sockValue())
+		c.clearSock()
 		return false, ""
-	case c.havePort() && c.portValue() == ours.port:
+	case c.haveSock() && c.sockValue() == ours.sock:
 		return false, ""
-	case c.havePort():
-		// Listed under another port than the cached one: use the listed one.
-		c.setPort(ours.port)
+	case c.haveSock():
+		// Listed under another socket than the cached one: use the listed one. The cached
+		// one's forward may still be listed, so its file stays.
+		c.setSock(ours.sock)
 		return false, ""
 	}
-	// No cached port and a forward to our socket exists: an earlier daemon's. Adopt it
+	// No cached socket and a forward to our socket exists: an earlier daemon's. Adopt it
 	// when it answers; otherwise remove it so the new forward is not a stale one beside
 	// the new (plan m1f step 7).
-	if a.pingPort(ctx, ours.port, time.Now().Add(readerPingCheck)) {
-		c.adopt(ours.port)
+	if a.pingSock(ctx, ours.sock, time.Now().Add(readerPingCheck)) {
+		c.adopt(ours.sock)
 		return false, ""
 	}
-	a.removeForward(ctx, t, ours.port)
+	a.removeForward(ctx, t, ours.sock)
 	return true, ""
 }
 
@@ -969,24 +972,40 @@ func (a *ADB) forwardList(ctx context.Context, t *target) ([]forwardEntry, strin
 		// adopt or remove a forward that was not really there (plan m1f step 7).
 		return nil, "adb forward --list was too long"
 	}
-	return parseForwardList(out.Stdout), ""
+	// The listing is every client's: only a file of the shape this daemon makes in its own
+	// forward directory is ever dialled or unlinked.
+	var own []forwardEntry
+	for _, e := range parseForwardList(out.Stdout) {
+		if a.ownForward(e.sock) {
+			own = append(own, e)
+		}
+	}
+	return own, ""
 }
 
-// parseForwardList reads `adb forward --list`'s lines: `<serial> tcp:<port>
-// <remote>`, as step 1 recorded (`emulator-5554 tcp:63552
-// localabstract:droidyard-reader-31edb33baa07`). Only local-socket forwards are kept.
+// parseForwardList reads `adb forward --list`'s lines: `<serial> localfilesystem:<path>
+// <remote>` (`emulator-5554 localfilesystem:/state/run/fwd/reader-0123456789ab
+// localabstract:droidyard-reader-31edb33baa07`, as the spike of plan m2t step 8 recorded;
+// the path is printed raw, spaces included).
+// Only forwards to a socket file are kept: the loopback ports of ADR-0030's first form
+// are not this daemon's any more.
 func parseForwardList(out []byte) []forwardEntry {
 	var entries []forwardEntry
 	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 3 || !strings.HasPrefix(f[1], "tcp:") {
+		// The serial is the first field and the remote the last; the local spec is what lies
+		// between, as adb prints it: a path with a space in it (macOS's default state root is
+		// under "Application Support") is one spec, so the line is not split on every space.
+		line = strings.TrimSpace(line)
+		i, j := strings.IndexByte(line, ' '), strings.LastIndexByte(line, ' ')
+		if i < 0 || j <= i {
 			continue
 		}
-		name := strings.TrimPrefix(f[2], "localabstract:")
-		if name == f[2] {
-			continue // not a local socket forward
+		serial, local, remote := line[:i], strings.TrimSpace(line[i+1:j]), line[j+1:]
+		name := strings.TrimPrefix(remote, "localabstract:")
+		if !strings.HasPrefix(local, forwardLocalPrefix) || name == remote {
+			continue // not a forward to a socket file, or not to a local socket
 		}
-		entries = append(entries, forwardEntry{serial: f[0], port: strings.TrimPrefix(f[1], "tcp:"), remote: name})
+		entries = append(entries, forwardEntry{serial: serial, sock: strings.TrimPrefix(local, forwardLocalPrefix), remote: name})
 	}
 	return entries
 }
@@ -1001,13 +1020,14 @@ func forwardByName(entries []forwardEntry, serial, name string) (forwardEntry, b
 	return forwardEntry{}, false
 }
 
-// removeForward removes one forward this daemon owns, by its host port. It never removes
-// all forwards and never another name's (E6).
-func (a *ADB) removeForward(ctx context.Context, t *target, port string) {
-	if port == "" {
+// removeForward removes one forward this daemon owns, by its socket, and unlinks the file
+// adb leaves behind (ADR-0102). It never removes all forwards and never another name's (E6).
+func (a *ADB) removeForward(ctx context.Context, t *target, sock string) {
+	if sock == "" {
 		return
 	}
-	a.Run(ctx, t.adb, readerForwardTimeout, 1<<10, "-s", t.serial, "forward", "--remove", "tcp:"+port)
+	a.Run(ctx, t.adb, readerForwardTimeout, 1<<10, "-s", t.serial, "forward", "--remove", forwardLocalPrefix+sock)
+	a.unlinkForward(sock)
 }
 
 // pidOf lists the pids named name on the device; empty on any failure, and for a name
@@ -1103,46 +1123,48 @@ func (a *ADB) startServe(ctx context.Context, t *target, c *readerClient) (bool,
 	return true, ""
 }
 
-// forwardReader creates the host-to-device forward and remembers its port. `tcp:0`
-// makes the adb server pick a free port, which it prints.
+// forwardReader creates the host-to-device forward, to a socket file of its own in the
+// forward directory (ADR-0102), and remembers the file. A forward that failed may still
+// have left the file, so it is unlinked.
 func (a *ADB) forwardReader(ctx context.Context, t *target, c *readerClient) (bool, string) {
-	out, err := a.Run(ctx, t.adb, readerForwardTimeout, 1<<10, "-s", t.serial, "forward", "tcp:0", "localabstract:"+c.name)
+	sock, err := a.forwardSocket(ctx, t.adb, fwdKindReader)
+	if err != nil {
+		return false, "no socket for the forward: " + err.Error()
+	}
+	out, err := a.Run(ctx, t.adb, readerForwardTimeout, 1<<10, "-s", t.serial, "forward", forwardLocalPrefix+sock, "localabstract:"+c.name)
 	if err != nil || out.ExitCode != 0 {
+		a.unlinkForward(sock)
 		return false, "adb forward failed: " + decisiveLine(out)
 	}
-	port := strings.TrimSpace(string(out.Stdout))
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return false, "adb forward printed no port"
-	}
-	c.setStarted(port)
+	c.setStarted(sock)
 	return true, ""
 }
 
 // pingReader asks the reader to answer until deadline, so a start that is still coming up
 // is waited for rather than failed.
 func (a *ADB) pingReader(ctx context.Context, c *readerClient, deadline time.Time) (bool, string) {
-	port := c.portValue()
-	if port == "" {
+	sock := c.sockValue()
+	if sock == "" {
 		return false, "the reader's forward is gone"
 	}
-	if a.pingPort(ctx, port, deadline) {
+	if a.pingSock(ctx, sock, deadline) {
 		return true, ""
 	}
 	return false, readerPingReason
 }
 
-// pingPort asks the reader at a forwarded port to answer until deadline. It is the one
+// pingSock asks the reader at a forward's socket to answer until deadline. It is the one
 // ping used for the start wait and for step 7's 1 s check (readerPingCheck) before a
 // reader is killed and replaced.
-func (a *ADB) pingPort(ctx context.Context, port string, deadline time.Time) bool {
-	if port == "" {
+func (a *ADB) pingSock(ctx context.Context, sock string, deadline time.Time) bool {
+	if sock == "" {
 		return false
 	}
 	for {
 		if time.Now().After(deadline) {
 			return false
 		}
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), readerPingPause*5)
+		conn, err := net.DialTimeout("unix", sock, readerPingPause*5)
 		if err == nil {
 			conn.SetDeadline(deadline)
 			// A ping blocked on its deadline still stops when ctx ends.
@@ -1263,7 +1285,7 @@ func boundBy(a, b time.Time) time.Time {
 // Close ends every device.watchLogs stream and every live-view source, waiting for each
 // child to be reaped, then stops
 // every UI reader this daemon used and removes every forward it made: `quit`
-// to each reader and `adb forward --remove tcp:<port>` for each forward, per device in
+// to each reader and `adb forward --remove localfilesystem:<sock>` for each forward, per device in
 // parallel, all within readerCloseBound (plan m1f step 5). It is called after the
 // daemon's operations have drained. It never issues `forward --remove-all`.
 func (a *ADB) Close(ctx context.Context) {
@@ -1303,20 +1325,20 @@ func (a *ADB) Close(ctx context.Context) {
 }
 
 // close quits one reader and removes its forward. A reader that was started but never
-// forwarded (its forward failed) cannot be reached over the local port, so it is killed
+// forwarded (its forward failed) cannot be reached over its socket, so it is killed
 // by its process name, pidof then kill, and only that name (E6). All of it is best
 // effort inside ctx: a device that never answers must not hold the daemon's shutdown
 // past its bound.
 func (c *readerClient) close(ctx context.Context, a *ADB, adb string) {
 	c.mu.Lock()
-	port, launched := c.port, c.launched
+	sock, launched := c.sock, c.launched
 	c.mu.Unlock()
 	if !launched {
 		return
 	}
 	quit := false
-	if port != "" {
-		if conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), readerPingPause*5); err == nil {
+	if sock != "" {
+		if conn, err := net.DialTimeout("unix", sock, readerPingPause*5); err == nil {
 			conn.SetDeadline(time.Now().Add(readerPingPause * 5))
 			if _, err := io.WriteString(conn, "quit\n"); err == nil {
 				quit = true
@@ -1336,8 +1358,9 @@ func (c *readerClient) close(ctx context.Context, a *ADB, adb string) {
 			}
 		}
 	}
-	if port == "" || adb == "" {
+	if sock == "" || adb == "" {
 		return
 	}
-	a.Run(ctx, adb, readerCloseBound, 1<<10, "-s", c.serial, "forward", "--remove", "tcp:"+port)
+	a.Run(ctx, adb, readerCloseBound, 1<<10, "-s", c.serial, "forward", "--remove", forwardLocalPrefix+sock)
+	a.unlinkForward(sock)
 }

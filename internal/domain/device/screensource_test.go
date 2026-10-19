@@ -92,7 +92,7 @@ type screenListenerOpts struct {
 type screenListener struct {
 	opts screenListenerOpts
 	ln   net.Listener
-	Port string
+	Path string // the Unix socket the fake forward links to
 
 	gate     chan struct{}
 	gateOnce sync.Once
@@ -108,15 +108,22 @@ type screenListener struct {
 
 func startScreenListener(t *testing.T, o screenListenerOpts) *screenListener {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Under /tmp: a Unix socket's path holds about 100 bytes, which a test's temporary
+	// directory can exceed.
+	root, err := os.MkdirTemp("/tmp", "dyscr")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	l := &screenListener{opts: o, ln: ln, Port: port, gate: make(chan struct{})}
+	path := filepath.Join(root, "s")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &screenListener{opts: o, ln: ln, Path: path, gate: make(chan struct{})}
 	go l.accept()
 	t.Cleanup(func() {
 		ln.Close()
+		os.RemoveAll(root)
 		l.mu.Lock()
 		for _, c := range l.conns {
 			c.Close()
@@ -238,7 +245,7 @@ type ssFix struct {
 func newSSFixture(t *testing.T, o screenListenerOpts, files map[string]string) *ssFix {
 	t.Helper()
 	l := startScreenListener(t, o)
-	all := map[string]string{uiSerial + ".forwardscrcpy.out": l.Port + "\n"}
+	all := map[string]string{uiSerial + ".forwardscrcpy.out": l.Path + "\n"}
 	for k, v := range files {
 		all[k] = v
 	}
@@ -325,6 +332,10 @@ func (f *ssFix) requireClean(t *testing.T) {
 	if fw := devicetest.Forwards(t, f.dir); len(fw) != 0 {
 		t.Errorf("forwards left: %v", fw)
 	}
+	// adb leaves the socket file when it removes a forward (ADR-0102): the source unlinks it.
+	if left, _ := os.ReadDir(forwardDirFor(t, f.dir)); len(left) != 0 {
+		t.Errorf("socket files left in the forward directory: %v", left)
+	}
 	for _, pid := range f.serverPids(t) {
 		if !gone(pid) {
 			t.Errorf("the server's adb client, pid %d, is still running", pid)
@@ -360,6 +371,9 @@ func streamErr(t *testing.T, err error) *capability.Error {
 const ssJar = "/data/local/tmp/droidyard-scrcpy-"
 
 var ssSCID = regexp.MustCompile(`^[0-9a-f]{8}$`)
+
+// ssForward is the live view's forward: the socket file, then the abstract socket.
+var ssForward = regexp.MustCompile(`^-s ` + uiSerial + ` forward localfilesystem:(.+/screen-[0-9a-f]{12}) localabstract:scrcpy_(\S+)$`)
 
 // Decision (ADR-0077 §1, §2; plan m2p step 3): a start pushes the server to the
 // digest-named path, forwards a socket of its own, runs the server there with the pinned
@@ -417,11 +431,16 @@ func TestScreenSourceStreams(t *testing.T) {
 	if want := "-s " + uiSerial + " push LOCAL " + jar; calls[0] != want {
 		t.Errorf("call 0 = %q, want %q", calls[0], want)
 	}
-	const fwd = "-s " + uiSerial + " forward tcp:0 localabstract:scrcpy_"
-	if !strings.HasPrefix(calls[1], fwd) {
-		t.Fatalf("call 1 = %q, want a forward to scrcpy_<scid>", calls[1])
+	// The forward is to a socket file of the daemon's own, in its forward directory
+	// (ADR-0102), named screen-<12 hex>.
+	m := ssForward.FindStringSubmatch(calls[1])
+	if m == nil {
+		t.Fatalf("call 1 = %q, want a forward to localfilesystem:<dir>/screen-<12 hex> and scrcpy_<scid>", calls[1])
 	}
-	scid := strings.TrimPrefix(calls[1], fwd)
+	if dir := forwardDirFor(t, f.dir); filepath.Dir(m[1]) != dir {
+		t.Errorf("the forward's socket %q is not in the forward directory %q", m[1], dir)
+	}
+	scid := m[2]
 	if !ssSCID.MatchString(scid) {
 		t.Errorf("scid %q is not 8 lowercase hex digits", scid)
 	}
@@ -440,7 +459,7 @@ func TestScreenSourceStreams(t *testing.T) {
 	}
 
 	release()
-	if len(f.callsWith(t, "forward --remove tcp:")) != 1 {
+	if len(f.callsWith(t, "forward --remove localfilesystem:")) != 1 {
 		t.Errorf("calls %q, want one forward --remove", f.calls(t))
 	}
 	f.requireClean(t)
@@ -468,7 +487,7 @@ func TestScreenSourceConnectRetries(t *testing.T) {
 // Decision (ADR-0078 §5; plan m2p step 3): the source is shared by every holder of the
 // device. Two acquires start one server; releasing one keeps it; releasing the last
 // closes the sockets, kills the child by its pid, removes the forward
-// (`forward --remove tcp:<port>`) and its record, and returns only when that is done.
+// (`forward --remove localfilesystem:<path>`) and its record, and returns only when that is done.
 // Seen failing with the refcount removed (the first release ends the source): the server
 // was gone while a holder still used it.
 func TestScreenSourceSharedPerDevice(t *testing.T) {
@@ -502,10 +521,10 @@ func TestScreenSourceSharedPerDevice(t *testing.T) {
 	if rec.Kind != "device-stream" {
 		t.Errorf("record kind %q, want device-stream", rec.Kind)
 	}
-	fwdCall := f.callsWith(t, "forward tcp:0")[0]
-	port := devicetest.ForwardPort(t, f.dir, "scrcpy_"+fwdCall[strings.LastIndex(fwdCall, "scrcpy_")+len("scrcpy_"):])
-	if port != f.ln.Port {
-		t.Errorf("forward port %q, want the listener's %q", port, f.ln.Port)
+	fwdCall := f.callsWith(t, "forward localfilesystem:")[0]
+	sock := devicetest.ForwardSocket(t, f.dir, "scrcpy_"+fwdCall[strings.LastIndex(fwdCall, "scrcpy_")+len("scrcpy_"):])
+	if target, err := os.Readlink(sock); err != nil || target != f.ln.Path {
+		t.Errorf("forward socket %q leads to %q (%v), want the listener's %q", sock, target, err, f.ln.Path)
 	}
 
 	a.release()
@@ -527,8 +546,8 @@ func TestScreenSourceSharedPerDevice(t *testing.T) {
 	if !gone(rec.PID) {
 		t.Errorf("pid %d survived the last release", rec.PID)
 	}
-	if rm := f.callsWith(t, "forward --remove tcp:"+port); len(rm) != 1 {
-		t.Errorf("calls %q, want one forward --remove tcp:%s", f.calls(t), port)
+	if rm := f.callsWith(t, "forward --remove localfilesystem:"+sock); len(rm) != 1 {
+		t.Errorf("calls %q, want one forward --remove localfilesystem:%s", f.calls(t), sock)
 	}
 	f.requireClean(t)
 	select {
@@ -763,7 +782,7 @@ func TestScreenSourceCancelledAcquire(t *testing.T) {
 			t.Fatalf("acquire returned %v, want the context's error", err)
 		}
 		// acquire returned: the abandoned start is already cleaned up.
-		if len(f.callsWith(t, "forward --remove tcp:")) != 1 {
+		if len(f.callsWith(t, "forward --remove localfilesystem:")) != 1 {
 			t.Errorf("calls %q, want the forward removed", f.calls(t))
 		}
 		f.requireClean(t)
@@ -839,7 +858,7 @@ func TestScreenSourceCancelledAcquire(t *testing.T) {
 				t.Errorf("cause %q, want the connect phase", ce.Cause)
 			}
 			// Every waiter's error is returned after the teardown, not before it.
-			if len(f.callsWith(t, "forward --remove tcp:")) == 0 || len(devicetest.Forwards(t, f.dir)) != 0 {
+			if len(f.callsWith(t, "forward --remove localfilesystem:")) == 0 || len(devicetest.Forwards(t, f.dir)) != 0 {
 				t.Errorf("a waiter was told of the failure while the forward was still listed: %v", devicetest.Forwards(t, f.dir))
 			}
 		}
@@ -872,14 +891,17 @@ func TestScreenSourceStartFailures(t *testing.T) {
 		{name: "push", opts: screenListenerOpts{head: data},
 			files: map[string]string{uiSerial + ".pushscrcpy.exit": "1", uiSerial + ".pushscrcpy.err": marker},
 			phase: "push", cause: "adb push exited with status 1"},
-		{name: "forward without a port", opts: screenListenerOpts{head: data},
-			files: map[string]string{uiSerial + ".forwardscrcpy.out": ""},
-			phase: "forward", cause: "adb forward printed no port", pushed: true},
-		// The forward exists but what it printed is no port: the source finds it by its
-		// socket's name in the listing and removes it (requireClean sees the table empty).
-		{name: "forward with an unreadable port", opts: screenListenerOpts{head: data},
-			files: map[string]string{uiSerial + ".forwardscrcpy.out": "x1\n"},
-			phase: "forward", cause: "adb forward printed no port", pushed: true},
+		{name: "forward", opts: screenListenerOpts{head: data},
+			files: map[string]string{uiSerial + ".forwardscrcpy.exit": "1", uiSerial + ".forwardscrcpy.err": marker},
+			phase: "forward", cause: "adb forward exited with status 1", pushed: true},
+		// The adb client was cut short after its server made the forward: the source removes
+		// it by its own socket, without asking the listing (requireClean sees the table and
+		// the directory empty). Seen failing with the removal skipped for a forward that did
+		// not report success.
+		{name: "forward cut short after it was made", opts: screenListenerOpts{head: data},
+			files: map[string]string{uiSerial + ".forwardscrcpy.exit": "1", uiSerial + ".forwardscrcpy.made": "1",
+				uiSerial + ".forwardlist.exit": "1"},
+			phase: "forward", cause: "adb forward exited with status 1", pushed: true},
 		{name: "server exits at start", opts: screenListenerOpts{refuseAll: true},
 			files: map[string]string{uiSerial + ".scrcpyserver.exit": "1", uiSerial + ".scrcpyserver.err": marker},
 			phase: "start", cause: "adb shell exited with status 1", pushed: true},
@@ -1050,11 +1072,13 @@ func stormAbandoned(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if fwd, rm := len(f.callsWith(t, "forward tcp:0")), len(f.callsWith(t, "forward --remove")); rm > fwd {
-		t.Errorf("forwards %d, removals %d", fwd, rm)
+	// Every forward is removed; a forward cut short before it ran is removed by name too, and
+	// adb refuses that harmlessly, so removals may exceed forwards by those, never the starts.
+	if fwd, rm, push := len(f.callsWith(t, "forward localfilesystem:")), len(f.callsWith(t, "forward --remove")), len(f.callsWith(t, " push ")); rm < fwd || rm > push {
+		t.Errorf("pushes %d, forwards %d, removals %d: want every forward removed, and no more than one removal a start", push, fwd, rm)
 	}
 	f.requireClean(t)
-	t.Logf("%d pushes, %d forwards, %d removals", len(f.callsWith(t, " push ")), len(f.callsWith(t, "forward tcp:0")), len(f.callsWith(t, "forward --remove")))
+	t.Logf("%d pushes, %d forwards, %d removals", len(f.callsWith(t, " push ")), len(f.callsWith(t, "forward localfilesystem:")), len(f.callsWith(t, "forward --remove")))
 }
 
 func stormHolders(t *testing.T) {
@@ -1093,7 +1117,7 @@ func stormHolders(t *testing.T) {
 	}
 	// Every start was pushed, forwarded and, once ended, unforwarded. The server's own log
 	// line is not counted: under -race the fake can be killed before it writes it.
-	push, fwd, rm := len(f.callsWith(t, " push ")), len(f.callsWith(t, "forward tcp:0")), len(f.callsWith(t, "forward --remove"))
+	push, fwd, rm := len(f.callsWith(t, " push ")), len(f.callsWith(t, "forward localfilesystem:")), len(f.callsWith(t, "forward --remove"))
 	if push < 1 || push != fwd || fwd != rm {
 		t.Errorf("pushes %d, forwards %d, removals %d: want equal and at least 1", push, fwd, rm)
 	}
