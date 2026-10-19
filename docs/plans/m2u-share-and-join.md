@@ -216,7 +216,7 @@
 - Not here: two Macs (the owner's trial with v0.4.0).
 - Rests on: —
 - Review: the Opus verifier, on the evidence.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) level 5 on the owner's Samsung SM-A256B R5CX62JXR3L, the owner present and their yes (2026-10-19), behind the adb-phone guard (that serial alone; formapp only installed and uninstalled; no refusal), built from 5e5efd1 with step 5's review fixes uncommitted (fc100c4's content) (`$B/evidence/phone/run.txt`, `run-logs.txt`): `droidyard share` listed `usb  samsung SM_A256B  R5CX62JXR3L` and shared it in the foreground on 192.168.0.118 and 100.64.0.17; the client pasted the line and listed it at once; `launch` formapp, `uiTree` Likes 0, `tapElement` Like, Likes 1, `screenshot` 1080×2340, the Live view in headless Chrome played; SIGINT: the view ended after 89 ms and the client's list emptied; again detached: `device.logs` since the launch read 50 lines, untrusted. The phone left as found: no package, forward, process or file of droidyard (the reader dex the run pushed removed); the owner's adb server pid 70176 unchanged. (b) the release: at the close, after the merge (its evidence in the close).
 
 ## Not in this milestone
 
