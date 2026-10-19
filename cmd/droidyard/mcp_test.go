@@ -113,8 +113,8 @@ func (s *shim) recv() []byte {
 		}
 		s.t.Logf("%s ← %s", s.name, line)
 		return line
-	case <-time.After(10 * time.Second):
-		s.t.Fatalf("%s: no response within 10 s", s.name)
+	case <-time.After(10 * time.Second * raceTimeScale):
+		s.t.Fatalf("%s: no response within %v", s.name, 10*time.Second*raceTimeScale)
 	}
 	return nil
 }
@@ -148,10 +148,10 @@ func (s *shim) exit() int {
 	return s.wait()
 }
 
-// wait returns the shim's exit code once it exits, failing after 10 s.
+// wait returns the shim's exit code once it exits, failing after 10 s (stretched under -race).
 func (s *shim) wait() int {
 	s.t.Helper()
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(10 * time.Second * raceTimeScale)
 	for lines := s.lines; lines != nil; {
 		select {
 		case line, ok := <-lines:
