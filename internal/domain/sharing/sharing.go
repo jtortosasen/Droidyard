@@ -490,7 +490,12 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 	}
 	// A detached share's code is on disk before it is printed (ADR-0108 §2): a write that fails
 	// issues nothing, and the share stays as it was.
-	secret, err := host.Pending().IssueSaved(p.Device)
+	// A lend entry just made leaves no code behind: those are of an earlier share that
+	// `host unlend` ended.
+	if created {
+		_ = host.Pending().Void(p.Device)
+	}
+	secret, err := host.Pending().IssueSaved(p.Device, existed || created)
 	if err != nil {
 		return nil, fail(capability.NewError(ErrUnavailable, "the join code could not be recorded, so none was issued").
 			WithCause(err.Error()).
@@ -767,8 +772,9 @@ func (s *sharing) unshare(ctx context.Context, call *capability.Call) (any, erro
 	}
 	host.Reconcile()
 	if voidErr != nil {
-		// The codes are void in this daemon; the file still lists them, and a share of the same
-		// serial after a restart would bring them back.
+		// The codes are void in this daemon, but the file still lists them: if the device is
+		// lent again before the file is written (a new share, then a restart), they would come
+		// back. Another unshare, or the daemon's next check, writes it.
 		return nil, capability.NewError(ErrUnavailable, "the share stopped, but its unused codes could not be removed from hosting/shares.json").
 			WithCause(voidErr.Error()).
 			WithDetails(map[string]any{"unshared": append([]string{}, removed...)}).

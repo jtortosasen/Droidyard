@@ -103,7 +103,11 @@ func (h *Host) initShares() {
 	switch {
 	case err != nil:
 		// A newer file is left as it is and not overwritten; an unreadable one is only reported.
-		fmt.Fprintf(h.log, "droidyard: %s could not be read (%v); the unused join codes of detached shares are void\n", SharesFile, err)
+		why := "could not be read: " + err.Error()
+		if errors.Is(err, store.ErrNewer) {
+			why = "is of a newer schemaVersion than this droidyard reads, and is left as it is"
+		}
+		fmt.Fprintf(h.log, "droidyard: %s %s; the unused join codes of detached shares are void\n", SharesFile, why)
 		return
 	case out != store.Loaded:
 		if out == store.Corrupt {
@@ -137,6 +141,23 @@ func (h *Host) initShares() {
 // durableCodes says whether the codes of the device belong in the file: a foreground share's
 // never do (ADR-0108 §3).
 func (h *Host) durableCodes(device string) bool {
+	_, foreground := h.ForegroundOwner(device)
+	return !foreground
+}
+
+// unheld says whether the unused codes of the device are stale: the configuration is usable
+// and lends the device to nobody's share, in either mode. A configuration that cannot be used
+// judges nothing.
+func (h *Host) unheld(device string) bool {
+	hp, cerr := h.cfg.Hosting()
+	if cerr != nil {
+		return false
+	}
+	for _, l := range hp.Lend {
+		if l.Device == device {
+			return false
+		}
+	}
 	_, foreground := h.ForegroundOwner(device)
 	return !foreground
 }

@@ -54,15 +54,15 @@ func TestDetachedCodesSurviveARestart(t *testing.T) {
 	state := t.TempDir()
 	h, _, _ := daemonAt(t, state)
 	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]},{"device":"R2","to":[]}]}}`)
-	s1, err := h.Pending().IssueSaved("R1")
+	s1, err := h.Pending().IssueSaved("R1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2, err := h.Pending().IssueSaved("R1")
+	s2, err := h.Pending().IssueSaved("R1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := h.Pending().IssueSaved("R2")
+	other, err := h.Pending().IssueSaved("R2", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestDetachedCodesSurviveARestart(t *testing.T) {
 	if !h.StartForeground("F1", "origin") {
 		t.Fatal("StartForeground refused")
 	}
-	fg, err := h.Pending().IssueSaved("F1")
+	fg, err := h.Pending().IssueSaved("F1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +133,8 @@ func TestConsumedCodeIsWrittenFirst(t *testing.T) {
 	state := t.TempDir()
 	h, _, log := daemonAt(t, state)
 	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]}]}}`)
-	used, _ := h.Pending().IssueSaved("R1")
-	failed, _ := h.Pending().IssueSaved("R1")
+	used, _ := h.Pending().IssueSaved("R1", true)
+	failed, _ := h.Pending().IssueSaved("R1", true)
 
 	if _, ok := h.ConsumeCode(used); !ok {
 		t.Fatal("a code issued was not accepted")
@@ -171,12 +171,12 @@ func TestSharesFileWriteFailureIssuesNothing(t *testing.T) {
 	state := t.TempDir()
 	h, _, _ := daemonAt(t, state)
 	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]}]}}`)
-	kept, err := h.Pending().IssueSaved("R1")
+	kept, err := h.Pending().IssueSaved("R1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lift := blockSharesWrite(t, state)
-	if _, err := h.Pending().IssueSaved("R1"); err == nil {
+	if _, err := h.Pending().IssueSaved("R1", true); err == nil {
 		t.Fatal("a code was issued with the file unwritable")
 	}
 	lift()
@@ -194,8 +194,8 @@ func TestVoidIsOnDisk(t *testing.T) {
 	state := t.TempDir()
 	h, _, _ := daemonAt(t, state)
 	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]},{"device":"R2","to":[]}]}}`)
-	a, _ := h.Pending().IssueSaved("R1")
-	b, _ := h.Pending().IssueSaved("R2")
+	a, _ := h.Pending().IssueSaved("R1", true)
+	b, _ := h.Pending().IssueSaved("R2", true)
 	if err := h.Pending().Void("R1"); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestVoidIsOnDisk(t *testing.T) {
 	if dev, ok := h2.ConsumeCode(b); !ok || dev != "R2" {
 		t.Errorf("another share's code after the void: %q, %v; want R2", dev, ok)
 	}
-	c, _ := h2.Pending().IssueSaved("R2")
+	c, _ := h2.Pending().IssueSaved("R2", true)
 	if err := h2.Pending().VoidAll(); err != nil {
 		t.Fatal(err)
 	}
@@ -222,8 +222,8 @@ func TestUnlendDropsTheCodes(t *testing.T) {
 	state := t.TempDir()
 	h, _, _ := daemonAt(t, state)
 	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]},{"device":"R2","to":[]}]}}`)
-	gone, _ := h.Pending().IssueSaved("R1")
-	kept, _ := h.Pending().IssueSaved("R2")
+	gone, _ := h.Pending().IssueSaved("R1", true)
+	kept, _ := h.Pending().IssueSaved("R2", true)
 
 	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R2","to":[]}]}}`)
 	h2, _, _ := daemonAt(t, state)
@@ -280,7 +280,7 @@ func TestCorruptSharesFileIsQuarantined(t *testing.T) {
 				t.Error("a corrupt file left codes pending")
 			}
 			// The share works again with a new file.
-			s, err := h.Pending().IssueSaved("R1")
+			s, err := h.Pending().IssueSaved("R1", true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -301,7 +301,10 @@ func TestCorruptSharesFileIsQuarantined(t *testing.T) {
 		if err := os.WriteFile(sharesPath(state), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		h, _, _ := daemonAt(t, state)
+		h, _, log := daemonAt(t, state)
+		if !strings.Contains(log.String(), "newer schemaVersion") {
+			t.Errorf("the log does not say the file is newer:\n%s", log.String())
+		}
 		found := false
 		for _, p := range h.Problems() {
 			found = found || (p.File == SharesFile && p.Problem == store.ProblemNewerVersion)
@@ -309,7 +312,7 @@ func TestCorruptSharesFileIsQuarantined(t *testing.T) {
 		if !found {
 			t.Errorf("problems = %+v; want %s newerVersion", h.Problems(), SharesFile)
 		}
-		if _, err := h.Pending().IssueSaved("R1"); !errors.Is(err, store.ErrNewer) {
+		if _, err := h.Pending().IssueSaved("R1", true); !errors.Is(err, store.ErrNewer) {
 			t.Errorf("a code issued over a newer file: %v; want %v", err, store.ErrNewer)
 		}
 		if got := readShares(t, state); got != body {
@@ -325,11 +328,66 @@ func TestForegroundCodesNeverReachTheFile(t *testing.T) {
 	h, _, _ := daemonAt(t, state)
 	writeConfig(t, state, `{"hosting":{"lend":[]}}`)
 	h.StartForeground("F1", "origin")
-	if _, err := h.Pending().IssueSaved("F1"); err != nil {
+	if _, err := h.Pending().IssueSaved("F1", false); err != nil {
 		t.Fatal(err)
 	}
 	h.EndForeground("F1", ShareUnshared)
 	if _, err := os.Stat(sharesPath(state)); err == nil {
 		t.Errorf("a foreground share wrote shares.json:\n%s", readShares(t, state))
+	}
+}
+
+// TestDurabilityIsTheCallers: whether a code is written is what the caller says about its
+// share, not what the host finds when it takes the lock: a foreground share that ended between
+// the decision and the code must not leave its code in the file for a moment. The device here
+// is held by no foreground share (it ended), yet the caller issued a foreground code. Seen
+// failing with the host's own check used (the parameter ignored): the file is written.
+func TestDurabilityIsTheCallers(t *testing.T) {
+	state := t.TempDir()
+	h, _, _ := daemonAt(t, state)
+	writeConfig(t, state, `{"hosting":{"lend":[]}}`)
+	if _, err := h.Pending().IssueSaved("X", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sharesPath(state)); err == nil {
+		t.Errorf("a code issued as not durable was written:\n%s", readShares(t, state))
+	}
+}
+
+// TestReconcileVoidsTheCodesOfADeviceNoLongerLent: `host unlend` writes the configuration with
+// no word to the running daemon, so its codes must not wait for a restart to go: a later share
+// of the serial would bring them back. A pass of Reconcile voids, on disk too, the codes of a
+// device with neither a lend entry nor a foreground share, keeps the others, and judges
+// nothing while the configuration cannot be used. Seen failing with the pass removed from
+// Reconcile: the first row fails.
+func TestReconcileVoidsTheCodesOfADeviceNoLongerLent(t *testing.T) {
+	state := t.TempDir()
+	h, _, _ := daemonAt(t, state)
+	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]},{"device":"R2","to":[]}]}}`)
+	gone, _ := h.Pending().IssueSaved("R1", true)
+	kept, _ := h.Pending().IssueSaved("R2", true)
+	h.StartForeground("F1", "origin")
+	fg, _ := h.Pending().IssueSaved("F1", false)
+
+	// An unusable configuration judges nothing.
+	writeConfig(t, state, `{"hosting":{"lend":"not a list"}}`)
+	h.Reconcile()
+	if !h.CodePending() {
+		t.Fatal("a pass over an unusable configuration voided codes")
+	}
+
+	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R2","to":[]}]}}`)
+	h.Reconcile()
+	if _, ok := h.ConsumeCode(gone); ok {
+		t.Error("the code of a device unlent is still good in the running daemon")
+	}
+	if strings.Contains(readShares(t, state), `"R1"`) {
+		t.Errorf("shares.json still lists the unlent device:\n%s", readShares(t, state))
+	}
+	if dev, ok := h.ConsumeCode(kept); !ok || dev != "R2" {
+		t.Errorf("a code of a device still lent: %q, %v; want R2", dev, ok)
+	}
+	if dev, ok := h.ConsumeCode(fg); !ok || dev != "F1" {
+		t.Errorf("a code of a foreground share: %q, %v; want F1", dev, ok)
 	}
 }

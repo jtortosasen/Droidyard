@@ -11,6 +11,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
 // hookDevices is the adb listing with a hook that runs while hosting.share is reading it.
@@ -163,5 +164,32 @@ func TestShareNamedSerialDoesNotAskManufacturers(t *testing.T) {
 		if got := devs.manu.Load() - before; got != row.manu {
 			t.Errorf("%s asked for manufacturers %d times; want %d", row.params, got, row.manu)
 		}
+	}
+}
+
+// TestShareAfterAnUnlendDoesNotReviveTheOldCodes: `host unlend` removes the lend entry with no
+// word to the daemon, so the codes of the share it ended are still held when the serial is
+// shared again; the new lend entry must not bring them back (ADR-0108 §2, §4). Seen failing
+// with the void on a new lend entry removed: the old code joins the new share.
+func TestShareAfterAnUnlendDoesNotReviveTheOldCodes(t *testing.T) {
+	l := newBoundLab(t, "")
+	first := l.share(t, cli1, `{"device":"R1","detach":true,"on":"127.0.0.1"}`)
+	old, err := hosting.ParseCode(first.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What host unlend does: the entry goes, the daemon is not told.
+	if _, cerr := l.host.Edit(context.Background(), func(cur policy.GetResult) (map[string]any, *capability.Error) {
+		return map[string]any{"hosting": map[string]any{"lend": []policy.Lend{}}}, nil
+	}); cerr != nil {
+		t.Fatal(cerr)
+	}
+	second := l.share(t, cli1, `{"device":"R1","detach":true,"on":"127.0.0.1"}`)
+	if _, ok := l.host.ConsumeCode(old.Secret); ok {
+		t.Error("a code of the share that host unlend ended works on the new share")
+	}
+	fresh, _ := hosting.ParseCode(second.Code)
+	if dev, ok := l.host.ConsumeCode(fresh.Secret); !ok || dev != "R1" {
+		t.Errorf("the new share's code: %q, %v; want R1", dev, ok)
 	}
 }

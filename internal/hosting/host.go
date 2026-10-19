@@ -217,6 +217,11 @@ func (h *Host) Reconcile() {
 	defer h.recMu.Unlock()
 	h.reconcileListeners()
 	h.reconcileLinks()
+	// Codes of a device that is neither lent nor shared in the foreground are stale: `host
+	// unlend` writes the configuration with no word to the daemon, and a later share of the
+	// serial must not bring them back. The configuration is read under Pending's lock.
+	// A write that fails here stays pending, and the retry below reports it.
+	_ = h.pending.VoidWhere(h.unheld)
 	// A write of the join codes' file that failed is tried again.
 	if err := h.pending.Flush(); err != nil {
 		h.once("shares", fmt.Sprintf("droidyard: %s could not be written: %v; it is tried again\n", SharesFile, err))

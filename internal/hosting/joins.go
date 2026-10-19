@@ -75,15 +75,15 @@ func (p *Pending) restore(records []shareRecord, stale bool) {
 func (p *Pending) Issue(device string) (secret [16]byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.issueLocked(device)
+	return p.issueLocked(device, p.durable != nil && p.durable(device))
 }
 
-func (p *Pending) issueLocked(device string) (secret [16]byte) {
+func (p *Pending) issueLocked(device string, durable bool) (secret [16]byte) {
 	if _, err := rand.Read(secret[:]); err != nil {
 		panic("hosting: no randomness: " + err.Error()) // crypto/rand does not fail on a working OS
 	}
 	c := pendingCode{hash: sha256.Sum256(secret[:]), issued: time.Now().UTC().Truncate(time.Second)}
-	c.durable = p.durable != nil && p.durable(device)
+	c.durable = durable
 	cs := append(p.codes[device], c)
 	if len(cs) > MaxCodesPerDevice {
 		for _, old := range cs[:len(cs)-MaxCodesPerDevice] {
@@ -96,15 +96,17 @@ func (p *Pending) issueLocked(device string) (secret [16]byte) {
 	return secret
 }
 
-// IssueSaved is Issue followed by the write of the file. When the write fails the code is not
-// issued: the device holds the codes it held, and the error is the write's.
-func (p *Pending) IssueSaved(device string) (secret [16]byte, err error) {
+// IssueSaved is Issue followed by the write of the file, for a code the caller says is durable
+// (the share is detached) or not (a foreground share's), whatever the share is by the time the
+// lock is taken. When the write fails the code is not issued: the device holds the codes it
+// held, and the error is the write's.
+func (p *Pending) IssueSaved(device string, durable bool) (secret [16]byte, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	prev, had := p.codes[device]
 	prev = slices.Clone(prev)
 	wasDirty := p.dirty
-	secret = p.issueLocked(device)
+	secret = p.issueLocked(device, durable)
 	if err := p.flushLocked(); err != nil {
 		if had {
 			p.codes[device] = prev
@@ -165,6 +167,24 @@ func (p *Pending) Void(device string) error {
 		p.dirty = p.dirty || c.durable
 	}
 	delete(p.codes, device)
+	return p.flushLocked()
+}
+
+// VoidWhere drops every unused code of each device for which void answers true, holding the
+// lock while it asks: a share made meanwhile has its codes issued after, or before and kept by
+// an answer read after. Its error is Void's.
+func (p *Pending) VoidWhere(void func(device string) bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for dev, cs := range p.codes {
+		if !void(dev) {
+			continue
+		}
+		for _, c := range cs {
+			p.dirty = p.dirty || c.durable
+		}
+		delete(p.codes, dev)
+	}
 	return p.flushLocked()
 }
 

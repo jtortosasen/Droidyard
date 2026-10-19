@@ -159,7 +159,7 @@
 - Not here: a share outliving its foreground connection (by design, Q2 §3); the UI.
 - Rests on: a foreground share ends when its connection closes, however the CLI ends. Level 4 (a real CLI killed with `kill -9`).
 - Review: the Opus verifier (process lifetime, concurrency), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4 (`TestForegroundShare` with real CLI processes: SIGINT, SIGHUP, SIGTERM 40–70 ms, kill -9 and unshare about 1 s; `TestShareListing`; eight reversals seen failing) and level 5 (`$B/evidence/step4/run.txt`, 52863dd): `droidyard share` listed `usb  Google sdk_gphone64_arm64  emulator-5584`, shared the only device in the foreground, nothing in `hosting.lend`; the client joined; SIGINT: the CLI exited 0 with "stopped sharing", the client's first poll after it lacked the device, the host stopped listening, the peer stayed paired. Opus verifier (high): fix first, one [bug] blocker (a share registered after its connection ended was orphaned) and three [bug] non-blocking (the mode race, a signal before the connection is set, a named share reading manufacturers), all fixed in 933d05a with tests seen failing, verified there; [safety, low] the serial cleaned before printing; five [nit].
 
 ### 5. A detached share survives a restart
 
@@ -171,7 +171,7 @@
 - Not here: starting droidyard at login (Q4).
 - Rests on: a consumed code of a detached share is on disk before the join is answered, so a crash cannot make it usable twice. Level 4 (`TestConsumedCodeIsWrittenFirst`: the write made to fail → the join refused and the code void after a restart; seen failing with the write after `Admit`).
 - Review: the Opus verifier (security: single use across a restart), default effort.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4 (`TestDetachedShareSurvivesRestart` with real daemons across two restarts and a kill -9, `TestForegroundShareDoesNotSurviveAKill`, `TestConsumedCodeIsWrittenFirst` over real TLS and at host level, the store tests; eight reversals seen failing) and level 5 (step 7 (c): A relinked with no code after the host restarted). Opus verifier (high): proceed; three mutations caught (the file not read, Consume not flushing, the end signal after the hook); [safety] two non-blocking (an unlend on a running daemon left codes to revive; a foreground code briefly durable) and a [doc], sent to a fix round; four [nit].
 
 ### 6. `droidyard device allow|disallow <serial>`
 

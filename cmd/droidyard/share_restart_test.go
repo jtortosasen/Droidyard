@@ -199,3 +199,35 @@ func TestForegroundShareDoesNotSurviveAKill(t *testing.T) {
 		t.Errorf("the foreground share's code after kill -9: exit %d; want it refused", code)
 	}
 }
+
+// TestUnlendOnARunningHostVoidsItsCodes: `host unlend` writes the configuration with no word to
+// the running daemon; the codes of the share it ended must not come back when the serial is
+// shared again. A running host, `share -d`, an unused code, `host unlend`, another command that
+// makes the daemon check, `share -d` again → the old code is refused and the new one joins.
+// Seen failing with both the check and the void on a new lend entry removed: the old code joins.
+func TestUnlendOnARunningHostVoidsItsCodes(t *testing.T) {
+	t.Parallel()
+	host := newShareNode(t, shareHostListing())
+	a := newShareNode(t, "List of devices attached\n")
+	c := newShareNode(t, "List of devices attached\n")
+	_, out, _ := host.run(t, "share", "-d", sharePhone, "--on", "127.0.0.1")
+	old := codeLine(t, out)
+	if code, _, stderr := host.run(t, "host", "unlend", sharePhone); code != 0 {
+		t.Fatalf("host unlend exited %d: %s", code, stderr)
+	}
+	// Another share makes the daemon check its configuration.
+	if code, _, stderr := host.run(t, "share", "-d", sharePhone2, "--on", "127.0.0.1"); code != 0 {
+		t.Fatalf("share of the second phone exited %d: %s", code, stderr)
+	}
+	code, out, stderr := host.run(t, "share", "-d", sharePhone, "--on", "127.0.0.1")
+	if code != 0 {
+		t.Fatalf("share again exited %d: %s", code, stderr)
+	}
+	fresh := codeLine(t, out)
+	if code, _, stderr := a.run(t, "join", old); code != 1 || !strings.Contains(stderr, "did not admit") {
+		t.Errorf("the code of the share host unlend ended: exit %d, %q; want refused", code, stderr)
+	}
+	if code, out, stderr := c.run(t, "join", fresh); code != 0 {
+		t.Errorf("the new share's code: exit %d, %q %q; want it to join", code, out, stderr)
+	}
+}

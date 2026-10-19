@@ -43,7 +43,7 @@ func TestConsumedCodeIsWrittenFirst(t *testing.T) {
 
 	// A join that is answered has its code on disk, used: a restart straight after does not
 	// have it.
-	answered, err := host.host.Pending().IssueSaved("SER1")
+	answered, err := host.host.Pending().IssueSaved("SER1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestConsumedCodeIsWrittenFirst(t *testing.T) {
 	}
 
 	// The disk fails: the join is refused before Admit, and the code is void straight away.
-	failing, err := host.host.Pending().IssueSaved("SER1")
+	failing, err := host.host.Pending().IssueSaved("SER1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
