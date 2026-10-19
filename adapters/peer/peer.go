@@ -76,7 +76,8 @@ type Host interface {
 	// offers the join protocol accept a certificate that is not paired (ADR-0107 §3).
 	CodePending() bool
 	// ConsumeCode uses up the secret of an unused code, at most once, and names the device
-	// it was issued for.
+	// it was issued for. It is false too for a code whose use the host could not record on
+	// disk (ADR-0108 §2): the code is void then, and the join is refused.
 	ConsumeCode(secret [16]byte) (device string, ok bool)
 }
 

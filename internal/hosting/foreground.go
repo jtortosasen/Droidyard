@@ -166,13 +166,13 @@ type ShareWatch struct {
 	f *foreground
 }
 
-// WatchForeground returns a view of the foreground share of serial; ok is false when there
-// is none.
-func (h *Host) WatchForeground(serial string) (*ShareWatch, bool) {
+// WatchForeground returns a view of the foreground share of serial that the connection with
+// this origin id owns; ok is false when there is none, or another connection owns it.
+func (h *Host) WatchForeground(serial, owner string) (*ShareWatch, bool) {
 	h.fg.mu.Lock()
 	defer h.fg.mu.Unlock()
 	f := h.fg.shares[serial]
-	if f == nil {
+	if f == nil || f.owner != owner {
 		return nil, false
 	}
 	return &ShareWatch{h: h, f: f}, true

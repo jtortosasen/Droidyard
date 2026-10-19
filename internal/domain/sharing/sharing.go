@@ -66,7 +66,9 @@ var linkWait = 5 * time.Second
 
 // Devices is the adb listing hosting.share reads: *device.ADB.
 type Devices interface {
-	Shareable(ctx context.Context) ([]device.ShareableDevice, error)
+	// Shareable lists the devices adb reports; manufacturers asks for each online device's
+	// manufacturer too, which only the listing of the candidates shows.
+	Shareable(ctx context.Context, manufacturers bool) ([]device.ShareableDevice, error)
 }
 
 // JoinFunc is how a join reaches the host a code names: hosting.Join. A variable of Options
@@ -305,7 +307,7 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 			WithNextStep("pass detach true; the share then lasts until hosting.unshare")
 	}
 	// The device first: only a physical device that is online and alone under its serial is shared.
-	listed, err := s.Devices.Shareable(ctx)
+	listed, err := s.Devices.Shareable(ctx, p.Device == "")
 	if err != nil {
 		return nil, err
 	}
@@ -368,9 +370,10 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 
 	// A device already shared keeps its mode, whichever this call asked for (ADR-0108 §5): a
 	// lend entry is made only for a detached share of a device with no foreground share, and a
-	// foreground share only for a device with no lend entry.
-	_, heldForeground := host.ForegroundOwner(p.Device)
-	created, existed := false, false
+	// foreground share only for a device with no lend entry. Both are decided inside the edit,
+	// which the daemon's own edits take in turn, and the foreground share is started there too,
+	// so two shares of one serial cannot each decide before the other has acted.
+	created, existed, startedForeground := false, false, false
 	wasPhysical := false
 	var others []string
 	_, cerr = host.Edit(ctx, func(cur policy.GetResult) (map[string]any, *capability.Error) {
@@ -391,7 +394,17 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		hostingPatch := map[string]any{"on": on}
 		lend := cloneLend(cur.Hosting.Lend)
 		existed = slices.ContainsFunc(lend, func(l policy.Lend) bool { return l.Device == p.Device })
-		created = p.Detach && !heldForeground && !existed
+		_, held := host.ForegroundOwner(p.Device)
+		created = p.Detach && !held && !existed
+		// A foreground share is in memory only, started before the listeners are matched so
+		// they count it. A retried edit that finds a lend entry now takes it back.
+		if existed && startedForeground {
+			host.EndForeground(p.Device, hosting.ShareUnshared)
+			startedForeground = false
+		}
+		if !p.Detach && !existed && !startedForeground {
+			startedForeground = host.StartForeground(p.Device, call.Origin.ID)
+		}
 		if created {
 			hostingPatch["lend"] = append(lend, policy.Lend{Device: p.Device, To: []string{}})
 		}
@@ -401,11 +414,11 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		}, nil
 	})
 	if cerr != nil {
+		if startedForeground {
+			host.EndForeground(p.Device, hosting.ShareUnshared)
+		}
 		return nil, cerr
 	}
-	// A foreground share is in memory only, started before the listeners are matched so they
-	// count it.
-	startedForeground := !p.Detach && !existed && host.StartForeground(p.Device, call.Origin.ID)
 	// fail takes back what this call made (a share that listens nowhere is none) and returns e
 	// saying what is left: the write that admitted the serial stays, and so does a lending that
 	// could not be removed.
@@ -436,6 +449,14 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		return e
 	}
 
+	// The connection that asked for a foreground share may have ended while this call worked,
+	// and a call is never cancelled by that: the share it owns would outlive it. The
+	// connection's end is signalled before its hook runs, so a share registered above is
+	// either seen here or ended by the hook.
+	if startedForeground && capability.ConnectionGone(ctx) {
+		return nil, fail(capability.NewError(ErrUnavailable, "the connection that asked for this share ended before it started, so nothing is lent").
+			WithNextStep("share again"))
+	}
 	host.Reconcile()
 	hh := host.Health().Hosting
 	port, addrs := boundAddrs(hh.Listening, want, kinds(ifaces))
@@ -467,13 +488,28 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 			WithCause(err.Error()).
 			WithNextStep("listen on a private address (hosting.listen, or --on), then share again; nothing is lent"))
 	}
-	code.Secret = host.Pending().Issue(p.Device)
+	// A detached share's code is on disk before it is printed (ADR-0108 §2): a write that fails
+	// issues nothing, and the share stays as it was.
+	secret, err := host.Pending().IssueSaved(p.Device)
+	if err != nil {
+		return nil, fail(capability.NewError(ErrUnavailable, "the join code could not be recorded, so none was issued").
+			WithCause(err.Error()).
+			WithNextStep("see daemon.log; the state directory must be writable (hosting/shares.json), then share again"))
+	}
+	code.Secret = secret
 	line, err := code.Encode()
 	if err != nil {
-		host.Pending().Void(p.Device)
+		_ = host.Pending().Void(p.Device)
 		return nil, fail(unavailable(err.Error()))
 	}
 
+	// A share on a foreground share that ended meanwhile (its connection closed) has nothing to
+	// lend: the code is void, not printed.
+	if _, held := host.ForegroundOwner(p.Device); !existed && !created && !held {
+		_ = host.Pending().Void(p.Device)
+		return nil, fail(capability.NewError(ErrUnavailable, "the foreground share of "+p.Device+" ended while this call was making its code, so nothing is lent").
+			WithNextStep("share again"))
+	}
 	res := ShareResult{Device: p.Device, Code: line, Port: port, Mode: ModeDetached, Addresses: []Address{}}
 	if owner, ok := host.ForegroundOwner(p.Device); ok {
 		res.Mode, res.Owned = ModeForeground, owner == call.Origin.ID && call.Origin.ID != ""
@@ -489,6 +525,9 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		res.Notes = append(res.Notes, "devices.allowPhysical was off; turning it on admits every serial already in devices.allowlist: "+strings.Join(others, ", ")+".")
 	}
 	res.Notes = append(res.Notes, "A code works for one join and does not expire; `droidyard unshare "+p.Device+"` voids the unused ones. A join the host fails to record spends its code too: share again for a new one.")
+	if res.Mode == ModeDetached {
+		res.Notes = append(res.Notes, "This share and its unused codes survive a restart of the daemon. After a restart of this Mac the share resumes when the daemon next starts: any droidyard command starts it.")
+	}
 	return res, nil
 }
 
@@ -572,14 +611,14 @@ func (s *sharing) watch(ctx context.Context, call *capability.Call) (any, error)
 	}
 	// Only the foreground share of the caller's own connection: the watch is bounded by that
 	// connection, so nothing long-running is left unattended (ADR-0019 §Sessions, ADR-0108 §6).
-	owner, ok := host.ForegroundOwner(p.Device)
-	if !ok || call.Origin.Client != capability.ClientCLI || call.Origin.ID == "" || owner != call.Origin.ID {
+	var w *hosting.ShareWatch
+	ok := call.Origin.Client == capability.ClientCLI && call.Origin.ID != ""
+	if ok {
+		w, ok = host.WatchForeground(p.Device, call.Origin.ID)
+	}
+	if !ok {
 		return nil, capability.NewError(capability.ErrInvalidParams, "there is no foreground share of "+p.Device+" owned by this connection to watch").
 			WithNextStep("hosting.watchShare is for the connection that made a foreground share: share without detach on this connection first; a detached share is not watched")
-	}
-	w, ok := host.WatchForeground(p.Device)
-	if !ok {
-		return WatchShareResult{Ended: hosting.ShareConnection}, nil
 	}
 	tick := time.NewTicker(watchEvery)
 	defer tick.Stop()
@@ -720,12 +759,21 @@ func (s *sharing) unshare(ctx context.Context, call *capability.Call) (any, erro
 		removed = append(removed, p.Device)
 	}
 	// The codes go whether or not an entry did: a share that was edited away by hand is still void.
+	var voidErr error
 	if p.Device == "" {
-		host.Pending().VoidAll()
+		voidErr = host.Pending().VoidAll()
 	} else {
-		host.Pending().Void(p.Device)
+		voidErr = host.Pending().Void(p.Device)
 	}
 	host.Reconcile()
+	if voidErr != nil {
+		// The codes are void in this daemon; the file still lists them, and a share of the same
+		// serial after a restart would bring them back.
+		return nil, capability.NewError(ErrUnavailable, "the share stopped, but its unused codes could not be removed from hosting/shares.json").
+			WithCause(voidErr.Error()).
+			WithDetails(map[string]any{"unshared": append([]string{}, removed...)}).
+			WithNextStep("see daemon.log; the state directory must be writable, then unshare again")
+	}
 	return UnshareResult{Unshared: append([]string{}, removed...)}, nil
 }
 

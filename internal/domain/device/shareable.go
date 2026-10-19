@@ -33,10 +33,11 @@ const manufacturerOutputCap = 1 << 10
 // Shareable lists every device adb reports, physical or not, admitted or not, with what
 // the share path needs to judge it. It is read by hosting.share only; every other
 // listing hides what the policy does not admit. The manufacturer of each online physical
-// device that is listed once is read in parallel, under detailsTimeout together; a serial
-// that several devices report is never addressed, since adb cannot tell them apart. Its
-// errors are the contract's DEVICE_ADB_NOT_FOUND and DEVICE_ADB_FAILED, or ctx's own.
-func (a *ADB) Shareable(ctx context.Context) ([]ShareableDevice, error) {
+// device that is listed once is read in parallel, under detailsTimeout together, when
+// manufacturers is true (the listing of the candidates; a share of a named serial has no use
+// for it); a serial that several devices report is never addressed, since adb cannot tell them
+// apart. Its errors are the contract's DEVICE_ADB_NOT_FOUND and DEVICE_ADB_FAILED, or ctx's own.
+func (a *ADB) Shareable(ctx context.Context, manufacturers bool) ([]ShareableDevice, error) {
 	res := a.Resolve()
 	if !res.Found {
 		return nil, adbNotFound(res, "hosting.share")
@@ -54,7 +55,7 @@ func (a *ADB) Shareable(ctx context.Context) ([]ShareableDevice, error) {
 	var wg sync.WaitGroup
 	for i := range out {
 		d := &out[i]
-		if d.Kind != KindPhysical || d.State != StateDevice || d.Duplicate {
+		if !manufacturers || d.Kind != KindPhysical || d.State != StateDevice || d.Duplicate {
 			continue
 		}
 		wg.Add(1)

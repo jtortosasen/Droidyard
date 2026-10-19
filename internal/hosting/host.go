@@ -52,6 +52,7 @@ type Host struct {
 	wg         sync.WaitGroup
 
 	binder      Binder
+	sharesStore *store.Store // hosting/shares.json; nil before Init, and when there is none
 	ifaces      Lister
 	defaultPort int
 	pendingPort int               // the port the listeners took, not yet written to hosting.port
@@ -79,8 +80,16 @@ func (h *Host) Pending() *Pending { return h.pending }
 func (h *Host) CodePending() bool { return h.pending.Any() }
 
 // ConsumeCode uses up the secret of an unused code and names the device it was issued for.
+// For a detached share's code the use is on disk before this returns (ADR-0108 §2): when it
+// cannot be written the code is void all the same and ok is false, so the join is refused
+// and a crash cannot make the code usable twice.
 func (h *Host) ConsumeCode(secret [16]byte) (device string, ok bool) {
-	return h.pending.Consume(secret)
+	device, ok, err := h.pending.Consume(secret)
+	if err != nil {
+		fmt.Fprintf(h.log, "droidyard: a join code was refused because its use could not be written to %s (%v); the code is void\n", SharesFile, err)
+		return "", false
+	}
+	return device, ok
 }
 
 // Init sweeps the uploads an earlier daemon left and loads the identity, making it when
@@ -92,6 +101,8 @@ func (h *Host) Init() error {
 	if err := h.uploads.Sweep(); err != nil {
 		fmt.Fprintf(h.log, "droidyard: the peers' upload directory could not be swept: %v\n", err)
 	}
+	// The unused codes of the detached shares an earlier daemon left (ADR-0108 §2, §7).
+	h.initShares()
 	id, problems, err := LoadIdentity(h.state)
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -150,12 +161,17 @@ func (h *Host) Identity() *Identity {
 	return h.identity
 }
 
-// Problems are the identity files Init found unusable and replaced, for
-// system.health's stateProblems (ADR-0021 §Format).
+// Problems are the state files Init found unusable and replaced or moved aside (the
+// identity's, the join codes'), for system.health's stateProblems (ADR-0021 §Format).
 func (h *Host) Problems() []store.Problem {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	return append([]store.Problem(nil), h.problems...)
+	out := append([]store.Problem(nil), h.problems...)
+	st := h.sharesStore
+	h.mu.Unlock()
+	if st != nil {
+		out = append(out, st.Problems()...)
+	}
+	return out
 }
 
 // Start begins dialling the remotes of the configuration, one link each, and keeps the
@@ -201,6 +217,12 @@ func (h *Host) Reconcile() {
 	defer h.recMu.Unlock()
 	h.reconcileListeners()
 	h.reconcileLinks()
+	// A write of the join codes' file that failed is tried again.
+	if err := h.pending.Flush(); err != nil {
+		h.once("shares", fmt.Sprintf("droidyard: %s could not be written: %v; it is tried again\n", SharesFile, err))
+	} else {
+		h.once("shares", "")
+	}
 }
 
 // reconcileLinks starts the links of remotes that are new, closes those that are gone or

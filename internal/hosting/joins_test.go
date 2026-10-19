@@ -14,7 +14,7 @@ import (
 func TestPendingKeepsOnlyHashes(t *testing.T) {
 	p := NewPending()
 	secret := p.Issue("R58M1234")
-	dump := fmt.Sprintf("%#v %v", p.hashes, p.hashes)
+	dump := fmt.Sprintf("%#v %v", p.codes, p.codes)
 	for _, form := range []string{
 		fmt.Sprintf("%v", secret),
 		fmt.Sprintf("%#v", secret),
@@ -25,14 +25,14 @@ func TestPendingKeepsOnlyHashes(t *testing.T) {
 			t.Errorf("Pending's state holds the secret as %s", form)
 		}
 	}
-	for dev, hs := range p.hashes {
-		for _, h := range hs {
-			if bytes.Contains(h[:], secret[:]) {
+	for dev, cs := range p.codes {
+		for _, c := range cs {
+			if bytes.Contains(c.hash[:], secret[:]) {
 				t.Errorf("a stored hash for %s contains the secret", dev)
 			}
 		}
 	}
-	if dev, ok := p.Consume(secret); !ok || dev != "R58M1234" {
+	if dev, ok, _ := p.Consume(secret); !ok || dev != "R58M1234" {
 		t.Errorf("the issued secret consumed as %q, %v; want its device", dev, ok)
 	}
 }
@@ -45,7 +45,7 @@ func TestPendingIsSingleUseAndBounded(t *testing.T) {
 	if p.Any() {
 		t.Error("Any is true with nothing issued")
 	}
-	if _, ok := p.Consume([16]byte{1}); ok {
+	if _, ok, _ := p.Consume([16]byte{1}); ok {
 		t.Error("a secret that was never issued was accepted")
 	}
 
@@ -56,7 +56,7 @@ func TestPendingIsSingleUseAndBounded(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, ok := p.Consume(s); ok {
+			if _, ok, _ := p.Consume(s); ok {
 				won.Add(1)
 			}
 		}()
@@ -74,17 +74,17 @@ func TestPendingIsSingleUseAndBounded(t *testing.T) {
 		secrets = append(secrets, p.Issue("a"))
 	}
 	other := p.Issue("b")
-	if _, ok := p.Consume(secrets[0]); ok {
+	if _, ok, _ := p.Consume(secrets[0]); ok {
 		t.Error("the oldest of nine codes still works; the ninth must void it")
 	}
-	if dev, ok := p.Consume(secrets[1]); !ok || dev != "a" {
+	if dev, ok, _ := p.Consume(secrets[1]); !ok || dev != "a" {
 		t.Errorf("the second code: %q, %v; want a", dev, ok)
 	}
 	p.Void("a")
-	if _, ok := p.Consume(secrets[8]); ok {
+	if _, ok, _ := p.Consume(secrets[8]); ok {
 		t.Error("a code of a voided device was accepted")
 	}
-	if dev, ok := p.Consume(other); !ok || dev != "b" {
+	if dev, ok, _ := p.Consume(other); !ok || dev != "b" {
 		t.Errorf("another device's code after Void: %q, %v; want b", dev, ok)
 	}
 	if p.Any() {

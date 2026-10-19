@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
@@ -46,6 +47,7 @@ func shareHostListing() string {
 // shareNode is one daemon of the lab: its state root, its fake adb's directory and its process.
 type shareNode struct {
 	state, dir string
+	env        []string
 	proc       *process
 }
 
@@ -62,13 +64,49 @@ func newShareNode(t *testing.T, listing string, extraEnv ...string) *shareNode {
 		devicetest.Write(t, n.dir, s+".push.exit", []byte("1")) // the persistent reader cannot run: the dump path answers
 	}
 	env := append([]string{adbFakeEnv + "=" + n.dir, adbPortEnv + "=" + unusedPort(t), reconcileEveryEnv + "=" + shareLongCycle}, extraEnv...)
-	n.proc = droidyardEnv(t, n.state, "", env, "serve")
+	n.env = env
+	n.start(t)
+	return n
+}
+
+// start runs `serve` on the node's state root.
+func (n *shareNode) start(t *testing.T) {
+	t.Helper()
+	n.proc = droidyardEnv(t, n.state, "", n.env, "serve")
 	n.proc.expect(t, "holding")
+	proc := n.proc
 	go func() {
-		for range n.proc.lines {
+		for range proc.lines {
 		}
 	}()
-	return n
+}
+
+// ended waits for the node's process to be gone.
+func (n *shareNode) ended(t *testing.T) {
+	t.Helper()
+	select {
+	case <-n.proc.exited:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("pid %d did not end within 10 s", n.proc.cmd.Process.Pid)
+	}
+}
+
+// restart is `droidyard stop` and a new `serve` on the same state root.
+func (n *shareNode) restart(t *testing.T) {
+	t.Helper()
+	if code, _, stderr := n.run(t, "stop"); code != 0 {
+		t.Fatalf("stop exited %d: %s", code, stderr)
+	}
+	n.ended(t)
+	n.start(t)
+}
+
+// crash is the daemon killed with no shutdown, and a new `serve` on the same state root.
+func (n *shareNode) crash(t *testing.T) {
+	t.Helper()
+	n.proc.cmd.Process.Kill()
+	n.ended(t)
+	n.start(t)
 }
 
 // run is one `droidyard` command against this node's daemon: its exit status, stdout and stderr.
@@ -294,13 +332,15 @@ func TestShareAndJoin(t *testing.T) {
 	if strings.Count(c.proc.stderr.String(), "joined ") != cJoins {
 		t.Errorf("C's log has a new join line after a join that failed:\n%s", c.proc.stderr.String())
 	}
-	hostLog := host.proc.stderr.String()
+	// Join lines only: an earlier call's trace line may still land meanwhile.
+	hostJoins := func() int { return strings.Count(host.proc.stderr.String(), "join") }
+	before := hostJoins()
 	code, _, stderr = c.run(t, "join", line3[:len(line3)-20])
 	if code != 1 || !strings.Contains(stderr, "REQUEST_INVALID_PARAMS") {
 		t.Errorf("a truncated code: exit %d, %q; want REQUEST_INVALID_PARAMS", code, stderr)
 	}
-	if host.proc.stderr.String() != hostLog {
-		t.Errorf("the host heard of a join that was never dialled:\n%s", strings.TrimPrefix(host.proc.stderr.String(), hostLog))
+	if hostJoins() != before {
+		t.Errorf("the host heard of a join that was never dialled:\n%s", host.proc.stderr.String())
 	}
 
 	// unshare: the lend goes, the client's next device.list lacks the phone, the codes void (the
@@ -458,6 +498,8 @@ func TestAdmitThatFailsSpendsTheCode(t *testing.T) {
 	if !ok || je.Reason != hosting.JoinRefused {
 		t.Fatalf("Join with a device no longer lent: %v; want refused", jerr)
 	}
+	// The daemon's stderr reaches the test through a pipe, a moment after the refusal.
+	eventually(t, "the host's log to say the code is spent", func() bool { return strings.Contains(host.proc.stderr.String(), "spent") })
 	log := host.proc.stderr.String()
 	if !strings.Contains(log, "spent") || strings.Contains(log, "vil") || strings.Contains(log, "\x1b") || strings.Contains(log, strings.TrimPrefix(line, hosting.CodePrefix)) {
 		t.Errorf("the host's log must say the code is spent and quote neither the name nor the code:\n%q", log)

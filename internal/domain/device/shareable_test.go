@@ -3,7 +3,10 @@ package device
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 )
 
 // TestShareableSeesWhatTheListingHides: hosting.share is what admits a physical device, so
@@ -30,7 +33,7 @@ func TestShareableSeesWhatTheListingHides(t *testing.T) {
 		"R58M003.manufacturer.out":       "Wrong\n",
 		"DUP1.manufacturer.out":          "Wrong\n",
 	})
-	got, err := a.Shareable(context.Background())
+	got, err := a.Shareable(context.Background(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +64,32 @@ func TestShareableSeesWhatTheListingHides(t *testing.T) {
 // TestShareableWithoutADB: no adb is DEVICE_ADB_NOT_FOUND, the contract's code.
 func TestShareableWithoutADB(t *testing.T) {
 	a := NewADB([]string{"PATH="}, nil)
-	_, err := a.Shareable(context.Background())
+	_, err := a.Shareable(context.Background(), true)
 	if ce := asCapError(t, err); ce.Code != ErrADBNotFound {
 		t.Errorf("code %s, want %s", ce.Code, ErrADBNotFound)
+	}
+}
+
+// TestShareableReadsManufacturersOnlyWhenAsked: a share of a named serial has no use for the
+// manufacturers, so it must not run getprop on every online device (ADR-0108 §1); only the
+// listing of the candidates asks for them. Seen failing with the flag ignored: a getprop runs
+// for the call that did not ask.
+func TestShareableReadsManufacturersOnlyWhenAsked(t *testing.T) {
+	a, dir := scenario(t, map[string]string{
+		"devices.out":              "List of devices attached\nR58M001 device usb:1-1.1 product:raven model:Pixel_6_Pro transport_id:2\n",
+		"R58M001.manufacturer.out": "Google\n",
+	})
+	got, err := a.Shareable(context.Background(), false)
+	if err != nil || len(got) != 1 || got[0].Manufacturer != "" {
+		t.Fatalf("Shareable without manufacturers = %+v, %v; want the device with none", got, err)
+	}
+	for _, c := range devicetest.Calls(t, dir) {
+		if strings.Contains(c, "getprop") {
+			t.Errorf("a getprop ran for a call that did not ask for manufacturers: %q", c)
+		}
+	}
+	got, err = a.Shareable(context.Background(), true)
+	if err != nil || len(got) != 1 || got[0].Manufacturer != "Google" {
+		t.Errorf("Shareable with manufacturers = %+v, %v; want Google", got, err)
 	}
 }

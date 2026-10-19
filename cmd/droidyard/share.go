@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"unicode"
 
 	"github.com/jtortosasen/droidyard/adapters/cli"
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -191,6 +192,11 @@ func (s *shareConn) set(conn net.Conn, r *bufio.Reader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.conn, s.r = conn, r
+	// A signal that came after the dial and before this closed nothing, there being no
+	// connection yet to close: it is acted on now, and the share is never made.
+	if s.signalled.Load() {
+		conn.Close()
+	}
 }
 
 func (s *shareConn) close() {
@@ -294,11 +300,22 @@ func candidateLine(c sharing.Candidate) string {
 	if name == "" {
 		name = "-"
 	}
-	line := c.Transport + "  " + name + "  " + c.Device
+	// The serial and the state in the reason are the device's own text, as the model is.
+	line := c.Transport + "  " + name + "  " + printable(c.Device)
 	if !c.Shareable && c.Reason != "" {
-		line += "  (" + c.Reason + ")"
+		line += "  (" + printable(c.Reason) + ")"
 	}
 	return line
+}
+
+// printable is s without control characters, which a terminal would act on.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // printCallError prints an error envelope the way every human command does.

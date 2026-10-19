@@ -20,7 +20,9 @@ import (
 // fakeDevices is the adb listing hosting.share reads.
 type fakeDevices []device.ShareableDevice
 
-func (f fakeDevices) Shareable(context.Context) ([]device.ShareableDevice, error) { return f, nil }
+func (f fakeDevices) Shareable(context.Context, bool) ([]device.ShareableDevice, error) {
+	return f, nil
+}
 
 var phones = fakeDevices{
 	{Device: "emulator-5554", State: "device", Kind: device.KindEmulator},
