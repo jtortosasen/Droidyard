@@ -105,6 +105,9 @@ type ADB struct {
 	// step 3; ADR-0100 §3): each shows the stream a host serves. Close ends them with the
 	// others.
 	relayedScreens relayedScreens
+	// relayedLogs are the Logcat streams of remote devices, by client session and device
+	// (remotelogs.go).
+	relayedLogs relayedLogSet
 
 	// screenViews is every device.watchScreen stream (plan m2p step 4): each holds one
 	// reference on a source in screens or relayedScreens. Close ends them before the sources.

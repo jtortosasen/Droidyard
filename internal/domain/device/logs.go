@@ -200,7 +200,7 @@ func isLogBuffer(b string) bool {
 }
 
 func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plainThen(capability.Descriptor{
 		Name:         "device.logs",
 		Kind:         capability.Query,
 		Scope:        capability.Global,
@@ -233,14 +233,16 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 			if err := adb.ready(ctx, t); err != nil {
 				return nil, err
 			}
-			return adb.logs(ctx, t, p, store)
+			return adb.logs(ctx, t, p, store, artifact.OwnerOf(call.Origin))
 		},
-	})
+	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+		return adb.logsFetched(ctx, rt, store, res.(LogsResult))
+	}))
 }
 
 // logs runs the snapshot of adb-device.md §Logs under plan m1i D4–D8, D10 and D11, or
 // the bounded follow of D9 when followMs is set.
-func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact.Store) (LogsResult, error) {
+func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact.Store, owner string) (LogsResult, error) {
 	appFiltered := p.ApplicationID != ""
 	follow := p.FollowMs > 0
 
@@ -450,7 +452,7 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 			res.Warnings = append(res.Warnings, fmt.Sprintf("the capture kept the newest lines within %d MiB: %d older lines are not in it", logsCaptureCap>>20, dropped))
 		}
 		ref, err := store.Put(artifact.Item{
-			Data: data, MediaType: "text/plain", Untrusted: true, Producer: "device.logs",
+			Data: data, MediaType: "text/plain", Untrusted: true, Producer: "device.logs", Owner: owner,
 		})
 		if err != nil {
 			return LogsResult{}, err

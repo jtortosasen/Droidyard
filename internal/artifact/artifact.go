@@ -92,6 +92,9 @@ type Item struct {
 	Height    int
 	Untrusted bool
 	Producer  string
+	// Owner is who the artifact belongs to, "" for the daemon's own clients: OwnerOf of the
+	// producing call's origin. Only the owner reads it through GetOwned (ADR-0099 §2).
+	Owner string
 	// Inline, when set, is the image's inline variant (see Inline).
 	Inline *Inline
 }
@@ -106,6 +109,7 @@ type Entry struct {
 	File     string // durable only: the file holding the bytes
 	Size     int64  // durable only: the file's size in bytes
 	Producer string
+	Owner    string  // see Item.Owner; a durable artifact has none
 	Growing  bool    // durable only: still being written
 	Inline   *Inline // nil when the producer made none
 }
@@ -236,6 +240,7 @@ func (s *Store) Put(it Item) (Ref, error) {
 		},
 		Data:     data,
 		Producer: it.Producer,
+		Owner:    it.Owner,
 		Inline:   inline,
 	}
 	h.elem = s.lru.PushFront(h)
@@ -258,6 +263,46 @@ func (s *Store) Get(ref string) (Entry, error) {
 		return s.getDurable(rest)
 	}
 	return s.getEphemeral(id)
+}
+
+// PeerOwner is the owner of the artifacts a paired peer's calls produced (ADR-0099 §2).
+func PeerOwner(name string) string { return "peer:" + name }
+
+// OwnerOf is the owner of an artifact a call from o produces: the peer's configured name for
+// a paired peer, "" for every other client, whose artifacts no peer may read.
+func OwnerOf(o capability.Origin) string {
+	if o.Client != capability.ClientPeer || o.Name == "" {
+		return ""
+	}
+	return PeerOwner(o.Name)
+}
+
+// GetOwned is Get for a reader that may see only what it owns (a paired peer, ADR-0099 §2): a
+// live ephemeral artifact whose owner is exactly owner and whose reference is exact. Every
+// other reference is ARTIFACT_NOT_FOUND with nothing else said: a durable one, another
+// owner's or the host's own, one with forged random bits, one that expired, one of another
+// daemon run or one that never was. The owner is checked under the store's lock before the
+// random bits, so nothing tells a live artifact of someone else (nor its producer) from an id
+// that never was. An empty owner reads nothing.
+func (s *Store) GetOwned(ref, owner string) (Entry, error) {
+	notFound := capability.NewError(capability.ErrArtifactNotFound, "no artifact has this reference")
+	id := strings.TrimPrefix(ref, RefPrefix)
+	if owner == "" || strings.HasPrefix(id, classDurable+".") {
+		return Entry{}, notFound
+	}
+	epoch, counter, random, ok := parseID(id)
+	if !ok || epoch != s.epoch {
+		return Entry{}, notFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepLocked()
+	h := s.entries[counter]
+	if h == nil || h.entry.Owner != owner || subtle.ConstantTimeCompare([]byte(h.random), []byte(random)) != 1 {
+		return Entry{}, notFound
+	}
+	s.lru.MoveToFront(h.elem)
+	return h.entry, nil
 }
 
 // getEphemeral resolves an ephemeral id and marks the entry most recently used;

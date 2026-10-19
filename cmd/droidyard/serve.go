@@ -141,6 +141,19 @@ func peerScreenAttach(adb *device.ADB) httpapi.PeerScreenAttach {
 	}
 }
 
+// peerArtifacts is what the peer listener serves of the artifact store (ADR-0099 §2): the
+// artifacts the named peer's own calls made, by the same ownership rule artifact.read applies
+// to a peer, and no other.
+func peerArtifacts(store *artifact.Store) peer.ArtifactReader {
+	return func(name, id string) (peer.Artifact, error) {
+		e, err := store.GetOwned(artifact.RefPrefix+id, artifact.PeerOwner(name))
+		if err != nil {
+			return peer.Artifact{}, err
+		}
+		return peer.Artifact{MediaType: e.Ref.MediaType, Untrusted: e.Ref.Untrusted, Data: e.Data}, nil
+	}
+}
+
 // screenViewer adapts a screen.Viewer to the adapter's, packet for packet and byte for byte.
 type screenViewer struct{ v screen.Viewer }
 
@@ -221,7 +234,7 @@ func serve(args []string) int {
 	}
 	// The peer link (ADR-0098), once the lock is held: the identity has one writer. A daemon
 	// that cannot make one runs without peers.
-	stopPeers := startPeers(host, reg, ops, bus, adb, logw)
+	stopPeers := startPeers(host, reg, ops, bus, artifacts, adb, logw)
 	fmt.Fprintf(logw, "droidyard serve (pid %d): holding %s/%s, listening on %s\n", os.Getpid(), state, daemon.LockFile, socket)
 
 	<-ctx.Done()
@@ -241,7 +254,7 @@ func serve(args []string) int {
 // set and dials each remote, and returns the function that stops them all and waits. A
 // configuration that cannot be used binds and dials nothing: system.health says so through
 // its config (ADR-0032 §4).
-func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, adb *device.ADB, logw io.Writer) (stop func()) {
+func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, store *artifact.Store, adb *device.ADB, logw io.Writer) (stop func()) {
 	if err := host.Init(); err != nil {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer identity: %v\n", os.Getpid(), err)
 		return func() {}
@@ -254,7 +267,7 @@ func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Op
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Listen: listen, API: system.Version, Log: logw})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Listen: listen, API: system.Version, Log: logw})
 	go func() { defer close(done); srv.Run(ctx) }()
 	host.Start()
 	return func() {

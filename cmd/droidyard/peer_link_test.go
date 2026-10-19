@@ -266,7 +266,9 @@ func TestPeerLink(t *testing.T) {
 		t.Parallel()
 		p := pair(t, annaPinned, "")
 		eventually(t, "the link to come up", func() bool { return remoteHealth(t, p.client).Connected })
-		for _, name := range []string{"policy.get", "shell.exec", "device.install", "emulator.stop", "workspace.open", "system.health", "artifact.read"} {
+		// artifact.read is lent since plan m2t step 5, for the artifacts of the peer's own
+		// calls (TestRemoteArtifactsAndLogs): it is not in this list.
+		for _, name := range []string{"policy.get", "shell.exec", "device.install", "emulator.stop", "workspace.open", "system.health"} {
 			resp, failure := probe(t, p.client, name, `{}`)
 			if failure != "" || resp.Error == nil || resp.Error.Code != capability.ErrNotAllowedHere || resp.Operation != nil {
 				t.Errorf("a peer's %s: %+v / %q; want REQUEST_NOT_ALLOWED_HERE and no operation", name, resp.Error, failure)

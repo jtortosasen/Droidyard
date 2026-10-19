@@ -118,6 +118,9 @@ type labOptions struct {
 	hostProcesses bool
 	// extraPeers are peers the host pairs besides the client "anna", each lent phone1.
 	extraPeers []labPeer
+	// hostWrapStream wraps the recorded starter of the host's Logcat streams, so a test can
+	// hold a child's reaping.
+	hostWrapStream func(device.StreamStarter) device.StreamStarter
 	// phone2ToAnna lends phone2 to the client as well as to bob.
 	phone2ToAnna bool
 }
@@ -194,11 +197,12 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	}
 	hostConfig := jsonObject(t, hostConf)
 	hostSeam := &adbSeam{env: devicetest.Env(t, lab.hostDir, unusedPort(t)), exec: devicetest.Exec(lab.hostDir)}
+	hostSeam.wrapStream = o.hostWrapStream
 	if o.hostProcesses {
 		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
 	}
 	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, 0, hostConfig)
-	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.adb, lab.host.log)
+	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.store, lab.host.adb, lab.host.log)
 	var once sync.Once
 	lab.stopHost = func() { once.Do(stop) }
 	t.Cleanup(lab.stopHost)
@@ -210,7 +214,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 
 	configAt(t, lab.client.state, clientConfig(t, addr, lab.host.host.Identity().Fingerprint(), true,
 		fullAllowlist()...))
-	stopClient := startPeers(lab.client.host, lab.client.reg, lab.client.ops, lab.client.bus, lab.client.adb, os.Stderr)
+	stopClient := startPeers(lab.client.host, lab.client.reg, lab.client.ops, lab.client.bus, lab.client.store, lab.client.adb, os.Stderr)
 	t.Cleanup(stopClient)
 	eventually(t, "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
 	return lab

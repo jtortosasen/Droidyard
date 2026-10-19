@@ -22,6 +22,12 @@ const (
 	// PeerUploadPath is the route of an APK upload (ADR-0099 §3): a PUT whose body is the
 	// file, with a Content-Length of at most PeerMaxUpload, answered with a PeerUploadReply.
 	PeerUploadPath = "/peer/v1/upload"
+	// PeerArtifactsPath is the prefix of the route a peer fetches the bytes of an artifact
+	// one of its own calls produced on (ADR-0099 §2): GET PeerArtifactsPath + <id>, the id
+	// being the reference without its droidyard://artifact/ scheme. The answer is the
+	// artifact's stored bytes with its media type and, for untrusted content, the header
+	// X-Droidyard-Untrusted: true; an artifact the peer does not own is 404.
+	PeerArtifactsPath = "/peer/v1/artifacts/"
 	// PeerMaxUpload is the largest APK a host takes, in bytes (ADR-0099 §3).
 	PeerMaxUpload = 512 << 20
 )

@@ -2,8 +2,9 @@
 // (ADR-0098 §3). It is a second listener beside the UI's loopback one, never the UI's API
 // on the network: TLS 1.3 with both certificates pinned, two routes here (/peer/v1/ws,
 // whose sessions are the UI's WebSocket loop started by a hello, /peer/v1/screen, a
-// live view's video, and /peer/v1/upload, an APK for device.installUpload), and nothing
-// else. It translates;
+// live view's video, /peer/v1/upload, an APK for device.installUpload, and
+// /peer/v1/artifacts/{id}, the bytes of an artifact one of the peer's own calls made), and
+// nothing else. It translates;
 // what a peer may call is the core's Lendable set, not this package's to widen
 // (docs/architecture/overview.md §Adapter boundary).
 package peer
@@ -19,6 +20,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -46,6 +48,9 @@ var (
 	// uploadBound is how long an upload's body may take to arrive: a little over the 10
 	// minutes a client allows itself, so a stalled sender is cut and its file removed.
 	uploadBound = 11 * time.Minute
+	// artifactBound is how long an artifact's body may take to leave: a peer that reads no
+	// more of it is cut and its connection freed.
+	artifactBound = 2 * time.Minute
 )
 
 // Host is what the listener needs of the daemon's peer state: *hosting.Host. The adapter
@@ -75,6 +80,20 @@ type Uploads interface {
 	Forget(peer string)
 }
 
+// Artifact is what a peer may fetch of the host's store: the bytes of an artifact it owns.
+type Artifact struct {
+	MediaType string
+	Untrusted bool
+	Data      []byte
+}
+
+// ArtifactReader resolves an artifact id for the named peer (ADR-0099 §2): the artifact only
+// if one of that peer's own calls made it. Every other id, a durable one, another peer's or
+// the host's own included, is a capability.ErrArtifactNotFound error, the same as an id that
+// never was; one that has expired is capability.ErrArtifactExpired. The daemon's wiring
+// supplies it over the artifact store.
+type ArtifactReader func(peer, id string) (Artifact, error)
+
 // errNotPinned is what a handshake whose client certificate is not paired fails with.
 var errNotPinned = errors.New("the client's certificate is not in hosting.peers")
 
@@ -89,6 +108,9 @@ type Options struct {
 	Screens httpapi.PeerScreenAttach
 	// Uploads stores an APK a peer uploads; nil takes none, and /peer/v1/upload answers 404.
 	Uploads Uploads
+	// Artifacts serves a peer the artifacts of its own calls; nil serves none, and
+	// /peer/v1/artifacts/ answers 404.
+	Artifacts ArtifactReader
 	// API is this daemon's API version, named in the hello.
 	API string
 	Log io.Writer
@@ -227,12 +249,13 @@ func (s *Server) tlsConfig(cert tls.Certificate) *tls.Config {
 
 // handler is the peer port's whole surface: a request carrying an Origin is refused (a
 // browser has no business here), the pin is checked again, and only /peer/v1/ws,
-// /peer/v1/screen and /peer/v1/upload exist.
+// /peer/v1/screen, /peer/v1/upload and /peer/v1/artifacts/{id} exist.
 func (s *Server) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(capability.PeerPath, s.serveWS)
 	mux.HandleFunc(capability.PeerScreenPath, s.serveScreen)
 	mux.HandleFunc("PUT "+capability.PeerUploadPath, s.serveUpload)
+	mux.HandleFunc("GET "+capability.PeerArtifactsPath+"{id}", s.serveArtifact)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if len(r.Header.Values("Origin")) > 0 {
@@ -358,6 +381,18 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// In the sweep before any work, so a peer unpaired in between is caught.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	k := &sock{cert: cert, name: name, cancel: cancel}
+	s.mu.Lock()
+	s.socks[k] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.socks, k)
+		s.mu.Unlock()
+	}()
 	switch {
 	case r.ContentLength < 0:
 		http.Error(w, "a Content-Length is required", http.StatusLengthRequired)
@@ -370,17 +405,6 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the upload is over the limit", http.StatusRequestEntityTooLarge)
 		return
 	}
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	k := &sock{cert: cert, name: name, cancel: cancel}
-	s.mu.Lock()
-	s.socks[k] = struct{}{}
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.socks, k)
-		s.mu.Unlock()
-	}()
 	// A body read blocks on the connection, which a context does not reach: the deadline does.
 	rc := http.NewResponseController(w)
 	rc.SetReadDeadline(time.Now().Add(uploadBound))
@@ -400,6 +424,80 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(s.o.Log, "droidyard: peer %s: stored an upload of %d bytes, sha256 %s\n", name, r.ContentLength, sum[:12])
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(capability.PeerUploadReply{Upload: id, SHA256: sum})
+}
+
+// serveArtifact is GET /peer/v1/artifacts/{id}: the stored bytes of an artifact one of the
+// calling peer's own operations produced (ADR-0099 §2), with the media type and, for
+// untrusted content, X-Droidyard-Untrusted: true as GET /v1/artifacts/{id} marks it. The
+// reader decides ownership; this route only translates its answer, and an artifact the peer
+// does not own is told apart from one that never was by nobody. The request is in the
+// revocation sweep like an upload, and its body is cut off after artifactBound.
+func (s *Server) serveArtifact(w http.ResponseWriter, r *http.Request) {
+	name, cert, ok := s.requestPeer(r)
+	if !ok {
+		http.Error(w, "not paired", http.StatusForbidden)
+		return
+	}
+	if s.o.Artifacts == nil {
+		http.NotFound(w, r)
+		return
+	}
+	// In the sweep before any work, so a peer unpaired in between is caught.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	k := &sock{cert: cert, name: name, cancel: cancel}
+	s.mu.Lock()
+	s.socks[k] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.socks, k)
+		s.mu.Unlock()
+	}()
+	a, err := s.o.Artifacts(name, r.PathValue("id"))
+	if err != nil {
+		var ce *capability.Error
+		switch {
+		case !errors.As(err, &ce):
+			http.Error(w, "the artifact cannot be served", http.StatusInternalServerError)
+		case ce.Code == capability.ErrArtifactNotFound:
+			http.Error(w, "no such artifact", http.StatusNotFound)
+		case ce.Code == capability.ErrArtifactExpired:
+			http.Error(w, "the artifact is gone", http.StatusGone)
+		default:
+			http.Error(w, "the artifact cannot be served", http.StatusInternalServerError)
+		}
+		return
+	}
+	// The types a store holds for the peer-lendable producers; anything else is not served.
+	switch a.MediaType {
+	case "image/png", "image/jpeg", "text/plain":
+	default:
+		http.Error(w, "the artifact cannot be served", http.StatusInternalServerError)
+		return
+	}
+	if ctx.Err() != nil {
+		http.Error(w, "not paired", http.StatusForbidden) // unpaired before the answer
+		return
+	}
+	// A body write blocks on the connection, which a context does not reach: the deadline does.
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Now().Add(artifactBound))
+	stop := context.AfterFunc(ctx, func() { rc.SetWriteDeadline(time.Unix(1, 0)) })
+	defer stop()
+
+	h := w.Header()
+	if a.MediaType == "text/plain" {
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+	} else {
+		h.Set("Content-Type", a.MediaType)
+	}
+	h.Set("Cache-Control", "no-store")
+	if a.Untrusted {
+		h.Set("X-Droidyard-Untrusted", "true")
+	}
+	h.Set("Content-Length", strconv.Itoa(len(a.Data)))
+	w.Write(a.Data)
 }
 
 // closeScreens ends every screen socket and waits for their handlers: the listener stopped,

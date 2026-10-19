@@ -57,7 +57,12 @@ type remoteTarget struct {
 // plain marks d as part of the plain class: a peer may call it on a host (Lendable), and
 // a call whose device is a remote id is relayed to that host instead of run here. A local
 // id takes d's own authorization and handler, unchanged.
-func (a *ADB) plain(d capability.Descriptor) capability.Descriptor {
+func (a *ADB) plain(d capability.Descriptor) capability.Descriptor { return a.plainThen(d, nil) }
+
+// plainThen is plain for a capability whose relayed result names artifacts on the host: then
+// receives the result decoded into the capability's own type, its device restored, and
+// returns what the caller gets (remoteartifact.go). A nil then is plain.
+func (a *ADB) plainThen(d capability.Descriptor, then func(ctx context.Context, rt *remoteTarget, res any) (any, error)) capability.Descriptor {
 	d.Lendable = true
 	authorize, handler := d.Authorize, d.Handler
 	name, result, declared := d.Name, d.Result, d.Errors
@@ -73,7 +78,11 @@ func (a *ADB) plain(d capability.Descriptor) capability.Descriptor {
 	}
 	d.Handler = func(ctx context.Context, call *capability.Call) (any, error) {
 		if rt, ok := call.Authorized.(*remoteTarget); ok {
-			return a.relay(ctx, call, name, result, declared, rt)
+			res, err := a.relay(ctx, call, name, result, declared, rt)
+			if err != nil || then == nil {
+				return res, err
+			}
+			return then(ctx, rt, res)
 		}
 		return handler(ctx, call)
 	}

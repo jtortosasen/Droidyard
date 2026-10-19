@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,6 +157,9 @@ func registerWatchLogs(reg *capability.Registry, adb *ADB) {
 		Kind:         capability.Command,
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
+		// A host lends the Logcat stream to a peer; for a remote id the client republishes
+		// the host's events (remotelogs.go; ADR-0100 §3).
+		Lendable:     true,
 		Since:        "0.14.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Streams a device's log to the calling WebSocket session: batches of parsed lines on topic device.logcat at most every 50 ms, from the newest tail lines or from a device-clock time. One stream per session and device (a second replaces the first), ended with events.unsubscribe.",
@@ -166,7 +170,7 @@ func registerWatchLogs(reg *capability.Registry, adb *ADB) {
 			Topic: TopicLogcat,
 			Types: map[string]any{EventLines: LinesEvent{}, EventStopped: StoppedEvent{}},
 		},
-		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...), ErrLogsFailed, capability.ErrInvalidParams, capability.ErrSessionRequired),
+		Errors: slices.Clone(watchLogsErrors),
 		Annotations: capability.Annotations{
 			Destructive: &notDestructive,
 			Reason:      "adds a subscription to the calling session; changes nothing on the device",
@@ -177,9 +181,19 @@ func registerWatchLogs(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
+			rt, remote, err := adb.authorizeRemote(call)
+			if err != nil {
+				return nil, err
+			}
+			if remote {
+				return rt, nil
+			}
 			return adb.authorize(ctx, call.Origin, p.Device, "device.watchLogs")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			if rt, ok := call.Authorized.(*remoteTarget); ok {
+				return adb.watchLogsRemote(ctx, call, rt)
+			}
 			return adb.watchLogs(ctx, call)
 		},
 	})
@@ -197,8 +211,17 @@ const (
 	endChildExit              // logcat ended by itself: stopped is published
 )
 
-// streamKey names the one stream a session may hold for a device.
+// streamKey names the stream a session holds for a device: the one, for a local session.
 type streamKey struct{ session, serial string }
+
+// peerStreamsMax is how many streams of one device a paired peer's link session may hold at
+// once (plan m2t step 5): a client has one link session for all its own sessions (browser
+// tabs), so the rule of one stream per session and device would end one tab's Logcat when
+// another opens its own. The client keeps that rule for each of its own sessions, so the
+// host's cap only ever separates distinct client sessions. A stream past the cap replaces
+// the link session's oldest on the device, and starts its child only once the oldest's is
+// reaped, so the host runs at most this many logcat children of a device per link session.
+const peerStreamsMax = 4
 
 // streamSet is every live stream of the daemon (ADR-0041 §6). A stream is in it from the
 // call that created it until its child is reaped and its pid record removed, so StopAll
@@ -207,29 +230,74 @@ type streamSet struct {
 	mu       sync.Mutex
 	all      map[*logStream]struct{}
 	byKey    map[streamKey]*logStream
+	peers    map[streamKey][]*logStream // a peer session's streams of a device, oldest first
 	stopping bool
 }
 
 var errStreamsStopping = errors.New("the daemon is stopping")
 
-// add puts s in the set, refusing once StopAll has begun.
-func (st *streamSet) add(s *logStream) error {
+// add puts s in the set, refusing once StopAll has begun. A peer's stream past peerStreamsMax
+// takes the place of the link session's oldest of the device, which is returned: the caller
+// ends it with endReplaced and starts s's child only after it is gone (or refuses s), so the
+// children never outnumber the cap.
+func (st *streamSet) add(s *logStream) (evicted *logStream, err error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.stopping {
-		return errStreamsStopping
+		return nil, errStreamsStopping
 	}
 	if st.all == nil {
-		st.all, st.byKey = map[*logStream]struct{}{}, map[streamKey]*logStream{}
+		st.all, st.byKey, st.peers = map[*logStream]struct{}{}, map[streamKey]*logStream{}, map[streamKey][]*logStream{}
 	}
 	st.all[s] = struct{}{}
-	return nil
+	if s.peer {
+		list := st.peers[s.key]
+		if len(list) >= peerStreamsMax {
+			evicted, list = list[0], list[1:]
+		}
+		st.peers[s.key] = append(list, s)
+	}
+	return evicted, nil
+}
+
+// evictedBy records the stream s made room by evicting, which a stream that evicts s in
+// turn must wait for as well: s may not have started its own child yet.
+func (s *logStream) evictedBy(e *logStream) {
+	s.mu.Lock()
+	s.evictee = e
+	s.mu.Unlock()
+}
+
+// evicts is the stream s evicted, nil if none.
+func (s *logStream) evicts() *logStream {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.evictee
+}
+
+// endReason is why s was ended, endNone while it has not been.
+func (s *logStream) endReason() endReason {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reason
+}
+
+// dropUnstarted takes a stream whose child never started out of the set and releases whoever
+// waits for its end: run, which does both for a started one, never ran.
+func (a *ADB) dropUnstarted(s *logStream) {
+	s.cancel()
+	s.rcancel()
+	s.set.remove(s)
+	close(s.done)
 }
 
 // replace makes s the stream of its (session, device) and returns the one it replaces.
 func (st *streamSet) replace(s *logStream) *logStream {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if s.peer {
+		return nil // a peer's streams are bounded by add
+	}
 	if _, live := st.all[s]; !live {
 		return nil // already ended and removed: it replaces nothing
 	}
@@ -246,6 +314,16 @@ func (st *streamSet) remove(s *logStream) {
 	delete(st.all, s)
 	if st.byKey[s.key] == s {
 		delete(st.byKey, s.key)
+	}
+	if list := st.peers[s.key]; s.peer {
+		if i := slices.Index(list, s); i >= 0 {
+			list = slices.Delete(list, i, i+1)
+		}
+		if len(list) == 0 {
+			delete(st.peers, s.key)
+		} else {
+			st.peers[s.key] = list
+		}
 	}
 }
 
@@ -298,6 +376,11 @@ type logStream struct {
 	args      []string
 	filterUID bool
 	uid       int
+	peer      bool // opened by a paired peer's session: bounded by peerStreamsMax, not replaced
+	// ending is closed when the stream is first ended, so a stream that waits for the one it
+	// evicted notices it was evicted itself.
+	ending  chan struct{}
+	evictee *logStream // the stream this one evicted; guarded by mu
 
 	// ctx is the child's own context: the operation's ends when the call completes,
 	// which would kill a child meant to outlive it (ADR-0041 §6). cancel is the kill.
@@ -333,6 +416,9 @@ func (s *logStream) end(r endReason) endReason {
 	s.mu.Lock()
 	if s.reason == endNone {
 		s.reason = r
+		if s.ending != nil {
+			close(s.ending)
+		}
 	}
 	got := s.reason
 	s.mu.Unlock()
@@ -569,8 +655,10 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 		adb: a, bus: a.bus, set: &a.streams,
 		key:    streamKey{session: sess.ID(), serial: t.serial},
 		device: t.serial, operation: call.OperationID, adbPath: t.adb,
+		peer:    call.Origin.Client == capability.ClientPeer,
 		args:    []string{"-s", t.serial, "logcat", "-v", logcatFormat, "-b", logcatStreamBuffers, "-T", p.from()},
 		started: make(chan error, 1), quit: make(chan struct{}), done: make(chan struct{}),
+		ending: make(chan struct{}),
 	}
 	result := WatchLogsResult{Device: t.serial}
 	if p.ApplicationID != "" {
@@ -592,18 +680,70 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 	}
 	s.sub = sub
 	result.SubscriptionID = id
-	if err := a.streams.add(s); err != nil {
+	evicted, err := a.streams.add(s)
+	if err != nil {
 		sess.Unsubscribe(id)
 		return nil, capability.NewError(ErrLogsFailed, "the device log could not be streamed").
 			WithCause(err.Error()).
 			WithNextStep("Start the daemon again, then retry.")
 	}
+	if evicted != nil {
+		// The link session's oldest stream of the device makes room, and is gone before this
+		// one's child starts: a call that is cancelled meanwhile, or an oldest that does not
+		// end in time, starts none.
+		evicted.end(endReplaced)
+		s.evictedBy(evicted)
+		timeout := time.After(streamListBound)
+		// The evicted stream's own evictee too: it may be evicted before its child started,
+		// and what it waits for still runs.
+		for e := evicted; e != nil; e = e.evicts() {
+			select {
+			case <-e.done:
+				continue
+			case <-s.ending: // a newer stream of the link session evicted this one meanwhile
+			case <-ctx.Done():
+				a.dropUnstarted(s)
+				sess.Unsubscribe(id)
+				return nil, ctx.Err()
+			case <-timeout:
+				a.dropUnstarted(s)
+				sess.Unsubscribe(id)
+				return nil, capability.NewError(ErrLogsFailed, "the device log could not be streamed").
+					WithCause("the oldest stream of the device did not end in time to make room for this one").
+					WithNextStep("Retry in a moment.")
+			}
+			break
+		}
+	}
+	// A stream ended while it waited for its place (a newer one of the same link session took
+	// it) stops as the stream that was replaced, with its subscription left open, rather than
+	// starting a child that is already unwanted.
+	if r := s.endReason(); r != endNone {
+		a.dropUnstarted(s)
+		if r != endReplaced {
+			sess.Unsubscribe(id)
+			return nil, capability.NewError(ErrLogsFailed, "the device log could not be streamed").
+				WithCause("the stream was ended before its child started").
+				WithNextStep("Retry.")
+		}
+		s.publishStopped(StopReplaced, "")
+		return result, nil
+	}
+	// Every stream older than s is done now: the chain behind it is no longer needed, and
+	// keeping it would hold every fourth evicted stream of the link session reachable.
+	s.evictedBy(nil)
 	go s.run()
 
 	select {
 	case err := <-s.started:
 		if err != nil {
 			<-s.done
+			if s.endReason() == endReplaced {
+				// Replaced while its child started: the start failed on the context that
+				// ending cancelled, which is not an adb failure.
+				s.publishStopped(StopReplaced, "")
+				return result, nil
+			}
 			sess.Unsubscribe(id)
 			return nil, streamStartError(err)
 		}

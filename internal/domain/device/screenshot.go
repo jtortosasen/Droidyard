@@ -49,7 +49,7 @@ type ScreenshotResult struct {
 }
 
 func registerScreenshot(reg *capability.Registry, adb *ADB, store *artifact.Store) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plainThen(capability.Descriptor{
 		Name:         "device.screenshot",
 		Kind:         capability.Query,
 		Scope:        capability.Global,
@@ -68,12 +68,14 @@ func registerScreenshot(reg *capability.Registry, adb *ADB, store *artifact.Stor
 			if err := adb.ready(ctx, t); err != nil {
 				return nil, err
 			}
-			return adb.screenshot(ctx, t, store)
+			return adb.screenshot(ctx, t, store, artifact.OwnerOf(call.Origin))
 		},
-	})
+	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+		return adb.screenshotFetched(ctx, rt, store, res.(ScreenshotResult))
+	}))
 }
 
-func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) (ScreenshotResult, error) {
+func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store, owner string) (ScreenshotResult, error) {
 	const cmd = "exec-out screencap -p"
 	out, err := a.Run(ctx, t.adb, screencapTimeout, screencapCap, "-s", t.serial, "exec-out", "screencap", "-p")
 	if cerr := ctx.Err(); cerr != nil {
@@ -107,7 +109,7 @@ func (a *ADB) screenshot(ctx context.Context, t *target, store *artifact.Store) 
 	inline := &artifact.Inline{Data: d, MediaType: mt, Width: iw, Height: ih}
 	ref, err := store.Put(artifact.Item{
 		Data: out.Stdout, MediaType: "image/png", Width: img.Bounds().Dx(), Height: img.Bounds().Dy(),
-		Untrusted: true, Producer: "device.screenshot", Inline: inline,
+		Untrusted: true, Producer: "device.screenshot", Owner: owner, Inline: inline,
 	})
 	if err != nil {
 		return ScreenshotResult{}, err
