@@ -163,12 +163,12 @@ func TestForegroundShare(t *testing.T) {
 	scenario := func(t *testing.T, during func(sh *liveProc, code string), end func(sh *liveProc)) *liveProc {
 		t.Helper()
 		sh := startLive(t, host.state, "share", sharePhone, "--on", "127.0.0.1")
-		code := codeOf(t, sh.expect(t, "droidyard join dy1.", 10*time.Second))
+		code := codeOf(t, sh.expect(t, "droidyard join dy1.", 10*time.Second*raceTimeScale))
 		join := droidyardEnv(t, client.state, "", nil, "join", code)
 		if exit := join.wait(t); exit != 0 {
 			t.Fatalf("join exited %d: %s", exit, join.stderr.String())
 		}
-		sh.expect(t, base+" joined", 3*time.Second)
+		sh.expect(t, base+" joined", 3*time.Second*raceTimeScale)
 		within(t, "the borrowed phone to be listed", listed)
 		if l, ok := lendOf(host.policy(t), sharePhone); ok {
 			t.Errorf("hosting.lend holds %+v while a foreground share is up; it must not", l)
@@ -187,8 +187,9 @@ func TestForegroundShare(t *testing.T) {
 
 		// The bound is 2 s (ADR-0104 §4; measured 40–600 ms alone and at level 5); a full
 		// parallel run of this package under the pre-commit hook has reached 2.0 s, so the
-		// test allows lossBound and logs what it measured.
-		const lossBound = 3 * time.Second
+		// test allows lossBound (stretched under -race: 3.17 s on CI's race job) and logs what it
+		// measured.
+		const lossBound = 3 * time.Second * raceTimeScale
 		start := time.Now()
 		end(sh)
 		for listed() {
@@ -224,11 +225,11 @@ func TestForegroundShare(t *testing.T) {
 	sh := scenario(t, func(sh *liveProc, code string) {
 		// A second share of the serial: a fresh code, returned at once, the first still held.
 		second := startLive(t, host.state, "share", sharePhone, "--on", "127.0.0.1")
-		line := second.expect(t, "droidyard join dy1.", 5*time.Second)
+		line := second.expect(t, "droidyard join dy1.", 5*time.Second*raceTimeScale)
 		if codeOf(t, line) == code {
 			t.Error("the second share printed the same code")
 		}
-		if exit, _ := second.exit(t, 5*time.Second); exit != 0 || !strings.Contains(second.stdout(), "already shared in the foreground of another command") {
+		if exit, _ := second.exit(t, 5*time.Second*raceTimeScale); exit != 0 || !strings.Contains(second.stdout(), "already shared in the foreground of another command") {
 			t.Errorf("the second share exited %d with:\n%s", exit, second.stdout())
 		}
 		// watchShare from another connection: refused, for a share that exists.
@@ -261,7 +262,7 @@ func TestForegroundShare(t *testing.T) {
 
 	// kill -9: the CLI says nothing; only the connection closing ends the share.
 	sh = scenario(t, nil, func(sh *liveProc) { sh.cmd.Process.Kill() })
-	if _, sig := sh.exit(t, 5*time.Second); sig != syscall.SIGKILL {
+	if _, sig := sh.exit(t, 5*time.Second*raceTimeScale); sig != syscall.SIGKILL {
 		t.Errorf("kill -9 ended the CLI with signal %v", sig)
 	}
 
@@ -271,7 +272,7 @@ func TestForegroundShare(t *testing.T) {
 			t.Errorf("unshare exited %d: %q %q", exit, out, stderr)
 		}
 	})
-	if exit, _ := sh.exit(t, 5*time.Second); exit != 0 || !strings.Contains(sh.stdout(), "unshared from another command") {
+	if exit, _ := sh.exit(t, 5*time.Second*raceTimeScale); exit != 0 || !strings.Contains(sh.stdout(), "unshared from another command") {
 		t.Errorf("the attached CLI exited %d with:\n%s\nwant 0 and a word that it was unshared", exit, sh.stdout())
 	}
 }
@@ -279,7 +280,7 @@ func TestForegroundShare(t *testing.T) {
 // exitStopped checks a CLI that was signalled: it exits 0 and says it stopped sharing.
 func (p *liveProc) exitStopped(t *testing.T, how string) {
 	t.Helper()
-	if exit, sig := p.exit(t, 5*time.Second); exit != 0 || sig != 0 || !strings.Contains(p.stdout(), "stopped sharing "+sharePhone) {
+	if exit, sig := p.exit(t, 5*time.Second*raceTimeScale); exit != 0 || sig != 0 || !strings.Contains(p.stdout(), "stopped sharing "+sharePhone) {
 		t.Errorf("%s: the CLI exited %d (signal %v) with:\n%s\nwant 0 and `stopped sharing`", how, exit, sig, p.stdout())
 	}
 }
