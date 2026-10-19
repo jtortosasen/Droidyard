@@ -62,8 +62,8 @@ func idCmd(args []string, stdout, stderr io.Writer) int {
 }
 
 // hostCmd implements `droidyard host …` (ADR-0098 §7), the host's side of pairing and
-// lending. Like `trust`, it writes the user configuration and starts no daemon: the
-// daemon reads `peers` and `lend` at each request, `listen` at its next start.
+// lending. Like `trust`, it writes the user configuration and starts no daemon: a running
+// daemon follows `peers` and `lend` at each request and `listen` within seconds.
 func hostCmd(args []string, stdout, stderr io.Writer) int {
 	return hostWith(policy.New(platform.Current()), args, stdout, stderr)
 }
@@ -207,17 +207,21 @@ func hostWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		return apply(pol, "host listen", stdout, stderr, func(cur policy.GetResult) (edit, error) {
-			const restart = "A restart applies it: droidyard stop (the next droidyard command starts a daemon)."
+			const live = "A running daemon applies it within seconds."
 			if addr == "off" {
 				if cur.Hosting.Listen == "" {
-					return edit{said: []string{"the peer listener is already off"}}, nil
+					return edit{said: []string{"hosting.listen is already off"}}, nil
 				}
-				return edit{patch: map[string]any{"hosting": map[string]any{"listen": nil}}, said: []string{"the peer listener is off", restart}}, nil
+				said := "hosting.listen is off"
+				if cur.Hosting.On != "" {
+					said += "; the listener follows hosting.on (" + cur.Hosting.On + ") while a device is lent"
+				}
+				return edit{patch: map[string]any{"hosting": map[string]any{"listen": nil}}, said: []string{said, live}}, nil
 			}
 			if cur.Hosting.Listen == addr {
 				return edit{said: []string{"the peer listener is already set to " + addr}}, nil
 			}
-			return edit{patch: map[string]any{"hosting": map[string]any{"listen": addr}}, said: []string{"the peer listener will bind " + addr, restart}}, nil
+			return edit{patch: map[string]any{"hosting": map[string]any{"listen": addr}}, said: []string{"the peer listener binds " + addr, live}}, nil
 		})
 	case "list":
 		if len(rest) != 0 {
@@ -278,7 +282,7 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 				patch: map[string]any{"remotes": next},
 				said: []string{
 					"added the remote " + name,
-					"A restart dials it: droidyard stop (the next droidyard command starts a daemon).",
+					"A running daemon dials it within seconds.",
 					"A phone it lends is used once devices.allowPhysical is true and " + name + "/<serial> is in devices.allowlist.",
 				},
 			}, nil
@@ -298,7 +302,7 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 			next := slices.DeleteFunc(slices.Clone(cur.Remotes), func(r policy.Remote) bool { return r.Name == name })
 			return edit{
 				patch: map[string]any{"remotes": next},
-				said:  []string{"removed the remote " + name, "A restart closes its link: droidyard stop (the next droidyard command starts a daemon)."},
+				said:  []string{"removed the remote " + name, "A running daemon closes its link within seconds."},
 			}, nil
 		})
 	case "list":

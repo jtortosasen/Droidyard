@@ -400,16 +400,17 @@ func TestPeerLink(t *testing.T) {
 		if h.Config == nil || h.Config.State != "ok" {
 			t.Errorf("a valid address that cannot be bound makes the file %+v; want ok", h.Config)
 		}
-		if h.Hosting == nil || h.Hosting.Listen != "" || !strings.Contains(h.Hosting.Error, "hosting.listen 192.0.2.1:7318") {
-			t.Errorf("hosting = %+v; want no listener and an error that names the bind", h.Hosting)
+		if h.Hosting == nil || h.Hosting.Listen != "" || !strings.Contains(h.Hosting.Error, "binding 192.0.2.1:7318") ||
+			len(h.Hosting.Errors) != 1 || h.Hosting.Errors[0].Address != "192.0.2.1:7318" {
+			t.Errorf("hosting = %+v; want no listener and an error that names the bind, keyed by the address (ADR-0109 §3)", h.Hosting)
 		}
 		select {
 		case err := <-proc.exited:
 			t.Errorf("serve exited (%v) when its listener could not bind", err)
 		default:
 		}
-		if !strings.Contains(proc.stderr.String(), "trying again in 30s") {
-			t.Errorf("the log does not say the bind is tried again:\n%s", proc.stderr.String())
+		if !strings.Contains(proc.stderr.String(), "tried again at the next check") || strings.Contains(proc.stderr.String(), "30s") {
+			t.Errorf("the log does not say the bind is tried again at the next check:\n%s", proc.stderr.String())
 		}
 	})
 }

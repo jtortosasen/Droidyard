@@ -72,7 +72,9 @@ func installTestSeams() {
 		}
 		return os.WriteFile(path, []byte(url), 0o600)
 	}
-	// Test daemons bind an ephemeral port unless a test asks for one.
+	// Test daemons bind an ephemeral port unless a test asks for one; so do their private
+	// peer listeners, which would otherwise all try 7318.
+	peerDefaultPort = 0
 	httpPort = 0
 	if v, err := strconv.Atoi(os.Getenv(httpPortEnv)); err == nil {
 		httpPort = v

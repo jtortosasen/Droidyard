@@ -1,5 +1,5 @@
 {
-  "version": "0.30.0",
+  "version": "0.31.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -9763,7 +9763,17 @@
             "properties": {
               "listen": {
                 "type": "string",
-                "description": "The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."
+                "description": "The one address the peer listener binds, an IP literal and a port (not an unspecified address); a change applies within seconds, with no restart. When set it wins over on and port."
+              },
+              "on": {
+                "type": "string",
+                "description": "Where the peer listener binds when listen is unset and this host lends a device: private (the VPN and the LAN), vpn, lan, or one IP literal that is private, in 100.64.0.0/10 or loopback. Absent: the listener binds nothing."
+              },
+              "port": {
+                "type": "integer",
+                "maximum": 65535,
+                "minimum": 1,
+                "description": "The port the listener takes on the addresses of on. Absent: 7318 is tried on the first bind, or a free port when 7318 is busy, and the port taken is written here. Once set it is never replaced automatically."
               },
               "peers": {
                 "items": {
@@ -9836,6 +9846,33 @@
                   "type": "string",
                   "description": "The host's peer listener, an IP literal and a port."
                 },
+                "addresses": {
+                  "items": {
+                    "properties": {
+                      "address": {
+                        "type": "string",
+                        "description": "An IP literal and a port."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "vpn",
+                          "lan"
+                        ],
+                        "description": "vpn for an address on a tunnel interface of the host, lan for one on any other."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "address",
+                      "kind"
+                    ]
+                  },
+                  "type": "array",
+                  "maxItems": 8,
+                  "description": "Other addresses the host can be reached at, each tagged vpn or lan. A connection attempt tries a lan address inside one of this machine's own subnets first, then the vpn ones, then the rest; address is one of the candidates."
+                },
                 "fingerprint": {
                   "type": "string",
                   "pattern": "^[0-9a-f]{64}$",
@@ -9851,7 +9888,7 @@
               ]
             },
             "type": "array",
-            "description": "The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
+            "description": "The hosts this daemon pairs with, dialled as the list changes; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
           },
           "revision": {
             "type": "string",
@@ -10021,7 +10058,31 @@
                     "oneOf": [
                       {
                         "type": "string",
-                        "description": "The address the peer listener binds, an IP literal and a port; read at daemon start."
+                        "description": "The one address the peer listener binds, an IP literal and a port. A change applies within seconds, with no restart."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "on": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "description": "Where the peer listener binds when listen is unset and this host lends a device: private, vpn, lan, or one IP literal that is private, in 100.64.0.0/10 or loopback."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "port": {
+                    "oneOf": [
+                      {
+                        "type": "integer",
+                        "maximum": 65535,
+                        "minimum": 1,
+                        "description": "The port the listener takes on the addresses of on, from 1 to 65535."
                       },
                       {
                         "type": "null"
@@ -10096,7 +10157,7 @@
                 },
                 "additionalProperties": false,
                 "type": "object",
-                "description": "The hosting section to merge: an object with listen, peers and/or lend, or null to remove the section and lend nothing."
+                "description": "The hosting section to merge: an object with listen, on, port, peers and/or lend, or null to remove the section and lend nothing."
               },
               {
                 "type": "null"
@@ -10117,6 +10178,33 @@
                       "type": "string",
                       "description": "The host's peer listener, an IP literal and a port."
                     },
+                    "addresses": {
+                      "items": {
+                        "properties": {
+                          "address": {
+                            "type": "string",
+                            "description": "An IP literal and a port."
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "vpn",
+                              "lan"
+                            ],
+                            "description": "vpn for an address on a tunnel interface of the host, lan for one on any other."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "address",
+                          "kind"
+                        ]
+                      },
+                      "type": "array",
+                      "maxItems": 8,
+                      "description": "Other addresses the host can be reached at, each tagged vpn or lan. A connection attempt tries a lan address inside one of this machine's own subnets first, then the vpn ones, then the rest; address is one of the candidates."
+                    },
                     "fingerprint": {
                       "type": "string",
                       "pattern": "^[0-9a-f]{64}$",
@@ -10132,7 +10220,7 @@
                   ]
                 },
                 "type": "array",
-                "description": "The remotes list, replacing the whole list, or null to remove it. Read at daemon start."
+                "description": "The remotes list, replacing the whole list, or null to remove it. A change applies within seconds, with no restart."
               },
               {
                 "type": "null"
@@ -10236,7 +10324,17 @@
             "properties": {
               "listen": {
                 "type": "string",
-                "description": "The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."
+                "description": "The one address the peer listener binds, an IP literal and a port (not an unspecified address); a change applies within seconds, with no restart. When set it wins over on and port."
+              },
+              "on": {
+                "type": "string",
+                "description": "Where the peer listener binds when listen is unset and this host lends a device: private (the VPN and the LAN), vpn, lan, or one IP literal that is private, in 100.64.0.0/10 or loopback. Absent: the listener binds nothing."
+              },
+              "port": {
+                "type": "integer",
+                "maximum": 65535,
+                "minimum": 1,
+                "description": "The port the listener takes on the addresses of on. Absent: 7318 is tried on the first bind, or a free port when 7318 is busy, and the port taken is written here. Once set it is never replaced automatically."
               },
               "peers": {
                 "items": {
@@ -10309,6 +10407,33 @@
                   "type": "string",
                   "description": "The host's peer listener, an IP literal and a port."
                 },
+                "addresses": {
+                  "items": {
+                    "properties": {
+                      "address": {
+                        "type": "string",
+                        "description": "An IP literal and a port."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "vpn",
+                          "lan"
+                        ],
+                        "description": "vpn for an address on a tunnel interface of the host, lan for one on any other."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "address",
+                      "kind"
+                    ]
+                  },
+                  "type": "array",
+                  "maxItems": 8,
+                  "description": "Other addresses the host can be reached at, each tagged vpn or lan. A connection attempt tries a lan address inside one of this machine's own subnets first, then the vpn ones, then the rest; address is one of the candidates."
+                },
                 "fingerprint": {
                   "type": "string",
                   "pattern": "^[0-9a-f]{64}$",
@@ -10324,7 +10449,7 @@
               ]
             },
             "type": "array",
-            "description": "The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
+            "description": "The hosts this daemon pairs with, dialled as the list changes; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
           },
           "revision": {
             "type": "string",
@@ -11740,11 +11865,40 @@
             "properties": {
               "listen": {
                 "type": "string",
-                "description": "The address the peer listener is bound to; absent when it is not."
+                "description": "The first address a peer listener is bound to; absent when none is. listening has them all."
+              },
+              "listening": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Every address a peer listener is bound to, an IP literal and a port each."
               },
               "error": {
                 "type": "string",
-                "description": "Why hosting.listen is set and the listener is not bound; it is tried again every 30 s."
+                "description": "The first of errors: why an address wanted is not bound. It is tried again at the next check, within seconds."
+              },
+              "errors": {
+                "items": {
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "description": "The address wanted, an IP literal and a port."
+                    },
+                    "error": {
+                      "type": "string",
+                      "description": "Why it is not bound; it is tried again at the next check, within seconds."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "address",
+                    "error"
+                  ]
+                },
+                "type": "array",
+                "description": "Each address the peer listener was asked to bind and could not, with why."
               },
               "peers": {
                 "items": {

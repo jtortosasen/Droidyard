@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -178,17 +179,22 @@ func newSide(t *testing.T, api string) *side {
 	return s
 }
 
-// listen starts the host's listener on an ephemeral loopback port and returns the address
-// it bound, once health says so.
+// server is the host's peer server, closed when the test ends. Set the screens, artifacts
+// and admit seams of the side before calling it.
+func (s *side) server(t *testing.T) *peer.Server {
+	t.Helper()
+	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, API: "0.0.0", Log: s.log})
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// listen binds the host's listener on addr (an ephemeral loopback port, usually) and returns
+// the address it bound, once health says so.
 func (s *side) listen(t *testing.T, addr string) (bound string, stop func()) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, Listen: addr, API: "0.0.0", Log: s.log})
-	go func() { defer close(done); srv.Run(ctx) }()
-	stop = func() { cancel(); <-done }
-	t.Cleanup(stop)
-	return waitFor(t, "the listener to report", func() string { return s.host.Health().Hosting.Listen }), stop
+	srv := s.server(t)
+	srv.Reconcile([]netip.AddrPort{netip.MustParseAddrPort(addr)})
+	return waitFor(t, "the listener to report", func() string { return s.host.Health().Hosting.Listen }), srv.Close
 }
 
 func waitFor(t *testing.T, what string, f func() string) string {
@@ -334,34 +340,96 @@ func TestRevokedPeerLosesItsLink(t *testing.T) {
 	}
 }
 
-// TestBindFailureIsRetried is ADR-0098 §3: an address that cannot be bound leaves no
-// listener and an error that names the bind, the daemon runs, and the bind is tried again
-// until it works.
+// TestBindFailureIsRetried is ADR-0098 §3 as ADR-0109 §3 changed it: an address that cannot
+// be bound leaves no listener and an error that names the bind, keyed by the address, the
+// daemon runs, and the bind is tried again at the next reconcile until it works.
 func TestBindFailureIsRetried(t *testing.T) {
 	taken, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer taken.Close()
-	peer.SetRetryEvery(100 * time.Millisecond)
-	t.Cleanup(func() { peer.SetRetryEvery(30 * time.Second) })
+	want := netip.MustParseAddrPort(taken.Addr().String())
 
 	s := newSide(t, "0.0.0")
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Listen: taken.Addr().String(), API: "0.0.0", Log: s.log})
-	go func() { defer close(done); srv.Run(ctx) }()
-	defer func() { cancel(); <-done }()
-
-	msg := waitFor(t, "the bind error", func() string { return s.host.Health().Hosting.Error })
-	if !strings.Contains(msg, "hosting.listen "+taken.Addr().String()) || s.host.Health().Hosting.Listen != "" {
-		t.Errorf("the bind failed with %q (listen %q); want an error that names the bind and no listener", msg, s.host.Health().Hosting.Listen)
+	srv := s.server(t)
+	bound, errs := srv.Reconcile([]netip.AddrPort{want})
+	h := s.host.Health().Hosting
+	if len(bound) != 0 || errs[want] == nil || !strings.Contains(h.Error, "binding "+want.String()) || h.Listen != "" ||
+		len(h.Errors) != 1 || h.Errors[0].Address != want.String() {
+		t.Fatalf("a taken address: bound %v errs %v health %+v; want no listener and an error keyed by %s that names the bind", bound, errs, h, want)
+	}
+	if n := strings.Count(s.log.String(), "is down"); n != 1 {
+		t.Errorf("the log says the listener is down %d times; want once", n)
+	}
+	srv.Reconcile([]netip.AddrPort{want}) // still taken: the same error again, said once
+	if n := strings.Count(s.log.String(), "is down"); n != 1 {
+		t.Errorf("a retry of the same failure logged again (%d lines)", n)
 	}
 	taken.Close()
-	bound := waitFor(t, "the retry to bind", func() string { return s.host.Health().Hosting.Listen })
-	if bound == "" || s.host.Health().Hosting.Error != "" {
-		t.Errorf("after the address was free: listen %q, error %q; want bound and no error", bound, s.host.Health().Hosting.Error)
+	bound, errs = srv.Reconcile([]netip.AddrPort{want})
+	h = s.host.Health().Hosting
+	if len(bound) != 1 || len(errs) != 0 || h.Listen != want.String() || h.Error != "" || len(h.Errors) != 0 {
+		t.Errorf("after the address was free: bound %v errs %v health %+v; want bound and no error", bound, errs, h)
 	}
+}
+
+// TestListenerSetShrinks is ADR-0109 §3: closing one address's listener ends only the sockets
+// it accepted. Two listeners on two ports, a peer linked on each: the set loses one and that
+// peer's link closes while the other's stays and still answers; the set gains it back and it
+// is bound again. Seen failing with the closed listener ending every session (Sessions.EndAll,
+// the shape before this step): the other peer's link closed too.
+func TestListenerSetShrinks(t *testing.T) {
+	host := newSide(t, "0.0.0")
+	annaSide, bobSide := newSide(t, "0.0.0"), newSide(t, "0.0.0")
+	host.cfg.hosting.Peers = []policy.HostPeer{
+		{Name: "anna", Fingerprint: annaSide.host.Identity().Fingerprint()},
+		{Name: "bob", Fingerprint: bobSide.host.Identity().Fingerprint()},
+	}
+	freePort := func() netip.AddrPort {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		return netip.MustParseAddrPort(ln.Addr().String())
+	}
+	a1, a2 := freePort(), freePort()
+	srv := host.server(t)
+	if bound, errs := srv.Reconcile([]netip.AddrPort{a1, a2}); len(bound) != 2 || len(errs) != 0 {
+		t.Fatalf("two addresses: bound %v errs %v", bound, errs)
+	}
+	if got := host.host.Health().Hosting.Listening; len(got) != 2 {
+		t.Fatalf("health listening = %v; want both", got)
+	}
+	link := func(c *side, at netip.AddrPort) *hosting.Link {
+		c.cfg.remotes = []policy.Remote{{Name: "qa-lab", Address: at.String(), Fingerprint: host.host.Identity().Fingerprint()}}
+		c.host.Start()
+		t.Cleanup(c.host.Stop)
+		eventually(t, "the link to come up", 10*time.Second, func() bool { return c.host.Remote("qa-lab").Connected() })
+		return c.host.Remote("qa-lab")
+	}
+	la, lb := link(annaSide, a1), link(bobSide, a2)
+
+	if bound, _ := srv.Reconcile([]netip.AddrPort{a2}); len(bound) != 1 || bound[0] != a2 {
+		t.Fatalf("the set loses a1: bound %v", bound)
+	}
+	eventually(t, "anna's link, on the closed listener, to close", 5*time.Second, func() bool { return !la.Connected() })
+	if !lb.Connected() {
+		t.Error("bob's link, on the listener that stayed, closed with the other one")
+	}
+	if env := call(t, lb, "peertest.echo", ""); env.Error != nil || !strings.Contains(string(env.Result), `"n":7`) {
+		t.Errorf("a call on the listener that stayed: %+v", env)
+	}
+	if c, err := net.DialTimeout("tcp", a1.String(), time.Second); err == nil {
+		c.Close()
+		t.Error("the closed listener still accepts")
+	}
+
+	if bound, _ := srv.Reconcile([]netip.AddrPort{a1, a2}); len(bound) != 2 {
+		t.Fatalf("the set gains a1 back: bound %v", bound)
+	}
+	eventually(t, "anna's link to come back on the rebound listener", 15*time.Second, func() bool { return la.Connected() })
 }
 
 // TestTheHelloIsRequired: a pinned client that opens the socket must say hello within the

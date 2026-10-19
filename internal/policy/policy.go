@@ -23,8 +23,9 @@
 //
 // The section a check reads — trust, shell, devices, hosting — is read from one
 // size-and-mtime snapshot, so a hand edit or a `droidyard trust` takes effect without a
-// restart (ADR-0031 §4; ADR-0032 §6). The tool keys, `hosting.listen` and `remotes` are
-// read once, at daemon start.
+// restart (ADR-0031 §4; ADR-0032 §6). The tool keys are read once, at daemon start;
+// `hosting.listen`, `hosting.on`, `hosting.port` and `remotes` are followed live, within
+// seconds (ADR-0109 §3).
 package policy
 
 import (
@@ -449,7 +450,7 @@ type GetResult struct {
 	Shell   ShellPolicy  `json:"shell" jsonschema:"required"`
 	// Hosting and Remotes are the peer sections (ADR-0098 §6).
 	Hosting HostingPolicy `json:"hosting" jsonschema:"required"`
-	Remotes []Remote      `json:"remotes" jsonschema:"required" jsonschema_description:"The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as <name>/<serial>."`
+	Remotes []Remote      `json:"remotes" jsonschema:"required" jsonschema_description:"The hosts this daemon pairs with, dialled as the list changes; their devices join the device list as <name>/<serial>."`
 	// Revision is the token policy.update's ifRevision compares against.
 	Revision string `json:"revision" jsonschema:"required" jsonschema_description:"The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."`
 }

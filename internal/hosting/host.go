@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net/netip"
 	"sort"
 	"sync"
 
@@ -21,7 +22,7 @@ type Config interface {
 }
 
 // Host is a daemon's peer state: its identity, the links it dials, and what the peer
-// listener reports. It holds no goroutine until Start, and no file is touched until Init,
+// listeners report. It holds no goroutine until Start, and no file is touched until Init,
 // which the daemon calls once it holds the lock (the identity has one writer).
 type Host struct {
 	cfg   Config
@@ -32,15 +33,26 @@ type Host struct {
 	uploads *Uploads
 	pending *Pending
 
-	mu        sync.Mutex
-	identity  *Identity
-	problems  []store.Problem
-	listen    string
-	listenErr string
-	open      map[string]int // peer name → open sockets
-	links     map[string]*Link
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	// recMu serialises Reconcile: the periodic pass and a share's must not interleave.
+	recMu sync.Mutex
+
+	mu         sync.Mutex
+	identity   *Identity
+	problems   []store.Problem
+	listening  []string       // the addresses the listeners are bound to, in the order wanted
+	listenErrs []ListenError  // why an address wanted is not, by address
+	open       map[string]int // peer name → open sockets
+	links      map[string]*Link
+	ctx        context.Context // the links' parent; nil before Start
+	cancel     context.CancelFunc
+	stopped    bool
+	wg         sync.WaitGroup
+
+	binder      Binder
+	ifaces      Lister
+	defaultPort int
+	pendingPort int               // the port the listeners took, not yet written to hosting.port
+	told        map[string]string // what a pass last logged under a key, so it logs a change and not a repeat
 }
 
 // New returns the peer state for the daemon whose state root is state and whose API
@@ -50,7 +62,7 @@ func New(cfg Config, state, api string, log io.Writer) *Host {
 		log = io.Discard
 	}
 	return &Host{cfg: cfg, state: state, api: api, log: log, uploads: NewUploads(state, log), pending: NewPending(),
-		open: map[string]int{}, links: map[string]*Link{}}
+		open: map[string]int{}, links: map[string]*Link{}, ifaces: SystemInterfaces, defaultPort: DefaultPort, told: map[string]string{}}
 }
 
 // Uploads are the APKs paired peers uploaded to this daemon (ADR-0099 §3).
@@ -143,47 +155,130 @@ func (h *Host) Problems() []store.Problem {
 	return append([]store.Problem(nil), h.problems...)
 }
 
-// Start dials every remote of the configuration as it is now (ADR-0098 §4: remotes are
-// read at start), one link each, keeping each connected until Stop. A configuration that
-// cannot be used dials nothing, and system.health says why through its config. It does
-// nothing without an identity.
+// Start begins dialling the remotes of the configuration, one link each, and keeps the
+// links as the configuration changes (Reconcile) until Stop. A configuration that cannot be
+// used dials nothing, and system.health says why through its config. It does nothing without
+// an identity.
 func (h *Host) Start() {
-	id := h.Identity()
-	if id == nil {
-		return
-	}
-	remotes, err := h.cfg.Remotes()
-	if err != nil {
-		fmt.Fprintf(h.log, "droidyard: no remote is dialled: %s\n", err.Cause)
+	if h.Identity() == nil {
 		return
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.cancel != nil {
+		h.mu.Unlock()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	h.cancel = cancel
-	for _, r := range remotes {
-		l := newLink(r, id, h.api, h.log)
-		h.links[r.Name] = l
-		h.wg.Add(1)
-		go func() {
-			defer h.wg.Done()
-			l.run(ctx)
-		}()
-	}
+	h.ctx, h.cancel = context.WithCancel(context.Background())
+	h.mu.Unlock()
+	h.recMu.Lock()
+	defer h.recMu.Unlock()
+	h.reconcileLinks()
 }
 
 // Stop closes every link and waits for them. It is safe to call more than once.
 func (h *Host) Stop() {
 	h.mu.Lock()
+	h.stopped = true
 	cancel := h.cancel
 	h.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	h.wg.Wait()
+}
+
+// Reconcile makes the peer machinery what the configuration and the interfaces say now
+// (ADR-0109 §3): the listeners, when a Binder was given (UseListeners), and the links. The
+// daemon calls it every 2 s and at once after a change it made itself. A configuration that
+// cannot be used leaves everything as it is.
+func (h *Host) Reconcile() {
+	h.recMu.Lock()
+	defer h.recMu.Unlock()
+	h.reconcileListeners()
+	h.reconcileLinks()
+}
+
+// reconcileLinks starts the links of remotes that are new, closes those that are gone or
+// whose fingerprint changed (a link is to one certificate), and updates the addresses of
+// the rest in place, keeping their connection. It does nothing before Start and after Stop.
+func (h *Host) reconcileLinks() {
+	id := h.Identity()
+	h.mu.Lock()
+	running := h.cancel != nil && !h.stopped
+	h.mu.Unlock()
+	if id == nil || !running {
+		return
+	}
+	remotes, err := h.cfg.Remotes()
+	if err != nil {
+		h.once("remotes", fmt.Sprintf("droidyard: the remotes are left as they are: %s\n", err.Cause))
+		return
+	}
+	h.once("remotes", "")
+	want := make(map[string]policy.Remote, len(remotes))
+	for _, r := range remotes {
+		want[r.Name] = r
+	}
+	var gone []*Link
+	h.mu.Lock()
+	if h.stopped {
+		h.mu.Unlock()
+		return
+	}
+	for name, l := range h.links {
+		if r, ok := want[name]; !ok || !SamePin(r.Fingerprint, l.remote.Fingerprint) {
+			gone = append(gone, l)
+			delete(h.links, name)
+		}
+	}
+	for _, r := range remotes {
+		if l := h.links[r.Name]; l != nil {
+			if l.update(r) {
+				fmt.Fprintf(h.log, "droidyard: remote %s: its addresses changed; the link is kept\n", r.Name)
+			}
+			continue
+		}
+		l := newLink(r, id, h.api, h.log)
+		l.own = h.ownPrefixes
+		lctx, stop := context.WithCancel(h.ctx)
+		l.stop, l.done = stop, make(chan struct{})
+		h.links[r.Name] = l
+		h.wg.Add(1)
+		go func() {
+			defer h.wg.Done()
+			defer close(l.done)
+			l.run(lctx)
+		}()
+	}
+	h.mu.Unlock()
+	for _, l := range gone {
+		l.stop()
+		<-l.done
+		fmt.Fprintf(h.log, "droidyard: remote %s: no longer configured, or its fingerprint changed; the link is closed\n", l.remote.Name)
+	}
+}
+
+// once logs line under key when it differs from the last one logged under it, so a pass
+// that finds the same problem every 2 s says it once; an empty line forgets the key.
+func (h *Host) once(key, line string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.told[key] == line {
+		return
+	}
+	h.told[key] = line
+	if line != "" {
+		fmt.Fprint(h.log, line)
+	}
+}
+
+// ownPrefixes are the subnets this machine is on now, for ordering a remote's addresses.
+func (h *Host) ownPrefixes() []netip.Prefix {
+	ifaces, err := h.Interfaces()
+	if err != nil {
+		return nil
+	}
+	return OwnPrefixes(ifaces)
 }
 
 // Remote is the link to the named remote, nil when none is configured.
@@ -193,8 +288,7 @@ func (h *Host) Remote(name string) *Link {
 	return h.links[name]
 }
 
-// Links are the links to every remote of the configuration read at start, in the order of
-// their names.
+// Links are the links to every remote of the configuration, in the order of their names.
 func (h *Host) Links() []*Link {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -206,15 +300,17 @@ func (h *Host) Links() []*Link {
 	return out
 }
 
-// SetListen is the peer listener's report: the address it is bound to, or why it is not.
-// Either clears the other.
-func (h *Host) SetListen(addr string, err error) {
+// SetListening is the peer listeners' report: the addresses they are bound to, in the order
+// wanted, and why each address wanted that is not bound is not.
+func (h *Host) SetListening(bound []string, errs map[string]error) {
+	list := make([]ListenError, 0, len(errs))
+	for addr, err := range errs {
+		list = append(list, ListenError{Address: addr, Error: err.Error()})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Address < list[j].Address })
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.listen, h.listenErr = addr, ""
-	if err != nil {
-		h.listen, h.listenErr = "", err.Error()
-	}
+	h.listening, h.listenErrs = append([]string(nil), bound...), list
 }
 
 // PeerOpened and PeerClosed count a paired peer's open sockets, so health can say which
@@ -244,11 +340,19 @@ type PeerHealth struct {
 	Connected bool   `json:"connected" jsonschema:"required" jsonschema_description:"Whether the peer has a link open to this host now."`
 }
 
-// HostingHealth is system.health's hosting: the peer listener and the peers paired.
+// ListenError is why one address the peer listener was asked to bind is not bound.
+type ListenError struct {
+	Address string `json:"address" jsonschema:"required" jsonschema_description:"The address wanted, an IP literal and a port."`
+	Error   string `json:"error" jsonschema:"required" jsonschema_description:"Why it is not bound; it is tried again at the next check, within seconds."`
+}
+
+// HostingHealth is system.health's hosting: the peer listeners and the peers paired.
 type HostingHealth struct {
-	Listen string       `json:"listen,omitempty" jsonschema_description:"The address the peer listener is bound to; absent when it is not."`
-	Error  string       `json:"error,omitempty" jsonschema_description:"Why hosting.listen is set and the listener is not bound; it is tried again every 30 s."`
-	Peers  []PeerHealth `json:"peers" jsonschema:"required" jsonschema_description:"The peers in hosting.peers."`
+	Listen    string        `json:"listen,omitempty" jsonschema_description:"The first address a peer listener is bound to; absent when none is. listening has them all."`
+	Listening []string      `json:"listening,omitempty" jsonschema_description:"Every address a peer listener is bound to, an IP literal and a port each."`
+	Error     string        `json:"error,omitempty" jsonschema_description:"The first of errors: why an address wanted is not bound. It is tried again at the next check, within seconds."`
+	Errors    []ListenError `json:"errors,omitempty" jsonschema_description:"Each address the peer listener was asked to bind and could not, with why."`
+	Peers     []PeerHealth  `json:"peers" jsonschema:"required" jsonschema_description:"The peers in hosting.peers."`
 }
 
 // RemoteHealth is one remote this daemon is paired with.
@@ -272,7 +376,13 @@ func (h *Host) Health() Health {
 	cfg, _ := h.cfg.Hosting()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	out := Health{Hosting: HostingHealth{Listen: h.listen, Error: h.listenErr, Peers: []PeerHealth{}}, Remotes: []RemoteHealth{}}
+	out := Health{Hosting: HostingHealth{Peers: []PeerHealth{}}, Remotes: []RemoteHealth{}}
+	if len(h.listening) > 0 {
+		out.Hosting.Listen, out.Hosting.Listening = h.listening[0], append([]string(nil), h.listening...)
+	}
+	if len(h.listenErrs) > 0 {
+		out.Hosting.Error, out.Hosting.Errors = h.listenErrs[0].Error, append([]ListenError(nil), h.listenErrs...)
+	}
 	if h.identity != nil {
 		out.Identity = &IdentityHealth{Fingerprint: h.identity.Fingerprint()}
 	}

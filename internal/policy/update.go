@@ -34,8 +34,8 @@ type UpdateParams struct {
 	Trust      *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
 	Devices    *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
 	Shell      *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
-	Hosting    *HostingPatch `json:"hosting,omitempty" jsonschema_description:"The hosting section to merge: an object with listen, peers and/or lend, or null to remove the section and lend nothing." jsonschema:"nullable"`
-	Remotes    *[]Remote     `json:"remotes,omitempty" jsonschema_description:"The remotes list, replacing the whole list, or null to remove it. Read at daemon start." jsonschema:"nullable"`
+	Hosting    *HostingPatch `json:"hosting,omitempty" jsonschema_description:"The hosting section to merge: an object with listen, on, port, peers and/or lend, or null to remove the section and lend nothing." jsonschema:"nullable"`
+	Remotes    *[]Remote     `json:"remotes,omitempty" jsonschema_description:"The remotes list, replacing the whole list, or null to remove it. A change applies within seconds, with no restart." jsonschema:"nullable"`
 	IfRevision *string       `json:"ifRevision,omitempty" jsonschema_description:"The revision policy.get returned; the patch applies only if the file still has it, else POLICY_REVISION_CONFLICT."`
 
 	// raw is the patch as the caller wrote it, kept so a section or key written as null
@@ -63,7 +63,9 @@ type ShellPatch struct {
 
 // HostingPatch is the hosting section of a policy.update patch.
 type HostingPatch struct {
-	Listen *string     `json:"listen,omitempty" jsonschema_description:"The address the peer listener binds, an IP literal and a port; read at daemon start." jsonschema:"nullable"`
+	Listen *string     `json:"listen,omitempty" jsonschema_description:"The one address the peer listener binds, an IP literal and a port. A change applies within seconds, with no restart." jsonschema:"nullable"`
+	On     *string     `json:"on,omitempty" jsonschema_description:"Where the peer listener binds when listen is unset and this host lends a device: private, vpn, lan, or one IP literal that is private, in 100.64.0.0/10 or loopback." jsonschema:"nullable"`
+	Port   *int        `json:"port,omitempty" jsonschema_description:"The port the listener takes on the addresses of on, from 1 to 65535." jsonschema:"nullable,minimum=1,maximum=65535"`
 	Peers  *[]HostPeer `json:"peers,omitempty" jsonschema_description:"The peers paired with this host. Replaces the whole list." jsonschema:"nullable"`
 	Lend   *[]Lend     `json:"lend,omitempty" jsonschema_description:"The devices lent and to whom. Replaces the whole list." jsonschema:"nullable"`
 }
@@ -103,7 +105,7 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 		"trust":   {"roots", "prefixes"},
 		"devices": {"allowPhysical", "allowlist"},
 		"shell":   {"enabled", "roots"},
-		"hosting": {"listen", "peers", "lend"},
+		"hosting": {"listen", "on", "port", "peers", "lend"},
 	}
 	for k, v := range raw {
 		if k == "ifRevision" {

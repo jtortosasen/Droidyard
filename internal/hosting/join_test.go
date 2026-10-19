@@ -46,17 +46,15 @@ func startJoinHost(t *testing.T) *joinHost {
 	reg := capability.NewRegistry()
 	ops := capability.NewOperations(reg)
 	bus := event.New(event.Options{})
-	srv := peer.New(peer.Options{Host: jh.host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Listen: "127.0.0.1:0", API: "0.0.0", Log: jh.log,
+	srv := peer.New(peer.Options{Host: jh.host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), API: "0.0.0", Log: jh.log,
 		Admit: func(fingerprint, name, device string) (string, string, error) {
 			jh.mu.Lock()
 			defer jh.mu.Unlock()
 			jh.admits = append(jh.admits, fingerprint)
 			return "peer", "the-host", nil
 		}})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { defer close(done); srv.Run(ctx) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(srv.Close)
+	srv.Reconcile([]netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:0")})
 	for deadline := time.Now().Add(10 * time.Second); jh.addr == "" && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		jh.addr = jh.host.Health().Hosting.Listen
 	}
