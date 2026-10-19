@@ -179,7 +179,8 @@ func checkRegister(fsys fs.FS) []string {
 // document of the peer role (the routes, the two roles, what a peer may call), and the lines
 // that name the peers in adb-device.md, http-websocket.md, ui-automation.md, workspace-state.md,
 // vision.md, beyond.md, mvp.md and the glossary (ADR-0097 to ADR-0106).
-const liveBudget = 29300
+// Raised by 5 (to 29,305) at milestone 2t's close: README.md's status line names 2t.
+const liveBudget = 29305
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -59,7 +59,8 @@ var currentFocusHashRE = regexp.MustCompile(`mCurrentFocus=Window\{([0-9a-f]+) u
 
 // parseSecureFocus reads only the focused window's flags: the hash on the mCurrentFocus
 // line, then the block that starts `Window #N Window{<hash> …}:` and its first `fl=` line,
-// whose space-separated flags hold SECURE when the window is secure. Any other window's
+// whose space-separated flags hold SECURE when the window is secure, or which is one hex
+// number holding bit 0x2000 on builds that print no names. Any other window's
 // flags are ignored. It errors when the focus line, the block or its flags are missing.
 func parseSecureFocus(out string) (bool, error) {
 	m := currentFocusHashRE.FindStringSubmatch(out)

@@ -215,10 +215,16 @@ func Env(t *testing.T, dir, port string) []string {
 		"HOME=" + t.TempDir(), "PATH="}
 }
 
-// Write puts a file in the scenario directory.
+// Write puts a file in the scenario directory, whole: it is written beside and renamed into
+// place, so a fake child polling for it never reads it created but still empty (a stop file
+// read empty made a child exit 0, not with its status: plan m2t step 10).
 func Write(t *testing.T, dir, name string, data []byte) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path+".part", data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path+".part", path); err != nil {
 		t.Fatal(err)
 	}
 }
