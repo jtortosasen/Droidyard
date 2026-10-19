@@ -43,7 +43,8 @@ func (l *Link) Upload(ctx context.Context, size int64, body io.Reader) (UploadRe
 	}
 	client := l.pinnedClient()
 	defer client.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "https://"+l.remote.Address+capability.PeerUploadPath, io.NopCloser(body))
+	addr := l.current()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "https://"+addr+capability.PeerUploadPath, io.NopCloser(body))
 	if err != nil {
 		return UploadReceipt{}, err
 	}
@@ -54,7 +55,7 @@ func (l *Link) Upload(ctx context.Context, size int64, body io.Reader) (UploadRe
 		if ctx.Err() != nil {
 			return UploadReceipt{}, ctx.Err()
 		}
-		return UploadReceipt{}, dialError(l.remote, err)
+		return UploadReceipt{}, dialError(l.remoteAt(addr), err)
 	}
 	defer resp.Body.Close()
 	if ctx.Err() != nil {

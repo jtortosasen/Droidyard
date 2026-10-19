@@ -250,36 +250,57 @@ func serve(args []string) int {
 	return 0
 }
 
-// startPeers makes the daemon's identity, binds the peer listener when hosting.listen is
-// set and dials each remote, and returns the function that stops them all and waits. A
-// configuration that cannot be used binds and dials nothing: system.health says so through
-// its config (ADR-0032 §4).
+// reconcileEvery is how often the peer listeners and the links are matched to the
+// configuration and to this machine's interfaces (ADR-0109 §3). A variable only so that a
+// test can shorten it.
+var reconcileEvery = 2 * time.Second
+
+// peerDefaultPort is the port the private listeners try first (ADR-0109 §2). A variable only
+// so that this package's tests can set it in a re-executed binary: 0 there, so test daemons
+// never contend for the real default.
+var peerDefaultPort = hosting.DefaultPort
+
+// startPeers makes the daemon's identity, and keeps the peer listeners and the links
+// matched to the configuration and to this machine's interfaces: a first pass now, then one
+// every reconcileEvery and one whenever host.Reconcile is called (ADR-0109 §3). It returns
+// the function that stops them all and waits. A configuration that cannot be used binds and
+// dials nothing: system.health says so through its config (ADR-0032 §4).
 func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, store *artifact.Store, adb *device.ADB, logw io.Writer) (stop func()) {
 	if err := host.Init(); err != nil {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer identity: %v\n", os.Getpid(), err)
 		return func() {}
 	}
-	listen := ""
-	if h, err := host.Hosting(); err != nil {
-		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer listener: %s\n", os.Getpid(), err.Cause)
-	} else {
-		listen = h.Listen
-	}
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Listen: listen, API: system.Version, Log: logw})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Admit: host.Admit, API: system.Version, Log: logw})
+	host.SetDefaultPort(peerDefaultPort)
+	host.UseListeners(srv)
 	leased := make(chan struct{})
 	// The check that a lent device is still lent to the peer leasing it (ADR-0104 §4), at the
 	// interval of the pin check.
 	go func() { defer close(leased); adb.RunLeases(ctx) }()
-	go func() { defer close(done); srv.Run(ctx) }()
 	host.Start()
+	host.Reconcile()
+	reconciled := make(chan struct{})
+	go func() {
+		defer close(reconciled)
+		t := time.NewTicker(reconcileEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				host.Reconcile()
+			}
+		}
+	}()
 	return func() {
 		cancel()
-		<-done
+		<-reconciled
+		srv.Close()
 		<-leased
 		host.Stop()
-		// After the listener, so no upload is still arriving; what is left is removed.
+		// After the listeners, so no upload is still arriving; what is left is removed.
 		host.Uploads().Close()
 	}
 }

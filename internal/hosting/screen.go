@@ -83,10 +83,11 @@ func (l *Link) DialScreen(ctx context.Context, streamID string) (*ScreenConn, er
 	client := l.pinnedClient()
 	dctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
-	conn, _, err := websocket.Dial(dctx, "wss://"+l.remote.Address+capability.PeerScreenPath, &websocket.DialOptions{HTTPClient: client})
+	addr := l.current()
+	conn, _, err := websocket.Dial(dctx, "wss://"+addr+capability.PeerScreenPath, &websocket.DialOptions{HTTPClient: client})
 	if err != nil {
 		client.CloseIdleConnections()
-		return nil, dialError(l.remote, err)
+		return nil, dialError(l.remoteAt(addr), err)
 	}
 	conn.SetReadLimit(MaxScreenFrame)
 	first, _ := json.Marshal(struct {
@@ -95,7 +96,7 @@ func (l *Link) DialScreen(ctx context.Context, streamID string) (*ScreenConn, er
 	if err := conn.Write(dctx, websocket.MessageText, first); err != nil {
 		conn.CloseNow()
 		client.CloseIdleConnections()
-		return nil, dialError(l.remote, err)
+		return nil, dialError(l.remoteAt(addr), err)
 	}
 	return &ScreenConn{c: conn, client: client}, nil
 }

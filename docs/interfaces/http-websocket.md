@@ -34,8 +34,9 @@ bare HTTP error and never reaches the capability layer.
    `droidyard status` report the actual address. A non-loopback address is **refused at
    startup**: this listener stays loopback ([ADR-0097](../adr/0097-local-first-with-peers.md)
    §3), and LAN access to the UI needs its own ADR. Paired Droidyards reach a separate peer
-   listener with its own TLS and pinning ([ADR-0098](../adr/0098-peer-transport-identity-pairing.md);
-   [peer.md](peer.md)).
+   listener, on private addresses or the one `hosting.listen` names, with its own TLS and pinning
+   ([ADR-0098](../adr/0098-peer-transport-identity-pairing.md),
+   [ADR-0109](../adr/0109-private-networks-live-peer-config.md); [peer.md](peer.md)).
 2. **Host allowlist (stops DNS rebinding).** `Host` must be exactly
    `127.0.0.1:<port>` or `localhost:<port>`. Anything else gets `403`. A rebinding page
    sends its own hostname, so it is rejected here.

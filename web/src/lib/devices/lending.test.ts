@@ -104,5 +104,6 @@ describe('what this machine lends (plan m2t step 7)', () => {
 			{ serial: 'R58M', text: 'lent to anna', holder: { serial: 'R58M', holder: 'anna', idle: false } },
 			{ serial: 'S2', text: 'lent to bob, anna', holder: undefined },
 		]);
+		expect(lentRows([{ device: 'R1', to: [] }], [])).toEqual([{ serial: 'R1', text: 'shared, no one joined yet', holder: undefined }]);
 	});
 });

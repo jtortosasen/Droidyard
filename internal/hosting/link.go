@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +35,10 @@ var (
 	// too, and either end closes after a missed answer.
 	pingEvery = 30 * time.Second
 	pingWait  = 10 * time.Second
+	// addrDialTimeout bounds the connection to one address of a remote that has several
+	// (ADR-0109 §4): the next is tried after it, so an address that is not reachable from
+	// here costs this much and not dialTimeout.
+	addrDialTimeout = 3 * time.Second
 )
 
 // readLimit bounds a frame a host sends: a response or an event, never a stream's bytes.
@@ -45,14 +51,20 @@ var (
 	ErrLinkLost = errors.New("the link to the remote was lost during the call")
 )
 
-// Link is this daemon's connection to one host it is paired with (ADR-0098 §4): dialled at
-// start, pinned to the host's fingerprint, kept up with backoff. Calls go over it as the
-// capability envelopes of the peer protocol.
+// Link is this daemon's connection to one host it is paired with (ADR-0098 §4): dialled
+// when the remote appears in the configuration, pinned to the host's fingerprint, kept up
+// with backoff. Calls go over it as the capability envelopes of the peer protocol. Its name
+// and fingerprint are fixed; the addresses it dials are updated in place (ADR-0109 §3).
 type Link struct {
-	remote policy.Remote
+	remote policy.Remote // the name and the fingerprint; the addresses are addr and addrs
 	id     *Identity
 	api    string
 	log    io.Writer
+	// own, when set, lists the subnets this machine is on, for ordering the addresses.
+	own func() []netip.Prefix
+
+	stop func()        // set by the Host: ends the link's run
+	done chan struct{} // closed when the link's run has returned
 
 	mu        sync.Mutex
 	conn      *websocket.Conn
@@ -65,13 +77,93 @@ type Link struct {
 	lost      chan struct{} // closed when the connection now up is lost; nil while down
 	hostAPI   string
 	lastErr   string
+	addr      string                 // the remote's address
+	addrs     []policy.RemoteAddress // its tagged others
+	answered  string                 // the address the last connection was made at; "" before
 }
 
 func newLink(r policy.Remote, id *Identity, api string, log io.Writer) *Link {
-	return &Link{remote: r, id: id, api: api, log: log,
+	return &Link{remote: r, id: id, api: api, log: log, addr: r.Address, addrs: slices.Clone(r.Addresses),
 		pending: map[string]chan capability.ResponseEnvelope{}, routes: map[string]*route{},
 		events: map[string]func(json.RawMessage){}}
 }
+
+// update replaces the addresses the link dials, keeping the link and its connection
+// (ADR-0109 §3): the next attempt uses them. It reports whether anything changed.
+func (l *Link) update(r policy.Remote) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.addr == r.Address && slices.Equal(l.addrs, r.Addresses) {
+		return false
+	}
+	l.addr, l.addrs = r.Address, slices.Clone(r.Addresses)
+	if l.answered != "" && l.answered != l.addr && !slices.ContainsFunc(l.addrs, func(a policy.RemoteAddress) bool { return a.Address == l.answered }) {
+		l.answered = "" // the address that answered is no longer the remote's
+	}
+	return true
+}
+
+// current is the address a request that goes straight to the host is made at: the one the
+// last connection was made at, else the remote's own.
+func (l *Link) current() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.answered != "" {
+		return l.answered
+	}
+	return l.addr
+}
+
+// remoteAt is the remote as seen at one address, for the messages that name it.
+func (l *Link) remoteAt(addr string) policy.Remote {
+	r := l.remote
+	r.Address, r.Addresses = addr, nil
+	return r
+}
+
+// candidates are the addresses to dial, in the order to dial them (ADR-0109 §4): the remote's
+// address and its tagged ones, a lan address in one of this machine's own subnets first, then
+// the vpn ones, then the rest. The remote's address is first among equals; one that the list
+// also holds takes the list's tag.
+func (l *Link) candidates() []string {
+	l.mu.Lock()
+	primary, list, own := l.addr, slices.Clone(l.addrs), l.own
+	l.mu.Unlock()
+	addrs := []string{primary}
+	kinds := []Kind{""}
+	for _, a := range list {
+		if i := slices.Index(addrs, a.Address); i >= 0 {
+			kinds[i] = Kind(a.Kind)
+			continue
+		}
+		addrs = append(addrs, a.Address)
+		kinds = append(kinds, Kind(a.Kind))
+	}
+	ips := make([]netip.Addr, len(addrs))
+	for i, a := range addrs {
+		if ap, err := netip.ParseAddrPort(a); err == nil {
+			ips[i] = ap.Addr()
+		}
+	}
+	var prefixes []netip.Prefix
+	if own != nil {
+		prefixes = own()
+	}
+	out := make([]string, 0, len(addrs))
+	for _, i := range orderIndex(ips, kinds, prefixes) {
+		out = append(out, addrs[i])
+	}
+	return out
+}
+
+// atError is a failure at one address of a remote that may have several.
+type atError struct {
+	addr string
+	err  error
+}
+
+func (e *atError) Error() string { return e.err.Error() }
+func (e *atError) Unwrap() error { return e.err }
 
 // closedChan is what Down returns for a link that is down.
 var closedChan = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
@@ -277,8 +369,13 @@ func (l *Link) run(ctx context.Context) {
 		if up {
 			wait = backoffMin
 		}
+		at := l.current()
+		var ae *atError
+		if errors.As(err, &ae) {
+			at = ae.addr
+		}
 		l.mu.Lock()
-		l.lastErr = healthError(l.remote, err)
+		l.lastErr = healthError(l.remoteAt(at), err)
 		l.mu.Unlock()
 		fmt.Fprintf(l.log, "droidyard: remote %s: %v; trying again in %s\n", l.remote.Name, err, wait)
 		select {
@@ -304,18 +401,16 @@ func (l *Link) session(ctx context.Context) (up bool, err error) {
 	client := l.pinnedClient()
 	defer client.CloseIdleConnections()
 
-	dctx, cancel := context.WithTimeout(ctx, dialTimeout)
-	conn, _, err := websocket.Dial(dctx, "wss://"+l.remote.Address+capability.PeerPath, &websocket.DialOptions{HTTPClient: client})
-	cancel()
+	conn, addr, err := l.dialAny(ctx, client)
 	if err != nil {
-		return false, dialError(l.remote, err)
+		return false, err
 	}
 	conn.SetReadLimit(readLimit)
 	defer conn.CloseNow()
 
-	host, err := l.hello(ctx, conn)
+	host, err := l.hello(ctx, conn, l.remoteAt(addr))
 	if err != nil {
-		return false, err
+		return false, &atError{addr, err}
 	}
 	if host.API != l.api {
 		fmt.Fprintf(l.log, "droidyard: remote %s runs API %s and this daemon %s; the peer protocol is the same, so the link is kept\n", l.remote.Name, host.API, l.api)
@@ -324,7 +419,7 @@ func (l *Link) session(ctx context.Context) (up bool, err error) {
 	sctx, stop := context.WithCancel(ctx)
 	defer stop()
 	l.mu.Lock()
-	l.conn, l.connected, l.hostAPI, l.lastErr = conn, true, host.API, ""
+	l.conn, l.connected, l.hostAPI, l.lastErr, l.answered = conn, true, host.API, "", addr
 	l.lost = make(chan struct{})
 	l.mu.Unlock()
 	fmt.Fprintf(l.log, "droidyard: remote %s: link up (API %s)\n", l.remote.Name, host.API)
@@ -332,20 +427,50 @@ func (l *Link) session(ctx context.Context) (up bool, err error) {
 
 	go l.pings(sctx, conn)
 	err = l.read(sctx, conn)
-	return true, fmt.Errorf("link down: %w", err)
+	return true, &atError{addr, fmt.Errorf("link down: %w", err)}
+}
+
+// dialAny opens the WebSocket at the first address that answers, trying them in order
+// (ADR-0109 §4), and returns it with the address. When none does, the error is the most
+// telling one: a remote that answered and was refused or was not the host (a failure in
+// this daemon's own words) before one that did not answer, the first of each kind.
+func (l *Link) dialAny(ctx context.Context, client *http.Client) (*websocket.Conn, string, error) {
+	cands := l.candidates()
+	per := dialTimeout
+	if len(cands) > 1 {
+		per = min(dialTimeout, addrDialTimeout)
+	}
+	var best error
+	for _, addr := range cands {
+		dctx, cancel := context.WithTimeout(ctx, per)
+		conn, _, err := websocket.Dial(dctx, "wss://"+addr+capability.PeerPath, &websocket.DialOptions{HTTPClient: client})
+		cancel()
+		if err == nil {
+			return conn, addr, nil
+		}
+		derr := dialError(l.remoteAt(addr), err)
+		if ctx.Err() != nil {
+			return nil, "", &atError{addr, derr}
+		}
+		var own, bestOwn *ownError
+		if best == nil || (!errors.As(best, &bestOwn) && errors.As(derr, &own)) {
+			best = &atError{addr, derr}
+		}
+	}
+	return nil, "", best
 }
 
 // hello sends this daemon's hello and reads the host's, within the dial bound.
-func (l *Link) hello(ctx context.Context, conn *websocket.Conn) (capability.PeerHello, error) {
+func (l *Link) hello(ctx context.Context, conn *websocket.Conn, rem policy.Remote) (capability.PeerHello, error) {
 	hctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 	out, _ := json.Marshal(capability.PeerHelloFrame{Hello: &capability.PeerHello{PeerProtocol: capability.PeerProtocol, API: l.api}})
 	if err := conn.Write(hctx, websocket.MessageText, out); err != nil {
-		return capability.PeerHello{}, dialError(l.remote, err)
+		return capability.PeerHello{}, dialError(rem, err)
 	}
 	typ, data, err := conn.Read(hctx)
 	if err != nil {
-		return capability.PeerHello{}, dialError(l.remote, err)
+		return capability.PeerHello{}, dialError(rem, err)
 	}
 	var f capability.PeerHelloFrame
 	if typ != websocket.MessageText || json.Unmarshal(data, &f) != nil || f.Hello == nil {

@@ -72,7 +72,8 @@ func (l *Link) Artifact(ctx context.Context, id string, max int64) (Artifact, er
 	}
 	client := l.pinnedClient()
 	defer client.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+l.remote.Address+capability.PeerArtifactsPath+url.PathEscape(id), nil)
+	addr := l.current()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+addr+capability.PeerArtifactsPath+url.PathEscape(id), nil)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -81,7 +82,7 @@ func (l *Link) Artifact(ctx context.Context, id string, max int64) (Artifact, er
 		if ctx.Err() != nil {
 			return Artifact{}, ctx.Err()
 		}
-		return Artifact{}, dialError(l.remote, err)
+		return Artifact{}, dialError(l.remoteAt(addr), err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
