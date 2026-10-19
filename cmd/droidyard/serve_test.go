@@ -199,10 +199,11 @@ func (p *process) expect(t *testing.T, want string) string {
 	}
 }
 
-// wait returns the exit code once the process ends, failing after 10 s.
+// wait returns the exit code once the process ends, failing after 10 s (scaled under -race,
+// raceTimeScale).
 func (p *process) wait(t *testing.T) int {
 	t.Helper()
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(10 * raceTimeScale * time.Second)
 	for lines := p.lines; lines != nil; {
 		select {
 		case _, ok := <-lines:
