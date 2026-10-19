@@ -189,6 +189,11 @@ func (h *Host) writePort(port int) error {
 	if cur.State == policy.StateInvalid {
 		return errors.New("the configuration cannot be used")
 	}
+	if cur.Hosting.Port != 0 {
+		// Someone wrote a port since this pass began: theirs stands (ADR-0109 §2), and the
+		// revision below makes the check and the write one step.
+		return nil
+	}
 	var up policy.UpdateParams
 	raw := fmt.Sprintf(`{"hosting":{"port":%d},"ifRevision":%q}`, port, cur.Revision)
 	if err := json.Unmarshal([]byte(raw), &up); err != nil {

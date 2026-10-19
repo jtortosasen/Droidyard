@@ -35,6 +35,8 @@ type Host struct {
 
 	// recMu serialises Reconcile: the periodic pass and a share's must not interleave.
 	recMu sync.Mutex
+	// editMu serialises the edits of the policy this daemon's own commands make (Edit).
+	editMu sync.Mutex
 
 	mu         sync.Mutex
 	identity   *Identity

@@ -65,7 +65,7 @@ trips, fewer tokens, no image interpretation.
   `operation.cancel` ([ADR-0020](../adr/0020-operation-contract.md)).
 - **Capability domains**: `system`, `workspace`, `project`, `build`, `device`,
   `emulator`, `sdk`, `file`, `git`, `artifact`, `policy`, `agent`, `operation`, `events`,
-  `shell`, `session`. `file` is a first-class domain.
+  `shell`, `session`, `hosting`. `file` is a first-class domain.
 - **Sample app** as the acceptance target.
 - **Minimal web UI** (phase 2), grown as needed rather than built to a fixed spec.
 - **`git.*` as the last item**, a thin wrapper over the `git` CLI. It may slip to
@@ -260,6 +260,7 @@ Two practical notes:
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
 | `session` | `watch`, `release` (human-only; never over MCP) | 2 |
+| `hosting` | `share`, `unshare`, `join` (human-only; never over MCP) | 2u |
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |

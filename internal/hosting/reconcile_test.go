@@ -378,7 +378,7 @@ func TestPortBusyIsRemembered(t *testing.T) {
 	}
 	other, err := net.Listen("tcp", ap.String())
 	if err != nil {
-		t.Skipf("the port %s was taken by someone else in between: %v", ap, err)
+		t.Fatalf("the port %s was taken by someone else in between: %v", ap, err)
 	}
 	defer other.Close()
 	writeConfig(t, state, `{"hosting":{"on":"127.0.0.1","port":`+strconv.Itoa(port)+`,`+lend+`}}`)
@@ -434,5 +434,19 @@ func TestPrivateListenersFollowLending(t *testing.T) {
 	h.Reconcile()
 	if got := h.Health().Hosting.Listening; len(got) != 1 {
 		t.Errorf("an unusable configuration changed the listeners to %v; want them left as they were", got)
+	}
+}
+
+// TestLearntPortNeverReplacesAWrittenOne is the write's own check (ADR-0109 §2): a port
+// written by someone else between a pass's read and its write stands.
+func TestLearntPortNeverReplacesAWrittenOne(t *testing.T) {
+	state := t.TempDir()
+	h, pol, _ := daemonAt(t, state)
+	writeConfig(t, state, `{"hosting":{"on":"127.0.0.1","port":47999}}`)
+	if err := h.writePort(48000); err != nil {
+		t.Fatal(err)
+	}
+	if got := portInConfig(t, pol); got != 47999 {
+		t.Fatalf("hosting.port = %d after a learnt write; want 47999, the one written before", got)
 	}
 }

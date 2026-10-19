@@ -9269,6 +9269,224 @@
       }
     },
     {
+      "name": "hosting.join",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.31.0",
+      "description": "Joins the share a join code names: pins the host's certificate from the code, presents this daemon's with its secret, and records the host as a remote with \u003cremote\u003e/\u003cserial\u003e admitted, so the device is listed at once. A person's action, refused from an agent session; the first join the host accepts spends the code.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "HOSTING_JOIN_FAILED",
+        "HOSTING_UNAVAILABLE",
+        "POLICY_CONFIG_UNUSABLE",
+        "POLICY_REVISION_CONFLICT",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The join code the host's hosting.share printed, dy1. and base64url."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ]
+      },
+      "output": {
+        "properties": {
+          "remote": {
+            "type": "string",
+            "description": "The name the host has in remotes, made from its host name."
+          },
+          "device": {
+            "type": "string",
+            "description": "The device's id here, \u003cremote\u003e/\u003cserial\u003e."
+          },
+          "connected": {
+            "type": "boolean",
+            "description": "Whether the link to the host came up within 5 s. If not it keeps trying, and the device is listed once it does."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "remote",
+          "device",
+          "connected"
+        ]
+      }
+    },
+    {
+      "name": "hosting.share",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.31.0",
+      "description": "Shares one physical device: admits its serial in this machine's physical-device policy, lends it, listens on the private addresses and returns a single-use join code to paste into droidyard join on the other machine. A person's action, refused from an agent session and from a peer; with detach true the share lasts until hosting.unshare.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "HOSTING_UNAVAILABLE",
+        "POLICY_CONFIG_UNUSABLE",
+        "POLICY_REVISION_CONFLICT",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The serial of the physical device to share, as device.list prints it."
+          },
+          "detach": {
+            "type": "boolean",
+            "description": "True: the share lasts until hosting.unshare. Only true is accepted in this version."
+          },
+          "on": {
+            "type": "string",
+            "description": "private (the default), vpn, lan or one private IP; written to hosting.on. Absent keeps hosting.on."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "detach"
+        ]
+      },
+      "output": {
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "description": "The join code, dy1. and base64url: whoever pastes it into droidyard join first gets the device. Single use, no time expiry, a bearer credential until used: pass it only to the person meant to have it."
+          },
+          "addresses": {
+            "items": {
+              "properties": {
+                "address": {
+                  "type": "string",
+                  "description": "An IP literal and a port."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "vpn",
+                    "lan"
+                  ],
+                  "description": "vpn for an address on a tunnel interface, lan for one on any other."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "address",
+                "kind"
+              ]
+            },
+            "type": "array",
+            "description": "The addresses the host listens on and the code carries."
+          },
+          "port": {
+            "type": "integer"
+          },
+          "detached": {
+            "type": "boolean"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "What the human running the command must know, one sentence each."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "code",
+          "addresses",
+          "port",
+          "detached",
+          "notes"
+        ]
+      }
+    },
+    {
+      "name": "hosting.unshare",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.31.0",
+      "description": "Stops sharing a device, or every device: its lending is removed, its unused codes are void, and the peers that joined stay paired and reach nothing. A person's action, refused from an agent session.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "HOSTING_UNAVAILABLE",
+        "POLICY_CONFIG_UNUSABLE",
+        "POLICY_REVISION_CONFLICT",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial to stop sharing; absent stops every share."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "unshared": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The serials whose lending was removed."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unshared"
+        ]
+      }
+    },
+    {
       "name": "operation.cancel",
       "kind": "command",
       "scope": "global",
@@ -9812,8 +10030,7 @@
                         "type": "string"
                       },
                       "type": "array",
-                      "minItems": 1,
-                      "description": "The names of the peers it is lent to."
+                      "description": "The names of the peers it is lent to. Empty: the device is shared (droidyard share) and no one has joined yet."
                     }
                   },
                   "additionalProperties": false,
@@ -10135,8 +10352,7 @@
                                 "type": "string"
                               },
                               "type": "array",
-                              "minItems": 1,
-                              "description": "The names of the peers it is lent to."
+                              "description": "The names of the peers it is lent to. Empty: the device is shared (droidyard share) and no one has joined yet."
                             }
                           },
                           "additionalProperties": false,
@@ -10373,8 +10589,7 @@
                         "type": "string"
                       },
                       "type": "array",
-                      "minItems": 1,
-                      "description": "The names of the peers it is lent to."
+                      "description": "The names of the peers it is lent to. Empty: the device is shared (droidyard share) and no one has joined yet."
                     }
                   },
                   "additionalProperties": false,

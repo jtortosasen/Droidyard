@@ -45,6 +45,9 @@ func TestHostingConfig(t *testing.T) {
 		{"listen on loopback with an ephemeral port", `{"hosting":{"listen":"127.0.0.1:0"}}`, ""},
 		{"listen on an IPv6 address", `{"hosting":{"listen":"[::1]:7318"}}`, ""},
 		{"null sections are their defaults", `{"hosting":null,"remotes":null}`, ""},
+		// A shared device no one has joined yet (droidyard share -d): the entry exists so the share
+		// does, and `to` is empty until a join adds a name (plan m2u step 3).
+		{"a shared device no one has joined", `{"hosting":{"lend":[{"device":"R1","to":[]}]}}`, ""},
 
 		{"listen on every IPv4 interface", `{"hosting":{"listen":"0.0.0.0:7318"}}`, "hosting.listen"},
 		{"listen on every IPv6 interface", `{"hosting":{"listen":"[::]:7318"}}`, "hosting.listen"},
@@ -111,7 +114,6 @@ func TestHostingConfig(t *testing.T) {
 		{"a peer that is not an object", `{"hosting":{"peers":["anna"]}}`, "hosting.peers[0]"},
 
 		{"a lent device listed twice", `{"hosting":{"lend":[{"device":"R1","to":["a"]},{"device":"R1","to":["b"]}]}}`, "hosting.lend[1].device"},
-		{"a lent device with no peer", `{"hosting":{"lend":[{"device":"R1","to":[]}]}}`, "hosting.lend[0].to"},
 		{"a lent device with no to", `{"hosting":{"lend":[{"device":"R1"}]}}`, "hosting.lend[0].to"},
 		{"a lent device with an empty serial", `{"hosting":{"lend":[{"device":"","to":["a"]}]}}`, "hosting.lend[0].device"},
 		{"a lend to a bad name", `{"hosting":{"lend":[{"device":"R1","to":["A B"]}]}}`, "hosting.lend[0].to"},

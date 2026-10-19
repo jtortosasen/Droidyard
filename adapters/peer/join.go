@@ -206,7 +206,7 @@ func (s *Server) serveJoin(w http.ResponseWriter, r *http.Request) {
 	if pinned {
 		state = "already paired"
 	}
-	fmt.Fprintf(s.o.Log, "droidyard: peer listener: %s joined from %s (fingerprint %s, %s)\n", peer, r.RemoteAddr, fp[:12], state)
+	fmt.Fprintf(s.o.Log, "droidyard: peer listener: %s joined from %s (fingerprint %s, %s) and is lent %q\n", peer, r.RemoteAddr, fp[:12], state, device)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(capability.PeerJoinReply{Host: host, Device: device})
 }

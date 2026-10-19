@@ -180,7 +180,9 @@ func checkRegister(fsys fs.FS) []string {
 // that name the peers in adb-device.md, http-websocket.md, ui-automation.md, workspace-state.md,
 // vision.md, beyond.md, mvp.md and the glossary (ADR-0097 to ADR-0106).
 // Raised by 5 (to 29,305) at milestone 2t's close: README.md's status line names 2t.
-const liveBudget = 29305
+// Raised by 35 (to 29,340) at milestone 2u step 3: mvp.md's hosting row and domain, and
+// mcp.md's not-exposed row, which the capability check requires (ADR-0108 §1).
+const liveBudget = 29340
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

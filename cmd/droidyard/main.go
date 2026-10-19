@@ -35,6 +35,7 @@ import (
 	gitdomain "github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
+	"github.com/jtortosasen/droidyard/internal/domain/sharing"
 	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
@@ -123,18 +124,34 @@ Commands:
              admit pairs a peer by the fingerprint its human sent from droidyard id; revoke
              unpairs it and drops it from what is lent; lend lends a whole device (use a
              dedicated one) and still needs devices.allowPhysical and the serial in
-             devices.allowlist. listen is applied at the next start (droidyard stop).
+             devices.allowlist. A running daemon applies a change within seconds.
              It writes the user configuration; no daemon is involved or started.
   remote     Use the devices another Droidyard lends, the client's side:
              droidyard remote add <name> <ip:port> <fingerprint> | remove <name> | list
              The host's devices join the list as <name>/<serial>, used once
-             devices.allowPhysical is true and that id is in devices.allowlist. A restart
-             applies a change (droidyard stop). No daemon is involved or started.
+             devices.allowPhysical is true and that id is in devices.allowlist. A running
+             daemon applies a change within seconds. No daemon is involved or started.
   device     Allow a physical device (or <remote>/<serial>) without editing the configuration:
              droidyard device allow <serial> | disallow <serial>
              allow sets devices.allowPhysical to true and adds the serial; disallow removes
              the serial and leaves allowPhysical as it was. A running daemon sees it at its
              next call. No daemon is involved or started.
+  share      Share a physical device with another Droidyard, the host's side:
+             droidyard share -d <serial> [--on vpn|lan|<ip>]
+             It admits the serial for this Mac too, lends it, listens on this Mac's private
+             addresses (the VPN and the LAN, or the ones --on names) and prints one line,
+             droidyard join <code>, to paste on the other Mac. The code works for one join
+             and does not expire. -d returns at once; the share lasts until unshare.
+             It asks the daemon, and starts one when none answers.
+  unshare    Stop sharing a device, or every device:
+             droidyard unshare [<serial>]
+             The codes not yet used stop working. Those who joined stay paired and reach
+             nothing; droidyard host revoke unpairs one.
+  join       Use the device another Droidyard shares, the client's side:
+             droidyard join <code>
+             The code is the line the host's share printed. The device is listed at once as
+             <host>/<serial>; nothing is edited by hand and no restart is needed.
+             It asks the daemon, and starts one when none answers.
   init       Set a project up for coding assistants (optional; every tool works without it):
              droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
              Writes the droidyard-android skill and, per client, the MCP server entry and
@@ -210,6 +227,12 @@ func main() {
 		os.Exit(remoteCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "device":
 		os.Exit(deviceCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "share":
+		os.Exit(shareCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "unshare":
+		os.Exit(unshareCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "join":
+		os.Exit(joinCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "init":
 		os.Exit(initCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "hook":
@@ -280,6 +303,9 @@ var (
 	// testHosting registers test-only capabilities that reach the peer link, which the
 	// shipped binary reaches through no capability until a later step relays a device.
 	testHosting func(reg *capability.Registry, host *hosting.Host)
+	// joinSeam, when set, stands in for the host a hosting.join dials, so a test can have a host
+	// whose answer is hostile. The shipped binary never sets it.
+	joinSeam sharing.JoinFunc
 	// testDrain replaces workspace.close's drain bound; zero keeps the default.
 	testDrain time.Duration
 	// adbEnviron is the environment adb is resolved in and its clients run with: the
@@ -498,6 +524,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	history := builddomain.NewRegistry(builddomain.RegistryOptions{Store: st, Artifacts: artifacts, Log: log, Bus: bus})
 	device.Register(reg, adb, artifacts, history)
 	emulator.Register(reg, emulatorClient)
+	// hosting.share, hosting.unshare and hosting.join: the human's commands that pair two
+	// daemons and write the configuration for it (ADR-0107, ADR-0108). Without a state store
+	// (caps, schema) there is no host and they answer HOSTING_UNAVAILABLE.
+	sharing.Register(reg, sharing.Options{Host: host, Devices: adb, API: system.Version, Join: joinSeam, Log: log})
 	artifactcap.Register(reg, artifacts)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)

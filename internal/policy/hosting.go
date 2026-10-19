@@ -34,7 +34,7 @@ type HostPeer struct {
 // Lend lends one device to the named peers (ADR-0099 §1).
 type Lend struct {
 	Device string   `json:"device" jsonschema:"required,minLength=1" jsonschema_description:"The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."`
-	To     []string `json:"to" jsonschema:"required,minItems=1" jsonschema_description:"The names of the peers it is lent to."`
+	To     []string `json:"to" jsonschema:"required" jsonschema_description:"The names of the peers it is lent to. Empty: the device is shared (droidyard share) and no one has joined yet."`
 }
 
 // HostingPolicy is the hosting section as policy.get returns it: the peer listener's
@@ -170,9 +170,6 @@ func decodeHosting(raw json.RawMessage, doc *document) error {
 					return fmt.Errorf("%s.device: %q is lent by an earlier entry; list each device once, with every peer it is lent to", at, l.Device)
 				}
 				devices[l.Device] = true
-				if len(l.To) == 0 {
-					return fmt.Errorf("%s.to: name at least one peer, or remove the entry", at)
-				}
 				seen := map[string]bool{}
 				for _, n := range l.To {
 					if err := validName(at+".to", n); err != nil {

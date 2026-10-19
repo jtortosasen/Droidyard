@@ -1,6 +1,7 @@
 package hosting
 
 import (
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -57,4 +58,15 @@ func cutName(name string, n int) string {
 		name = name[:n]
 	}
 	return strings.TrimRight(name, "-")
+}
+
+// hostname is how this machine's name is read; a variable only so a test can say what it is.
+var hostname = os.Hostname
+
+// OwnName is the name this machine gives itself (ADR-0107 §5): its host name made into a
+// peer name, "-2", "-3"… until it is not among taken. A machine whose name cannot be read is
+// "host".
+func OwnName(taken []string) string {
+	h, _ := hostname()
+	return NameFrom(h, taken)
 }

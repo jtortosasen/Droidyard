@@ -78,6 +78,13 @@ func (p *Pending) Void(device string) {
 	delete(p.hashes, device)
 }
 
+// VoidAll drops every unused code of every device: all the shares stopped.
+func (p *Pending) VoidAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	clear(p.hashes)
+}
+
 // Any reports whether any code is unused.
 func (p *Pending) Any() bool {
 	p.mu.Lock()

@@ -271,7 +271,7 @@ func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Op
 		return func() {}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), API: system.Version, Log: logw})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Admit: host.Admit, API: system.Version, Log: logw})
 	host.SetDefaultPort(peerDefaultPort)
 	host.UseListeners(srv)
 	leased := make(chan struct{})

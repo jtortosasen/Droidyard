@@ -11,6 +11,7 @@ import (
 	"github.com/jtortosasen/droidyard/adapters/cli"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/sharing"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
@@ -23,7 +24,7 @@ const (
 )
 
 // lendWarning is what lending a device means (ADR-0099 §4), said each time one is lent.
-const lendWarning = "The whole device is lent: its screen and input reach every app, notification and account on it, and nothing is cleaned when a lease ends. Lend a dedicated device, not your own phone."
+const lendWarning = sharing.WholeDeviceWarning
 
 // idCmd implements `droidyard id` (ADR-0098 §1): this daemon's certificate fingerprint,
 // what a host pins to admit it, read from system.health. The identity is the daemon's, so

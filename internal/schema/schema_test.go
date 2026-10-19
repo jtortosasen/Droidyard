@@ -25,6 +25,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/project"
 	"github.com/jtortosasen/droidyard/internal/domain/sdk"
+	"github.com/jtortosasen/droidyard/internal/domain/sharing"
 	"github.com/jtortosasen/droidyard/internal/domain/shell"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
@@ -78,6 +79,7 @@ func registry() *capability.Registry {
 	}
 	device.Register(reg, device.NewADB(nil, nil), store, nil)
 	emulator.Register(reg, emulator.New(nil, device.NewADB(nil, nil), nil, ""))
+	sharing.Register(reg, sharing.Options{})
 	artifacts.Register(reg, store)
 	// The golden registry only needs the sdk descriptors: no handler is run, so an empty
 	// environment (which resolves no SDK) and no client are enough.
@@ -336,7 +338,7 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	want := []string{"build.assemble", "device.inputText", "device.install", "device.installUpload", "device.launch", "device.logs",
 		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiTree",
 		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe",
-		"session.release"}
+		"hosting.share", "hosting.unshare", "session.release"}
 	var got []string
 	for name := range declared {
 		got = append(got, name)
