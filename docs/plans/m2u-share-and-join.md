@@ -88,7 +88,7 @@
 - Not here: capabilities and policy writes (3); the address set and ordering (2).
 - Rests on: an unpaired certificate reaches only the join route, and only with an unused code; join connections are served through `TLSNextProto` (Go closes a connection whose negotiated protocol has no entry there, `net/http/server.go`), and a normal hello offering only `droidyard-join/1` fails. Level 4 (real TLS).
 - Review: the Opus verifier (security), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4, real TLS on loopback. (a) the spike, §Changes. `TestJoinOnlyWithAPendingCode`, `TestUnpairedReachesOnlyJoin`, `TestJoinSlots`, `TestFailedHandshakesFreeTheirSlots`, `TestJoinConnectionIsBounded`, `TestPairedPeerJoins`, `TestHelloOfferingOnlyJoinFailsWithoutAJoinHandler`, `TestJoinPinsTheHost`, `TestCodeRoundTrip`, `TestParseCodeRefuses`, `TestPendingKeepsOnlyHashes`, `TestNameFrom`; ten reversals seen failing (the `Any` check, `Consume` not removing, the main mux, the ALPN check twice, the slot unreleased or released on handler return, pinned peers refused, the client pin skipped, the first mismatch ending the join, the raw secret stored); `go test -race` on both packages green. Opus verifier (high): fix first, one [test] blocker (the count refusals could not fail, a mutation passed them), fixed and seen failing with the count check removed; one [bug] (a failure after the pin tried the next address) fixed; [doc] the slot bound, fixed; [safety] and [plan] notes carried to step 3; five [nit].
 
 ### 2. Live peer configuration: the listener on the private addresses, the remotes, an address list
 
@@ -183,7 +183,7 @@
 - Not here: a UI toggle.
 - Rests on: —
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4. `TestDeviceAllowCLI`: each verb's `devices` section, already allowed and an unlisted disallow write nothing (revision unchanged), an empty or spaced serial refused before any read, a concurrent edit retried once, a running daemon lists the device at its next `device.list`; seen failing with `allowPhysical` not set (four checks). Main session's diff review.
 
 ### 7. Level 5 of the brief on one Mac, and the documents
 
@@ -286,3 +286,5 @@ Each has a recommendation; the plan's steps are written against it and name it. 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-19, step 1 (a), Delegated. The spike (`$B/evidence/spike1a*`): Tailscale's 100.64.0.18 (`utun8`) was gone by the run; the owner's company VPN is up on `utun9` as 10.221.240.50/24, RFC 1918, carrying the default route. A 2t host bound on 192.168.0.118 linked a client on this Mac (`connected: true`); bound on 10.221.240.50 it listened, but the client's dial timed out (`nc` too): the VPN does not hairpin a Mac's own address. This Mac's firewall is disabled, so no prompt can be seen. Changes: a VPN is recognised by its interface (a tunnel), not by 100.64.0.0/10, since a company VPN uses RFC 1918; the code tags each address `vpn` or `lan` and the client orders by tag; ADR-0109 §1, §4 and ADR-0107 §1 say so (both written in this milestone, not yet on `main`, corrected in place). The VPN leg of every level-5 run is bound and shown in the code but joined over the LAN; a join over a VPN is the owner's two-Mac trial.
+- 2026-10-19, step 1, Delegated (the implementer's departures, judged by the verifier). `Join` takes the client's API version (the body's `api`; the host does not read it yet). `notThisHost` only when every address presented another certificate; a mix with an unreachable address is `unreachable`, since that address may be the host. Once an address pinned the host, `Join` stops there: a lost answer is `unreachable` (the host may have used the code), the host's refusal `refused`. A body over 4 KiB is 413, a malformed one 400, before the secret is read; both spend no code. `ParseCode` refuses link-local addresses. When `Admit` fails the code is already spent (consumed first): the host needs a fresh code, which step 3 records and tests. ADR-0107 §4's bound of a join slot is about 22 s, not 10 s (corrected in place).
+- 2026-10-19, step 6. `disallow` of a serial that is not listed says so and writes nothing; a serial with whitespace is refused like an empty one.

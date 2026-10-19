@@ -130,6 +130,11 @@ Commands:
              The host's devices join the list as <name>/<serial>, used once
              devices.allowPhysical is true and that id is in devices.allowlist. A restart
              applies a change (droidyard stop). No daemon is involved or started.
+  device     Allow a physical device (or <remote>/<serial>) without editing the configuration:
+             droidyard device allow <serial> | disallow <serial>
+             allow sets devices.allowPhysical to true and adds the serial; disallow removes
+             the serial and leaves allowPhysical as it was. A running daemon sees it at its
+             next call. No daemon is involved or started.
   init       Set a project up for coding assistants (optional; every tool works without it):
              droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
              Writes the droidyard-android skill and, per client, the MCP server entry and
@@ -203,6 +208,8 @@ func main() {
 		os.Exit(hostCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "remote":
 		os.Exit(remoteCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "device":
+		os.Exit(deviceCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "init":
 		os.Exit(initCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "hook":
