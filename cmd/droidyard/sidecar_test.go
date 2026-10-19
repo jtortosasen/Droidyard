@@ -21,6 +21,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
@@ -58,6 +59,14 @@ const (
 	// logMaxEnv is the size, in bytes, past which a re-executed detached daemon rotates
 	// its log (plan m2c, step 8).
 	logMaxEnv = "DROIDYARD_TEST_LOG_MAX"
+	// reconcileEveryEnv is how often a re-executed daemon matches its peer listeners and
+	// links to the configuration: a long one shows what only a share's or a join's own
+	// Reconcile does (plan m2u step 3).
+	reconcileEveryEnv = "DROIDYARD_TEST_RECONCILE_EVERY"
+	// joinReplyEnv names a file holding the JSON answer (a capability.PeerJoinReply) of a host
+	// that a re-executed daemon's hosting.join dials instead of the real one: the answer of a
+	// host whose text is hostile, read at each join.
+	joinReplyEnv = "DROIDYARD_TEST_JOIN_REPLY"
 )
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
@@ -72,13 +81,31 @@ func installTestSeams() {
 		}
 		return os.WriteFile(path, []byte(url), 0o600)
 	}
-	// Test daemons bind an ephemeral port unless a test asks for one.
+	// Test daemons bind an ephemeral port unless a test asks for one; so do their private
+	// peer listeners, which would otherwise all try 7318.
+	peerDefaultPort = 0
 	httpPort = 0
 	if v, err := strconv.Atoi(os.Getenv(httpPortEnv)); err == nil {
 		httpPort = v
 	}
 	if d, err := time.ParseDuration(os.Getenv(drainEnv)); err == nil {
 		testDrain = d
+	}
+	if d, err := time.ParseDuration(os.Getenv(reconcileEveryEnv)); err == nil {
+		reconcileEvery = d
+	}
+	if path := os.Getenv(joinReplyEnv); path != "" {
+		joinSeam = func(_ context.Context, _ *hosting.Identity, code hosting.Code, _, _ string) (hosting.JoinResult, error) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return hosting.JoinResult{}, err
+			}
+			var reply capability.PeerJoinReply
+			if err := json.Unmarshal(raw, &reply); err != nil {
+				return hosting.JoinResult{}, err
+			}
+			return hosting.JoinResult{Reply: reply, Addr: code.Addrs[0]}, nil
+		}
 	}
 	if n, err := strconv.ParseInt(os.Getenv(logMaxEnv), 10, 64); err == nil {
 		logMaxBytes = n

@@ -34,24 +34,37 @@ type HostPeer struct {
 // Lend lends one device to the named peers (ADR-0099 §1).
 type Lend struct {
 	Device string   `json:"device" jsonschema:"required,minLength=1" jsonschema_description:"The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."`
-	To     []string `json:"to" jsonschema:"required,minItems=1" jsonschema_description:"The names of the peers it is lent to."`
+	To     []string `json:"to" jsonschema:"required" jsonschema_description:"The names of the peers it is lent to. Empty: the device is shared (droidyard share) and no one has joined yet."`
 }
 
 // HostingPolicy is the hosting section as policy.get returns it: the peer listener's
 // address, the peers paired with this host and the devices it lends them (ADR-0098 §6).
 type HostingPolicy struct {
-	Listen string     `json:"listen,omitempty" jsonschema_description:"The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."`
+	Listen string     `json:"listen,omitempty" jsonschema_description:"The one address the peer listener binds, an IP literal and a port (not an unspecified address); a change applies within seconds, with no restart. When set it wins over on and port."`
+	On     string     `json:"on,omitempty" jsonschema_description:"Where the peer listener binds when listen is unset and this host lends a device: private (the VPN and the LAN), vpn, lan, or one IP literal that is private, in 100.64.0.0/10 or loopback. Absent: the listener binds nothing."`
+	Port   int        `json:"port,omitempty" jsonschema:"minimum=1,maximum=65535" jsonschema_description:"The port the listener takes on the addresses of on. Absent: 7318 is tried on the first bind, or a free port when 7318 is busy, and the port taken is written here. Once set it is never replaced automatically."`
 	Peers  []HostPeer `json:"peers" jsonschema:"required" jsonschema_description:"The peers paired with this host; read at each request."`
 	Lend   []Lend     `json:"lend" jsonschema:"required" jsonschema_description:"The devices lent, and to whom; read at each call."`
 }
 
 // Remote is one host this daemon pairs with: the name its devices carry as a prefix, the
-// address to dial and the fingerprint its certificate must have (ADR-0098 §2).
+// address to dial, the other addresses it can be reached at and the fingerprint its
+// certificate must have (ADR-0098 §2; ADR-0109 §4).
 type Remote struct {
-	Name        string `json:"name" jsonschema:"required,pattern=^[a-z][a-z0-9-]{0\\,31}$" jsonschema_description:"The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."`
-	Address     string `json:"address" jsonschema:"required" jsonschema_description:"The host's peer listener, an IP literal and a port."`
-	Fingerprint string `json:"fingerprint" jsonschema:"required,pattern=^[0-9a-f]{64}$" jsonschema_description:"The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."`
+	Name        string          `json:"name" jsonschema:"required,pattern=^[a-z][a-z0-9-]{0\\,31}$" jsonschema_description:"The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."`
+	Address     string          `json:"address" jsonschema:"required" jsonschema_description:"The host's peer listener, an IP literal and a port."`
+	Addresses   []RemoteAddress `json:"addresses,omitempty" jsonschema:"maxItems=8" jsonschema_description:"Other addresses the host can be reached at, each tagged vpn or lan. A connection attempt tries a lan address inside one of this machine's own subnets first, then the vpn ones, then the rest; address is one of the candidates."`
+	Fingerprint string          `json:"fingerprint" jsonschema:"required,pattern=^[0-9a-f]{64}$" jsonschema_description:"The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."`
 }
+
+// RemoteAddress is one address a remote can be reached at, with how the host found it.
+type RemoteAddress struct {
+	Address string `json:"address" jsonschema:"required" jsonschema_description:"An IP literal and a port."`
+	Kind    string `json:"kind" jsonschema:"required,enum=vpn,enum=lan" jsonschema_description:"vpn for an address on a tunnel interface of the host, lan for one on any other."`
+}
+
+// MaxRemoteAddresses is how many addresses a remote's list holds at most.
+const MaxRemoteAddresses = 8
 
 // decodeHosting reads the hosting section and validates it whole: a value that fails makes
 // the file unusable (ADR-0032 §4), so the listener, the links and the lending stay off.
@@ -74,6 +87,26 @@ func decodeHosting(raw json.RawMessage, doc *document) error {
 			}
 			if err := validListen(doc.hosting.Listen); err != nil {
 				return fmt.Errorf("hosting.listen: %w", err)
+			}
+		case "on":
+			if isNull(v) {
+				continue
+			}
+			if err := json.Unmarshal(v, &doc.hosting.On); err != nil {
+				return fmt.Errorf("hosting.on: %w", err)
+			}
+			if err := ValidOn(doc.hosting.On); err != nil {
+				return fmt.Errorf("hosting.on: %w", err)
+			}
+		case "port":
+			if isNull(v) {
+				continue
+			}
+			if err := json.Unmarshal(v, &doc.hosting.Port); err != nil {
+				return fmt.Errorf("hosting.port: %w", err)
+			}
+			if doc.hosting.Port < 1 || doc.hosting.Port > 65535 {
+				return fmt.Errorf("hosting.port: %d is not a port from 1 to 65535", doc.hosting.Port)
 			}
 		case "peers":
 			peers, err := decodeEntries("hosting.peers", v, func(e map[string]json.RawMessage, at string) (HostPeer, error) {
@@ -137,9 +170,6 @@ func decodeHosting(raw json.RawMessage, doc *document) error {
 					return fmt.Errorf("%s.device: %q is lent by an earlier entry; list each device once, with every peer it is lent to", at, l.Device)
 				}
 				devices[l.Device] = true
-				if len(l.To) == 0 {
-					return fmt.Errorf("%s.to: name at least one peer, or remove the entry", at)
-				}
 				seen := map[string]bool{}
 				for _, n := range l.To {
 					if err := validName(at+".to", n); err != nil {
@@ -175,7 +205,25 @@ func decodeRemotes(raw json.RawMessage, doc *document) error {
 		if err != nil {
 			return Remote{}, err
 		}
-		return Remote{Name: name, Address: address, Fingerprint: fp}, nil
+		r := Remote{Name: name, Address: address, Fingerprint: fp}
+		if raw, ok := e["addresses"]; ok && !isNull(raw) {
+			list, err := decodeEntries(at+".addresses", raw, func(a map[string]json.RawMessage, aat string) (RemoteAddress, error) {
+				addr, err := entryString(a, "address", aat)
+				if err != nil {
+					return RemoteAddress{}, err
+				}
+				kind, err := entryString(a, "kind", aat)
+				if err != nil {
+					return RemoteAddress{}, err
+				}
+				return RemoteAddress{Address: addr, Kind: kind}, nil
+			})
+			if err != nil {
+				return Remote{}, err
+			}
+			r.Addresses = list
+		}
+		return r, nil
 	})
 	if err != nil {
 		return err
@@ -191,6 +239,18 @@ func decodeRemotes(raw json.RawMessage, doc *document) error {
 		}
 		if err := ValidRemoteAddress(r.Address); err != nil {
 			return fmt.Errorf("%s.address: %w", at, err)
+		}
+		if len(r.Addresses) > MaxRemoteAddresses {
+			return fmt.Errorf("%s.addresses: %d addresses; at most %d", at, len(r.Addresses), MaxRemoteAddresses)
+		}
+		for j, a := range r.Addresses {
+			aat := fmt.Sprintf("%s.addresses[%d]", at, j)
+			if err := ValidRemoteAddress(a.Address); err != nil {
+				return fmt.Errorf("%s.address: %w", aat, err)
+			}
+			if a.Kind != "vpn" && a.Kind != "lan" {
+				return fmt.Errorf("%s.kind: %q is neither vpn nor lan", aat, a.Kind)
+			}
 		}
 		if names[r.Name] {
 			return fmt.Errorf("%s.name: %q is the name of an earlier remote; names are unique", at, r.Name)
@@ -217,6 +277,31 @@ func validListen(s string) error {
 	}
 	return nil
 }
+
+// ValidOn is the rule hosting.on must meet (ADR-0109 §1): private, vpn, lan, or one IP
+// literal that is private (RFC 1918), in 100.64.0.0/10 or loopback. Never an unspecified,
+// link-local, multicast or public address; `droidyard share` applies it before it writes.
+func ValidOn(s string) error {
+	switch s {
+	case "private", "vpn", "lan":
+		return nil
+	}
+	ip, err := netip.ParseAddr(s)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%q is not private, vpn, lan or an IP address", s)
+	case ip.Zone() != "" || ip.Is4In6():
+		return fmt.Errorf("%q is not a plain IPv4 address", s)
+	case !ip.Is4():
+		return fmt.Errorf("%q is an IPv6 address; only IPv4 addresses are bound", s)
+	case ip.IsLoopback() || ip.IsPrivate() || cgnatRange.Contains(ip):
+		return nil
+	}
+	return fmt.Errorf("%q is not a private address (10/8, 172.16/12, 192.168/16, 100.64/10) or loopback", s)
+}
+
+// cgnatRange is 100.64.0.0/10, where a VPN overlay such as Tailscale lives.
+var cgnatRange = netip.MustParsePrefix("100.64.0.0/10")
 
 // ValidRemoteAddress is the rule a remote's address must meet (ADR-0098 §2): an IP literal
 // and a non-zero port. `droidyard remote add` applies it before it writes.
@@ -315,10 +400,11 @@ func (p *Policy) Hosting() (HostingPolicy, *capability.Error) {
 		return h, nil
 	}
 	// Copies, so a caller cannot change the snapshot the next check reads.
-	h.Listen = snap.doc.hosting.Listen
+	h.Listen, h.On, h.Port = snap.doc.hosting.Listen, snap.doc.hosting.On, snap.doc.hosting.Port
 	h.Peers = append(h.Peers, snap.doc.hosting.Peers...)
 	for _, l := range snap.doc.hosting.Lend {
-		h.Lend = append(h.Lend, Lend{Device: l.Device, To: append([]string(nil), l.To...)})
+		// Never nil: an empty `to` (a share no one joined) written back as null is invalid.
+		h.Lend = append(h.Lend, Lend{Device: l.Device, To: append([]string{}, l.To...)})
 	}
 	return h, nil
 }
@@ -336,7 +422,12 @@ func (p *Policy) Remotes() ([]Remote, *capability.Error) {
 	if !snap.present || snap.doc.remotes == nil {
 		return []Remote{}, nil
 	}
-	return append([]Remote(nil), snap.doc.remotes...), nil
+	out := make([]Remote, 0, len(snap.doc.remotes))
+	for _, r := range snap.doc.remotes {
+		r.Addresses = append([]RemoteAddress(nil), r.Addresses...)
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // Lent reports whether the host lends serial to the peer named peer now (ADR-0099 §1). It

@@ -408,6 +408,37 @@ func TestDisconnectDoesNotCancel(t *testing.T) {
 	}
 }
 
+// TestConnectionEndIsSignalledBeforeTheHook: a handler outlives its connection and must be
+// able to see that the connection ended (a foreground share made meanwhile would be owned by
+// nobody, ADR-0108 §3). The context of an operation a connection started reports it, false
+// while the connection lives and true by the time the Disconnected hooks run, so a hook that
+// finds nothing yet is followed by a handler that sees the end. Seen failing with the signal
+// closed after the hook ran: the hook saw a live connection.
+func TestConnectionEndIsSignalledBeforeTheHook(t *testing.T) {
+	h := start(t, os.Getuid())
+	sawGone := make(chan bool, 1)
+	s := h.dial(t)
+	s.send(t, "1", "fixture.block", "")
+	b := h.started(t)
+	h.ops.OnDisconnect(func(string) { sawGone <- capability.ConnectionGone(b.ctx) })
+	if capability.ConnectionGone(b.ctx) {
+		t.Fatal("the connection is reported gone while it is open")
+	}
+	s.conn.Close()
+	select {
+	case gone := <-sawGone:
+		if !gone {
+			t.Error("the Disconnected hook ran before the connection's end was signalled to its handlers")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Disconnected hook never ran")
+	}
+	if !capability.ConnectionGone(b.ctx) {
+		t.Error("the handler's context does not report the connection gone after it ended")
+	}
+	close(h.block.release)
+}
+
 // TestShutdownCancelsRunningOperations: the shutdown path stops accepting, cancels
 // running operations before it returns and tells their callers, closes the sessions,
 // removes the socket and releases the lock (docs/architecture/process-lifecycle.md

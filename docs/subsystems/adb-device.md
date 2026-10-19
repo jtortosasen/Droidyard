@@ -193,9 +193,11 @@ specific to them:
   [ADR-0032](../adr/0032-configuration-file-v1.md) §2). A string that is not a listed serial is
   `DEVICE_NOT_FOUND` before anything runs (adb's `-s` also accepts `usb:`, `model:`, `product:`
   selectors that would name a device under another name). A host lends only devices this
-  policy admits, to the peers `hosting.lend` names
-  ([ADR-0099](../adr/0099-what-a-host-lends.md) §1); a client admits a remote device by its
-  `<remote>/<serial>` id in its own allowlist.
+  policy admits, to the peers `hosting.lend` or a foreground share names
+  ([ADR-0099](../adr/0099-what-a-host-lends.md) §1, [ADR-0108](../adr/0108-share-lifetime-and-consent.md) §3); a client admits a remote device by its
+  `<remote>/<serial>` id in its own allowlist. `droidyard device allow|disallow`, `share` and
+  `join` write this policy, a human's command being the consent
+  ([ADR-0108](../adr/0108-share-lifetime-and-consent.md) §1).
 
 What is *not* code is the procedure around them (enabling developer options, vendor quirks,
 accepting the prompt); that belongs in a skill

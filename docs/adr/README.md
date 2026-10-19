@@ -135,6 +135,9 @@ edits made before this rule and are not added to.
 | [0104](0104-lease-of-a-lent-device.md) | A lent device is leased: one peer at a time, by 2s's occupation | Accepted |
 | [0105](0105-trash-rows-outside-delete-spans.md) | Activity shows a trash entry no restorable delete row accounts for | Accepted |
 | [0106](0106-peer-logcat-streams.md) | A peer's link holds up to four Logcat streams per lent device | Accepted |
+| [0107](0107-pairing-by-single-use-code.md) | Pairing by a single-use code | Accepted |
+| [0108](0108-share-lifetime-and-consent.md) | A share's lifetime, its capabilities and its consent | Accepted |
+| [0109](0109-private-networks-live-peer-config.md) | Private networks and live peer configuration | Accepted |
 
 ## Open decisions (not yet ADRs)
 

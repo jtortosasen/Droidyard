@@ -75,7 +75,7 @@ func updateOf(t *testing.T, body string) policy.UpdateParams {
 
 // TestHostingCLI holds ADR-0098 §7: each verb is one policy.update that leaves the
 // section it names as the human meant and every other key as it was, and the verbs say
-// what the configuration cannot (a restart for listen and remote; what lending exposes).
+// what the configuration cannot (that a running daemon follows listen and remotes within seconds, with no restart, ADR-0109 §3; what lending exposes).
 func TestHostingCLI(t *testing.T) {
 	t.Parallel()
 	pol, _ := hostingPolicy(t)
@@ -105,14 +105,15 @@ func TestHostingCLI(t *testing.T) {
 		t.Error("an admit that changed nothing wrote the file")
 	}
 
-	// listen: applied at start, and it says so; off removes the key.
+	// listen: a running daemon applies it within seconds, and it says so, not that a restart
+	// is needed (ADR-0109 §3); off removes the key.
 	out := mustVerb(t, pol, "host", "listen", "127.0.0.1:7421")
-	if got := pol.Get().Hosting.Listen; got != "127.0.0.1:7421" || !strings.Contains(out, "droidyard stop") {
-		t.Errorf("listen = %q, printed %q; want the address and the restart", got, out)
+	if got := pol.Get().Hosting.Listen; got != "127.0.0.1:7421" || !strings.Contains(out, "within seconds") || strings.Contains(out, "droidyard stop") {
+		t.Errorf("listen = %q, printed %q; want the address and no restart", got, out)
 	}
 	out = mustVerb(t, pol, "host", "listen", "off")
-	if got := pol.Get().Hosting.Listen; got != "" || !strings.Contains(out, "droidyard stop") {
-		t.Errorf("listen off = %q, printed %q; want it removed and the restart", got, out)
+	if got := pol.Get().Hosting.Listen; got != "" || !strings.Contains(out, "within seconds") || strings.Contains(out, "droidyard stop") {
+		t.Errorf("listen off = %q, printed %q; want it removed and no restart", got, out)
 	}
 
 	// lend: the whole device is lent and the human is told; one not yet admitted by the
@@ -138,11 +139,12 @@ func TestHostingCLI(t *testing.T) {
 	}
 
 	// revoke closes the peer and takes its name out of what is lent: a name left there
-	// would lend to whoever is admitted under it next.
+	// would lend to whoever is admitted under it next. An entry left with no one stays, lent
+	// to nobody: a share lasts until unshare (ADR-0108 §2).
 	mustVerb(t, pol, "host", "revoke", "bob")
 	g := pol.Get().Hosting
-	if !reflect.DeepEqual(g.Peers, []policy.HostPeer{{Name: "anna", Fingerprint: fpAnna}}) || !reflect.DeepEqual(g.Lend, []policy.Lend{{Device: "R58M", To: []string{"anna"}}}) {
-		t.Errorf("after revoking bob: peers %+v, lend %+v; want anna alone, and S2 (lent to bob only) gone", g.Peers, g.Lend)
+	if !reflect.DeepEqual(g.Peers, []policy.HostPeer{{Name: "anna", Fingerprint: fpAnna}}) || !reflect.DeepEqual(g.Lend, []policy.Lend{{Device: "R58M", To: []string{"anna"}}, {Device: "S2", To: []string{}}}) {
+		t.Errorf("after revoking bob: peers %+v, lend %+v; want anna alone, and S2 lent to no one", g.Peers, g.Lend)
 	}
 	if code, _, _ := verb(t, pol, "host", "revoke", "bob"); code != 1 {
 		t.Errorf("revoking a peer that is not admitted exited %d; want 1", code)
@@ -171,6 +173,8 @@ func TestHostingCLI(t *testing.T) {
 		t.Errorf("revoking a name that is neither admitted nor lent anything = %d %q; want 1", code, errs)
 	}
 	mustVerb(t, pol, "host", "unlend", "S3")
+	mustVerb(t, pol, "host", "unlend", "S2") // lent to no one since bob's revoke
+	mustVerb(t, pol, "host", "unlend", "S4")
 
 	mustVerb(t, pol, "host", "unlend", "R58M")
 	if got := pol.Get().Hosting.Lend; len(got) != 0 {
@@ -180,13 +184,16 @@ func TestHostingCLI(t *testing.T) {
 		t.Errorf("unlending a device that is not lent exited %d; want 1", code)
 	}
 
-	// remote: client side. A restart dials it; the phone it lends needs the client's own
+	// remote: client side. A running daemon dials it within seconds; the phone it lends needs the client's own
 	// physical policy, and the id to put in the allowlist is named.
 	out = mustVerb(t, pol, "remote", "add", "qa-lab", "100.64.0.3:7421", fpLab)
-	for _, want := range []string{"droidyard stop", "allowPhysical", "qa-lab/<serial>", "allowlist"} {
+	for _, want := range []string{"within seconds", "allowPhysical", "qa-lab/<serial>", "allowlist"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("remote add printed %q; want it to say %q", out, want)
 		}
+	}
+	if strings.Contains(out, "droidyard stop") {
+		t.Errorf("remote add printed %q; a running daemon follows remotes live, so no restart is asked", out)
 	}
 	if got := pol.Get().Remotes; !reflect.DeepEqual(got, []policy.Remote{{Name: "qa-lab", Address: "100.64.0.3:7421", Fingerprint: fpLab}}) {
 		t.Fatalf("remotes = %+v", got)
@@ -198,8 +205,8 @@ func TestHostingCLI(t *testing.T) {
 		t.Errorf("remote list printed %q", out)
 	}
 	out = mustVerb(t, pol, "remote", "remove", "qa-lab")
-	if got := pol.Get().Remotes; len(got) != 0 || !strings.Contains(out, "droidyard stop") {
-		t.Errorf("after remove: remotes %+v, printed %q; want none and the restart", got, out)
+	if got := pol.Get().Remotes; len(got) != 0 || !strings.Contains(out, "within seconds") || strings.Contains(out, "droidyard stop") {
+		t.Errorf("after remove: remotes %+v, printed %q; want none and no restart", got, out)
 	}
 
 	// None of it touched the other sections.

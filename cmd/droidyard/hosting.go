@@ -11,6 +11,7 @@ import (
 	"github.com/jtortosasen/droidyard/adapters/cli"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/domain/sharing"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
@@ -23,7 +24,7 @@ const (
 )
 
 // lendWarning is what lending a device means (ADR-0099 §4), said each time one is lent.
-const lendWarning = "The whole device is lent: its screen and input reach every app, notification and account on it, and nothing is cleaned when a lease ends. Lend a dedicated device, not your own phone."
+const lendWarning = sharing.WholeDeviceWarning
 
 // idCmd implements `droidyard id` (ADR-0098 §1): this daemon's certificate fingerprint,
 // what a host pins to admit it, read from system.health. The identity is the daemon's, so
@@ -62,8 +63,8 @@ func idCmd(args []string, stdout, stderr io.Writer) int {
 }
 
 // hostCmd implements `droidyard host …` (ADR-0098 §7), the host's side of pairing and
-// lending. Like `trust`, it writes the user configuration and starts no daemon: the
-// daemon reads `peers` and `lend` at each request, `listen` at its next start.
+// lending. Like `trust`, it writes the user configuration and starts no daemon: a running
+// daemon follows `peers` and `lend` at each request and `listen` within seconds.
 func hostCmd(args []string, stdout, stderr io.Writer) int {
 	return hostWith(policy.New(platform.Current()), args, stdout, stderr)
 }
@@ -207,17 +208,21 @@ func hostWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		return apply(pol, "host listen", stdout, stderr, func(cur policy.GetResult) (edit, error) {
-			const restart = "A restart applies it: droidyard stop (the next droidyard command starts a daemon)."
+			const live = "A running daemon applies it within seconds."
 			if addr == "off" {
 				if cur.Hosting.Listen == "" {
-					return edit{said: []string{"the peer listener is already off"}}, nil
+					return edit{said: []string{"hosting.listen is already off"}}, nil
 				}
-				return edit{patch: map[string]any{"hosting": map[string]any{"listen": nil}}, said: []string{"the peer listener is off", restart}}, nil
+				said := "hosting.listen is off"
+				if cur.Hosting.On != "" {
+					said += "; the listener follows hosting.on (" + cur.Hosting.On + ") while a device is lent"
+				}
+				return edit{patch: map[string]any{"hosting": map[string]any{"listen": nil}}, said: []string{said, live}}, nil
 			}
 			if cur.Hosting.Listen == addr {
 				return edit{said: []string{"the peer listener is already set to " + addr}}, nil
 			}
-			return edit{patch: map[string]any{"hosting": map[string]any{"listen": addr}}, said: []string{"the peer listener will bind " + addr, restart}}, nil
+			return edit{patch: map[string]any{"hosting": map[string]any{"listen": addr}}, said: []string{"the peer listener binds " + addr, live}}, nil
 		})
 	case "list":
 		if len(rest) != 0 {
@@ -278,7 +283,7 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 				patch: map[string]any{"remotes": next},
 				said: []string{
 					"added the remote " + name,
-					"A restart dials it: droidyard stop (the next droidyard command starts a daemon).",
+					"A running daemon dials it within seconds.",
 					"A phone it lends is used once devices.allowPhysical is true and " + name + "/<serial> is in devices.allowlist.",
 				},
 			}, nil
@@ -298,7 +303,7 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 			next := slices.DeleteFunc(slices.Clone(cur.Remotes), func(r policy.Remote) bool { return r.Name == name })
 			return edit{
 				patch: map[string]any{"remotes": next},
-				said:  []string{"removed the remote " + name, "A restart closes its link: droidyard stop (the next droidyard command starts a daemon)."},
+				said:  []string{"removed the remote " + name, "A running daemon closes its link within seconds."},
 			}, nil
 		})
 	case "list":
@@ -381,7 +386,7 @@ func lentTo(lend []policy.Lend, name string) []string {
 	return out
 }
 
-// withoutPeer removes name from every entry's `to`, dropping an entry left with no one;
+// withoutPeer removes name from every entry's `to`, keeping an entry left with no one;
 // changed says whether anything was removed.
 func withoutPeer(lend []policy.Lend, name string) (out []policy.Lend, changed bool) {
 	out = []policy.Lend{}
@@ -391,9 +396,8 @@ func withoutPeer(lend []policy.Lend, name string) (out []policy.Lend, changed bo
 			continue
 		}
 		changed = true
-		if to := slices.DeleteFunc(slices.Clone(l.To), func(n string) bool { return n == name }); len(to) > 0 {
-			out = append(out, policy.Lend{Device: l.Device, To: to})
-		}
+		// An entry left with no one stays: a share lasts until unshare (ADR-0108 §2).
+		out = append(out, policy.Lend{Device: l.Device, To: slices.DeleteFunc(slices.Clone(l.To), func(n string) bool { return n == name })})
 	}
 	return out, changed
 }

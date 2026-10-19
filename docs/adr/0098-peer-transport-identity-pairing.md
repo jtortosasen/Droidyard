@@ -1,6 +1,8 @@
 # ADR-0098: Peers: mutual TLS between daemons, pinned identities, pairing by hand
 
 - Status: Accepted
+- Superseded in part by: ADR-0107 (§2, §3)
+- Superseded in part by: ADR-0109 (§3, §4, §6)
 - Date: 2026-10-18
 - Supersedes: ADR-0032 §5 (in part: `policy.update` also patches `hosting` and `remotes`); ADR-0019 §Processes (in part: §7's client kinds gain `peer`); ADR-0048 §1 (in part: a peer's `session.name` is its configured name)
 - Relates to: ADR-0015 §6, ADR-0021 §Layout, ADR-0024, ADR-0028, ADR-0031, ADR-0097, ADR-0099; plan m2t Q2

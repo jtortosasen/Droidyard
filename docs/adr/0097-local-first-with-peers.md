@@ -1,6 +1,7 @@
 # ADR-0097: Local-first, with peers that lend devices
 
 - Status: Accepted
+- Superseded in part by: ADR-0109 (§Decision)
 - Date: 2026-10-18
 - Relates to: ADR-0015, ADR-0098, ADR-0099; [`vision.md`](../vision/vision.md) §Non-goals; [`mvp.md`](../roadmap/mvp.md) §Out of scope, §Beyond the MVP; [`beyond.md`](../vision/beyond.md) §C4, §Decisions it reopens; `http-websocket.md` §Security baseline; plan m2t Q1
 - Decided by the owner, 2026-10-18: C4's first slice, lending physical devices to a paired Droidyard over the company VPN, and reopening the two ratified lines it meets. The wording is Delegated (plan m2t Q1, reviewed in two rounds).
