@@ -151,7 +151,7 @@ func countServeStarts(calls []string) int {
 func countForward(calls []string) int {
 	n := 0
 	for _, c := range calls {
-		if strings.HasPrefix(c, "-s "+uiSerial+" forward tcp:0 localabstract:droidyard-reader-") {
+		if strings.HasPrefix(c, "-s "+uiSerial+" forward localfilesystem:") && strings.Contains(c, " localabstract:droidyard-reader-") {
 			n++
 		}
 	}
@@ -551,7 +551,8 @@ func TestUITreeRequiresDeviceAndAdb(t *testing.T) {
 }
 
 // Decision: the published contract of device.uiTree: since 0.4.0, needs adb, its
-// errors are every code the handler or preamble returns (a malformed within is
+// errors are every code the handler or preamble returns, DEVICE_OCCUPIED among them since a
+// paired peer's call leases the device (ADR-0104; a malformed within is
 // REQUEST_INVALID_PARAMS) plus the queue bound the scheduler may return, and its
 // result is untrusted (derived from the tags) while device.list's is not.
 func TestUITreeDescriptorAndMark(t *testing.T) {
@@ -571,7 +572,7 @@ func TestUITreeDescriptorAndMark(t *testing.T) {
 		codes = append(codes, string(c))
 	}
 	slices.Sort(codes)
-	want := []string{"DEVICE_ADB_FAILED", "DEVICE_ADB_NOT_FOUND", "DEVICE_DISCONNECTED", "DEVICE_NOT_ALLOWED", "DEVICE_NOT_FOUND", "DEVICE_NOT_READY", "DEVICE_UI_DUMP_FAILED", "OPERATION_QUEUE_TIMEOUT", "REQUEST_INVALID_PARAMS"}
+	want := []string{"DEVICE_ADB_FAILED", "DEVICE_ADB_NOT_FOUND", "DEVICE_DISCONNECTED", "DEVICE_NOT_ALLOWED", "DEVICE_NOT_FOUND", "DEVICE_NOT_READY", "DEVICE_OCCUPIED", "DEVICE_UI_DUMP_FAILED", "OPERATION_QUEUE_TIMEOUT", "REQUEST_INVALID_PARAMS"}
 	if !slices.Equal(codes, want) {
 		t.Errorf("errors = %v, want %v", codes, want)
 	}

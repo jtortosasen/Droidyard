@@ -274,7 +274,7 @@ func (c *caller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "malformed JSON", http.StatusBadRequest)
 		return
 	}
-	env, ok := c.answer(r.Context(), body, nil)
+	env, ok := c.answer(r.Context(), body, nil, requester{client: capability.ClientUI})
 	if !ok {
 		return
 	}
@@ -300,11 +300,19 @@ func (c *caller) run(ctx context.Context, creq capability.Request, waitMs *int64
 	return c.ops.Wait(ctx, id, deadline)
 }
 
+// requester is who a request is made as: the client kind the core sees it from, and for a
+// peer its configured name, which becomes the session name its operations carry
+// (ADR-0098 §5).
+type requester struct {
+	client capability.ClientKind
+	name   string
+}
+
 // answer runs one envelope: Start, then Wait for waitMs, or to the end without it. It
 // reports false when the client is gone and nothing should be written. session is the
 // session the request came in on: nil for a plain HTTP request, a WebSocket's own
 // otherwise, and never a nil pointer inside a non-nil interface.
-func (c *caller) answer(ctx context.Context, body []byte, session capability.Session) (capability.ResponseEnvelope, bool) {
+func (c *caller) answer(ctx context.Context, body []byte, session capability.Session, who requester) (capability.ResponseEnvelope, bool) {
 	var req capability.RequestEnvelope
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
@@ -317,12 +325,13 @@ func (c *caller) answer(ctx context.Context, body []byte, session capability.Ses
 			"the request is not a valid envelope").WithCause(err.Error())}, true
 	}
 	env := capability.ResponseEnvelope{ID: req.ID}
-	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: capability.ClientUI, Session: session}
-	creq.Origin.Client = capability.ClientUI
+	creq := capability.Request{Capability: req.Capability, Workspace: req.Workspace, Params: req.Params, Client: who.client, Session: session}
+	creq.Origin.Client = who.client
 	if session != nil {
 		// A WebSocket's calls name their session on operation.state (ADR-0048); a plain
 		// HTTP request has none.
 		creq.Origin.ID = session.ID()
+		creq.Origin.Name = who.name
 	}
 
 	out, err := c.run(ctx, creq, req.WaitMs)

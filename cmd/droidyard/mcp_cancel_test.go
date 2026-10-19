@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -97,18 +98,21 @@ func released(t *testing.T, p *inProcess, id string) {
 		t.Fatalf("after the release, operation.wait exited %d with %+v (error %v); want 0, %s completed", code, env.Operation, env.Error, id)
 	}
 
+	// A new MCP session that is not of the starting session's chat is not its owner's
+	// (ADR-0101): the outcome stays with the session, its chat and the humans' channels.
+	// TestWaitOwnOperations has the session of the same chat that does reach it.
 	other := startShim(t, p.state, "another session")
 	other.initialize("another")
 	other.callTool(1, "operation_wait", `{"operationId":"`+id+`"}`)
 	var view struct {
 		Result struct {
-			StructuredContent capability.OperationView `json:"structuredContent"`
-			IsError           bool                     `json:"isError"`
+			IsError bool             `json:"isError"`
+			Content []map[string]any `json:"content"`
 		} `json:"result"`
 	}
 	json.Unmarshal(other.recv(), &view)
-	if v := view.Result.StructuredContent; view.Result.IsError || v.OperationID != id || v.State != capability.StateCompleted {
-		t.Errorf("operation_wait from another MCP session answered %+v; want %s completed", view.Result, id)
+	if text, _ := view.Result.Content[0]["text"].(string); !view.Result.IsError || !strings.Contains(text, "OPERATION_NOT_FOUND") {
+		t.Errorf("operation_wait from an MCP session of another chat answered %+v; want OPERATION_NOT_FOUND", view.Result)
 	}
 	other.exit()
 }

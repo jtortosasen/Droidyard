@@ -76,6 +76,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.trash`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
 | `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI uses them. |
 | `device.tap`, `device.swipe`, `device.pressKey` | Audience `human` ([ADR-0079](../adr/0079-screen-input-capabilities.md)): input from the live view. |
+| `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
 | `agent.recordCommand`, `agent.recordEdit`, `agent.checkWrite` | Audience `human` ([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md) §3): the hook's channel: records of commands and edits, check before a write. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed

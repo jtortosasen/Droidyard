@@ -188,6 +188,27 @@ describe('LiveViewModel', () => {
 		expect(t.model.view.state).toBe('starting');
 	});
 
+	// Decision (plan m2t step 7): a stream that stops deviceGone names its device to whoever
+	// reads the device list again; exited and failed do not, the device is still there.
+	it('reports the device of a stream that stopped deviceGone, and only then', async () => {
+		const gone: string[] = [];
+		const client = new FakeClient();
+		const devices = new FakeDevices();
+		devices.select('qa-lab/R58M');
+		const model = new LiveViewModel(client, devices, { supported: true, onDeviceGone: (d) => gone.push(d) });
+		model.setActive(true);
+		client.answer(0);
+		await settle();
+		client.stopped(0, 'exited');
+		expect(gone).toEqual([]);
+		model.restart();
+		client.answer(1);
+		await settle();
+		client.stopped(1, 'deviceGone', 'the host ended the lease');
+		expect(gone).toEqual(['qa-lab/R58M']);
+		expect(model.view).toMatchObject({ state: 'stopped', reason: 'deviceGone' });
+	});
+
 	it('shows a stop for the device it is on until the device changes', async () => {
 		const t = await live();
 		t.client.stopped(0, 'deviceGone');

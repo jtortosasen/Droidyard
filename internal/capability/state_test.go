@@ -235,7 +235,7 @@ func TestOperationStateEvents(t *testing.T) {
 			// operation.wait and operation.cancel are not operations: no event of their own
 			args := json.RawMessage(`{"operationId":"` + id + `"}`)
 			for _, name := range []string{"operation.wait", "operation.cancel"} {
-				if _, err := ops.Invoke(ctx, Request{Capability: name, Params: args, Client: client}); err != nil {
+				if _, err := ops.Invoke(ctx, Request{Capability: name, Params: args, Client: ClientCLI}); err != nil { // the CLI reaches any operation (ADR-0101)
 					t.Fatalf("%s: %v", name, err)
 				}
 			}

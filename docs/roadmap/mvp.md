@@ -83,7 +83,9 @@ trips, fewer tokens, no image interpretation.
   (no localhost assumptions in the capability layer), but remote access, TLS and
   authentication get no effort in the MVP. *Ratified 2026-09-29: remote access comes
   after v1*, though it is where the project started. The loopback HTTP baseline is
-  still required before the UI ships.
+  still required before the UI ships. Lending devices between paired Droidyards came in
+  2t ([ADR-0097](../adr/0097-local-first-with-peers.md)); LAN access to the UI is still
+  later.
 - **Live screen streaming** to the UI: left out of the MVP (no stills, owner, 2026-10-09);
   built after it, in 2p (ADR-0077).
 - **OCR** ([ADR-0013](../adr/0013-ocr-optional-pluggable.md) keeps the seam).
@@ -104,7 +106,8 @@ trips, fewer tokens, no image interpretation.
 - **Refactors, rename, call hierarchy.**
 - **Batching.**
 - **An own agent harness, Android Studio parity** (no full refactoring engine, visual
-  layout editor or APK analyser), **an embedded emulator, multi-user or cloud use,**
+  layout editor or APK analyser), **an embedded emulator, cloud use, multi-user use**
+  beyond lending devices to paired Droidyards ([ADR-0097](../adr/0097-local-first-with-peers.md)),
   **a dependency on Android CLI, a Gradle CLI execution path** (every Gradle
   interaction goes through the TAPI sidecar,
   [ADR-0017](../adr/0017-gradle-execution-strategy.md); Android CLI:
@@ -251,7 +254,7 @@ Two practical notes:
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult`, `watchOutput` | 1–2 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
 | `sdk` | `status`, `requirements` | 1 |
-| `device` | `list`, `install`, `launch`, `uninstall`, `logs`, `watchLogs`, `watchScreen`, `screenshot`, `uiTree`, `tapElement`, `inputText`, `tap`, `swipe`, `pressKey` | 1–2 |
+| `device` | `list`, `install`, `installUpload`, `launch`, `uninstall`, `logs`, `watchLogs`, `watchScreen`, `screenshot`, `uiTree`, `tapElement`, `inputText`, `tap`, `swipe`, `pressKey` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore`, `trash` (human-only; never over MCP) | 1–2 |
 | `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch`, `pull`, `checkout`, `createBranch`, `submodules`, `updateSubmodules` (human-only; never over MCP) | last |
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |

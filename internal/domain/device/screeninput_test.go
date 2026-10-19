@@ -36,6 +36,9 @@ func (f *fakeScreen) Done() <-chan struct{} {
 	return nil
 }
 func (f *fakeScreen) Reason() error { return nil }
+func (f *fakeScreen) WatchSecure(func(bool)) func() {
+	return func() {}
+}
 func (f *fakeScreen) Inject(ctx context.Context, in screen.Input) error {
 	f.mu.Lock()
 	f.inputs = append(f.inputs, in)

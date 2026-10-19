@@ -3,8 +3,10 @@ package device
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -144,9 +146,63 @@ func childEnv() []string {
 // newFake is an ADB over the in-process fake adb answering from dir: no process is
 // started, so a test that is not about the process runner pays no process start. The
 // server port is one nothing listens on, or a test's own loopback fake.
+//
+// Its forwards are made in a directory of its own, the same for every ADB over one scenario
+// directory, as two daemons over one machine share the state root's (forwardDirFor).
 func newFake(t *testing.T, dir, port string) *ADB {
 	t.Helper()
-	return NewADBWithExec(devicetest.Env(t, dir, port), devicetest.Exec(dir))
+	a := NewADBWithExec(devicetest.Env(t, dir, port), devicetest.Exec(dir))
+	a.SetForwardDir(forwardDirFor(t, dir))
+	return a
+}
+
+var (
+	fwdDirsMu sync.Mutex
+	fwdDirs   = map[string]string{} // scenario directory -> its forward directory
+)
+
+// forwardDirFor is the forward directory of the fake adb over scenario, made on the first
+// call and removed with that test. It is under /tmp, not t.TempDir(): a Unix socket's path
+// holds about 100 bytes, which a test's temporary directory can exceed.
+func forwardDirFor(t *testing.T, scenario string) string {
+	t.Helper()
+	fwdDirsMu.Lock()
+	defer fwdDirsMu.Unlock()
+	if d, ok := fwdDirs[scenario]; ok {
+		return d
+	}
+	// A space in the name, always: the default state root on macOS is under "Application
+	// Support", and the forward listing prints a path raw.
+	root, err := os.MkdirTemp("/tmp", "dy fwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		fwdDirsMu.Lock()
+		delete(fwdDirs, scenario)
+		fwdDirsMu.Unlock()
+		os.RemoveAll(root)
+	})
+	d := filepath.Join(root, "fwd")
+	fwdDirs[scenario] = d
+	return d
+}
+
+// seedSock is the path of a socket in the forward directory of the fake adb over scenario,
+// the directory made, ready for devicetest.AddForward or a listing.
+func seedSock(t *testing.T, scenario, name string) string {
+	t.Helper()
+	d := forwardDirFor(t, scenario)
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(d, name)
+}
+
+// deadSock is a socket path nothing listens at, as closedPort is a port.
+func deadSock(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(forwardDirFor(t, t.TempDir()), "reader-000000000000")
 }
 
 // waitLine polls the fake's log (calls.log or events.log) until it holds line, so a

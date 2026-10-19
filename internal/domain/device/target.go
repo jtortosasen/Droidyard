@@ -42,6 +42,10 @@ type target struct {
 	// `devices -l` alone can take seconds, so a bound counted from the handler's own
 	// entry would be longer than the one the plan promises; recorded here instead.
 	started time.Time
+	// forPeer is set for a paired peer's call, peer being its configured name (ADR-0099
+	// §1): its online candidates hold only what is lent to it.
+	forPeer bool
+	peer    string
 }
 
 // Policy is the physical-device policy seam (ADR-0015 §4; ADR-0032 §2; plan m1k D7):
@@ -53,12 +57,27 @@ type Policy interface {
 	PhysicalAdmitted(serial string) policy.Admission
 }
 
+// Lending is the host's lending seam (ADR-0099 §1): whether the device with this serial is
+// lent to the named peer now. *policy.Policy implements it, re-reading the configuration at
+// each call. That the device is physical and that the physical policy admits it are
+// checked beside it, never by it.
+type Lending interface {
+	Lent(peer, serial string) bool
+}
+
 // authorize is the authorization hook of a device capability (plan m1e, Q2; m1k D7). It
 // runs the call's one `devices -l` and decides DEVICE_NOT_ALLOWED for a physical device
 // the policy does not admit (the emulators-only default when no policy is set), then
 // hands the listing on. A string that is not a listed serial is DEVICE_NOT_FOUND here,
 // before any handler runs, since adb's -s also accepts selectors (m1k step 5 B1).
-func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, error) {
+//
+// who is the call's origin. For a paired peer (ADR-0099 §1) a device that is not lent to
+// it, that is not physical, that the host's own policy does not admit or that shares its
+// serial is DEVICE_NOT_FOUND, as one that is not there, and the candidates hold only what
+// is lent to it; one that is lent to it is leased to its link by this call (ADR-0104 §2).
+// A serial that two devices report is DEVICE_NOT_ALLOWED for a local caller, for both
+// devices (ADR-0103 §1).
+func (a *ADB) authorize(ctx context.Context, who capability.Origin, serial, again string) (*target, error) {
 	// D13: the act-then-verify clock is this hook's start, not the handler's entry.
 	started := time.Now()
 	res := a.Resolve()
@@ -73,6 +92,12 @@ func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, err
 		return nil, err
 	}
 	t := &target{adb: res.Path, serial: serial, all: all, warnings: warnings, started: started}
+	if who.Client == capability.ClientPeer {
+		t.forPeer, t.peer = true, who.Name
+		// adb's version warning names the host's adb path and its tools.adb key: the
+		// host's configuration, which a peer is not told, as device.list tells it none.
+		t.warnings = nil
+	}
 	for i := range all {
 		if all[i].Device == serial {
 			t.dev = &all[i]
@@ -89,12 +114,56 @@ func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, err
 		a.forgetDevice(serial)
 		return nil, a.notFound(t)
 	}
+	if t.forPeer {
+		if !a.lentTo(t.peer, *t.dev, all) {
+			return nil, a.notFound(t)
+		}
+		// A peer's call of any kind leases the device it names (ADR-0104 §2), after the
+		// lending check, so a device not lent to it never says who holds it.
+		if err := a.leaseFor(who, serial); err != nil {
+			return nil, err
+		}
+		return t, nil
+	}
 	if t.dev.Kind != KindEmulator {
 		if adm := a.admitted(serial); !adm.Admitted {
 			return nil, notAllowed(serial, adm.Cause)
 		}
 	}
+	if n := serialCount(all, serial); n > 1 {
+		return nil, notAllowed(serial, duplicateSerial(n, serial))
+	}
 	return t, nil
+}
+
+// serialCount is how many entries of the listing report serial.
+func serialCount(all []Device, serial string) int {
+	n := 0
+	for _, d := range all {
+		if d.Device == serial {
+			n++
+		}
+	}
+	return n
+}
+
+// duplicateSerial is the reason a serial that several devices report is refused (ADR-0103
+// §1): the allowlist names serials, so one entry would admit all of them.
+func duplicateSerial(n int, serial string) string {
+	return fmt.Sprintf("%d devices report the serial %s; droidyard cannot tell them apart, so none of them is used until all but one is unplugged or its serial is changed", n, serial)
+}
+
+// lentTo reports whether d, as the listing all holds it, is one the host lends to the peer
+// now (ADR-0099 §1): physical, alone under its serial, admitted by the host's own physical
+// policy, and named for the peer in hosting.lend. Lending never widens the policy.
+func (a *ADB) lentTo(peer string, d Device, all []Device) bool {
+	if d.Kind != KindPhysical || serialCount(all, d.Device) != 1 {
+		return false
+	}
+	if !a.admitted(d.Device).Admitted {
+		return false
+	}
+	return a.lending != nil && a.lending.Lent(peer, d.Device)
 }
 
 // authorizeActing is authorize for a capability that acts on the device (Descriptor.Occupies
@@ -102,7 +171,7 @@ func (a *ADB) authorize(ctx context.Context, serial, again string) (*target, err
 // serial that is not listed or not admitted is refused as before, and nothing has changed on
 // the device when DEVICE_OCCUPIED is returned.
 func (a *ADB) authorizeActing(ctx context.Context, call *capability.Call, serial, again string) (*target, error) {
-	t, err := a.authorize(ctx, serial, again)
+	t, err := a.authorize(ctx, call.Origin, serial, again)
 	if err != nil {
 		return nil, err
 	}
@@ -114,11 +183,21 @@ func (a *ADB) authorizeActing(ctx context.Context, call *capability.Call, serial
 
 // notFound is DEVICE_NOT_FOUND for a serial the listing does not hold. Its online list
 // names emulators and admitted physical devices only, so it never discloses one the
-// configuration hides.
+// configuration hides; for a peer it names only the devices lent to it (ADR-0099 §1). A
+// serial that two devices report is named by neither.
 func (a *ADB) notFound(t *target) error {
 	online := []string{}
 	for _, d := range t.all {
 		if d.State != StateDevice {
+			continue
+		}
+		if t.forPeer {
+			if a.lentTo(t.peer, d, t.all) {
+				online = append(online, d.Device)
+			}
+			continue
+		}
+		if serialCount(t.all, d.Device) > 1 {
 			continue
 		}
 		if d.Kind == KindEmulator || a.admitted(d.Device).Admitted {

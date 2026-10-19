@@ -107,8 +107,8 @@ func TestDeviceOccupationStopLeavesNothingHeld(t *testing.T) {
 	if _, ok := f.holder(serial); ok {
 		t.Error("a stop left the emulator held")
 	}
-	f.sessions.OccupyDevice("b", "192.168.0.2:5555")
-	mustFail(t, f.as(t, "a", "emulator.stop", `{"device":"192.168.0.2:5555"}`), ErrNotAnEmulator)
+	f.sessions.OccupyDevice("b", "127.0.0.1:5555")
+	mustFail(t, f.as(t, "a", "emulator.stop", `{"device":"127.0.0.1:5555"}`), ErrNotAnEmulator)
 }
 
 // Decision (ADR-0094 §2): emulator.wipe of the AVD running on a serial another session

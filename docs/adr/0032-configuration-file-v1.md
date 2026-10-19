@@ -3,6 +3,7 @@
 - Status: Accepted
 - Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0081 (§2)
+- Superseded in part by: ADR-0098 (§5)
 - Date: 2026-10-07
 - Relates to: ADR-0031 (the file and its trust section, which this extends), ADR-0015
   §4, §6, §7 (device policy, human-only policy, `shell.exec`), ADR-0018 rule 3 (the

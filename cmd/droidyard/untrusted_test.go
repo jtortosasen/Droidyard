@@ -150,7 +150,7 @@ func TestUntrustedMarkOnTheEnvelopes(t *testing.T) {
 func TestUntrustedMarkOverMCP(t *testing.T) {
 	t.Parallel()
 	p, release, started := startUntrusted(t)
-	c := startShim(t, p.state, "client", "--wait", "300ms")
+	c := shimInChat(t, p, "client", "chat-untrusted", "--wait", "300ms")
 	c.initialize("untrusted")
 
 	body := func(t *testing.T, r toolResult) string {
@@ -195,16 +195,14 @@ func TestUntrustedMarkOverMCP(t *testing.T) {
 	wantNone(t, "system_health", decodeTool(t, c.recv(), 2))
 
 	// A completed operation, waited on.
-	env, _ := p.call(t, "fixture.untrusted")
-	c.callTool(3, "operation_wait", `{"operationId":"`+env.Operation.ID+`"}`)
+	c.callTool(3, "operation_wait", `{"operationId":"`+earlierOp(t, p, "chat-untrusted", "fixture.untrusted", true)+`"}`)
 	w := decodeTool(t, c.recv(), 3)
 	wantMeta(t, "operation_wait on a completed marked operation", w)
 	body(t, w)
 	if w.view.Result == nil {
 		t.Errorf("operation_wait's structuredContent has no result: %s", w.raw["structuredContent"])
 	}
-	health, _ := p.call(t, "system.health")
-	c.callTool(4, "operation_wait", `{"operationId":"`+health.Operation.ID+`"}`)
+	c.callTool(4, "operation_wait", `{"operationId":"`+earlierOp(t, p, "chat-untrusted", "system.health", true)+`"}`)
 	wantNone(t, "operation_wait on system.health", decodeTool(t, c.recv(), 4))
 
 	// A long-running call: running past the budget it has no result and no mark; the
@@ -380,7 +378,7 @@ func TestUntrustedErrorMarkOnTheEnvelopes(t *testing.T) {
 func TestUntrustedErrorMarkOverMCP(t *testing.T) {
 	t.Parallel()
 	p := startUntrustedErrors(t)
-	c := startShim(t, p.state, "client", "--wait", "300ms")
+	c := shimInChat(t, p, "client", "chat-untrusted-errors", "--wait", "300ms")
 	c.initialize("untrusted-errors")
 
 	errorOf := func(t *testing.T, what string, r toolResult) capability.Error {
@@ -436,11 +434,9 @@ func TestUntrustedErrorMarkOverMCP(t *testing.T) {
 
 	// operation_wait keeps a failed operation's mark, on the tool that started it and
 	// on the wait.
-	env, _ := p.call(t, "fixture.untrustedfail")
-	c.callTool(4, "operation_wait", `{"operationId":"`+env.Operation.ID+`"}`)
+	c.callTool(4, "operation_wait", `{"operationId":"`+earlierOp(t, p, "chat-untrusted-errors", "fixture.untrustedfail", true)+`"}`)
 	wantMark(t, "operation_wait on the marked failure", decodeTool(t, c.recv(), 4))
-	plain, _ := p.call(t, "fixture.plainfail")
-	c.callTool(5, "operation_wait", `{"operationId":"`+plain.Operation.ID+`"}`)
+	c.callTool(5, "operation_wait", `{"operationId":"`+earlierOp(t, p, "chat-untrusted-errors", "fixture.plainfail", true)+`"}`)
 	wantNoMark(t, "operation_wait on the unmarked failure", decodeTool(t, c.recv(), 5))
 
 	c.exit()

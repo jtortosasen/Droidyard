@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DevicesModel, type DevicesClient } from '../devices/devices';
 import { activityWith, FakeCalls, settle } from '../build/testing';
-import { chooseDeviceItem, deviceLine, deviceMenu, deviceTriggerText } from './devicemenu';
+import { chooseDeviceItem, deviceLine, deviceMenu, deviceTriggerText, remoteHolderText } from './devicemenu';
 
 const dev = (device: string, over: Record<string, unknown> = {}) => ({ device, state: 'device', kind: 'emulator', online: true, ...over });
 
@@ -56,5 +56,39 @@ describe('the device menu (D36)', () => {
 		expect(m.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
 		expect(serials).toEqual(['emulator-5554']);
 		expect(deviceLine(m.view)).toBe('a1 (emulator-5554)');
+	});
+});
+
+describe('remote devices in the menu (plan m2t step 7)', () => {
+	const remote = (over: Record<string, unknown> = {}) =>
+		dev('qa-lab/R58M', { kind: 'physical', model: 'Pixel 7', host: 'qa-lab', ...over });
+
+	// Decision: a remote device names its host before its model, so the person knows whose
+	// phone it is, and its serial is the id the host's name prefixes.
+	it('names the host and the model, and the id', async () => {
+		const m = await setup([remote()]);
+		expect(deviceMenu(m.view, []).devices[0]!.label).toBe('qa-lab · Pixel 7 (qa-lab/R58M)');
+		expect(deviceTriggerText(m.view)).toBe('qa-lab · Pixel 7');
+		expect(deviceLine(m.view)).toBe('qa-lab · Pixel 7 (qa-lab/R58M)');
+	});
+
+	// Decision (ADR-0104 §5): the holder of a remote device is on another machine, so
+	// `occupiedBy` is all this daemon knows; idle is said.
+	it('says who holds a remote device, and when the holder is idle', async () => {
+		const held = await setup([remote({ occupiedBy: { name: 'anna', since: 't' } })]);
+		expect(deviceMenu(held.view, []).devices[0]!.label).toBe('qa-lab · Pixel 7 (qa-lab/R58M) — in use by anna');
+		expect(deviceLine(held.view)).toContain('in use by anna');
+		const idle = await setup([remote({ occupiedBy: { name: 'anna', since: 't', stale: true } })]);
+		expect(remoteHolderText(idle.view.devices[0]!)).toBe('in use by anna (idle)');
+		const nameless = await setup([remote({ occupiedBy: { since: 't' } })]);
+		expect(remoteHolderText(nameless.view.devices[0]!)).toBe('in use by another session');
+	});
+
+	// Decision: a device of this machine keeps its text: the session rows say who holds it
+	// (ADR-0094), and saying it twice would be noise.
+	it('leaves a local device without a holder text', async () => {
+		const m = await setup([dev('R58M', { kind: 'physical', model: 'Pixel', occupiedBy: { name: 'claude-code', since: 't' } })]);
+		expect(deviceMenu(m.view, []).devices[0]!.label).toBe('Pixel (R58M)');
+		expect(remoteHolderText(m.view.devices[0]!)).toBe('');
 	});
 });

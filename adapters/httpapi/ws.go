@@ -17,6 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/event"
 )
 
@@ -125,13 +126,19 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return // Accept has answered
 	}
 	c.SetReadLimit(preAuthLimit) // raised to MaxBody once the connection has authenticated
-	s := &wsSession{h: h, c: c, started: map[string]bool{}}
+	s := &wsSession{h: h, c: c, started: map[string]bool{}, who: requester{client: capability.ClientUI}}
 	if !h.add(s) {
 		c.Close(websocket.StatusGoingAway, "the daemon is stopping")
 		return
 	}
 	defer h.remove(s)
-	s.run(r.Context())
+	s.run(r.Context(), func(ctx context.Context) bool {
+		timeout := time.Duration(h.authTimeout.Load())
+		if timeout <= 0 {
+			timeout = defaultAuthTimeout
+		}
+		return s.authenticate(ctx, timeout)
+	})
 }
 
 func (h *wsHandler) add(s *wsSession) bool {
@@ -177,10 +184,13 @@ func (s *Server) CloseSessions(ctx context.Context) {
 	wg.Wait()
 }
 
-// closeAll ends every open session and waits for them.
-func (h *wsHandler) closeAll(ctx context.Context) {
+// closeAll ends every open session, refuses new ones, and waits for them.
+func (h *wsHandler) closeAll(ctx context.Context) { h.endAll(ctx, true) }
+
+// endAll ends every open session and waits for them; latch also refuses new ones.
+func (h *wsHandler) endAll(ctx context.Context, latch bool) {
 	h.mu.Lock()
-	h.closing = true
+	h.closing = h.closing || latch
 	live := make([]*wsSession, 0, len(h.live))
 	for s := range h.live {
 		live = append(live, s)
@@ -207,6 +217,16 @@ type wsSession struct {
 	c    *websocket.Conn
 	sess *event.Session // set once the connection has authenticated
 	wg   sync.WaitGroup
+	// who is what the session's requests are made as: client ui for the browser, peer
+	// with the peer's configured name for a paired Droidyard.
+	who requester
+	// allowed, when set, is asked before each request is served; false ends the session
+	// without serving it (a peer that is no longer paired, ADR-0098 §3).
+	allowed func() bool
+	// registry, when set, is the daemon's session registry, where a peer's link is a
+	// session for as long as it lives: the lease of a lent device is its occupation
+	// (ADR-0104 §1).
+	registry *capability.Sessions
 
 	// wmu is the one writer: every frame goes out under it, one at a time.
 	wmu sync.Mutex
@@ -218,22 +238,26 @@ type wsSession struct {
 	writeTimeout time.Duration
 }
 
-// run serves the connection until it ends: authenticate, then answer requests while
-// the subscriptions' events go out, then release everything. Operations the session
-// started are not its to cancel (ADR-0019 §Sessions): only its waits end.
-func (s *wsSession) run(parent context.Context) {
+// run serves the connection until it ends: handshake (the UI's token frame, a peer's
+// hello), then answer requests while the subscriptions' events go out, then release
+// everything. Operations the session started are not its to cancel (ADR-0019 §Sessions):
+// only its waits end.
+func (s *wsSession) run(parent context.Context, handshake func(ctx context.Context) bool) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	timeout := time.Duration(s.h.authTimeout.Load())
-	if timeout <= 0 {
-		timeout = defaultAuthTimeout
-	}
-	if !s.authenticate(ctx, timeout) {
+	if !handshake(ctx) {
 		return
 	}
 	s.sess = event.NewSession(s.h.bus, newSessionID())
 	if q := int(s.h.queue.Load()); q > 0 {
 		s.sess.SetQueue(q)
+	}
+	if s.registry != nil {
+		// Ended after the connection's last request is answered, so a lease is not freed
+		// under a call still running on it.
+		id := s.sess.ID()
+		s.registry.ConnectPeer(id, s.who.name)
+		defer s.registry.End(id)
 	}
 	s.c.SetReadLimit(MaxBody) // the library's default is 32 KiB; /v1/call's bound is 1 MiB
 	interval := time.Duration(s.h.pingInterval.Load())
@@ -303,7 +327,14 @@ func (s *wsSession) readLoop(ctx context.Context) {
 
 // serve answers one request envelope with its response envelope.
 func (s *wsSession) serve(ctx context.Context, body []byte) {
-	env, ok := s.h.call.answer(ctx, body, s.sess)
+	if s.allowed != nil && !s.allowed() {
+		return
+	}
+	if s.registry != nil {
+		// Any request of the link is activity of its leases (ADR-0104 §3).
+		s.registry.Seen(s.sess.ID())
+	}
+	env, ok := s.h.call.answer(ctx, body, s.sess, s.who)
 	if !ok {
 		return
 	}

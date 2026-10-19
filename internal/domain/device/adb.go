@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
 
@@ -40,12 +42,26 @@ type ADB struct {
 	// before any call, and read at each device check; nil is the emulators-only
 	// default.
 	policy Policy
+	// lending says which of the host's devices a paired peer may use (ADR-0099 §1),
+	// remotes are the hosts this daemon borrows devices from (ADR-0100) and uploads holds
+	// the APKs its peers uploaded (ADR-0099 §3). All are set once at wiring; nil lends
+	// nothing, has no remote and has no upload.
+	lending Lending
+	remotes Remotes
+	uploads *hosting.Uploads
 	// occupation holds who occupies which device (ADR-0094), set once at wiring; nil holds
 	// nothing and refuses nothing.
 	occupation Occupation
+	// startHook is a test seam: see SetStartHook.
+	startHook atomic.Pointer[func()]
 	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
 	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
 	toolKey policy.ToolKey
+
+	// upMu guards upSlots: one slot per remote, held while a build is uploaded to it and
+	// installed there (installRemote).
+	upMu    sync.Mutex
+	upSlots map[string]chan struct{}
 
 	mu    sync.Mutex
 	cache *versions
@@ -59,6 +75,10 @@ type ADB struct {
 	// (ADR-0030). Close stops them and removes their forwards.
 	rdMu    sync.Mutex
 	readers map[string]*readerClient
+
+	// fwd is the directory of the sockets the forwards to the device are made at
+	// (forwardsock.go; ADR-0102).
+	fwd forwardDir
 
 	// appMu guards apps, the per-(serial, applicationId) launch and pid records
 	// device.logs filters an app by when its logcat has no uid column (plan m1i D11).
@@ -88,8 +108,16 @@ type ADB struct {
 	// them all beside the log streams.
 	screens screenSources
 
+	// relayedScreens are the live-view sources of remote devices, one per id (plan m2t
+	// step 3; ADR-0100 §3): each shows the stream a host serves. Close ends them with the
+	// others.
+	relayedScreens relayedScreens
+	// relayedLogs are the Logcat streams of remote devices, by client session and device
+	// (remotelogs.go).
+	relayedLogs relayedLogSet
+
 	// screenViews is every device.watchScreen stream (plan m2p step 4): each holds one
-	// reference on a source in screens. Close ends them before the sources.
+	// reference on a source in screens or relayedScreens. Close ends them before the sources.
 	screenViews screenStreams
 
 	// screenLookup replaces the lookup of a device's running source in a test (a fake
@@ -218,6 +246,18 @@ func (a *ADB) SetBus(b *event.Bus) { a.bus = b }
 // wiring, before any call. Without one the emulators-only default applies, which is what
 // every registry that predates the configuration file gets.
 func (a *ADB) SetPolicy(p Policy) { a.policy = p }
+
+// SetLending gives the ADB the lending of hosting.lend, read live at each call by the
+// calls of a paired peer (ADR-0099 §1). Without one nothing is lent.
+func (a *ADB) SetLending(l Lending) { a.lending = l }
+
+// SetRemotes gives the ADB the links to the hosts this daemon borrows devices from
+// (ADR-0100). Without them every device is local.
+func (a *ADB) SetRemotes(r Remotes) { a.remotes = r }
+
+// SetUploads gives the ADB the APKs its peers uploaded, which device.installUpload installs
+// (ADR-0099 §3). Without them every upload is unknown.
+func (a *ADB) SetUploads(u *hosting.Uploads) { a.uploads = u }
 
 // SetToolKey gives the ADB `tools.adb` as the daemon read it at start (ADR-0032 §3, §6;
 // plan m1k D8): the first candidate of every resolution. The value is a snapshot, so an

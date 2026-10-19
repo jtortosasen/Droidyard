@@ -8,6 +8,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
@@ -15,7 +16,7 @@ import (
 // Version is the API version reported by system.capabilities. It is the one semantic
 // version of the capability API, not a per-capability one
 // (docs/architecture/capability-api.md §Discovery and versioning).
-const Version = "0.29.0"
+const Version = "0.30.0"
 
 var started = time.Now()
 
@@ -41,6 +42,12 @@ type Health struct {
 	// state the tool keys were read in at daemon start (ADR-0032 §4, §6; plan m1k D1).
 	// Absent when the daemon has no policy.
 	Config *policy.ConfigStatus `json:"config,omitempty"`
+	// Identity, Hosting and Remotes are the peer link (ADR-0098): this daemon's
+	// fingerprint, the peer listener and the peers paired with it, and the hosts it dials.
+	// Absent when the daemon has no peer subsystem.
+	Identity *hosting.IdentityHealth `json:"identity,omitempty"`
+	Hosting  *hosting.HostingHealth  `json:"hosting,omitempty"`
+	Remotes  []hosting.RemoteHealth  `json:"remotes,omitempty" jsonschema_description:"The hosts in remotes, each with whether its link is up."`
 }
 
 // StateProblem is one state file the daemon could not use. File and MovedTo are
@@ -131,9 +138,15 @@ type Config interface {
 	ConfigStatus() policy.ConfigStatus
 }
 
+// Hosting reports the peer link for system.health (ADR-0098): *hosting.Host.
+type Hosting interface {
+	Health() hosting.Health
+}
+
 // Register adds the system capabilities to the registry. gr, when non-nil, adds the
-// sidecar's JVM to system.health; cfg, when non-nil, the configuration file's state.
-func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems, gr Gradle, cfg Config) {
+// sidecar's JVM to system.health; cfg, when non-nil, the configuration file's state;
+// host, when non-nil, the peer link's.
+func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operations, problems StateProblems, gr Gradle, cfg Config, host Hosting) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "system.health",
 		Kind:        capability.Query,
@@ -169,6 +182,10 @@ func Register(reg *capability.Registry, req Requirements, adb ADB, ops Operation
 			if cfg != nil {
 				cs := cfg.ConfigStatus()
 				h.Config = &cs
+			}
+			if host != nil {
+				ph := host.Health()
+				h.Identity, h.Hosting, h.Remotes = ph.Identity, &ph.Hosting, ph.Remotes
 			}
 			return h, nil
 		},

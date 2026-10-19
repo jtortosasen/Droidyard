@@ -172,7 +172,15 @@ func checkRegister(fsys fs.FS) []string {
 // hooks row, files.md's recorded edits, the glossary's Occupation, the register's eight new 2s
 // rows and three narrowed ones, and README.md's status line (ADR-0094, ADR-0095, ADR-0105);
 // steps 4, 7 and 8 kept their rows within the budget by trimming.
-const liveBudget = 28576
+// Raised by 14 (to 28,590) at milestone 2t step 4: mvp.md's device row and mcp.md's
+// not-exposed table name device.installUpload, which the capability check requires
+// (ADR-0099 §3).
+// Raised by 710 (to 29,300) at milestone 2t steps 8–9, Delegated: interfaces/peer.md, the one
+// document of the peer role (the routes, the two roles, what a peer may call), and the lines
+// that name the peers in adb-device.md, http-websocket.md, ui-automation.md, workspace-state.md,
+// vision.md, beyond.md, mvp.md and the glossary (ADR-0097 to ADR-0106).
+// Raised by 5 (to 29,305) at milestone 2t's close: README.md's status line names 2t.
+const liveBudget = 29305
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

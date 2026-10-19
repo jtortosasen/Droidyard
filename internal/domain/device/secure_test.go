@@ -38,6 +38,33 @@ func TestParseSecureFocusRecorded(t *testing.T) {
 	}
 }
 
+// A Samsung SM-A256B on Android 16 prints a window's `fl=` as one hex number (plan m2t step
+// 10, the owner's phone with formapp's Secure on: `fl=81812100`, off: `fl=81810100`); the
+// fixture keeps that shape, built by hand, not the phone's output. FLAG_SECURE is bit 0x2000.
+// Seen failing with only the SECURE name read: "on: false, <nil>; want true".
+func TestParseSecureFocusHexFlags(t *testing.T) {
+	dump := func(fl string) string {
+		return "WINDOW MANAGER WINDOWS (dumpsys window windows)\n" +
+			"  Window #7 Window{a1b2c3d u0 com.example.other}:\n" +
+			"    mAttrs={(0,0)(fillxfill) sim={adjust=pan} ty=BASE_APPLICATION fmt=TRANSLUCENT\n" +
+			"      fl=81812100\n" +
+			"  Window #8 Window{ec44cbb u0 dev.droidyard.formapp/dev.droidyard.formapp.FormActivity}:\n" +
+			"    mAttrs={(0,0)(fillxfill) sim={adjust=resize} ty=BASE_APPLICATION fmt=TRANSLUCENT\n" +
+			"      fl=" + fl + "\n" +
+			"      pfl=10008840\n" +
+			"  mCurrentFocus=Window{ec44cbb u0 dev.droidyard.formapp/dev.droidyard.formapp.FormActivity}\n"
+	}
+	for state, c := range map[string]struct {
+		fl   string
+		want bool
+	}{"on": {"81812100", true}, "off": {"81810100", false}} {
+		got, err := parseSecureFocus(dump(c.fl))
+		if err != nil || got != c.want {
+			t.Errorf("%s: %v, %v; want %v", state, got, err, c.want)
+		}
+	}
+}
+
 // Decision (ADR-0080 §1): only the focused window's block is read; another window's SECURE
 // is ignored, and a focused window's SECURE is found though other windows lack it. Both are
 // built from the recordings. Seen failing with the parser searching the whole output for

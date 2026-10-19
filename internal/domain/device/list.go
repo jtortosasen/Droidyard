@@ -52,13 +52,40 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 		Since:        "0.4.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model details. A physical device appears only when devices.allowPhysical is true and its serial is allowlisted.",
+		Lendable:     true,
 		Params:       struct{}{},
 		Result:       ListResult{},
 		Errors:       []capability.ErrorCode{ErrADBNotFound, ErrADBFailed},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
-			devices, warnings, err := adb.list(ctx)
+			// The remotes are asked while this machine's own listing runs. A host lends its
+			// own devices to a peer, never the ones it borrows.
+			var collect func() []remoteAnswer
+			if call.Origin.Client != capability.ClientPeer {
+				collect = adb.startRemotes(ctx)
+			}
+			devices, warnings, err := adb.listFor(ctx, call.Origin)
+			var ce *capability.Error
+			if collect != nil && errors.As(err, &ce) && ce.Code == ErrADBNotFound {
+				// No local adb is needed for a remote device (ADR-0100 §6): the remotes'
+				// devices are listed, and the missing adb is a warning.
+				devices, warnings, err = []Device{}, []string{"adb was not found on this machine, so its own devices are not listed: " + ce.Cause}, nil
+			}
+			if collect != nil {
+				answers := collect()
+				if err == nil {
+					var remote bool
+					if devices, warnings, remote = adb.withRemotes(answers, devices, warnings); remote {
+						// What another machine wrote is untrusted as a whole (ADR-0100 §4).
+						yes := true
+						call.Untrusted = &yes
+					}
+				}
+			}
 			if err != nil {
 				return nil, err
+			}
+			if cerr := ctx.Err(); cerr != nil {
+				return nil, cerr
 			}
 			// Who holds a device is told to every caller but the holder and its chat; the UI and
 			// the CLI are told of every holder (ADR-0094 §1).
@@ -74,6 +101,7 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 	registerWatchLogs(reg, adb)
 	registerWatchScreen(reg, adb)
 	registerInstall(reg, adb, builds)
+	registerInstallUpload(reg, adb)
 	registerUninstall(reg, adb)
 	registerInputText(reg, adb)
 	registerScreenInput(reg, adb)
@@ -95,6 +123,14 @@ func (a *ADB) List(ctx context.Context) ([]Device, error) {
 // what the policy hides: a physical device is listed only when its serial is admitted
 // (ADR-0015 §4; ADR-0032 §2; plan m1k D7), read live at each call.
 func (a *ADB) list(ctx context.Context) ([]Device, []string, error) {
+	return a.listFor(ctx, capability.Origin{})
+}
+
+// listFor is list for the caller who. A paired peer sees only the devices lent to it and
+// none of the host's warnings (ADR-0099 §1). Anyone else sees this machine's devices,
+// except that a serial two devices report is listed for neither, with a warning
+// (ADR-0103 §1).
+func (a *ADB) listFor(ctx context.Context, who capability.Origin) ([]Device, []string, error) {
 	res := a.Resolve()
 	if !res.Found {
 		return nil, nil, adbNotFound(res, "device.list")
@@ -109,30 +145,55 @@ func (a *ADB) list(ctx context.Context) ([]Device, []string, error) {
 		return nil, nil, err
 	}
 	visible := listed[:0:0]
-	invalid := ""
-	for _, d := range listed {
-		if d.Kind == KindEmulator {
-			visible = append(visible, d)
-			continue
+	if who.Client == capability.ClientPeer {
+		for _, d := range listed {
+			if a.lentTo(who.Name, d, listed) {
+				visible = append(visible, d)
+			}
 		}
-		if adm := a.admitted(d.Device); adm.Admitted {
+		warnings = nil
+	} else {
+		invalid := ""
+		// Clipped, so the appends copy: the version check's own slice is shared.
+		warnings = warnings[:len(warnings):len(warnings)]
+		warned := map[string]bool{}
+		for _, d := range listed {
+			if d.Kind != KindEmulator {
+				adm := a.admitted(d.Device)
+				if !adm.Admitted {
+					if adm.Invalid && invalid == "" {
+						invalid = adm.Cause
+					}
+					continue
+				}
+			}
+			if n := serialCount(listed, d.Device); n > 1 {
+				// An emulator, or a physical device the policy admits: one that is hidden
+				// stays undisclosed.
+				if !warned[d.Device] {
+					warned[d.Device] = true
+					warnings = append(warnings, duplicateSerial(n, d.Device))
+				}
+				continue
+			}
 			visible = append(visible, d)
-		} else if adm.Invalid && invalid == "" {
-			invalid = adm.Cause
 		}
-	}
-	if invalid != "" {
-		// A physical device is connected and hidden, and only because the configuration
-		// cannot be read: the listing would otherwise look as if nothing were plugged in.
-		// One warning however many, and no serial: a hidden device is not disclosed.
-		// Clipped, so the append copies: the version check's own slice is shared.
-		warnings = append(warnings[:len(warnings):len(warnings)], "a physical device is connected but hidden, because the droidyard configuration could not be used (all physical devices stay hidden until it is fixed): "+invalid)
+		if invalid != "" {
+			warnings = append(warnings, unusableWarning(invalid))
+		}
 	}
 	a.fillDetails(ctx, res.Path, visible)
 	if cerr := ctx.Err(); cerr != nil { // the caller gave up during the details phase
 		return nil, nil, cerr
 	}
 	return visible, warnings, nil
+}
+
+// unusableWarning says a physical device is connected and hidden, and only because the
+// configuration cannot be read: the listing would otherwise look as if nothing were
+// plugged in. One warning however many, and no serial: a hidden device is not disclosed.
+func unusableWarning(cause string) string {
+	return "a physical device is connected but hidden, because the droidyard configuration could not be used (all physical devices stay hidden until it is fixed): " + cause
 }
 
 // fillDetails adds androidVersion, sdk and avdName to the online devices, in place.

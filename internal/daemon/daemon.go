@@ -15,10 +15,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
 )
@@ -281,10 +281,10 @@ func listen(path string) (*net.UnixListener, error) {
 	// (ADR-0019 §6), where another account could have created a path first. The
 	// directory and its parent must be real directories of this user, the parent not
 	// writable by everyone; the directory itself is made private.
-	if err := ownDir(dir, false); err != nil {
+	if err := platform.OwnDir(dir, false); err != nil {
 		return nil, err
 	}
-	if err := ownDir(filepath.Dir(dir), true); err != nil {
+	if err := platform.OwnDir(filepath.Dir(dir), true); err != nil {
 		return nil, err
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
@@ -308,25 +308,6 @@ func listen(path string) (*net.UnixListener, error) {
 		return nil, err
 	}
 	return ln, nil
-}
-
-// ownDir refuses a path that is not a directory of this user (a symlink included),
-// or, for a parent, one that everyone may write to.
-func ownDir(dir string, parent bool) error {
-	fi, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if !fi.IsDir() {
-		return fmt.Errorf("%s is not a directory", dir)
-	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
-		return fmt.Errorf("%s belongs to uid %d, not to this user", dir, st.Uid)
-	}
-	if parent && fi.Mode().Perm()&0o002 != 0 {
-		return fmt.Errorf("%s is writable by every user", dir)
-	}
-	return nil
 }
 
 func (d *Daemon) accept() {

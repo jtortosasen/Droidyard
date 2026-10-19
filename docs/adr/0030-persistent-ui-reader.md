@@ -1,6 +1,7 @@
 # ADR-0030: The UI reader stays running on the device
 
 - Status: Accepted
+- Superseded in part by: ADR-0102 (§Decision)
 - Date: 2026-10-04
 - Relates to: ADR-0029 (it extends it), ADR-0015, ADR-0020 (per-resource keys),
   `docs/subsystems/ui-automation.md`, `docs/research/device-speed-2026-10.md`

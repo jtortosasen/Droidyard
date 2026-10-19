@@ -376,18 +376,37 @@ func uiURL(addr, token, workspace string) string {
 // tests can replace it in a re-executed binary, as they do testCapabilities.
 var openURL = openBrowser
 
-// openBrowser runs the platform's launcher (plan m1d, R4). The URL is in its argument
-// list while it runs (the plan's Unverified table flags this for the owner).
+// openBrowser runs the platform's launcher (plan m1d, R4).
 func openBrowser(url string) error {
-	launcher := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		launcher = "open"
-	}
+	cmd := openCommand(runtime.GOOS, url)
 	// None of exec's errors quotes the argument list, so the token stays out of them.
-	if err := exec.Command(launcher, url).Run(); err != nil {
-		return fmt.Errorf("running %s: %w", launcher, err)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("running %s: %w", filepath.Base(cmd.Path), err)
 	}
 	return nil
+}
+
+// osascript is the macOS script runner, by its fixed path, as workspace's folder dialog
+// runs it: never found through PATH.
+const osascript = "/usr/bin/osascript"
+
+// openCommand is the command that opens url in the default browser on goos. The URL holds
+// the UI's token, which a command line shows to every process of the machine (`ps`), so on
+// macOS it goes to osascript as an AppleScript on its standard input, which a process list
+// does not show (ADR-0102 §3). Linux's xdg-open takes it as an argument: the row stays open
+// there.
+func openCommand(goos, url string) *exec.Cmd {
+	if goos != "darwin" {
+		return exec.Command("xdg-open", url)
+	}
+	cmd := exec.Command(osascript)
+	cmd.Stdin = strings.NewReader(`open location "` + appleScriptString(url) + "\"\n")
+	return cmd
+}
+
+// appleScriptString escapes s for a double-quoted AppleScript string.
+func appleScriptString(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
 }
 
 // ui runs `droidyard ui`, and `droidyard` alone: it connects as `call` does, starting a

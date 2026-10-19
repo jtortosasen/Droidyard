@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Name is the directory and socket basename (ADR-0024).
@@ -136,17 +137,64 @@ func (e Env) CacheDir() (string, error) {
 // decision.
 func (e Env) SocketPath(state string) string {
 	state = e.Canonical(state)
+	path := filepath.Join(e.runDir(state), SocketName)
+	if len(path) > e.maxSocketPath() {
+		path = filepath.Join("/tmp", Name+"-"+strconv.Itoa(e.UID), e.discriminator(state), SocketName)
+	}
+	return path
+}
+
+// runDir is where the socket of the canonical root state lives before any sun_path
+// fallback.
+func (e Env) runDir(state string) string {
 	dir := filepath.Join(state, "run")
 	if e.GOOS != "darwin" && e.Getenv("DROIDYARD_STATE_DIR") == "" {
 		if rt := e.xdg("XDG_RUNTIME_DIR"); rt != "" {
 			dir = filepath.Join(rt, Name)
 		}
 	}
-	path := filepath.Join(dir, SocketName)
-	if len(path) > e.maxSocketPath() {
-		path = filepath.Join("/tmp", Name+"-"+strconv.Itoa(e.UID), e.discriminator(state), SocketName)
+	return dir
+}
+
+// ForwardNameMax is the longest file name a forward to the device gets in ForwardDir:
+// "<kind>-<12 hex>", the kind at most 11 letters (ADR-0102).
+const ForwardNameMax = 11 + 1 + 12
+
+// ForwardDir is the directory of the sockets the device's readers and screen servers are
+// forwarded to (ADR-0102): run/fwd/ beside the daemon's socket, placed by the same rules.
+// Where a name of ForwardNameMax bytes would not fit sun_path, it moves to
+// /tmp/droidyard-<uid>/fwd-<discriminator>/, one directory per state root and as deep as
+// the socket's own fallback (ADR-0019 §6).
+func (e Env) ForwardDir(state string) string {
+	state = e.Canonical(state)
+	dir := filepath.Join(e.runDir(state), "fwd")
+	if !e.SocketFits(filepath.Join(dir, strings.Repeat("x", ForwardNameMax))) {
+		dir = filepath.Join("/tmp", Name+"-"+strconv.Itoa(e.UID), "fwd-"+e.discriminator(state))
 	}
-	return path
+	return dir
+}
+
+// SocketFits says whether path can be the address of a Unix socket: sun_path holds it.
+func (e Env) SocketFits(path string) bool { return len(path) <= e.maxSocketPath() }
+
+// OwnDir refuses a path that is not a directory of this user (a symlink included), or,
+// for a parent, one that everyone may write to. It guards a directory that may be under
+// the /tmp fallback, where another account could have made a path first.
+func OwnDir(dir string, parent bool) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("%s belongs to uid %d, not to this user", dir, st.Uid)
+	}
+	if parent && fi.Mode().Perm()&0o002 != 0 {
+		return fmt.Errorf("%s is writable by every user", dir)
+	}
+	return nil
 }
 
 // discriminator names a state root's fallback socket directory: the first 12 hex

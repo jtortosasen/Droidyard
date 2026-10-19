@@ -71,7 +71,7 @@ func registry() *capability.Registry {
 	// its descriptors matter here — no handler of the golden registry is ever run.
 	pol := policy.New(platform.Env{Getenv: func(string) string { return "" }})
 	policy.Register(reg, pol)
-	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil, pol)
+	system.Register(reg, nothingInstalled{}, nil, ops, nil, nil, pol, nil)
 	store, err := artifact.New(artifact.Options{Epoch: "schema"})
 	if err != nil {
 		panic(err)
@@ -333,7 +333,7 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 			t.Errorf("%s: Target = %+v; want the avd parameter, avd-1", d.Name, got)
 		}
 	}
-	want := []string{"build.assemble", "device.inputText", "device.install", "device.launch", "device.logs",
+	want := []string{"build.assemble", "device.inputText", "device.install", "device.installUpload", "device.launch", "device.logs",
 		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiTree",
 		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe",
 		"session.release"}
@@ -347,18 +347,22 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	}
 }
 
-// TestOccupiesFollowsTheDeviceOccupationRule is the decision of ADR-0094 §2: the capabilities
-// that hold a device for the calling session are stated, not inferred, and the schema says
-// which of them can be refused. Seven acting capabilities list DEVICE_OCCUPIED in their
-// errors; emulator.start holds the serial it boots and is never refused, so it does not;
-// and no capability lists the code without being one that occupies. A new acting
-// capability, or a code listed on a read, fails here.
+// TestOccupiesFollowsTheDeviceOccupationRule is the decision of ADR-0094 §2 and ADR-0104 §2:
+// the capabilities that hold a device for the calling session are stated, not inferred, and
+// the schema says which of them can be refused. Seven acting capabilities list DEVICE_OCCUPIED
+// in their errors for an MCP session; emulator.start holds the serial it boots and is never
+// refused, so it does not. A paired peer's call of any kind leases a lent device, so every
+// other Lendable capability that names a device (device.list takes none) lists the code too,
+// and no other capability lists it. A new acting capability, a new lent one that forgets the
+// code, or a code listed on a read no peer can call, fails here.
 func TestOccupiesFollowsTheDeviceOccupationRule(t *testing.T) {
 	acting := []string{"device.inputText", "device.install", "device.launch", "device.tapElement",
 		"device.uninstall", "emulator.stop", "emulator.wipe"}
 	var gotActing, gotBoot []string
 	for _, d := range registry().All() {
 		lists := slices.Contains(d.Errors, device.ErrOccupied)
+		// A peer leases the device its call names: a Lendable capability with a device parameter.
+		lent := d.Lendable && namesDevice(d.Params)
 		switch d.Occupies {
 		case capability.OccupiesAct:
 			gotActing = append(gotActing, d.Name)
@@ -371,8 +375,11 @@ func TestOccupiesFollowsTheDeviceOccupationRule(t *testing.T) {
 				t.Errorf("%s is never refused, yet lists %s", d.Name, device.ErrOccupied)
 			}
 		default:
-			if lists {
-				t.Errorf("%s lists %s and occupies nothing", d.Name, device.ErrOccupied)
+			if lists && !lent {
+				t.Errorf("%s lists %s and occupies nothing, and no peer leases a device through it", d.Name, device.ErrOccupied)
+			}
+			if lent && !lists {
+				t.Errorf("%s is lent to peers, whose call leases the device, and does not list %s", d.Name, device.ErrOccupied)
 			}
 		}
 	}
@@ -383,4 +390,18 @@ func TestOccupiesFollowsTheDeviceOccupationRule(t *testing.T) {
 	if !slices.Equal(gotBoot, []string{"emulator.start"}) {
 		t.Errorf("capabilities that boot a held device = %v; want [emulator.start]", gotBoot)
 	}
+}
+
+// namesDevice reports whether a capability's parameters carry a `device` field.
+func namesDevice(params any) bool {
+	t := reflect.TypeOf(params)
+	if t == nil || t.Kind() != reflect.Struct {
+		return false
+	}
+	for i := range t.NumField() {
+		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ","); name == "device" {
+			return true
+		}
+	}
+	return false
 }

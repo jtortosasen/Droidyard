@@ -1,6 +1,7 @@
 # ADR-0094: A session occupies its worktree and the device it acts on
 
 - Status: Accepted
+- Superseded in part by: ADR-0104 (§Decision)
 - Date: 2026-10-18
 - Supersedes: ADR-0082 §Decision (in part: §7, one session holds a worktree); ADR-0088 §Decision (in part: §3, a remembered worktree another session holds is not restored, and its memory is kept); ADR-0032 §Decision (in part: the file gains `occupation`); ADR-0083 §Decision (in part: §1, the rows and the payload gain `occupies`, `devices`, `stale`); ADR-0089 §Decision (in part: §1, the items gain `occupiedBy`); ADR-0010 §Decision (in part: a stateless capability may hold a worktree or a device for the calling MCP session)
 - Relates to: ADR-0015 §2, §6, ADR-0019 §Sessions, ADR-0036, ADR-0048 §2, ADR-0095; `docs/vision/beyond.md` (C2); plan m2s Q1

@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +23,7 @@ import (
 )
 
 // The live view's source on the device (plan m2p step 3; ADR-0077, ADR-0078 §5, §6): scrcpy's
-// server, pushed, run as a recorded `device-stream` child over an `adb forward`, its video
+// server, pushed, run as a recorded `device-stream` child over a forward to a socket file (ADR-0102), its video
 // socket demuxed into a screen.Hub and its control socket written by Inject.
 //
 // There is one source per device, shared and reference-counted. A source's life is one
@@ -138,8 +137,9 @@ type screenSource struct {
 
 	// Written by run's goroutine before the goroutines below start or ready closes.
 	scid           string // the session id, which names the abstract socket
-	forwarding     bool   // the forward command was run: a forward may exist whatever it printed
-	port           string // the forward's host port, "" until it was read
+	forwarding     bool   // the forward command was run: a forward may exist whatever it answered
+	forwarded      bool   // the forward command reported success
+	sock           string // the forward's socket file, chosen before the forward runs
 	cmd            *exec.Cmd
 	stream         Stream
 	video, control net.Conn
@@ -480,17 +480,17 @@ func (s *screenSource) stoppedFailure() *startFailure {
 }
 
 func (s *screenSource) forward(scid string) *startFailure {
-	s.forwarding = true
+	sock, err := s.adb.forwardSocket(s.ctx, s.path, fwdKindScreen)
+	if err != nil {
+		return &startFailure{phase: "forward", detail: err.Error()}
+	}
+	s.sock, s.forwarding = sock, true
 	out, err := s.adb.Run(s.ctx, s.path, screenForwardTimeout, 1<<10,
-		"-s", s.serial, "forward", "tcp:0", "localabstract:"+screenAbstract+scid)
+		"-s", s.serial, "forward", forwardLocalPrefix+sock, "localabstract:"+screenAbstract+scid)
 	if d := adbFailure("adb forward", out, err); d != "" {
 		return s.adbFail("forward", d, err)
 	}
-	port := strings.TrimSpace(string(out.Stdout))
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return &startFailure{phase: "forward", detail: "adb forward printed no port"}
-	}
-	s.port = port
+	s.forwarded = true
 	return nil
 }
 
@@ -538,13 +538,12 @@ func (s *screenSource) childCause() string {
 // peeked, not consumed: Demux reads it); anything else is retried.
 func (s *screenSource) connect() *startFailure {
 	deadline := time.Now().Add(screenConnectBound)
-	addr := net.JoinHostPort("127.0.0.1", s.port)
 	for {
 		if f := s.stopped(deadline); f != nil {
 			return f
 		}
 		d := net.Dialer{Timeout: time.Until(deadline)}
-		conn, err := d.DialContext(s.ctx, "tcp", addr)
+		conn, err := d.DialContext(s.ctx, "unix", s.sock)
 		if err == nil {
 			br := bufio.NewReaderSize(conn, 64<<10)
 			if s.dummyByte(conn, br, deadline) {
@@ -562,7 +561,7 @@ func (s *screenSource) connect() *startFailure {
 			return f
 		}
 		d := net.Dialer{Timeout: time.Until(deadline)}
-		conn, err := d.DialContext(s.ctx, "tcp", addr)
+		conn, err := d.DialContext(s.ctx, "unix", s.sock)
 		if err == nil {
 			s.control = conn
 			return nil
@@ -802,22 +801,15 @@ func (s *screenSource) teardown() {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 2*screenCleanupBound)
 	defer cancel()
-	port := s.port
-	if port == "" {
-		// The forward command ran but its port was not read (it was cut short, or printed
-		// nothing usable): the forward may exist. Our socket's name is unique to this
-		// source, so the listing tells.
-		entries, _ := s.adb.forwardList(ctx, &target{adb: s.path, serial: s.serial})
-		if e, ok := forwardByName(entries, s.serial, screenAbstract+s.scid); ok {
-			port = e.port
-		}
-	}
-	if port == "" {
-		return
-	}
-	out, err := s.adb.Run(ctx, s.path, screenCleanupBound, 1<<10, "-s", s.serial, "forward", "--remove", "tcp:"+port)
-	if d := adbFailure("adb forward --remove", out, err); d != "" {
-		s.adb.logf("screen: the forward tcp:%s of %s was not removed: %s", port, s.serial, d)
+	// adb leaves the socket file when it removes a forward, or when the command was cut
+	// short: it is unlinked whatever became of the forward (ADR-0102).
+	defer s.adb.unlinkForward(s.sock)
+	// A forward command that did not report success may have been cut short with the forward
+	// made. Its socket is this source's own, so it is removed by name without asking the
+	// listing (which can fail too); adb's refusal for a forward that never existed is fine.
+	out, err := s.adb.Run(ctx, s.path, screenCleanupBound, 1<<10, "-s", s.serial, "forward", "--remove", forwardLocalPrefix+s.sock)
+	if d := adbFailure("adb forward --remove", out, err); d != "" && s.forwarded {
+		s.adb.logf("screen: the forward %s of %s was not removed: %s", s.sock, s.serial, d)
 	}
 }
 

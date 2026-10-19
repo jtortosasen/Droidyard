@@ -86,7 +86,8 @@ The MVP must meet 2, 3 and 4; criterion 1 is met in v1 ([mvp](../roadmap/mvp.md)
 
 - A full Android Studio clone.
 - A proprietary LLM/agent harness or agent loop.
-- A cloud service. Droidyard is local-first.
+- A cloud service. Droidyard is local-first: a host lends devices only to Droidyards it
+  paired, over a network the users share ([ADR-0097](../adr/0097-local-first-with-peers.md)).
 - An embedded emulator engine (we drive the existing one).
 
 ## Principles

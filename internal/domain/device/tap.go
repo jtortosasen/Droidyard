@@ -178,7 +178,7 @@ func deviceTarget(serial string) *capability.OpTarget {
 func WriteKey(serial string) string { return writeKey(serial) }
 
 func registerTapElement(reg *capability.Registry, adb *ADB) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plain(capability.Descriptor{
 		Name:         "device.tapElement",
 		Kind:         capability.Command,
 		Scope:        capability.Global,
@@ -222,7 +222,7 @@ func registerTapElement(reg *capability.Registry, adb *ADB) {
 			}
 			return *res, nil
 		},
-	})
+	}))
 }
 
 // tapElement runs the act-then-verify sequence of ui-automation.md §Sequence and

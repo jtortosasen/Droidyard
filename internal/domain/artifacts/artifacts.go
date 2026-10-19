@@ -79,12 +79,15 @@ func readText(e artifact.Entry, p ReadParams) (ReadResult, error) {
 	}, nil
 }
 
-// Register adds artifact.read, over store.
+// Register adds artifact.read, over store. It is Lendable, but a host lends a peer the
+// artifacts that peer's own calls made and nothing else of its store (ADR-0099 §2): for a
+// peer the handler resolves the reference by owner.
 func Register(reg *capability.Registry, store *artifact.Store) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "artifact.read",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
+		Lendable:    true,
 		Since:       "0.4.0",
 		Description: "Reads an artifact by the reference another tool returned (a screenshot, a build console, shell output): an image can be resized or cropped, text is paged. Ephemeral references expire after 15 minutes or a daemon restart.",
 		Params:      ReadParams{},
@@ -115,7 +118,13 @@ func Register(reg *capability.Registry, store *artifact.Store) {
 				}
 				maxEdge = *p.MaxEdge
 			}
-			e, err := store.Get(p.Ref)
+			var e artifact.Entry
+			var err error
+			if call.Origin.Client == capability.ClientPeer {
+				e, err = store.GetOwned(p.Ref, artifact.OwnerOf(call.Origin))
+			} else {
+				e, err = store.Get(p.Ref)
+			}
 			if err != nil {
 				return nil, err
 			}

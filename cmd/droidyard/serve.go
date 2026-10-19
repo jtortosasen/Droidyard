@@ -19,6 +19,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/adapters/httpapi"
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
+	"github.com/jtortosasen/droidyard/adapters/peer"
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
@@ -26,6 +27,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/schema"
@@ -122,6 +124,36 @@ func screenAttach(adb *device.ADB) httpapi.ScreenAttach {
 	}
 }
 
+// peerScreenAttach is the live view as the peer adapter may hold it (ADR-0100 §3): the
+// device's AttachPeerScreen for the named peer, with the same refusals in the adapter's terms.
+func peerScreenAttach(adb *device.ADB) httpapi.PeerScreenAttach {
+	return func(peer, id string) (httpapi.ScreenViewer, error) {
+		v, err := adb.AttachPeerScreen(peer, id)
+		switch {
+		case errors.Is(err, device.ErrScreenStreamUnknown):
+			return nil, httpapi.ErrScreenUnknown
+		case errors.Is(err, device.ErrScreenStreamAttached):
+			return nil, httpapi.ErrScreenAttached
+		case err != nil:
+			return nil, err
+		}
+		return screenViewer{v}, nil
+	}
+}
+
+// peerArtifacts is what the peer listener serves of the artifact store (ADR-0099 §2): the
+// artifacts the named peer's own calls made, by the same ownership rule artifact.read applies
+// to a peer, and no other.
+func peerArtifacts(store *artifact.Store) peer.ArtifactReader {
+	return func(name, id string) (peer.Artifact, error) {
+		e, err := store.GetOwned(artifact.RefPrefix+id, artifact.PeerOwner(name))
+		if err != nil {
+			return peer.Artifact{}, err
+		}
+		return peer.Artifact{MediaType: e.Ref.MediaType, Untrusted: e.Ref.Untrusted, Data: e.Data}, nil
+	}
+}
+
 // screenViewer adapts a screen.Viewer to the adapter's, packet for packet and byte for byte.
 type screenViewer struct{ v screen.Viewer }
 
@@ -176,7 +208,7 @@ func serve(args []string) int {
 	// The daemon owns one supervisor; daemon.Start loads it once the pid records of a
 	// previous daemon are reconciled.
 	sup := proc.New(proc.Options{Store: st, Log: logw})
-	reg, ops, bus, artifacts, adb, _ := registry(env, st, sup, logw)
+	reg, ops, bus, artifacts, adb, _, host := registry(env, st, sup, logw)
 	defer artifacts.Close()
 	// The idle sweep of the session registry runs for the daemon's life (ADR-0094 §4).
 	sweep := capability.SweepInterval
@@ -200,17 +232,56 @@ func serve(args []string) int {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
 	}
+	// The peer link (ADR-0098), once the lock is held: the identity has one writer. A daemon
+	// that cannot make one runs without peers.
+	stopPeers := startPeers(host, reg, ops, bus, artifacts, adb, logw)
 	fmt.Fprintf(logw, "droidyard serve (pid %d): holding %s/%s, listening on %s\n", os.Getpid(), state, daemon.LockFile, socket)
 
 	<-ctx.Done()
 	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	// The peers first: no peer request reaches the operations the shutdown cancels.
+	stopPeers()
 	if err := d.Shutdown(sctx); err != nil {
 		fmt.Fprintln(logw, "droidyard serve: shutdown:", err)
 		return 1
 	}
 	fmt.Fprintf(logw, "droidyard serve (pid %d): stopped\n", os.Getpid())
 	return 0
+}
+
+// startPeers makes the daemon's identity, binds the peer listener when hosting.listen is
+// set and dials each remote, and returns the function that stops them all and waits. A
+// configuration that cannot be used binds and dials nothing: system.health says so through
+// its config (ADR-0032 §4).
+func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Operations, bus *event.Bus, store *artifact.Store, adb *device.ADB, logw io.Writer) (stop func()) {
+	if err := host.Init(); err != nil {
+		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer identity: %v\n", os.Getpid(), err)
+		return func() {}
+	}
+	listen := ""
+	if h, err := host.Hosting(); err != nil {
+		fmt.Fprintf(logw, "droidyard serve (pid %d): no peer listener: %s\n", os.Getpid(), err.Cause)
+	} else {
+		listen = h.Listen
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Listen: listen, API: system.Version, Log: logw})
+	leased := make(chan struct{})
+	// The check that a lent device is still lent to the peer leasing it (ADR-0104 §4), at the
+	// interval of the pin check.
+	go func() { defer close(leased); adb.RunLeases(ctx) }()
+	go func() { defer close(done); srv.Run(ctx) }()
+	host.Start()
+	return func() {
+		cancel()
+		<-done
+		<-leased
+		host.Stop()
+		// After the listener, so no upload is still arriving; what is left is removed.
+		host.Uploads().Close()
+	}
 }
 
 // logFile is the detached daemon's stdout and stderr (ADR-0021 §Layout).

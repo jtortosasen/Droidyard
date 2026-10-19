@@ -1855,7 +1855,7 @@ func TestActorDialFailureAfterAPassedPingFallsBackToInputTap(t *testing.T) {
 	}
 	// The forward goes away before the request dials (the reader is gone, or its forward was
 	// removed): the request cannot be sent, so nothing was executed.
-	ac.c.setPort(closedPort(t))
+	ac.c.setSock(deadSock(t))
 
 	warn, reader, unanswered, err := f.adb.tapAtWith(ctx, tgt, ac, [2]int{100, 100})
 	if err != nil {

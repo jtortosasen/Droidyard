@@ -27,12 +27,19 @@ const DefaultStaleAfter = 120 * time.Minute
 // SweepInterval is how often the registry looks for sessions gone idle (ADR-0094 §4).
 const SweepInterval = time.Minute
 
+// PeerLeaseIdle is how long a paired peer's link session may go without a call and without
+// an open stream before its lease on a lent device is idle and the next caller takes it
+// over (ADR-0104 §3): a constant, not config.json's occupation.staleAfterMinutes.
+const PeerLeaseIdle = 15 * time.Minute
+
 // Holder is who holds a worktree, as another session is told (ADR-0094 §5). It carries no
 // session id (ADR-0048 §2).
 type Holder struct {
 	Name  string
 	Since time.Time
 	Stale bool
+	// Peer says the holder is a paired peer's link (ADR-0104 §1), whose Name is the peer's.
+	Peer bool
 }
 
 // Sessions is the core's registry of MCP sessions, one per connection (ADR-0082 §5). It
@@ -40,7 +47,8 @@ type Holder struct {
 // capability that moves the binding (Descriptor.Binding) and the adapter that addresses
 // the session's calls by it read one value, and each chat's last binding, so a resumed
 // chat gets its worktree back while the daemon lives (ADR-0088). Nothing here is written
-// to disk. Every method is safe for concurrent use.
+// to disk. A paired peer's link is a session too (ConnectPeer, ADR-0104): what it holds is the
+// lease of the lent devices its calls name. Every method is safe for concurrent use.
 //
 // What session.watch shows (ADR-0083 §1) is published from here, under the same lock that
 // changes it, so an event of a session is never published before the row session.watch
@@ -66,6 +74,9 @@ type Sessions struct {
 	// occupation is config.json's occupation section, read at each decision (ADR-0094
 	// §7); nil means the defaults. Injected at serve: capability cannot import policy.
 	occupation func() (conflict string, staleAfter time.Duration)
+	// leaseEnd is told, outside mu, when the owner's release ends a paired peer's hold of a
+	// device, so the holder's streams on it are stopped (ADR-0104 §4); nil tells no one.
+	leaseEnd func(session, serial string)
 
 	// watchHook and occupyHook are test seams: see SetWatchHook and SetOccupyHook.
 	watchHook  atomic.Pointer[func()]
@@ -90,6 +101,11 @@ type sessionRec struct {
 	// next request (ADR-0094 §4).
 	seen  time.Time
 	stale bool
+	// peer is the configured name of the paired peer whose link this session is (ADR-0104
+	// §1); empty for an MCP session. A peer's idleness is PeerLeaseIdle, and its open
+	// streams count as activity: streams is how many it has.
+	peer    string
+	streams int
 	// holdRoot is the linked worktree the session holds, holdWorkspace its id and holdSince
 	// when it took it; all empty while it holds none.
 	holdRoot, holdWorkspace string
@@ -109,6 +125,14 @@ func (s *Sessions) UseOccupation(f func() (conflict string, staleAfter time.Dura
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.occupation = f
+}
+
+// UseLeaseEnd sets what is told when the owner's release ends a paired peer's hold of a
+// device: the holder's session id and the serial. It is called outside the registry's lock.
+func (s *Sessions) UseLeaseEnd(f func(session, serial string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.leaseEnd = f
 }
 
 // UseClock replaces the registry's clock. Test-only seam.
@@ -154,6 +178,50 @@ func (s *Sessions) Connect(id, chat string) {
 	r := &sessionRec{chat: chat, seq: s.next, at: now.UTC().Truncate(time.Millisecond), seen: now}
 	s.byID[id] = r
 	s.publish(id, r)
+}
+
+// ConnectPeer registers the session id of a paired peer's link, named by the peer's
+// configured name (ADR-0104 §1). It has no chat and no binding; what it holds is the devices
+// its calls lease. It is the session's first event.
+func (s *Sessions) ConnectPeer(id, name string) {
+	name = SessionName(name)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.next++
+	now := s.now()
+	r := &sessionRec{seq: s.next, at: now.UTC().Truncate(time.Millisecond), seen: now, name: name, peer: name}
+	s.byID[id] = r
+	s.publish(id, r)
+}
+
+// StreamOpened counts an open stream of a peer's link session: a stream is activity, so a
+// lease with one open is not idle (ADR-0104 §3). It also counts as a request. A session that
+// is not registered is left as it is.
+func (s *Sessions) StreamOpened(id string) { s.stream(id, 1) }
+
+// StreamClosed is StreamOpened's pair: the stream's end counts as a request too, so the idle
+// time starts from it.
+func (s *Sessions) StreamClosed(id string) { s.stream(id, -1) }
+
+func (s *Sessions) stream(id string, delta int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.byID[id]
+	if r == nil {
+		return
+	}
+	r.streams = max(r.streams+delta, 0)
+	s.seenLocked(id, r)
+}
+
+// idleLocked says the session is idle (ADR-0094 §4): an MCP session by the flag Sweep sets
+// from the configured time, a peer's link by the constant PeerLeaseIdle at the moment of
+// the decision, with no open stream. mu is held.
+func (s *Sessions) idleLocked(r *sessionRec) bool {
+	if r.peer != "" {
+		return r.streams == 0 && s.now().Sub(r.seen) > PeerLeaseIdle
+	}
+	return r.stale
 }
 
 // Named records the name the session's client gave itself, from initialize or
@@ -414,6 +482,11 @@ func (s *Sessions) Seen(id string) {
 	if r == nil {
 		return
 	}
+	s.seenLocked(id, r)
+}
+
+// seenLocked records a request of the session and ends its idleness. mu is held.
+func (s *Sessions) seenLocked(id string, r *sessionRec) {
 	r.seen = s.now()
 	if r.stale {
 		r.stale = false
@@ -464,7 +537,14 @@ func (s *Sessions) Sweep() {
 	defer s.mu.Unlock()
 	now := s.now()
 	for id, r := range s.byID {
-		if !r.stale && now.Sub(r.seen) > after {
+		if r.stale {
+			continue
+		}
+		idle := now.Sub(r.seen) > after
+		if r.peer != "" {
+			idle = s.idleLocked(r)
+		}
+		if idle {
 			r.stale = true
 			s.publish(id, r)
 		}
@@ -549,6 +629,17 @@ func (s *Sessions) Binding(id string) (root string, ok bool) {
 		return "", false
 	}
 	return r.root, true
+}
+
+// Chat is the chat id the session's hello named, "" when it named none or the session is
+// not registered.
+func (s *Sessions) Chat(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.byID[id]; r != nil {
+		return r.chat
+	}
+	return ""
 }
 
 // Project is the session's project root, "" when it has none (not registered, or

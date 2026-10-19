@@ -36,7 +36,7 @@ var scParams = `{"device":"` + scSerial + `"}`
 // the second the control socket, the third a video socket again (a second start), and so on.
 type scListener struct {
 	ln   net.Listener
-	Port string
+	Path string // the Unix socket the fake forward links to
 
 	head, tail []byte
 	gate       chan struct{}
@@ -50,12 +50,18 @@ type scListener struct {
 
 func startSCListener(t *testing.T, head, tail []byte) *scListener {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Under /tmp: a Unix socket's path holds about 100 bytes, which a test's temporary
+	// directory can exceed.
+	root, err := os.MkdirTemp("/tmp", "dysc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	l := &scListener{ln: ln, Port: port, head: head, tail: tail, gate: make(chan struct{})}
+	path := filepath.Join(root, "s")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &scListener{ln: ln, Path: path, head: head, tail: tail, gate: make(chan struct{})}
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -76,6 +82,7 @@ func startSCListener(t *testing.T, head, tail []byte) *scListener {
 	}()
 	t.Cleanup(func() {
 		ln.Close()
+		os.RemoveAll(root)
 		l.mu.Lock()
 		for _, c := range l.conns {
 			c.Close()
@@ -174,7 +181,7 @@ func startSCDaemon(t *testing.T, head, tail []byte) *scDaemon {
 	dir := t.TempDir()
 	devicetest.Write(t, dir, "devices.out", []byte("List of devices attached\n"+scSerial+" device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:1\n"))
 	devicetest.Write(t, dir, scSerial+".bootcompleted.out", []byte("1\n"))
-	devicetest.Write(t, dir, scSerial+".forwardscrcpy.out", []byte(ln.Port+"\n"))
+	devicetest.Write(t, dir, scSerial+".forwardscrcpy.out", []byte(ln.Path+"\n"))
 	p := startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, dir, unusedPort(t))})
 	return &scDaemon{inProcess: p, dir: dir, ln: ln}
 }

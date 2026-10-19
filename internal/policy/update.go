@@ -19,21 +19,23 @@ import (
 )
 
 // UpdateParams is policy.update's parameter object: a JSON Merge Patch (RFC 7386)
-// restricted to the three policy sections (ADR-0032 §5; plan m1k D3). Each section is
-// a patch object or JSON null (remove the section and return it to its defaults); each
+// restricted to the policy sections (ADR-0032 §5; ADR-0098 §6; plan m1k D3). Each section
+// is a patch object or JSON null (remove the section and return it to its defaults); each
 // known key inside a section is a value or null (remove the key). Every object is
 // closed: an unknown key anywhere is REQUEST_INVALID_PARAMS at Start, not a silent
 // no-op, so `{"gradle": {}}` and `{"shell": {"enable": true}}` are refused (the keys
 // already in the file are still kept by the write).
 //
-// The three exported fields generate the published schema and give the decoder its
-// strict shape; UnmarshalJSON additionally keeps the sections as the caller wrote them,
+// The exported fields generate the published schema and give the decoder its strict
+// shape; UnmarshalJSON additionally keeps the sections as the caller wrote them,
 // so the handler can tell a section or key written as null from one not written at all
 // (RFC 7386 needs the difference: absent is no change, null removes).
 type UpdateParams struct {
 	Trust      *TrustPatch   `json:"trust,omitempty" jsonschema_description:"The trust section to merge: an object with roots and/or prefixes, each an array of absolute paths, or null to remove the section and trust nothing. Arrays are replaced whole." jsonschema:"nullable"`
 	Devices    *DevicesPatch `json:"devices,omitempty" jsonschema_description:"The devices section to merge: an object with allowPhysical and/or allowlist, or null to remove the section and admit no physical device." jsonschema:"nullable"`
 	Shell      *ShellPatch   `json:"shell,omitempty" jsonschema_description:"The shell section to merge: an object with enabled and/or roots, or null to remove the section and keep shell.exec off." jsonschema:"nullable"`
+	Hosting    *HostingPatch `json:"hosting,omitempty" jsonschema_description:"The hosting section to merge: an object with listen, peers and/or lend, or null to remove the section and lend nothing." jsonschema:"nullable"`
+	Remotes    *[]Remote     `json:"remotes,omitempty" jsonschema_description:"The remotes list, replacing the whole list, or null to remove it. Read at daemon start." jsonschema:"nullable"`
 	IfRevision *string       `json:"ifRevision,omitempty" jsonschema_description:"The revision policy.get returned; the patch applies only if the file still has it, else POLICY_REVISION_CONFLICT."`
 
 	// raw is the patch as the caller wrote it, kept so a section or key written as null
@@ -57,6 +59,13 @@ type DevicesPatch struct {
 type ShellPatch struct {
 	Enabled *bool     `json:"enabled,omitempty" jsonschema_description:"Whether shell.exec is enabled everywhere." jsonschema:"nullable"`
 	Roots   *[]string `json:"roots,omitempty" jsonschema_description:"The project roots shell.exec is enabled for, each an absolute path, canonicalised as droidyard trust does. Replaces the whole list." jsonschema:"nullable"`
+}
+
+// HostingPatch is the hosting section of a policy.update patch.
+type HostingPatch struct {
+	Listen *string     `json:"listen,omitempty" jsonschema_description:"The address the peer listener binds, an IP literal and a port; read at daemon start." jsonschema:"nullable"`
+	Peers  *[]HostPeer `json:"peers,omitempty" jsonschema_description:"The peers paired with this host. Replaces the whole list." jsonschema:"nullable"`
+	Lend   *[]Lend     `json:"lend,omitempty" jsonschema_description:"The devices lent and to whom. Replaces the whole list." jsonschema:"nullable"`
 }
 
 // UnmarshalJSON decodes a patch strictly — an unknown key at the top level or inside a
@@ -94,6 +103,7 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 		"trust":   {"roots", "prefixes"},
 		"devices": {"allowPhysical", "allowlist"},
 		"shell":   {"enabled", "roots"},
+		"hosting": {"listen", "peers", "lend"},
 	}
 	for k, v := range raw {
 		if k == "ifRevision" {
@@ -104,9 +114,13 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 			}
 			continue
 		}
+		if k == "remotes" {
+			// A list, not a section: the typed decode checks its entries.
+			continue
+		}
 		keys, ok := allowed[k]
 		if !ok {
-			return fmt.Errorf("unknown key %q: a patch names trust, devices or shell, exactly", k)
+			return fmt.Errorf("unknown key %q: a patch names trust, devices, shell, hosting or remotes, exactly", k)
 		}
 		if isNull(v) {
 			continue
@@ -121,7 +135,7 @@ func (p *UpdateParams) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
-	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Shell: w.Shell, IfRevision: w.IfRevision, raw: raw}
+	*p = UpdateParams{Trust: w.Trust, Devices: w.Devices, Shell: w.Shell, Hosting: w.Hosting, Remotes: w.Remotes, IfRevision: w.IfRevision, raw: raw}
 	return nil
 }
 

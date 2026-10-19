@@ -210,7 +210,7 @@ func TestDeviceOccupationEnds(t *testing.T) {
 	// A serial gone from a listing is freed; one still in it is kept.
 	s.OccupyDevice("e", "emulator-5562")
 	s.OccupyDevice("e", "emulator-5564")
-	s.ForgetDevicesAbsent([]string{"emulator-5564"}, s.DeviceMark())
+	s.ForgetDevicesAbsent([]string{"emulator-5564"}, s.DeviceMark(), nil)
 	if got := devicesOfLast(rec, "e"); !slices.Equal(got, []string{"emulator-5564"}) {
 		t.Errorf("after a listing without emulator-5562 e carries %v; want only emulator-5564", got)
 	}
@@ -218,7 +218,7 @@ func TestDeviceOccupationEnds(t *testing.T) {
 	// A hold taken after the listing was read is not on its word.
 	mark := s.DeviceMark()
 	s.OccupyDevice("e", "emulator-5566")
-	s.ForgetDevicesAbsent(nil, mark)
+	s.ForgetDevicesAbsent(nil, mark, nil)
 	if got := devicesOfLast(rec, "e"); !slices.Contains(got, "emulator-5566") {
 		t.Errorf("a hold taken after the listing was read was released by it: %v", got)
 	}

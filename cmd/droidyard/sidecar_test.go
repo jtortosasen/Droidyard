@@ -64,6 +64,7 @@ const (
 // fixture.sidecar and shortens the bounds the test names (plan m1c step 7, R17).
 func installTestSeams() {
 	testCapabilities = registerSidecarFixture
+	testHosting = registerPeerProbe
 	openURL = func(url string) error {
 		path := os.Getenv(launcherEnv)
 		if path == "" {

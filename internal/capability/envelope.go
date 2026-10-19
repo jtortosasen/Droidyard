@@ -115,7 +115,7 @@ type OperationState struct {
 	Capability string `json:"capability" jsonschema:"required"`
 	// Client is the kind of session that made the call; omitted for a call recorded
 	// without one.
-	Client    ClientKind `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui"`
+	Client    ClientKind `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui,enum=peer"`
 	State     State      `json:"state" jsonschema:"required,enum=queued,enum=running,enum=completed,enum=failed,enum=cancelled"`
 	StartedAt time.Time  `json:"startedAt" jsonschema:"required"`
 	// DurationMs is set on the terminal event only.
@@ -214,7 +214,7 @@ type ActiveOperation struct {
 	OperationID string      `json:"operationId" jsonschema:"required"`
 	Capability  string      `json:"capability" jsonschema:"required"`
 	Workspace   string      `json:"workspace,omitempty" jsonschema_description:"The workspace id; omitted for a global operation."`
-	Client      ClientKind  `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui"`
+	Client      ClientKind  `json:"client,omitempty" jsonschema:"enum=cli,enum=mcp,enum=ui,enum=peer"`
 	State       State       `json:"state" jsonschema:"required,enum=queued,enum=running"`
 	StartedAt   time.Time   `json:"startedAt" jsonschema:"required"`
 	BlockedBy   *BlockedBy  `json:"blockedBy,omitempty" jsonschema_description:"Set while the operation is queued."`

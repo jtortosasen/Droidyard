@@ -106,6 +106,25 @@ describe('LogStream', () => {
 		expect(t.client.watches).toHaveLength(1);
 	});
 
+	// Decision (plan m2t step 7): a stream that ends `deviceGone` tells the sink which device, since
+	// for a remote device nothing else tells the UI that its host stopped lending; the other
+	// reasons do not (the device is still lent).
+	it('tells the sink which device is gone, and only for deviceGone', async () => {
+		const gone: string[] = [];
+		const client = new FakeClient();
+		const stream = new LogStream(client, { entries: () => {}, status: () => {}, deviceGone: (d) => gone.push(d) });
+		stream.open('qa-lab/R58M');
+		client.answer(0);
+		await settle();
+		client.emit(0, 'device.logcat', 'stopped', { device: 'qa-lab/R58M', reason: 'replaced' });
+		expect(gone).toEqual([]);
+		stream.open('qa-lab/R58M');
+		client.answer(1);
+		await settle();
+		client.emit(1, 'device.logcat', 'stopped', { device: 'qa-lab/R58M', reason: 'deviceGone', cause: 'the host ended the lease' });
+		expect(gone).toEqual(['qa-lab/R58M']);
+	});
+
 	it('names each reason of stopped', async () => {
 		for (const [reason, words] of [
 			['exited', 'logcat ended'],

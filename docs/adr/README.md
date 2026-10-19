@@ -125,7 +125,16 @@ edits made before this rule and are not added to.
 | [0094](0094-occupation-by-a-session.md) | A session occupies its worktree and the device it acts on | Accepted |
 | [0095](0095-hooks-joined-and-agent-edits.md) | A hook is joined to its chat's session, and the agent's own edits pass through the hooks | Accepted |
 | [0096](0096-trash-listed-for-activity.md) | The trash is listed, so Activity restores a delete made before the tab opened | Accepted |
+| [0097](0097-local-first-with-peers.md) | Local-first, with peers that lend devices | Accepted |
+| [0098](0098-peer-transport-identity-pairing.md) | Peers: mutual TLS between daemons, pinned identities, pairing by hand | Accepted |
+| [0099](0099-what-a-host-lends.md) | What a host lends, to whom, and what a peer may call | Accepted |
+| [0100](0100-remote-devices-on-the-client.md) | Remote devices on the client, the same capabilities relayed | Accepted |
+| [0101](0101-waits-reach-own-operations.md) | `operation.wait` and `operation.cancel` reach one's own operations | Accepted |
+| [0102](0102-local-channels-to-the-device.md) | Forwards to the device are sockets in `run/`, and the reader fences its reads | Accepted |
+| [0103](0103-shared-serial-and-emulator-class.md) | A shared serial is refused; a product makes an emulator only on an emulator's serial | Accepted |
+| [0104](0104-lease-of-a-lent-device.md) | A lent device is leased: one peer at a time, by 2s's occupation | Accepted |
 | [0105](0105-trash-rows-outside-delete-spans.md) | Activity shows a trash entry no restorable delete row accounts for | Accepted |
+| [0106](0106-peer-logcat-streams.md) | A peer's link holds up to four Logcat streams per lent device | Accepted |
 
 ## Open decisions (not yet ADRs)
 

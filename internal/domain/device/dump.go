@@ -76,7 +76,7 @@ type UITreeParams struct {
 func dumpKey(serial string) string { return "device.dump:" + serial }
 
 func registerUITree(reg *capability.Registry, adb *ADB) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.plain(capability.Descriptor{
 		Name:         "device.uiTree",
 		Kind:         capability.Query,
 		Scope:        capability.Global,
@@ -87,7 +87,7 @@ func registerUITree(reg *capability.Registry, adb *ADB) {
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UITreeParams).Device) },
 		Result:       Snapshot{},
 		Text:         capability.TextOf(uiTreeText),
-		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
+		Errors:       append(append([]capability.ErrorCode{}, LentErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(UITreeParams).Device; s != "" {
 				return dumpKey(s)
@@ -95,7 +95,7 @@ func registerUITree(reg *capability.Registry, adb *ADB) {
 			return ""
 		},
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
-			return adb.authorize(ctx, call.Params.(UITreeParams).Device, "device.uiTree")
+			return adb.authorize(ctx, call.Origin, call.Params.(UITreeParams).Device, "device.uiTree")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			t := call.Authorized.(*target)
@@ -121,7 +121,7 @@ func registerUITree(reg *capability.Registry, adb *ADB) {
 			}
 			return s, nil
 		},
-	})
+	}))
 }
 
 func (a *ADB) uiTree(ctx context.Context, t *target, within *AncestorSelector) (Snapshot, error) {

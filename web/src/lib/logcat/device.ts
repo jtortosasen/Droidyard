@@ -7,6 +7,8 @@ import type { DeviceInfo, DevicesView } from '../devices/devices';
 export interface LogcatDevices {
 	view: Pick<DevicesView, 'devices' | 'selected' | 'pendingAvd'>;
 	subscribe(listener: () => void): () => void;
+	/** A stream of this device stopped `deviceGone`. */
+	deviceGone?(serial: string): void;
 }
 
 export interface LogcatDeviceView {
@@ -52,6 +54,11 @@ export class LogcatDevice {
 		if (serial !== '' && !this.#online().some((d) => d.device === serial)) return;
 		this.#pick = serial;
 		this.#changed();
+	}
+
+	/** The Logcat stream of `serial` stopped `deviceGone`: the devices model reads its list again if it is a remote device. */
+	deviceGone(serial: string): void {
+		this.#devices.deviceGone?.(serial);
 	}
 
 	dispose(): void {

@@ -1,5 +1,5 @@
 {
-  "version": "0.29.0",
+  "version": "0.30.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -3412,6 +3412,121 @@
       }
     },
     {
+      "name": "device.installUpload",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.30.0",
+      "description": "Installs the APK a paired peer uploaded to this host, then removes it; an upload that is not the caller's, has expired or was replaced is rejected. The device must be one this host lends to the peer.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
+        "REQUEST_INVALID_PARAMS",
+        "DEVICE_INSTALL_FAILED"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "upload": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "The id the host answered the peer's upload with: the peer's own pending upload."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "upload"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "sha256": {
+                "type": "string",
+                "description": "The SHA-256 of the installed file, as the host stored it."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "sha256"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "device.launch",
       "kind": "command",
       "scope": "global",
@@ -3575,7 +3690,7 @@
                   "properties": {
                     "name": {
                       "type": "string",
-                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."
+                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code. A paired peer is named by the host's configuration."
                     },
                     "since": {
                       "type": "string",
@@ -3584,7 +3699,11 @@
                     },
                     "stale": {
                       "type": "boolean",
-                      "description": "True while the holder has made no request for the configured time: an acting call of another session takes the device over. Absent otherwise."
+                      "description": "True while the holder has made no request for the configured time (15 minutes, and no open stream, for a paired peer): an acting call of another session, any call for a peer, takes the device over. Absent otherwise."
+                    },
+                    "peer": {
+                      "type": "boolean",
+                      "description": "True when the holder is a paired peer's link, so a peer named anna is told from a client that calls itself anna. Absent otherwise."
                     }
                   },
                   "additionalProperties": false,
@@ -3593,6 +3712,10 @@
                     "since"
                   ],
                   "description": "Another chat that holds this device: its install, uninstall, launch, tap through an element, text input and emulator stop or wipe from this session are refused unless the configured conflict is allow, and an idle holder (stale) is taken over by an acting call. Absent when none does, when this session or a session of its chat holds it, or when its holder is gone. Reading the screen, the tree or the logs is never refused."
+                },
+                "host": {
+                  "type": "string",
+                  "description": "The name of the remote that lends the device, the prefix of its serial (\u003chost\u003e/\u003cserial\u003e); absent on a device of this machine."
                 }
               },
               "additionalProperties": false,
@@ -3645,6 +3768,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_LOGS_FAILED",
         "REQUEST_INVALID_PARAMS"
       ],
@@ -4049,6 +4173,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
@@ -4124,6 +4249,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_SCREENSHOT_FAILED"
       ],
       "input": {
@@ -4210,6 +4336,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
@@ -4309,6 +4436,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
@@ -5273,6 +5401,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5533,6 +5662,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_LOGS_FAILED",
         "REQUEST_INVALID_PARAMS",
         "SESSION_REQUIRED"
@@ -5685,7 +5815,7 @@
                   "exited",
                   "replaced"
                 ],
-                "description": "deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: logcat ended by itself. replaced: the same session started a stream of this device."
+                "description": "deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: logcat ended by itself. replaced: the same session started a stream of this device."
               },
               "cause": {
                 "type": "string",
@@ -5726,6 +5856,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
         "SESSION_REQUIRED"
@@ -5808,7 +5939,7 @@
                   "failed",
                   "detached"
                 ],
-                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
+                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
               },
               "cause": {
                 "type": "string",
@@ -9144,7 +9275,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.1.0",
-      "description": "Asks a running operation to stop, whichever session started it; cancelling a finished one does nothing. It does not wait: call operation.wait to see the operation end cancelled.",
+      "description": "Asks a running operation of your session or chat to stop; cancelling a finished one does nothing. It does not wait: call operation.wait to see the operation end cancelled.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -9307,7 +9438,8 @@
                   "enum": [
                     "cli",
                     "mcp",
-                    "ui"
+                    "ui",
+                    "peer"
                   ]
                 },
                 "state": {
@@ -9420,7 +9552,8 @@
                 "enum": [
                   "cli",
                   "mcp",
-                  "ui"
+                  "ui",
+                  "peer"
                 ]
               },
               "state": {
@@ -9529,7 +9662,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.10.0",
-      "description": "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices and shell sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
+      "description": "Returns the droidyard policy: the configuration file's path and state, its revision (pass it to policy.update as ifRevision) and the trust, devices, shell, hosting and remotes sections. Policy is the user's to change, so the core refuses this capability from an agent session.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -9626,6 +9759,100 @@
               "roots"
             ]
           },
+          "hosting": {
+            "properties": {
+              "listen": {
+                "type": "string",
+                "description": "The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."
+              },
+              "peers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                      "description": "The peer's name: the session name its operations carry. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the peers."
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The peer's certificate fingerprint as droidyard id prints it: 64 lowercase hex digits. Unique among the peers."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "fingerprint"
+                  ]
+                },
+                "type": "array",
+                "description": "The peers paired with this host; read at each request."
+              },
+              "lend": {
+                "items": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."
+                    },
+                    "to": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array",
+                      "minItems": 1,
+                      "description": "The names of the peers it is lent to."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "device",
+                    "to"
+                  ]
+                },
+                "type": "array",
+                "description": "The devices lent, and to whom; read at each call."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "peers",
+              "lend"
+            ]
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                  "description": "The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."
+                },
+                "address": {
+                  "type": "string",
+                  "description": "The host's peer listener, an IP literal and a port."
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "address",
+                "fingerprint"
+              ]
+            },
+            "type": "array",
+            "description": "The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
+          },
           "revision": {
             "type": "string",
             "description": "The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."
@@ -9639,6 +9866,8 @@
           "trust",
           "devices",
           "shell",
+          "hosting",
+          "remotes",
           "revision"
         ]
       }
@@ -9650,7 +9879,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.10.0",
-      "description": "Applies a JSON Merge Patch (RFC 7386) to the trust, devices and shell sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
+      "description": "Applies a JSON Merge Patch (RFC 7386) to the trust, devices, shell, hosting and remotes sections of the policy and returns policy.get's shape after the write; null removes a key or a section and arrays are replaced whole. The core refuses it from an agent session.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -9784,6 +10013,132 @@
               }
             ]
           },
+          "hosting": {
+            "oneOf": [
+              {
+                "properties": {
+                  "listen": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "description": "The address the peer listener binds, an IP literal and a port; read at daemon start."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "peers": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                              "description": "The peer's name: the session name its operations carry. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the peers."
+                            },
+                            "fingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$",
+                              "description": "The peer's certificate fingerprint as droidyard id prints it: 64 lowercase hex digits. Unique among the peers."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "fingerprint"
+                          ]
+                        },
+                        "type": "array",
+                        "description": "The peers paired with this host. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lend": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "properties": {
+                            "device": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."
+                            },
+                            "to": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array",
+                              "minItems": 1,
+                              "description": "The names of the peers it is lent to."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "required": [
+                            "device",
+                            "to"
+                          ]
+                        },
+                        "type": "array",
+                        "description": "The devices lent and to whom. Replaces the whole list."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "The hosting section to merge: an object with listen, peers and/or lend, or null to remove the section and lend nothing."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remotes": {
+            "oneOf": [
+              {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                      "description": "The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."
+                    },
+                    "address": {
+                      "type": "string",
+                      "description": "The host's peer listener, an IP literal and a port."
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "address",
+                    "fingerprint"
+                  ]
+                },
+                "type": "array",
+                "description": "The remotes list, replacing the whole list, or null to remove it. Read at daemon start."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ifRevision": {
             "type": "string",
             "description": "The revision policy.get returned; the patch applies only if the file still has it, else POLICY_REVISION_CONFLICT."
@@ -9877,6 +10232,100 @@
               "roots"
             ]
           },
+          "hosting": {
+            "properties": {
+              "listen": {
+                "type": "string",
+                "description": "The address the peer listener binds, an IP literal and a port (not an unspecified address); read at daemon start. Absent: this daemon lends nothing."
+              },
+              "peers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                      "description": "The peer's name: the session name its operations carry. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the peers."
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The peer's certificate fingerprint as droidyard id prints it: 64 lowercase hex digits. Unique among the peers."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "fingerprint"
+                  ]
+                },
+                "type": "array",
+                "description": "The peers paired with this host; read at each request."
+              },
+              "lend": {
+                "items": {
+                  "properties": {
+                    "device": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The device serial lent. Only a physical device is lent, and the host's own devices policy must admit it too."
+                    },
+                    "to": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array",
+                      "minItems": 1,
+                      "description": "The names of the peers it is lent to."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "device",
+                    "to"
+                  ]
+                },
+                "type": "array",
+                "description": "The devices lent, and to whom; read at each call."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "peers",
+              "lend"
+            ]
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                  "description": "The remote's name: the prefix of its devices' ids. Lowercase letters, digits and hyphens, starting with a letter, at most 32 characters. Unique among the remotes."
+                },
+                "address": {
+                  "type": "string",
+                  "description": "The host's peer listener, an IP literal and a port."
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "address",
+                "fingerprint"
+              ]
+            },
+            "type": "array",
+            "description": "The hosts this daemon pairs with, dialled at daemon start; their devices join the device list as \u003cname\u003e/\u003cserial\u003e."
+          },
           "revision": {
             "type": "string",
             "description": "The revision of the file this policy was read from: the hex SHA-256 of its bytes, or absent when there is no file (an invalid file has the hash of its bytes; empty only when the bytes could not be read or no configuration directory resolves; an empty revision never matches ifRevision). Pass it as policy.update's ifRevision to fail instead of overwriting a concurrent edit."
@@ -9890,6 +10339,8 @@
           "trust",
           "devices",
           "shell",
+          "hosting",
+          "remotes",
           "revision"
         ]
       }
@@ -10679,7 +11130,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "The daemon's id for the MCP session, as on session.state. It grants nothing."
+                  "description": "The daemon's id for the session, as on session.state. It grants nothing."
                 },
                 "name": {
                   "type": "string",
@@ -10717,7 +11168,7 @@
               ]
             },
             "type": "array",
-            "description": "The MCP sessions connected now, the oldest first, taken after the subscription opened: merge it with the events by id."
+            "description": "The sessions connected now (MCP sessions and paired peers' links), the oldest first, taken after the subscription opened: merge it with the events by id."
           }
         },
         "additionalProperties": false,
@@ -10734,7 +11185,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "description": "The daemon's id for the MCP session. It grants nothing."
+                "description": "The daemon's id for the session, an MCP session or a paired peer's link. It grants nothing."
               },
               "name": {
                 "type": "string",
@@ -10753,11 +11204,11 @@
                   "type": "string"
                 },
                 "type": "array",
-                "description": "The serials of the devices the session holds, so that no other chat installs, launches or taps on them (ADR-0094); absent when it holds none."
+                "description": "The serials of the devices the session holds, so that no other chat acts on them (ADR-0094); a paired peer's link holds one through any call (ADR-0104). Absent when it holds none."
               },
               "stale": {
                 "type": "boolean",
-                "description": "True while the session has made no request for the configured time (120 minutes by default): another chat may then take over what it holds. Absent otherwise."
+                "description": "True while the session has made no request for the configured time (120 minutes by default; 15, with no open stream, for a peer's link): another chat may then take over what it holds. Absent otherwise."
               },
               "ended": {
                 "type": "boolean",
@@ -11271,6 +11722,86 @@
               "state",
               "toolKeys"
             ]
+          },
+          "identity": {
+            "properties": {
+              "fingerprint": {
+                "type": "string",
+                "description": "This daemon's certificate fingerprint, as droidyard id prints it: what a host pins to admit this daemon."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "fingerprint"
+            ]
+          },
+          "hosting": {
+            "properties": {
+              "listen": {
+                "type": "string",
+                "description": "The address the peer listener is bound to; absent when it is not."
+              },
+              "error": {
+                "type": "string",
+                "description": "Why hosting.listen is set and the listener is not bound; it is tried again every 30 s."
+              },
+              "peers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean",
+                      "description": "Whether the peer has a link open to this host now."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "connected"
+                  ]
+                },
+                "type": "array",
+                "description": "The peers in hosting.peers."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "peers"
+            ]
+          },
+          "remotes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "connected": {
+                  "type": "boolean",
+                  "description": "Whether the link to the remote is up: its host accepted this daemon and speaks the peer protocol."
+                },
+                "api": {
+                  "type": "string",
+                  "description": "The API version the remote's daemon reported; absent until the link has been up."
+                },
+                "error": {
+                  "type": "string",
+                  "description": "Why the link is down: the last failure to connect."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "connected"
+              ]
+            },
+            "type": "array",
+            "description": "The hosts in remotes, each with whether its link is up."
           }
         },
         "additionalProperties": false,

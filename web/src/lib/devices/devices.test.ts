@@ -210,3 +210,56 @@ describe('the pending AVD (m2e D36)', () => {
 		expect(picked.devices.view).toMatchObject({ selected: 'emulator-5554', pendingAvd: '' });
 	});
 });
+
+const remote = (over: Record<string, unknown> = {}) => ({
+	device: 'qa-lab/R58M',
+	state: 'device',
+	kind: 'physical',
+	online: true,
+	model: 'Pixel 7',
+	host: 'qa-lab',
+	...over,
+});
+
+describe('remote devices (plan m2t step 7)', () => {
+	// Decision: the list's warnings (an unreachable remote) are kept for the panel, and the
+	// next read replaces them.
+	it('keeps the warnings of the last read', async () => {
+		const t = await setup();
+		t.calls.on('device.list', () => ({ devices: [dev('emulator-5554')], warnings: ['qa-lab is unreachable: connection refused'] }));
+		await t.devices.refresh();
+		expect(t.devices.view.warnings).toEqual(['qa-lab is unreachable: connection refused']);
+		t.calls.on('device.list', () => ({ devices: [dev('emulator-5554')] }));
+		await t.devices.refresh();
+		expect(t.devices.view.warnings).toEqual([]);
+	});
+
+	// Decision: no operation of this UI tells it that a host stopped lending, so a remote
+	// device's stream ending deviceGone reads the list again, and the list then omits the
+	// device and the selection with it.
+	it('reads the list again when a remote device is gone, and drops its selection', async () => {
+		const t = await setup();
+		t.calls.on('device.list', () => ({ devices: [remote()] }));
+		await t.devices.refresh();
+		expect(t.devices.view.selected).toBe('qa-lab/R58M');
+		t.calls.calls.length = 0;
+		t.calls.on('device.list', () => ({ devices: [], warnings: [] }));
+		t.devices.deviceGone('qa-lab/R58M');
+		await settle();
+		expect(t.calls.names()).toEqual(['device.list']);
+		expect(t.devices.view.devices).toEqual([]);
+		expect(t.devices.view.selected).toBe('');
+	});
+
+	// Decision: a device of this machine is read as before; its stream ending does not
+	// start a read (the scope of the step is the remote device).
+	it('does not read the list for a local device or one it does not list', async () => {
+		const t = await setup();
+		await t.devices.refresh();
+		t.calls.calls.length = 0;
+		t.devices.deviceGone('emulator-5554');
+		t.devices.deviceGone('qa-lab/UNKNOWN');
+		await settle();
+		expect(t.calls.names()).toEqual([]);
+	});
+});

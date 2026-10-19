@@ -1,6 +1,7 @@
 # ADR-0035: The reader acts: taps, keys and set-text, fenced by its peer's uid
 
 - Status: Accepted
+- Superseded in part by: ADR-0102 (§2)
 - Date: 2026-10-07
 - Relates to: ADR-0029, ADR-0030 (both amended), ADR-0015 §2, §4, ADR-0020 (its
   2026-10-06 line), ADR-0034, `ui-automation.md` (§Typing, §Input primitives, §Sequence

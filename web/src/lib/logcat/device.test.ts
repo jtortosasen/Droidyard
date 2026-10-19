@@ -18,6 +18,14 @@ class FakeDevices implements LogcatDevices {
 }
 
 describe('the Logcat device (m2e D40)', () => {
+	// Decision (plan m2t step 7): the gone device is the devices model's to read again.
+	it('passes a gone device on to the devices model', () => {
+		const gone: string[] = [];
+		const d = Object.assign(new FakeDevices(), { deviceGone: (s: string) => gone.push(s) });
+		new LogcatDevice(d).deviceGone('qa-lab/R58M');
+		expect(gone).toEqual(['qa-lab/R58M']);
+	});
+
 	// Decision (D40): "Toolbar device" follows the toolbar's choice.
 	it('follows the toolbar', () => {
 		const d = new FakeDevices();
