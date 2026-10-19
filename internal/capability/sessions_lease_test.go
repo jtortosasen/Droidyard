@@ -177,8 +177,9 @@ func TestPeerLeaseEnds(t *testing.T) {
 		t.Errorf("an MCP session's hold ended through the lease-end function: %v", got())
 	}
 
-	// A peer's hold is not ended by a listing without the serial or by a remote id's absence,
-	// but is by its link.
+	// A listing without the serial ends a peer's hold, as the device leaving does; a remote
+	// id's absence from a local listing ends nothing, and a slash id of no configured remote
+	// is an ordinary serial.
 	s.OccupyDevice("anna", leaseSerial)
 	s.OccupyDevice("m", "qa/"+leaseSerial)
 	s.OccupyDevice("m", "other/"+leaseSerial) // a slash, but no configured remote of that name

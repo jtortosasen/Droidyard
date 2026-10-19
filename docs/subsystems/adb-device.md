@@ -88,7 +88,8 @@ Text commands run as `adb -s <serial> shell ...` (CRLF-normalised); binary outpu
 `exec-out`, which skips the pty so PNG bytes survive; long-lived children use `spawn`, in a
 process group killed as a group. Every invocation has an explicit timeout and a bounded
 buffer: no unbounded accumulation anywhere. The reader and the screen server are reached
-through `adb forward localfilesystem:` sockets in `<state>/run/fwd/` (0700), never a TCP port;
+through `adb forward localfilesystem:` sockets in `<state>/run/fwd/` (0700; past
+`sun_path`, `/tmp/droidyard-<uid>`), never a TCP port;
 adb prints their paths raw in `forward --list`, spaces included
 ([ADR-0102](../adr/0102-local-channels-to-the-device.md)).
 

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -276,7 +278,7 @@ func (l *Link) run(ctx context.Context) {
 			wait = backoffMin
 		}
 		l.mu.Lock()
-		l.lastErr = err.Error()
+		l.lastErr = healthError(l.remote, err)
 		l.mu.Unlock()
 		fmt.Fprintf(l.log, "droidyard: remote %s: %v; trying again in %s\n", l.remote.Name, err, wait)
 		select {
@@ -354,21 +356,57 @@ func (l *Link) hello(ctx context.Context, conn *websocket.Conn) (capability.Peer
 		conn.Close(capability.PeerCloseProtocol, "peerProtocol "+strconv.Itoa(capability.PeerProtocol))
 		return capability.PeerHello{}, fmt.Errorf("the host speaks peer protocol %d and this daemon %d", f.Hello.PeerProtocol, capability.PeerProtocol)
 	}
+	if !apiVersion.MatchString(f.Hello.API) {
+		// Another machine wrote it, and system.health shows it to agents: only a version
+		// number is kept (ADR-0100 §4).
+		fmt.Fprintf(l.log, "droidyard: remote %s sent an API version that is not one; it is not shown\n", l.remote.Name)
+		f.Hello.API = ""
+	}
 	return *f.Hello, nil
 }
+
+// apiVersion is the shape of an API version, the one text of the host's hello this daemon
+// shows.
+var apiVersion = regexp.MustCompile(`^\d{1,4}\.\d{1,5}\.\d{1,6}$`)
+
+// healthError is why the link is down as system.health shows it: this daemon's own words
+// only, since a transport error can quote what the host sent (a malformed status line, a
+// close reason) and agents read the health (ADR-0100 §4). The daemon's log keeps the full
+// error.
+func healthError(r policy.Remote, err error) string {
+	var own *ownError
+	var closed websocket.CloseError
+	switch {
+	case errors.As(err, &own):
+		return own.msg
+	case errors.As(err, &closed):
+		return fmt.Sprintf("the host at %s closed the session (code %d)", r.Address, closed.Code)
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Sprintf("the host at %s did not answer in time", r.Address)
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return fmt.Sprintf("nothing listens at %s", r.Address)
+	}
+	return fmt.Sprintf("the link to %s failed; this daemon's log says why", r.Address)
+}
+
+// ownError is a failure told in this daemon's own words, with nothing the host sent.
+type ownError struct{ msg string }
+
+func (e *ownError) Error() string { return e.msg }
 
 // dialError says what failed in terms of the remote, not of the TLS stack.
 func dialError(r policy.Remote, err error) error {
 	switch {
 	case errors.Is(err, ErrPinned):
-		return fmt.Errorf("the certificate at %s is not the fingerprint remotes[%s] pins; nothing was sent", r.Address, r.Name)
+		return &ownError{fmt.Sprintf("the certificate at %s is not the fingerprint remotes[%s] pins; nothing was sent", r.Address, r.Name)}
 	case strings.Contains(err.Error(), "bad certificate"):
 		// What a TLS 1.3 host answers a client certificate it does not pin with.
-		return fmt.Errorf("the host at %s does not admit this daemon: its hosting.peers does not hold this daemon's fingerprint", r.Address)
+		return &ownError{fmt.Sprintf("the host at %s does not admit this daemon: its hosting.peers does not hold this daemon's fingerprint", r.Address)}
 	}
 	var closed websocket.CloseError
 	if errors.As(err, &closed) && closed.Code >= 4000 {
-		return fmt.Errorf("the host at %s closed the session: %s", r.Address, closed.Reason)
+		// The reason is the host's text: system.health would show it to agents (ADR-0100 §4).
+		return &ownError{fmt.Sprintf("the host at %s closed the session (code %d)", r.Address, closed.Code)}
 	}
 	return fmt.Errorf("connecting to %s: %w", r.Address, err)
 }
