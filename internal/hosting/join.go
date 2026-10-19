@@ -103,14 +103,19 @@ func Join(ctx context.Context, id *Identity, code Code, name, api string) (JoinR
 			failures = append(failures, AddrFailure{Addr: a, Err: err})
 			break
 		}
-		reply, err := joinAt(ctx, id, code, a, body)
+		reply, pinned, err := joinAt(ctx, id, code, a, body)
 		if err == nil {
 			return JoinResult{Reply: reply, Addr: a, Failures: failures}, nil
 		}
 		failures = append(failures, AddrFailure{Addr: a, Err: err})
-		if errors.Is(err, errJoinRefused) {
-			// The code's certificate answered: the other addresses are the same host.
-			return JoinResult{}, &JoinError{Reason: JoinRefused, Failures: failures}
+		if pinned {
+			// The code's certificate answered: the other addresses are the same host, which may
+			// already have used the code if only its answer was lost.
+			reason := JoinUnreachable
+			if errors.Is(err, errJoinRefused) {
+				reason = JoinRefused
+			}
+			return JoinResult{}, &JoinError{Reason: reason, Failures: failures}
 		}
 	}
 	reason := JoinNotThisHost
@@ -133,15 +138,16 @@ func notAdmitted(err error) error {
 	return err
 }
 
-// joinAt makes one attempt at one address.
-func joinAt(ctx context.Context, id *Identity, code Code, a Addr, body []byte) (capability.PeerJoinReply, error) {
+// joinAt makes one attempt at one address; pinned reports that the host there presented the
+// code's certificate, after which the request may have reached it.
+func joinAt(ctx context.Context, id *Identity, code Code, a Addr, body []byte) (reply capability.PeerJoinReply, pinned bool, err error) {
 	var none capability.PeerJoinReply
 	hostport := net.JoinHostPort(a.IP.String(), strconv.Itoa(int(code.Port)))
 	dctx, cancel := context.WithTimeout(ctx, joinDialTimeout)
 	defer cancel()
 	raw, err := joinDial(dctx, hostport)
 	if err != nil {
-		return none, err
+		return none, false, err
 	}
 	tc := tls.Client(raw, &tls.Config{
 		MinVersion:         tls.VersionTLS13,
@@ -163,12 +169,12 @@ func joinAt(ctx context.Context, id *Identity, code Code, a Addr, body []byte) (
 	// The handshake: nothing of the request is sent before the pin has passed.
 	if err := tc.HandshakeContext(dctx); err != nil {
 		if errors.Is(err, ErrPinned) {
-			return none, ErrPinned
+			return none, false, ErrPinned
 		}
-		return none, err
+		return none, false, err
 	}
 	if tc.ConnectionState().NegotiatedProtocol != capability.PeerJoinALPN {
-		return none, errors.New("the host does not speak the join protocol")
+		return none, true, errors.New("the host does not speak the join protocol")
 	}
 	tc.SetDeadline(time.Now().Add(joinExchangeTimeout))
 	stop := context.AfterFunc(ctx, func() { tc.SetDeadline(time.Unix(1, 0)) })
@@ -176,29 +182,28 @@ func joinAt(ctx context.Context, id *Identity, code Code, a Addr, body []byte) (
 
 	req, err := http.NewRequest(http.MethodPost, "https://"+hostport+capability.PeerJoinPath, bytes.NewReader(body))
 	if err != nil {
-		return none, err
+		return none, true, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Close = true
 	if err := req.Write(tc); err != nil {
-		return none, notAdmitted(err)
+		return none, true, notAdmitted(err)
 	}
 	// What the host sends back is bounded: headers and a body of at most PeerMaxJoinBody.
 	resp, err := http.ReadResponse(bufio.NewReader(io.LimitReader(tc, 4*capability.PeerMaxJoinBody)), req)
 	if err != nil {
-		return none, notAdmitted(err)
+		return none, true, notAdmitted(err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, capability.PeerMaxJoinBody+1))
 	if err != nil {
-		return none, err
+		return none, true, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return none, fmt.Errorf("%w (HTTP %d)", errJoinRefused, resp.StatusCode)
+		return none, true, fmt.Errorf("%w (HTTP %d)", errJoinRefused, resp.StatusCode)
 	}
-	var reply capability.PeerJoinReply
 	if len(data) > capability.PeerMaxJoinBody || json.Unmarshal(data, &reply) != nil {
-		return none, fmt.Errorf("%w: its answer is not a join reply", errJoinRefused)
+		return none, true, fmt.Errorf("%w: its answer is not a join reply", errJoinRefused)
 	}
-	return reply, nil
+	return reply, true, nil
 }

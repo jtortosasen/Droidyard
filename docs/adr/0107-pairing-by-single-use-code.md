@@ -32,7 +32,8 @@ opposite risk: a reusable bearer that never expires and is stored in clear.
    it sends the secret, so the secret travels only inside TLS to that host. The peer
    admitted is the certificate the client presented in that handshake.
 4. **Bounds**: at most 4 join connections at once, counted from the hello and freed when
-   the connection closes; 10 s each; a 4 KiB body. No lockout: 2^128 secrets. Each refused
+   the connection closes; each held at most about 22 s (10 s of handshake, 10 s of
+   exchange, 2 s to answer); a 4 KiB body. No lockout: 2^128 secrets. Each refused
    join is a `daemon.log` line.
 5. **Names**: each side names the other from its host name (lowercase, cut to the peer
    name pattern, `-2`, `-3`… when taken). A fingerprint already known keeps its name. No

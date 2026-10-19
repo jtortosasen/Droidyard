@@ -83,14 +83,35 @@ func TestParseCodeRefuses(t *testing.T) {
 		return enc(b)
 	}
 
+	// codeOf builds a well-formed code of n valid addresses, so that only the count can
+	// refuse it.
+	codeOf := func(n int) string {
+		b := []byte{1, byte(n)}
+		for range n {
+			b = append(b, 2, 4, 10, 0, 0, 1)
+		}
+		b = append(b, byte(good.Port>>8), byte(good.Port))
+		b = append(b, good.Fingerprint[:]...)
+		b = append(b, good.Secret[:]...)
+		return enc(b)
+	}
+	if _, err := ParseCode(codeOf(MaxCodeAddrs)); err != nil {
+		t.Fatalf("a code of %d addresses: %v", MaxCodeAddrs, err)
+	}
+	for _, n := range []int{0, MaxCodeAddrs + 1} {
+		if _, err := ParseCode(codeOf(n)); err == nil || !strings.Contains(err.Error(), "addresses") {
+			t.Errorf("a code of %d addresses: %v; want the count refused", n, err)
+		}
+	}
+
 	cases := []struct{ name, line string }{
 		{"another prefix", "dy2." + strings.TrimPrefix(goodLine, "dy1.")},
 		{"no prefix", strings.TrimPrefix(goodLine, "dy1.")},
 		{"not base64url", "dy1.!!!!"},
 		{"padded", goodLine + "="},
 		{"another version", mut(func(b []byte) []byte { b[0] = 2; return b })},
-		{"no address", mut(func(b []byte) []byte { b[1] = 0; return b })},
-		{"nine addresses", mut(func(b []byte) []byte { b[1] = 9; return b })},
+		{"no address", codeOf(0)},
+		{"nine addresses", codeOf(MaxCodeAddrs + 1)},
 		{"truncated", mut(func(b []byte) []byte { return b[:len(b)-1] })},
 		{"trailing bytes", mut(func(b []byte) []byte { return append(b, 0) })},
 		{"unknown kind", codeWith(3, 4, []byte{10, 0, 0, 1}, 1)},
