@@ -386,7 +386,7 @@ func lentTo(lend []policy.Lend, name string) []string {
 	return out
 }
 
-// withoutPeer removes name from every entry's `to`, dropping an entry left with no one;
+// withoutPeer removes name from every entry's `to`, keeping an entry left with no one;
 // changed says whether anything was removed.
 func withoutPeer(lend []policy.Lend, name string) (out []policy.Lend, changed bool) {
 	out = []policy.Lend{}
@@ -396,9 +396,8 @@ func withoutPeer(lend []policy.Lend, name string) (out []policy.Lend, changed bo
 			continue
 		}
 		changed = true
-		if to := slices.DeleteFunc(slices.Clone(l.To), func(n string) bool { return n == name }); len(to) > 0 {
-			out = append(out, policy.Lend{Device: l.Device, To: to})
-		}
+		// An entry left with no one stays: a share lasts until unshare (ADR-0108 §2).
+		out = append(out, policy.Lend{Device: l.Device, To: slices.DeleteFunc(slices.Clone(l.To), func(n string) bool { return n == name })})
 	}
 	return out, changed
 }

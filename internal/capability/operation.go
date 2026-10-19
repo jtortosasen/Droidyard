@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -292,6 +293,11 @@ type Operations struct {
 	// sessions are the MCP sessions in progress, which a Binding capability's caller must
 	// be one of (Descriptor.Binding).
 	sessions *Sessions
+
+	// disconnects are the hooks Disconnected runs, in the order they were registered. Guarded
+	// by hookMu.
+	hookMu      sync.Mutex
+	disconnects []func(originID string)
 }
 
 // stateEvent is one queued operation.state event.
@@ -325,6 +331,31 @@ func NewOperations(reg *Registry) *Operations {
 // Sessions is the registry of MCP sessions: the adapter registers each connection in it,
 // and a Binding capability moves the calling session's binding through it.
 func (o *Operations) Sessions() *Sessions { return o.sessions }
+
+// OnDisconnect registers f to run whenever Disconnected is told that a native connection
+// ended (ADR-0108 §3): what a connection owns beyond its operations is released there, as a
+// WebSocket's subscriptions are released with its session. Hooks are registered at wiring.
+func (o *Operations) OnDisconnect(f func(originID string)) {
+	o.hookMu.Lock()
+	defer o.hookMu.Unlock()
+	o.disconnects = append(o.disconnects, f)
+}
+
+// Disconnected tells the core that the native connection with this origin id has ended,
+// however it ended. It cancels no operation (ADR-0020 §Adapter projections: a disconnect
+// abandons a wait and never an operation); it runs the hooks OnDisconnect registered, in
+// the caller's goroutine. An empty id is ignored.
+func (o *Operations) Disconnected(originID string) {
+	if originID == "" {
+		return
+	}
+	o.hookMu.Lock()
+	hooks := slices.Clone(o.disconnects)
+	o.hookMu.Unlock()
+	for _, f := range hooks {
+		f(originID)
+	}
+}
 
 // UseWorkspaces gives the store the registry that admits workspace-scoped calls.
 // Without one, no workspace is open.

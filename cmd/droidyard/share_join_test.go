@@ -414,12 +414,14 @@ func TestJoinWithAnUnusableConfigurationDialsNothing(t *testing.T) {
 	_, out, _ := host.run(t, "share", "-d", sharePhone, "--on", "127.0.0.1")
 	line := codeLine(t, out)
 	configAt(t, client.state, `{"hosting":{"lend":"not a list"}}`)
-	hostLog := host.proc.stderr.String()
+	// Join lines only: the share's own trace line may still land after the CLI returned.
+	joins := func() int { return strings.Count(host.proc.stderr.String(), "join") }
+	before := joins()
 	code, _, stderr := client.run(t, "join", line)
 	if code != 1 || !strings.Contains(stderr, "POLICY_CONFIG_UNUSABLE") {
 		t.Errorf("join with an unusable configuration: exit %d, %q; want POLICY_CONFIG_UNUSABLE", code, stderr)
 	}
-	if host.proc.stderr.String() != hostLog {
+	if joins() != before {
 		t.Errorf("the host heard from a client whose configuration was unusable:\n%s", host.proc.stderr.String())
 	}
 	// The code was not spent: with the configuration fixed it joins.

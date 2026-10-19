@@ -9316,6 +9316,13 @@
           "connected": {
             "type": "boolean",
             "description": "Whether the link to the host came up within 5 s. If not it keeps trying, and the device is listed once it does."
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "What the human running the command must know, one sentence each."
           }
         },
         "additionalProperties": false,
@@ -9334,7 +9341,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.31.0",
-      "description": "Shares one physical device: admits its serial in this machine's physical-device policy, lends it, listens on the private addresses and returns a single-use join code to paste into droidyard join on the other machine. A person's action, refused from an agent session and from a peer; with detach true the share lasts until hosting.unshare.",
+      "description": "Shares one physical device and returns a single-use join code for droidyard join on the other machine; with no device it lists the candidates and shares nothing. A person's action, refused from agents and peers; detach true lasts until hosting.unshare, else the share belongs to the CLI connection that made it and ends with it.",
       "availability": [
         "adb"
       ],
@@ -9360,11 +9367,11 @@
           "device": {
             "type": "string",
             "minLength": 1,
-            "description": "The serial of the physical device to share, as device.list prints it."
+            "description": "The serial to share, as device.list prints it; absent lists the candidates and shares nothing."
           },
           "detach": {
             "type": "boolean",
-            "description": "True: the share lasts until hosting.unshare. Only true is accepted in this version."
+            "description": "True: lasts until hosting.unshare. Absent: a foreground share, which ends with the CLI connection that made it."
           },
           "on": {
             "type": "string",
@@ -9372,20 +9379,65 @@
           }
         },
         "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "device",
-          "detach"
-        ]
+        "type": "object"
       },
       "output": {
         "properties": {
+          "candidates": {
+            "items": {
+              "properties": {
+                "device": {
+                  "type": "string",
+                  "description": "The serial."
+                },
+                "transport": {
+                  "type": "string",
+                  "enum": [
+                    "usb",
+                    "tcp"
+                  ],
+                  "description": "usb for a device adb reports on a usb: transport, tcp for any other."
+                },
+                "manufacturer": {
+                  "type": "string",
+                  "description": "ro.product.manufacturer; absent for a device that is not online and alone under its serial, and when the device did not answer in time. The device's own text."
+                },
+                "model": {
+                  "type": "string",
+                  "description": "As adb devices -l prints it, with underscores; the device's own text."
+                },
+                "state": {
+                  "type": "string",
+                  "description": "As adb reports it: device, unauthorized, offline…"
+                },
+                "shareable": {
+                  "type": "boolean",
+                  "description": "True for an online device alone under its serial."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why a device is not shareable, and what to do."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "device",
+                "transport",
+                "state",
+                "shareable"
+              ]
+            },
+            "type": "array",
+            "description": "Set only when no device was named (empty then when no physical device is connected): the physical devices adb reports, emulators left out, shareable or not. Nothing was shared and nothing was written."
+          },
           "device": {
-            "type": "string"
+            "type": "string",
+            "description": "The device shared; absent when listing."
           },
           "code": {
             "type": "string",
-            "description": "The join code, dy1. and base64url: whoever pastes it into droidyard join first gets the device. Single use, no time expiry, a bearer credential until used: pass it only to the person meant to have it."
+            "description": "The join code, dy1. and base64url: whoever pastes it into droidyard join first gets the device. Single use, no time expiry, a bearer credential until used: pass it only to the person meant to have it. Absent when listing."
           },
           "addresses": {
             "items": {
@@ -9416,8 +9468,17 @@
           "port": {
             "type": "integer"
           },
-          "detached": {
-            "type": "boolean"
+          "mode": {
+            "type": "string",
+            "enum": [
+              "foreground",
+              "detached"
+            ],
+            "description": "The share's mode. A device already shared keeps its mode whatever this call asked for, and gets a fresh code."
+          },
+          "owned": {
+            "type": "boolean",
+            "description": "True when the share is a foreground share owned by the connection that made this call, which may call hosting.watchShare on it."
           },
           "notes": {
             "items": {
@@ -9428,15 +9489,7 @@
           }
         },
         "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "device",
-          "code",
-          "addresses",
-          "port",
-          "detached",
-          "notes"
-        ]
+        "type": "object"
       }
     },
     {
@@ -9446,7 +9499,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.31.0",
-      "description": "Stops sharing a device, or every device: its lending is removed, its unused codes are void, and the peers that joined stay paired and reach nothing. A person's action, refused from an agent session.",
+      "description": "Stops sharing a device, or every device, in either mode: lending removed, unused codes void; peers stay paired and reach nothing. A person's action, refused from agents and peers.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -9483,6 +9536,111 @@
         "type": "object",
         "required": [
           "unshared"
+        ]
+      }
+    },
+    {
+      "name": "hosting.watchShare",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.31.0",
+      "description": "Runs until the foreground share of a device ends and says why; its progress names the share's peers and which are connected. A person's action, allowed only on a foreground share owned by the caller's own connection, which bounds it.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "HOSTING_UNAVAILABLE",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The serial of the foreground share to watch."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "ended": {
+                "type": "string",
+                "enum": [
+                  "unshared",
+                  "connection",
+                  "stopping"
+                ],
+                "description": "Why the share ended: unshared (hosting.unshare), connection (the connection that made it ended) or stopping (the daemon is stopping)."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "ended"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
         ]
       }
     },

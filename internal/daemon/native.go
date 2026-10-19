@@ -18,7 +18,8 @@ import (
 // its request's id.
 //
 // A disconnect abandons the session's waits and never its operations (ADR-0020
-// §Adapter projections). When the daemon stops reading at shutdown, requests still in
+// §Adapter projections); it tells the core, which releases what the connection owned
+// (a foreground share, ADR-0108 §3). When the daemon stops reading at shutdown, requests still in
 // flight are answered first, so a caller sees its operation end cancelled.
 func Native(reg *capability.Registry, ops *capability.Operations) Handler {
 	return func(ctx context.Context, s *Session) {
@@ -47,6 +48,10 @@ func Native(reg *capability.Registry, ops *capability.Operations) Handler {
 				if !errors.Is(err, os.ErrDeadlineExceeded) {
 					cancel()
 				}
+				// The connection is over, however it ended (EOF, a reset, a killed client,
+				// the daemon's own shutdown): what it owned beyond its operations goes now,
+				// before the requests in flight are waited for (ADR-0108 §3).
+				ops.Disconnected(s.ID)
 				inflight.Wait()
 				return
 			}

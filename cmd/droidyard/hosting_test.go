@@ -139,11 +139,12 @@ func TestHostingCLI(t *testing.T) {
 	}
 
 	// revoke closes the peer and takes its name out of what is lent: a name left there
-	// would lend to whoever is admitted under it next.
+	// would lend to whoever is admitted under it next. An entry left with no one stays, lent
+	// to nobody: a share lasts until unshare (ADR-0108 §2).
 	mustVerb(t, pol, "host", "revoke", "bob")
 	g := pol.Get().Hosting
-	if !reflect.DeepEqual(g.Peers, []policy.HostPeer{{Name: "anna", Fingerprint: fpAnna}}) || !reflect.DeepEqual(g.Lend, []policy.Lend{{Device: "R58M", To: []string{"anna"}}}) {
-		t.Errorf("after revoking bob: peers %+v, lend %+v; want anna alone, and S2 (lent to bob only) gone", g.Peers, g.Lend)
+	if !reflect.DeepEqual(g.Peers, []policy.HostPeer{{Name: "anna", Fingerprint: fpAnna}}) || !reflect.DeepEqual(g.Lend, []policy.Lend{{Device: "R58M", To: []string{"anna"}}, {Device: "S2", To: []string{}}}) {
+		t.Errorf("after revoking bob: peers %+v, lend %+v; want anna alone, and S2 lent to no one", g.Peers, g.Lend)
 	}
 	if code, _, _ := verb(t, pol, "host", "revoke", "bob"); code != 1 {
 		t.Errorf("revoking a peer that is not admitted exited %d; want 1", code)
@@ -172,6 +173,8 @@ func TestHostingCLI(t *testing.T) {
 		t.Errorf("revoking a name that is neither admitted nor lent anything = %d %q; want 1", code, errs)
 	}
 	mustVerb(t, pol, "host", "unlend", "S3")
+	mustVerb(t, pol, "host", "unlend", "S2") // lent to no one since bob's revoke
+	mustVerb(t, pol, "host", "unlend", "S4")
 
 	mustVerb(t, pol, "host", "unlend", "R58M")
 	if got := pol.Get().Hosting.Lend; len(got) != 0 {

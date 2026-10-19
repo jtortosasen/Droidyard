@@ -43,6 +43,7 @@
 //	<serial>.monkey             `-s <serial> shell monkey --pct-syskeys 0 -p <id> -c android.intent.category.LAUNCHER 1`
 //	<serial>.apppidof           `-s <serial> shell pidof <applicationId>`
 //	<serial>.sdk                `-s <serial> shell getprop ro.build.version.sdk`
+//	<serial>.manufacturer       `-s <serial> shell getprop ro.product.manufacturer`
 //	<serial>.inputtext          `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input text <arg>`
 //	<serial>.inputkeyevent      `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input keyevent <codes…>`
 //	<serial>.inputkeycombination `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input keycombination <codes…>`
@@ -499,6 +500,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".monkey"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.build.version.sdk":
 		return args[1] + ".sdk"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.product.manufacturer":
+		return args[1] + ".manufacturer"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "window":
 		return args[1] + ".dumpsyswindow"
 	case len(args) == 7 && args[2] == "shell" && args[3] == "dumpsys" && args[4] == "activity" && args[5] == "exit-info":

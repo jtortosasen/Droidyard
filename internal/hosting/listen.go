@@ -63,9 +63,10 @@ func (h *Host) SetDefaultPort(p int) {
 
 // reconcileListeners asks the Binder for the listeners the configuration and the
 // interfaces call for now (ADR-0109 §1, §2). hosting.listen wins and is exactly one
-// address. Else, when hosting.on is set and this host lends a device, every private
-// address of the machine that on allows, on hosting.port. Else none. A configuration or an
-// interface list that cannot be read leaves the listeners as they are.
+// address. Else, when hosting.on is set and this host lends a device (hosting.lend, or a
+// foreground share, ADR-0108 §3), every private address of the machine that on allows, on
+// hosting.port. Else none. A configuration or an interface list that cannot be read leaves
+// the listeners as they are.
 func (h *Host) reconcileListeners() {
 	h.mu.Lock()
 	b := h.binder
@@ -87,7 +88,7 @@ func (h *Host) reconcileListeners() {
 			return
 		}
 		b.Reconcile([]netip.AddrPort{ap})
-	case hp.On != "" && len(hp.Lend) > 0:
+	case hp.On != "" && (len(hp.Lend) > 0 || h.ForegroundCount() > 0):
 		ifaces, err := h.Interfaces()
 		if err != nil {
 			h.once("interfaces", fmt.Sprintf("droidyard: the peer listeners are left as they are: this machine's interfaces could not be read: %v\n", err))

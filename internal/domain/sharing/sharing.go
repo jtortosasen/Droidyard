@@ -1,6 +1,6 @@
 // Package sharing registers the capabilities that share a physical device with another
-// Droidyard and join a share (ADR-0107, ADR-0108): hosting.share, hosting.unshare and
-// hosting.join. They are the human's, never an agent's: the person who runs the command is
+// Droidyard and join a share (ADR-0107, ADR-0108): hosting.share, hosting.unshare,
+// hosting.watchShare and hosting.join. They are the human's, never an agent's: the person who runs the command is
 // the consent ADR-0015 §4 asks for, so they write the physical-device policy a share and a
 // join need (devices.allowPhysical, the serial or <remote>/<serial>) along with the lending.
 //
@@ -8,8 +8,10 @@
 // peer's WebSocket: a Reconcile that closes a listener waits for that listener's handlers, so
 // one called from inside such a handler would wait for itself.
 //
-// The package holds no state of its own. The share is hosting.lend and the unused codes the
-// host keeps (hosting.Pending); a join is a remote in the configuration. Everything the
+// The package holds no state of its own. A detached share is hosting.lend and the unused codes
+// the host keeps (hosting.Pending); a foreground share is held by the host in memory, owned by
+// the native connection that made it and ended with it (ADR-0108 §3); a join is a remote in
+// the configuration. Everything the
 // configuration says is written through hosting.Host.Edit, one write each, and the peer
 // machinery follows it at once through Host.Reconcile.
 package sharing
@@ -35,9 +37,10 @@ import (
 
 // The names of the capabilities.
 const (
-	CapShare   = "hosting.share"
-	CapUnshare = "hosting.unshare"
-	CapJoin    = "hosting.join"
+	CapShare      = "hosting.share"
+	CapUnshare    = "hosting.unshare"
+	CapWatchShare = "hosting.watchShare"
+	CapJoin       = "hosting.join"
 )
 
 // The codes this package adds (ADR-0107 §6). HOSTING is a new prefix: the domain that owns
@@ -93,21 +96,51 @@ type Address struct {
 	Kind    string `json:"kind" jsonschema:"required,enum=vpn,enum=lan" jsonschema_description:"vpn for an address on a tunnel interface, lan for one on any other."`
 }
 
+// The modes of a share (ShareResult.Mode).
+const (
+	ModeForeground = "foreground"
+	ModeDetached   = "detached"
+)
+
 // ShareParams are hosting.share's.
 type ShareParams struct {
-	Device string `json:"device" jsonschema:"required,minLength=1" jsonschema_description:"The serial of the physical device to share, as device.list prints it."`
-	Detach bool   `json:"detach" jsonschema:"required" jsonschema_description:"True: the share lasts until hosting.unshare. Only true is accepted in this version."`
+	Device string `json:"device,omitempty" jsonschema:"minLength=1" jsonschema_description:"The serial to share, as device.list prints it; absent lists the candidates and shares nothing."`
+	Detach bool   `json:"detach,omitempty" jsonschema_description:"True: lasts until hosting.unshare. Absent: a foreground share, which ends with the CLI connection that made it."`
 	On     string `json:"on,omitempty" jsonschema_description:"private (the default), vpn, lan or one private IP; written to hosting.on. Absent keeps hosting.on."`
 }
 
-// ShareResult is hosting.share's.
+// Candidate is one physical device hosting.share lists when it is given no device.
+type Candidate struct {
+	Device       string `json:"device" jsonschema:"required" jsonschema_description:"The serial."`
+	Transport    string `json:"transport" jsonschema:"required,enum=usb,enum=tcp" jsonschema_description:"usb for a device adb reports on a usb: transport, tcp for any other."`
+	Manufacturer string `json:"manufacturer,omitempty" jsonschema_description:"ro.product.manufacturer; absent for a device that is not online and alone under its serial, and when the device did not answer in time. The device's own text."`
+	Model        string `json:"model,omitempty" jsonschema_description:"As adb devices -l prints it, with underscores; the device's own text."`
+	State        string `json:"state" jsonschema:"required" jsonschema_description:"As adb reports it: device, unauthorized, offline…"`
+	Shareable    bool   `json:"shareable" jsonschema:"required" jsonschema_description:"True for an online device alone under its serial."`
+	Reason       string `json:"reason,omitempty" jsonschema_description:"Why a device is not shareable, and what to do."`
+}
+
+// ShareResult is hosting.share's: the share of a device or, when no device was named, the
+// candidates.
 type ShareResult struct {
-	Device    string    `json:"device" jsonschema:"required"`
-	Code      string    `json:"code" jsonschema:"required" jsonschema_description:"The join code, dy1. and base64url: whoever pastes it into droidyard join first gets the device. Single use, no time expiry, a bearer credential until used: pass it only to the person meant to have it."`
-	Addresses []Address `json:"addresses" jsonschema:"required" jsonschema_description:"The addresses the host listens on and the code carries."`
-	Port      int       `json:"port" jsonschema:"required"`
-	Detached  bool      `json:"detached" jsonschema:"required"`
-	Notes     []string  `json:"notes" jsonschema:"required" jsonschema_description:"What the human running the command must know, one sentence each."`
+	Candidates []Candidate `json:"candidates,omitempty" jsonschema_description:"Set only when no device was named (empty then when no physical device is connected): the physical devices adb reports, emulators left out, shareable or not. Nothing was shared and nothing was written."`
+	Device     string      `json:"device,omitempty" jsonschema_description:"The device shared; absent when listing."`
+	Code       string      `json:"code,omitempty" jsonschema_description:"The join code, dy1. and base64url: whoever pastes it into droidyard join first gets the device. Single use, no time expiry, a bearer credential until used: pass it only to the person meant to have it. Absent when listing."`
+	Addresses  []Address   `json:"addresses,omitempty" jsonschema_description:"The addresses the host listens on and the code carries."`
+	Port       int         `json:"port,omitempty"`
+	Mode       string      `json:"mode,omitempty" jsonschema:"enum=foreground,enum=detached" jsonschema_description:"The share's mode. A device already shared keeps its mode whatever this call asked for, and gets a fresh code."`
+	Owned      bool        `json:"owned,omitempty" jsonschema_description:"True when the share is a foreground share owned by the connection that made this call, which may call hosting.watchShare on it."`
+	Notes      []string    `json:"notes,omitempty" jsonschema_description:"What the human running the command must know, one sentence each."`
+}
+
+// WatchShareParams are hosting.watchShare's.
+type WatchShareParams struct {
+	Device string `json:"device" jsonschema:"required,minLength=1" jsonschema_description:"The serial of the foreground share to watch."`
+}
+
+// WatchShareResult is hosting.watchShare's.
+type WatchShareResult struct {
+	Ended string `json:"ended" jsonschema:"required,enum=unshared,enum=connection,enum=stopping" jsonschema_description:"Why the share ended: unshared (hosting.unshare), connection (the connection that made it ended) or stopping (the daemon is stopping)."`
 }
 
 // UnshareParams are hosting.unshare's.
@@ -127,9 +160,10 @@ type JoinParams struct {
 
 // JoinResult is hosting.join's.
 type JoinResult struct {
-	Remote    string `json:"remote" jsonschema:"required" jsonschema_description:"The name the host has in remotes, made from its host name."`
-	Device    string `json:"device" jsonschema:"required" jsonschema_description:"The device's id here, <remote>/<serial>."`
-	Connected bool   `json:"connected" jsonschema:"required" jsonschema_description:"Whether the link to the host came up within 5 s. If not it keeps trying, and the device is listed once it does."`
+	Remote    string   `json:"remote" jsonschema:"required" jsonschema_description:"The name the host has in remotes, made from its host name."`
+	Device    string   `json:"device" jsonschema:"required" jsonschema_description:"The device's id here, <remote>/<serial>."`
+	Connected bool     `json:"connected" jsonschema:"required" jsonschema_description:"Whether the link to the host came up within 5 s. If not it keeps trying, and the device is listed once it does."`
+	Notes     []string `json:"notes,omitempty" jsonschema_description:"What the human running the command must know, one sentence each."`
 }
 
 // Register adds the sharing capabilities to reg.
@@ -148,7 +182,7 @@ func Register(reg *capability.Registry, o Options) {
 		Audience:     capability.AudienceHuman,
 		Since:        since,
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Shares one physical device: admits its serial in this machine's physical-device policy, lends it, listens on the private addresses and returns a single-use join code to paste into droidyard join on the other machine. A person's action, refused from an agent session and from a peer; with detach true the share lasts until hosting.unshare.",
+		Description:  "Shares one physical device and returns a single-use join code for droidyard join on the other machine; with no device it lists the candidates and shares nothing. A person's action, refused from agents and peers; detach true lasts until hosting.unshare, else the share belongs to the CLI connection that made it and ends with it.",
 		Params:       ShareParams{},
 		Result:       ShareResult{},
 		Errors: []capability.ErrorCode{
@@ -171,13 +205,27 @@ func Register(reg *capability.Registry, o Options) {
 		},
 	})
 	reg.MustRegister(capability.Descriptor{
+		Name:        CapWatchShare,
+		Kind:        capability.Query,
+		Scope:       capability.Global,
+		Audience:    capability.AudienceHuman,
+		LongRunning: true,
+		Since:       since,
+		Description: "Runs until the foreground share of a device ends and says why; its progress names the share's peers and which are connected. A person's action, allowed only on a foreground share owned by the caller's own connection, which bounds it.",
+		Params:      WatchShareParams{},
+		Result:      WatchShareResult{},
+		Errors:      []capability.ErrorCode{ErrUnavailable, capability.ErrInvalidParams},
+		Target:      func(p any) *capability.OpTarget { return deviceTarget(p.(WatchShareParams).Device) },
+		Handler:     s.watch,
+	})
+	reg.MustRegister(capability.Descriptor{
 		Name:        CapUnshare,
 		Kind:        capability.Command,
 		Scope:       capability.Global,
 		Audience:    capability.AudienceHuman,
 		Idempotent:  true,
 		Since:       since,
-		Description: "Stops sharing a device, or every device: its lending is removed, its unused codes are void, and the peers that joined stay paired and reach nothing. A person's action, refused from an agent session.",
+		Description: "Stops sharing a device, or every device, in either mode: lending removed, unused codes void; peers stay paired and reach nothing. A person's action, refused from agents and peers.",
 		Params:      UnshareParams{},
 		Result:      UnshareResult{},
 		Errors: []capability.ErrorCode{
@@ -247,17 +295,22 @@ func kinds(ifaces []hosting.Iface) map[netip.Addr]hosting.Kind {
 
 func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(ShareParams)
-	if !p.Detach {
-		return nil, capability.NewError(capability.ErrInvalidParams, "this version shares a device detached only").
-			WithNextStep("pass detach true; the share then lasts until hosting.unshare")
-	}
 	if s.Host == nil || s.Devices == nil {
 		return nil, unavailable("this daemon has no peer subsystem")
+	}
+	// A foreground share belongs to the native connection that made it and ends with it
+	// (ADR-0108 §3); any other kind of client has no such hook yet, so it shares detached.
+	if p.Device != "" && !p.Detach && (call.Origin.Client != capability.ClientCLI || call.Origin.ID == "") {
+		return nil, capability.NewError(capability.ErrInvalidParams, "a foreground share belongs to the CLI connection that makes it; this client shares detached only").
+			WithNextStep("pass detach true; the share then lasts until hosting.unshare")
 	}
 	// The device first: only a physical device that is online and alone under its serial is shared.
 	listed, err := s.Devices.Shareable(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if p.Device == "" {
+		return ShareResult{Candidates: candidates(listed)}, nil
 	}
 	var entries []device.ShareableDevice
 	for _, d := range listed {
@@ -313,7 +366,11 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		return nil, unavailable(werr.Error())
 	}
 
-	created := false
+	// A device already shared keeps its mode, whichever this call asked for (ADR-0108 §5): a
+	// lend entry is made only for a detached share of a device with no foreground share, and a
+	// foreground share only for a device with no lend entry.
+	_, heldForeground := host.ForegroundOwner(p.Device)
+	created, existed := false, false
 	wasPhysical := false
 	var others []string
 	_, cerr = host.Edit(ctx, func(cur policy.GetResult) (map[string]any, *capability.Error) {
@@ -331,35 +388,58 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		if !slices.Contains(allow, p.Device) {
 			allow = append(allow, p.Device)
 		}
+		hostingPatch := map[string]any{"on": on}
 		lend := cloneLend(cur.Hosting.Lend)
-		created = !slices.ContainsFunc(lend, func(l policy.Lend) bool { return l.Device == p.Device })
+		existed = slices.ContainsFunc(lend, func(l policy.Lend) bool { return l.Device == p.Device })
+		created = p.Detach && !heldForeground && !existed
 		if created {
-			lend = append(lend, policy.Lend{Device: p.Device, To: []string{}})
+			hostingPatch["lend"] = append(lend, policy.Lend{Device: p.Device, To: []string{}})
 		}
 		return map[string]any{
 			"devices": map[string]any{"allowPhysical": true, "allowlist": allow},
-			"hosting": map[string]any{"on": on, "lend": lend},
+			"hosting": hostingPatch,
 		}, nil
 	})
 	if cerr != nil {
 		return nil, cerr
 	}
-	// undo takes a lending this call made back: a share that listens nowhere is none.
-	undo := func() {
+	// A foreground share is in memory only, started before the listeners are matched so they
+	// count it.
+	startedForeground := !p.Detach && !existed && host.StartForeground(p.Device, call.Origin.ID)
+	// fail takes back what this call made (a share that listens nowhere is none) and returns e
+	// saying what is left: the write that admitted the serial stays, and so does a lending that
+	// could not be removed.
+	fail := func(e *capability.Error) *capability.Error {
+		var undoErr *capability.Error
+		if startedForeground {
+			host.EndForeground(p.Device, hosting.ShareUnshared)
+		}
 		if created {
-			host.Edit(context.Background(), func(cur policy.GetResult) (map[string]any, *capability.Error) {
+			_, undoErr = host.Edit(context.Background(), func(cur policy.GetResult) (map[string]any, *capability.Error) {
 				lend := slices.DeleteFunc(cloneLend(cur.Hosting.Lend), func(l policy.Lend) bool { return l.Device == p.Device })
 				return map[string]any{"hosting": map[string]any{"lend": lend}}, nil
 			})
+		}
+		if created || startedForeground {
 			host.Reconcile()
 		}
+		left := p.Device + " stays allowed on this Mac (devices.allowlist)"
+		if !wasPhysical && len(others) > 0 {
+			left += ", and devices.allowPhysical is now on, which admits every serial already in the allowlist: " + strings.Join(others, ", ")
+		}
+		left += "; `droidyard device disallow " + p.Device + "` takes that back"
+		if undoErr != nil {
+			e.Cause = joinNotes(e.Cause, "the lending of "+p.Device+" could not be removed ("+string(undoErr.Code)+": "+undoErr.Message+"), so it is still lent to whoever joins")
+			left += "; `droidyard unshare " + p.Device + "` removes the lending"
+		}
+		e.NextStep = joinNotes(e.NextStep, left)
+		return e
 	}
 
 	host.Reconcile()
 	hh := host.Health().Hosting
 	port, addrs := boundAddrs(hh.Listening, want, kinds(ifaces))
 	if len(addrs) == 0 {
-		undo()
 		var why []string
 		for _, e := range hh.Errors {
 			why = append(why, e.Address+": "+e.Error)
@@ -367,15 +447,14 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 		if len(why) == 0 {
 			why = []string{"no listener took an address"}
 		}
-		return nil, capability.NewError(ErrUnavailable, "the host could not listen on any address").
+		return nil, fail(capability.NewError(ErrUnavailable, "the host could not listen on any address").
 			WithCause(strings.Join(why, "; ")).
 			WithDetails(map[string]any{"errors": hh.Errors}).
-			WithNextStep("free the port or fix the address (hosting.port, hosting.listen), then share again; nothing is lent")
+			WithNextStep("free the port or fix the address (hosting.port, hosting.listen), then share again; nothing is lent"))
 	}
 	fp, err := hex.DecodeString(id.Fingerprint())
 	if err != nil || len(fp) != 32 {
-		undo()
-		return nil, unavailable("this daemon's fingerprint is not a SHA-256")
+		return nil, fail(unavailable("this daemon's fingerprint is not a SHA-256"))
 	}
 	code := hosting.Code{Port: uint16(port)}
 	copy(code.Fingerprint[:], fp)
@@ -384,20 +463,21 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 	}
 	// An address a code may not carry (hosting.listen on a public one) is found before a secret is made.
 	if _, err := code.Encode(); err != nil {
-		undo()
-		return nil, capability.NewError(ErrUnavailable, "the addresses of the host cannot be put in a join code").
+		return nil, fail(capability.NewError(ErrUnavailable, "the addresses of the host cannot be put in a join code").
 			WithCause(err.Error()).
-			WithNextStep("listen on a private address (hosting.listen, or --on), then share again; nothing is lent")
+			WithNextStep("listen on a private address (hosting.listen, or --on), then share again; nothing is lent"))
 	}
 	code.Secret = host.Pending().Issue(p.Device)
 	line, err := code.Encode()
 	if err != nil {
 		host.Pending().Void(p.Device)
-		undo()
-		return nil, unavailable(err.Error())
+		return nil, fail(unavailable(err.Error()))
 	}
 
-	res := ShareResult{Device: p.Device, Code: line, Port: port, Detached: true, Addresses: []Address{}}
+	res := ShareResult{Device: p.Device, Code: line, Port: port, Mode: ModeDetached, Addresses: []Address{}}
+	if owner, ok := host.ForegroundOwner(p.Device); ok {
+		res.Mode, res.Owned = ModeForeground, owner == call.Origin.ID && call.Origin.ID != ""
+	}
 	for _, a := range addrs {
 		res.Addresses = append(res.Addresses, Address{Address: netip.AddrPortFrom(a.ip, uint16(port)).String(), Kind: string(a.kind)})
 	}
@@ -410,6 +490,120 @@ func (s *sharing) share(ctx context.Context, call *capability.Call) (any, error)
 	}
 	res.Notes = append(res.Notes, "A code works for one join and does not expire; `droidyard unshare "+p.Device+"` voids the unused ones. A join the host fails to record spends its code too: share again for a new one.")
 	return res, nil
+}
+
+// joinNotes joins two sentences of an error's cause or next step.
+func joinNotes(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "; " + b
+}
+
+// candidates are the physical devices of the listing, as the person is shown them: emulators
+// are not listed at all (ADR-0099 §1, ADR-0108 §1), and a device that cannot be shared says why.
+func candidates(listed []device.ShareableDevice) []Candidate {
+	out := []Candidate{}
+	for _, d := range listed {
+		if d.Kind != device.KindPhysical {
+			continue
+		}
+		c := Candidate{Device: d.Device, Transport: "tcp", Manufacturer: d.Manufacturer, Model: d.Model, State: d.State, Shareable: true}
+		if d.USB {
+			c.Transport = "usb"
+		}
+		switch {
+		case d.Duplicate:
+			c.Shareable, c.Reason = false, "more than one device reports this serial, so none of them can be told apart: unplug all but one, or change its serial"
+		case d.State == device.StateUnauthorized:
+			c.Shareable, c.Reason = false, "unauthorized: accept the debugging prompt on the device"
+		case d.State == device.StateOffline:
+			c.Shareable, c.Reason = false, "offline: unplug the device and plug it in again"
+		case d.State != device.StateDevice:
+			c.Shareable, c.Reason = false, "adb reports the device as "+d.State
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// PeersMessage is the progress message of hosting.watchShare: the peers that joined the share
+// and which are connected, "anna (connected), bob (not connected)", or "no peers yet". A peer's
+// name matches policy.PeerNamePattern, so ParsePeers reads it back.
+func PeersMessage(peers []hosting.PeerHealth) string {
+	if len(peers) == 0 {
+		return "no peers yet"
+	}
+	parts := make([]string, len(peers))
+	for i, p := range peers {
+		if p.Connected {
+			parts[i] = p.Name + " (connected)"
+		} else {
+			parts[i] = p.Name + " (not connected)"
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// ParsePeers reads a PeersMessage back; a message that is not one yields no peers.
+func ParsePeers(msg string) []hosting.PeerHealth {
+	out := []hosting.PeerHealth{}
+	if msg == "no peers yet" {
+		return out
+	}
+	for _, part := range strings.Split(msg, ", ") {
+		if name, ok := strings.CutSuffix(part, " (not connected)"); ok {
+			out = append(out, hosting.PeerHealth{Name: name})
+		} else if name, ok := strings.CutSuffix(part, " (connected)"); ok {
+			out = append(out, hosting.PeerHealth{Name: name, Connected: true})
+		}
+	}
+	return out
+}
+
+// watchEvery is how often hosting.watchShare looks at the share's peers.
+var watchEvery = 200 * time.Millisecond
+
+func (s *sharing) watch(ctx context.Context, call *capability.Call) (any, error) {
+	p := call.Params.(WatchShareParams)
+	host, _, cerr := s.ready()
+	if cerr != nil {
+		return nil, cerr
+	}
+	// Only the foreground share of the caller's own connection: the watch is bounded by that
+	// connection, so nothing long-running is left unattended (ADR-0019 §Sessions, ADR-0108 §6).
+	owner, ok := host.ForegroundOwner(p.Device)
+	if !ok || call.Origin.Client != capability.ClientCLI || call.Origin.ID == "" || owner != call.Origin.ID {
+		return nil, capability.NewError(capability.ErrInvalidParams, "there is no foreground share of "+p.Device+" owned by this connection to watch").
+			WithNextStep("hosting.watchShare is for the connection that made a foreground share: share without detach on this connection first; a detached share is not watched")
+	}
+	w, ok := host.WatchForeground(p.Device)
+	if !ok {
+		return WatchShareResult{Ended: hosting.ShareConnection}, nil
+	}
+	tick := time.NewTicker(watchEvery)
+	defer tick.Stop()
+	last := ""
+	for {
+		peers := w.Peers()
+		if msg := PeersMessage(peers); msg != last {
+			last = msg
+			connected := 0
+			for _, q := range peers {
+				if q.Connected {
+					connected++
+				}
+			}
+			call.Progress(connected, len(peers), msg)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-w.Done():
+			return WatchShareResult{Ended: w.Reason()}, nil
+		case <-tick.C:
+		}
+	}
 }
 
 // wantedAddrs are the addresses a share would listen on: hosting.listen's one when it is set
@@ -515,6 +709,16 @@ func (s *sharing) unshare(ctx context.Context, call *capability.Call) (any, erro
 	if cerr != nil {
 		return nil, cerr
 	}
+	// A foreground share ends too, its watch learning why (ADR-0108 §3, §4).
+	if p.Device == "" {
+		for _, serial := range host.EndForegroundAll(hosting.ShareUnshared) {
+			if !slices.Contains(removed, serial) {
+				removed = append(removed, serial)
+			}
+		}
+	} else if host.EndForeground(p.Device, hosting.ShareUnshared) && !slices.Contains(removed, p.Device) {
+		removed = append(removed, p.Device)
+	}
 	// The codes go whether or not an entry did: a share that was edited away by hand is still void.
 	if p.Device == "" {
 		host.Pending().VoidAll()
@@ -579,7 +783,10 @@ func (s *sharing) join(ctx context.Context, call *capability.Call) (any, error) 
 	}
 	answered := netip.AddrPortFrom(res.Addr.IP, code.Port).String()
 	name := ""
+	wasPhysical := false
+	var others []string
 	_, cerr = host.Edit(ctx, func(cur policy.GetResult) (map[string]any, *capability.Error) {
+		wasPhysical = cur.Devices.AllowPhysical
 		remotes := slices.Clone(cur.Remotes)
 		if remotes == nil {
 			remotes = []policy.Remote{}
@@ -601,7 +808,14 @@ func (s *sharing) join(ctx context.Context, call *capability.Call) (any, error) 
 		if allow == nil {
 			allow = []string{}
 		}
-		if remoteID := name + "/" + serial; !slices.Contains(allow, remoteID) {
+		remoteID := name + "/" + serial
+		others = nil
+		for _, a := range allow {
+			if a != remoteID {
+				others = append(others, a)
+			}
+		}
+		if !slices.Contains(allow, remoteID) {
 			allow = append(allow, remoteID)
 		}
 		return map[string]any{
@@ -618,7 +832,11 @@ func (s *sharing) join(ctx context.Context, call *capability.Call) (any, error) 
 
 	host.Reconcile()
 	connected := waitLinked(ctx, host, name)
-	return JoinResult{Remote: name, Device: name + "/" + serial, Connected: connected}, nil
+	out := JoinResult{Remote: name, Device: name + "/" + serial, Connected: connected}
+	if !wasPhysical && len(others) > 0 {
+		out.Notes = append(out.Notes, "devices.allowPhysical was off; turning it on admits every serial already in devices.allowlist: "+strings.Join(others, ", ")+". `droidyard device disallow <serial>` takes one back.")
+	}
+	return out, nil
 }
 
 func causeSuffix(e *capability.Error) string {

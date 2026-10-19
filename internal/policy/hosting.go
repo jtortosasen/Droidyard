@@ -403,7 +403,8 @@ func (p *Policy) Hosting() (HostingPolicy, *capability.Error) {
 	h.Listen, h.On, h.Port = snap.doc.hosting.Listen, snap.doc.hosting.On, snap.doc.hosting.Port
 	h.Peers = append(h.Peers, snap.doc.hosting.Peers...)
 	for _, l := range snap.doc.hosting.Lend {
-		h.Lend = append(h.Lend, Lend{Device: l.Device, To: append([]string(nil), l.To...)})
+		// Never nil: an empty `to` (a share no one joined) written back as null is invalid.
+		h.Lend = append(h.Lend, Lend{Device: l.Device, To: append([]string{}, l.To...)})
 	}
 	return h, nil
 }

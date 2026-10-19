@@ -260,7 +260,7 @@ Two practical notes:
 | `operation` | `wait`, `cancel`, `watch` | 0, 2 |
 | `events` | `subscribe`, `unsubscribe` | 0 |
 | `session` | `watch`, `release` (human-only; never over MCP) | 2 |
-| `hosting` | `share`, `unshare`, `join` (human-only; never over MCP) | 2u |
+| `hosting` | `share`, `unshare`, `watchShare`, `join` (human-only; never over MCP) | 2u |
 | `shell` | `exec` (off by default) | 1 |
 | `artifact` | `read` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |

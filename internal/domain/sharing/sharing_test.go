@@ -24,7 +24,8 @@ func (f fakeDevices) Shareable(context.Context) ([]device.ShareableDevice, error
 
 var phones = fakeDevices{
 	{Device: "emulator-5554", State: "device", Kind: device.KindEmulator},
-	{Device: "R1", State: "device", Kind: device.KindPhysical, Model: "Pixel"},
+	{Device: "R1", State: "device", Kind: device.KindPhysical, Model: "Pixel", USB: true, Manufacturer: "Google"},
+	{Device: "R2", State: "device", Kind: device.KindPhysical, Model: "Galaxy"},
 	{Device: "OFF", State: "offline", Kind: device.KindPhysical},
 	{Device: "DUP", State: "device", Kind: device.KindPhysical, Duplicate: true},
 	{Device: "DUP", State: "device", Kind: device.KindPhysical, Duplicate: true},
@@ -104,6 +105,8 @@ func decode(d capability.Descriptor, params string) (any, error) {
 		return decodeJSON[ShareParams](params)
 	case CapUnshare:
 		return decodeJSON[UnshareParams](params)
+	case CapWatchShare:
+		return decodeJSON[WatchShareParams](params)
 	}
 	return decodeJSON[JoinParams](params)
 }

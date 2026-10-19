@@ -32,6 +32,7 @@ type Host struct {
 
 	uploads *Uploads
 	pending *Pending
+	fg      foregrounds
 
 	// recMu serialises Reconcile: the periodic pass and a share's must not interleave.
 	recMu sync.Mutex
@@ -179,6 +180,8 @@ func (h *Host) Start() {
 
 // Stop closes every link and waits for them. It is safe to call more than once.
 func (h *Host) Stop() {
+	// A share held for a connection does not outlive the daemon (ADR-0108 §3).
+	h.EndForegroundAll(ShareStopping)
 	h.mu.Lock()
 	h.stopped = true
 	cancel := h.cancel

@@ -57,6 +57,21 @@ func TestAdmitPairsAndLends(t *testing.T) {
 	}
 }
 
+// TestAdmitNeverTakesALentName: a name lent to before it was admitted (host lend --to bob)
+// is not given to a joiner who proposes it, or a code for R1 would also hand over R2.
+func TestAdmitNeverTakesALentName(t *testing.T) {
+	state := t.TempDir()
+	h, pol, _ := daemonAt(t, state)
+	writeConfig(t, state, `{"hosting":{"lend":[{"device":"R1","to":[]},{"device":"R2","to":["bob"]}]}}`)
+	peer, _, err := h.Admit(admitFPa, "bob", "R1")
+	if err != nil || peer != "bob-2" {
+		t.Fatalf("Admit proposing a lent name = %q, %v; want bob-2", peer, err)
+	}
+	if pol.Lent(peer, "R2") {
+		t.Errorf("%s joined with a code for R1 and is lent R2", peer)
+	}
+}
+
 // TestAdmitRefusalsLeakNoName: Admit's errors reach daemon.log (the peer adapter logs
 // them), and the proposed name is another machine's text. A device no longer lent refuses,
 // an unusable configuration refuses, each says the code is spent, and neither writes nor

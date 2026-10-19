@@ -182,7 +182,8 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 5 (to 29,305) at milestone 2t's close: README.md's status line names 2t.
 // Raised by 35 (to 29,340) at milestone 2u step 3: mvp.md's hosting row and domain, and
 // mcp.md's not-exposed row, which the capability check requires (ADR-0108 §1).
-const liveBudget = 29340
+// Raised by 2 (to 29,342) at milestone 2u step 4: `watchShare` in the same two lines.
+const liveBudget = 29342
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

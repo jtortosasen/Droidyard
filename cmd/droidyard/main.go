@@ -137,13 +137,17 @@ Commands:
              the serial and leaves allowPhysical as it was. A running daemon sees it at its
              next call. No daemon is involved or started.
   share      Share a physical device with another Droidyard, the host's side:
-             droidyard share -d <serial> [--on vpn|lan|<ip>]
+             droidyard share [<serial>] [-d] [--on vpn|lan|<ip>]
+             With no serial it lists the physical devices (emulators are not shown) and
+             shares the only one that can be; with several it lists them and stops.
              It admits the serial for this Mac too, lends it, listens on this Mac's private
              addresses (the VPN and the LAN, or the ones --on names) and prints one line,
              droidyard join <code>, to paste on the other Mac. The code works for one join
-             and does not expire. -d returns at once; the share lasts until unshare.
+             and does not expire. Without -d it stays in the foreground, prints who joins and
+             leaves, and Ctrl-C (or closing the terminal) stops sharing. With -d it returns
+             at once; the share lasts until unshare.
              It asks the daemon, and starts one when none answers.
-  unshare    Stop sharing a device, or every device:
+  unshare    Stop sharing a device, or every device, in either mode:
              droidyard unshare [<serial>]
              The codes not yet used stop working. Those who joined stay paired and reach
              nothing; droidyard host revoke unpairs one.
@@ -505,6 +509,18 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	if st != nil {
 		host = hosting.New(pol, stateRoot, system.Version, log)
 		hostHealth = host
+		// What the host lends is hosting.lend and its foreground shares, which live in the
+		// host (ADR-0108 §3); both are read live at each call.
+		adb.SetLending(host)
+		// A foreground share belongs to the native connection that made it: when that connection
+		// ends, however it ends, the share does, the listeners are matched to what is left
+		// and the streams its peers held are stopped at once, not at the next sweep.
+		ops.OnDisconnect(func(originID string) {
+			if len(host.EndForegroundOwnedBy(originID, hosting.ShareConnection)) > 0 {
+				host.Reconcile()
+				adb.SweepLeases()
+			}
+		})
 		// The hosts this daemon borrows devices from: <remote>/<serial> is relayed over
 		// their links (ADR-0100). The links exist once serve starts them.
 		adb.SetRemotes(host)

@@ -157,6 +157,22 @@ func TestHostingConfig(t *testing.T) {
 	}
 }
 
+// TestEmptyLendSurvivesARewrite: a share no one joined (`to: []`) read through Get and
+// written back whole is still valid; a nil `to` would be written as null and refused.
+func TestEmptyLendSurvivesARewrite(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"schemaVersion":1,"hosting":{"lend":[{"device":"R1","to":[]}]}}`)
+	p := policy.New(envAt(dir))
+	lend := append(p.Get().Hosting.Lend, policy.Lend{Device: "R2", To: []string{"anna"}})
+	body, err := json.Marshal(map[string]any{"hosting": map[string]any{"lend": lend}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Update(context.Background(), patch(t, string(body))); err != nil {
+		t.Fatalf("writing back a lend read with an empty to: %v", err)
+	}
+}
+
 // TestHostingOnPortAndAddresses: the three keys ADR-0109 adds are read as written, written
 // by a patch (a merge for hosting.on and hosting.port, a replacement of the whole list for a
 // remote's addresses) and removed by null; the entries the file spelled keep their tags.
