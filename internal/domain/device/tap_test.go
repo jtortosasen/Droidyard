@@ -497,12 +497,15 @@ func TestWaitFocusAcceptsAFocusedNodeContainingThePoint(t *testing.T) {
 
 // Decision (plan m1n step 5, fix round N5): a focused node that does not contain the tapped
 // point is not the field, so the wait does not accept it and polls to its bound. Unit-tested
-// directly so the decision is checked without a whole inputText call.
+// directly so the decision is checked without a whole inputText call. The uiautomator
+// fallback serves the same document: a reader read that misses the 150 ms bound under load
+// otherwise falls back to the Pixel fixture, whose focused RecyclerView contains the point.
 func TestWaitFocusRejectsAFocusedNodeOffThePoint(t *testing.T) {
 	quickAct(t)
 	field := fmt.Sprintf(`<node class="android.widget.EditText" package=%q resource-id="%s:id/name" focused="true" bounds="[0,0][200,200]"></node>`,
 		tapPackage, tapPackage)
-	files, _ := withPersistentReaderR(t, nil, tappable(field))
+	doc := tappable(field)
+	files, _ := withPersistentReaderR(t, map[string]string{uiSerial + ".dumptty.out": doc}, doc)
 	f := newUIFixture(t, files)
 	tgt := readerTarget(t, f.adb, uiSerial)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
