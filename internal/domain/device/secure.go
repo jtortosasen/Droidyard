@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// flagSecure is WindowManager.LayoutParams.FLAG_SECURE, for builds that print `fl=` as hex.
+const flagSecure = 0x2000
 
 // FLAG_SECURE (plan m2p step 8; ADR-0080): a window with it is not captured, so a screenshot
 // comes back black (API 36) or fails (API 31) and the live view shows the window black. One
@@ -73,7 +77,15 @@ func parseSecureFocus(out string) (bool, error) {
 		if !in || !strings.HasPrefix(t, "fl=") {
 			continue
 		}
-		for _, f := range strings.Fields(strings.TrimPrefix(t, "fl=")) {
+		flags := strings.Fields(strings.TrimPrefix(t, "fl="))
+		if len(flags) == 1 {
+			// Some builds print the flags as one hex number (a Samsung SM-A256B on Android 16,
+			// plan m2t step 10): FLAG_SECURE is 0x2000.
+			if v, err := strconv.ParseUint(flags[0], 16, 32); err == nil {
+				return v&flagSecure != 0, nil
+			}
+		}
+		for _, f := range flags {
 			if f == "SECURE" {
 				return true, nil
 			}
