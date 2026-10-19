@@ -57,6 +57,11 @@ func (l *Link) Upload(ctx context.Context, size int64, body io.Reader) (UploadRe
 		return UploadReceipt{}, dialError(l.remote, err)
 	}
 	defer resp.Body.Close()
+	if ctx.Err() != nil {
+		// Cancelled while the host answered the body it saw cut short: the caller's cancel
+		// is the answer, whatever status raced it here (CI's race job, after 2t's close).
+		return UploadReceipt{}, ctx.Err()
+	}
 	if resp.StatusCode != http.StatusOK {
 		return UploadReceipt{}, &ErrUploadRefused{Status: resp.StatusCode}
 	}

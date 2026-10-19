@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,9 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/policy"
 )
+
+// frameIDRE is the id at the head of a request frame.
+var frameIDRE = regexp.MustCompile(`^\{"id":"([^"]*)"`)
 
 // stallingHost is a host that says hello and then reads nothing until released, then
 // answers every request with an empty result.
@@ -51,12 +55,13 @@ func stallingHost(t *testing.T, release <-chan struct{}) (addr, fingerprint stri
 			if err != nil {
 				return
 			}
-			var head struct {
-				ID string `json:"id"`
+			// The head of a large frame only: the id is first, so a slow host (CI's race job)
+			// does not parse megabytes of params to answer it.
+			id := ""
+			if m := frameIDRE.FindSubmatch(data[:min(len(data), 256)]); m != nil {
+				id = string(m[1])
 			}
-			// The head of a large frame only: the id is first.
-			json.NewDecoder(strings.NewReader(string(data))).Decode(&head)
-			out, _ := json.Marshal(capability.ResponseEnvelope{ID: head.ID, Result: json.RawMessage(`{}`)})
+			out, _ := json.Marshal(capability.ResponseEnvelope{ID: id, Result: json.RawMessage(`{}`)})
 			if c.Write(ctx, websocket.MessageText, out) != nil {
 				return
 			}
@@ -92,7 +97,9 @@ func TestACancelledCallDoesNotCutTheLink(t *testing.T) {
 		}
 	}
 
-	big := json.RawMessage(`"` + strings.Repeat("a", 48<<20) + `"`)
+	// Far past any socket buffer, so the write is still in progress when the caller gives up,
+	// yet small enough that the host reads it within the link's write bound under -race.
+	big := json.RawMessage(`"` + strings.Repeat("a", 16<<20) + `"`)
 	cctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	if _, err := l.Call(cctx, capability.RequestEnvelope{Capability: "x", Params: big}); !errors.Is(err, context.DeadlineExceeded) {
@@ -104,7 +111,7 @@ func TestACancelledCallDoesNotCutTheLink(t *testing.T) {
 	}
 
 	close(release)
-	qctx, qcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	qctx, qcancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer qcancel()
 	resp, err := l.Call(qctx, capability.RequestEnvelope{ID: "mine", Capability: "x"})
 	if err != nil || resp.ID != "mine" || resp.Error != nil {
