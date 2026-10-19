@@ -18,7 +18,7 @@ opposite risk: a reusable bearer that never expires and is stored in clear.
 ## Decision
 
 1. **The code**: `dy1.` and unpadded base64url of a version byte, the host's addresses
-   (at most 8), its peer port, its certificate fingerprint (32 bytes) and a 128-bit random
+   (at most 8, each tagged `vpn` or `lan`, ADR-0109 §4), its peer port, its certificate fingerprint (32 bytes) and a 128-bit random
    secret. No time expiry. Single use. At most 8 unused per share (a ninth voids the
    oldest); all void when the share stops (ADR-0108 §4).
 2. **The host keeps only the SHA-256 of each secret**, compared in constant time and

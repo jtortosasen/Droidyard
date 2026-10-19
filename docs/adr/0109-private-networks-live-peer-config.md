@@ -16,10 +16,11 @@ binds `0.0.0.0`, public interfaces included.
 ## Decision
 
 1. **Where**: while the host lends anything, `hosting.on` is set and `hosting.listen` is
-   unset, the listener binds every private IPv4 address of the machine: 100.64.0.0/10 on
-   a tunnel interface (point-to-point or `utun*`: Tailscale, Headscale; the same range on
-   another interface is carrier-grade NAT and left out) and RFC 1918. Never unspecified,
-   public, link-local or multicast. `hosting.on` (`private`, `vpn`, `lan`, or one IP
+   unset, the listener binds every private IPv4 address of the machine. **VPN**: an
+   address in 100.64.0.0/10 or RFC 1918 on a tunnel interface (point-to-point or `utun*`:
+   Tailscale's 100.64.0.18, a company VPN's 10.221.240.50 on this Mac). **LAN**: an RFC
+   1918 address on any other interface. 100.64.0.0/10 off a tunnel is carrier-grade NAT,
+   shared with strangers, and left out. Never unspecified, public, link-local or multicast. `hosting.on` (`private`, `vpn`, `lan`, or one IP
    literal) restricts it; the first `share` writes it. `hosting.listen` keeps its meaning
    and wins. A 2t configuration with neither binds nothing.
 2. **Port**: the first bind takes 7318, or a free port when it is busy, and writes it to
@@ -29,9 +30,9 @@ binds `0.0.0.0`, public interfaces included.
    checked every 2 s and at once after a share. One address's listener closing ends only
    its own sockets. `remotes` is reconciled the same way, a changed address list updated
    in place.
-4. **Addresses**: a remote has `address` and an optional `addresses` (at most 8); each
-   dial tries those in one of the client's own subnets first, then 100.64.0.0/10, then the
-   rest.
+4. **Addresses**: the code tags each address `vpn` or `lan`; a remote has `address` and
+   an optional `addresses` (at most 8) with those tags. Each dial tries a `lan` address in
+   one of the client's own subnets first, then the `vpn` ones, then the rest.
 
 ## Consequences
 
