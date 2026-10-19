@@ -22,6 +22,8 @@ export interface SessionOptions {
 	capacity?: number;
 	hiddenCap?: number;
 	hidden?: boolean;
+	/** The stream of this device stopped `deviceGone`. */
+	onDeviceGone?: (device: string) => void;
 }
 
 export interface Row {
@@ -76,6 +78,7 @@ export class LogcatSession {
 				this.#status = status;
 				this.#notify();
 			},
+			deviceGone: (device) => opts.onDeviceGone?.(device),
 		});
 	}
 

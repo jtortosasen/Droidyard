@@ -43,6 +43,7 @@
 	import { EmulatorsModel } from '../devices/emulators';
 	import { InstallModel } from '../devices/install';
 	import Devices from '../devices/Devices.svelte';
+	import { LendingModel } from '../devices/lending';
 	import { UiTreeModel } from '../devices/uitree';
 	import Tree from '../devices/Tree.svelte';
 	import { ActModel } from '../devices/act';
@@ -130,6 +131,7 @@
 	let tasks = $state.raw<TasksModel | null>(null);
 	let buildConsole = $state.raw<ConsoleModel | null>(null);
 	let devices = $state.raw<DevicesModel | null>(null);
+	let lending = $state.raw<LendingModel | null>(null);
 	let emulators = $state.raw<EmulatorsModel | null>(null);
 	let install = $state.raw<InstallModel | null>(null);
 	let uiTree = $state.raw<UiTreeModel | null>(null);
@@ -199,6 +201,7 @@
 		const mirror = new DevicesMirror(store, callOn);
 		const deviceList = new DevicesModel(callOn, store);
 		const emulatorList = new EmulatorsModel(callOn, store, mirror);
+		const lent = new LendingModel(callOn);
 		const installer = new InstallModel(
 			callOn,
 			mirror,
@@ -224,7 +227,8 @@
 				call: (name, params) => c.call(name, params),
 			},
 			deviceList,
-			{ supported: browserCodec() !== null },
+			// A remote device whose host stopped lending it ends its stream: the list is read again.
+			{ supported: browserCodec() !== null, onDeviceGone: (serial) => deviceList.deviceGone(serial) },
 		);
 		const files = new FileTreeModel(callOn, ws);
 		const watcher = new FileWatch(
@@ -323,6 +327,7 @@
 		tasks = taskList;
 		buildConsole = console_;
 		devices = deviceList;
+		lending = lent;
 		emulators = emulatorList;
 		install = installer;
 		run = runner;
@@ -429,6 +434,7 @@
 			tasks = null;
 			buildConsole = null;
 			devices = null;
+			lending = null;
 			emulators = null;
 			install = null;
 			run = null;
@@ -472,6 +478,7 @@
 		if (connection !== 'open' || !devices || !emulators) return;
 		void devices.refresh();
 		void emulators.refresh();
+		void lending?.refresh();
 	});
 </script>
 
@@ -598,8 +605,8 @@
 			<TaskSelect model={tasks} />
 		{/if}
 	{:else if id === 'devices'}
-		{#if devices && emulators && install}
-			<Devices {devices} {emulators} {install} {sessions} connected={connection === 'open'} />
+		{#if devices && emulators && install && lending}
+			<Devices {devices} {emulators} {install} {sessions} {lending} connected={connection === 'open'} />
 		{/if}
 	{:else if id === 'liveview'}
 		{#if liveView}

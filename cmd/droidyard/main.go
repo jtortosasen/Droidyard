@@ -2,8 +2,9 @@
 //
 // `caps` and `schema` read the registry and the generated schema. `serve` runs the
 // daemon on its socket; `call`, `mcp`, `status`, `stop` and `ui` talk to it, and
-// `trust` writes the user configuration directly, with no daemon involved, and so does
-// `init`, which writes the assistant integration into a project (ADR-0037). `hook`
+// `trust` writes the user configuration directly, with no daemon involved, and so do
+// `host` and `remote` (the peer pairing and lending, ADR-0098 §7; `id` asks the daemon
+// for its fingerprint) and `init`, which writes the assistant integration into a project (ADR-0037). `hook`
 // answers an assistant's hook event and dials the daemon only if one is running
 // (ADR-0061). `trash` moves files to the trash through a running daemon and starts none
 // (ADR-0062).
@@ -112,6 +113,23 @@ Commands:
   trust      Grant a project root trust, so capabilities that run its code may:
              droidyard trust <root>
              It writes the user configuration; no daemon is involved or started.
+  id         Print this daemon's fingerprint, what a host pins to admit it:
+             droidyard id
+             It asks the daemon, and starts one when none answers.
+  host       Lend physical devices to paired Droidyards (ADR-0098 §7), the host's side:
+             droidyard host admit <name> <fingerprint> | revoke <name> | list
+             droidyard host lend <serial> --to <name>[,<name>] | unlend <serial>
+             droidyard host listen <ip:port>|off
+             admit pairs a peer by the fingerprint its human sent from droidyard id; revoke
+             unpairs it and drops it from what is lent; lend lends a whole device (use a
+             dedicated one) and still needs devices.allowPhysical and the serial in
+             devices.allowlist. listen is applied at the next start (droidyard stop).
+             It writes the user configuration; no daemon is involved or started.
+  remote     Use the devices another Droidyard lends, the client's side:
+             droidyard remote add <name> <ip:port> <fingerprint> | remove <name> | list
+             The host's devices join the list as <name>/<serial>, used once
+             devices.allowPhysical is true and that id is in devices.allowlist. A restart
+             applies a change (droidyard stop). No daemon is involved or started.
   init       Set a project up for coding assistants (optional; every tool works without it):
              droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
              Writes the droidyard-android skill and, per client, the MCP server entry and
@@ -179,6 +197,12 @@ func main() {
 		os.Exit(ui(os.Args[2:]))
 	case "trust":
 		os.Exit(trust(os.Args[2:]))
+	case "id":
+		os.Exit(idCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "host":
+		os.Exit(hostCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "remote":
+		os.Exit(remoteCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "init":
 		os.Exit(initCmd(os.Args[2:], os.Stdout, os.Stderr))
 	case "hook":

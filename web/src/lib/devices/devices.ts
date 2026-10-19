@@ -33,6 +33,8 @@ export interface DevicesView {
 	pendingAvd: string;
 	/** A `device.list` failure that has a code. */
 	error: Failure | null;
+	/** What the last read warned of: an unreachable remote (plan m2t, ADR-0098 §4), a serial two devices share. */
+	warnings: readonly string[];
 }
 
 export class DevicesModel {
@@ -44,6 +46,7 @@ export class DevicesModel {
 	#selected = '';
 	#pendingAvd = '';
 	#error: Failure | null = null;
+	#warnings: readonly string[] = [];
 	#gen = 0;
 	// ADR-0046: the project file's device applies until the user picks one; the user's
 	// own picks are announced so the file can be written from them.
@@ -58,7 +61,13 @@ export class DevicesModel {
 	}
 
 	get view(): DevicesView {
-		this.#view ??= { devices: this.#devices, selected: this.#selected, pendingAvd: this.#pendingAvd, error: this.#error };
+		this.#view ??= {
+			devices: this.#devices,
+			selected: this.#selected,
+			pendingAvd: this.#pendingAvd,
+			error: this.#error,
+			warnings: this.#warnings,
+		};
 		return this.#view;
 	}
 
@@ -139,6 +148,7 @@ export class DevicesModel {
 			const r = await this.#client.call('device.list', {});
 			if (gen !== this.#gen) return;
 			this.#devices = r.devices;
+			this.#warnings = r.warnings ?? [];
 			this.#error = null;
 			if (this.#selected !== '' && !r.devices.some((d) => d.device === this.#selected)) this.#selected = '';
 			if (this.#selected === '' && this.#pendingAvd === '') this.#selected = defaultDevice(r.devices);
@@ -150,6 +160,16 @@ export class DevicesModel {
 			this.#error = failure(e);
 		}
 		this.#changed();
+	}
+
+	/**
+	 * A screen or log stream of `serial` stopped `deviceGone`. Nothing an operation of this UI
+	 * does tells it that a host stopped lending a remote device (the host's Stop lending, its
+	 * Release, a revoked peer, the phone leaving), so the list is read again when its stream
+	 * ends that way; a device of this machine is read as before, by the operations that change it.
+	 */
+	deviceGone(serial: string): void {
+		if (this.#devices.some((d) => d.device === serial && d.host !== undefined)) void this.refresh();
 	}
 
 	dispose(): void {

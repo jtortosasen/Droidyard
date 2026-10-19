@@ -189,12 +189,8 @@ func decodeRemotes(raw json.RawMessage, doc *document) error {
 		if err := validFingerprint(at+".fingerprint", r.Fingerprint); err != nil {
 			return err
 		}
-		ap, err := netip.ParseAddrPort(r.Address)
-		switch {
-		case err != nil:
-			return fmt.Errorf("%s.address: %q is not an IP address and a port (a host name is not accepted): %v", at, r.Address, err)
-		case ap.Addr().IsUnspecified() || ap.Port() == 0:
-			return fmt.Errorf("%s.address: %q names no host to dial", at, r.Address)
+		if err := ValidRemoteAddress(r.Address); err != nil {
+			return fmt.Errorf("%s.address: %w", at, err)
 		}
 		if names[r.Name] {
 			return fmt.Errorf("%s.name: %q is the name of an earlier remote; names are unique", at, r.Name)
@@ -222,6 +218,30 @@ func validListen(s string) error {
 	return nil
 }
 
+// ValidRemoteAddress is the rule a remote's address must meet (ADR-0098 §2): an IP literal
+// and a non-zero port. `droidyard remote add` applies it before it writes.
+func ValidRemoteAddress(s string) error {
+	ap, err := netip.ParseAddrPort(s)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%q is not an IP address and a port (a host name is not accepted): %v", s, err)
+	case ap.Addr().IsUnspecified() || ap.Port() == 0:
+		return fmt.Errorf("%q names no host to dial", s)
+	}
+	return nil
+}
+
+// ValidListen is the rule hosting.listen must meet (ADR-0098 §3); `droidyard host listen`
+// applies it before it writes.
+func ValidListen(s string) error { return validListen(s) }
+
+// ValidName is the rule a peer's or a remote's name must meet (ADR-0098 §2), for the
+// command line to apply before it writes; key names the argument in the error.
+func ValidName(key, s string) error { return validName(key, s) }
+
+// ValidFingerprint is the rule a fingerprint must meet (ADR-0098 §2); see ValidName.
+func ValidFingerprint(key, s string) error { return validFingerprint(key, s) }
+
 func validName(key, s string) error {
 	if !namePattern.MatchString(s) {
 		return fmt.Errorf("%s: %q does not match %s", key, s, PeerNamePattern)
@@ -239,7 +259,9 @@ func validFingerprint(key, s string) error {
 // decodeEntries reads an array of objects, each through one, keyed by the exact names
 // the file spells: encoding/json would match "Name" to "name", and a key written that
 // way must not pass for the real one (the same rule UpdateParams applies to a patch).
-// A key the entry does not know is kept in the file and ignored (ADR-0032 §1).
+// A key the entry does not know is ignored, and survives only until its list is rewritten:
+// `policy.update` and the `droidyard host` and `remote` verbs replace an array whole, from
+// the typed entries (RFC 7386), so the unknown key is dropped with it.
 func decodeEntries[T any](key string, raw json.RawMessage, one func(e map[string]json.RawMessage, at string) (T, error)) ([]T, error) {
 	if isNull(raw) {
 		return nil, nil

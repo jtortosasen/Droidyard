@@ -50,6 +50,8 @@ export interface StreamSink {
 	/** Entries in the order they belong in; `daemonDropped` is the lines the daemon reported it did not deliver. */
 	entries(entries: Entry[], daemonDropped: number): void;
 	status(status: StreamStatus): void;
+	/** The stream of `device` stopped `deviceGone`. */
+	deviceGone?(device: string): void;
 }
 
 const TOPIC_LOGCAT = eventTopics['device.watchLogs'];
@@ -271,6 +273,7 @@ export class LogStream {
 		this.#sub?.stop();
 		this.#sub = null;
 		this.#send(subscriptionId);
+		if (p.reason === 'deviceGone') this.#sink.deviceGone?.(this.#device);
 	}
 
 	/** Stops delivering the current subscription and ends it in the daemon. */

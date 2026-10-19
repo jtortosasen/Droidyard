@@ -41,6 +41,7 @@
 			call: (name, params) => client.call(name, params),
 		},
 		hidden: document.hidden,
+		onDeviceGone: (serial) => devices.deviceGone(serial),
 	});
 	const bar = new QueryBar({ session, mine: untrack(() => mine.ids), storage: browserStorage(window), workspaceId: untrack(() => workspaceId) });
 

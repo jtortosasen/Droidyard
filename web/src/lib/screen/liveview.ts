@@ -96,10 +96,14 @@ export class LiveViewModel {
 	#spent = false; // the failure streak's one re-watch is used
 	#waiting = false; // the connection was lost; the watch starts again when it is back
 
-	constructor(client: ScreenClient, devices: ScreenDevices, opts: { supported: boolean }) {
+	#onDeviceGone: (device: string) => void;
+
+	/** `onDeviceGone` hears of the device whose stream stopped `deviceGone` (a remote host stopped lending it, plan m2t step 7). */
+	constructor(client: ScreenClient, devices: ScreenDevices, opts: { supported: boolean; onDeviceGone?: (device: string) => void }) {
 		this.#client = client;
 		this.#devices = devices;
 		this.#supported = opts.supported;
+		this.#onDeviceGone = opts.onDeviceGone ?? (() => {});
 		this.#state = opts.supported ? 'idle' : 'unsupported';
 		this.#off = devices.subscribe(() => this.#sync());
 	}
@@ -278,8 +282,10 @@ export class LiveViewModel {
 		this.#sub = null;
 		this.#send(subscriptionId);
 		const reason = (['deviceGone', 'exited', 'failed', 'detached'] as const).find((r) => r === p.reason) ?? 'failed';
+		const device = this.#device;
 		// Only `detached` (the socket went away) is worth one more try; the rest are shown as they are.
 		this.#failure(reason, typeof p.cause === 'string' ? p.cause : '', reason === 'detached');
+		if (reason === 'deviceGone') this.#onDeviceGone(device);
 	}
 
 	/** A failure that earns one re-watch per streak: the next one, before a frame decodes, stops. */

@@ -14,7 +14,9 @@
 // `tools` (ADR-0032 §1), `occupation` (ADR-0094 §7), `hosting` and `remotes` (ADR-0098 §6).
 // Every key is optional; a `null` value is its default. Unknown keys, at the top level and
 // inside a known section, are kept on every rewrite and ignored, so a newer droidyard's
-// keys survive an older one's edit. Every path is absolute or the whole file is invalid
+// keys survive an older one's edit; the exception is a key inside an entry of a list
+// (`hosting.peers`, `hosting.lend`, `remotes`), which survives only until that list is
+// rewritten, since a patch replaces an array whole. Every path is absolute or the whole file is invalid
 // (ADR-0032 §4): a relative entry would canonicalise against the process's cwd, trusting or
 // enabling the wrong thing. A peer's or a remote's name, fingerprint or address that fails
 // its rule (hosting.go) makes the file invalid in the same way.

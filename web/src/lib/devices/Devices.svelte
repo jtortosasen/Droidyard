@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { DevicesModel, DevicesView } from './devices';
 	import { deviceHolds, inUseText, type DeviceHold, type SessionsModel } from '../projects/sessions';
-	import { deviceLine } from '../toolbar/devicemenu';
+	import { deviceLine, deviceText, remoteHolderText } from '../toolbar/devicemenu';
+	import { lentRows, type LendingModel, type LendingView } from './lending';
 	import type { EmulatorsModel, EmulatorsView } from './emulators';
 	import type { InstallModel, InstallView } from './install';
 	import { failureText } from '../build/failure';
@@ -23,8 +24,10 @@
 		connected: boolean;
 		/** Who holds which device comes from its live rows (ADR-0094), not from device.list. */
 		sessions: SessionsModel;
+		/** What this machine lends (plan m2t): its entries in hosting.lend, and Stop lending. */
+		lending: LendingModel;
 	}
-	let { devices, emulators, install, connected, sessions }: Props = $props();
+	let { devices, emulators, install, connected, sessions, lending }: Props = $props();
 
 	let holds = $state.raw<DeviceHold[]>([]);
 	let releaseError = $state<string | null>(null);
@@ -44,6 +47,7 @@
 	let dv = $state.raw<DevicesView | null>(null);
 	let ev = $state.raw<EmulatorsView | null>(null);
 	let iv = $state.raw<InstallView | null>(null);
+	let lv = $state.raw<LendingView | null>(null);
 
 	$effect(() => {
 		const d = devices;
@@ -52,6 +56,14 @@
 		};
 		read();
 		return d.subscribe(read);
+	});
+	$effect(() => {
+		const l = lending;
+		const read = () => {
+			lv = l.view;
+		};
+		read();
+		return l.subscribe(read);
 	});
 	$effect(() => {
 		const e = emulators;
@@ -77,7 +89,15 @@
 	function refresh() {
 		void devices.refresh();
 		void emulators.refresh();
+		void lending.refresh();
 	}
+
+	// The devices lent to peers carry their own row (holder, Release, Stop lending); the others
+	// a session holds keep the plain row.
+	const lent = $derived(lentRows(lv?.lent ?? [], holds));
+	const otherHolds = $derived(holds.filter((h) => !lent.some((l) => l.serial === h.serial)));
+	// A remote device's host and holder, from device.list: the holder is on the host's machine.
+	const remote = $derived((dv?.devices ?? []).filter((d) => d.host !== undefined));
 </script>
 
 <section class="devices">
@@ -95,15 +115,48 @@
 		{:else if dv.devices.length === 0}
 			<p class="muted small">No device is connected.</p>
 		{/if}
+		{#each dv.warnings as w (w)}
+			<p class="warn small" role="status">{w}</p>
+		{/each}
+		<!-- A device another Droidyard lends: its host, and who holds it there (ADR-0104). -->
+		{#if remote.length > 0}
+			<ul class="remotes" aria-label="Remote devices">
+				{#each remote as d (d.device)}
+					{@const holder = remoteHolderText(d)}
+					<li class="line remote" data-device={d.device}>
+						<span class="grow small" title={d.device}>{deviceText(d)}</span>
+						{#if holder !== ''}<span class="holder small">{holder}</span>{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		<!-- Another chat holds these (ADR-0094): the owner's Release frees one and moves no session. -->
-		{#each holds as h (h.serial)}
+		{#each otherHolds as h (h.serial)}
 			<div class="line held">
 				<span class="grow small" title={h.serial}>{h.serial}: {inUseText(h)}</span>
 				<button type="button" class="btn-icon" disabled={!connected} onclick={() => void release(h.serial)}>Release</button>
 			</div>
 		{/each}
+		<!-- Lent to paired Droidyards (ADR-0099): the holder is a peer's link, Release ends its lease,
+			Stop lending removes the entry and the peer's open views stop within 2 s (ADR-0104 §4). -->
+		{#each lent as l (l.serial)}
+			<div class="line lent" data-serial={l.serial}>
+				<span class="grow small" title={l.serial}>
+					{l.serial}: {l.text}{#if l.holder}, <span class="holder">{inUseText(l.holder)}</span>{/if}
+				</span>
+				{#if l.holder}
+					<button type="button" class="btn-icon" aria-label="Release {l.serial}" disabled={!connected} onclick={() => void release(l.serial)}>Release</button>
+				{/if}
+				<button type="button" class="btn-icon" aria-label="Stop lending {l.serial}" disabled={!connected} onclick={() => void lending.stopLending(l.serial)}>
+					Stop lending
+				</button>
+			</div>
+		{/each}
 		{#if releaseError}
 			<p class="err small">Release refused: {releaseError}</p>
+		{/if}
+		{#if lv?.error}
+			<p class="err small">Stop lending refused: {failureText(lv.error)}</p>
 		{/if}
 
 		<div class="head">
@@ -258,6 +311,20 @@
 	}
 	.device {
 		overflow-wrap: anywhere;
+	}
+	.remotes {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.remote {
+		margin: var(--sp-1) 0;
+	}
+	.holder {
+		color: var(--text-2);
+	}
+	.warn {
+		color: var(--warning);
 	}
 	.head {
 		display: flex;

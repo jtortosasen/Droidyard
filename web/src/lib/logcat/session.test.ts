@@ -34,6 +34,21 @@ async function make(opts: { capacity?: number; hiddenCap?: number; hidden?: bool
 	};
 }
 
+describe('LogcatSession and a device that is gone', () => {
+	// Decision (plan m2t step 7): the session passes the stream's deviceGone on, so the
+	// devices model can read the list again when a remote device stops being lent.
+	it('reports the device whose stream stopped deviceGone', async () => {
+		const client = new FakeClient();
+		const gone: string[] = [];
+		const session = new LogcatSession({ client, frames: new FakeFrames(), onDeviceGone: (d) => gone.push(d) });
+		session.select('qa-lab/R58M');
+		client.answer(0);
+		await settle();
+		client.emit(0, 'device.logcat', 'stopped', { device: 'qa-lab/R58M', reason: 'deviceGone' });
+		expect(gone).toEqual(['qa-lab/R58M']);
+	});
+});
+
 describe('LogcatSession', () => {
 	// Decision (A7): lines are appended once per animation frame: any number of events in
 	// a frame is one move into the list and one notification.
