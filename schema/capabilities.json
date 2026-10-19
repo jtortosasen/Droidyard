@@ -3436,6 +3436,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "REQUEST_INVALID_PARAMS",
         "DEVICE_INSTALL_FAILED"
       ],
@@ -3689,7 +3690,7 @@
                   "properties": {
                     "name": {
                       "type": "string",
-                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code."
+                      "description": "What the holder's client called itself, bounded to 64 characters; absent until it has said. Every Claude Code chat is named claude-code. A paired peer is named by the host's configuration."
                     },
                     "since": {
                       "type": "string",
@@ -3698,7 +3699,11 @@
                     },
                     "stale": {
                       "type": "boolean",
-                      "description": "True while the holder has made no request for the configured time: an acting call of another session takes the device over. Absent otherwise."
+                      "description": "True while the holder has made no request for the configured time (15 minutes, and no open stream, for a paired peer): an acting call of another session, any call for a peer, takes the device over. Absent otherwise."
+                    },
+                    "peer": {
+                      "type": "boolean",
+                      "description": "True when the holder is a paired peer's link, so a peer named anna is told from a client that calls itself anna. Absent otherwise."
                     }
                   },
                   "additionalProperties": false,
@@ -3763,6 +3768,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_LOGS_FAILED",
         "REQUEST_INVALID_PARAMS"
       ],
@@ -4167,6 +4173,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
@@ -4242,6 +4249,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_SCREENSHOT_FAILED"
       ],
       "input": {
@@ -4328,6 +4336,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
@@ -4427,6 +4436,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
@@ -5391,6 +5401,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5651,6 +5662,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_LOGS_FAILED",
         "REQUEST_INVALID_PARAMS",
         "SESSION_REQUIRED"
@@ -5803,7 +5815,7 @@
                   "exited",
                   "replaced"
                 ],
-                "description": "deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: logcat ended by itself. replaced: the same session started a stream of this device."
+                "description": "deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: logcat ended by itself. replaced: the same session started a stream of this device."
               },
               "cause": {
                 "type": "string",
@@ -5844,6 +5856,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
         "SESSION_REQUIRED"
@@ -5926,7 +5939,7 @@
                   "failed",
                   "detached"
                 ],
-                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
+                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
               },
               "cause": {
                 "type": "string",
@@ -11117,7 +11130,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "The daemon's id for the MCP session, as on session.state. It grants nothing."
+                  "description": "The daemon's id for the session, as on session.state. It grants nothing."
                 },
                 "name": {
                   "type": "string",
@@ -11155,7 +11168,7 @@
               ]
             },
             "type": "array",
-            "description": "The MCP sessions connected now, the oldest first, taken after the subscription opened: merge it with the events by id."
+            "description": "The sessions connected now (MCP sessions and paired peers' links), the oldest first, taken after the subscription opened: merge it with the events by id."
           }
         },
         "additionalProperties": false,
@@ -11172,7 +11185,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "description": "The daemon's id for the MCP session. It grants nothing."
+                "description": "The daemon's id for the session, an MCP session or a paired peer's link. It grants nothing."
               },
               "name": {
                 "type": "string",
@@ -11191,11 +11204,11 @@
                   "type": "string"
                 },
                 "type": "array",
-                "description": "The serials of the devices the session holds, so that no other chat installs, launches or taps on them (ADR-0094); absent when it holds none."
+                "description": "The serials of the devices the session holds, so that no other chat acts on them (ADR-0094); a paired peer's link holds one through any call (ADR-0104). Absent when it holds none."
               },
               "stale": {
                 "type": "boolean",
-                "description": "True while the session has made no request for the configured time (120 minutes by default): another chat may then take over what it holds. Absent otherwise."
+                "description": "True while the session has made no request for the configured time (120 minutes by default; 15, with no open stream, for a peer's link): another chat may then take over what it holds. Absent otherwise."
               },
               "ended": {
                 "type": "boolean",

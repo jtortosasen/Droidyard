@@ -214,7 +214,7 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(LogsParams).Device) },
 		Result:       LogsResult{},
 		Text:         capability.TextOf(logsText),
-		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrLogsFailed, capability.ErrInvalidParams),
+		Errors:       append(append([]capability.ErrorCode{}, LentErrors...), ErrLogsFailed, capability.ErrInvalidParams),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(LogsParams)
 			// Validate before the hook so a malformed parameter runs no adb command at

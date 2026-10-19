@@ -268,11 +268,16 @@ func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Op
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Listen: listen, API: system.Version, Log: logw})
+	leased := make(chan struct{})
+	// The check that a lent device is still lent to the peer leasing it (ADR-0104 §4), at the
+	// interval of the pin check.
+	go func() { defer close(leased); adb.RunLeases(ctx) }()
 	go func() { defer close(done); srv.Run(ctx) }()
 	host.Start()
 	return func() {
 		cancel()
 		<-done
+		<-leased
 		host.Stop()
 		// After the listener, so no upload is still arriving; what is left is removed.
 		host.Uploads().Close()

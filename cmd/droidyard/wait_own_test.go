@@ -77,6 +77,31 @@ func peerConfigFor(t *testing.T, clientState string) string {
 	return `{"hosting":{"listen":"127.0.0.1:0","peers":[{"name":"anna","fingerprint":"` + id.Fingerprint() + `"}]}}`
 }
 
+// twoPeersConfig is peerConfigFor with a second client, bob, whose state root is bobState.
+func twoPeersConfig(t *testing.T, annaState, bobState string) string {
+	t.Helper()
+	fp := func(state string) string {
+		id, _, err := hosting.LoadIdentity(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id.Fingerprint()
+	}
+	return `{"hosting":{"listen":"127.0.0.1:0","peers":[{"name":"anna","fingerprint":"` + fp(annaState) + `"},{"name":"bob","fingerprint":"` + fp(bobState) + `"}]}}`
+}
+
+// linkedAs is a client whose state root is clientState linked to the host p, which pairs it:
+// pairedWith for a second client of a host whose peer listener is already up.
+func linkedAs(t *testing.T, p *inProcess, clientState string) *hosting.Link {
+	t.Helper()
+	configAt(t, clientState, `{"remotes":[{"name":"qa-lab","address":"`+p.host.Health().Hosting.Listen+`","fingerprint":"`+p.host.Identity().Fingerprint()+`"}]}`)
+	c := clientHost(t, clientState)
+	c.Start()
+	t.Cleanup(c.Stop)
+	eventually(t, "the second client's link to come up", func() bool { return c.Remote("qa-lab").Connected() })
+	return c.Remote("qa-lab")
+}
+
 // idArgs are the arguments of operation_wait (a status poll) or operation_cancel (MCP's
 // spelling or the capability's) naming id.
 func idArgs(tool, id string) string {
@@ -136,11 +161,11 @@ func viewOf(t *testing.T, c boundCall) (v capability.OperationView, e *capabilit
 // operation_cancel of an MCP session reach the operations of that session and of its chat
 // and no other's, including a session of the chat that connects after the starting one has
 // gone; the UI's WebSocket and the CLI reach any; a peer reaches its own and not the host
-// UI's, whose id it learns from the queue its own call waits in. An id that is not
+// UI's, whose id it learns from the queue its own call waits in, nor another peer's. An id that is not
 // reachable is answered as an unknown one, and the operation runs on.
 func TestWaitOwnOperations(t *testing.T) {
 	t.Parallel()
-	clientState := shortDir(t)
+	clientState, bobState := shortDir(t), shortDir(t)
 	hold := make(chan struct{})
 	p := startInProcessConfig(t, "127.0.0.1:0", func(reg *capability.Registry, _ platform.Env) {
 		// A lent capability that holds one key until released: a second call queues behind
@@ -158,9 +183,10 @@ func TestWaitOwnOperations(t *testing.T) {
 				}
 			},
 		})
-	}, nil, 0, peerConfigFor(t, clientState))
+	}, nil, 0, twoPeersConfig(t, clientState, bobState))
 	t.Cleanup(func() { close(hold) })
 	link := pairedWith(t, p, clientState)
+	bobLink := linkedAs(t, p, bobState)
 
 	// Two agents of two chats start a long-running tool each. fixture_slow holds until
 	// the test releases it, and answers its tool call with the operation still running.
@@ -271,6 +297,19 @@ func TestWaitOwnOperations(t *testing.T) {
 	stillRunning("after the peer's wait and cancel", uiOp.Operation.ID)
 	if env, err := link.Call(context.Background(), capability.RequestEnvelope{ID: "y", Capability: "operation.wait", Params: json.RawMessage(`{"operationId":"` + queued.Operation.ID + `","timeoutMs":0}`)}); err != nil || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateQueued {
 		t.Errorf("the peer waits on its own queued operation: %+v / %v; want it queued", env.Operation, err)
+	}
+	// Another peer reaches neither the host UI's operation nor anna's: a peer's own are those
+	// of its name, over any of its links (ADR-0101). Anna's stays queued behind the UI's.
+	for _, id := range []string{queued.Operation.ID, uiOp.Operation.ID} {
+		for _, name := range []string{"operation.wait", "operation.cancel"} {
+			env, err := bobLink.Call(context.Background(), capability.RequestEnvelope{ID: "b", Capability: name, Params: json.RawMessage(idArgs(name, id))})
+			if err != nil || env.Error == nil || env.Error.Code != capability.ErrOperationNotFound {
+				t.Errorf("bob's %s on %s: %+v / %v; want OPERATION_NOT_FOUND", name, id, env.Error, err)
+			}
+		}
+	}
+	if env, err := link.Call(context.Background(), capability.RequestEnvelope{ID: "y2", Capability: "operation.wait", Params: json.RawMessage(`{"operationId":"` + queued.Operation.ID + `","timeoutMs":0}`)}); err != nil || env.Error != nil || env.Operation == nil || env.Operation.State != capability.StateQueued {
+		t.Errorf("anna's queued operation after bob's wait and cancel: %+v / %v; want it still queued", env.Operation, err)
 	}
 	// And the host's agents do not reach the peer's, nor the peer the agents'.
 	if _, e := viewOf(t, a2.toolWith(3, "operation_wait", `{"operationId":"`+queued.Operation.ID+`","timeoutMs":0}`)); e == nil || e.Code != capability.ErrOperationNotFound {

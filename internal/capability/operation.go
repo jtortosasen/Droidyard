@@ -655,6 +655,11 @@ func traceLine(op *operation) string {
 	}
 	line := fmt.Sprintf("droidyard: op %s client=%s capability=%s workspace=%s state=%s ms=%d",
 		op.id, client, op.capability, workspace, op.state, op.finished.Sub(op.started).Milliseconds())
+	if op.client == ClientPeer && op.owner.peer != "" {
+		// The peer's configured name (lowercase letters, digits, hyphens), so a host reads
+		// which of its peers did what (ADR-0099 §5).
+		line += " peer=" + op.owner.peer
+	}
 	if op.state == StateFailed && op.err != nil {
 		line += " code=" + string(op.err.Code)
 	}

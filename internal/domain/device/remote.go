@@ -66,6 +66,7 @@ func (a *ADB) plainThen(d capability.Descriptor, then func(ctx context.Context, 
 	d.Lendable = true
 	authorize, handler := d.Authorize, d.Handler
 	name, result, declared := d.Name, d.Result, d.Errors
+	acts := d.Occupies == capability.OccupiesAct
 	d.Authorize = func(ctx context.Context, call *capability.Call) (any, error) {
 		rt, ok, err := a.authorizeRemote(call)
 		if err != nil {
@@ -73,6 +74,13 @@ func (a *ADB) plainThen(d capability.Descriptor, then func(ctx context.Context, 
 		}
 		if !ok {
 			return authorize(ctx, call)
+		}
+		// The client's own sessions coordinate on a remote id as on a local device
+		// (ADR-0104 §5): an acting call holds it, before the host is asked.
+		if acts {
+			if err := a.OccupyFor(call, rt.id); err != nil {
+				return nil, err
+			}
 		}
 		return rt, nil
 	}
@@ -113,15 +121,32 @@ func (a *ADB) remoteOf(call *capability.Call) (*remoteTarget, bool) {
 		return nil, false
 	}
 	id := paramsDevice(call.Params)
-	name, serial, ok := strings.Cut(id, "/")
-	if !ok || serial == "" {
-		return nil, false
-	}
-	link := a.remotes.Remote(name)
-	if link == nil {
+	link, name, serial, ok := a.splitRemoteID(id)
+	if !ok {
 		return nil, false
 	}
 	return &remoteTarget{link: link, remote: name, id: id, serial: serial}, true
+}
+
+// splitRemoteID reads id as <remote>/<serial> of a configured remote.
+func (a *ADB) splitRemoteID(id string) (link *hosting.Link, remote, serial string, ok bool) {
+	if a.remotes == nil {
+		return nil, "", "", false
+	}
+	remote, serial, ok = strings.Cut(id, "/")
+	if !ok || serial == "" {
+		return nil, "", "", false
+	}
+	if link = a.remotes.Remote(remote); link == nil {
+		return nil, "", "", false
+	}
+	return link, remote, serial, true
+}
+
+// isRemoteID reports whether id names a device of a configured remote.
+func (a *ADB) isRemoteID(id string) bool {
+	_, _, _, ok := a.splitRemoteID(id)
+	return ok
 }
 
 // paramsDevice is the `device` of a call's decoded parameters, "" when they have none.

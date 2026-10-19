@@ -50,7 +50,7 @@ var errRelayedInput = errors.New("device: a remote device's input is a call on i
 
 // watchScreenErrors are the codes device.watchScreen declares; a host's other code is not
 // one this daemon can read (ADR-0100 §4).
-var watchScreenErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
+var watchScreenErrors = append(append([]capability.ErrorCode{}, LentErrors...),
 	ErrStreamFailed, capability.ErrInvalidParams, capability.ErrSessionRequired)
 
 // relayedScreens is every relayed source of the daemon, at most one per remote device id.

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
@@ -51,6 +52,8 @@ type ADB struct {
 	// occupation holds who occupies which device (ADR-0094), set once at wiring; nil holds
 	// nothing and refuses nothing.
 	occupation Occupation
+	// startHook is a test seam: see SetStartHook.
+	startHook atomic.Pointer[func()]
 	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
 	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
 	toolKey policy.ToolKey

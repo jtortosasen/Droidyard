@@ -223,6 +223,10 @@ type wsSession struct {
 	// allowed, when set, is asked before each request is served; false ends the session
 	// without serving it (a peer that is no longer paired, ADR-0098 §3).
 	allowed func() bool
+	// registry, when set, is the daemon's session registry, where a peer's link is a
+	// session for as long as it lives: the lease of a lent device is its occupation
+	// (ADR-0104 §1).
+	registry *capability.Sessions
 
 	// wmu is the one writer: every frame goes out under it, one at a time.
 	wmu sync.Mutex
@@ -247,6 +251,13 @@ func (s *wsSession) run(parent context.Context, handshake func(ctx context.Conte
 	s.sess = event.NewSession(s.h.bus, newSessionID())
 	if q := int(s.h.queue.Load()); q > 0 {
 		s.sess.SetQueue(q)
+	}
+	if s.registry != nil {
+		// Ended after the connection's last request is answered, so a lease is not freed
+		// under a call still running on it.
+		id := s.sess.ID()
+		s.registry.ConnectPeer(id, s.who.name)
+		defer s.registry.End(id)
 	}
 	s.c.SetReadLimit(MaxBody) // the library's default is 32 KiB; /v1/call's bound is 1 MiB
 	interval := time.Duration(s.h.pingInterval.Load())
@@ -318,6 +329,10 @@ func (s *wsSession) readLoop(ctx context.Context) {
 func (s *wsSession) serve(ctx context.Context, body []byte) {
 	if s.allowed != nil && !s.allowed() {
 		return
+	}
+	if s.registry != nil {
+		// Any request of the link is activity of its leases (ADR-0104 §3).
+		s.registry.Seen(s.sess.ID())
 	}
 	env, ok := s.h.call.answer(ctx, body, s.sess, s.who)
 	if !ok {

@@ -169,7 +169,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 				return deviceTarget(s.device(&capability.Call{Params: p}))
 			},
 			Result: ScreenInputResult{},
-			Errors: append(append([]capability.ErrorCode{}, PreambleErrors...),
+			Errors: append(append([]capability.ErrorCode{}, LentErrors...),
 				ErrNoStream, ErrStreamFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 			Resource: func(call *capability.Call) string {
 				if serial := s.device(call); serial != "" {

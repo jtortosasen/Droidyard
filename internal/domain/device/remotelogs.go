@@ -29,7 +29,7 @@ var (
 
 // watchLogsErrors are the codes device.watchLogs declares; a host's other code is not one
 // this daemon can read (ADR-0100 §4).
-var watchLogsErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
+var watchLogsErrors = append(append([]capability.ErrorCode{}, LentErrors...),
 	ErrLogsFailed, capability.ErrInvalidParams, capability.ErrSessionRequired)
 
 // relayedLogSet holds the live relayed streams by the client session and remote device that

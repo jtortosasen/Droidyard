@@ -189,6 +189,10 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 				if err != nil {
 					return nil, err
 				}
+				// The client's own sessions coordinate on the remote id (ADR-0104 §5).
+				if err := adb.OccupyFor(call, rt.id); err != nil {
+					return nil, err
+				}
 				return rt, nil
 			}
 			return adb.authorizeActing(ctx, call, p.Device, "device.install")
@@ -219,7 +223,7 @@ func registerInstall(reg *capability.Registry, adb *ADB, builds BuildResolver) {
 // installUploadErrors are the codes device.installUpload can return: the device preamble's,
 // the params check (which is also an upload this peer does not have) and its own. It is
 // long-running, so it need not list OPERATION_QUEUE_TIMEOUT.
-var installUploadErrors = append(append([]capability.ErrorCode{}, PreambleErrors...),
+var installUploadErrors = append(append([]capability.ErrorCode{}, LentErrors...),
 	capability.ErrInvalidParams, ErrInstallFailed)
 
 // InstallUploadParams is device.installUpload's parameters.

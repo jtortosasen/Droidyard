@@ -74,8 +74,9 @@ type Lending interface {
 // who is the call's origin. For a paired peer (ADR-0099 §1) a device that is not lent to
 // it, that is not physical, that the host's own policy does not admit or that shares its
 // serial is DEVICE_NOT_FOUND, as one that is not there, and the candidates hold only what
-// is lent to it. A serial that two devices report is DEVICE_NOT_ALLOWED for a local caller,
-// for both devices (ADR-0103 §1).
+// is lent to it; one that is lent to it is leased to its link by this call (ADR-0104 §2).
+// A serial that two devices report is DEVICE_NOT_ALLOWED for a local caller, for both
+// devices (ADR-0103 §1).
 func (a *ADB) authorize(ctx context.Context, who capability.Origin, serial, again string) (*target, error) {
 	// D13: the act-then-verify clock is this hook's start, not the handler's entry.
 	started := time.Now()
@@ -116,6 +117,11 @@ func (a *ADB) authorize(ctx context.Context, who capability.Origin, serial, agai
 	if t.forPeer {
 		if !a.lentTo(t.peer, *t.dev, all) {
 			return nil, a.notFound(t)
+		}
+		// A peer's call of any kind leases the device it names (ADR-0104 §2), after the
+		// lending check, so a device not lent to it never says who holds it.
+		if err := a.leaseFor(who, serial); err != nil {
+			return nil, err
 		}
 		return t, nil
 	}

@@ -15,12 +15,15 @@ import (
 // made as (client peer, the peer's configured name). The route, the TLS and the pin are
 // adapters/peer's; nothing of the UI's fence applies here and none of it is reachable
 // from the peer port.
-type PeerSessions struct{ h *wsHandler }
+type PeerSessions struct {
+	h        *wsHandler
+	sessions *capability.Sessions
+}
 
 // NewPeerSessions returns the sessions of peers calling into reg through ops, with
-// subscriptions on bus.
+// subscriptions on bus. Each peer's link is a session in ops' registry (ADR-0104 §1).
 func NewPeerSessions(reg *capability.Registry, ops *capability.Operations, bus *event.Bus) *PeerSessions {
-	return &PeerSessions{h: newWSHandler(&caller{reg: reg, ops: ops}, bus, "")}
+	return &PeerSessions{h: newWSHandler(&caller{reg: reg, ops: ops}, bus, ""), sessions: ops.Sessions()}
 }
 
 // Peer is who a session's requests are made as.
@@ -37,7 +40,7 @@ type Peer struct {
 // itself, with the reason). Before it, c reads no frame over 4 KiB.
 func (p *PeerSessions) Serve(ctx context.Context, c *websocket.Conn, peer Peer, hello func(ctx context.Context) bool) {
 	c.SetReadLimit(preAuthLimit) // raised to MaxBody once the session has started
-	s := &wsSession{h: p.h, c: c, started: map[string]bool{}, who: requester{client: capability.ClientPeer, name: peer.Name}, allowed: peer.Allowed}
+	s := &wsSession{h: p.h, c: c, started: map[string]bool{}, who: requester{client: capability.ClientPeer, name: peer.Name}, allowed: peer.Allowed, registry: p.sessions}
 	if !p.h.add(s) {
 		c.Close(websocket.StatusGoingAway, "the daemon is stopping")
 		return

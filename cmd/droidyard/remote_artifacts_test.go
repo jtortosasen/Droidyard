@@ -191,7 +191,11 @@ func TestRemoteArtifactsAndLogs(t *testing.T) {
 		t.Parallel()
 		lab := newArtifactsLab(t)
 		anna, bob := lab.client.host.Remote("qa"), lab.bobLink(t)
-		annaRef, bobRef := shotRef(t, anna), shotRef(t, bob)
+		// One person at a time on a lent phone (ADR-0104): anna's call leases it, and the
+		// host's owner releases it for bob's.
+		annaRef := shotRef(t, anna)
+		lab.releaseLease(t)
+		bobRef := shotRef(t, bob)
 		hostEnv, code := lab.host.call(t, "device.screenshot", "--params", `{"device":"`+phone1+`"}`)
 		var hostShot artifact.Ref
 		if code != 0 || hostEnv.Error != nil || json.Unmarshal(hostEnv.Result, &hostShot) != nil {

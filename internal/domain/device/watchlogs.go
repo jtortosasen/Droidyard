@@ -111,7 +111,7 @@ type LinesEvent struct {
 // and empty until events.unsubscribe or the session's end.
 type StoppedEvent struct {
 	Device string `json:"device" jsonschema:"required"`
-	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=replaced" jsonschema_description:"deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: logcat ended by itself. replaced: the same session started a stream of this device."`
+	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=replaced" jsonschema_description:"deviceGone: logcat ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: logcat ended by itself. replaced: the same session started a stream of this device."`
 	Cause  string `json:"cause,omitempty" jsonschema_description:"For exited and deviceGone, the exit status of adb logcat; never device text."`
 }
 
@@ -209,6 +209,7 @@ const (
 	endShutdown               // StopAll
 	endCancelled              // the call was cancelled while starting
 	endChildExit              // logcat ended by itself: stopped is published
+	endLease                  // the host ended the peer's lease of the device (ADR-0104 §4): stopped is published
 )
 
 // streamKey names the stream a session holds for a device: the one, for a local session.
@@ -309,6 +310,9 @@ func (st *streamSet) replace(s *logStream) *logStream {
 // remove takes s out of the set: the last thing a stream does, after its child is
 // reaped and its record removed.
 func (st *streamSet) remove(s *logStream) {
+	if s.activity != nil {
+		defer s.activity() // after the set's lock is released
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	delete(st.all, s)
@@ -324,6 +328,17 @@ func (st *streamSet) remove(s *logStream) {
 		} else {
 			st.peers[s.key] = list
 		}
+	}
+}
+
+// endLease ends every stream the link session holds of serial, as stopped deviceGone with
+// the cause of the host's end of the lease (ADR-0104 §4).
+func (st *streamSet) endLease(session, serial string) {
+	st.mu.Lock()
+	list := slices.Clone(st.peers[streamKey{session: session, serial: serial}])
+	st.mu.Unlock()
+	for _, s := range list {
+		s.end(endLease)
 	}
 }
 
@@ -377,6 +392,9 @@ type logStream struct {
 	filterUID bool
 	uid       int
 	peer      bool // opened by a paired peer's session: bounded by peerStreamsMax, not replaced
+	// activity ends the stream's count as activity of its peer's lease (ADR-0104 §3); set
+	// once, before the stream runs, and called when it leaves the set.
+	activity func()
 	// ending is closed when the stream is first ended, so a stream that waits for the one it
 	// evicted notices it was evicted itself.
 	ending  chan struct{}
@@ -464,6 +482,9 @@ func (s *logStream) run() {
 	case endReplaced:
 		s.drain()
 		s.publishStopped(StopReplaced, "")
+	case endLease:
+		s.drain()
+		s.publishStopped(StopDeviceGone, leaseEndedCause)
 	}
 }
 
@@ -673,6 +694,7 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 	s.ctx, s.cancel = context.WithCancel(context.WithoutCancel(ctx))
 	s.rctx, s.rcancel = context.WithCancel(s.ctx)
 
+	a.started()
 	id, sub, serr := sess.Open([]string{TopicLogcat}, func() { s.end(endSubscription) })
 	if serr != nil {
 		s.cancel()
@@ -686,6 +708,13 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 		return nil, capability.NewError(ErrLogsFailed, "the device log could not be streamed").
 			WithCause(err.Error()).
 			WithNextStep("Start the daemon again, then retry.")
+	}
+	// An open stream is activity of the peer's lease until it leaves the set (ADR-0104 §3).
+	s.activity = a.streamActivity(call)
+	// A lease that ended while the stream was starting found it in no table: it ends here
+	// (ADR-0104 §4), and one that ends after this check finds it in the table.
+	if a.leaseLost(call, t.serial) {
+		s.end(endLease)
 	}
 	if evicted != nil {
 		// The link session's oldest stream of the device makes room, and is gone before this
@@ -720,14 +749,18 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 	// starting a child that is already unwanted.
 	if r := s.endReason(); r != endNone {
 		a.dropUnstarted(s)
-		if r != endReplaced {
-			sess.Unsubscribe(id)
-			return nil, capability.NewError(ErrLogsFailed, "the device log could not be streamed").
-				WithCause("the stream was ended before its child started").
-				WithNextStep("Retry.")
+		switch r {
+		case endReplaced:
+			s.publishStopped(StopReplaced, "")
+			return result, nil
+		case endLease:
+			s.publishStopped(StopDeviceGone, leaseEndedCause)
+			return result, nil
 		}
-		s.publishStopped(StopReplaced, "")
-		return result, nil
+		sess.Unsubscribe(id)
+		return nil, capability.NewError(ErrLogsFailed, "the device log could not be streamed").
+			WithCause("the stream was ended before its child started").
+			WithNextStep("Retry.")
 	}
 	// Every stream older than s is done now: the chain behind it is no longer needed, and
 	// keeping it would hold every fourth evicted stream of the link session reachable.
@@ -738,10 +771,14 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 	case err := <-s.started:
 		if err != nil {
 			<-s.done
-			if s.endReason() == endReplaced {
-				// Replaced while its child started: the start failed on the context that
-				// ending cancelled, which is not an adb failure.
+			// Replaced, or its lease ended, while its child started: the start failed on the
+			// context that ending cancelled, which is not an adb failure.
+			switch s.endReason() {
+			case endReplaced:
 				s.publishStopped(StopReplaced, "")
+				return result, nil
+			case endLease:
+				s.publishStopped(StopDeviceGone, leaseEndedCause)
 				return result, nil
 			}
 			sess.Unsubscribe(id)

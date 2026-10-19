@@ -60,7 +60,7 @@ type WatchScreenResult struct {
 // the subscription stays open and empty until events.unsubscribe or the session's end.
 type ScreenStoppedEvent struct {
 	Device string `json:"device" jsonschema:"required"`
-	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=failed,enum=detached" jsonschema_description:"deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is). exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."`
+	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=failed,enum=detached" jsonschema_description:"deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."`
 	Cause  string `json:"cause,omitempty" jsonschema_description:"The daemon's words for why, never device text."`
 }
 
@@ -157,6 +157,7 @@ type screenStream struct {
 	device    string
 	operation string
 	owner     string // "" for the daemon's own clients, "peer:<name>" for a paired peer's (AttachPeerScreen)
+	session   string // the link session of a paired peer's stream, whose lease it is under (ADR-0104); "" otherwise
 	src       screen.Source
 	viewer    screen.Viewer
 	release   func() // the source reference, idempotent
@@ -166,6 +167,7 @@ type screenStream struct {
 	mu         sync.Mutex
 	attached   bool
 	ended      bool
+	activity   func() // ends the stream's count as its lease's activity; set while it is open (ADR-0104 §3)
 	timer      *time.Timer
 	stopSecure func()        // ends the secure-state watch (secure.go); set once the stream is in the table
 	quit       chan struct{} // closed when the stream ended
@@ -188,9 +190,13 @@ func (s *screenStream) end(reason, cause string) {
 		s.timer.Stop()
 	}
 	close(s.quit)
-	stopSecure := s.stopSecure
+	stopSecure, activity := s.stopSecure, s.activity
 	s.mu.Unlock()
 
+	// An ended stream is no longer activity of its lease.
+	if activity != nil {
+		activity()
+	}
 	// Before stopped: when it returns no state event is in flight, so none follows the end.
 	if stopSecure != nil {
 		stopSecure()
@@ -287,6 +293,22 @@ func (ss *screenStreams) add(s *screenStream) error {
 	}
 	ss.byID[s.id], ss.all[s] = s, struct{}{}
 	return nil
+}
+
+// endLease ends every live view the link session holds of serial, as stopped deviceGone with
+// the cause of the host's end of the lease (ADR-0104 §4).
+func (ss *screenStreams) endLease(session, serial string) {
+	ss.mu.Lock()
+	var list []*screenStream
+	for s := range ss.all {
+		if s.session == session && s.device == serial {
+			list = append(list, s)
+		}
+	}
+	ss.mu.Unlock()
+	for _, s := range list {
+		s.end(StopDeviceGone, leaseEndedCause)
+	}
 }
 
 // Live is how many streams are in the table, one being released included: zero once every
@@ -426,6 +448,7 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	a.started()
 
 	s := &screenStream{
 		set: &a.screenViews, bus: a.bus, id: newStreamID(), device: deviceID, operation: call.OperationID,
@@ -433,7 +456,7 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 		quit: make(chan struct{}), released: make(chan struct{}),
 	}
 	if call.Origin.Client == capability.ClientPeer {
-		s.owner = peerOwner(call.Origin.Name)
+		s.owner, s.session = peerOwner(call.Origin.Name), sess.ID()
 	}
 	subID, sub, err := sess.Open([]string{TopicScreen}, func() { s.end("", "") })
 	if err != nil {
@@ -457,10 +480,17 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 	ended := s.ended
 	if !ended {
 		s.timer = time.AfterFunc(screenAttachBound, s.unattached)
+		// An open stream is activity of the peer's lease (ADR-0104 §3).
+		s.activity = a.streamActivity(call)
 	}
 	s.mu.Unlock()
 	if ended { // ended between the table and the watch: nothing else will stop it
 		stop()
+	}
+	// A lease that ended while the stream was starting found it in no table: it ends here
+	// (ADR-0104 §4), and one that ends after this check finds it in the table.
+	if !ended && a.leaseLost(call, deviceID) {
+		s.end(StopDeviceGone, leaseEndedCause)
 	}
 	go s.watch()
 
