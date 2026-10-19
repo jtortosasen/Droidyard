@@ -543,7 +543,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// hosting.share, hosting.unshare and hosting.join: the human's commands that pair two
 	// daemons and write the configuration for it (ADR-0107, ADR-0108). Without a state store
 	// (caps, schema) there is no host and they answer HOSTING_UNAVAILABLE.
-	sharing.Register(reg, sharing.Options{Host: host, Devices: adb, API: system.Version, Join: joinSeam, Log: log})
+	sharing.Register(reg, sharing.Options{Host: host, Devices: adb, API: system.Version, Join: joinSeam, Log: log, Sweep: adb.SweepLeases})
 	artifactcap.Register(reg, artifacts)
 	ops.RegisterCapabilities()
 	var stopSidecars func(id string)

@@ -106,7 +106,8 @@ export interface LentRow {
 export function lentRows(lent: readonly Lent[], holds: readonly DeviceHold[]): LentRow[] {
 	return lent.map((l) => ({
 		serial: l.device,
-		text: `lent to ${l.to.join(', ')}`,
+		// An empty `to` is a share no one has joined yet (ADR-0108 §2).
+		text: l.to.length > 0 ? `lent to ${l.to.join(', ')}` : 'shared, no one joined yet',
 		holder: holds.find((h) => h.serial === l.device),
 	}));
 }

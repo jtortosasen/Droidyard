@@ -20,7 +20,7 @@ says how the pieces fit; the rules are the ADRs and the code (`internal/hosting`
   when it is set; otherwise, while something is lent and `hosting.on` is set, every private
   address of the machine on `hosting.port`: a VPN's (a tunnel interface) and the LAN's,
   never a public one. `hosting.peers` names whom it admits, by certificate fingerprint;
-  `hosting.lend` which serials go to whom. It lends only physical devices its own physical
+  `hosting.lend`, and a foreground share in memory, which serials go to whom. It lends only physical devices its own physical
   policy admits (ADR-0098, ADR-0099, ADR-0109).
 - **Client.** `remotes` names each host, its addresses (tagged `vpn` or `lan`, its own
   subnet's tried first) and fingerprint. A lent device appears
@@ -30,8 +30,8 @@ says how the pieces fit; the rules are the ADRs and the code (`internal/hosting`
 
 ## Sharing: one command, one paste
 
-`droidyard share [<serial>]` on the host lists its physical devices when there are several,
-admits the chosen one in the host's physical policy, opens the listener and prints one line,
+`droidyard share [<serial>]` on the host, with no serial, lists its physical devices and takes
+the only one; it admits the device in the host's physical policy, opens the listener and prints one line,
 `droidyard join dy1.…`: the addresses, port, the host's fingerprint and a 128-bit secret.
 In the foreground the share lasts while the command runs (Ctrl-C ends it); with `-d` until
 `droidyard unshare`, across restarts. On the client, `droidyard join <code>` pins the host,

@@ -167,6 +167,28 @@ func TestShareNamedSerialDoesNotAskManufacturers(t *testing.T) {
 	}
 }
 
+// TestUnshareSweepsAtOnce: unshare stops the peers' streams at once, as the end of a
+// foreground share's connection does, not at the next periodic lease sweep (plan m2u A4).
+func TestUnshareSweepsAtOnce(t *testing.T) {
+	l := newBoundLab(t, "")
+	swept := 0
+	reg := capability.NewRegistry()
+	Register(reg, Options{Host: l.host, Devices: &hookDevices{}, API: "0.0.0", Sweep: func() { swept++ }})
+	share, _ := reg.Lookup(CapShare)
+	p, _ := decode(share, `{"device":"R1","detach":true,"on":"127.0.0.1"}`)
+	if _, err := share.Handler(context.Background(), &capability.Call{Params: p, Origin: cli1, Progress: func(int, int, string) {}}); err != nil {
+		t.Fatal(err)
+	}
+	unshare, _ := reg.Lookup(CapUnshare)
+	p, _ = decode(unshare, `{"device":"R1"}`)
+	if _, err := unshare.Handler(context.Background(), &capability.Call{Params: p, Origin: cli1, Progress: func(int, int, string) {}}); err != nil {
+		t.Fatal(err)
+	}
+	if swept != 1 {
+		t.Errorf("unshare swept the leases %d times; want once, at once", swept)
+	}
+}
+
 // TestShareAfterAnUnlendDoesNotReviveTheOldCodes: `host unlend` removes the lend entry with no
 // word to the daemon, so the codes of the share it ended are still held when the serial is
 // shared again; the new lend entry must not bring them back (ADR-0108 §2, §4). Seen failing

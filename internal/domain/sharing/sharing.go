@@ -86,6 +86,9 @@ type Options struct {
 	Join JoinFunc
 	// Log receives the join lines (daemon.log); nil discards them.
 	Log io.Writer
+	// Sweep stops at once the streams of peers no longer lent a device (the lease sweep),
+	// after an unshare; nil leaves them to the next periodic sweep.
+	Sweep func()
 }
 
 type sharing struct {
@@ -771,6 +774,9 @@ func (s *sharing) unshare(ctx context.Context, call *capability.Call) (any, erro
 		voidErr = host.Pending().Void(p.Device)
 	}
 	host.Reconcile()
+	if s.Sweep != nil {
+		s.Sweep() // as the end of a foreground share's connection does (cmd/droidyard)
+	}
 	if voidErr != nil {
 		// The codes are void in this daemon, but the file still lists them: if the device is
 		// lent again before the file is written (a new share, then a restart), they would come

@@ -186,7 +186,10 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 216 (to 29,558) at milestone 2u step 7, Delegated: peer.md's sharing section
 // (share and join, the join route, the listener on private addresses, every key live), and
 // the lines that name them in adb-device.md and http-websocket.md (ADR-0107 to ADR-0109).
-const liveBudget = 29558
+// Raised by 34 (to 29,592) at milestone 2u's close: the close verifier's corrections of
+// peer.md, adb-device.md and http-websocket.md (the foreground share, hosting.listen), and
+// README.md's status line names 2u.
+const liveBudget = 29592
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
