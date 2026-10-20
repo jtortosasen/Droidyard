@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // uploadFixture is a host that lends R58M001 to anna and R58M002 to bob, with the store of
@@ -158,6 +160,68 @@ func TestInstallUploadSaysWhyItIsGone(t *testing.T) {
 	ce := mustFail(t, f.call(t, anna, "device.installUpload", `{"device":"R58M001","upload":"`+first+`"}`), capability.ErrInvalidParams)
 	if !strings.Contains(ce.Cause, "replaced by a newer upload") || !strings.Contains(ce.NextStep, "device.install") {
 		t.Errorf("error = %+v; want a cause that says it was replaced and a next step that repeats device.install", ce)
+	}
+}
+
+// Known limit (register row, plan m2v step 2): an installUpload cancelled before it takes
+// its upload (queued behind another install on the device's write key, as here, or
+// cancelled before its handler or its authorization ran) leaves the upload pending, which
+// ADR-0099 §3 permits ("until installed or 10 minutes old"); the assertion that it stays
+// flips when that row is closed. Decision (ADR-0099 §3): a peer has one slot, so its next
+// upload replaces the pending one and says why. TestRemoteInstall's "a cancel leaves
+// nothing on the host" therefore holds for a cancel during the install only.
+func TestInstallUploadCancelledBeforeItRuns(t *testing.T) {
+	f, up, dir := uploadFixture(t)
+	devicetest.Write(t, f.dir, "R58M001.install.hang", nil)
+	start := func(id string) string {
+		op, err := f.ops.Start(context.Background(), capability.Request{Capability: "device.installUpload",
+			Params: []byte(`{"device":"R58M001","upload":"` + id + `"}`),
+			Client: capability.ClientPeer, Origin: capability.Origin{ID: "peer-" + anna, Name: anna}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return op
+	}
+	wait := func(op string) capability.Outcome {
+		out, err := f.ops.Wait(context.Background(), op, time.Now().Add(testtime.Bound(10*time.Second)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	// The first install holds the device's write key and hangs in adb.
+	first, _ := upload(t, up, anna, "first apk")
+	running := start(first)
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the first install to be running", func() bool { return len(installCalls(f, t)) == 1 })
+
+	// The second is queued behind it, and cancelled there: it never runs.
+	second, _ := upload(t, up, anna, "second apk")
+	queued := start(second)
+	if err := f.ops.Cancel(queued); err != nil {
+		t.Fatal(err)
+	}
+	if out := wait(queued); out.State != capability.StateCancelled {
+		t.Fatalf("the queued operation: %s %+v; want cancelled", out.State, out.Error)
+	}
+	if err := f.ops.Cancel(running); err != nil {
+		t.Fatal(err)
+	}
+	if out := wait(running); out.State != capability.StateCancelled {
+		t.Fatalf("the running operation: %s %+v; want cancelled", out.State, out.Error)
+	}
+	// The install that ran removed its file; the one that never ran left its own.
+	if got := dirFiles(t, dir); len(got) != 1 || got[0] != second+".apk" {
+		t.Fatalf("after both cancels the upload directory holds %v; want only the second upload (%s.apk), which no handler took", got, second)
+	}
+
+	// The peer's next upload takes its slot and removes the pending one, which then says why.
+	third, _ := upload(t, up, anna, "third apk")
+	if got := dirFiles(t, dir); len(got) != 1 || got[0] != third+".apk" {
+		t.Errorf("after a newer upload the directory holds %v; want only %s.apk", got, third)
+	}
+	if why := up.Gone(anna, second); why != "replaced by a newer upload" {
+		t.Errorf("Gone(second) = %q; want it replaced by a newer upload", why)
 	}
 }
 
