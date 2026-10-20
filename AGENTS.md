@@ -120,7 +120,8 @@ skill says who does what.
 `.githooks/pre-commit` refuses a failing commit: `go build ./...`, then `gofmt`, `go vet`
 and `go test` on the packages the commit touches and their importers (a document-only
 commit runs the document checks). Enable it once per clone with
-`git config core.hooksPath .githooks`. The full `go test ./...` runs at each step's close.
+`git config core.hooksPath .githooks`, which also enables `.githooks/commit-msg`: it strips
+Claude attribution lines from a commit message. The full `go test ./...` runs at each step's close.
 
 ```sh
 go build ./...

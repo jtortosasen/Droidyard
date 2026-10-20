@@ -53,6 +53,7 @@ The register is touched by almost every close; its rows are ordered by Area, so 
 4. Merge from the main tree: `git -C <main tree> merge --no-ff <branch>`, push `main`, watch `main`'s CI.
 5. `ExitWorktree` with `action: "keep"`, then `board.go release <id>`: it removes the worktree, the branch and the lane, and refuses an unmerged branch.
 6. Republish the board (§5).
+7. Free the disk once `main`'s CI is green (owner, 2026-10-20: the Mac is short of space): delete the lane's fixtures (`~/Library/Caches/droidyard-dev/<id>/`), its `/tmp` runs and the binaries and logs in the session's scratchpad, run `go clean -cache` (other open lanes rebuild once), and tell the owner what was freed.
 
 Abandoning work is the owner's call: then remove the worktree and the branch by hand, and `board.go release <id>` drops the lane.
 
