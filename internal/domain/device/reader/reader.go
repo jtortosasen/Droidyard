@@ -6,9 +6,10 @@
 // serve mode); `serve <socket>
 // <idleSeconds>` keeps it running and answers `ping`, `dump`, `quit`, and the acting
 // requests `tap`, `keys` and `settext` over a local socket (ADR-0030; ADR-0035 fences the
-// acting ones by the peer's uid, ADR-0102 `dump`, `ping` and `quit` too). The dex is built from src/DroidyardReader.java by
-// build.sh, checked in and embedded; SHA256 pins it. Building the daemon needs no Android
-// SDK.
+// acting ones by the peer's uid, ADR-0102 `dump`, `ping`, `quit` and `events` too). It also
+// keeps the screen's accessibility events in a ring and answers `events <afterSeq> <max>`
+// (ADR-0111). The dex is built from src/DroidyardReader.java by build.sh, checked in and
+// embedded; SHA256 pins it. Building the daemon needs no Android SDK.
 package reader
 
 import (
@@ -23,7 +24,7 @@ const Class = "DroidyardReader"
 // SHA256 is the hex digest of reader.dex, as build.sh produces it (build-tools 37.0.0,
 // android-36, javac 17.0.11 --release 11, d8 --min-api 24). A test fails when they differ; a
 // change to the source changes both the dex and this line, deliberately.
-const SHA256 = "57e637c69c67030f53bab1e99c215dc2025cd936cf9d898828dc47483408e6cf"
+const SHA256 = "b855f4a0258ff3d856d1a4485cf8de2059c10d1b53ca8a3fc361c095be0c89ec"
 
 //go:embed reader.dex
 var dex []byte

@@ -17,6 +17,7 @@ import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -29,6 +30,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -56,8 +58,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * ADR-0030: it connects UiAutomation once and answers one request per connection over a
  * LocalServerSocket in the abstract namespace ({@code ping} -> {@code ok <pid>};
  * {@code dump} -> the same XML document the one-shot writes; {@code quit} -> it ends).
- * Only a {@code dump} resets the idle timer; after idleSeconds without one it disconnects
- * UiAutomation and exits, so the device is left as it was found. A response is read to
+ * Only a {@code dump} or an {@code events} request resets the idle timer (ADR-0111); after
+ * idleSeconds without one it disconnects UiAutomation and exits, so the device is left as it was found. A response is read to
  * EOF, not to a newline: a successful one is the XML document (or {@code ok <pid>}), and
  * one that cannot be answered starts with {@code droidyard-reader:}. Source of
  * reader.dex: see build.sh.
@@ -84,6 +86,18 @@ import java.util.concurrent.atomic.AtomicReference;
  * words as arguments ({@code DroidyardReader dump full [invisible]}). No getter of the full
  * document queries another node, so the device-side bound and the platform's 5 s wait hold
  * as for a plain dump.
+ *
+ * <p>{@code events <afterSeq> <max>} (ADR-0111) answers the accessibility events the reader has
+ * kept since it started, from a ring of {@link EventRing#CAPACITY} entries filled by one
+ * listener on its UiAutomation connection. The listener copies fields and returns: no
+ * getSource(), no parcelable data, no node query, so it cannot block the UiAutomation thread.
+ * The request is fenced, answered on the accept thread (a blocked dump never delays it) and
+ * counts as a read for the idle exit. The answer is a header line {@code events <instance>
+ * <oldestSeq> <nextSeq> <nowWallMs> <startedWallMs>} and then one line per entry of the
+ * ring after {@code afterSeq}, at most {@code max} (1 to {@link #EVENTS_MAX}), oldest first:
+ * nine tab-separated fields {@code seq time type count window changes package class text}, the
+ * last three strictly base64 (empty for none). Only a toast carries text; a notification
+ * event's text is never read.
  *
  * <p>It also acts (ADR-0035): {@code tap <x> <y>} injects a touch, {@code keys <base64>}
  * types text as the virtual keyboard's key events, and {@code settext <replace|insert>
@@ -158,6 +172,8 @@ public class DroidyardReader {
     // the daemon reads as over the cap, and the reader holds no more than that in memory.
     // Characters are at most as many as UTF-8 bytes, so one past the cap is past it in bytes.
     private static final int FULL_DOC_CAP_CHARS = (8 << 20) + 1;
+    // The most entries one `events` answer carries (ADR-0111 Decision 4).
+    private static final int EVENTS_MAX = 200;
     // The acting verbs of ADR-0035 §1: the requests the uid fence applies to.
     private static final String[] ACTING_VERBS = { "tap", "keys", "settext" };
 
@@ -232,24 +248,37 @@ public class DroidyardReader {
     }
 
     // The persistent mode of ADR-0030. The listener is bound in the abstract namespace, so
-    // adb forward can reach it; the read itself is the one-shot's document(). Only a dump
-    // resets the idle timer.
+    // adb forward can reach it; the read itself is the one-shot's document(). Only a dump or
+    // an events request resets the idle timer.
     private static int serve(String socketName, int idleSeconds) throws Exception {
         // Bind before connecting UiAutomation: a second start on the same name fails here,
         // at the name, without touching accessibility; and if the bind fails there is no
         // connection to release.
         final LocalServerSocket server = new LocalServerSocket(socketName);
-        final Automation a;
+        // The one accessibility listener of the reader (ADR-0111 Decision 1), set once the
+        // connection is up. A reader whose listener could not be set does not start: an
+        // empty ring would read as a quiet screen.
+        final EventRing ring = new EventRing();
+        Automation connected = null;
         try {
-            a = connect();
+            connected = connect();
+            connected.ua.setOnAccessibilityEventListener(ring);
         } catch (Throwable t) {
             try {
                 server.close();
             } catch (IOException ignored) {
                 // Already closed.
             }
+            if (connected != null) {
+                try {
+                    connected.close();
+                } catch (Throwable ignored) {
+                    // The start fails with the first error.
+                }
+            }
             throw t;
         }
+        final Automation a = connected;
         final AtomicBoolean done = new AtomicBoolean(false);
         // elapsedRealtime, not currentTimeMillis: a wall-clock change must not delay the
         // idle exit.
@@ -355,6 +384,22 @@ public class DroidyardReader {
                                 submitDump(conn, a.ua, workers, timer, out, lastPackage, dumpArgs);
                             }
                         }
+                    } else if (request.line.equals("events") || request.line.startsWith("events ")) {
+                        // The fence first, as for a dump (ADR-0102 §2): the events are the
+                        // device's screen. Answered here, on the accept thread, from the
+                        // ring under its own lock: a blocked dump never delays it, and it
+                        // makes no UiAutomation call (ADR-0111 Decision 4).
+                        if (!denied(conn)) {
+                            long[] ask = parseEvents(request.line);
+                            if (ask == null) {
+                                write(conn, PREFIX + " bad events arguments");
+                            } else {
+                                // A read in ADR-0030's sense: it keeps the reader alive.
+                                lastDump.set(SystemClock.elapsedRealtime());
+                                write(conn, ring.answer(ask[0], (int) ask[1]));
+                            }
+                            closeQuietly(conn);
+                        }
                     } else if (actingRequest(request.line)) {
                         // The fence first, before anything is parsed or executed (ADR-0035
                         // §2): an acting request from any peer but adbd is answered
@@ -395,6 +440,11 @@ public class DroidyardReader {
             workers.shutdownNow();
             acting.shutdownNow();
             timer.shutdownNow();
+            try {
+                a.ua.setOnAccessibilityEventListener(null);
+            } catch (Throwable ignored) {
+                // The connection is closed next, which ends the events anyway.
+            }
             try {
                 a.close();
             } catch (Throwable t) {
@@ -880,6 +930,215 @@ public class DroidyardReader {
             } catch (NumberFormatException e) {
                 return null;
             }
+        }
+    }
+
+    // The words of an `events` request (ADR-0111 Decision 4): `events <afterSeq> <max>`, both
+    // plain decimal digits, nothing else, max from 1 to EVENTS_MAX. Returns {afterSeq, max}, or
+    // null when the request is malformed, and then nothing is read.
+    private static long[] parseEvents(String request) {
+        String[] words = request.split(" ", -1);
+        if (words.length != 3 || !words[0].equals("events")) return null;
+        if (!digits(words[1]) || !digits(words[2])) return null;
+        long afterSeq = Long.parseLong(words[1]);
+        long max = Long.parseLong(words[2]);
+        if (max < 1 || max > EVENTS_MAX) return null;
+        return new long[] { afterSeq, max };
+    }
+
+    // Whether s is one to eighteen decimal digits: a sequence number that cannot overflow.
+    private static boolean digits(String s) {
+        if (s.length() < 1 || s.length() > 18) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
+    }
+
+    // The accessibility events the reader keeps (ADR-0111). It is the listener of the reader's
+    // UiAutomation connection and the ring the `events` request reads, under one lock. The
+    // listener only copies fields: it takes no node, no source and no parcelable data, and
+    // makes no call into the system, so it cannot block the UiAutomation thread. Nothing but a
+    // toast's text is ever read from an event (Decision 3): a notification event's getText()
+    // is not called at all.
+    private static final class EventRing implements UiAutomation.OnAccessibilityEventListener {
+        // Working defaults of ADR-0111: the ring's size and the fold window.
+        static final int CAPACITY = 512;
+        static final long FOLD_MS = 250L;
+        // The most characters kept of a toast's text, and of a package or class name. A name
+        // is the app's own string, so it is capped to keep an answer of 200 entries well under
+        // the 1 MiB the daemon reads.
+        static final int TEXT_CAP = 512;
+        static final int NAME_CAP = 128;
+
+        private final Object lock = new Object();
+        private final Entry[] ring = new Entry[CAPACITY];
+        // The sequence number the next entry gets, and the oldest one still in the ring.
+        private long next = 1;
+        private long oldest = 1;
+        // Drawn at start (64 random bits): a client tells a restarted reader by it.
+        private final String instance;
+        private final long startedWallMs;
+
+        EventRing() {
+            long id = new SecureRandom().nextLong();
+            this.instance = String.format(Locale.ROOT, "%016x", id);
+            this.startedWallMs = System.currentTimeMillis();
+        }
+
+        // One kept event. Once an `events` answer has returned it, it is sealed and a later
+        // event never folds into it (Decision 2), so a cursor past it misses nothing.
+        private static final class Entry {
+            final long seq;
+            long wallMs;
+            long eventTime;
+            final String type;
+            final String pkg;
+            final String cls;
+            final int window;
+            int changes;
+            int count = 1;
+            final String text;
+            boolean sealed;
+
+            Entry(long seq, long wallMs, long eventTime, String type, String pkg, String cls, int window, int changes, String text) {
+                this.seq = seq;
+                this.wallMs = wallMs;
+                this.eventTime = eventTime;
+                this.type = type;
+                this.pkg = pkg;
+                this.cls = cls;
+                this.window = window;
+                this.changes = changes;
+                this.text = text;
+            }
+        }
+
+        @Override
+        public void onAccessibilityEvent(AccessibilityEvent e) {
+            try {
+                record(e);
+            } catch (Throwable ignored) {
+                // Never into the UiAutomation thread: an event that cannot be copied is lost.
+            }
+        }
+
+        private void record(AccessibilityEvent e) {
+            String cls = cap(e.getClassName(), NAME_CAP);
+            String type = typeName(e.getEventType(), cls);
+            if (type == null) return;
+            String pkg = cap(e.getPackageName(), NAME_CAP);
+            long eventTime = e.getEventTime();
+            // The event's age is how long ago uptime says it happened: wall time then.
+            long age = SystemClock.uptimeMillis() - eventTime;
+            long wallMs = System.currentTimeMillis() - (age > 0 ? age : 0);
+            int window = e.getWindowId();
+            int changes = e.getContentChangeTypes();
+            // A toast's text, and no other event's: a notification's is never read.
+            String text = type.equals("toast") ? toastText(e) : null;
+            boolean foldable = type.equals("windowContent") || type.equals("scroll") || type.equals("textChanged");
+            synchronized (lock) {
+                Entry n = next > 1 ? ring[(int) ((next - 1) % CAPACITY)] : null;
+                if (foldable && n != null && !n.sealed && n.type.equals(type)
+                        && same(n.pkg, pkg) && n.window == window
+                        && eventTime - n.eventTime <= FOLD_MS) {
+                    if (n.count < Integer.MAX_VALUE) n.count++;
+                    // Events are not guaranteed in timestamp order: an older one folds in
+                    // without moving the entry's time back.
+                    n.wallMs = Math.max(n.wallMs, wallMs);
+                    n.eventTime = Math.max(n.eventTime, eventTime);
+                    n.changes |= changes;
+                    return;
+                }
+                ring[(int) (next % CAPACITY)] = new Entry(next, wallMs, eventTime, type, pkg, cls, window, changes, text);
+                next++;
+                oldest = next > CAPACITY ? next - CAPACITY : 1;
+            }
+        }
+
+        // The wire name of an event type (the plan's Q6), or null for one the ring does not
+        // keep. A notification-state event is a toast only by its class, as the spike saw it
+        // (android.widget.Toast); every other one is a notification.
+        private static String typeName(int type, String cls) {
+            switch (type) {
+                case AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED: return "windowState";
+                case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED: return "windowContent";
+                case AccessibilityEvent.TYPE_WINDOWS_CHANGED: return "windows";
+                case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED: return "textChanged";
+                case AccessibilityEvent.TYPE_VIEW_FOCUSED:
+                case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED: return "focus";
+                case AccessibilityEvent.TYPE_VIEW_SCROLLED: return "scroll";
+                case AccessibilityEvent.TYPE_VIEW_CLICKED:
+                case AccessibilityEvent.TYPE_VIEW_LONG_CLICKED: return "click";
+                case AccessibilityEvent.TYPE_VIEW_SELECTED: return "selected";
+                case AccessibilityEvent.TYPE_ANNOUNCEMENT: return "announcement";
+                case AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED:
+                    return cls != null && cls.startsWith("android.widget.Toast") ? "toast" : "notification";
+                default: return null;
+            }
+        }
+
+        // A toast's text: the event's text parts joined by a space, capped. Null when empty.
+        private static String toastText(AccessibilityEvent e) {
+            List<CharSequence> parts = e.getText();
+            if (parts == null || parts.isEmpty()) return null;
+            StringBuilder sb = new StringBuilder();
+            for (CharSequence part : parts) {
+                if (part == null) continue;
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(part);
+                if (sb.length() > TEXT_CAP) break;
+            }
+            return cap(sb, TEXT_CAP);
+        }
+
+        // At most limit characters of s as a String, never ending in half a surrogate pair;
+        // null for null or empty.
+        private static String cap(CharSequence s, int limit) {
+            if (s == null || s.length() == 0) return null;
+            int end = Math.min(s.length(), limit);
+            if (end < s.length() && Character.isHighSurrogate(s.charAt(end - 1))) end--;
+            return end == 0 ? null : s.subSequence(0, end).toString();
+        }
+
+        private static boolean same(String a, String b) {
+            return a == null ? b == null : a.equals(b);
+        }
+
+        // The answer to `events <afterSeq> <max>`: the header, then the entries after afterSeq,
+        // at most max, oldest first. Every entry returned is sealed under the lock, so no event
+        // folds into it afterwards; the lines are built outside it from the sealed (now
+        // unchanging) entries.
+        String answer(long afterSeq, int max) {
+            Entry[] out = new Entry[max];
+            int n = 0;
+            long oldestSeq;
+            long nextSeq;
+            synchronized (lock) {
+                oldestSeq = oldest;
+                nextSeq = next;
+                long from = Math.max(afterSeq + 1, oldest);
+                for (long seq = from; seq < next && n < max; seq++) {
+                    Entry e = ring[(int) (seq % CAPACITY)];
+                    e.sealed = true;
+                    out[n++] = e;
+                }
+            }
+            StringBuilder sb = new StringBuilder(128 + n * 96);
+            sb.append("events ").append(instance).append(' ').append(oldestSeq).append(' ').append(nextSeq)
+                    .append(' ').append(System.currentTimeMillis()).append(' ').append(startedWallMs).append('\n');
+            for (int i = 0; i < n; i++) {
+                Entry e = out[i];
+                sb.append(e.seq).append('\t').append(e.wallMs).append('\t').append(e.type).append('\t')
+                        .append(e.count).append('\t').append(e.window).append('\t').append(e.changes).append('\t')
+                        .append(b64(e.pkg)).append('\t').append(b64(e.cls)).append('\t').append(b64(e.text)).append('\n');
+            }
+            return sb.toString();
+        }
+
+        private static String b64(String s) {
+            return s == null ? "" : base64(s);
         }
     }
 

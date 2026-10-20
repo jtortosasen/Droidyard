@@ -2,9 +2,11 @@ package devicetest
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -51,8 +53,8 @@ func (l *ReaderLog) Max() int {
 
 // FakeReader is an in-process stand-in for the persistent UI reader (ADR-0030, D2): a
 // TCP listener the fake adb's forward points at. Each connection carries one request
-// (`ping`, `dump` and its `idle` and `full` forms, `quit`, and the acting verbs `tap`, `keys` and
-// `settext` of ADR-0035 §1); each dump takes the next scripted document, ReaderGone closes
+// (`ping`, `dump` and its `idle` and `full` forms, `events` (ADR-0111), `quit`, and the acting
+// verbs `tap`, `keys` and `settext` of ADR-0035 §1); each dump takes the next scripted document, ReaderGone closes
 // the connection without writing, and the last document repeats. Each connection is
 // handled in its own goroutine, so a client that sends two at once is seen to.
 type FakeReader struct {
@@ -74,6 +76,14 @@ type FakeReader struct {
 	fullDocs []string
 	fullNext int
 	fulls    []string
+	// The scripted ring behind `events` (ADR-0111): its instance, the sequence number of
+	// ring[0], the entries, and the verbatim answer that overrides them when set.
+	eventsInstance string
+	eventsOldest   uint64
+	ring           []FakeEvent
+	eventsRaw      string
+	eventsRawSet   bool
+	eventsReqs     []string
 	// mutePings is how many forthcoming ping requests are accepted but never answered,
 	// as a reader that is alive but wedged does (plan m1f step 7).
 	mutePings int
@@ -109,7 +119,7 @@ func StartReader(t testing.TB, docs ...string) *FakeReader {
 	if len(docs) == 0 {
 		docs = []string{`<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0"><node class="android.widget.TextView" package="com.example" text="fake" bounds="[0,0][10,10]"></node></hierarchy>`}
 	}
-	r := &FakeReader{Port: port, ln: ln, docs: docs}
+	r := &FakeReader{Port: port, ln: ln, docs: docs, eventsInstance: "0123456789abcdef", eventsOldest: 1}
 	go r.accept()
 	t.Cleanup(r.Close)
 	return r
@@ -325,6 +335,8 @@ func (r *FakeReader) handle(conn net.Conn) {
 			return
 		}
 		io.WriteString(conn, doc)
+	case trimmed == "events" || strings.HasPrefix(trimmed, "events "):
+		r.handleEvents(conn, trimmed)
 	case trimmed == "quit":
 		r.mu.Lock()
 		r.quits++
@@ -334,6 +346,114 @@ func (r *FakeReader) handle(conn net.Conn) {
 	default:
 		fmt.Fprint(conn, readerPrefix+" unknown request")
 	}
+}
+
+// FakeEvent is one scripted entry of the fake reader's ring, as the real reader keeps it
+// (ADR-0111). Count 0 is 1. Text is sent for any type, so a test can script a reader that
+// breaks the toast-only rule.
+type FakeEvent struct {
+	TimeMs  int64
+	Type    string
+	Count   int
+	Window  int
+	Changes int
+	Package string
+	Class   string
+	Text    string
+}
+
+// SetEventsInstance sets the 16 hex digits the fake reader answers as its `instance`, as a
+// restarted reader has a new one.
+func (r *FakeReader) SetEventsInstance(instance string) {
+	r.mu.Lock()
+	r.eventsInstance = instance
+	r.mu.Unlock()
+}
+
+// AddEvents appends entries to the fake's ring; each takes the next sequence number, from 1.
+func (r *FakeReader) AddEvents(events ...FakeEvent) {
+	r.mu.Lock()
+	r.ring = append(r.ring, events...)
+	r.mu.Unlock()
+}
+
+// DropEventsBefore drops the entries before sequence number seq, as a ring that overflowed
+// does: the oldest kept is then seq (or the next one, when seq is past the ring).
+func (r *FakeReader) DropEventsBefore(seq uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if seq <= r.eventsOldest {
+		return
+	}
+	drop := min(seq-r.eventsOldest, uint64(len(r.ring)))
+	r.ring = r.ring[drop:]
+	r.eventsOldest += drop
+}
+
+// SetEventsAnswer makes the fake answer every `events` request with raw, verbatim, in place of
+// its ring: a reader's own line, a malformed answer, or ReaderGone (the connection closed with
+// nothing written).
+func (r *FakeReader) SetEventsAnswer(raw string) {
+	r.mu.Lock()
+	r.eventsRaw, r.eventsRawSet = raw, true
+	r.mu.Unlock()
+}
+
+// EventsRequests is every `events` request line the reader received, without its newline, in
+// order.
+func (r *FakeReader) EventsRequests() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.eventsReqs...)
+}
+
+// handleEvents answers `events <afterSeq> <max>` from the ring: the header, then the entries
+// after afterSeq, at most max, in the wire form the reader writes (ADR-0111). A request that
+// is not that is answered as the reader answers it.
+func (r *FakeReader) handleEvents(conn net.Conn, request string) {
+	r.mu.Lock()
+	r.eventsReqs = append(r.eventsReqs, request)
+	if r.eventsRawSet {
+		raw := r.eventsRaw
+		r.mu.Unlock()
+		if raw != ReaderGone {
+			io.WriteString(conn, raw)
+		}
+		return
+	}
+	words := strings.Split(request, " ")
+	if len(words) != 3 {
+		r.mu.Unlock()
+		fmt.Fprint(conn, readerPrefix+" bad events arguments")
+		return
+	}
+	after, err1 := strconv.ParseUint(words[1], 10, 64)
+	max, err2 := strconv.Atoi(words[2])
+	if err1 != nil || err2 != nil || max < 1 || max > 200 {
+		r.mu.Unlock()
+		fmt.Fprint(conn, readerPrefix+" bad events arguments")
+		return
+	}
+	next := r.eventsOldest + uint64(len(r.ring))
+	var sb strings.Builder
+	now := time.Now()
+	fmt.Fprintf(&sb, "events %s %d %d %d %d\n", r.eventsInstance, r.eventsOldest, next, now.UnixMilli(), now.Add(-time.Minute).UnixMilli())
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	sent := 0
+	for i, e := range r.ring {
+		seq := r.eventsOldest + uint64(i)
+		if seq <= after || sent == max {
+			continue
+		}
+		sent++
+		count := e.Count
+		if count == 0 {
+			count = 1
+		}
+		fmt.Fprintf(&sb, "%d\t%d\t%s\t%d\t%d\t%d\t%s\t%s\t%s\n", seq, e.TimeMs, e.Type, count, e.Window, e.Changes, b64(e.Package), b64(e.Class), b64(e.Text))
+	}
+	r.mu.Unlock()
+	io.WriteString(conn, sb.String())
 }
 
 // isActingRequest reports whether a request is one of the acting verbs of ADR-0035 §1.
