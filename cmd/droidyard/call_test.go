@@ -393,13 +393,3 @@ func shutdown(t *testing.T, p *inProcess) {
 		t.Fatalf("Shutdown: %v", err)
 	}
 }
-
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("never: %s", what)
-}

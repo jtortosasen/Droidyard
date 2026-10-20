@@ -15,6 +15,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 func TestMain(m *testing.M) {
@@ -91,15 +92,6 @@ func use(t *testing.T, s *Supervisor, d Descriptor) *Lease {
 	return l
 }
 
-func eventually(t *testing.T, within time.Duration, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(within); !cond(); time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("not within %s: %s", within, what)
-		}
-	}
-}
-
 // helperOf is the pid of the helper the dummy forked into its group.
 func helperOf(t *testing.T, path string) int {
 	t.Helper()
@@ -133,7 +125,7 @@ func TestUseStartsLazilyAndRecordsAtOnce(t *testing.T) {
 		}
 		used <- l
 	}()
-	eventually(t, 5*time.Second, "a record while the process starts", func() bool { return len(onDisk(t, st)) == 1 })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "a record while the process starts", func() bool { return len(onDisk(t, st)) == 1 })
 	rec := onDisk(t, st)[0]
 	if s.State(d.ID, d.Scope) != Starting {
 		t.Errorf("state %s when the record appeared; want starting", s.State(d.ID, d.Scope))
@@ -158,7 +150,7 @@ func TestUseStartsLazilyAndRecordsAtOnce(t *testing.T) {
 	if l == nil || l.Pid() != rec.PID || s.State(d.ID, d.Scope) != Busy {
 		t.Fatalf("lease %v, state %s; want pid %d, busy", l, s.State(d.ID, d.Scope), rec.PID)
 	}
-	eventually(t, 5*time.Second, "the dummy's ready event", func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the dummy's ready event", func() bool {
 		e := events(ev)
 		return len(e) > 0 && e[0] == "ready"
 	})
@@ -180,7 +172,8 @@ func TestIdleShutdownRespectsLeases(t *testing.T) {
 	}
 	released := time.Now()
 	l.Release()
-	eventually(t, d.IdleTimeout+time.Second, "an idle stop", func() bool { return s.State(d.ID, d.Scope) == Stopped })
+	// A product claim (the idle stop), unscaled: no level-5 run timed it, so it is not stretched.
+	testtime.Eventually(t, d.IdleTimeout+time.Second, "an idle stop", func() bool { return s.State(d.ID, d.Scope) == Stopped })
 	if took := time.Since(released); took < d.IdleTimeout {
 		t.Errorf("stopped %s after the release, before the idle timeout", took)
 	}
@@ -278,8 +271,8 @@ func TestUnexpectedExitFails(t *testing.T) {
 	d, _ := dummy(t, "crashy", Global)
 	l := use(t, s, d)
 	syscall.Kill(l.Pid(), syscall.SIGKILL)
-	eventually(t, 5*time.Second, "failed", func() bool { return s.State(d.ID, d.Scope) == Failed })
-	eventually(t, 5*time.Second, "its record removed", func() bool { return len(onDisk(t, st)) == 0 })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "failed", func() bool { return s.State(d.ID, d.Scope) == Failed })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "its record removed", func() bool { return len(onDisk(t, st)) == 0 })
 	l.Release()
 
 	again := use(t, s, d)
@@ -325,7 +318,7 @@ func TestOutputIsDrainedAndBounded(t *testing.T) {
 	s, _ := newSupervisor(t)
 	d, ev := dummy(t, "noisy", Global, "flood=8000000")
 	use(t, s, d)
-	eventually(t, 10*time.Second, "the dummy wrote 8 MB", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the dummy wrote 8 MB", func() bool {
 		return strings.Contains(strings.Join(events(ev), " "), "flooded")
 	})
 	out := s.Output(d.ID, d.Scope)

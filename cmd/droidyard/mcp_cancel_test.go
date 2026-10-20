@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // startBlockingCall opens an MCP session, calls fixture_block as request 5 and returns
@@ -64,7 +65,7 @@ func TestMCPCancellation(t *testing.T) {
 		c, id, before := startBlockingCall(t, p)
 		c.cmd.Process.Signal(syscall.SIGKILL)
 		c.wait()
-		eventually(t, "the daemon ends the killed shim's session", func() bool { return p.d.Sessions() == before })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the daemon ends the killed shim's session", func() bool { return p.d.Sessions() == before })
 		released(t, p, id)
 	})
 
@@ -79,7 +80,7 @@ func TestMCPCancellation(t *testing.T) {
 		if len(c.trailing) != 0 {
 			t.Errorf("the ended session was written %d line(s): %s", len(c.trailing), c.trailing[0])
 		}
-		eventually(t, "the daemon ends the session", func() bool { return p.d.Sessions() == before })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the daemon ends the session", func() bool { return p.d.Sessions() == before })
 		released(t, p, id)
 	})
 }

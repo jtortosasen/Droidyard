@@ -13,22 +13,17 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // Live peer configuration (ADR-0109 §3): the listeners and the links follow the configuration
 // file and the machine's interfaces within seconds, with no restart.
 
-// within is eventually with the bound the decision names: the daemon checks every 2 s, and
-// the test adds a health call or two.
-func within(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(3 * raceTimeScale * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("not within 3 s: %s", what)
-}
+// reconcileBound is the bound the decision names: the daemon checks every 2 s, and the test
+// adds a health call or two. It is a product claim and it is unscaled: no level-5 run timed
+// the reconcile (m2u steps 2 and 3 did not), so nothing licenses stretching it under -race
+// (register: "The 3 s bound live_peer_test.go puts on ADR-0109 §3's reconcile").
+const reconcileBound = 3 * time.Second
 
 // updateOn runs policy.update with body on the daemon whose state root is state.
 func updateOn(t *testing.T, state, body string) {
@@ -78,9 +73,9 @@ func TestLivePeerConfig(t *testing.T) {
 
 	// hosting.listen, written to the running daemon.
 	updateOn(t, hostState, `{"hosting":{"listen":"127.0.0.1:0"}}`)
-	within(t, "the host to bind the hosting.listen written after it started", func() bool { return hostingOf(t, hostState).Listen != "" })
+	testtime.Eventually(t, reconcileBound, "the host to bind the hosting.listen written after it started", func() bool { return hostingOf(t, hostState).Listen != "" })
 	updateOn(t, hostState, `{"hosting":{"listen":null}}`)
-	within(t, "the listener to close when hosting.listen is removed", func() bool { return hostingOf(t, hostState).Listen == "" })
+	testtime.Eventually(t, reconcileBound, "the listener to close when hosting.listen is removed", func() bool { return hostingOf(t, hostState).Listen == "" })
 
 	// A lend and no hosting.on is 2t's configuration: nothing is bound.
 	updateOn(t, hostState, `{"hosting":{"lend":[{"device":"R58M","to":["anna"]}]}}`)
@@ -91,30 +86,30 @@ func TestLivePeerConfig(t *testing.T) {
 	// hosting.on names the address; the port the listener took is written.
 	updateOn(t, hostState, `{"hosting":{"on":"127.0.0.1"}}`)
 	var addr string
-	within(t, "hosting.on to bind 127.0.0.1", func() bool {
+	testtime.Eventually(t, reconcileBound, "hosting.on to bind 127.0.0.1", func() bool {
 		addr = hostingOf(t, hostState).Listen
 		return strings.HasPrefix(addr, "127.0.0.1:")
 	})
 	port, _ := strconv.Atoi(addr[strings.LastIndex(addr, ":")+1:])
-	within(t, "the port taken to be written to hosting.port", func() bool { return portInConfig(t, hostState) == port })
+	testtime.Eventually(t, reconcileBound, "the port taken to be written to hosting.port", func() bool { return portInConfig(t, hostState) == port })
 
 	// The client is told the address after it started: remote add is a file edit.
 	if code := droidyard(t, clientState, "remote", "add", "qa-lab", addr, hostFP).wait(t); code != 0 {
 		t.Fatalf("remote add exited %d", code)
 	}
-	within(t, "the client to link the remote added after it started", func() bool {
+	testtime.Eventually(t, reconcileBound, "the client to link the remote added after it started", func() bool {
 		r := healthOn(t, clientState).Remotes
 		return len(r) == 1 && r[0].Connected
 	})
-	within(t, "the host to count the peer connected", func() bool {
+	testtime.Eventually(t, reconcileBound, "the host to count the peer connected", func() bool {
 		p := hostingOf(t, hostState).Peers
 		return len(p) == 1 && p[0].Connected
 	})
 	if code := droidyard(t, clientState, "remote", "remove", "qa-lab").wait(t); code != 0 {
 		t.Fatalf("remote remove exited %d", code)
 	}
-	within(t, "the client to close the link of the remote removed", func() bool { return len(healthOn(t, clientState).Remotes) == 0 })
-	within(t, "the host to see the peer gone", func() bool { return !hostingOf(t, hostState).Peers[0].Connected })
+	testtime.Eventually(t, reconcileBound, "the client to close the link of the remote removed", func() bool { return len(healthOn(t, clientState).Remotes) == 0 })
+	testtime.Eventually(t, reconcileBound, "the host to see the peer gone", func() bool { return !hostingOf(t, hostState).Peers[0].Connected })
 
 	// A remote whose address is a closed port and whose addresses holds the live one.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -124,18 +119,18 @@ func TestLivePeerConfig(t *testing.T) {
 	closed := ln.Addr().String()
 	ln.Close()
 	updateOn(t, clientState, `{"remotes":[{"name":"qa-lab","address":"`+closed+`","fingerprint":"`+hostFP+`","addresses":[{"address":"`+addr+`","kind":"lan"}]}]}`)
-	within(t, "a remote with a closed address to link through its addresses", func() bool {
+	testtime.Eventually(t, reconcileBound, "a remote with a closed address to link through its addresses", func() bool {
 		r := healthOn(t, clientState).Remotes
 		return len(r) == 1 && r[0].Connected
 	})
 
 	// Lending nothing closes the listener, and the link with it.
 	updateOn(t, hostState, `{"hosting":{"lend":[]}}`)
-	within(t, "the listener to close when nothing is lent", func() bool { return hostingOf(t, hostState).Listen == "" })
-	within(t, "the link to close with its listener", func() bool { return !healthOn(t, clientState).Remotes[0].Connected })
+	testtime.Eventually(t, reconcileBound, "the listener to close when nothing is lent", func() bool { return hostingOf(t, hostState).Listen == "" })
+	testtime.Eventually(t, reconcileBound, "the link to close with its listener", func() bool { return !healthOn(t, clientState).Remotes[0].Connected })
 	// Lending again binds the same address: the port is remembered.
 	updateOn(t, hostState, `{"hosting":{"lend":[{"device":"R58M","to":["anna"]}]}}`)
-	within(t, "the listener to bind again", func() bool { return hostingOf(t, hostState).Listen == addr })
+	testtime.Eventually(t, reconcileBound, "the listener to bind again", func() bool { return hostingOf(t, hostState).Listen == addr })
 }
 
 // TestReconcileFollowsInterfaces: the daemon reads this machine's interfaces at every
@@ -166,13 +161,13 @@ func TestReconcileFollowsInterfaces(t *testing.T) {
 	want := "127.0.0.1:" + strconv.Itoa(port)
 	listening := func() []string { return p.host.Health().Hosting.Listening }
 
-	within(t, "the listener to bind the address the lister holds", func() bool { return len(listening()) == 1 && listening()[0] == want })
+	testtime.Eventually(t, reconcileBound, "the listener to bind the address the lister holds", func() bool { return len(listening()) == 1 && listening()[0] == want })
 	present.Store(false)
-	within(t, "the listener to close when the lister drops the address", func() bool { return len(listening()) == 0 })
+	testtime.Eventually(t, reconcileBound, "the listener to close when the lister drops the address", func() bool { return len(listening()) == 0 })
 	if c, err := net.DialTimeout("tcp", want, time.Second); err == nil {
 		c.Close()
 		t.Error("the port still accepts after the address left the interfaces")
 	}
 	present.Store(true)
-	within(t, "the listener to bind again when the address returns", func() bool { return len(listening()) == 1 && listening()[0] == want })
+	testtime.Eventually(t, reconcileBound, "the listener to bind again when the address returns", func() bool { return len(listening()) == 1 && listening()[0] == want })
 }

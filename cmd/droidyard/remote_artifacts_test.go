@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The screenshots, logs and Logcat of a remote device end to end (plan m2t step 5; ADR-0099
@@ -63,7 +64,7 @@ func (l *artifactsLab) bobLink(t *testing.T) *hosting.Link {
 	bob := clientHost(t, l.bobState)
 	bob.Start()
 	t.Cleanup(bob.Stop)
-	eventually(t, "bob's link to come up", func() bool { return bob.Remote("qa").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "bob's link to come up", func() bool { return bob.Remote("qa").Connected() })
 	return bob.Remote("qa")
 }
 

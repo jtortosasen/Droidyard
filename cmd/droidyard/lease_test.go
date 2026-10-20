@@ -14,6 +14,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The lease of a lent device end to end (plan m2t step 6; ADR-0104): one host, the clients
@@ -75,13 +76,13 @@ func newLeaseLab(t *testing.T) *leaseLab {
 	configAt(t, bob.state, clientConfig(t, addr, hostFP, true, fullAllowlist()...))
 	stopBob := startPeers(bob.host, bob.reg, bob.ops, bob.bus, bob.store, bob.adb, os.Stderr)
 	t.Cleanup(stopBob)
-	eventually(t, "bob's link to come up", func() bool { return bob.host.Remote(remoteName).Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "bob's link to come up", func() bool { return bob.host.Remote(remoteName).Connected() })
 
 	configAt(t, carolState, `{"remotes":[{"name":"qa","address":"`+addr+`","fingerprint":"`+hostFP+`"}]}`)
 	carol := clientHost(t, carolState)
 	carol.Start()
 	t.Cleanup(carol.Stop)
-	eventually(t, "carol's link to come up", func() bool { return carol.Remote("qa").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "carol's link to come up", func() bool { return carol.Remote("qa").Connected() })
 
 	trace := &lockedBuffer{}
 	sl.host.ops.UseTrace(func(format string, v ...any) { fmt.Fprintf(trace, format+"\n", v...) })
@@ -514,7 +515,7 @@ func TestLease(t *testing.T) {
 	})
 
 	t.Run("the host's trace names the peer", func(t *testing.T) {
-		eventually(t, "peer trace lines", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "peer trace lines", func() bool {
 			log := lab.trace.String()
 			return strings.Contains(log, "client=peer capability=device.uiTree") && strings.Contains(log, " peer=anna") && strings.Contains(log, " peer=bob")
 		})
@@ -599,7 +600,7 @@ func TestLease(t *testing.T) {
 			t.Fatalf("%q holds the phone; want anna", got)
 		}
 		lab.client.host.Stop()
-		eventually(t, "anna's lease to end with her link", func() bool { return lab.holder(t) == "" })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "anna's lease to end with her link", func() bool { return lab.holder(t) == "" })
 		free(t, "bob's call after anna's link closed", lab.onBob(t, "device.uninstall", touchParams))
 	})
 }

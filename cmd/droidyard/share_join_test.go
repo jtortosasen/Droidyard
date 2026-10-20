@@ -16,6 +16,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // share and join end to end (ADR-0107, ADR-0108): real `serve` processes on loopback, each
@@ -390,7 +391,7 @@ func TestShareAndJoin(t *testing.T) {
 	if code, _, stderr = c.run(t, "join", unusedBefore); code != 1 || !strings.Contains(stderr, "did not admit") {
 		t.Errorf("an unused code issued before unshare, after the phone is shared again: exit %d, %q; want refused", code, stderr)
 	}
-	eventually(t, "the phone to be listed again on the first client", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the phone to be listed again on the first client", func() bool {
 		_, ok := a.listed(t, base+"/"+sharePhone)
 		return ok
 	})
@@ -499,7 +500,7 @@ func TestAdmitThatFailsSpendsTheCode(t *testing.T) {
 		t.Fatalf("Join with a device no longer lent: %v; want refused", jerr)
 	}
 	// The daemon's stderr reaches the test through a pipe, a moment after the refusal.
-	eventually(t, "the host's log to say the code is spent", func() bool { return strings.Contains(host.proc.stderr.String(), "spent") })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the host's log to say the code is spent", func() bool { return strings.Contains(host.proc.stderr.String(), "spent") })
 	log := host.proc.stderr.String()
 	if !strings.Contains(log, "spent") || strings.Contains(log, "vil") || strings.Contains(log, "\x1b") || strings.Contains(log, strings.TrimPrefix(line, hosting.CodePrefix)) {
 		t.Errorf("the host's log must say the code is spent and quote neither the name nor the code:\n%q", log)

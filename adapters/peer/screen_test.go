@@ -16,6 +16,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // TestRoutedEventsOutlastTheResponse: a capability that has events waiting when it answers
@@ -193,7 +194,8 @@ func TestAbandonedRoutedCallLeavesNoSubscription(t *testing.T) {
 		t.Fatal("the call answered within 50 ms; the capability is meant to take 300 ms")
 	}
 	time.Sleep(600 * time.Millisecond) // the host opened it at 300 ms and answered at once
-	eventually(t, "the host's abandoned subscription to be ended", 2*time.Second, func() bool {
+	// A product claim (the relay reaping an abandoned subscription), unscaled: no level-5 run timed it.
+	testtime.Eventually(t, 2*time.Second, "the host's abandoned subscription to be ended", func() bool {
 		return host.bus.Subscriptions() == base
 	})
 }

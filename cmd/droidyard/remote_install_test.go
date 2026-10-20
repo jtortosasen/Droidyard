@@ -19,6 +19,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // seededBuild is a finished build in the client's history whose one output is an APK on its
@@ -241,7 +242,7 @@ func TestRemoteInstall(t *testing.T) {
 			t.Fatal(err)
 		}
 		hostOp := ""
-		eventually(t, "the host to run the install", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to run the install", func() bool {
 			for _, op := range lab.host.ops.Active() {
 				if op.Capability == "device.installUpload" {
 					hostOp = op.OperationID
@@ -258,7 +259,7 @@ func TestRemoteInstall(t *testing.T) {
 		if out, err := lab.host.ops.Wait(context.Background(), hostOp, time.Now().Add(10*time.Second)); err != nil || out.State != capability.StateCancelled {
 			t.Fatalf("the host's operation: %+v, %v; want cancelled", out, err)
 		}
-		eventually(t, "the host to remove the upload", func() bool { return len(lab.uploadsOnHost(t)) == 0 })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to remove the upload", func() bool { return len(lab.uploadsOnHost(t)) == 0 })
 	})
 
 	// installUpload is no tool and no MCP call (ADR-0060 §2).

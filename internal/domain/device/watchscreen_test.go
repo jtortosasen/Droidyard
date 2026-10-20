@@ -13,6 +13,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // device.watchScreen and the stream table (plan m2p step 4; ADR-0078 §3, §6) over the
@@ -90,7 +91,7 @@ func stopped(t *testing.T, sub *event.Subscription) ScreenStoppedEvent {
 // off the host).
 func (w *wsFix) requireGone(t *testing.T, id string) {
 	t.Helper()
-	eventually(t, "the stream to leave the table", func() bool { return w.adb.LiveScreenStreams() == 0 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the stream to leave the table", func() bool { return w.adb.LiveScreenStreams() == 0 })
 	if _, err := w.adb.AttachScreen(id); !errors.Is(err, ErrScreenStreamUnknown) {
 		t.Errorf("attach after the end: %v, want ErrScreenStreamUnknown", err)
 	}
@@ -326,7 +327,7 @@ func TestScreenStreamsShareASource(t *testing.T) {
 	ha.Close()
 	ha.Close()
 	stopped(t, subA)
-	eventually(t, "the first stream to leave the table", func() bool { return w.adb.LiveScreenStreams() == 1 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the first stream to leave the table", func() bool { return w.adb.LiveScreenStreams() == 1 })
 	if w.adb.LiveScreenSources() != 1 {
 		t.Fatal("the server ended with a stream still attached")
 	}

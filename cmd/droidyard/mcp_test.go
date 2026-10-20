@@ -16,6 +16,7 @@ import (
 
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // shim is a re-executed `droidyard mcp` driven as an MCP client drives it: JSON-RPC
@@ -113,8 +114,8 @@ func (s *shim) recv() []byte {
 		}
 		s.t.Logf("%s ← %s", s.name, line)
 		return line
-	case <-time.After(10 * time.Second * raceTimeScale):
-		s.t.Fatalf("%s: no response within %v", s.name, 10*time.Second*raceTimeScale)
+	case <-time.After(testtime.Bound(10 * time.Second)):
+		s.t.Fatalf("%s: no response within %v", s.name, testtime.Bound(10*time.Second))
 	}
 	return nil
 }
@@ -151,7 +152,7 @@ func (s *shim) exit() int {
 // wait returns the shim's exit code once it exits, failing after 10 s (stretched under -race).
 func (s *shim) wait() int {
 	s.t.Helper()
-	timeout := time.After(10 * time.Second * raceTimeScale)
+	timeout := time.After(testtime.Bound(10 * time.Second))
 	for lines := s.lines; lines != nil; {
 		select {
 		case line, ok := <-lines:
@@ -441,7 +442,7 @@ func TestMCPTranscript(t *testing.T) {
 	if code := c.exit(); code != 0 {
 		t.Errorf("the shim exited %d when its stdin ended; want 0. stderr: %s", code, c.stderr)
 	}
-	eventually(t, "the session count returns to its earlier value", func() bool { return p.d.Sessions() == before })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the session count returns to its earlier value", func() bool { return p.d.Sessions() == before })
 }
 
 // TestMCPSessionsAreSeparate: two shims at once are two sessions, each with its own

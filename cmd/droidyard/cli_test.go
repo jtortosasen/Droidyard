@@ -10,6 +10,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/adapters/cli"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // startedID waits for fixture.block to report its operation id.
@@ -37,7 +38,7 @@ func TestCLILongRunning(t *testing.T) {
 		id := p.startedID(t)
 		c.cmd.Process.Signal(syscall.SIGKILL)
 		c.wait(t)
-		eventually(t, "the killed CLI's session ends", func() bool { return p.d.Sessions() == before })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the killed CLI's session ends", func() bool { return p.d.Sessions() == before })
 
 		released(t, p, id)
 	})

@@ -21,6 +21,7 @@ import (
 	"github.com/jtortosasen/droidyard/adapters/peer"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The upload route of the peer listener (ADR-0099 §3), over real TLS on loopback.
@@ -170,7 +171,7 @@ func TestUploadThatDoesNotArriveLeavesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 		// The handler is storing it: the file exists before the end.
-		eventually(t, "the partial file", 5*time.Second, func() bool { return len(host.uploaded(t)) == 1 })
+		testtime.Eventually(t, testtime.Bound(5*time.Second), "the partial file", func() bool { return len(host.uploaded(t)) == 1 })
 		return conn
 	}
 
@@ -178,13 +179,14 @@ func TestUploadThatDoesNotArriveLeavesNothing(t *testing.T) {
 		host, client, _ := pair(t)
 		conn := partial(t, host, client)
 		conn.Close()
-		eventually(t, "the partial file to be removed", 5*time.Second, func() bool { return len(host.uploaded(t)) == 0 })
+		testtime.Eventually(t, testtime.Bound(5*time.Second), "the partial file to be removed", func() bool { return len(host.uploaded(t)) == 0 })
 	})
 
 	t.Run("the body stalls", func(t *testing.T) {
 		host, client, _ := pair(t)
 		conn := partial(t, host, client)
-		eventually(t, "the stalled upload to be cut", 5*time.Second, func() bool { return len(host.uploaded(t)) == 0 })
+		// Product claims (the upload bounds), here and below: unscaled, no level-5 run timed them.
+		testtime.Eventually(t, 5*time.Second, "the stalled upload to be cut", func() bool { return len(host.uploaded(t)) == 0 })
 		if got := statusOf(t, conn); got != http.StatusInternalServerError {
 			t.Errorf("a stalled upload was answered with %d; want 500", got)
 		}
@@ -195,7 +197,7 @@ func TestUploadThatDoesNotArriveLeavesNothing(t *testing.T) {
 		host, client, _ := pair(t)
 		conn := partial(t, host, client)
 		host.cfg.setPeers()
-		eventually(t, "the revoked upload to be removed", 6*time.Second, func() bool { return len(host.uploaded(t)) == 0 })
+		testtime.Eventually(t, 6*time.Second, "the revoked upload to be removed", func() bool { return len(host.uploaded(t)) == 0 })
 		_ = conn
 	})
 }
@@ -256,7 +258,7 @@ func TestUploadCancelledByTheClientLeavesNothing(t *testing.T) {
 		_, err := link.Upload(ctx, 8<<20, &slowBody{left: 8 << 20})
 		done <- err
 	}()
-	eventually(t, "the partial file", 5*time.Second, func() bool { return len(host.uploaded(t)) == 1 })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the partial file", func() bool { return len(host.uploaded(t)) == 1 })
 	cancel()
 	select {
 	case err := <-done:
@@ -266,7 +268,7 @@ func TestUploadCancelledByTheClientLeavesNothing(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Upload did not return after its context was cancelled")
 	}
-	eventually(t, "the partial file to be removed", 5*time.Second, func() bool { return len(host.uploaded(t)) == 0 })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the partial file to be removed", func() bool { return len(host.uploaded(t)) == 0 })
 
 	if _, err := (&hosting.Link{}).Upload(context.Background(), 1, strings.NewReader("x")); err != hosting.ErrNotConnected {
 		t.Errorf("Upload on a link that is down = %v; want ErrNotConnected", err)
@@ -284,7 +286,7 @@ func TestConcurrentUploadsOfOnePeerAreRefused(t *testing.T) {
 	if _, err := first.Write(make([]byte, 100<<10)); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the first file", 5*time.Second, func() bool { return len(host.uploaded(t)) == 1 })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the first file", func() bool { return len(host.uploaded(t)) == 1 })
 
 	for range 3 {
 		second := dialRaw(t, host, client, addr)
@@ -321,5 +323,5 @@ func TestUnpairedPeerLosesItsPendingUpload(t *testing.T) {
 		t.Fatalf("setup: %v", host.uploaded(t))
 	}
 	host.cfg.setPeers()
-	eventually(t, "the unpaired peer's upload to be removed", 6*time.Second, func() bool { return len(host.uploaded(t)) == 0 })
+	testtime.Eventually(t, 6*time.Second, "the unpaired peer's upload to be removed", func() bool { return len(host.uploaded(t)) == 0 })
 }

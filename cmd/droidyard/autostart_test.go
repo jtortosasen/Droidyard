@@ -19,6 +19,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 var startLine = regexp.MustCompile(`droidyard serve \(pid (\d+)\): starting`)
@@ -114,7 +115,7 @@ func TestRacingAutoStarts(t *testing.T) {
 		}
 		return out
 	}
-	eventually(t, "every losing serve has exited", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "every losing serve has exited", func() bool {
 		for _, pid := range losers() {
 			if alive(pid) {
 				return false
@@ -170,7 +171,7 @@ func TestRacingAutoStarts(t *testing.T) {
 	if code := droidyard(t, state, "stop").wait(t); code != 0 {
 		t.Fatalf("stop exited %d", code)
 	}
-	eventually(t, "the daemon exits after stop", func() bool { return !alive(winner) })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the daemon exits after stop", func() bool { return !alive(winner) })
 	if _, err := os.Lstat(filepath.Join(state, "run", "droidyard.sock")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the socket is still there after stop: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // Decision (plan m2n P1 item 6, P2): a git write is its own session leader and its own
@@ -88,7 +89,7 @@ func TestReconcileReapsAGitWriteGroup(t *testing.T) {
 	// records the "next daemon" is about to read.
 	go cmd.Wait()
 	child := 0
-	eventually(t, 5*time.Second, "the write named its child", func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the write named its child", func() bool {
 		b, err := os.ReadFile(pidFile)
 		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 		child = n
@@ -104,8 +105,8 @@ func TestReconcileReapsAGitWriteGroup(t *testing.T) {
 	if err := Reconcile(st2, &log, nil); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 3*time.Second, "the leader reaped", func() bool { return dead(leader) })
-	eventually(t, 3*time.Second, "the child of the write gone with its group", func() bool { return dead(child) })
+	testtime.Eventually(t, testtime.Bound(3*time.Second), "the leader reaped", func() bool { return dead(leader) })
+	testtime.Eventually(t, testtime.Bound(3*time.Second), "the child of the write gone with its group", func() bool { return dead(child) })
 	if !strings.Contains(log.String(), "reaped") {
 		t.Errorf("Reconcile's log does not name the git write reaped:\n%s", log.String())
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
@@ -381,7 +382,7 @@ func (c *sidecarCase) sidecar(p sidecarParams) int {
 func (c *sidecarCase) held(p sidecarParams) *process {
 	c.t.Helper()
 	call := droidyardIn(c.t, c.state, c.sub, "call", "--no-autostart", "fixture.sidecar", "--params", c.params(p))
-	eventually(c.t, "the fixture holds its lease", func() bool { return slices.Contains(c.eventList(), "lease held") })
+	testtime.Eventually(c.t, testtime.Bound(10*time.Second), "the fixture holds its lease", func() bool { return slices.Contains(c.eventList(), "lease held") })
 	return call
 }
 
@@ -454,7 +455,7 @@ func TestSidecarStartsLazilyIdlesOutAndEndsWithClose(t *testing.T) {
 		t.Fatalf("after the first use: records %v, pid %d", recs, first)
 	}
 	gone := snap(t, first)
-	eventually(t, "the dummy idles out", func() bool { return len(gone.survivors()) == 0 && len(c.records()) == 0 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the dummy idles out", func() bool { return len(gone.survivors()) == 0 && len(c.records()) == 0 })
 
 	second := c.sidecar(sidecarParams{Options: []string{"fork-helper"}, IdleMs: 60_000, ShutdownMs: 300})
 	if second == first {
@@ -586,7 +587,7 @@ func TestKilledDaemonsSidecarExitsOnEOF(t *testing.T) {
 	before := snap(t, c.sidecar(sidecarParams{Options: withoutDeathSignal(), IdleMs: 60_000, ShutdownMs: 300}))
 	c.srv.cmd.Process.Signal(syscall.SIGKILL)
 	c.srv.wait(t)
-	eventually(t, "the dummy exits on EOF", func() bool { return len(before.survivors()) == 0 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the dummy exits on EOF", func() bool { return len(before.survivors()) == 0 })
 	if !slices.Contains(c.eventList(), "eof") {
 		t.Errorf("events %v: no eof", c.eventList())
 	}

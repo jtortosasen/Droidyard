@@ -11,10 +11,12 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // fakeAdbServer answers host:version (41) and an empty host:devices-l on a loopback port
@@ -122,7 +124,7 @@ func TestReconcileEndsAPreSerialLaunch(t *testing.T) {
 		t.Fatalf("the detached start exited %d: %s", code, call.stderr.String())
 	}
 	var rec proc.Record
-	eventually(t, "the launch is recorded", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the launch is recorded", func() bool {
 		recs := launchRecords(t, state)
 		if len(recs) == 1 {
 			rec = recs[0]
@@ -143,7 +145,7 @@ func TestReconcileEndsAPreSerialLaunch(t *testing.T) {
 	second := droidyardEnv(t, state, "", env, "serve")
 	second.expect(t, "holding")
 	// Reconcile ran before the socket answered: the group is gone by now.
-	eventually(t, "the next daemon ends the orphan launch", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the next daemon ends the orphan launch", func() bool {
 		return syscall.Kill(-rec.PGID, 0) == syscall.ESRCH
 	})
 	if recs := launchRecords(t, state); len(recs) != 0 {

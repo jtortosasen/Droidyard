@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The artifact route of the peer listener (ADR-0099 §2), over real TLS on loopback. The
@@ -38,7 +39,7 @@ func pairServing(t *testing.T, read peer.ArtifactReader) (host, client *side, li
 	client.cfg.remotes = []policy.Remote{{Name: "qa-lab", Address: addr, Fingerprint: host.host.Identity().Fingerprint()}}
 	client.host.Start()
 	t.Cleanup(client.host.Stop)
-	eventually(t, "the link to come up", 10*time.Second, func() bool { return client.host.Remote("qa-lab").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the link to come up", func() bool { return client.host.Remote("qa-lab").Connected() })
 	return host, client, client.host.Remote("qa-lab")
 }
 

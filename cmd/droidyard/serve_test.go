@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // reexec makes the test binary run main instead of the tests, so a test can start
@@ -199,11 +200,11 @@ func (p *process) expect(t *testing.T, want string) string {
 	}
 }
 
-// wait returns the exit code once the process ends, failing after 10 s (scaled under -race,
-// raceTimeScale).
+// wait returns the exit code once the process ends, failing after 10 s (a hang guard, scaled by
+// testtime.Bound).
 func (p *process) wait(t *testing.T) int {
 	t.Helper()
-	timeout := time.After(10 * raceTimeScale * time.Second)
+	timeout := time.After(testtime.Bound(10 * time.Second))
 	for lines := p.lines; lines != nil; {
 		select {
 		case _, ok := <-lines:
