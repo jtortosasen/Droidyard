@@ -17,12 +17,13 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // device.watchLogs (ADR-0041; plan m2a step 4) over the re-executed fake adb: the stream's
 // child is a process the supervisor records, so only this fixture reaches the paths the
 // tests below pin. Every wait is generous: under -race each fake spawn costs about a
-// second (followRaceOverhead).
+// second.
 
 const (
 	wlBase = "1791337000"
@@ -292,7 +293,11 @@ func TestWatchLogsCountsDrops(t *testing.T) {
 		// The first event waits until the reader has read well past the cap: under -race
 		// on a CI runner the reader can be slower than the publisher, and then nothing
 		// overflows. Registered before the fixture, so it is restored after its streams stop.
-		streamStartDelay = 3 * time.Second
+		// The delay starts with the stream, before the fake adb is spawned, so it must outlast
+		// that spawn and the read of 10,000 lines: a hang guard, scaled (under -race the spawn
+		// alone is a second or more). A gate the test opens once the reader is past the cap
+		// would decide it with no clock; that is a seam in watchlogs.go (reported, step 6b).
+		streamStartDelay = testtime.Bound(3 * time.Second)
 		t.Cleanup(func() { streamStartDelay = 0 })
 		w := newWatchFixture(t, map[string]string{
 			uiSerial + ".date.out": "1791337500.000000\n",

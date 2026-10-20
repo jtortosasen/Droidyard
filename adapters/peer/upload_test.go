@@ -265,7 +265,7 @@ func TestUploadCancelledByTheClientLeavesNothing(t *testing.T) {
 		if err != context.Canceled {
 			t.Errorf("Upload after a cancel = %v; want context.Canceled", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testtime.Bound(5 * time.Second)):
 		t.Fatal("Upload did not return after its context was cancelled")
 	}
 	testtime.Eventually(t, testtime.Bound(5*time.Second), "the partial file to be removed", func() bool { return len(host.uploaded(t)) == 0 })
