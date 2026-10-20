@@ -79,7 +79,7 @@
 - Needs: real emulators, the SDK's build tools.
 - Not here: no daemon or reader change.
 - Rests on: S1–S6, at level 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: implementer (formapp): `TestFormAppBuilds` passes and failed with the manifest entry renamed; the four commands green. Main session, 2026-10-20, level 5 on `m2w31` and `m2w36` (K1–K3; no daemon was needed: the spike and the reader's one-shot mode ran directly), `~/Library/Caches/droidyard-dev/m2w/spike-{31,36}/`: S1, S2, S4, S5, S6 pass, S3 fails ([research note](../research/spike-ui-dump-events-2026-10.md); §Changes). The 5037 server kept pid 70176.
 
 ### 2. The reader's dex is trusted by its digest (R3)
 
@@ -259,3 +259,5 @@ None blocks. Each is Delegated: the main session applies the recommendation and 
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-20, step 1 (the spike, [research note](../research/spike-ui-dump-events-2026-10.md)). S1, S2, S4, S5 and S6 pass on API 31 and 36. **S3 fails**: `getWindows()` lists interactive windows only (with a dialog open, the app window under it is not listed), and during a heads-up a SystemUI window holds the notification's text. By S3's own rule, Delegated: **`windows` leaves the milestone**. `device.uiDump` reads the active window only; the reader's request is `dump full [invisible]`; the result has no `windows` field; Q3's window attributes and its SystemUI rule are dropped; ADR-A records why. R1 closes in part, and its "every window" part becomes a register row with S3's two facts. A1 loses its `windows: true` clause. **S4**: the reader already reads every node `uiautomator dump` reads (not-important views are included at connect); on API 31 two bounds differ from `uiautomator dump` (the root and the navigation bar background: the reader writes the real display's, `uiautomator` the app area's), so A1's "same value" excepts `bounds` on those two nodes on API 31; on API 36 the two dumps are identical. For Q4: the framework already throttles content changes to at most 10 a second (a 20 ms ticker), and the notification event carries no text on either level. `collection-item-*` and `getExtras()` returned nothing on formapp; `invisible` adds the scroll content below the fold (an INVISIBLE view is never exposed).

@@ -8,6 +8,10 @@
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />
 
+    <!-- m2w step 1: WidgetsActivity's `notify` posts a notification; on API 33 and later
+         the runtime grant is made with `pm grant`, never from the app. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:label="Form App"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -25,6 +29,12 @@
              reach it. It is not a launcher. -->
         <activity
             android:name=".ProbeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true" />
+        <!-- m2w step 1: the widgets the spike reads (events, windows, the full dump), started
+             with `am start -n dev.droidyard.formapp/.WidgetsActivity`. Not a launcher. -->
+        <activity
+            android:name=".WidgetsActivity"
             android:exported="true"
             android:excludeFromRecents="true" />
     </application>

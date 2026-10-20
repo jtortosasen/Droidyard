@@ -21,4 +21,17 @@
     <!-- m2p step 1: the Secure toggle (FLAG_SECURE on the window). -->
     <item name="secure" type="id" />
     <item name="probe_result" type="id" />
+    <!-- m2w step 1: WidgetsActivity's controls (events, windows and the full dump). -->
+    <item name="toast" type="id" />
+    <item name="notify" type="id" />
+    <item name="list" type="id" />
+    <item name="level" type="id" />
+    <item name="wifi" type="id" />
+    <item name="title" type="id" />
+    <item name="help" type="id" />
+    <item name="email" type="id" />
+    <item name="link" type="id" />
+    <item name="hidden" type="id" />
+    <item name="dialog" type="id" />
+    <item name="spinner" type="id" />
 </resources>

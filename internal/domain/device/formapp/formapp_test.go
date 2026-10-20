@@ -43,6 +43,22 @@ func TestFormAppBuilds(t *testing.T) {
 	if !strings.Contains(got, "launchable-activity:") {
 		t.Errorf("badging names no launchable activity:\n%s", got)
 	}
+	// m2w step 1: WidgetsActivity is not a launcher, so badging does not list it; the
+	// manifest does. The level-5 runs start it with `am start -n .../.WidgetsActivity`
+	// and post its notification after `pm grant ... POST_NOTIFICATIONS`: an APK without
+	// the activity entry or the permission builds, installs and fails only on a device.
+	tree, err := exec.Command(
+		filepath.Join(sdk, "build-tools", "37.0.0", "aapt2"),
+		"dump", "xmltree", "--file", "AndroidManifest.xml", out,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("aapt2 dump xmltree: %v\n%s", err, tree)
+	}
+	for _, want := range []string{".WidgetsActivity", "android.permission.POST_NOTIFICATIONS"} {
+		if !strings.Contains(string(tree), want) {
+			t.Errorf("manifest does not declare %s:\n%s", want, tree)
+		}
+	}
 }
 
 // sdkDir mirrors reader_test.go's discovery: ANDROID_HOME, then ANDROID_SDK_ROOT, then
