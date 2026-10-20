@@ -329,13 +329,26 @@ type readerIdle struct {
 	max   int
 }
 
+// readerDumpRequest is the request line of a read over the forward: a plain `dump` is the
+// reader's default idle wait (100/500); the polls after an action's first read ask for the
+// shorter pollIdle (D2), `dump idle <quietMs> <maxMs>`. A full dump (ADR-0110) is `dump
+// full`, with `invisible` after it when asked; it takes the default idle wait.
+func readerDumpRequest(idle *readerIdle, full *fullOpts) string {
+	switch {
+	case full != nil:
+		return "dump " + full.words() + "\n"
+	case idle != nil:
+		return fmt.Sprintf("dump idle %d %d\n", idle.quiet, idle.max)
+	}
+	return "dump\n"
+}
+
 // persistentRead is the persistent reader's turn in read: ensure the reader is
-// reachable, then take one dump over its forward. It also reports why a warm read
-// failed (rf), so the chain can log a restart with its reason without parsing the
-// sentence back out (plan m1n step 2), and the app's package (busyPkg) of a `busy`
-// answer (ADR-0034 §1). idle, when non-nil, asks for the shorter poll bound of D2; a nil
-// idle sends a plain `dump`.
-func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time, idle *readerIdle) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
+// reachable, then take one dump over its forward, request being the line
+// readerDumpRequest made. It also reports why a warm read failed (rf), so the chain can
+// log a restart with its reason without parsing the sentence back out (plan m1n step 2),
+// and the app's package (busyPkg) of a `busy` answer (ADR-0034 §1).
+func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time, request string) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if ok, why := a.ensureReader(parent, t, c, end); !ok {
 		return nil, dumpOther, "", why, "", rfNone
 	}
@@ -365,12 +378,6 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	stop := context.AfterFunc(parent, func() { conn.Close() })
 	defer stop()
 	conn.SetDeadline(deadline)
-	// A plain `dump` is the reader's default idle wait (100/500); the polls after an
-	// action's first read ask for the shorter pollIdle (D2).
-	request := "dump\n"
-	if idle != nil {
-		request = fmt.Sprintf("dump idle %d %d\n", idle.quiet, idle.max)
-	}
 	if _, err := io.WriteString(conn, request); err != nil {
 		return nil, dumpOther, "", "the reader's forward did not take the request", "", rfEOF
 	}

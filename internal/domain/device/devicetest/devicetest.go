@@ -29,6 +29,7 @@
 //	<serial>.screencap          `-s <serial> exec-out screencap -p` (.out holds raw bytes: a PNG)
 //	<serial>.push               `-s <serial> push <local> /data/local/tmp/droidyard-reader-*.dex` (persistent or one-shot)
 //	<serial>.reader             `-s <serial> exec-out CLASSPATH=<that file> app_process /system/bin DroidyardReader`
+//	<serial>.readerfull         the same with `dump full` or `dump full invisible` after the class name (the one-shot reader's full dump)
 //	<serial>.rmreader           `-s <serial> shell rm -f <that file>`
 //	<serial>.forward            `-s <serial> forward localfilesystem:<path> localabstract:droidyard-reader-<d12>` (.out holds the reader's port)
 //	<serial>.forwardremove      `-s <serial> forward --remove localfilesystem:<path>`
@@ -473,6 +474,9 @@ func servedPrefix(args []string) string {
 		return args[1] + ".scrcpyserver"
 	case len(args) == 7 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader":
 		return args[1] + ".reader"
+	case len(args) >= 9 && len(args) <= 10 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader" && args[7] == "dump" && args[8] == "full" && (len(args) == 9 || args[9] == "invisible"):
+		// The one-shot reader's full dump (ADR-0110): the same words as the serve mode's request.
+		return args[1] + ".readerfull"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "rm" && args[4] == "-f" && isReaderFile(args[5]):
 		return args[1] + ".rmreader"
 	case len(args) == 5 && args[2] == "forward" && strings.HasPrefix(args[3], "localfilesystem:") && strings.HasPrefix(args[4], "localabstract:droidyard-reader-"):

@@ -10,6 +10,8 @@ import android.os.Bundle;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.Spanned;
+import android.text.style.URLSpan;
 import android.util.Base64;
 import android.view.InputDevice;
 import android.view.KeyCharacterMap;
@@ -23,8 +25,14 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -66,6 +74,16 @@ import java.util.concurrent.atomic.AtomicReference;
  * replaced while the read was blocked: the daemon does not trust it for the failed read's
  * details and reads the window manager's focus instead (empty when the reader has read
  * nothing yet, and then omitted).
+ *
+ * <p>{@code dump full [invisible]} (ADR-0110) answers the active window's tree as a superset
+ * of {@code uiautomator dump}'s document, one element per line: its attributes in its order
+ * on every node, then the extras of {@link #fullNode} when they hold a non-default value.
+ * {@code invisible} adds the children not visible to the user. The words are each allowed
+ * once and nothing else follows (anything else is {@code bad dump arguments}); the request
+ * is fenced, bounded and answered as a plain {@code dump} is. The one-shot takes the same
+ * words as arguments ({@code DroidyardReader dump full [invisible]}). No getter of the full
+ * document queries another node, so the device-side bound and the platform's 5 s wait hold
+ * as for a plain dump.
  *
  * <p>It also acts (ADR-0035): {@code tap <x> <y>} injects a touch, {@code keys <base64>}
  * types text as the virtual keyboard's key events, and {@code settext <replace|insert>
@@ -135,6 +153,11 @@ public class DroidyardReader {
     // answers in tens of milliseconds.
     private static final long READBACK_BOUND_MS = 300L;
     private static final long READBACK_STEP_MS = 20L;
+    // The most characters a full document may reach before the traversal stops (ADR-0110
+    // Decision 5): the daemon reads 8 MiB at most, so a document past it is sent cut, which
+    // the daemon reads as over the cap, and the reader holds no more than that in memory.
+    // Characters are at most as many as UTF-8 bytes, so one past the cap is past it in bytes.
+    private static final int FULL_DOC_CAP_CHARS = (8 << 20) + 1;
     // The acting verbs of ADR-0035 §1: the requests the uid fence applies to.
     private static final String[] ACTING_VERBS = { "tap", "keys", "settext" };
 
@@ -145,11 +168,21 @@ public class DroidyardReader {
                 throw new IllegalStateException("API " + Build.VERSION.SDK_INT + " lacks FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES (API 24)");
             }
             if (args.length == 0) {
-                status = read();
+                status = read(DumpArgs.PLAIN);
+            } else if (args[0].equals("dump")) {
+                // The one-shot's full dump (ADR-0110): the same words as the serve mode's
+                // request. Only the full form exists here; a plain read has no arguments.
+                DumpArgs d = DumpArgs.parse(joinWords(args));
+                if (d == null || !d.full) {
+                    System.err.println(PREFIX + " bad dump arguments");
+                    status = 2;
+                } else {
+                    status = read(d);
+                }
             } else if (args.length == 3 && args[0].equals("serve")) {
                 status = serve(args[1], idleSeconds(args[2]));
             } else {
-                System.err.println(PREFIX + " usage: DroidyardReader [serve <abstract-socket-name> <idleSeconds>]");
+                System.err.println(PREFIX + " usage: DroidyardReader [dump full [invisible] | serve <abstract-socket-name> <idleSeconds>]");
                 status = 2;
             }
         } catch (Throwable t) {
@@ -160,6 +193,15 @@ public class DroidyardReader {
         System.exit(status);
     }
 
+    private static String joinWords(String[] words) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < words.length; i++) {
+            if (i > 0) sb.append(' ');
+            sb.append(words[i]);
+        }
+        return sb.toString();
+    }
+
     private static int idleSeconds(String s) {
         int n = Integer.parseInt(s);
         if (n < 1) throw new IllegalArgumentException("idleSeconds must be positive: " + s);
@@ -168,11 +210,11 @@ public class DroidyardReader {
 
     // The one-shot mode of ADR-0029: connect, read once, disconnect, exit. No device-side
     // bound: the one-shot has one job and the daemon bounds it (readerRun).
-    private static int read() throws Exception {
+    private static int read(DumpArgs args) throws Exception {
         Automation a = connect();
         String xml;
         try {
-            xml = document(a.ua, Long.MAX_VALUE, null, IDLE_QUIET_MS, IDLE_MAX_MS).xml;
+            xml = document(a.ua, Long.MAX_VALUE, null, args).xml;
         } finally {
             a.close();
         }
@@ -302,15 +344,15 @@ public class DroidyardReader {
                         // The fence first, before anything is parsed or read: a dump is the
                         // device's screen, so it is answered only to adbd's peer (ADR-0102).
                         if (!denied(conn)) {
-                            long[] wait = dumpIdle(request.line);
-                            if (wait == null) {
+                            DumpArgs dumpArgs = DumpArgs.parse(request.line);
+                            if (dumpArgs == null) {
                                 write(conn, PREFIX + " bad dump arguments");
                                 closeQuietly(conn);
                             } else {
                                 lastDump.set(SystemClock.elapsedRealtime());
                                 // The connection is owned by the worker (or the bound's
                                 // timer) now: whichever writes first closes it.
-                                submitDump(conn, a.ua, workers, timer, out, lastPackage, wait[0], wait[1]);
+                                submitDump(conn, a.ua, workers, timer, out, lastPackage, dumpArgs);
                             }
                         }
                     } else if (actingRequest(request.line)) {
@@ -394,7 +436,7 @@ public class DroidyardReader {
     private static void submitDump(final LocalSocket conn, final UiAutomation ua,
             ExecutorService workers, ScheduledExecutorService timer,
             final AtomicInteger out, final AtomicReference<String> lastPackage,
-            final long idleQuiet, final long idleMax) {
+            final DumpArgs dumpArgs) {
         final Answer answer = new Answer(conn);
         final long start = SystemClock.elapsedRealtime();
         if (out.get() >= DUMP_WORKERS) {
@@ -414,7 +456,7 @@ public class DroidyardReader {
             @Override
             public void run() {
                 try {
-                    Doc d = document(ua, start + DUMP_BOUND_MS, lastPackage, idleQuiet, idleMax);
+                    Doc d = document(ua, start + DUMP_BOUND_MS, lastPackage, dumpArgs);
                     if (d.bound) {
                         // The bound passed while the document was being built (a worker
                         // can outlive its answer by the platform's own 5 s query wait).
@@ -798,21 +840,46 @@ public class DroidyardReader {
         return Base64.encodeToString(s.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
     }
 
-    // The idle bounds of a dump (D2): `dump` keeps the reader's own default wait, and
+    // The words of a dump request. `dump` keeps the reader's own default idle wait (D2), and
     // `dump idle <quietMs> <maxMs>` shortens it (a poll after an action asks for 100/200).
-    // null when the request is malformed, and then it is not a dump. A bound must be
-    // positive: waitForIdle treats a 0 as unbounded, which no caller asks for.
-    private static long[] dumpIdle(String request) {
-        if (request.equals("dump")) return new long[] { IDLE_QUIET_MS, IDLE_MAX_MS };
-        String[] parts = request.split(" ");
-        if (parts.length != 4 || !parts[0].equals("dump") || !parts[1].equals("idle")) return null;
-        try {
-            long quiet = Long.parseLong(parts[2]);
-            long max = Long.parseLong(parts[3]);
-            if (quiet <= 0 || max <= 0) return null;
-            return new long[] { quiet, max };
-        } catch (NumberFormatException e) {
-            return null;
+    // `dump full [invisible]` (ADR-0110) is the full document: each word at most once, in
+    // that order, nothing else after it, and the default idle wait. parse returns null when
+    // the request is malformed, and then it is not a dump. An idle bound must be positive:
+    // waitForIdle treats a 0 as unbounded, which no caller asks for.
+    private static final class DumpArgs {
+        static final DumpArgs PLAIN = new DumpArgs(IDLE_QUIET_MS, IDLE_MAX_MS, false, false);
+        final long quiet;
+        final long max;
+        final boolean full;
+        final boolean invisible;
+
+        private DumpArgs(long quiet, long max, boolean full, boolean invisible) {
+            this.quiet = quiet;
+            this.max = max;
+            this.full = full;
+            this.invisible = invisible;
+        }
+
+        static DumpArgs parse(String request) {
+            if (request.equals("dump")) return PLAIN;
+            // A trailing empty word is kept (split with a negative limit), so `dump full `
+            // is not `dump full`.
+            String[] words = request.split(" ", -1);
+            if (words.length >= 2 && words[0].equals("dump") && words[1].equals("full")) {
+                if (words.length == 2) return new DumpArgs(IDLE_QUIET_MS, IDLE_MAX_MS, true, false);
+                if (words.length == 3 && words[2].equals("invisible")) return new DumpArgs(IDLE_QUIET_MS, IDLE_MAX_MS, true, true);
+                return null;
+            }
+            String[] parts = request.split(" ");
+            if (parts.length != 4 || !parts[0].equals("dump") || !parts[1].equals("idle")) return null;
+            try {
+                long quiet = Long.parseLong(parts[2]);
+                long max = Long.parseLong(parts[3]);
+                if (quiet <= 0 || max <= 0) return null;
+                return new DumpArgs(quiet, max, false, false);
+            } catch (NumberFormatException e) {
+                return null;
+            }
         }
     }
 
@@ -991,6 +1058,8 @@ public class DroidyardReader {
     // Set while a document is built and the device-side bound passes between node queries.
     private static final class Bound {
         boolean hit;
+        // Set when a full document passed FULL_DOC_CAP_CHARS: the traversal stops there.
+        boolean over;
     }
 
     // The active window's tree, as the XML the one-shot writes; xml null when there is no
@@ -1002,9 +1071,9 @@ public class DroidyardReader {
     // waitForIdle's bounds (D2): the reader's own idle wait is the settle, and a poll after
     // an action asks for a shorter one.
     private static Doc document(UiAutomation ua, long deadlineMs, AtomicReference<String> lastPackage,
-            long idleQuiet, long idleMax) throws Exception {
+            DumpArgs args) throws Exception {
         try {
-            ua.waitForIdle(idleQuiet, idleMax);
+            ua.waitForIdle(args.quiet, args.max);
         } catch (Exception e) {
             // Not idle in time (a TimeoutException): read the tree anyway.
         }
@@ -1033,12 +1102,23 @@ public class DroidyardReader {
         StringBuilder sb = new StringBuilder(16 << 10);
         sb.append("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"").append(rotation).append("\">");
         Bound bound = new Bound();
-        node(root, 0, new Rect(0, 0, size.x, size.y), sb, deadlineMs, bound);
+        if (args.full) {
+            sb.append('\n');
+            fullNode(root, 0, new Rect(0, 0, size.x, size.y), sb, deadlineMs, bound, args.invisible);
+        } else {
+            node(root, 0, new Rect(0, 0, size.x, size.y), sb, deadlineMs, bound);
+        }
         if (bound.hit) {
             // The document is abandoned: a partial tree is not a document.
             return new Doc(null, true, pkg);
         }
-        sb.append("</hierarchy>");
+        if (bound.over) {
+            // A document past the cap is sent without its end tag: the daemon reads at most
+            // its own cap, sees more than that and fails naming it (ADR-0110 Decision 5), and
+            // the reader never holds more than the cap in memory.
+            return new Doc(sb.toString(), false, pkg);
+        }
+        sb.append(args.full ? "</hierarchy>\n" : "</hierarchy>");
         return new Doc(sb.toString(), false, pkg);
     }
 
@@ -1098,6 +1178,182 @@ public class DroidyardReader {
             if (c != null && c.isVisibleToUser()) node(c, i, display, sb, deadlineMs, bound);
         }
         sb.append("</node>");
+    }
+
+    // One node of the full document (ADR-0110), one element per line: a leaf is
+    // `<node ... />` as uiautomator writes it, a node with children is its start tag, one line
+    // for each child and `</node>`. The attributes are uiautomator's, in its order, on every
+    // node, layout-only ones included (the plain dump's, less `editable`, which is an extra
+    // here); then the extras, each written only when it holds a non-default value and each
+    // behind its API level. A boolean extra is written for its non-default value (`important`
+    // and `visible-to-user` are written as "false", the rest as "true"), a count or index
+    // for the info object it belongs to whenever that object is present. Nothing here
+    // queries another node (no getLabeledBy, no traversal links), so a blocked app costs the
+    // one query already in flight and the bound between queries holds. With invisible, the
+    // children that are not visible to the user are kept, each marked visible-to-user="false"
+    // by its own getter.
+    private static void fullNode(AccessibilityNodeInfo n, int index, Rect display, StringBuilder sb,
+            long deadlineMs, Bound bound, boolean invisible) {
+        Rect b = new Rect();
+        n.getBoundsInScreen(b);
+        b.intersect(display);
+        sb.append("<node index=\"").append(index).append('"');
+        attr(sb, "text", n.getText());
+        attr(sb, "resource-id", n.getViewIdResourceName());
+        attr(sb, "class", n.getClassName());
+        attr(sb, "package", n.getPackageName());
+        attr(sb, "content-desc", n.getContentDescription());
+        flag(sb, "checkable", n.isCheckable());
+        flag(sb, "checked", n.isChecked());
+        flag(sb, "clickable", n.isClickable());
+        flag(sb, "enabled", n.isEnabled());
+        flag(sb, "focusable", n.isFocusable());
+        flag(sb, "focused", n.isFocused());
+        flag(sb, "scrollable", n.isScrollable());
+        flag(sb, "long-clickable", n.isLongClickable());
+        flag(sb, "password", n.isPassword());
+        flag(sb, "selected", n.isSelected());
+        sb.append(" bounds=\"[").append(b.left).append(',').append(b.top).append("][").append(b.right).append(',').append(b.bottom).append("]\"");
+        sb.append(" drawing-order=\"").append(n.getDrawingOrder()).append('"');
+        attr(sb, "hint", Build.VERSION.SDK_INT >= 26 ? n.getHintText() : null);
+        // The extras, in ADR-0110's order.
+        extraFlag(sb, "editable", n.isEditable());
+        if (!n.isVisibleToUser()) flag(sb, "visible-to-user", false);
+        if (Build.VERSION.SDK_INT >= 30) extra(sb, "state-description", n.getStateDescription());
+        extra(sb, "error", n.getError());
+        if (Build.VERSION.SDK_INT >= 28) {
+            extraFlag(sb, "heading", n.isHeading());
+            extra(sb, "pane-title", n.getPaneTitle());
+            extra(sb, "tooltip", n.getTooltipText());
+        }
+        if (n.getInputType() != 0) extra(sb, "input-type", String.valueOf(n.getInputType()));
+        if (n.getMaxTextLength() >= 0) extra(sb, "max-text-length", String.valueOf(n.getMaxTextLength()));
+        StringBuilder standard = new StringBuilder();
+        StringBuilder custom = new StringBuilder();
+        List<AccessibilityNodeInfo.AccessibilityAction> actions = n.getActionList();
+        if (actions != null) {
+            for (AccessibilityNodeInfo.AccessibilityAction x : actions) {
+                String name = ActionNames.BY_ID.get(x.getId());
+                if (name != null) {
+                    if (standard.length() > 0) standard.append(',');
+                    standard.append(name);
+                } else {
+                    // A custom action: its id and label. The label's own line breaks become
+                    // spaces, since a newline separates the actions.
+                    if (custom.length() > 0) custom.append('\n');
+                    CharSequence label = x.getLabel();
+                    custom.append(x.getId()).append(':');
+                    if (label != null) custom.append(label.toString().replace('\n', ' ').replace('\r', ' '));
+                }
+            }
+        }
+        extra(sb, "actions", standard);
+        extra(sb, "custom-actions", custom);
+        AccessibilityNodeInfo.CollectionInfo collection = n.getCollectionInfo();
+        if (collection != null) {
+            extra(sb, "collection-rows", String.valueOf(collection.getRowCount()));
+            extra(sb, "collection-columns", String.valueOf(collection.getColumnCount()));
+            extraFlag(sb, "collection-hierarchical", collection.isHierarchical());
+            if (collection.getSelectionMode() != 0) extra(sb, "collection-selection-mode", String.valueOf(collection.getSelectionMode()));
+        }
+        AccessibilityNodeInfo.CollectionItemInfo item = n.getCollectionItemInfo();
+        if (item != null) {
+            extra(sb, "collection-item-row", String.valueOf(item.getRowIndex()));
+            extra(sb, "collection-item-column", String.valueOf(item.getColumnIndex()));
+            extra(sb, "collection-item-row-span", String.valueOf(item.getRowSpan()));
+            extra(sb, "collection-item-column-span", String.valueOf(item.getColumnSpan()));
+            extraFlag(sb, "collection-item-heading", item.isHeading());
+            extraFlag(sb, "collection-item-selected", item.isSelected());
+        }
+        AccessibilityNodeInfo.RangeInfo range = n.getRangeInfo();
+        if (range != null) {
+            extra(sb, "range-type", String.valueOf(range.getType()));
+            extra(sb, "range-min", String.valueOf(range.getMin()));
+            extra(sb, "range-max", String.valueOf(range.getMax()));
+            extra(sb, "range-current", String.valueOf(range.getCurrent()));
+        }
+        extra(sb, "text-links", textLinks(n.getText()));
+        extraFlag(sb, "dismissable", n.isDismissable());
+        extraFlag(sb, "multi-line", n.isMultiLine());
+        extraFlag(sb, "content-invalid", n.isContentInvalid());
+        extraFlag(sb, "context-clickable", n.isContextClickable());
+        if (!n.isImportantForAccessibility()) flag(sb, "important", false);
+        boolean open = false;
+        int count = n.getChildCount();
+        for (int i = 0; i < count; i++) {
+            if (bound.hit || bound.over) return;
+            // getChild may itself block on a frozen app: check the bound before each query.
+            if (SystemClock.elapsedRealtime() > deadlineMs) {
+                bound.hit = true;
+                return;
+            }
+            if (sb.length() > FULL_DOC_CAP_CHARS) {
+                bound.over = true;
+                return;
+            }
+            AccessibilityNodeInfo c = n.getChild(i);
+            if (c == null || (!invisible && !c.isVisibleToUser())) continue;
+            if (!open) {
+                sb.append(">\n");
+                open = true;
+            }
+            fullNode(c, i, display, sb, deadlineMs, bound, invisible);
+        }
+        sb.append(open ? "</node>\n" : " />\n");
+    }
+
+    // The URL spans of a node's text as `start-end=url`, space-separated, the URL's spaces as
+    // %20 (ADR-0110 Decision 3); null when there are none. Any other kind of span is not
+    // listed.
+    private static String textLinks(CharSequence text) {
+        if (!(text instanceof Spanned)) return null;
+        Spanned spanned = (Spanned) text;
+        URLSpan[] spans = spanned.getSpans(0, spanned.length(), URLSpan.class);
+        StringBuilder links = new StringBuilder();
+        for (URLSpan span : spans) {
+            String url = span.getURL();
+            if (url == null) continue;
+            if (links.length() > 0) links.append(' ');
+            links.append(spanned.getSpanStart(span)).append('-').append(spanned.getSpanEnd(span))
+                    .append('=').append(url.replace(" ", "%20"));
+        }
+        return links.length() == 0 ? null : links.toString();
+    }
+
+    // The names of the platform's standard actions by id, from the public constants of
+    // AccessibilityAction (ACTION_SCROLL_FORWARD is "scroll_forward"), so a platform newer than
+    // the android.jar this was built against names an action it knows and this does not as a
+    // custom one. Loaded on first use, by the first full dump.
+    private static final class ActionNames {
+        static final Map<Integer, String> BY_ID = build();
+
+        private static Map<Integer, String> build() {
+            Map<Integer, String> names = new HashMap<Integer, String>();
+            for (Field f : AccessibilityNodeInfo.AccessibilityAction.class.getFields()) {
+                if (!Modifier.isStatic(f.getModifiers()) || f.getType() != AccessibilityNodeInfo.AccessibilityAction.class) continue;
+                if (!f.getName().startsWith("ACTION_")) continue;
+                try {
+                    AccessibilityNodeInfo.AccessibilityAction a = (AccessibilityNodeInfo.AccessibilityAction) f.get(null);
+                    if (a != null && !names.containsKey(a.getId())) {
+                        names.put(a.getId(), f.getName().substring("ACTION_".length()).toLowerCase(Locale.ROOT));
+                    }
+                } catch (IllegalAccessException ignored) {
+                    // A constant that cannot be read is not named; its action reads as custom.
+                }
+            }
+            return names;
+        }
+    }
+
+    // An extra attribute, written only when it has a value.
+    private static void extra(StringBuilder sb, String name, CharSequence v) {
+        if (v == null || v.length() == 0) return;
+        attr(sb, name, v);
+    }
+
+    // An extra flag, written only when it is true.
+    private static void extraFlag(StringBuilder sb, String name, boolean v) {
+        if (v) flag(sb, name, true);
     }
 
     private static void flag(StringBuilder sb, String name, boolean v) {

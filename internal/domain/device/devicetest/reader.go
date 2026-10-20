@@ -51,7 +51,7 @@ func (l *ReaderLog) Max() int {
 
 // FakeReader is an in-process stand-in for the persistent UI reader (ADR-0030, D2): a
 // TCP listener the fake adb's forward points at. Each connection carries one request
-// (`ping`, `dump` and its `idle` form, `quit`, and the acting verbs `tap`, `keys` and
+// (`ping`, `dump` and its `idle` and `full` forms, `quit`, and the acting verbs `tap`, `keys` and
 // `settext` of ADR-0035 §1); each dump takes the next scripted document, ReaderGone closes
 // the connection without writing, and the last document repeats. Each connection is
 // handled in its own goroutine, so a client that sends two at once is seen to.
@@ -69,6 +69,11 @@ type FakeReader struct {
 	quits int
 	pings int
 	dumps int
+	// fullDocs scripts the answers to `dump full` requests (ADR-0110), fullNext the next one;
+	// fulls is the words of every such request, after `dump `, in order.
+	fullDocs []string
+	fullNext int
+	fulls    []string
 	// mutePings is how many forthcoming ping requests are accepted but never answered,
 	// as a reader that is alive but wedged does (plan m1f step 7).
 	mutePings int
@@ -126,6 +131,26 @@ func (r *FakeReader) SetDocs(docs ...string) {
 	r.mu.Lock()
 	r.docs, r.next = docs, 0
 	r.mu.Unlock()
+}
+
+// SetFullDocs scripts the answers to `dump full [invisible]` requests (ADR-0110), in order,
+// the last repeating; ReaderGone closes the connection without a document, and a reader's own
+// line (`droidyard-reader: busy 2500 com.example`) is answered as it is. Until it is called a
+// full dump is answered `droidyard-reader: bad dump arguments`, as a reader that predates the
+// words does. A full dump is not counted by Dumps.
+func (r *FakeReader) SetFullDocs(docs ...string) {
+	r.mu.Lock()
+	r.fullDocs, r.fullNext = docs, 0
+	r.mu.Unlock()
+}
+
+// FullRequests is the words of every `dump full` request the reader received, after `dump `
+// and without the newline (`full`, `full invisible`), in order, so a test asserts what the
+// client asked for.
+func (r *FakeReader) FullRequests() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.fulls...)
 }
 
 // SetMutePings makes the next n pings accepted but never answered (each is held past the
@@ -271,12 +296,17 @@ func (r *FakeReader) handle(conn net.Conn) {
 		io.WriteString(conn, "ok 1234")
 	case trimmed == "dump" || strings.HasPrefix(trimmed, "dump "):
 		// `dump` or `dump idle <quietMs> <maxMs>`, the settle of D2.
+		full := trimmed == "dump full" || strings.HasPrefix(trimmed, "dump full ")
 		r.mu.Lock()
 		stall := r.dumpStalls > 0
 		if stall {
 			r.dumpStalls--
 		}
-		r.dumps++
+		if full {
+			r.fulls = append(r.fulls, strings.TrimPrefix(trimmed, "dump "))
+		} else {
+			r.dumps++
+		}
 		r.starts = append(r.starts, time.Now())
 		r.mu.Unlock()
 		if stall {
@@ -285,7 +315,12 @@ func (r *FakeReader) handle(conn net.Conn) {
 			holdUntilClose(conn)
 			return
 		}
-		doc := r.nextDoc()
+		var doc string
+		if full {
+			doc = r.nextFullDoc()
+		} else {
+			doc = r.nextDoc()
+		}
 		if doc == ReaderGone {
 			return
 		}
@@ -345,6 +380,21 @@ func (r *FakeReader) handleAct(conn net.Conn, line string) {
 func holdUntilClose(conn net.Conn) {
 	buf := make([]byte, 1)
 	conn.Read(buf)
+}
+
+// nextFullDoc is the scripted answer to a `dump full`: the next of SetFullDocs, the last
+// repeating, or a reader that does not know the words.
+func (r *FakeReader) nextFullDoc() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.fullDocs) == 0 {
+		return readerPrefix + " bad dump arguments"
+	}
+	i := r.fullNext
+	if i < len(r.fullDocs)-1 {
+		r.fullNext++
+	}
+	return r.fullDocs[i]
 }
 
 func (r *FakeReader) nextDoc() string {
