@@ -1,11 +1,12 @@
 # Plan: Milestone 2v — Tests that hold: fewer flaky tests, faster, more solid
 
-- Status: Reviewed
+- Status: Approved
+- Approved: the owner, 2026-10-20 ("ponte con ello", with as many parallel subagents as it needs).
 - Date: 2026-10-19
 - Milestone: the owner, 2026-10-19: "Reducir los tests flaky, que vayan mejor, sean más sólidos, más rápidos." Two register rows join it, gathered by the main session (Delegated): "Load-sensitive tests: …" and "`TestTimeoutKillsTheGroup` … failed once under the pre-commit hook's load".
 - Phase: none. The MVP is done (2h); the owner's goal and the two rows are the requirement.
 - Contract: no capability, schema or error code changes. What bounds the work: ADR-0068 §3 and ADR-0093 (what CI runs, and that the hook runs no race); `AGENTS.md` §Build and test and `.githooks/pre-commit` (a failing commit is refused); `milestone-workflow` §Testing, §Verification by risk; `prove-change` §Grade what you proved. For step 2 only, the clause each failing test names (ADR-0099 §3, ADR-0100 §3).
-- Lane: `2v`, branch `m2v` from `main` at `980361c`, now at `be9caf9` (the MCP test client's waits scaled by `raceTimeScale`, after CI's race job failed `TestRemoteArtifactsAndLogs`), claimed touching `build`. The steps edit tests across the tree, a new test-only package, `internal/daemon` and the code step 2's bugs name, and two skills; no step edits `.github/workflows/ci.yml` or `.githooks/pre-commit` (Q4, Q5). Lane `fix-wait-focus` (`devices`) is fixing `TestWaitFocusRejectsAFocusedNodeOffThePoint`'s fake in `internal/domain/device/tap_test.go` and `devicetest`: no step here edits `tap_test.go` or that test's fake; they meet in `internal/domain/device` only through step 3's swap of `screensource_test.go`'s `eventually`, a textual merge for whichever closes second, which reruns the device package.
+- Lane: `2v`, branch `m2v` from `main` at `e0f3c5a` (the plan, with `be9caf9`'s MCP test client waits, was merged to `main` Reviewed, for later), touching `build`. `board.go claim` refuses an id already in the plans index, so the branch and worktree were made with `git worktree add` and the lane is not recorded (Delegated; a register row at the close). The steps edit tests across the tree, a new test-only package, `internal/daemon` and the code step 2's bugs name, and two skills; no step edits `.github/workflows/ci.yml` or `.githooks/pre-commit` (Q4, Q5). Lane `fix-wait-focus` (`devices`) is fixing `TestWaitFocusRejectsAFocusedNodeOffThePoint`'s fake in `internal/domain/device/tap_test.go` and `devicetest`: no step here edits `tap_test.go` or that test's fake; they meet in `internal/domain/device` only through step 3's swap of `screensource_test.go`'s `eventually`, a textual merge for whichever closes second, which reruns the device package.
 - Size: nine steps. If the owner wants 2v smaller, the cut is step 7 (speed): it becomes its own milestone, with step 1's timing as its baseline.
 
 ## Scope
@@ -229,4 +230,5 @@ Each has a recommendation; the steps are written against it. None needs an ADR: 
 
 ## Changes
 
-None yet.
+- 2026-10-20, steps 1 and 3 (Delegated, the owner's word on parallel subagents): step 3 runs at once with step 1, in its own worktree (its Needs line names nothing), and is merged after step 1 lands. Step 1's measurements (a) then run beside step 3's implementer, so step 7 does not take its "before" from them: before step 7 starts, its package is measured again three times alone on the branch as it then stands, and those numbers are A7's baseline.
+- 2026-10-20, step 1: the evidence gains four tests that failed one run of the whole tree on 2026-10-20 (the hook's run for an unrelated commit, refused): `cmd/droidyard` `TestRemoteInstall`, `TestCtrlCDuringAutoStart`, `TestRemoteLogsManyStreams` and `internal/workspace` `TestDialogIsRecordedWhileItRuns`; the last two were not on the list.
