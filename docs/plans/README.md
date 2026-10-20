@@ -51,3 +51,4 @@ the output.
 | [m2t-device-hosting.md](m2t-device-hosting.md) | 2t — C4a, device hosting: lend physical devices to a paired Droidyard over the VPN | Done |
 | [m2u-share-and-join.md](m2u-share-and-join.md) | 2u — C4b, share a phone with one command, join with one paste | Done |
 | [m2v-tests-that-hold.md](m2v-tests-that-hold.md) | 2v — Tests that hold: fewer flaky tests, faster, more solid | Done |
+| [m2w-ui-dump-and-changes.md](m2w-ui-dump-and-changes.md) | 2w — A full UI dump for parsers, and the UI's changes between reads | Approved |
