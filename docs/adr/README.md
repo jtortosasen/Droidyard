@@ -138,6 +138,9 @@ edits made before this rule and are not added to.
 | [0107](0107-pairing-by-single-use-code.md) | Pairing by a single-use code | Accepted |
 | [0108](0108-share-lifetime-and-consent.md) | A share's lifetime, its capabilities and its consent | Accepted |
 | [0109](0109-private-networks-live-peer-config.md) | Private networks and live peer configuration | Accepted |
+| [0110](0110-full-ui-dump.md) | A full UI dump for parsers, as an artifact in `uiautomator dump`'s format | Accepted |
+| [0111](0111-ui-events-between-reads.md) | The UI's events kept on the device, read since a cursor and waited on | Accepted |
+| [0112](0112-ui-events-stream-and-panel.md) | The UI events stream and its panel in the web UI | Accepted |
 
 ## Open decisions (not yet ADRs)
 
