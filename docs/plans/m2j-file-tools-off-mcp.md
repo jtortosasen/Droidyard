@@ -190,7 +190,7 @@ Everything in this step lands together: the audience change breaks the counts, t
   - **R1**: m2i K1. A copy of `samples/golden` made by `git archive`. State and config under a fresh `/tmp/dyj.*`. `pre-health` must fail. The binary is built after `pnpm -C web build`.
   - **R2**: m2i K2, whole. Every droidyard daemon this run did not start (the owner's pid 15130, and 17053 if alive) and the adb server on 5037 keep their pid and start time, recorded before and after. Nothing is killed by name. `droidyard stop` runs only under R1's environment. `ANDROID_SERIAL=droidyard-m2j-none`; no adb, device or Gradle.
   - **R3**: m2i K4. Headless Chrome with its own `--user-data-dir`, driven over CDP, with captures by CDP only and never of the owner's screen. Never "Open folder…" or `workspace.chooseRoot`.
-  - **R4**: never `~/Documents/DopamineControl`. `verify-daemon` §Launch, §Doctor and §Cleanup apply.
+  - **R4**: never `~/Documents/OwnerAppA`. `verify-daemon` §Launch, §Doctor and §Cleanup apply.
 - Check: any `file_` tool listed, or any UI or CLI file call refused, fails the step.
   1. `"$DY" schema | cmp - schema/capabilities.json` prints nothing.
   2. An MCP session bound to the copy (`verify-daemon` §Drive):

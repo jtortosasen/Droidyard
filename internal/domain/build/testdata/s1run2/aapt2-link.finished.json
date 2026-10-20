@@ -13,7 +13,7 @@
      "causes": [
       {
        "id": "1718e0e360b6ae7a",
-       "message": "Android resource linking failed\ncom.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.dopaminecontrol:string/this_string_does_not_exist) not found.\nerror: failed linking references.\n",
+       "message": "Android resource linking failed\ncom.example.ownerappa.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.ownerappa:string/this_string_does_not_exist) not found.\nerror: failed linking references.\n",
        "causes": []
       }
      ]

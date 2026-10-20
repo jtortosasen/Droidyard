@@ -1,5 +1,5 @@
 // The golden sample app (milestone 1l, plan D1-D3). It is the acceptance target for the
-// Phase 1 run, playing the role DopamineControl was ratified to play (mvp.md
+// Phase 1 run, playing the role OwnerAppA was ratified to play (mvp.md
 // §Validation target): one activity, a form with validation and a list with counters,
 // a deliberate compile-error site and a crash path.
 //

@@ -6,8 +6,8 @@
    "problemId": "compiler-err-cant-resolve-location",
    "problemDisplayName": "Java compilation error",
    "contextualLabel": "cannot find symbol",
-   "details": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:4: error: cannot find symbol\n    int x = undefinedSymbol;\n            ^\n  symbol:   variable undefinedSymbol\n  location: class SpikeBrokenJava",
-   "file": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java",
+   "details": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:4: error: cannot find symbol\n    int x = undefinedSymbol;\n            ^\n  symbol:   variable undefinedSymbol\n  location: class SpikeBrokenJava",
+   "file": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java",
    "line": 4,
    "column": 13,
    "solutions": [
@@ -19,8 +19,8 @@
    "problemId": "compiler-err-prob-found-req",
    "problemDisplayName": "Java compilation error",
    "contextualLabel": "incompatible types: int cannot be converted to java.lang.String",
-   "details": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String\n    String s = 42;\n               ^",
-   "file": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java",
+   "details": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String\n    String s = 42;\n               ^",
+   "file": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java",
    "line": 5,
    "column": 16,
    "solutions": [
@@ -34,8 +34,8 @@
    "problemId": "compiler-err-cant-resolve-location",
    "problemDisplayName": "Java compilation error",
    "contextualLabel": "cannot find symbol",
-   "details": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:4: error: cannot find symbol\n    int x = undefinedSymbol;\n            ^\n  symbol:   variable undefinedSymbol\n  location: class SpikeBrokenJava",
-   "file": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java",
+   "details": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:4: error: cannot find symbol\n    int x = undefinedSymbol;\n            ^\n  symbol:   variable undefinedSymbol\n  location: class SpikeBrokenJava",
+   "file": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java",
    "line": 4,
    "column": 13,
    "solutions": [
@@ -47,8 +47,8 @@
    "problemId": "compiler-err-prob-found-req",
    "problemDisplayName": "Java compilation error",
    "contextualLabel": "incompatible types: int cannot be converted to java.lang.String",
-   "details": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String\n    String s = 42;\n               ^",
-   "file": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java",
+   "details": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String\n    String s = 42;\n               ^",
+   "file": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java",
    "line": 5,
    "column": 16,
    "solutions": [
@@ -63,7 +63,7 @@
    "causes": [
     {
      "id": "34c1bfa91fc1f155",
-     "message": "Compilation failed; see the compiler output below.\n/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:4: error: cannot find symbol\n    int x = undefinedSymbol;\n            ^\n  symbol:   variable undefinedSymbol\n  location: class SpikeBrokenJava\n/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String\n    String s = 42;\n               ^\n2 errors",
+     "message": "Compilation failed; see the compiler output below.\n/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:4: error: cannot find symbol\n    int x = undefinedSymbol;\n            ^\n  symbol:   variable undefinedSymbol\n  location: class SpikeBrokenJava\n/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String\n    String s = 42;\n               ^\n2 errors",
      "causes": []
     }
    ]

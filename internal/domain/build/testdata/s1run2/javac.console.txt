@@ -6,22 +6,22 @@ stdout	> Task :core:capture:compileDebugJavaWithJavac UP-TO-DATE
 stdout	> Task :core:designsystem:compileDebugJavaWithJavac NO-SOURCE
 stdout	> Task :feature:applist:compileDebugJavaWithJavac UP-TO-DATE
 stdout	> Task :app:compileDebugJavaWithJavac FAILED
-stderr	/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:4: error: cannot find symbol
+stderr	/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:4: error: cannot find symbol
 stderr	    int x = undefinedSymbol;
 stderr	            ^
 stderr	  symbol:   variable undefinedSymbol
 stderr	  location: class SpikeBrokenJava
-stderr	/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String
+stderr	/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String
 stderr	    String s = 42;
 stderr	               ^
 stderr	2 errors
 stderr	Execution failed for task ':app:compileDebugJavaWithJavac'.
-stderr	  /w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:4: error: cannot find symbol
+stderr	  /w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:4: error: cannot find symbol
 stderr	      int x = undefinedSymbol;
 stderr	              ^
 stderr	    symbol:   variable undefinedSymbol
 stderr	    location: class SpikeBrokenJava
-stderr	  /w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String
+stderr	  /w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:5: error: incompatible types: int cannot be converted to String
 stderr	      String s = 42;
 stderr	                 ^
 stderr	  2 errors

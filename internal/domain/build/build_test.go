@@ -370,8 +370,8 @@ func TestAssembleRecordsTheBuildAndItsOutput(t *testing.T) {
 		t.Fatalf("outputs are %+v, want one for :app debug", res.Outputs)
 	}
 	o := res.Outputs[0]
-	if o.Module != ":app" || o.Variant != "debug" || o.ApplicationID != "com.example.dopaminecontrol" {
-		t.Errorf("output is %+v, want :app/debug com.example.dopaminecontrol", o)
+	if o.Module != ":app" || o.Variant != "debug" || o.ApplicationID != "com.example.ownerappa" {
+		t.Errorf("output is %+v, want :app/debug com.example.ownerappa", o)
 	}
 	if len(o.APKs) != 1 || o.APKs[0].Name != "app-debug.apk" || !o.APKs[0].Supported || o.APKs[0].SizeBytes == 0 {
 		t.Errorf("apks are %+v, want one supported app-debug.apk with a size", o.APKs)
@@ -517,7 +517,7 @@ func TestFilteredAPKsAreListedAndUnsupported(t *testing.T) {
 func TestMissingApplicationIDIsAReasonNotAGuess(t *testing.T) {
 	buildDir := t.TempDir()
 	// The recorded metadata, with its applicationId taken out.
-	withoutID := strings.Replace(outputMetadataJSON(t, "", ""), `"applicationId":"com.example.dopaminecontrol",`, "", 1)
+	withoutID := strings.Replace(outputMetadataJSON(t, "", ""), `"applicationId":"com.example.ownerappa",`, "", 1)
 	writeAPK(t, buildDir, "debug", withoutID)
 	f := newFixture(t, modelWith(t, gradletest.Config{Build: successBuild(gradle.TaskSummary{})}, buildDir))
 

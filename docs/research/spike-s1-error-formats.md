@@ -12,7 +12,7 @@ API delivers compiler errors with file, line and column.
 > reuse. What it shows is below, scoped; what it does not show is listed as not run.
 
 - **Date**: 2026-09-29
-- **Subject**: `DopamineControl`, a real multi-module Compose project
+- **Subject**: `OwnerAppA`, a real multi-module Compose project
   (modules `app`, `core/*`, `feature/*`, plus `build-logic` convention plugins)
 - **Versions observed**: Gradle **8.13**, AGP **8.13.2**, KGP **2.0.21**,
   KSP 2.0.21-1.0.27, `targetSdk 36`
@@ -41,7 +41,7 @@ API delivers compiler errors with file, line and column.
 Exact line, as emitted:
 
 ```text
-e: file:///private/var/folders/.../app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt:3:42 Unresolved reference 'thisSymbolDoesNotExist'.
+e: file:///private/var/folders/.../app/src/main/java/com/example/ownerappa/SpikeBroken.kt:3:42 Unresolved reference 'thisSymbolDoesNotExist'.
 ```
 
 Grammar: `e: file://<absolute-path>:<line>:<column> <message>`
@@ -83,7 +83,7 @@ Exact lines:
 Execution failed for task ':app:processDebugResources'.
 > A failure occurred while executing com.android.build.gradle.internal.res.LinkApplicationAndroidResourcesTask$TaskAction
    > Android resource linking failed
-     com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.dopaminecontrol:string/this_string_does_not_exist) not found.
+     com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.ownerappa:string/this_string_does_not_exist) not found.
      error: failed linking references.
 ```
 
@@ -93,7 +93,7 @@ Grammar: `<blame-id>:/values/values.xml:<line>: error: <message>`, no column.
   the CLI's `What went wrong` rendering of the failure chain. That the TAPI failure
   node's message carries the same text is an **assumption** (not run).
 - **It is not a source path.** It points into AGP's *merged* resources, identified by
-  an opaque blame id (`com.example.dopaminecontrol.app-mergeDebugResources-42`), not
+  an opaque blame id (`com.example.ownerappa.app-mergeDebugResources-42`), not
   at `app/src/main/res/values/spike_broken.xml`, which is where a human or an agent
   needs to go. The line number is in a file the developer never wrote.
 - The message does name the missing resource (`string/this_string_does_not_exist`),
@@ -150,7 +150,7 @@ budget must separate "first ever build" from "subsequent build".
 
 Milestone 1g step 2. The client is the sidecar of step 1 (TAPI 9.8.0, protocol 1),
 spawned on Zulu 17 in its own process group by a small driver, against a copy of
-DopamineControl's working tree (S1 cell: Gradle 8.13, AGP 8.13.2, KGP 2.0.21,
+OwnerAppA's working tree (S1 cell: Gradle 8.13, AGP 8.13.2, KGP 2.0.21,
 KSP 2.0.21-1.0.27) on a **warm** Gradle daemon, colour off. One extra cell: the same
 copy on **KGP 2.4.20**, KSP 2.3.12, Hilt 2.57.2 (Hilt 2.51.1 fails KSP 2.3's class
 loading; 2.60 needs AGP 9). Trimmed recordings, paths rewritten to `/w/dc`:
@@ -183,7 +183,7 @@ Kotlin diagnostics, the rest of the S1 matrix (Gradle 9.x, AGP 9), Linux.
 ## Still to run (after run 2)
 
 - The rest of the **matrix**: Gradle 9.x and AGP 9 cells, and KGP 2.3.
-- **kapt** (DopamineControl uses KSP), a **KSP error** (only its warning form is
+- **kapt** (OwnerAppA uses KSP), a **KSP error** (only its warning form is
   recorded), an AAPT2 **compile** error.
 - **Multi-line** Kotlin messages and notes, which the extractor must group.
 - **Linux**.

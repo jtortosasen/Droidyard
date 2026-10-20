@@ -31,7 +31,7 @@ For every run against the shared emulator (`Pixel_9a`, API 36.1, `emulator-5554`
 | `device.install` | no | D1 |
 | `device.uninstall` | no | with `device.install`, its pair; cleanup uses raw `adb` (E5) |
 | `device.logs`, pid history, `since: "launch"` | no | the `device.logs` milestone (spike S9) |
-| Phase 1 acceptance: golden path from Cursor and OpenCode on DopamineControl | part | step 10: golden-path steps 5 (launch) and 7 from OpenCode on the plan's own app. DopamineControl needs `build.*`; Cursor not run |
+| Phase 1 acceptance: golden path from Cursor and OpenCode on OwnerAppA | part | step 10: golden-path steps 5 (launch) and 7 from OpenCode on the plan's own app. OwnerAppA needs `build.*`; Cursor not run |
 | Definition of done: "`tapElement` and `inputText` verify their effect in a single call" | yes | steps 6, 9, 10 |
 | `UiAutomation` key for instrumented test runs | no | ADR-0030 §Consequences: with the first capability that runs them |
 | CLI `--device` / `ANDROID_SERIAL` (ratified) | no | D15 |
@@ -117,7 +117,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Check: `TestFormAppBuilds` (skips, saying level 2, without the SDK or `javac`, as `reader_test.go` does): `aapt2 dump badging` names package `dev.droidyard.formapp` and a launchable activity; seen failing with the launcher category removed. Level 5 under §Emulator rules, not while step 1 measures (a held `UiAutomation` blocks the one-shot): `adb install -r`, `adb shell am start -n …`, one one-shot reader run (push, `exec-out app_process`, `rm`) lists `name`, `greet`, `likes`, `banner`, `dismiss`, `disabled` (not enabled) and both "Twin" nodes; `adb uninstall dev.droidyard.formapp` prints `Success`.
 - Schema: no change.
 - Needs: —. The SDK; the emulator for level 5.
-- Not here: an off-screen node: the reader drops nodes not visible to the user (`DroidyardReader.java`), so `DEVICE_ELEMENT_OFFSCREEN` is proven on synthetic trees only (step 4); Compose (DopamineControl, with `build.*`).
+- Not here: an off-screen node: the reader drops nodes not visible to the user (`DroidyardReader.java`), so `DEVICE_ELEMENT_OFFSCREEN` is proven on synthetic trees only (step 4); Compose (OwnerAppA, with `build.*`).
 - Rests on: —
 - Review: fixture: DeepSeek alone.
 - [x] Done. Evidence: 19caae4. `TestFormAppBuilds` passes with the SDK and was seen failing with the launcher category removed (DeepSeek implementer). Level 5, main session, 2026-10-05, under §Emulator rules: `adb install -r` Success, `am start`, one one-shot reader run listed `name`, `greet`, `greeting`, `like`, `likes`, `banner`, `dismiss`, `disabled` (`enabled="false"`) and two `text="Twin"` nodes; `adb uninstall` Success; adb server pid 48737 and Qustodio pid 1719 unchanged, no FATAL or malfunction line. The first run showed the buttons as `TWIN` (the theme's all-caps); the main session added `setAllCaps(false)` so selectors match the text as written, and reran it. Review: the main session's diff review and the level-5 run (a fixture, DeepSeek-implemented).
@@ -221,7 +221,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Check: tagged build; the recipe's Launch, Doctor and Cleanup. (1) Form app installed with `adb install`. OpenCode, shell and edit denied, a prompt naming `device_launch`, `device_inputText` and `device_tapElement` on `emulator-5554`: `mcp connected … tools=14`; the wire shows `launch` with a `pid`; `inputText` into `name`, then a tap on `greet` with `appears {text: "Hello, …"}` matched; `tapElement {id: "like"}` with `appears {text: "Likes: 1"}` matched; `_meta` and the fixed line on the input and tap results; no shell tool call in OpenCode's output. (2) CLI: ten warm `uiTree` reads (median recorded); `DEVICE_ELEMENT_AMBIGUOUS` with `meta.untrusted`; a ref from before a screen change → `DEVICE_STALE_REF`. (3) One reader pid through the run; after `droidyard stop`, no `droidyard-reader-*` process and no forward of ours. (4) Cleanup: form app uninstalled; Qustodio's and 5037's pids unchanged from first to last; `default_input_method` unchanged; zero orphans.
 - Schema: no change.
 - Needs: steps 1 to 9; OpenCode with a configured provider.
-- Not here: Cursor; DopamineControl (needs `build.*`); a physical device; Linux.
+- Not here: Cursor; OwnerAppA (needs `build.*`); a physical device; Linux.
 - Rests on: —
 - Review: the close: Opus verifier and DeepSeek over A1–A9.
 - [x] Done. Evidence: b734234; `.claude/skills/verify-daemon/SKILL.md` gains the 1f Device actions block; 1e's (2b) row marked not to be run on a shared emulator. Level 5, main session, 2026-10-06, evidence `/private/tmp/dy.QWqFfz`, tagged build (`go version -m`): (1) OpenCode v2.0.18 (`opencode-go/deepseek-v4.1-flash`), shell and edit denied: `mcp connected ... tools=14`; the wire shows `device_launch` -> pid 20715, `device_inputText {id:name}` clear "Ana" -> typed, `device_tapElement {id:greet}` appears "Hello, Ana" -> matched at 349 ms, `device_tapElement {id:like}` appears "Likes: 1" -> matched at 371 ms; `_meta {"droidyard/untrusted": true}` and the fixed first line on the input and both tap results; tools used: the four droidyard tools and OpenCode's `execute` tool search, no shell. (2) CLI: ten warm `uiTree` 686-1019 ms, median 733 ms (the host was loaded; 0.1 s when idle, step 5); `Twin` -> `DEVICE_ELEMENT_AMBIGUOUS` with `meta.untrusted`; a `likes` ref from before a tap that changed its text -> `DEVICE_STALE_REF`. (3) One reader pid (20759) through the run; after `droidyard stop` no reader and no forward (both read from the run's transcript; the evidence directory keeps neither). (4) Form app uninstalled; adb server pid 48737, Qustodio pid 4868 and `default_input_method` unchanged from first to last; zero orphans.
@@ -260,7 +260,7 @@ None.
 | Qustodio does not block launching or foregrounding the form app | 6, 8, 9, 10 | each level-5 run records it |
 | OpenCode's project configuration can deny its shell tool, and under which key | 10 | the OpenCode documentation or a dry run, before step 10 |
 | Timings (settle 300 ms, polls 250 ms, read 3 s, start 8 s) are working defaults | 5, 6, 9 | step 1 sets the reader's; spike S6 the rest |
-| Compose screens (merged semantics, `testTagsAsResourceId`) resolve as Views do | 4, 6, 9 | DopamineControl, Phase 1 acceptance |
+| Compose screens (merged semantics, `testTagsAsResourceId`) resolve as Views do | 4, 6, 9 | OwnerAppA, Phase 1 acceptance |
 | With the persistent reader down, later polls of `tapElement` have time for the one-shot | 6, 7 | Not handled: `gone` may end `matched: false` on a degraded device |
 | Cursor; Linux | all | not run |
 

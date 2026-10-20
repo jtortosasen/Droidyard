@@ -11,7 +11,7 @@ import (
 )
 
 // The recordings S1 run 2 committed (m1g step 2, D16): trimmed real output from
-// DopamineControl with the scratch path rewritten to /w/dc. Each golden test below
+// OwnerAppA with the scratch path rewritten to /w/dc. Each golden test below
 // pins one producer's grammar and the merge decision it exercises.
 const testdata = "../testdata/s1run2"
 
@@ -103,12 +103,12 @@ func TestKotlinKGP2021Console(t *testing.T) {
 	assertRecords(t, "errors", got.Errors, []Record{
 		{
 			Severity: Error, Source: SourceConsole, Tool: ToolKotlin,
-			File: "app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt", Line: 3, Column: 24,
+			File: "app/src/main/java/com/example/ownerappa/SpikeBroken.kt", Line: 3, Column: 24,
 			Message: "Unresolved reference 'thisSymbolDoesNotExist'.",
 		},
 		{
 			Severity: Error, Source: SourceConsole, Tool: ToolKotlin,
-			File: "app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt", Line: 6, Column: 12,
+			File: "app/src/main/java/com/example/ownerappa/SpikeBroken.kt", Line: 6, Column: 12,
 			Message: "Return type mismatch: expected 'kotlin.String', actual 'kotlin.Int'.",
 		},
 	})
@@ -140,7 +140,7 @@ func TestKotlinKGP2420Console(t *testing.T) {
 	if w.Source != SourceEvent || w.Tool != ToolKotlin {
 		t.Errorf("warning source/tool = %s/%s, want event/kotlin", w.Source, w.Tool)
 	}
-	if w.File != "feature/applist/src/main/kotlin/com/example/dopaminecontrol/feature/applist/ui/AppListScreen.kt" || w.Line != 400 || w.Column != 75 {
+	if w.File != "feature/applist/src/main/kotlin/com/example/ownerappa/feature/applist/ui/AppListScreen.kt" || w.Line != 400 || w.Column != 75 {
 		t.Errorf("warning location = %s:%d:%d", w.File, w.Line, w.Column)
 	}
 	if w.ProblemID != "UNNECESSARY_NOT_NULL_ASSERTION" {
@@ -150,7 +150,7 @@ func TestKotlinKGP2420Console(t *testing.T) {
 	if e.Source != SourceEvent || e.Tool != ToolKotlin || e.ProblemID != "UNRESOLVED_REFERENCE" {
 		t.Errorf("error source/tool/id = %s/%s/%s", e.Source, e.Tool, e.ProblemID)
 	}
-	if e.File != "app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt" || e.Line != 3 || e.Column != 24 {
+	if e.File != "app/src/main/java/com/example/ownerappa/SpikeBroken.kt" || e.Line != 3 || e.Column != 24 {
 		t.Errorf("error location = %s:%d:%d", e.File, e.Line, e.Column)
 	}
 }
@@ -164,7 +164,7 @@ func TestKSPConsole(t *testing.T) {
 	}
 	sameRecord(t, got.Warnings[0], Record{
 		Severity: Warning, Source: SourceConsole, Tool: ToolKSP,
-		File: "core/database/src/main/kotlin/com/example/dopaminecontrol/core/database/AppDatabase.kt",
+		File: "core/database/src/main/kotlin/com/example/ownerappa/core/database/AppDatabase.kt",
 		Line: 9,
 		Message: "Schema export directory was not provided to the annotation processor so Room " +
 			"cannot export the schema. You can either provide `room.schemaLocation` annotation " +
@@ -275,7 +275,7 @@ func (f fakeResolver) MergedLine(blamePath string, line int) (string, bool) {
 // file's line becomes the excerpt, and the file-less follow-up is its own record.
 func TestAAPT2LinkWithResolution(t *testing.T) {
 	f := loadFixture(t, "aapt2-link.finished.json")
-	const blame = "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml"
+	const blame = "com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml"
 	r := fakeResolver{
 		blamePath: blame, line: 210,
 		source: "/w/dc/app/src/main/res/values/strings.xml", srcLine: 3, srcColumn: 4,
@@ -317,7 +317,7 @@ func TestAAPT2LinkWithoutResolution(t *testing.T) {
 	if got.Errors[0].Resolved != nil || got.Errors[0].Excerpt != "" {
 		t.Errorf("resolved/excerpt should be omitted: %s", mustJSON(got.Errors[0]))
 	}
-	if got.Errors[0].File != "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml" {
+	if got.Errors[0].File != "com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml" {
 		t.Errorf("file = %q", got.Errors[0].File)
 	}
 }
@@ -327,7 +327,7 @@ func TestAAPT2LinkWithoutResolution(t *testing.T) {
 // console's same error with a caret column become one source: failure record that
 // keeps the console's column.
 func TestProblemsRecordAndConsoleMergeKeepingTheConsoleColumn(t *testing.T) {
-	const java = "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBrokenJava.java"
+	const java = "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java"
 	console := []Line{
 		{Stream: "stderr", Text: java + ":4: error: cannot find symbol"},
 		{Stream: "stderr", Text: "    int x = undefinedSymbol;"},
@@ -469,21 +469,21 @@ func TestPrivateVarResolved(t *testing.T) {
 func TestRunOneLines(t *testing.T) {
 	const root = "/private/var/folders/xy/T/spike"
 	got := Extract(Input{Root: root, Outcome: "failed", Console: []Line{
-		{Stream: "stderr", Text: "e: file:///private/var/folders/xy/T/spike/app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt:3:42 Unresolved reference 'thisSymbolDoesNotExist'."},
+		{Stream: "stderr", Text: "e: file:///private/var/folders/xy/T/spike/app/src/main/java/com/example/ownerappa/SpikeBroken.kt:3:42 Unresolved reference 'thisSymbolDoesNotExist'."},
 		{Stream: "stdout", Text: "w: [ksp] /private/var/folders/xy/T/spike/app/src/main/java/com/example/Foo.kt:9: schema"},
 		{Stream: "stderr", Text: "Android resource linking failed"},
-		{Stream: "stderr", Text: "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist not found."},
+		{Stream: "stderr", Text: "com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist not found."},
 		{Stream: "stderr", Text: "error: failed linking references."},
 	}})
 	assertRecords(t, "errors", got.Errors[:2], []Record{
 		{
 			Severity: Error, Source: SourceConsole, Tool: ToolKotlin,
-			File: "app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt", Line: 3, Column: 42,
+			File: "app/src/main/java/com/example/ownerappa/SpikeBroken.kt", Line: 3, Column: 42,
 			Message: "Unresolved reference 'thisSymbolDoesNotExist'.",
 		},
 		{
 			Severity: Error, Source: SourceConsole, Tool: ToolAAPT2,
-			File: "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml", Line: 210, Merged: true,
+			File: "com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml", Line: 210, Merged: true,
 			Message: "resource string/this_string_does_not_exist not found.",
 		},
 	})
