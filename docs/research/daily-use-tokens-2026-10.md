@@ -1,6 +1,6 @@
 # Token cost of the Droidyard MCP surface: measurements, prior art, ranked changes
 
-2026-10-07. Repo at `3abf127`. Labels: **[obs]** observed (measured or read in code), **[inf]** inferred,
+2026-10-07. Repo at `61bf3b2`. Labels: **[obs]** observed (measured or read in code), **[inf]** inferred,
 **[asm]** assumption. Nothing in the repo was edited; the wire was captured with a test file injected through
 `go test -overlay` (scratchpad `measure/zz_tokmeasure_test.go`), which builds the server exactly as
 `cmd/droidyard/serve.go:57-65` does and sends `initialize` + `tools/list`.

@@ -6,7 +6,7 @@
 - Milestone: "2t: C4a, device hosting — lend physical devices to a paired Droidyard over the VPN" (owner, 2026-10-18; `docs/vision/beyond.md` §The capabilities, C4, its first slice).
 - Phase: none. The MVP is done (2h); the owner's use case, the shape agreed with the owner and the ten register rows under Scope are the requirement.
 - Contract: Q1 to Q7 (ADR-0097 to ADR-0103, numbered by the main session at approval; ADR-0102 is written after step 8 (a), as ADR-0077 was from m2p step 1). Also ADR-0010, ADR-0012 §Reading artifacts, ADR-0015 §1, §4, §6, §8, ADR-0019 §7, §Sessions, ADR-0020 §Operation capabilities, ADR-0021 §Layout, ADR-0028, ADR-0030, ADR-0032 §2, §4, §5, ADR-0035 §2, ADR-0036, ADR-0041, ADR-0042, ADR-0048 §1, ADR-0060 §2, ADR-0076, ADR-0077 §4, ADR-0078 §4, §5, ADR-0079 §3, ADR-0080, ADR-0091; ADR-0094; `adb-device.md` §Design rule: adb-centric, serial is the only identity, §Policy and safety; `http-websocket.md` §Security baseline.
-- Lane: `2t`, branch `m2t` from `main` at `c4bb5c5`, touches `devices,contract,web,process`; ADRs 0097–0104 reserved. Lane 2s is open on the same touches (see §Meeting 2s).
+- Lane: `2t`, branch `m2t` from `main` at `bd8ceea`, touches `devices,contract,web,process`; ADRs 0097–0104 reserved. Lane 2s is open on the same touches (see §Meeting 2s).
 - Register: the main session's commit that adds this plan sets `Work` = `2t` on the ten rows of Scope.
 - Size: ten steps. If the owner wants 2t smaller, the cut is step 8 (local channels to the device): nothing depends on it, and its four rows return to `C4`/`device`.
 
@@ -46,13 +46,13 @@ Written before 2s merges: 2s's decisions are named by their m2s question (its oc
 
 ## Starting point
 
-- `main` at `c4bb5c5`; API `0.28.0` (`internal/domain/system/system.go`); ADRs up to 0093. Lane 2s (ADRs 0094–0096 reserved) brings API `0.29.0`, `Origin.Client`, the session registry's device holders, `DEVICE_OCCUPIED`, `occupiedBy` on `device.list`, `session.release`.
+- `main` at `bd8ceea`; API `0.28.0` (`internal/domain/system/system.go`); ADRs up to 0093. Lane 2s (ADRs 0094–0096 reserved) brings API `0.29.0`, `Origin.Client`, the session registry's device holders, `DEVICE_OCCUPIED`, `occupiedBy` on `device.list`, `session.release`.
 - **Nothing is networked.** `adapters/httpapi` binds loopback only (`CheckLoopback`), with the per-launch token (`http-websocket.md` §Security baseline). There is no TLS, no daemon identity and no outbound connection anywhere.
 - **Devices.** `internal/domain/device`: `target.go` `authorize` is every device call's preamble (one `devices -l`, the physical policy through the `Policy` seam); `list.go` filters by policy; `parse.go` classifies kind (serial prefix or product, `usb:` wins). `screensource.go` runs scrcpy behind `screen.Source` (`Join`, `Size`, `Inject`, `Done`, `Reason`); `secure.go`'s poll publishes `state` from inside the scrcpy source. `persistent.go` forwards the reader over `tcp:0`. Artifacts are in-memory (`internal/artifact`). `devicetest` is the fake adb for `cmd/droidyard` tests.
 - **Core.** `capability.ClientKind` is `cli | mcp | ui`; `prepare` (`operation.go:882`) refuses `AudienceHuman` from MCP; `operation.wait`/`cancel` reach any id (ADR-0020 §Operation capabilities). Trace lines (`traceLine`) name client, capability, workspace, state.
 - **Policy.** `internal/policy`: `trust`, `devices`, `shell` (ADR-0032), re-read by size and mtime; `policy.update` is human-only.
-- **Budgets.** `tools/list` is 28,811 B of 29,000 at `c4bb5c5` and 2s spends about 45 B more: 2t adds no MCP tool and changes one MCP tool description, `operation_cancel`'s (Q5), no longer than today.
-- **Baseline, 2026-10-18 at `c4bb5c5`:** `go vet ./...` clean; `go test ./...` ok in every package. This file fails `internal/doccheck` `TestPlansIndexMatchesFiles` until the main session adds its row.
+- **Budgets.** `tools/list` is 28,811 B of 29,000 at `bd8ceea` and 2s spends about 45 B more: 2t adds no MCP tool and changes one MCP tool description, `operation_cancel`'s (Q5), no longer than today.
+- **Baseline, 2026-10-18 at `bd8ceea`:** `go vet ./...` clean; `go test ./...` ok in every package. This file fails `internal/doccheck` `TestPlansIndexMatchesFiles` until the main session adds its row.
 
 ## Meeting 2s
 
@@ -284,7 +284,7 @@ Written before 2s merges: 2s's decisions are named by their m2s question (its oc
 - Not here: a phone (step 10).
 - Rests on: —
 - Review: the Opus verifier at the close.
-- [x] Done. Evidence: level 5, 2026-10-19, at the step-8 build `285f339` (K1–K3; evidence `~/Library/Caches/droidyard-dev/2t/evidence/step9/` and the step drivers' folders). The owner's adb server (pid 70176, started 2026-10-15) unchanged against the milestone's K2 baseline.
+- [x] Done. Evidence: level 5, 2026-10-19, at the step-8 build `b8684a9` (K1–K3; evidence `~/Library/Caches/droidyard-dev/2t/evidence/step9/` and the step drivers' folders). The owner's adb server (pid 70176, started 2026-10-15) unchanged against the milestone's K2 baseline.
   - (a) From nothing with the CLI on fresh state roots: `droidyard id` on a host and two clients; `host admit jorge`, `host admit ana`, `host listen 127.0.0.1:47319`, the physical policy by hand, `host lend emulator-5584 --to jorge,ana`; `remote add qa` on each client and its physical policy; after restarts both clients `connected` (API 0.30.0), the host lists both peers connected, and the clients list `qa/emulator-5584` (`physical`, host `qa`). The CLI's `lend` warned that `emulator-5584` is an emulator: the stand-in is one by name though `usb:` makes it physical (a warning only).
   - (b) The brief's loop from the client: `build.assemble` of the golden copy (9 s), `device.install` (1 s; the host stored 8,840,413 bytes, SHA-256 `086b23336ad4…`, and kept none), `device.launch`; the Live view in headless Chrome plays 0.7 s after selection, 48 of 48 packets decoded during swipes, Like +1 and +20 (click to frame p50 49, p95 95 ms), Back, Home, the Secure banner on (221 ms) and off; Logcat in two tabs at once, App logs, a screenshot (1080 × 2340, untrusted). A `claude -p` session (`--strict-mcp-config`, droidyard's tools only, its own tools denied) called `device_list`, `device_launch`, `device_uiTree`, `device_tapElement` (Likes 44 → 45, its expectation met), `device_inputText` ("remoto" read back), and found no MCP tool for a raw tap (`device.tap` is human-only, so it is not one).
   - (c) A second client (ana): `DEVICE_OCCUPIED` naming jorge; the host's Release, then ana holds and jorge is refused naming her; un-lent to ana, her call is `DEVICE_NOT_FOUND`; Stop lending in the host's panel ended jorge's open view in 1.3 s and his list dropped it.

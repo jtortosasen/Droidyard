@@ -13,7 +13,7 @@
 ## Context
 
 The owner's brief of 2026-10-07 (item D) asked for an agent surface that spends fewer
-tokens. Measured at `cc0c27b` (plan m1o §Starting point): `tools/list` is 142,483 B,
+tokens. Measured at `1e736e6` (plan m1o §Starting point): `tools/list` is 142,483 B,
 66.7 KB of it what a model can read (descriptions 39,227 B, `inputSchema` 21,913 B) and
 75,000 B of `outputSchema`; 31 of 34 descriptions break `mcp.md` §Descriptions' own rule
 of one or two sentences, which no test enforced; the selector object is inlined, with its

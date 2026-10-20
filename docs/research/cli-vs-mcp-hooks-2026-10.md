@@ -1,6 +1,6 @@
 # The CLI, with or without assistant hooks, against MCP as the agents' surface
 
-2026-10-12. Repo at `b9e0106` on `m2j` (step 9 work uncommitted). An analysis for the owner,
+2026-10-12. Repo at `19fefcc` on `m2j` (step 9 work uncommitted). An analysis for the owner,
 checked by the Opus verifier against the code, the ADRs and primary web sources. Labels:
 **[obs]** read in code or a primary source, or run; **[inf]** inferred; **[unv]** not verified.
 Nothing here is a decision; any change it suggests needs an ADR.

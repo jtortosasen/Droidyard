@@ -70,13 +70,13 @@ Gathered in conversation, 2026-10-12. Items 6–11 are the owner's decisions; th
 
 ## Starting point
 
-`m2n` from `main` at `4c5514b` (API `0.23.0`, ADRs up to 0067). Another session is writing m2m on branch `m2m`; it takes the next ADR number and may take API `0.24.0` first, so this plan names numbers at writing time ("the next free").
+`m2n` from `main` at `f64dfcf` (API `0.23.0`, ADRs up to 0067). Another session is writing m2m on branch `m2m`; it takes the next ADR number and may take API `0.24.0` first, so this plan names numbers at writing time ("the next free").
 
 - `internal/domain/git/`: `run.go` (the hardened runner, ADR-0066 §2, §3: fixed prefix, scrubbed environment, untrusted driver overrides, own process group, 10 s, 4 MiB, `stdin` supported), `git.go` (`Register`, `Options`, `mapError`, the three `GIT_*` codes), `read.go` (`git.read`, `base` enum `HEAD`, `cat-file --batch` on stdin, `Slim`), `status.go` (`prefix`, porcelain v2, `Head.Oid`), `watch.go` (`git.watch`, `git.changes`), tests with real git.
 - Web: `web/src/lib/git/` (`watch.ts` `GitWatch`, created in `start/Project.svelte` for the project tab's whole life; `changes.ts`, `tree.ts`, `base.ts` `HeadBase`, `review.ts`, `diffmode.ts`, `DiffPanel.svelte`, `GitTree.svelte`). `editor/cm/merge.ts` `mountCompare` requires a `CmBuffer` (its side b is always editable); `editor/cm/review.ts` `mountReview` takes `ReviewOptions {buffer: EditorBuffer | null, base, path?, onSave}`, where `null` means a deleted file and a buffer is always editable. `ui/panels.ts` has the bottom `git` panel disabled with milestone "Git history".
 - CSP `default-src 'self'` (`adapters/httpapi/httpapi.go`): no remote avatar can load; inline SVG is fine.
 - Host: git 2.51.2 (Homebrew) and 2.50.1 (Apple), as m2l recorded.
-- Baseline, 2026-10-12 at `4c5514b` plus the earlier requirements draft of this file: `go vet ./...` clean; `go test ./...` ok in every package except `internal/doccheck` (`TestPlansFollowTheTemplate`, `TestPlansIndexMatchesFiles`), which failed only on that draft (no Status value, no Steps, no index row); this rewrite and its index row fix both.
+- Baseline, 2026-10-12 at `f64dfcf` plus the earlier requirements draft of this file: `go vet ./...` clean; `go test ./...` ok in every package except `internal/doccheck` (`TestPlansFollowTheTemplate`, `TestPlansIndexMatchesFiles`), which failed only on that draft (no Status value, no Steps, no index row); this rewrite and its index row fix both.
 
 ## Acceptance
 

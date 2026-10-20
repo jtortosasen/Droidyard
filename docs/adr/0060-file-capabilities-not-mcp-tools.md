@@ -12,7 +12,7 @@
 
 ## Context
 
-Eight of the nine `file.*` are MCP tools (`file.watch` is streaming). They take about 6.4 KB of the 34,786 B of `tools/list` a model reads (`TestToolListModelFacingBytes` at `9ec50b0`), paid on every session. The agents the owner uses read, write, edit and delete with built-in tools (Claude Code's Read, Write, Edit, Bash; Cursor's; OpenCode's). That is the owner's statement, not measured. No usage data on agents and these tools exists. ADR-0053 kept them for agents because a delete through the daemon is contained and undoable. The owner puts the tokens first. An agent's own `rm` reaching the trash is the delete hook's concern (plan m2j Q2).
+Eight of the nine `file.*` are MCP tools (`file.watch` is streaming). They take about 6.4 KB of the 34,786 B of `tools/list` a model reads (`TestToolListModelFacingBytes` at `3f6eac0`), paid on every session. The agents the owner uses read, write, edit and delete with built-in tools (Claude Code's Read, Write, Edit, Bash; Cursor's; OpenCode's). That is the owner's statement, not measured. No usage data on agents and these tools exists. ADR-0053 kept them for agents because a delete through the daemon is contained and undoable. The owner puts the tokens first. An agent's own `rm` reaching the trash is the delete hook's concern (plan m2j Q2).
 
 ## Decision
 

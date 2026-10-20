@@ -32,7 +32,7 @@
 
 ## Starting point
 
-Read at `4c5514b` (`main`).
+Read at `f64dfcf` (`main`).
 
 **Precondition (main session, before branching `m2m`).** Commit ADR-0068 and its index row. Give ADR-0068 the header line `Supersedes: ADR-0002 §Consequences (in part: CI runs the tests on Linux only; the pre-commit hook is the macOS run)`, and give ADR-0002 its `Superseded in part by: ADR-0068 (§Consequences)` line. ADR-0068 weighed this in §Alternatives considered (the macOS runner) but did not record it as superseding.
 
@@ -52,7 +52,7 @@ Read at `4c5514b` (`main`).
   - Linux has never run.
 - The habit for testing shell is Go tests that drive `sh` (`trash_cmd_test.go`, `hook_test.go`). The hook maps a staged non-Go file to the nearest directory holding Go files, so a root `install.sh` maps to none (`.githooks/pre-commit:85`).
 - The host has `docker`, `colima`, `gh` and `go` in `/opt/homebrew/bin`. The planner could not check whether colima is running. `~/.local/bin` exists, with no `droidyard` in it.
-- Baseline, 2026-10-12 at `4c5514b`, with ADR-0068 in the tree: `go vet ./...` is clean, `go test ./...` is ok in all 33 packages with tests, and `gofmt -l .` prints nothing (the reviewer's rerun).
+- Baseline, 2026-10-12 at `f64dfcf`, with ADR-0068 in the tree: `go vet ./...` is clean, `go test ./...` is ok in all 33 packages with tests, and `gofmt -l .` prints nothing (the reviewer's rerun).
 
 ## Acceptance
 
