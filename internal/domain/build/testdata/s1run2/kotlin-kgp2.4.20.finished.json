@@ -8,7 +8,7 @@
    "problemDisplayName": "Kotlin compiler: UNNECESSARY_NOT_NULL_ASSERTION",
    "contextualLabel": "Kotlin compiler warning",
    "details": "Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.",
-   "file": "/w/dc/feature/applist/src/main/kotlin/com/example/ownerappa/feature/applist/ui/AppListScreen.kt",
+   "file": "/w/dc/feature/list/src/main/kotlin/com/example/ownerappa/feature/list/ui/ListScreen.kt",
    "line": 400,
    "column": 75,
    "solutions": []

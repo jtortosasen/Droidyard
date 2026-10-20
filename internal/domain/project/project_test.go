@@ -110,7 +110,7 @@ func TestModulesListsEveryProjectAndPassesStaleThrough(t *testing.T) {
 			t.Errorf(":core:database = %+v; want name database, dir core/database", m)
 		}
 	}
-	for _, want := range []string{":", ":app", ":core", ":feature", ":feature:applist"} {
+	for _, want := range []string{":", ":app", ":core", ":feature", ":feature:list"} {
 		if !strings.Contains(strings.Join(paths, ","), want) {
 			t.Errorf("project.modules does not list %q: %v", want, paths)
 		}
