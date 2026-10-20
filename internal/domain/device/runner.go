@@ -73,6 +73,7 @@ type Output struct {
 var ErrLineTooLong = errors.New("a line passed the runner's length limit")
 
 func (a *ADB) Run(ctx context.Context, path string, timeout time.Duration, limit int, args ...string) (Output, error) {
+	timeout = a.limit(timeout)
 	if a.exec != nil {
 		return a.runExec(ctx, path, timeout, limit, args)
 	}

@@ -75,6 +75,18 @@ func (a *ADB) SetStartHook(f func()) {
 	a.startHook.Store(&f)
 }
 
+// LengthenLimits makes no adb command of this ADB (Run: the probes, the listing, the
+// forward, the secure check), no wait for a remote's listing and no wait for an evicted
+// log stream's child end sooner than floor. Test-only, and for a test whose claim is not one
+// of those limits: a fake adb is a process the test binary re-executes, and under load it
+// starts later than a limit of 3 s (plan m2v step 5). A window the call asks for, a follow's,
+// is not a limit and is not lengthened. Called once, at wiring, before any call; zero, the
+// product's value, changes nothing.
+func (a *ADB) LengthenLimits(floor time.Duration) { a.floor = floor }
+
+// limit is d, or the floor LengthenLimits set when that is longer.
+func (a *ADB) limit(d time.Duration) time.Duration { return max(d, a.floor) }
+
 func (a *ADB) started() {
 	if h := a.startHook.Load(); h != nil {
 		(*h)()

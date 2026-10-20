@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // useGradleRoot writes the project file's gradleRoot choice, as the UI does: the next
@@ -38,7 +39,7 @@ func linesWithPrefix(t *testing.T, events, prefix string) []string {
 // waitLines polls the fake's log until it holds n entries starting with prefix.
 func waitLines(t *testing.T, events, prefix string, n int) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testtime.Bound(30 * time.Second)); ; time.Sleep(20 * time.Millisecond) {
 		if len(linesWithPrefix(t, events, prefix)) >= n {
 			return
 		}
@@ -202,7 +203,20 @@ func TestSwitchedGradleRootCloses(t *testing.T) {
 		useGradleRoot(t, top, "tools/x")
 		call(t, state, top, "build.tasks")
 		tasks := droidyardIn(t, state, dev, "call", "--no-autostart", "build.tasks")
-		time.Sleep(time.Second) // the call has resolved dev/ and waits on its lock
+		// The call has resolved dev/ once the daemon has run it: it is running beside the held
+		// build, waiting on the root's lock, or it has already answered (the model of dev/ may
+		// be served without the lock). A re-executed `droidyard call` that a loaded host takes
+		// seconds to start is not there at a fixed second, and a gate opened before the call
+		// reached the daemon makes the close due with no workspace holding the root. What is
+		// left is the instants between the daemon starting the operation and resolving the
+		// root, which no test can see.
+		testtime.Eventually(t, testtime.Bound(30*time.Second), "the daemon to have run the tasks call at dev/", func() bool {
+			if len(tasks.exited) > 0 {
+				return true
+			}
+			env, _ := callIn(t, state, "", "system.health")
+			return health(t, env).Operations >= 2
+		})
 		if err := os.WriteFile(gate, nil, 0o600); err != nil {
 			t.Fatal(err)
 		}

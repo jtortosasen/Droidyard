@@ -79,22 +79,39 @@ func TestCLILongRunning(t *testing.T) {
 
 // TestCtrlCDuringAutoStart: while a call waits for a daemon it started, the first
 // Ctrl-C ends the wait. The daemon here cannot bind (a file sits where run/ goes), so
-// without the interrupt the call would retry for 10 s.
+// without the interrupt the call would retry for autostartTimeout, 10 s.
+//
+// The interrupt goes once the call has printed that its wait is under way
+// (autostartWaiting, a seam), so no sleep guesses when the handler is installed. The bound
+// on the call's end separates "ended by the interrupt" from "ended by its own 10 s": it is
+// scaled like a hang guard but held below the 10 s it must stay apart from. Seen failing with
+// the interrupt ending no wait (connectOrStart's case on interrupt removed): the call retried
+// its 10 s and the bound passed first.
 func TestCtrlCDuringAutoStart(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
 	if err := os.WriteFile(filepath.Join(state, "run"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c := droidyard(t, state, "call", "system.health")
-	time.Sleep(500 * time.Millisecond) // the handler is installed, the retries under way
+	c := droidyardEnv(t, state, "", []string{autostartWaitEnv + "=1"}, "call", "system.health")
+	c.expect(t, autostartWaitLine)
 	start := time.Now()
 	c.cmd.Process.Signal(syscall.SIGINT)
-	line := c.expect(t, "interrupted")
+	bound := min(testtime.Bound(3*time.Second), autostartTimeout-time.Second)
+	var line string
+	select {
+	case l, ok := <-c.lines:
+		if !ok {
+			t.Fatalf("the interrupted call exited before printing \"interrupted\", %s after Ctrl-C", time.Since(start))
+		}
+		line = l
+	case <-time.After(bound):
+		t.Fatalf("the call printed nothing %s after Ctrl-C; want it to end its wait (its own limit is %s)", bound, autostartTimeout)
+	}
+	if !strings.Contains(line, "interrupted") {
+		t.Fatalf("the call printed %q after Ctrl-C; want \"interrupted\"", line)
+	}
 	if code := c.wait(t); code != cli.ExitInterrupted {
 		t.Errorf("the interrupted call exited %d (%s); want %d", code, line, cli.ExitInterrupted)
-	}
-	if waited := time.Since(start); waited > 3*time.Second {
-		t.Errorf("the call ended %s after Ctrl-C", waited)
 	}
 }

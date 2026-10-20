@@ -50,7 +50,7 @@ func wlScenario(t *testing.T) string {
 func startWatchDaemon(t *testing.T, wrap func(device.StreamStarter) device.StreamStarter) *inProcess {
 	t.Helper()
 	dir := wlScenario(t)
-	return startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, dir, unusedPort(t)), wrapStream: wrap})
+	return startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, dir, unusedPort(t)), wrapStream: wrap, floor: adbFloorFor()})
 }
 
 // wlStream sends device.watchLogs as id and returns the subscription it opened.

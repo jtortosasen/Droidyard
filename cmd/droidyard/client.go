@@ -64,6 +64,11 @@ const (
 	maxRetry         = 500 * time.Millisecond
 )
 
+// autostartWaiting is a test seam, nil in the shipped binary: connectOrStart calls it once
+// the daemon it started has returned and before it waits for the socket, so a test knows
+// the wait it interrupts is under way.
+var autostartWaiting func()
+
 // errStarted marks a failure after this shim started a daemon.
 var errStarted = errors.New("a daemon was started, but none answered")
 
@@ -82,6 +87,9 @@ func connectOrStart(h daemon.Hello, autostart bool, interrupt <-chan struct{}) (
 	}
 	if err := startDaemon(); err != nil {
 		return nil, nil, socket, fmt.Errorf("%w: %v", errStarted, err)
+	}
+	if autostartWaiting != nil {
+		autostartWaiting()
 	}
 	deadline := time.Now().Add(autostartTimeout)
 	for delay := firstRetry; ; delay = min(2*delay, maxRetry) {

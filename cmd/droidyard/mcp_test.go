@@ -114,8 +114,8 @@ func (s *shim) recv() []byte {
 		}
 		s.t.Logf("%s ← %s", s.name, line)
 		return line
-	case <-time.After(testtime.Bound(10 * time.Second)):
-		s.t.Fatalf("%s: no response within %v", s.name, testtime.Bound(10*time.Second))
+	case <-time.After(testtime.Bound(processGuard)):
+		s.t.Fatalf("%s: no response within %v", s.name, testtime.Bound(processGuard))
 	}
 	return nil
 }
@@ -149,10 +149,10 @@ func (s *shim) exit() int {
 	return s.wait()
 }
 
-// wait returns the shim's exit code once it exits, failing after 10 s (stretched under -race).
+// wait returns the shim's exit code once it exits, failing after processGuard.
 func (s *shim) wait() int {
 	s.t.Helper()
-	timeout := time.After(testtime.Bound(10 * time.Second))
+	timeout := time.After(testtime.Bound(processGuard))
 	for lines := s.lines; lines != nil; {
 		select {
 		case line, ok := <-lines:
@@ -163,7 +163,7 @@ func (s *shim) wait() int {
 			s.t.Logf("%s ← %s (drained at exit)", s.name, line)
 			s.trailing = append(s.trailing, line)
 		case <-timeout:
-			s.t.Fatalf("%s: the shim did not exit within 10 s", s.name)
+			s.t.Fatalf("%s: the shim did not exit within %v", s.name, testtime.Bound(processGuard))
 		}
 	}
 	select {
@@ -177,7 +177,7 @@ func (s *shim) wait() int {
 		}
 		return 0
 	case <-timeout:
-		s.t.Fatalf("%s: the shim did not exit within 10 s", s.name)
+		s.t.Fatalf("%s: the shim did not exit within %v", s.name, testtime.Bound(processGuard))
 	}
 	return -1
 }
@@ -461,7 +461,7 @@ func TestMCPSessionsAreSeparate(t *testing.T) {
 	a.callTool(7, "fixture_block", `{}`)
 	select {
 	case <-p.started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testtime.Bound(processGuard)):
 		t.Fatal("fixture_block never started")
 	}
 	b.callTool(7, "system_health", `{}`)

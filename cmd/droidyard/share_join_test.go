@@ -64,7 +64,7 @@ func newShareNode(t *testing.T, listing string, extraEnv ...string) *shareNode {
 		devicetest.Write(t, n.dir, s+".dumptty.out", []byte(fixtureFile(t, "pixel9a-uidump-devtty.xml")))
 		devicetest.Write(t, n.dir, s+".push.exit", []byte("1")) // the persistent reader cannot run: the dump path answers
 	}
-	env := append([]string{adbFakeEnv + "=" + n.dir, adbPortEnv + "=" + unusedPort(t), reconcileEveryEnv + "=" + shareLongCycle}, extraEnv...)
+	env := append([]string{adbFakeEnv + "=" + n.dir, adbPortEnv + "=" + unusedPort(t), adbFloorVar(), reconcileEveryEnv + "=" + shareLongCycle}, extraEnv...)
 	n.env = env
 	n.start(t)
 	return n
@@ -87,8 +87,8 @@ func (n *shareNode) ended(t *testing.T) {
 	t.Helper()
 	select {
 	case <-n.proc.exited:
-	case <-time.After(10 * time.Second):
-		t.Fatalf("pid %d did not end within 10 s", n.proc.cmd.Process.Pid)
+	case <-time.After(testtime.Bound(processGuard)):
+		t.Fatalf("pid %d did not end within %v", n.proc.cmd.Process.Pid, testtime.Bound(processGuard))
 	}
 }
 

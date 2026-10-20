@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // A detached share survives a restart of the daemon (plan m2u step 5; ADR-0108 §2, §7): real
@@ -32,7 +33,7 @@ func secretOf(t *testing.T, line string) [16]byte {
 // remoteConnected waits for the client's link to the host to be up.
 func remoteConnected(t *testing.T, state string) {
 	t.Helper()
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(testtime.Bound(processGuard)); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if r := healthOn(t, state).Remotes; len(r) == 1 && r[0].Connected {
 			return
 		}
@@ -174,7 +175,7 @@ func TestForegroundShareDoesNotSurviveAKill(t *testing.T) {
 	t.Parallel()
 	host := newShareNode(t, shareHostListing())
 	sh := startLive(t, host.state, "share", sharePhone, "--on", "127.0.0.1")
-	line := codeOf(t, sh.expect(t, "droidyard join dy1.", 10*time.Second))
+	line := codeOf(t, sh.expect(t, "droidyard join dy1.", testtime.Bound(processGuard)))
 	if got := hostingOf(t, host.state).Listening; len(got) != 1 {
 		t.Fatalf("the foreground share is not listening: %v", got)
 	}

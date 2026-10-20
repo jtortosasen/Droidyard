@@ -21,6 +21,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // device.watchScreen and GET /v1/screen end to end (ADR-0078; plan m2p step 4): a WebSocket
@@ -182,7 +183,7 @@ func startSCDaemon(t *testing.T, head, tail []byte) *scDaemon {
 	devicetest.Write(t, dir, "devices.out", []byte("List of devices attached\n"+scSerial+" device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 transport_id:1\n"))
 	devicetest.Write(t, dir, scSerial+".bootcompleted.out", []byte("1\n"))
 	devicetest.Write(t, dir, scSerial+".forwardscrcpy.out", []byte(ln.Path+"\n"))
-	p := startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, dir, unusedPort(t))})
+	p := startInProcessADB(t, "127.0.0.1:0", nil, &adbSeam{env: devicetest.Env(t, dir, unusedPort(t)), floor: adbFloorFor()})
 	return &scDaemon{inProcess: p, dir: dir, ln: ln}
 }
 
@@ -389,21 +390,25 @@ func TestWatchScreenEndToEnd(t *testing.T) {
 	if reason, _ := w.stoppedFrame(sub); reason != "detached" {
 		t.Errorf("a closed socket gave reason %q, want detached", reason)
 	}
-	if code := attachScreen(t, d.inProcess, d.token, stream).closedWith(10 * time.Second); code != 4404 {
+	if code := attachScreen(t, d.inProcess, d.token, stream).closedWith(testtime.Bound(30 * time.Second)); code != 4404 {
 		t.Errorf("a reattach closed with %d, want 4404", code)
 	}
 	scWaitClean(t, d)
 
-	// 3. An id never attached is released after 10 s.
-	start := time.Now()
+	// 3. An id never attached is released after 10 s (screenAttachBound, ADR-0078 §3; no
+	// level-5 run timed it, so the claim keeps its value). The 10 s run from the stream's
+	// creation, and the call that creates it takes as long as a loaded host's start of the
+	// screen server does: the clock starts at the answer, not before the call.
 	sub, stream, _, _ = w.watchScreen("w2")
+	start := time.Now()
 	if reason, cause := w.stoppedFrame(sub); reason != "detached" || !strings.Contains(cause, "no stream socket attached") {
 		t.Errorf("an unattached stream gave %q (%q), want detached, no socket attached", reason, cause)
 	}
+	// The upper end is unscaled, like the claim: 14 s, below a bound doubled to 20 s.
 	if el := time.Since(start); el < 9*time.Second || el > 14*time.Second {
-		t.Errorf("an unattached stream was released after %v, want about 10 s", el)
+		t.Errorf("an unattached stream was released %v after its start answered, want about 10 s", el)
 	}
-	if code := attachScreen(t, d.inProcess, d.token, stream).closedWith(10 * time.Second); code != 4404 {
+	if code := attachScreen(t, d.inProcess, d.token, stream).closedWith(testtime.Bound(30 * time.Second)); code != 4404 {
 		t.Errorf("an attach after the release closed with %d, want 4404", code)
 	}
 	scWaitClean(t, d)
@@ -414,7 +419,7 @@ func TestWatchScreenEndToEnd(t *testing.T) {
 	sock = attachScreen(t, d.inProcess, d.token, stream)
 	sock.message("a message before the session closes")
 	w2.c.Close(websocket.StatusNormalClosure, "")
-	if code := sock.closedWith(20 * time.Second); code != 4410 {
+	if code := sock.closedWith(testtime.Bound(30 * time.Second)); code != 4410 {
 		t.Errorf("the socket of a closed session ended with %d, want 4410", code)
 	}
 	scWaitClean(t, d)
@@ -433,7 +438,7 @@ func TestWatchScreenEndToEnd(t *testing.T) {
 		case <-sock.msgs:
 			continue
 		case <-sock.done:
-		case <-time.After(20 * time.Second):
+		case <-time.After(testtime.Bound(30 * time.Second)):
 			t.Fatal("the socket of a vanished device stayed open")
 		}
 		break
@@ -505,45 +510,45 @@ func TestScreenEndpointFence(t *testing.T) {
 	} {
 		s := dialScreen(t, d.inProcess)
 		s.write(websocket.MessageText, first)
-		if code := s.closedWith(10 * time.Second); code != 4401 {
+		if code := s.closedWith(testtime.Bound(30 * time.Second)); code != 4401 {
 			t.Errorf("first frame %.40q: closed with %d, want 4401", first, code)
 		}
 	}
 	// ... and the stream was not claimed by any of them.
 	s := dialScreen(t, d.inProcess)
 	s.write(websocket.MessageBinary, `{"auth":"`+d.token+`","stream":"`+stream+`"}`)
-	if code := s.closedWith(10 * time.Second); code != 4401 {
+	if code := s.closedWith(testtime.Bound(30 * time.Second)); code != 4401 {
 		t.Errorf("a binary auth frame with the right token: closed with %d, want 4401", code)
 	}
 	// An unknown id is 4404, after the token was right.
-	if code := attachScreen(t, d.inProcess, d.token, "nope").closedWith(10 * time.Second); code != 4404 {
+	if code := attachScreen(t, d.inProcess, d.token, "nope").closedWith(testtime.Bound(30 * time.Second)); code != 4404 {
 		t.Errorf("an unknown id: closed with %d, want 4404", code)
 	}
 	// A first frame over 4 KiB is 1009 (the library's limit).
 	big := dialScreen(t, d.inProcess)
 	big.write(websocket.MessageText, `{"auth":"`+strings.Repeat("x", 5000)+`"}`)
-	if code := big.closedWith(10 * time.Second); code != websocket.StatusMessageTooBig {
+	if code := big.closedWith(testtime.Bound(30 * time.Second)); code != websocket.StatusMessageTooBig {
 		t.Errorf("a 5000-byte first frame: closed with %d, want 1009", code)
 	}
 
 	// The first attach holds; a second is 4409.
 	good := attachScreen(t, d.inProcess, d.token, stream)
 	good.message("the first message of the attached socket")
-	if code := attachScreen(t, d.inProcess, d.token, stream).closedWith(10 * time.Second); code != 4409 {
+	if code := attachScreen(t, d.inProcess, d.token, stream).closedWith(testtime.Bound(30 * time.Second)); code != 4409 {
 		t.Errorf("a second attach: closed with %d, want 4409", code)
 	}
 
 	// Nothing the client sends reaches the device: a binary frame, then a text frame on
 	// another stream, each closes with 1003, and the control socket saw nothing.
 	good.write(websocket.MessageBinary, "\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
-	if code := good.closedWith(10 * time.Second); code != websocket.StatusUnsupportedData {
+	if code := good.closedWith(testtime.Bound(30 * time.Second)); code != websocket.StatusUnsupportedData {
 		t.Errorf("a binary frame after auth: closed with %d, want 1003", code)
 	}
 	_, stream2, _, _ := w.watchScreen("f2")
 	text := attachScreen(t, d.inProcess, d.token, stream2)
 	text.message("the first message of the second socket")
 	text.write(websocket.MessageText, `{"type":"tap","x":0.5,"y":0.5}`)
-	if code := text.closedWith(10 * time.Second); code != websocket.StatusUnsupportedData {
+	if code := text.closedWith(testtime.Bound(30 * time.Second)); code != websocket.StatusUnsupportedData {
 		t.Errorf("a text frame after auth: closed with %d, want 1003", code)
 	}
 	// A frame over 4 KiB after auth is 1009: the read limit holds for the socket's life.
@@ -551,7 +556,7 @@ func TestScreenEndpointFence(t *testing.T) {
 	oversize := attachScreen(t, d.inProcess, d.token, stream3)
 	oversize.message("the first message of the third socket")
 	oversize.write(websocket.MessageBinary, strings.Repeat("x", 5000))
-	if code := oversize.closedWith(10 * time.Second); code != websocket.StatusMessageTooBig {
+	if code := oversize.closedWith(testtime.Bound(30 * time.Second)); code != websocket.StatusMessageTooBig {
 		t.Errorf("a 5000-byte frame after auth: closed with %d, want 1009", code)
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -577,7 +582,7 @@ func TestScreenAuthDeadline(t *testing.T) {
 	d := startSCDaemon(t, data[:keyEnd], data[keyEnd:])
 	d.http.SetAuthTimeout(200 * time.Millisecond)
 	s := dialScreen(t, d.inProcess)
-	if code := s.closedWith(10 * time.Second); code != 4401 {
+	if code := s.closedWith(testtime.Bound(30 * time.Second)); code != 4401 {
 		t.Errorf("a silent connection closed with %d, want 4401", code)
 	}
 }

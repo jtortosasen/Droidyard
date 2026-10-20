@@ -722,7 +722,7 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 		// end in time, starts none.
 		evicted.end(endReplaced)
 		s.evictedBy(evicted)
-		timeout := time.After(streamListBound)
+		timeout := time.After(a.limit(streamListBound))
 		// The evicted stream's own evictee too: it may be evicted before its child started,
 		// and what it waits for still runs.
 		for e := evicted; e != nil; e = e.evicts() {

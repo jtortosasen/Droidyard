@@ -201,6 +201,9 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostSeam.wrapStream = o.hostWrapStream
 	if o.hostProcesses {
 		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
+		// A process this binary re-executes starts later on a loaded host than the host's
+		// 3 s limits, which no test of a lab with processes claims.
+		hostSeam.floor = adbFloorFor()
 	}
 	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, 0, hostConfig)
 	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.store, lab.host.adb, lab.host.log)

@@ -198,7 +198,7 @@ func unusableWarning(cause string) string {
 
 // fillDetails adds androidVersion, sdk and avdName to the online devices, in place.
 func (a *ADB) fillDetails(ctx context.Context, adb string, devices []Device) {
-	ctx, cancel := context.WithTimeout(ctx, detailsTimeout)
+	ctx, cancel := context.WithTimeout(ctx, a.limit(detailsTimeout))
 	defer cancel()
 	var wg sync.WaitGroup
 	for i := range devices {

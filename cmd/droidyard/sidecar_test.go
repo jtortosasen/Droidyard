@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
@@ -48,6 +49,21 @@ const (
 	// the adb server port its clients are given, one nothing listens on.
 	adbFakeEnv = "DROIDYARD_TEST_ADB_FAKE"
 	adbPortEnv = "DROIDYARD_TEST_ADB_PORT"
+	// adbFloorEnv is the shortest limit a re-executed daemon gives any adb command
+	// (device.ADB.LengthenLimits), a Go duration. A test whose claim is not one of the
+	// host's 3 s limits sets it (adbFloorVar); its fake adb is this binary re-executed,
+	// which a loaded host starts later than the limit. A test whose claim is a limit leaves
+	// it unset.
+	adbFloorEnv = "DROIDYARD_TEST_ADB_FLOOR"
+	// lockFifoEnv names a FIFO: a re-executed serve that finds daemon.lock busy prints
+	// lockBusyLine and then blocks, before its next attempt, until the test writes to the
+	// FIFO (daemon.AfterBusyAttempt). Only a serve whose test sets it blocks.
+	lockFifoEnv  = "DROIDYARD_TEST_LOCK_FIFO"
+	lockBusyLine = "serve: daemon.lock is busy, waiting for the test"
+	// autostartWaitEnv, when set, makes a re-executed call or mcp that has started a daemon
+	// print autostartWaitLine as it begins to wait for the daemon's socket.
+	autostartWaitEnv  = "DROIDYARD_TEST_AUTOSTART_WAIT"
+	autostartWaitLine = "droidyard: waiting for the daemon (test seam)"
 	// emulatorDirEnv names a fake launcher's scenario directory and emulatorADBEnv the
 	// fake adb's: a re-executed daemon then resolves both and boots through the table
 	// they share (plan m1i step 5, D20).
@@ -69,6 +85,14 @@ const (
 	// host whose text is hostile, read at each join.
 	joinReplyEnv = "DROIDYARD_TEST_JOIN_REPLY"
 )
+
+// adbFloorFor is the limit floor a test gives the adb commands of a daemon it starts, when that
+// test's claim is not one of the limits: a hang guard, so testtime.Bound of 30 s, the least
+// that outlasts a re-executed fake adb starting on a loaded host (plan m2v step 5).
+func adbFloorFor() time.Duration { return testtime.Bound(30 * time.Second) }
+
+// adbFloorVar is the environment variable that gives a re-executed daemon that floor.
+func adbFloorVar() string { return adbFloorEnv + "=" + adbFloorFor().String() }
 
 // installTestSeams runs in a re-executed binary before main: it adds the test-only
 // fixture.sidecar and shortens the bounds the test names (plan m1c step 7, R17).
@@ -107,6 +131,23 @@ func installTestSeams() {
 			}
 			return hosting.JoinResult{Reply: reply, Addr: code.Addrs[0]}, nil
 		}
+	}
+	if d, err := time.ParseDuration(os.Getenv(adbFloorEnv)); err == nil {
+		adbFloor = d
+	}
+	if path := os.Getenv(lockFifoEnv); path != "" {
+		daemon.AfterBusyAttempt = func() {
+			fmt.Fprintln(os.Stderr, lockBusyLine)
+			f, err := os.Open(path) // blocks until the test opens the other end
+			if err != nil {
+				return
+			}
+			defer f.Close()
+			f.Read(make([]byte, 1)) // and until it writes
+		}
+	}
+	if os.Getenv(autostartWaitEnv) != "" {
+		autostartWaiting = func() { fmt.Fprintln(os.Stderr, autostartWaitLine) }
 	}
 	if n, err := strconv.ParseInt(os.Getenv(logMaxEnv), 10, 64); err == nil {
 		logMaxBytes = n
@@ -421,13 +462,13 @@ func (c *sidecarCase) records() []int {
 	return pids
 }
 
+// close calls workspace.close and returns how long the daemon's operation took (opTook).
 func (c *sidecarCase) close() time.Duration {
 	c.t.Helper()
-	began := time.Now()
 	if env, code := callIn(c.t, c.state, c.sub, "workspace.close"); code != 0 {
 		c.t.Fatalf("close exited %d: %+v", code, env.Error)
 	}
-	return time.Since(began)
+	return opTook(c.t, c.srv.stderr.String, "workspace.close")
 }
 
 func (c *sidecarCase) stop() {
@@ -514,8 +555,14 @@ func TestCloseBoundsADrainALeaseHolderIgnores(t *testing.T) {
 	if left := before.survivors(); len(left) != 0 || len(c.records()) != 0 {
 		t.Errorf("when close returned after %s: survivors %v, records %v", took, left, c.records())
 	}
-	if took > 200*time.Millisecond+300*time.Millisecond+1500*time.Millisecond {
-		t.Errorf("close took %s; want the drain bound plus the shutdown timeout and a margin", took)
+	// The claim is that close waits for the drain bound (200 ms here) and the dummy's shutdown
+	// timeout (300 ms), not for the holder, which never lets go before close returns, nor for
+	// the default drain of workspace.DefaultDrain (10 s) the seam replaces. The margin is
+	// scaled like a hang guard but the whole bound stays below that default, which it must
+	// stay apart from. The time is the daemon's (opTook), so a loaded host's spawn of the
+	// calling process is not in it. Seen failing with the seam ignored (the drain at 5 s).
+	if limit := min(200*time.Millisecond+300*time.Millisecond+testtime.Bound(1500*time.Millisecond), workspace.DefaultDrain-time.Second); took > limit {
+		t.Errorf("close took %s; want the drain bound plus the shutdown timeout and a margin, at most %s", took, limit)
 	}
 
 	os.WriteFile(release, nil, 0o600)

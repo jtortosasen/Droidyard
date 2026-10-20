@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,6 +22,15 @@ import (
 // (a plain fmt.Fprintln(os.Stderr), as a panic or a library would): the descriptors the
 // daemon writes to were pointed at the new file, not only the writer's. Without that
 // repointing the stray line below is found in daemon.log.1.
+//
+// A rotation is a rename and then a dup2, and the line that triggered it is written after the
+// dup2 and after the call that caused it has been answered (the trace is flushed once the
+// operation's lock is released). So a daemon.log.1 on disk does not say the rotation is done,
+// and a call's trace line is not there when the call returns: the test waits for the line that
+// rotated the log to reach the new daemon.log before it makes the stray write, and for the
+// stray call's own trace line before it reads it. Seen failing, with a pause between the
+// rename and the dup2 put in the daemon, as the reading before the wait: the stray line was
+// in daemon.log.1.
 func TestDetachedLogRotates(t *testing.T) {
 	state := shortDir(t)
 	env := []string{logMaxEnv + "=1500"}
@@ -61,6 +71,11 @@ func TestDetachedLogRotates(t *testing.T) {
 	if !strings.Contains(read(rotated), "): starting") {
 		t.Errorf("daemon.log.1 does not hold the old lines (no start line):\n%s", read(rotated))
 	}
+	// The rotation is done when the line that caused it is in the new file: it is written
+	// to standard error, which the dup2 repoints.
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the line that caused the rotation to reach the new daemon.log (it goes to standard error, so only a dup2 onto the new file puts it there)", func() bool {
+		return strings.Contains(read(logPath), "droidyard: op ")
+	})
 	if strings.Contains(read(logPath), "): starting") {
 		t.Errorf("daemon.log still holds the old lines after the rotation")
 	}
@@ -72,10 +87,10 @@ func TestDetachedLogRotates(t *testing.T) {
 	if strings.Contains(read(rotated), "STRAY-LINE") {
 		t.Errorf("a stray write to standard error landed in daemon.log.1, which was renamed away")
 	}
-	// New trace lines land in the new file as well.
-	if got := read(logPath); !strings.Contains(got, "fixture.stray") {
-		t.Errorf("the operation trace of the call after the rotation is not in daemon.log:\n%s", got)
-	}
+	// New trace lines land in the new file as well; the call's own is written after its answer.
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the stray call's trace line in the new daemon.log", func() bool {
+		return strings.Contains(read(logPath), "fixture.stray")
+	})
 
 	// Nothing keeps the old file open: dup2 left no descriptor on it.
 	if _, err := exec.LookPath("lsof"); err != nil {

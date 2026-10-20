@@ -10,6 +10,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // Decision (ADR-0099 §1): the devices a host borrows are not the ones it lends. A host that
@@ -79,12 +80,28 @@ func TestRemoteDevicesNeedNoLocalADB(t *testing.T) {
 // remote gets more than detailsTimeout (3 s), since its own listing can take `devices -l`
 // and then the details. The host's `devices -l` takes 3.5 s here, over the details bound and
 // under twice it, and the client's own 2.5 s: one after the other, the whole would take 6 s.
+// The bound separates the two (3.5 s side by side, 6 s in sequence) and is the daemon's time
+// for the operation, run in this process: the delays are the fakes', so they are not scaled,
+// and the 3 s limit it also rests on is detailsTimeout, which no floor lengthens here. Seen failing
+// with the remotes asked after the local listing (the operation took 6 s).
 func TestRemoteListingBounds(t *testing.T) {
 	t.Parallel()
 	lab := newRemoteLabWith(t, labOptions{hostListDelay: 3500 * time.Millisecond, clientListDelay: 2500 * time.Millisecond})
+	// The client daemon's operation, started in this process: the time is the listing's, not a
+	// re-executed `droidyard call`'s start, which a loaded host takes seconds over.
 	start := time.Now()
-	rows, warnings, _ := lab.list(t)
+	id, err := lab.client.ops.Start(context.Background(), capability.Request{Capability: "device.list", Client: capability.ClientUI, Params: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := lab.client.ops.Wait(context.Background(), id, time.Now().Add(testtime.Bound(30*time.Second)))
 	took := time.Since(start)
+	raw, _ := json.Marshal(out.Result)
+	var res device.ListResult
+	if err != nil || out.State != capability.StateCompleted || json.Unmarshal(raw, &res) != nil {
+		t.Fatalf("device.list: %+v, %v", out, err)
+	}
+	rows, warnings := res.Devices, res.Warnings
 	if got := listedIDs(rows); !slices.Equal(got, []string{"emulator-5556", remotePhone}) {
 		t.Errorf("device.list = %v (warnings %q); want the remote's row though its listing took over 3 s", got, warnings)
 	}
