@@ -7,10 +7,12 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator/emulatortest"
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 	"golang.org/x/sys/unix"
 )
 
@@ -100,7 +102,7 @@ func TestDaemonStopAndTheEmulatorLaunch(t *testing.T) {
 
 			// The launcher is a process of its own; wait for the boot it registered.
 			var pid int
-			eventually(t, "the boot registers its serial in the table", func() bool {
+			testtime.Eventually(t, testtime.Bound(10*time.Second), "the boot registers its serial in the table", func() bool {
 				pid = devicetest.EmulatorPID(d.adb, emulatorSerial)
 				return pid > 0
 			})
@@ -108,7 +110,7 @@ func TestDaemonStopAndTheEmulatorLaunch(t *testing.T) {
 				// The daemon resolves the serial only after a readiness poll, and the fake
 				// counts those in <serial>.polls: the file appearing proves resolution, so
 				// the stop lands after it (ADR-0033 ¶2).
-				eventually(t, "the boot resolves its serial", func() bool {
+				testtime.Eventually(t, testtime.Bound(10*time.Second), "the boot resolves its serial", func() bool {
 					_, err := os.Stat(filepath.Join(d.adb, emulatorSerial+".polls"))
 					return err == nil
 				})

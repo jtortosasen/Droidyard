@@ -21,6 +21,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen/scrcpyserver"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The live view's source (plan m2p step 3) over the re-executed fake adb: the server's
@@ -29,7 +30,8 @@ import (
 // serves step 1's recording of the video socket and records the bytes of the control
 // socket. Every spawn costs about a second under -race.
 
-const ssWait = 60 * time.Second
+// ssWait is a hang guard (testtime.Bound), no document's number.
+var ssWait = testtime.Bound(60 * time.Second)
 
 // ssFixture is the stream of the recorded video socket (testdata of package screen),
 // its packets as Demux reads them, and the byte offset just after its key frame.
@@ -287,7 +289,7 @@ func (f *ssFix) calls(t *testing.T) []string { return devicetest.Calls(t, f.dir)
 // listener serves without it): a test that reads the log waits first.
 func (f *ssFix) waitServers(t *testing.T, n int) {
 	t.Helper()
-	eventually(t, fmt.Sprintf("%d logged starts of the server", n), func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), fmt.Sprintf("%d logged starts of the server", n), func() bool {
 		return len(f.callsWith(t, "app_process")) >= n
 	})
 }
@@ -341,18 +343,6 @@ func (f *ssFix) requireClean(t *testing.T) {
 			t.Errorf("the server's adb client, pid %d, is still running", pid)
 		}
 	}
-}
-
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(ssWait)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
 }
 
 func ssCtx() (context.Context, context.CancelFunc) {
@@ -463,7 +453,7 @@ func TestScreenSourceStreams(t *testing.T) {
 		t.Errorf("calls %q, want one forward --remove", f.calls(t))
 	}
 	f.requireClean(t)
-	eventually(t, "both sockets closed on the server's side", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "both sockets closed on the server's side", func() bool {
 		v, c := f.ln.closed()
 		return v == 1 && c == 1
 	})
@@ -594,7 +584,7 @@ func TestScreenSourceInject(t *testing.T) {
 	defer cancel()
 	waitControl := func(n int) []byte {
 		t.Helper()
-		eventually(t, fmt.Sprintf("%d control bytes", n), func() bool { return len(f.ln.controlBytes()) >= n })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), fmt.Sprintf("%d control bytes", n), func() bool { return len(f.ln.controlBytes()) >= n })
 		return f.ln.controlBytes()
 	}
 
@@ -810,7 +800,7 @@ func TestScreenSourceCancelledAcquire(t *testing.T) {
 			s, r, err := f.acquire(ctx)
 			resB <- res{s, r, err}
 		}()
-		eventually(t, "the second waiter", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the second waiter", func() bool {
 			f.adb.screens.mu.Lock()
 			defer f.adb.screens.mu.Unlock()
 			s := f.adb.screens.by[uiSerial]

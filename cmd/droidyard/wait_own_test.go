@@ -13,6 +13,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // configAt writes body as the configuration file of the daemon whose state root is state.
@@ -53,7 +54,7 @@ func pairedWith(t *testing.T, p *inProcess, clientState string) *hosting.Link {
 	stop := startPeers(p.host, p.reg, p.ops, p.bus, p.store, p.adb, os.Stderr)
 	t.Cleanup(stop)
 	addr := ""
-	eventually(t, "the host's peer listener", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the host's peer listener", func() bool {
 		addr = p.host.Health().Hosting.Listen
 		return addr != ""
 	})
@@ -61,7 +62,7 @@ func pairedWith(t *testing.T, p *inProcess, clientState string) *hosting.Link {
 	c := clientHost(t, clientState)
 	c.Start()
 	t.Cleanup(c.Stop)
-	eventually(t, "the client's link to come up", func() bool { return c.Remote("qa-lab").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the client's link to come up", func() bool { return c.Remote("qa-lab").Connected() })
 	return c.Remote("qa-lab")
 }
 
@@ -98,7 +99,7 @@ func linkedAs(t *testing.T, p *inProcess, clientState string) *hosting.Link {
 	c := clientHost(t, clientState)
 	c.Start()
 	t.Cleanup(c.Stop)
-	eventually(t, "the second client's link to come up", func() bool { return c.Remote("qa-lab").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the second client's link to come up", func() bool { return c.Remote("qa-lab").Connected() })
 	return c.Remote("qa-lab")
 }
 
@@ -256,7 +257,7 @@ func TestWaitOwnOperations(t *testing.T) {
 	if code := a.exit(); code != 0 {
 		t.Fatalf("A's shim exited %d", code)
 	}
-	eventually(t, "A's session to leave the registry", func() bool { return !p.ops.Sessions().Registered(sessionA) })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "A's session to leave the registry", func() bool { return !p.ops.Sessions().Registered(sessionA) })
 	a2 := shimOf("a2", "chat-a")
 	if v, e := viewOf(t, a2.toolWith(1, "operation_wait", `{"operationId":"`+opA+`","timeoutMs":0}`)); e != nil || v.OperationID != opA || v.State != capability.StateRunning {
 		t.Errorf("a later session of A's chat: operation_wait %+v / %v; want A's operation running", v, e)

@@ -50,7 +50,7 @@ func (a *ADB) Shareable(ctx context.Context, manufacturers bool) ([]ShareableDev
 	for _, d := range listed {
 		out = append(out, ShareableDevice{Device: d.Device, State: d.State, Kind: d.Kind, Model: cleanText(d.Model, 48), USB: d.usb, Duplicate: serialCount(listed, d.Device) > 1})
 	}
-	dctx, cancel := context.WithTimeout(ctx, detailsTimeout)
+	dctx, cancel := context.WithTimeout(ctx, a.limit(detailsTimeout))
 	defer cancel()
 	var wg sync.WaitGroup
 	for i := range out {

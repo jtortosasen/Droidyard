@@ -15,6 +15,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The peer link between two real daemons (ADR-0098): two `serve` processes, each with its
@@ -90,7 +91,7 @@ func healthOn(t *testing.T, state string) system.Health {
 func listenOf(t *testing.T, state string) string {
 	t.Helper()
 	addr := ""
-	eventually(t, "the host's peer listener", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the host's peer listener", func() bool {
 		if h := healthOn(t, state).Hosting; h != nil {
 			addr = h.Listen
 		}
@@ -181,7 +182,7 @@ func TestPeerLink(t *testing.T) {
 	t.Run("paired", func(t *testing.T) {
 		t.Parallel()
 		p := pair(t, annaPinned, "")
-		eventually(t, "both healths to say connected", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "both healths to say connected", func() bool {
 			h := healthOn(t, p.host).Hosting
 			return remoteHealth(t, p.client).Connected && h != nil && len(h.Peers) == 1 && h.Peers[0].Connected
 		})
@@ -204,11 +205,11 @@ func TestPeerLink(t *testing.T) {
 	t.Run("a client the host does not pin", func(t *testing.T) {
 		t.Parallel()
 		p := pair(t, nobodyPinned, "")
-		eventually(t, "the client to report the refusal", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the client to report the refusal", func() bool {
 			r := remoteHealth(t, p.client)
 			return !r.Connected && strings.Contains(r.Error, "does not admit this daemon")
 		})
-		eventually(t, "the host to log the refusal", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to log the refusal", func() bool {
 			return strings.Contains(p.hostProc.stderr.String(), "refused a handshake from 127.0.0.1:") &&
 				strings.Contains(p.hostProc.stderr.String(), identityOf(t, p.client)[:12])
 		})
@@ -225,7 +226,7 @@ func TestPeerLink(t *testing.T) {
 	t.Run("a host the client does not pin", func(t *testing.T) {
 		t.Parallel()
 		p := pair(t, annaPinned, strings.Repeat("d", 64))
-		eventually(t, "the client to refuse the host", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the client to refuse the host", func() bool {
 			r := remoteHealth(t, p.client)
 			return !r.Connected && strings.Contains(r.Error, "nothing was sent")
 		})
@@ -243,16 +244,16 @@ func TestPeerLink(t *testing.T) {
 	t.Run("a peer removed while linked", func(t *testing.T) {
 		t.Parallel()
 		p := pair(t, annaPinned, "")
-		eventually(t, "the link to come up", func() bool { return remoteHealth(t, p.client).Connected })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the link to come up", func() bool { return remoteHealth(t, p.client).Connected })
 		// Removing the peer from the file is the whole revocation: nobody tells the daemon.
 		configAt(t, p.host, `{"hosting":{"listen":"127.0.0.1:0","peers":[],"padding":"the size changes"}}`)
 		start := time.Now()
-		eventually(t, "the revoked peer's socket to close", func() bool { return !remoteHealth(t, p.client).Connected })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the revoked peer's socket to close", func() bool { return !remoteHealth(t, p.client).Connected })
 		if took := time.Since(start); took > 5*time.Second {
 			t.Errorf("the socket closed %s after the revocation; want within 2 s plus a health call or two (the sweep is 2 s; adapters/peer measures it tightly)", took)
 		}
 		// A redial is refused at the handshake.
-		eventually(t, "the redial to be refused", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the redial to be refused", func() bool {
 			r := remoteHealth(t, p.client)
 			return !r.Connected && strings.Contains(r.Error, "does not admit this daemon") &&
 				strings.Contains(p.hostProc.stderr.String(), "refused a handshake")
@@ -265,7 +266,7 @@ func TestPeerLink(t *testing.T) {
 	t.Run("what a peer may not call", func(t *testing.T) {
 		t.Parallel()
 		p := pair(t, annaPinned, "")
-		eventually(t, "the link to come up", func() bool { return remoteHealth(t, p.client).Connected })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the link to come up", func() bool { return remoteHealth(t, p.client).Connected })
 		// artifact.read is lent since plan m2t step 5, for the artifacts of the peer's own
 		// calls (TestRemoteArtifactsAndLogs): it is not in this list.
 		for _, name := range []string{"policy.get", "shell.exec", "device.install", "emulator.stop", "workspace.open", "system.health"} {

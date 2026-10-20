@@ -43,6 +43,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/jtortosasen/droidyard/internal/domain/git/gittest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // --- how a test starts a write git --------------------------------------------------
@@ -729,8 +730,13 @@ func hookRan(marker, hook, where string) bool {
 // fetch (the control: a pack appears and the loose objects go, gc detached from the
 // process group by its own setsid); with the write config nothing runs. Which of the two
 // -c settings does it in this git is recorded.
+//
+// It counts the gc and maintenance processes, and counts only those whose working directory
+// is under this test's own directory (gcProcesses), so another test's git, or another
+// session's on the same machine, cannot fail it; the repository's own gc runs in its
+// directory and is kept (TestGcProcessesKeepOnlyThoseUnderADirectory).
 func TestWriteSpike3NoGcOutlivesAFetch(t *testing.T) {
-	// Not parallel: it counts the gc and maintenance processes of the whole machine (ps), so no other git may run one meanwhile.
+	t.Parallel()
 	t.Log(gitVersion(t))
 	type variant struct {
 		name         string
@@ -766,7 +772,8 @@ func TestWriteSpike3NoGcOutlivesAFetch(t *testing.T) {
 			if loose() < 2 {
 				t.Fatalf("%d loose objects in objects/17, need 2 or more", loose())
 			}
-			before, packsBefore := gcProcesses(t), packs()
+			mine := filepath.Dir(r.W) // the fixture's directory: the remote, the work tree and the other clone
+			before, packsBefore := gcProcesses(t, mine), packs()
 			r.PushOther(t, 1)
 
 			args := fetchArgs("origin")
@@ -782,7 +789,7 @@ func TestWriteSpike3NoGcOutlivesAFetch(t *testing.T) {
 			// A detached gc is not waited for by fetch: look for its effect.
 			wait := 3 * time.Second
 			if v.dropGC && v.drop {
-				wait = 15 * time.Second // the control: gc has to be seen
+				wait = testtime.Bound(15 * time.Second) // the control: gc has to be seen; the poll ends at the first sight
 			}
 			deadline := time.Now().Add(wait)
 			fired := false
@@ -794,7 +801,7 @@ func TestWriteSpike3NoGcOutlivesAFetch(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(r.W, ".git", "gc.pid")); err == nil {
 				pidFile = true
 			}
-			left := newProcesses(before, gcProcesses(t))
+			left := newProcesses(before, gcProcesses(t, mine))
 			t.Logf("fired %v, loose left %d, packs %d -> %d, gc.pid %v, new gc/maintenance processes %v", fired, loose(), packsBefore, packs(), pidFile, left)
 			ran[v.name] = fired
 			if v.name == "neither (control)" {
@@ -836,8 +843,9 @@ func dropPair(args []string, kv string) []string {
 	return args
 }
 
-// gcProcesses lists the pids of git processes running a gc or maintenance (read only).
-func gcProcesses(t testing.TB) map[int]string {
+// gcCandidates lists the git processes of the machine running a gc or maintenance, by
+// their command line (read only): pid to command.
+func gcCandidates(t testing.TB) map[int]string {
 	t.Helper()
 	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
 	if err != nil {
@@ -857,6 +865,93 @@ func gcProcesses(t testing.TB) map[int]string {
 		}
 	}
 	return m
+}
+
+// gcProcesses is gcCandidates narrowed to the processes whose working directory is under
+// dir: a gc of another repository on the machine is not this test's. A process that has
+// exited since the listing has no working directory to read and is not kept; it is no
+// longer running, which is what the caller counts.
+func gcProcesses(t testing.TB, dir string) map[int]string {
+	t.Helper()
+	under, err := filepath.EvalSymlinks(dir) // lsof reports /private/var on macOS, TempDir says /var
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[int]string{}
+	for pid, cmd := range gcCandidates(t) {
+		if cwd, ok := cwdOf(t, pid); ok && (cwd == under || strings.HasPrefix(cwd, under+string(filepath.Separator))) {
+			m[pid] = cmd
+		}
+	}
+	return m
+}
+
+// cwdOf is the working directory of pid, symlinks resolved; false when the process is gone.
+// /proc where there is one (Linux), lsof otherwise (macOS); neither is a failure of the
+// test, not a silent gap in what it counts.
+func cwdOf(t testing.TB, pid int) (string, bool) {
+	t.Helper()
+	if p, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd"); err == nil {
+		return realPath(p), true
+	}
+	out, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+	if errors.Is(err, exec.ErrNotFound) {
+		t.Fatal("lsof is not on PATH, and there is no /proc: the test cannot tell whose gc a process is")
+	}
+	for _, l := range strings.Split(string(out), "\n") { // exit 1 with no output: the process is gone
+		if p, ok := strings.CutPrefix(l, "n"); ok {
+			return realPath(p), true
+		}
+	}
+	return "", false
+}
+
+func realPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
+// Decision (plan m2v step 4): TestWriteSpike3NoGcOutlivesAFetch keeps a gc or maintenance
+// process only when its working directory is under the test's own directory, so the
+// repository's own gc is counted and another repository's, on the same machine, is not.
+// Two long-lived processes whose command line gcProcesses matches ("git gc", a sleep whose
+// argv[0] is that), one started in the directory and one in another: both are listed by
+// the command line alone, and only the first is kept. Without the working-directory
+// filter both would be, and the one test that guards a fetch's gc would fail for another
+// session's git; with a filter that dropped everything, the first would be missing.
+func TestGcProcessesKeepOnlyThoseUnderADirectory(t *testing.T) {
+	t.Parallel()
+	mine, other := t.TempDir(), t.TempDir()
+	sub := filepath.Join(mine, "repo", ".git")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := func(dir string) int {
+		cmd := exec.Command("sleep", "30")
+		cmd.Args[0] = "git gc"
+		cmd.Dir = dir
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+		return cmd.Process.Pid
+	}
+	in, out := start(sub), start(other)
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "ps to list both processes by their command line", func() bool {
+		c := gcCandidates(t)
+		_, a := c[in]
+		_, b := c[out]
+		return a && b
+	})
+	got := gcProcesses(t, mine)
+	if _, ok := got[in]; !ok {
+		t.Errorf("the process in %s is not kept: %v", sub, got)
+	}
+	if _, ok := got[out]; ok {
+		t.Errorf("the process in %s, outside %s, is kept: %v", other, mine, got)
+	}
 }
 
 func newProcesses(before, after map[int]string) []string {

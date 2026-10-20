@@ -15,6 +15,7 @@ import (
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // gone: the pid is dead and reaped, as the kernel sees it.
@@ -80,15 +81,13 @@ func TestServeReapsOrphansBeforeItAnswers(t *testing.T) {
 
 	started := time.Now()
 	srv := droidyard(t, state, "serve")
-	var answered time.Time
-	for deadline := started.Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := started.Add(testtime.Bound(30 * time.Second)); ; time.Sleep(50 * time.Millisecond) {
 		if conn, err := net.Dial("unix", sock); err == nil {
-			answered = time.Now()
 			conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the socket did not answer within 15 s")
+			t.Fatalf("the socket did not answer within %v", testtime.Bound(30*time.Second))
 		}
 	}
 	// What was alive at the moment the socket first answered.
@@ -101,8 +100,19 @@ func TestServeReapsOrphansBeforeItAnswers(t *testing.T) {
 		t.Errorf("B (pid %d), a process that is not ours, was killed", b.Pid)
 	}
 
-	if after := answered.Sub(started); after >= 7*time.Second {
-		t.Errorf("the socket first answered %s after serve started; one wait for every orphan answers within 7 s", after)
+	// One wait for every orphan, not one each (ADR-0021 §Pid records): C1 and C2 ignore
+	// SIGTERM, so the daemon kills them when the one grace ends, together. Served one after the
+	// other, the second would die a grace after the first. The test reads when they died, not
+	// when the socket answered after a start of serve that a loaded host takes seconds over.
+	for name, p := range map[string]*processtest.Proc{"C1": c1, "C2": c2} {
+		select {
+		case <-p.Done():
+		case <-time.After(testtime.Bound(30 * time.Second)):
+			t.Fatalf("%s was never reaped", name)
+		}
+	}
+	if gap := c1.ExitedAt().Sub(c2.ExitedAt()).Abs(); gap >= proc.TermGrace/2 {
+		t.Errorf("C1 and C2 died %s apart; one wait for every orphan kills the ones that ignore SIGTERM together", gap)
 	}
 	for name, p := range map[string]*processtest.Proc{"C1": c1, "C2": c2} {
 		select {
@@ -160,6 +170,6 @@ func TestServeReapsOrphansBeforeItAnswers(t *testing.T) {
 	if code := srv.wait(t); code != 0 {
 		t.Errorf("serve exited %d on SIGTERM", code)
 	}
-	t.Logf("socket first answered %s after serve started; C1 reaped at %s, C2 at %s; serve's log:\n%s",
-		answered.Sub(started), c1.ExitedAt().Sub(started), c2.ExitedAt().Sub(started), strings.Join(log, "\n"))
+	t.Logf("C1 reaped %s after serve started, C2 at %s; serve's log:\n%s",
+		c1.ExitedAt().Sub(started), c2.ExitedAt().Sub(started), strings.Join(log, "\n"))
 }

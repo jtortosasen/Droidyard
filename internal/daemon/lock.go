@@ -119,6 +119,13 @@ func (l *Lock) SetHTTP(addr string) error {
 // conclude another daemon holds the lock when none does.
 const probeGrace = 100 * time.Millisecond
 
+// AfterBusyAttempt is a test seam, nil in the product: lockExclusive calls it after an
+// attempt that found the lock busy and the grace still open, before it sleeps and tries
+// again. A test blocks in it to hold serve between two attempts, so what it does to the
+// probe that holds the lock (releases it) cannot race the grace (plan m2v step 5). Only a
+// test binary's init sets it.
+var AfterBusyAttempt func()
+
 // lockExclusive takes the exclusive flock without blocking, retrying through
 // probeGrace while it is busy.
 func lockExclusive(f *os.File) error {
@@ -127,6 +134,9 @@ func lockExclusive(f *os.File) error {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
 			return err
+		}
+		if AfterBusyAttempt != nil {
+			AfterBusyAttempt()
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

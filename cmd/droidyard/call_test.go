@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/policy"
 	proc "github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // inProcess is the shipped wiring (registry(), daemonOptions) started in the test
@@ -102,6 +105,10 @@ type adbSeam struct {
 	// gradle, when set, gives the daemon a fake Gradle sidecar in place of the sealed
 	// "no JDK" of TestMain. It is applied beside the adb seam, under adbSeamMu.
 	gradle *gradleSeam
+	// floor, when positive, is the shortest limit an adb command of the daemon gets
+	// (device.ADB.LengthenLimits): for a test whose claim is not one of those limits and
+	// whose fake adb is a process this binary re-executes. Applied beside the adb seam.
+	floor time.Duration
 }
 
 // gradleSeam is the Gradle sidecar one in-process daemon is given: how it is launched
@@ -166,6 +173,10 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	oldEnv, oldExec, oldWrap := adbEnviron, adbExec, adbStreamWrap
 	oldTick := watchTick
 	oldLaunch, oldFinder := gradleLaunch, gradleFinder
+	oldFloor := adbFloor
+	if adb != nil && adb.floor > 0 {
+		adbFloor = adb.floor
+	}
 	if adb != nil && adb.env != nil {
 		adbEnviron, adbExec, adbStreamWrap = func() []string { return adb.env }, adb.exec, adb.wrapStream
 	}
@@ -176,6 +187,7 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 	reg, ops, bus, artifacts, deviceADB, watchers, host := registry(env, st, sup, os.Stderr)
 	adbEnviron, adbExec, adbStreamWrap, watchTick = oldEnv, oldExec, oldWrap, oldTick
 	gradleLaunch, gradleFinder = oldLaunch, oldFinder
+	adbFloor = oldFloor
 	adbSeamMu.Unlock()
 	t.Cleanup(artifacts.Close)
 	p.reg, p.host = reg, host
@@ -255,6 +267,27 @@ func (l *lockedBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+// opTook is how long the daemon's trace line says its last operation of capability took, read
+// from its log. A test that bounds an operation's duration reads it here and not from a clock
+// around a re-executed `droidyard call`, which a loaded host takes seconds to start and to
+// read the answer of, none of it the operation. The trace line is written after the answer, so
+// it is waited for.
+func opTook(t testing.TB, log func() string, capability string) time.Duration {
+	t.Helper()
+	re := regexp.MustCompile(`capability=` + regexp.QuoteMeta(capability) + ` .*ms=(\d+)`)
+	var took time.Duration
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the daemon's trace line for "+capability, func() bool {
+		all := re.FindAllStringSubmatch(log(), -1)
+		if len(all) == 0 {
+			return false
+		}
+		ms, _ := strconv.Atoi(all[len(all)-1][1])
+		took = time.Duration(ms) * time.Millisecond
+		return true
+	})
+	return took
 }
 
 // call runs a re-executed `droidyard call` and returns its envelope and exit code.
@@ -392,14 +425,4 @@ func shutdown(t *testing.T, p *inProcess) {
 	if err := p.d.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
-}
-
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("never: %s", what)
 }

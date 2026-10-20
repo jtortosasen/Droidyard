@@ -30,6 +30,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/policy"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // wfx is git.fetch registered over a Remote fixture, with the recorded spawner of a real
@@ -445,21 +446,22 @@ func TestFetchCancelKillsTheGroup(t *testing.T) {
 //
 // The limit runs from the moment git starts, so on a loaded machine it can pass before git
 // has started the uploadpack stub, and then the call ends having stopped nothing but git
-// itself. That attempt proves nothing about the transport's process, so it is tried again
-// (the group is still checked each time); the test fails only if no attempt in five got the
-// uploadpack running before the limit, which would mean the machine, not the runner.
+// itself. That attempt proves nothing about the transport's process (no pid file), so
+// untilConclusive tries again with twice the limit; the group is still checked each time. An
+// attempt with the pid file is decisive and must end in GIT_FAILED with the group and the
+// uploadpack gone. The test fails if no attempt in five got the uploadpack running before
+// its limit.
 func TestFetchTimeout(t *testing.T) {
-	// Not parallel: its limit is 2 s and the uploadpack has to start inside it (it retries five times, and still failed on a loaded machine).
+	t.Parallel()
 	t.Log(gitVersion(t))
 	type answer struct {
 		res any
 		err *capability.Error
 	}
 	for _, stubborn := range []bool{false, true} {
-		proved := false
-		for attempt := 0; attempt < 5 && !proved; attempt++ {
+		tried, ok := untilConclusive(2*time.Second, func(limit time.Duration) bool {
 			f := newWfx(t)
-			f.timeout = 2 * time.Second
+			f.timeout = limit
 			f.register()
 			pidFile := f.hung(stubborn)
 			got := make(chan answer, 1)
@@ -486,7 +488,7 @@ func TestFetchTimeout(t *testing.T) {
 				pgid = mustPgid(child)
 				select {
 				case a = <-got:
-				case <-time.After(20 * time.Second):
+				case <-time.After(limit + testtime.Bound(20*time.Second)): // a hang guard past the limit
 					t.Fatal("git.fetch did not return past its limit")
 				}
 			}
@@ -500,16 +502,16 @@ func TestFetchTimeout(t *testing.T) {
 				}
 			}
 			if child == 0 {
-				t.Logf("stubborn=%v attempt %d: the limit passed before the uploadpack started; trying again", stubborn, attempt+1)
-				continue
+				t.Logf("stubborn=%v limit %s: it passed before the uploadpack started; trying again with twice the limit", stubborn, limit)
+				return false
 			}
-			proved = true
 			if groupLive(pgid) || pidLive(child) {
 				t.Errorf("stubborn=%v: the group %d (uploadpack %d) outlived the timed-out call", stubborn, pgid, child)
 			}
-		}
-		if !proved {
-			t.Errorf("stubborn=%v: the uploadpack never started within the limit in five attempts: the machine is too loaded to prove the group is ended", stubborn)
+			return true
+		})
+		if !ok {
+			t.Errorf("stubborn=%v: the uploadpack never started inside the limit, tried %v: the machine is too loaded to prove the group is ended", stubborn, tried)
 		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // dumps counts the UI dumps the host's adb ran.
@@ -39,11 +40,11 @@ func TestLeaseOrphanedCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the host's dump to hang", func() bool { return dumps(lab.hostCalls(t)) == 1 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the host's dump to hang", func() bool { return dumps(lab.hostCalls(t)) == 1 })
 
 	go lab.client.invoke("device.uiTree", `{`+dev(remotePhone)+`}`)
 	var annaOp, annaLink string
-	eventually(t, "anna's call to queue on the host", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "anna's call to queue on the host", func() bool {
 		for _, op := range lab.host.ops.Active() {
 			if op.Capability == "device.uiTree" && op.Client == capability.ClientPeer && op.State == capability.StateQueued && op.Session != nil {
 				annaOp, annaLink = op.OperationID, op.Session.ID
@@ -52,7 +53,7 @@ func TestLeaseOrphanedCall(t *testing.T) {
 		return annaOp != ""
 	})
 	lab.client.host.Stop()
-	eventually(t, "anna's link session to end", func() bool { return !lab.host.ops.Sessions().Registered(annaLink) })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "anna's link session to end", func() bool { return !lab.host.ops.Sessions().Registered(annaLink) })
 
 	free(t, "bob's launch", lab.onBob(t, "device.launch", `{`+dev(remotePhone)+`,"applicationId":"dev.droidyard.formapp"}`))
 	if got := lab.holder(t); got != "bob" {

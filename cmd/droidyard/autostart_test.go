@@ -19,6 +19,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 var startLine = regexp.MustCompile(`droidyard serve \(pid (\d+)\): starting`)
@@ -105,6 +106,20 @@ func TestRacingAutoStarts(t *testing.T) {
 
 	// Every other serve that started loses, after its grace for a probe, then exits.
 	logPath := filepath.Join(state, logFile)
+	// A caller's serve may be forked and not yet have printed its start line when the callers
+	// return (the winner answered both; a loaded machine runs the other late), so the losers
+	// read from the log below can be none while one is still to come, and it would hold
+	// daemon.lock for its grace when the checks look. A precondition, retried only while
+	// absent: every serve has daemon.log as stdout and stderr from its fork (startDetached),
+	// before startDaemon returned to its caller, so the winner alone holds the log once every
+	// other serve has gone. Without lsof the wait on the logged losers below is all there is.
+	if _, err := exec.LookPath("lsof"); err == nil {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "daemon.log is held by the winner alone: every other serve has exited", func() bool {
+			out, _ := exec.Command("lsof", "-t", logPath).Output()
+			held := strings.Fields(string(out))
+			return len(held) == 1 && held[0] == strconv.Itoa(winner)
+		})
+	}
 	losers := func() (out []int) {
 		logged, _ := os.ReadFile(logPath)
 		for _, m := range startLine.FindAllStringSubmatch(string(logged), -1) {
@@ -114,7 +129,7 @@ func TestRacingAutoStarts(t *testing.T) {
 		}
 		return out
 	}
-	eventually(t, "every losing serve has exited", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "every losing serve has exited", func() bool {
 		for _, pid := range losers() {
 			if alive(pid) {
 				return false
@@ -170,7 +185,7 @@ func TestRacingAutoStarts(t *testing.T) {
 	if code := droidyard(t, state, "stop").wait(t); code != 0 {
 		t.Fatalf("stop exited %d", code)
 	}
-	eventually(t, "the daemon exits after stop", func() bool { return !alive(winner) })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the daemon exits after stop", func() bool { return !alive(winner) })
 	if _, err := os.Lstat(filepath.Join(state, "run", "droidyard.sock")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the socket is still there after stop: %v", err)
 	}

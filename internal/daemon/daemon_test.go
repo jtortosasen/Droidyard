@@ -21,6 +21,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 type none struct{}
@@ -167,16 +168,6 @@ func (h *harness) started(t *testing.T) blocked {
 		t.Fatal("fixture.block never started")
 	}
 	return blocked{}
-}
-
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("never: %s", what)
 }
 
 // TestHelloFromAnotherVersionIsRefused: a shim of another version gets
@@ -345,7 +336,7 @@ func TestSessionsAreConnections(t *testing.T) {
 	}
 	a.conn.Close()
 	b.conn.Close()
-	eventually(t, "the session count returns to 0", func() bool { return h.d.Sessions() == 0 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the session count returns to 0", func() bool { return h.d.Sessions() == 0 })
 }
 
 // TestRequestsAreMatchedById: several requests share a connection, and each response
@@ -396,7 +387,7 @@ func TestDisconnectDoesNotCancel(t *testing.T) {
 	s.send(t, "1", "fixture.block", "")
 	b := h.started(t)
 	s.conn.Close()
-	eventually(t, "the session ends", func() bool { return h.d.Sessions() == 0 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the session ends", func() bool { return h.d.Sessions() == 0 })
 
 	if b.ctx.Err() != nil {
 		t.Fatal("a disconnect cancelled the operation it started")

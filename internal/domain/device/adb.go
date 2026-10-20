@@ -54,6 +54,8 @@ type ADB struct {
 	occupation Occupation
 	// startHook is a test seam: see SetStartHook.
 	startHook atomic.Pointer[func()]
+	// floor is a test seam: see LengthenLimits. Zero in the product.
+	floor time.Duration
 	// toolKey is `tools.adb` as read at daemon start, handed to every resolution
 	// (ADR-0032 §3, §6; plan m1k D8). Empty means the file set no key.
 	toolKey policy.ToolKey

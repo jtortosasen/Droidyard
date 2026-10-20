@@ -50,4 +50,4 @@ the output.
 | [m2s-occupation-of-worktrees-and-devices.md](m2s-occupation-of-worktrees-and-devices.md) | 2s — C2 completed: a session occupies its worktree and its device | Done |
 | [m2t-device-hosting.md](m2t-device-hosting.md) | 2t — C4a, device hosting: lend physical devices to a paired Droidyard over the VPN | Done |
 | [m2u-share-and-join.md](m2u-share-and-join.md) | 2u — C4b, share a phone with one command, join with one paste | Done |
-| [m2v-tests-that-hold.md](m2v-tests-that-hold.md) | 2v — Tests that hold: fewer flaky tests, faster, more solid | Reviewed |
+| [m2v-tests-that-hold.md](m2v-tests-that-hold.md) | 2v — Tests that hold: fewer flaky tests, faster, more solid | Done |

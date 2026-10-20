@@ -19,6 +19,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/process"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // device.logs' bounded follow (plan m1i step 3): the fake adb re-executed as a real
@@ -99,7 +100,7 @@ func (f *followFixture) logsCall(t *testing.T, params string) capability.Outcome
 
 func (f *followFixture) wait(t *testing.T, id string) capability.Outcome {
 	t.Helper()
-	out, err := f.ops.Wait(context.Background(), id, time.Now().Add(30*time.Second))
+	out, err := f.ops.Wait(context.Background(), id, time.Now().Add(testtime.Bound(30*time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,15 +124,24 @@ func (f *followFixture) records(t *testing.T) []process.Record {
 // waitRecord polls until the follow's one pid record is on disk, and returns it.
 func (f *followFixture) waitRecord(t *testing.T) process.Record {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if recs := f.records(t); len(recs) == 1 {
-			return recs[0]
+	var rec process.Record
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the follow's pid record in processes.json", func() bool {
+		recs := f.records(t)
+		if len(recs) != 1 {
+			return false
 		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatalf("the follow's pid record never appeared in processes.json")
-	return process.Record{}
+		rec = recs[0]
+		return true
+	})
+	return rec
+}
+
+// followHangGuardMs is a followMs that only has to outlast the fake adb's start: a test whose
+// client ends the call by itself (it exits) gives it so a loaded machine's spawn cannot end
+// the window before the client has said anything. It is a hang guard, scaled, and kept
+// inside the capability's own maximum.
+func followHangGuardMs() int {
+	return min(int(testtime.Bound(10*time.Second).Milliseconds()), logsFollowMaxMs)
 }
 
 // followLine is one line of the device log in the recorded format (plan m1i step 1):
@@ -148,35 +158,50 @@ func followLine(ts string, uid int, tag, msg string) string {
 // the record left behind): the window would not be bounded, or the next daemon would reap
 // a pid it no longer owns.
 //
-// The bound is 2 s + 1 s slack, widened only under -race by followRaceOverhead: the race
-// detector adds ~1 s to each of the fixture's four fake-adb spawns (plan m1n step 1), and
-// the window itself is unchanged.
+// No clock decides which lines are inside. The window starts when the client is spawned and
+// the fake paces its lines from its own start, which a loaded machine delays by seconds: a
+// line due 1.5 s into a 2 s window was lost to that delay, not to the decision. So the two
+// lines the window covers are due at the device clock itself, which the fake gives at once,
+// and the third is due 100 s past it, after any window (followMs's maximum is 60 s) however
+// the start was delayed. The window is a hang guard (it must outlast the fake's start, so it
+// is scaled), and so is the upper bound, counted from the client's record, after the
+// fixture's own fake-adb spawns; the lower bound is the window's own length, exact.
 func TestFollowWindowKeepsOnlyItsLinesAndRecordsTheClient(t *testing.T) {
+	const clock = "1791337000.500000"
 	f := newFollowFixture(t, map[string]string{
-		uiSerial + ".date.out": "1791337000.500000\n",
+		uiSerial + ".date.out": clock + "\n",
+		// The client starts a second late, as it does on a loaded machine: a window that lost
+		// a line to a slow start would fail here every run, not once in a while.
+		uiSerial + ".logcat.delay": "1000",
 		uiSerial + ".log": "--------- beginning of main\n" +
-			followLine("1791337001.000000", 10146, "App", "first") + "\n" +
-			followLine("1791337002.000000", 10146, "App", "second") + "\n" +
-			followLine("1791337003.500000", 10146, "App", "third") + "\n",
+			followLine(clock, 10146, "App", "first") + "\n" +
+			followLine(clock, 10146, "App", "second") + "\n" +
+			followLine("1791337100.500000", 10146, "App", "third") + "\n",
 	})
+	window := testtime.Bound(3 * time.Second)
 	started := time.Now()
-	id := f.startLogs(t, fmt.Sprintf(`{"device":%q,"followMs":2000}`, uiSerial))
+	id := f.startLogs(t, fmt.Sprintf(`{"device":%q,"followMs":%d}`, uiSerial, window.Milliseconds()))
 	rec := f.waitRecord(t)
+	spawned := time.Now()
 	if rec.Kind != process.DeviceStream || rec.ID != string(process.DeviceStream) {
 		t.Errorf("record kind/id = %q/%q, want %q", rec.Kind, rec.ID, process.DeviceStream)
 	}
 	pid := rec.PID
 	out := f.wait(t, id)
 	took := time.Since(started)
+	inWindow := time.Since(spawned)
 	if out.State != capability.StateCompleted {
 		t.Fatalf("state = %s with error %+v, want completed: the window's end is a normal end", out.State, out.Error)
 	}
 	r := mustLogs(t, out)
 	if got := messages(r.Lines); strings.Join(got, ",") != "first,second" {
-		t.Errorf("lines = %v, want [first second]: the third is due after the %s window", got, "2s")
+		t.Errorf("lines = %v, want [first second]: the third is due after the %s window", got, window)
 	}
-	if took < 2*time.Second || took > 3*time.Second+followRaceOverhead {
-		t.Errorf("the follow took %s, want its 2 s window and no more than 1 s over (+%s under -race)", took, followRaceOverhead)
+	if took < window {
+		t.Errorf("the follow took %s, want its whole %s window", took, window)
+	}
+	if limit := window + testtime.Bound(5*time.Second); inWindow > limit {
+		t.Errorf("the follow ran %s after its client was recorded, want its %s window and no more than %s", inWindow, window, limit)
 	}
 	if !gone(pid) {
 		t.Errorf("client pid %d survived the window", pid)
@@ -260,11 +285,16 @@ func TestFollowFailsWhenTheRecordCannotBeWritten(t *testing.T) {
 // the caller would not know the device vanished.
 func TestFollowDeviceGoneIsDisconnected(t *testing.T) {
 	f := newFollowFixture(t, map[string]string{
-		uiSerial + ".date.out":    "1791337000.500000\n",
-		uiSerial + ".logcat.err":  "error: device 'emulator-5554' not found\n",
-		uiSerial + ".logcat.exit": "1",
+		uiSerial + ".date.out": "1791337000.500000\n",
+		// The client says so a second and a half after it starts, past followMs's minimum.
+		uiSerial + ".logcat.delay": "1500",
+		uiSerial + ".logcat.err":   "error: device 'emulator-5554' not found\n",
+		uiSerial + ".logcat.exit":  "1",
 	})
-	out := f.logsCall(t, fmt.Sprintf(`{"device":%q,"followMs":1000}`, uiSerial))
+	// The client exits by itself at once, so the window is never waited out; it only has to
+	// outlast the fake's start, or it ends the follow before the client has said anything and
+	// the call completes empty (followMs's minimum, 1 s, was passed by a loaded machine's spawn).
+	out := f.logsCall(t, fmt.Sprintf(`{"device":%q,"followMs":%d}`, uiSerial, followHangGuardMs()))
 	if e := out.Error; e == nil || e.Code != ErrDisconnected {
 		t.Fatalf("error %+v, want DEVICE_DISCONNECTED", out.Error)
 	}
@@ -277,28 +307,36 @@ func TestFollowDeviceGoneIsDisconnected(t *testing.T) {
 // follow would silently re-read from a launch and repeat lines.
 func TestFollowSinceBacklogAndTheNoLaunchDefault(t *testing.T) {
 	// The device log: a line just after the launch (backlog for an explicit since) and a
-	// line due a moment after the device clock the follow reads.
+	// line at the device clock the follow reads, the first a follow without since starts
+	// from. The live line is due at the clock itself, so the fake gives it at once: a line
+	// due half a second into a one-second window was lost whenever the fake's start (the
+	// window starts at the spawn) took longer than that, which has nothing to do with since.
+	const clock = "1791337010.500000"
 	log := "--------- beginning of main\n" +
 		followLine("1791337000.600000", 10146, "App", "backlog") + "\n" +
-		followLine("1791337011.000000", 10146, "App", "live") + "\n"
-	// The device clock is ten seconds after the launch, so 1791337011.0 is half a second
-	// into a one-second window.
-	const date = "1791337010.500000\n"
+		followLine(clock, 10146, "App", "live") + "\n"
+	// The device clock is ten seconds after the launch. The window only has to outlast the
+	// fake's start (a hang guard, scaled); the subtests run side by side, so it is paid once.
+	const date = clock + "\n"
+	window := testtime.Bound(3 * time.Second).Milliseconds()
 	files := map[string]string{
 		uiSerial + ".date.out":     date,
 		uiSerial + ".log":          log,
 		uiSerial + ".pm.out":       "package:" + appID + " uid:10146\n",
 		uiSerial + ".apppidof.out": "",
+		// The client starts 1.2 s late, as on a loaded machine; the window must outlast it.
+		uiSerial + ".logcat.delay": "1200",
 	}
 	const launchRFC = "2026-10-07T01:36:40.000000Z"
 
 	t.Run("explicit since keeps the backlog", func(t *testing.T) {
+		t.Parallel()
 		f := newFollowFixture(t, files)
 		f.adb.appStore().noteLaunch(uiSerial, appID, time.Unix(1791337000, 0), launchRFC, nil)
 		// since the launch instant, a device-clock RFC 3339 timestamp before the backlog line.
 		out := f.logsCall(t, fmt.Sprintf(
-			`{"device":%q,"applicationId":%q,"since":%q,"followMs":1000}`,
-			uiSerial, appID, launchRFC))
+			`{"device":%q,"applicationId":%q,"since":%q,"followMs":%d}`,
+			uiSerial, appID, launchRFC, window))
 		r := mustLogs(t, out)
 		if got := strings.Join(messages(r.Lines), ","); got != "backlog,live" {
 			t.Errorf("lines = %q, want the backlog line and the live one", got)
@@ -306,10 +344,11 @@ func TestFollowSinceBacklogAndTheNoLaunchDefault(t *testing.T) {
 	})
 
 	t.Run("without since a launch adds no backlog", func(t *testing.T) {
+		t.Parallel()
 		f := newFollowFixture(t, files)
 		f.adb.appStore().noteLaunch(uiSerial, appID, time.Unix(1791337000, 0), launchRFC, nil)
 		out := f.logsCall(t, fmt.Sprintf(
-			`{"device":%q,"applicationId":%q,"followMs":1000}`, uiSerial, appID))
+			`{"device":%q,"applicationId":%q,"followMs":%d}`, uiSerial, appID, window))
 		r := mustLogs(t, out)
 		if got := strings.Join(messages(r.Lines), ","); got != "live" {
 			t.Errorf("lines = %q, want only the live line: a follow without since starts at the device clock, not the launch", got)
@@ -317,10 +356,11 @@ func TestFollowSinceBacklogAndTheNoLaunchDefault(t *testing.T) {
 	})
 
 	t.Run("since launch reads from the launch", func(t *testing.T) {
+		t.Parallel()
 		f := newFollowFixture(t, files)
 		f.adb.appStore().noteLaunch(uiSerial, appID, time.Unix(1791337000, 0), launchRFC, nil)
 		out := f.logsCall(t, fmt.Sprintf(
-			`{"device":%q,"applicationId":%q,"since":"launch","followMs":1000}`, uiSerial, appID))
+			`{"device":%q,"applicationId":%q,"since":"launch","followMs":%d}`, uiSerial, appID, window))
 		r := mustLogs(t, out)
 		if got := strings.Join(messages(r.Lines), ","); got != "backlog,live" {
 			t.Errorf("lines = %q, want the launch's backlog and the live line", got)

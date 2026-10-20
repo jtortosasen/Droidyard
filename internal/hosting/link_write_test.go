@@ -16,6 +16,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // frameIDRE is the id at the head of a request frame.
@@ -91,11 +92,7 @@ func TestACancelledCallDoesNotCutTheLink(t *testing.T) {
 	done := make(chan struct{})
 	go func() { defer close(done); l.run(ctx) }()
 	defer func() { stop(); <-done }()
-	for deadline := time.Now().Add(10 * time.Second); !l.Connected(); time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("the link never came up")
-		}
-	}
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the link to come up", l.Connected)
 
 	// Far past any socket buffer, so the write is still in progress when the caller gives up,
 	// yet small enough that the host reads it within the link's write bound under -race.
@@ -111,7 +108,7 @@ func TestACancelledCallDoesNotCutTheLink(t *testing.T) {
 	}
 
 	close(release)
-	qctx, qcancel := context.WithTimeout(context.Background(), 30*time.Second)
+	qctx, qcancel := context.WithTimeout(context.Background(), testtime.Bound(30*time.Second))
 	defer qcancel()
 	resp, err := l.Call(qctx, capability.RequestEnvelope{ID: "mine", Capability: "x"})
 	if err != nil || resp.ID != "mine" || resp.Error != nil {

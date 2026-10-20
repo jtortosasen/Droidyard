@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // TestDeathSignalPerKind: on Linux a child is asked for SIGTERM when the thread that
@@ -109,7 +110,7 @@ func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	}
 	// SIGKILL to the group is delivered asynchronously and the orphaned child is reaped
 	// by init: poll briefly rather than read a zombie as alive.
-	eventually(t, 10*time.Second, fmt.Sprintf("the background child (pid %d) gone after a record that could not be written", bgPid),
+	testtime.Eventually(t, testtime.Bound(10*time.Second), fmt.Sprintf("the background child (pid %d) gone after a record that could not be written", bgPid),
 		func() bool { return dead(bgPid) })
 	if cmd.Process == nil {
 		t.Fatal("no command was started; this case must exercise the write failing after it starts")
@@ -117,7 +118,7 @@ func killsTheGroupWhenTheRecordWriteFails(t *testing.T, kind Kind) {
 	if !dead(cmd.Process.Pid) {
 		t.Errorf("the command (pid %d) survived a record that could not be written", cmd.Process.Pid)
 	}
-	eventually(t, 10*time.Second, fmt.Sprintf("the process group %d gone after the record write failed", cmd.Process.Pid),
+	testtime.Eventually(t, testtime.Bound(10*time.Second), fmt.Sprintf("the process group %d gone after the record write failed", cmd.Process.Pid),
 		func() bool { return errors.Is(syscall.Kill(-cmd.Process.Pid, 0), syscall.ESRCH) })
 	if recs := onDisk(t, st); len(recs) != 0 {
 		t.Errorf("processes.json holds %+v, want none: the write failed", recs)
@@ -179,7 +180,8 @@ func TestSpawnRecordedSparesTheGroupOfOtherKindsWhenTheRecordWriteFails(t *testi
 	if childPid == 0 {
 		t.Fatal("the command never named its child")
 	}
-	eventually(t, 2*time.Second, "the client gone", func() bool { return dead(cmd.Process.Pid) })
+	// A product claim (the client dies with its parent), unscaled: no level-5 run timed it.
+	testtime.Eventually(t, 2*time.Second, "the client gone", func() bool { return dead(cmd.Process.Pid) })
 	time.Sleep(100 * time.Millisecond)
 	if dead(childPid) {
 		t.Errorf("the forked child (pid %d) was killed: a device-stream client's group must be spared", childPid)

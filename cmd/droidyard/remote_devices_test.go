@@ -17,6 +17,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // Remote devices end to end (ADR-0099, ADR-0100): two daemons, each in this process with
@@ -200,6 +201,9 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostSeam.wrapStream = o.hostWrapStream
 	if o.hostProcesses {
 		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
+		// A process this binary re-executes starts later on a loaded host than the host's
+		// 3 s limits, which no test of a lab with processes claims.
+		hostSeam.floor = adbFloorFor()
 	}
 	lab.host = startInProcessConfig(t, "127.0.0.1:0", nil, hostSeam, 0, hostConfig)
 	stop := startPeers(lab.host.host, lab.host.reg, lab.host.ops, lab.host.bus, lab.host.store, lab.host.adb, lab.host.log)
@@ -207,7 +211,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	lab.stopHost = func() { once.Do(stop) }
 	t.Cleanup(lab.stopHost)
 	addr := ""
-	eventually(t, "the host's peer listener", func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the host's peer listener", func() bool {
 		addr = lab.host.host.Health().Hosting.Listen
 		return addr != ""
 	})
@@ -216,7 +220,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 		fullAllowlist()...))
 	stopClient := startPeers(lab.client.host, lab.client.reg, lab.client.ops, lab.client.bus, lab.client.store, lab.client.adb, os.Stderr)
 	t.Cleanup(stopClient)
-	eventually(t, "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
 	return lab
 }
 
@@ -482,7 +486,7 @@ func TestRemoteDevices(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			eventually(t, "the host to run the launch", func() bool {
+			testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to run the launch", func() bool {
 				for _, op := range lab.host.ops.Active() {
 					if op.Capability == "device.launch" {
 						hostOp = op.OperationID
@@ -539,7 +543,7 @@ func TestRemoteDevices(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		eventually(t, "the host to run the launch", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to run the launch", func() bool {
 			for _, op := range lab.host.ops.Active() {
 				if op.Capability == "device.launch" {
 					return true
@@ -556,7 +560,7 @@ func TestRemoteDevices(t *testing.T) {
 			t.Errorf("the link cut mid-call: %s %+v; want DEVICE_DISCONNECTED", out.State, out.Error)
 		}
 
-		eventually(t, "the client to see the link down", func() bool { return !lab.client.host.Remote(remoteName).Connected() })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the client to see the link down", func() bool { return !lab.client.host.Remote(remoteName).Connected() })
 		env := lab.on(t, "device.uiTree", `{`+dev(remotePhone)+`}`)
 		if env.Error == nil || env.Error.Code != device.ErrNotReady || env.Error.Details["state"] != "unreachable" {
 			t.Errorf("a call with the host stopped: %+v; want DEVICE_NOT_READY (unreachable)", env.Error)

@@ -47,6 +47,9 @@ var (
 	streamFrameTimeout = 5 * time.Second
 	// closeGrace is how long a close handshake gets before the connection is dropped.
 	closeGrace = time.Second
+	// sessionCloseDelay holds each session socket's close back when a listener shuts down. It
+	// is zero outside a test, which sets it to put the session's close after a live view's.
+	sessionCloseDelay time.Duration
 	// uploadBound is how long an upload's body may take to arrive: a little over the 10
 	// minutes a client allows itself, so a stalled sender is cut and its file removed.
 	uploadBound = 11 * time.Minute
@@ -343,8 +346,8 @@ func (s *Server) bind(want netip.AddrPort, cert tls.Certificate) (*listener, err
 }
 
 // shutdown ends the listener and only the sockets it accepted, and waits for them: the
-// sessions and live views are closed with the going-away code, an upload or an artifact in
-// flight is cancelled, and a socket that does not answer the close within closeGrace is
+// sessions are closed with the going-away code, then the live views, an upload or an artifact
+// in flight is cancelled, and a socket that does not answer the close within closeGrace is
 // dropped. Another listener's sockets are not touched.
 func (l *listener) shutdown() {
 	l.mu.Lock()
@@ -356,12 +359,40 @@ func (l *listener) shutdown() {
 	l.mu.Unlock()
 	l.stopSweep()
 	l.srv.Close() // the listening socket, and the connections that were not hijacked
+	var sessions, views []*sock
 	for _, k := range open {
-		if k.conn == nil {
+		switch {
+		case k.conn == nil:
 			k.cancel()
-			continue
+		case k.screen:
+			views = append(views, k)
+		default:
+			sessions = append(sessions, k)
 		}
+	}
+	// The sessions first, and the views only once every session's close is out (or dropped):
+	// a view's socket closing makes its stream publish stopped{detached} on the peer's
+	// subscription, and that event must find the link already closed, or the client reads it
+	// as the host ending the stream (failed) and not as the link lost (deviceGone, as
+	// internal/domain/device/remotescreen.go says). A close frame written, or a connection
+	// dropped, takes the session's writes with it.
+	closeAll(sessions, sessionCloseDelay)
+	closeAll(views, 0)
+	l.handlers.Wait()
+	<-l.sweepDone
+	<-l.served
+}
+
+// closeAll closes every socket of socks with the going-away code, after holding back by
+// delay, and returns when each is closed: its close handshake done, or the connection dropped
+// after closeGrace.
+func closeAll(socks []*sock, delay time.Duration) {
+	var wg sync.WaitGroup
+	for _, k := range socks {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
+			time.Sleep(delay)
 			done := make(chan struct{})
 			go func() { k.conn.Close(websocket.StatusGoingAway, "the peer listener stopped"); close(done) }()
 			select {
@@ -371,9 +402,7 @@ func (l *listener) shutdown() {
 			}
 		}()
 	}
-	l.handlers.Wait()
-	<-l.sweepDone
-	<-l.served
+	wg.Wait()
 }
 
 // track registers a socket the listener accepted; false when the listener is stopping.

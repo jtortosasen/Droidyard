@@ -16,6 +16,14 @@ The four commands are in `AGENTS.md` §Build and test. This skill covers what th
 - **Concurrent code gets the race detector.** The daemon, sessions, operations and the supervisor share state across goroutines; also run `go test -race` on their packages. This is this skill's recommendation, not a documented project rule.
 - **A result from before your last edit is stale.** Re-run after every fix: fixes are where the new problems come from.
 
+## Tests that hold under load
+
+A test that spawns a process, polls, or bounds a time must pass on a loaded machine, not only alone.
+
+- **The kinds of time** are in `internal/testtime`'s package comment: a hang guard is `testtime.Bound`; a product claim is scaled only with its level-5 run named beside it; a window the test must meet is redesigned (a seam, a line the process prints, a precondition retried only while absent), never scaled; an absence is not scaled. Poll with `testtime.Eventually`.
+- **A failure under load is evidence, not noise.** Trace it to its class before raising any bound; a bound raised to pass a run is a weaker test.
+- **To chase one**, `stress.go` (this directory; its header gives the flags) runs a package repeatedly under chosen load and reports each failing test's rate and first lines. It is a diagnostic, not a gate (owner, 2026-10-20).
+
 ## The golden file
 
 When a descriptor or the generator changes, `go test ./internal/schema` should fail first and print the new schema. That failure is expected, and it is evidence that the change reaches consumers. Regenerate with `go test ./internal/schema -update` only if the change is intended, then read `git diff schema/capabilities.json` line by line against the plan's declared schema impact. Lines that change what clients do:

@@ -323,6 +323,10 @@ var (
 	// adbStreamWrap, when set, wraps the recorded starter of a Logcat stream: a test
 	// holds a child's reaping to see what waits for it. The shipped binary never sets it.
 	adbStreamWrap func(device.StreamStarter) device.StreamStarter
+	// adbFloor, when positive, is the shortest limit any adb command of the daemon gets
+	// (device.ADB.LengthenLimits): a test whose claim is not one of those limits, and whose
+	// fake adb a loaded host starts late. The shipped binary never sets it.
+	adbFloor time.Duration
 	// gradleEnviron is the environment the sidecar's JVM is discovered in and the
 	// sidecar inherits: the daemon's own. Tests replace it with a fake JAVA_HOME so
 	// discovery does not depend on this machine (plan m1g step 5).
@@ -414,6 +418,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		}
 		adb.SetStreamStarter(recorded)
 	}
+	adb.LengthenLimits(adbFloor)
 	// device.watchLogs publishes its streams to the daemon's bus (ADR-0041).
 	adb.SetBus(bus)
 	// `tools.adb` is the first adb candidate, fixed at this start (ADR-0032 §3, §6;

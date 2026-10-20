@@ -20,6 +20,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The peer listener and the link, in one process and over a real TLS socket on loopback:
@@ -208,16 +209,6 @@ func waitFor(t *testing.T, what string, f func() string) string {
 	return ""
 }
 
-func eventually(t *testing.T, what string, within time.Duration, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(within); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("%s did not happen within %s", what, within)
-}
-
 // pair makes a host that lends to a client named anna, and a client linked to it.
 func pair(t *testing.T) (host, client *side, link *hosting.Link) {
 	t.Helper()
@@ -227,7 +218,7 @@ func pair(t *testing.T) (host, client *side, link *hosting.Link) {
 	client.cfg.remotes = []policy.Remote{{Name: "qa-lab", Address: addr, Fingerprint: host.host.Identity().Fingerprint()}}
 	client.host.Start()
 	t.Cleanup(client.host.Stop)
-	eventually(t, "the link to come up", 10*time.Second, func() bool { return client.host.Remote("qa-lab").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the link to come up", func() bool { return client.host.Remote("qa-lab").Connected() })
 	return host, client, client.host.Remote("qa-lab")
 }
 
@@ -275,7 +266,7 @@ func TestPeerSessionRoundTrip(t *testing.T) {
 	// The host sees a peer's operation as a peer's, named by its configuration.
 	go link.Call(context.Background(), capability.RequestEnvelope{ID: "h", Capability: "peertest.hold"})
 	var seen []capability.ActiveOperation
-	eventually(t, "the host to record the held operation", 5*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the host to record the held operation", func() bool {
 		seen = host.ops.Active()
 		for _, a := range seen {
 			if a.Capability == "peertest.hold" {
@@ -324,14 +315,14 @@ func TestRevokedPeerLosesItsLink(t *testing.T) {
 	host, client, link := pair(t)
 	host.cfg.setPeers()
 	start := time.Now()
-	eventually(t, "the revoked peer's link to close", 5*time.Second, func() bool { return !link.Connected() })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the revoked peer's link to close", func() bool { return !link.Connected() })
 	if took := time.Since(start); took > 3*time.Second {
 		t.Errorf("the link closed %s after the revocation; want within a sweep (2 s) and a close", took)
 	}
 	if got := host.host.Health().Hosting.Peers; len(got) != 0 {
 		t.Errorf("the host still lists %+v", got)
 	}
-	eventually(t, "a refused redial", 10*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "a refused redial", func() bool {
 		r := client.host.Health().Remotes
 		return len(r) == 1 && !r[0].Connected && strings.Contains(r[0].Error, "does not admit")
 	})
@@ -406,7 +397,7 @@ func TestListenerSetShrinks(t *testing.T) {
 		c.cfg.remotes = []policy.Remote{{Name: "qa-lab", Address: at.String(), Fingerprint: host.host.Identity().Fingerprint()}}
 		c.host.Start()
 		t.Cleanup(c.host.Stop)
-		eventually(t, "the link to come up", 10*time.Second, func() bool { return c.host.Remote("qa-lab").Connected() })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the link to come up", func() bool { return c.host.Remote("qa-lab").Connected() })
 		return c.host.Remote("qa-lab")
 	}
 	la, lb := link(annaSide, a1), link(bobSide, a2)
@@ -414,7 +405,7 @@ func TestListenerSetShrinks(t *testing.T) {
 	if bound, _ := srv.Reconcile([]netip.AddrPort{a2}); len(bound) != 1 || bound[0] != a2 {
 		t.Fatalf("the set loses a1: bound %v", bound)
 	}
-	eventually(t, "anna's link, on the closed listener, to close", 5*time.Second, func() bool { return !la.Connected() })
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "anna's link, on the closed listener, to close", func() bool { return !la.Connected() })
 	if !lb.Connected() {
 		t.Error("bob's link, on the listener that stayed, closed with the other one")
 	}
@@ -429,7 +420,7 @@ func TestListenerSetShrinks(t *testing.T) {
 	if bound, _ := srv.Reconcile([]netip.AddrPort{a1, a2}); len(bound) != 2 {
 		t.Fatalf("the set gains a1 back: bound %v", bound)
 	}
-	eventually(t, "anna's link to come back on the rebound listener", 15*time.Second, func() bool { return la.Connected() })
+	testtime.Eventually(t, testtime.Bound(15*time.Second), "anna's link to come back on the rebound listener", func() bool { return la.Connected() })
 }
 
 // TestTheHelloIsRequired: a pinned client that opens the socket must say hello within the

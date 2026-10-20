@@ -16,6 +16,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/daemon"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
@@ -154,29 +155,30 @@ func fakeOsascript(t *testing.T, body string) string {
 	return bin
 }
 
+// pidFromFile reads the pid a fake script wrote at path. The script is a file the test just
+// wrote, whose first run a loaded host takes seconds over, so the wait is a hang guard.
 func pidFromFile(t *testing.T, path string) int {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if raw, err := os.ReadFile(path); err == nil && strings.HasSuffix(string(raw), "\n") {
-			pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-			if err != nil {
-				t.Fatal(err)
-			}
-			return pid
+	pid := 0
+	testtime.Eventually(t, testtime.Bound(30*time.Second), path+" to be written", func() bool {
+		raw, err := os.ReadFile(path)
+		if err != nil || !strings.HasSuffix(string(raw), "\n") {
+			return false
 		}
-	}
-	t.Fatalf("%s was never written", path)
-	return 0
+		var perr error
+		if pid, perr = strconv.Atoi(strings.TrimSpace(string(raw))); perr != nil {
+			t.Fatal(perr)
+		}
+		return true
+	})
+	return pid
 }
 
 func waitDead(t *testing.T, what string, pid int) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if syscall.Kill(pid, 0) == syscall.ESRCH {
-			return
-		}
-	}
-	t.Errorf("%s (pid %d) is still running", what, pid)
+	testtime.Eventually(t, testtime.Bound(30*time.Second), what+" (pid "+strconv.Itoa(pid)+") to be gone", func() bool {
+		return syscall.Kill(pid, 0) == syscall.ESRCH
+	})
 }
 
 // TestChooseRootThroughTheDaemon: workspace.chooseRoot end to end on a real daemon, its
@@ -276,17 +278,15 @@ func dialogRecords(t *testing.T, state string) []proc.Record {
 	return out
 }
 
-// waitDialogRecords polls until the folder-dialog records number want, within 10 s.
+// waitDialogRecords polls until the folder-dialog records number want, within a hang guard.
 func waitDialogRecords(t *testing.T, state string, want int) []proc.Record {
 	t.Helper()
 	var recs []proc.Record
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if recs = dialogRecords(t, state); len(recs) == want {
-			return recs
-		}
-	}
-	t.Fatalf("processes.json holds %+v; want %d folder-dialog records", recs, want)
-	return nil
+	testtime.Eventually(t, testtime.Bound(30*time.Second), "processes.json to hold "+strconv.Itoa(want)+" folder-dialog records", func() bool {
+		recs = dialogRecords(t, state)
+		return len(recs) == want
+	})
+	return recs
 }
 
 // TestFolderDialogRecordAndReap: the folder dialog is pid-recorded for as long as it is up

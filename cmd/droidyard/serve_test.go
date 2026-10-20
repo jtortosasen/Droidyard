@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // reexec makes the test binary run main instead of the tests, so a test can start
@@ -180,10 +181,10 @@ func droidyardProc(t *testing.T, env []string, dir string, args ...string) *proc
 	return p
 }
 
-// expect waits for a stderr line containing want.
+// expect waits for a stderr line containing want, failing after processGuard.
 func (p *process) expect(t *testing.T, want string) string {
 	t.Helper()
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(testtime.Bound(processGuard))
 	for {
 		select {
 		case l, ok := <-p.lines:
@@ -194,16 +195,21 @@ func (p *process) expect(t *testing.T, want string) string {
 				return l
 			}
 		case <-timeout:
-			t.Fatalf("pid %d printed no %q within 10 s", p.cmd.Process.Pid, want)
+			t.Fatalf("pid %d printed no %q within %v", p.cmd.Process.Pid, want, testtime.Bound(processGuard))
 		}
 	}
 }
 
-// wait returns the exit code once the process ends, failing after 10 s (scaled under -race,
-// raceTimeScale).
+// processGuard is how long a test waits for a re-executed droidyard to print or exit before it
+// calls it hung (a hang guard, scaled by testtime.Bound). Under contention such a process
+// takes seconds to start, so every limit shorter than that failed somewhere (plan m2v step 5);
+// no claim about a process's own timing rests on it.
+const processGuard = 30 * time.Second
+
+// wait returns the exit code once the process ends, failing after processGuard.
 func (p *process) wait(t *testing.T) int {
 	t.Helper()
-	timeout := time.After(10 * raceTimeScale * time.Second)
+	timeout := time.After(testtime.Bound(processGuard))
 	for lines := p.lines; lines != nil; {
 		select {
 		case _, ok := <-lines:
@@ -211,7 +217,7 @@ func (p *process) wait(t *testing.T) int {
 				lines = nil
 			}
 		case <-timeout:
-			t.Fatalf("pid %d did not exit within 10 s", p.cmd.Process.Pid)
+			t.Fatalf("pid %d did not exit within %v", p.cmd.Process.Pid, testtime.Bound(processGuard))
 		}
 	}
 	select {
@@ -225,7 +231,7 @@ func (p *process) wait(t *testing.T) int {
 		}
 		t.Fatalf("waiting for pid %d: %v", p.cmd.Process.Pid, err)
 	case <-timeout:
-		t.Fatalf("pid %d did not exit within 10 s", p.cmd.Process.Pid)
+		t.Fatalf("pid %d did not exit within %v", p.cmd.Process.Pid, testtime.Bound(processGuard))
 	}
 	return -1
 }
@@ -299,71 +305,59 @@ func TestSecondServeLosesTheLock(t *testing.T) {
 
 // TestServeStartsThroughAProbe: a `serve` that starts while `status` or `stop` holds
 // their shared probe lock on daemon.lock must still take the lock, since no daemon
-// exists (ADR-0019 §5). Real processes: the test holds LOCK_SH, starts serve, watches
-// serve open daemon.lock, holds 20 ms more, and releases. It skips without lsof;
-// TestAcquireOutlastsAHolderProbe covers the fix in process everywhere.
+// exists (ADR-0019 §5, daemon.probeGrace). Real processes and a real flock: the test holds
+// LOCK_SH, starts serve, and serve, having found the lock busy inside its grace, blocks in
+// daemon.AfterBusyAttempt (the seam installTestSeams sets for this test alone) and prints a
+// line. The test releases the probe, then lets serve try again, and no clock decides the
+// order: the next flock succeeds, and lockExclusive returns on success without looking at the
+// deadline. Seen failing with probeGrace 0: serve's first busy attempt is past the deadline,
+// it returns before the seam, and gives up while the probe holds the lock.
 func TestServeStartsThroughAProbe(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("lsof"); err != nil {
-		t.Skip("lsof is not installed: the test cannot see serve open daemon.lock")
+	state := shortDir(t)
+	fifo := filepath.Join(shortDir(t), "release")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	// Serve keeps trying for 100 ms from its open of daemon.lock (daemon.probeGrace); the
-	// test sees the open only through lsof, which a loaded host runs slowly. An attempt
-	// counts only when the probe was released within 80 ms of the last lsof that did not
-	// see the open, so serve was certainly still trying; a later release says nothing about
-	// serve, and the attempt is made again.
-	const conclusive = 80 * time.Millisecond
-	for attempt := 1; ; attempt++ {
-		state := shortDir(t)
-		probe, err := os.OpenFile(filepath.Join(state, daemon.LockFile), os.O_RDWR|os.O_CREATE, 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fd := int(probe.Fd())
-		if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-			t.Fatal(err)
-		}
+	probe, err := os.OpenFile(filepath.Join(state, daemon.LockFile), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
 
-		unseen := time.Now() // before serve starts, then the start of each lsof that did not see the open
-		s := droidyard(t, state, "serve")
-		pid := strconv.Itoa(s.cmd.Process.Pid)
-		for deadline := time.Now().Add(10 * time.Second); ; {
-			polled := time.Now()
-			out, _ := exec.Command("lsof", "-a", "-p", pid, "-Fn").Output()
-			if strings.Contains(string(out), "/"+daemon.LockFile+"\n") {
-				break
+	s := droidyardEnv(t, state, "", []string{lockFifoEnv + "=" + fifo}, "serve")
+	var seen []string
+	guard := time.After(testtime.Bound(processGuard))
+	for busy := false; !busy; {
+		select {
+		case line, ok := <-s.lines:
+			if !ok {
+				t.Fatalf("serve gave up while the probe held the lock, within its grace; it printed %q", seen)
 			}
-			unseen = polled
-			select {
-			case line, ok := <-s.lines:
-				// Serve prints nothing until it holds the lock, which the probe forbids.
-				syscall.Flock(fd, syscall.LOCK_UN)
-				t.Fatalf("serve gave up while the probe held the lock (exited: %v): %s", !ok, line)
-			default:
-			}
-			if time.Now().After(deadline) {
-				syscall.Flock(fd, syscall.LOCK_UN)
-				t.Fatal("serve never opened daemon.lock while the probe held it")
-			}
-			time.Sleep(2 * time.Millisecond)
+			seen = append(seen, line)
+			busy = line == lockBusyLine
+		case <-guard:
+			t.Fatalf("serve neither found the lock busy nor gave up in time; it printed %q", seen)
 		}
-		time.Sleep(10 * time.Millisecond)
-		syscall.Flock(fd, syscall.LOCK_UN)
-		held := time.Since(unseen)
-		probe.Close()
-		if held < conclusive {
-			s.expect(t, "holding")
-			s.cmd.Process.Signal(syscall.SIGTERM)
-			if code := s.wait(t); code != 0 {
-				t.Errorf("serve exited %d on SIGTERM", code)
-			}
-			return
-		}
-		s.cmd.Process.Kill()
-		s.wait(t)
-		if attempt == 10 {
-			t.Skipf("lsof never saw serve's open within %s of releasing the probe in 10 attempts (last %s): inconclusive here", conclusive, held)
-		}
-		t.Logf("attempt %d inconclusive: the probe was released %s after serve could have opened the lock", attempt, held)
+	}
+
+	// The probe lets go; only then is serve let to try again. The write end stays open until
+	// serve has the lock, so the byte waits for the seam's read.
+	syscall.Flock(int(probe.Fd()), syscall.LOCK_UN)
+	release, err := os.OpenFile(fifo, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release.Close()
+	if _, err := release.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	s.expect(t, "holding")
+	s.cmd.Process.Signal(syscall.SIGTERM)
+	if code := s.wait(t); code != 0 {
+		t.Errorf("serve exited %d on SIGTERM", code)
 	}
 }

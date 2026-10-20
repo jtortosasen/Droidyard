@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 	"github.com/jtortosasen/droidyard/internal/hosting"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The live view of a remote device end to end (plan m2t step 3; ADR-0100 §3, §5; ADR-0078):
@@ -106,7 +107,7 @@ func (w *wsClient) watchRemote(reqID, id string) (sub, stream string, width, hei
 // of one of subs; it returns the subscription and the secure flag.
 func (w *wsClient) stateFrame(what string, subs ...string) (sub string, secure bool) {
 	w.t.Helper()
-	f, ok := w.next(8 * time.Second)
+	f, ok := w.next(testtime.Bound(30 * time.Second))
 	if !ok {
 		w.t.Fatalf("%s: no frame (the connection ended: %v)", what, w.endedErr())
 	}
@@ -133,7 +134,7 @@ func (w *wsClient) stateFrame(what string, subs ...string) (sub string, secure b
 func (w *wsClient) stoppedOn(sub, device string) (reason, cause string) {
 	w.t.Helper()
 	for {
-		f, ok := w.next(10 * time.Second)
+		f, ok := w.next(testtime.Bound(30 * time.Second))
 		if !ok {
 			w.t.Fatalf("a stopped event: no frame (the connection ended: %v)", w.endedErr())
 		}
@@ -199,8 +200,12 @@ const tapParams = `{"device":"` + remotePhone + `","x":0.5,"y":0.5}`
 //     window): no state event ever arrived.
 //   - A client device.tap on the remote id reaches the host's control socket while a view is
 //     open; with none open it answers the host's DEVICE_NO_STREAM and sends nothing.
-//   - Closing the client's last viewer releases the host's stream, server and forward
-//     within 2 s.
+//   - Closing the client's last viewer releases the host's stream, server and forward. No
+//     document gives this a number (ADR-0078 §6: the source ends with its last viewer); the 2 s
+//     of plan m2t step 3's check was a level-4 reading of 66 ms, and the release runs through
+//     the host's fake adb as processes, which a loaded host starts seconds late (1 in 5 runs
+//     at a load of 5 took over 2 s). The test holds that the release comes, within a hang
+//     guard, and logs how long it took.
 func TestRelayedScreen(t *testing.T) {
 	t.Parallel()
 	lab := newScreenLab(t, 3, labOptions{})
@@ -288,7 +293,7 @@ func TestRelayedScreen(t *testing.T) {
 	}
 	waitFor(t, "the tap on the host's control socket", func() bool { return lab.ln.controlBytes() > 0 })
 
-	// 5. Closing the last viewer releases the host within 2 s.
+	// 5. Closing the last viewer releases the host.
 	sock1.c.Close(websocket.StatusNormalClosure, "")
 	waitFor(t, "the first client stream to end", func() bool { return lab.client.adb.LiveScreenStreams() == 1 })
 	if lab.client.adb.LiveRelayedScreens() != 1 || lab.host.adb.LiveScreenStreams() != 1 {
@@ -299,10 +304,11 @@ func TestRelayedScreen(t *testing.T) {
 	}
 	start := time.Now()
 	sock2.c.Close(websocket.StatusNormalClosure, "")
+	guard := testtime.Bound(10 * time.Second)
 	for lab.host.adb.LiveScreenStreams()+lab.host.adb.LiveScreenSources()+lab.client.adb.LiveRelayedScreens()+len(devicetest.Forwards(t, lab.hostDir))+lab.host.bus.Subscriptions()-hostSubs != 0 {
-		if time.Since(start) > 2*time.Second {
-			t.Fatalf("after the last viewer closed, still held after 2 s: host streams %d, servers %d, client relayed sources %d, forwards %d, host subscriptions %d (was %d)",
-				lab.host.adb.LiveScreenStreams(), lab.host.adb.LiveScreenSources(), lab.client.adb.LiveRelayedScreens(), len(devicetest.Forwards(t, lab.hostDir)), lab.host.bus.Subscriptions(), hostSubs)
+		if time.Since(start) > guard {
+			t.Fatalf("after the last viewer closed, still held after %v: host streams %d, servers %d, client relayed sources %d, forwards %d, host subscriptions %d (was %d)",
+				guard, lab.host.adb.LiveScreenStreams(), lab.host.adb.LiveScreenSources(), lab.client.adb.LiveRelayedScreens(), len(devicetest.Forwards(t, lab.hostDir)), lab.host.bus.Subscriptions(), hostSubs)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -328,7 +334,7 @@ func TestRelayedScreenLinkCut(t *testing.T) {
 	if reason, _ := w.stoppedOn(sub, remotePhone); reason != "deviceGone" {
 		t.Errorf("a cut link gave reason %q, want deviceGone", reason)
 	}
-	if code := sock.closedWith(10 * time.Second); code != 4410 {
+	if code := sock.closedWith(testtime.Bound(30 * time.Second)); code != 4410 {
 		t.Errorf("the viewer's socket of a cut link ended with %d, want 4410", code)
 	}
 	waitFor(t, "the client's relayed source to be gone", func() bool {
@@ -354,7 +360,7 @@ func TestRelayedScreenHostEnds(t *testing.T) {
 	}
 	ended := func(sub string, sock *screenSock) (reason, cause string) {
 		reason, cause = w.stoppedOn(sub, remotePhone)
-		if code := sock.closedWith(10 * time.Second); code != 4410 {
+		if code := sock.closedWith(testtime.Bound(30 * time.Second)); code != 4410 {
 			t.Errorf("the viewer's socket ended with %d, want 4410", code)
 		}
 		waitFor(t, "the client's relayed source and the host's stream to be gone", func() bool {
@@ -389,30 +395,43 @@ func TestRelayedScreenHostEnds(t *testing.T) {
 // holds: the link ends it, so the host's subscription count returns to its baseline and its
 // stream and server are released. Seen failing without the link's tombstone: the host kept
 // the subscription (and the stream, until its 10 s attach timer) after the cancel.
+//
+// The test follows the host's own operation, not a clock: the cancel goes once the request is
+// on the host, and the release is awaited once the host's start has ended, however long a
+// loaded host took to push (a sleep and a poll of 5.8 s were passed by a start of 3.6 to 4.4 s
+// plus the cancel's own round trip).
 func TestRelayedScreenAbandonedStart(t *testing.T) {
 	t.Parallel()
 	lab := newScreenLab(t, 3, labOptions{hostFiles: map[string]string{phone1 + ".pushscrcpy.delay": "1500"}})
 	w := wsConnect(t, lab.client)
 	base := lab.host.bus.Subscriptions()
+	hostStarting := func() bool {
+		for _, op := range lab.host.ops.Active() {
+			if op.Capability == "device.watchScreen" {
+				return true
+			}
+		}
+		return false
+	}
 	zero := int64(0)
 	w.send("r1", "device.watchScreen", "", `{"device":"`+remotePhone+`"}`, &zero)
 	_, f := w.collect("r1")
 	if f.Operation == nil || f.Operation.State.Terminal() {
 		t.Fatalf("the start answered at once: %+v", f)
 	}
-	time.Sleep(300 * time.Millisecond) // the request is on the host, its push under way
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the request to be on the host, its push under way", hostStarting)
 	w.send("c1", "operation.cancel", "", `{"operationId":"`+f.Operation.ID+`"}`, nil)
 	w.collect("c1")
-	waitFor(t, "the client's relayed source to be abandoned", func() bool { return lab.client.adb.LiveRelayedScreens() == 0 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the client's relayed source to be abandoned", func() bool { return lab.client.adb.LiveRelayedScreens() == 0 })
 
-	time.Sleep(2500 * time.Millisecond) // the host finishes its start and answers
-	start := time.Now()
-	for lab.host.bus.Subscriptions()-base+lab.host.adb.LiveScreenStreams()+lab.host.adb.LiveScreenSources() != 0 {
-		if time.Since(start) > 3*time.Second {
-			t.Fatalf("the host still holds the abandoned view: subscriptions %d (was %d), streams %d, servers %d",
+	testtime.Eventually(t, testtime.Bound(30*time.Second), "the host to finish its start and answer", func() bool { return !hostStarting() })
+	// Held below screenAttachBound (10 s): a late stream the link's tombstone failed to end
+	// would otherwise be released by its attach timer inside the wait, and pass.
+	for deadline := time.Now().Add(min(testtime.Bound(3*time.Second), 9*time.Second)); lab.host.bus.Subscriptions()-base+lab.host.adb.LiveScreenStreams()+lab.host.adb.LiveScreenSources() != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the host still holds the abandoned view after its start ended: subscriptions %d (was %d), streams %d, servers %d",
 				lab.host.bus.Subscriptions(), base, lab.host.adb.LiveScreenStreams(), lab.host.adb.LiveScreenSources())
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -467,7 +486,7 @@ func TestPeerScreenOwnership(t *testing.T) {
 	bob := clientHost(t, bobState)
 	bob.Start()
 	t.Cleanup(bob.Stop)
-	eventually(t, "bob's link to come up", func() bool { return bob.Remote("qa").Connected() })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "bob's link to come up", func() bool { return bob.Remote("qa").Connected() })
 
 	watch := func() (stream string) {
 		t.Helper()
@@ -489,7 +508,7 @@ func TestPeerScreenOwnership(t *testing.T) {
 	// anna holds bob's stream id: unknown to her, though it is valid and unattached.
 	annaID := lab.client.host.Identity()
 	stream := watch()
-	if code := peerScreenDial(t, annaID, addr, hostFP, stream).closedWith(10 * time.Second); code != 4404 {
+	if code := peerScreenDial(t, annaID, addr, hostFP, stream).closedWith(testtime.Bound(30 * time.Second)); code != 4404 {
 		t.Errorf("anna attaching bob's stream closed with %d, want 4404", code)
 	}
 	// ... which bob still attaches, and which streams the device's bytes.
@@ -499,11 +518,11 @@ func TestPeerScreenOwnership(t *testing.T) {
 		t.Errorf("bob's first message: flags %d, %d bytes; want key+config of the first key frame", flags, len(payload))
 	}
 	// A second attach of the same id is 4409, from the owner.
-	if code := peerScreenDial(t, bobID, addr, hostFP, stream).closedWith(10 * time.Second); code != 4409 {
+	if code := peerScreenDial(t, bobID, addr, hostFP, stream).closedWith(testtime.Bound(30 * time.Second)); code != 4409 {
 		t.Errorf("a second attach by the owner closed with %d, want 4409", code)
 	}
 	// The browser's endpoint never serves a peer's stream: its own client and token do not own it.
-	if code := attachScreen(t, lab.host, lab.host.token, stream).closedWith(10 * time.Second); code != 4404 {
+	if code := attachScreen(t, lab.host, lab.host.token, stream).closedWith(testtime.Bound(30 * time.Second)); code != 4404 {
 		t.Errorf("the host's UI endpoint attaching bob's stream closed with %d, want 4404", code)
 	}
 

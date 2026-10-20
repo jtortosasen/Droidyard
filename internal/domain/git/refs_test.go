@@ -14,10 +14,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/git/gittest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // refsPage calls git.refs as the UI would.
@@ -581,9 +583,16 @@ func TestRefsCaps(t *testing.T) {
 // cap, for-each-ref has been cut in ref-name order, so the tags (last) are marked
 // truncated, the lists before them are whole and not marked, the cut line is never half
 // read, and the tips say so too.
+//
+// The claim is the cap and its marks, not git's speed: writing 30,000 long refs takes git
+// seconds when the machine is loaded, and the product's 10 s limit (kept as it is) would end
+// the call before the output passed the cap. The fixture's limit is a hang guard, 60 s
+// scaled; the cap still has to be met, since every assertion below is about the cut output.
 func TestRefsOutputCap(t *testing.T) {
 	t.Parallel()
 	f := newReadFx(t)
+	f.readTimeout = testtime.Bound(60 * time.Second)
+	f.register()
 	f.write(f.root, "a.txt", "a\n")
 	f.commit(f.root)
 	head := strings.TrimSpace(f.g(f.root, "rev-parse", "HEAD"))

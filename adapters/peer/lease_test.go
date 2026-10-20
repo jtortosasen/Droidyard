@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // TestPeerLinkIsASession is ADR-0104 §1 and §3 at the adapter: a paired peer's link is a
@@ -79,7 +80,7 @@ func TestPeerLinkIsASession(t *testing.T) {
 		t.Fatalf("PeerHolds = %+v; want the link's again", got)
 	}
 	client.host.Stop()
-	eventually(t, "the link's hold to be freed with the link", 10*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the link's hold to be freed with the link", func() bool {
 		return len(host.ops.Sessions().PeerHolds()) == 0
 	})
 }

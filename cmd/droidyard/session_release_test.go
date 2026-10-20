@@ -22,7 +22,7 @@ func releaseWorld(t *testing.T) *occupationWorld {
 	devicetest.Write(t, dir, "devices.out", []byte("List of devices attached\n"+releaseSerial+" device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 device:emu64a16k transport_id:1\n"))
 	devicetest.Write(t, dir, releaseSerial+".bootcompleted.out", []byte("1\n"))
 	devicetest.Write(t, dir, releaseSerial+".uninstall.out", []byte("Success\n"))
-	return newOccupationWorld(t, adbFakeEnv+"="+dir, adbPortEnv+"="+unusedPort(t))
+	return newOccupationWorld(t, adbFakeEnv+"="+dir, adbPortEnv+"="+unusedPort(t), adbFloorVar())
 }
 
 // release calls session.release over the WebSocket, as the web UI does, and returns the

@@ -370,7 +370,7 @@ func setDevice(v reflect.Value, id string) {
 // remoteTimeout bounds one remote's listing: the host's own listing can take `devices -l`
 // and then the details phase, each with a bound of its own, so the client allows the
 // details bound twice over (ADR-0100 §1).
-func remoteTimeout() time.Duration { return 2 * detailsTimeout }
+func (a *ADB) remoteTimeout() time.Duration { return a.limit(2 * detailsTimeout) }
 
 // remoteAnswer is what one remote said to a listing: its rows as ids, or why there are none.
 type remoteAnswer struct {
@@ -390,14 +390,15 @@ func (a *ADB) startRemotes(ctx context.Context) (collect func() []remoteAnswer) 
 	if len(links) == 0 {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, remoteTimeout())
+	wait := a.remoteTimeout()
+	ctx, cancel := context.WithTimeout(ctx, wait)
 	answers := make([]remoteAnswer, len(links))
 	var wg sync.WaitGroup
 	for i, l := range links {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			answers[i].rows, answers[i].warning = listRemote(ctx, l)
+			answers[i].rows, answers[i].warning = listRemote(ctx, l, wait)
 		}()
 	}
 	return func() []remoteAnswer {
@@ -440,7 +441,7 @@ func (a *ADB) withRemotes(answers []remoteAnswer, devices []Device, warnings []s
 // physical by definition (a host lends nothing else), carry the remote's name as host, and
 // hold no adb transport id: there is no local adb for them. warning is why the remote
 // could not be listed, "" when it could.
-func listRemote(ctx context.Context, l *hosting.Link) (rows []Device, warning string) {
+func listRemote(ctx context.Context, l *hosting.Link, wait time.Duration) (rows []Device, warning string) {
 	name := l.Name()
 	resp, err := l.Call(ctx, capability.RequestEnvelope{Capability: "device.list", Params: json.RawMessage(`{}`)})
 	switch {
@@ -449,7 +450,7 @@ func listRemote(ctx context.Context, l *hosting.Link) (rows []Device, warning st
 	case errors.Is(err, hosting.ErrLinkLost):
 		return nil, "the link to the remote " + name + " was lost while its devices were listed"
 	case errors.Is(err, context.DeadlineExceeded):
-		return nil, "the remote " + name + " did not list its devices in " + remoteTimeout().String()
+		return nil, "the remote " + name + " did not list its devices in " + wait.String()
 	case err != nil:
 		return nil, "the remote " + name + " could not be asked for its devices"
 	case resp.Error != nil:

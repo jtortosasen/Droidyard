@@ -10,6 +10,7 @@ import (
 	"time"
 
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The daemon-level half of step 2's process-lifetime check (plan m1k D5): a shell.exec
@@ -35,7 +36,7 @@ func shellRecords(t *testing.T, state string) []proc.Record {
 // waitShellRecord polls for the one shell-command record a running command wrote.
 func waitShellRecord(t *testing.T, state string) proc.Record {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(testtime.Bound(processGuard)); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if recs := shellRecords(t, state); len(recs) == 1 {
 			return recs[0]
 		}

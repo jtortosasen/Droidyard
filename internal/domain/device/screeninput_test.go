@@ -15,6 +15,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // device.tap, device.swipe and device.pressKey (plan m2p step 6; ADR-0079) over the fake adb
@@ -366,7 +367,7 @@ func TestScreenInputIsAnOperationOnTheWriteKey(t *testing.T) {
 			t.Fatalf("operation %s: %+v, %v", id, out, err)
 		}
 	}
-	eventually(t, "two trace lines", func() bool { mu.Lock(); defer mu.Unlock(); return len(lines) >= 2 })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "two trace lines", func() bool { mu.Lock(); defer mu.Unlock(); return len(lines) >= 2 })
 	mu.Lock()
 	defer mu.Unlock()
 	for i, c := range []struct{ id, name string }{{first, "device.tap"}, {second, "device.pressKey"}} {
@@ -471,7 +472,7 @@ func TestScreenSourcesRunningFindsOnlyAStartedSource(t *testing.T) {
 			}
 			got <- release
 		}()
-		eventually(t, "the source in the set", func() bool { return f.adb.screens.Live() == 1 })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the source in the set", func() bool { return f.adb.screens.Live() == 1 })
 		if s := f.adb.screens.running(uiSerial); s != nil {
 			t.Errorf("running = %p while the source is still starting, want none", s)
 		}
@@ -526,7 +527,7 @@ func TestScreenInputReachesTheControlSocket(t *testing.T) {
 	for _, c := range cs {
 		want = append(want, c.Data...)
 	}
-	eventually(t, "the tap's bytes", func() bool { return len(f.ln.controlBytes()) >= len(want) })
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the tap's bytes", func() bool { return len(f.ln.controlBytes()) >= len(want) })
 	if got := f.ln.controlBytes(); !reflect.DeepEqual(got, want) {
 		t.Errorf("control bytes % x, want % x", got, want)
 	}
@@ -580,7 +581,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		defer release()
 		done := make(chan error, 1)
 		go func() { done <- src.Inject(context.Background(), swipe) }()
-		eventually(t, "the finger down", func() bool { return len(f.ln.controlBytes()) >= len(down[0].Data) })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the finger down", func() bool { return len(f.ln.controlBytes()) >= len(down[0].Data) })
 		src.end(&ScreenEnd{Reason: StopExited, Cause: "adb shell terminated"})
 		select {
 		case err := <-done:
@@ -664,7 +665,7 @@ func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
 		swipe := screen.Swipe{Points: []screen.Point{{X: 0.5, Y: 0.8}, {X: 0.5, Y: 0.2, T: 400 * time.Millisecond}}}
 		done := make(chan error, 1)
 		go func() { done <- src.Inject(context.Background(), swipe) }()
-		eventually(t, "the finger down", func() bool { return len(f.ln.controlBytes()) > 0 })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the finger down", func() bool { return len(f.ln.controlBytes()) > 0 })
 		src.control.Close()
 		select {
 		case err := <-done:

@@ -15,6 +15,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/process/processtest"
 	"github.com/jtortosasen/droidyard/internal/store"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 func newStore(t *testing.T) *store.Store {
@@ -180,7 +181,7 @@ func TestReconcileReapsAFolderDialog(t *testing.T) {
 	leader := r.Pid()
 	go cmd.Wait()
 	child := 0
-	eventually(t, 5*time.Second, "the dialog named its child", func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the dialog named its child", func() bool {
 		b, err := os.ReadFile(pidFile)
 		n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 		child = n
@@ -199,8 +200,8 @@ func TestReconcileReapsAFolderDialog(t *testing.T) {
 	if err := Reconcile(st2, &log, nil); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 3*time.Second, "the dialog's leader reaped", func() bool { return dead(leader) })
-	eventually(t, 3*time.Second, "the dialog's child gone with its group", func() bool { return dead(child) })
+	testtime.Eventually(t, testtime.Bound(3*time.Second), "the dialog's leader reaped", func() bool { return dead(leader) })
+	testtime.Eventually(t, testtime.Bound(3*time.Second), "the dialog's child gone with its group", func() bool { return dead(child) })
 	if !strings.Contains(log.String(), "reaped") {
 		t.Errorf("Reconcile's log does not name the dialog reaped:\n%s", log.String())
 	}

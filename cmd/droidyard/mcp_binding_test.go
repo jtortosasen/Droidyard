@@ -10,6 +10,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 )
 
@@ -248,7 +249,7 @@ func TestMCPBoundOpenPrecedesTheFirstAnswer(t *testing.T) {
 	s.send(`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"held","version":"0"}}}`)
 	select {
 	case <-held:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testtime.Bound(processGuard)):
 		t.Fatal("the bound open never reached the hook")
 	}
 	s.silent(300 * time.Millisecond)

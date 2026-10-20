@@ -23,6 +23,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/policy"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The join exchange of ADR-0107 §3, §4 over real TLS on loopback: the host side is
@@ -348,7 +349,7 @@ func TestJoinSlots(t *testing.T) {
 	if st, err := held[0].round("POST", capability.PeerJoinPath, joinBody(first, "anna")); err != nil || st != http.StatusOK {
 		t.Fatalf("a join on a held connection: %d, %v; want 200", st, err)
 	}
-	eventually(t, "a slot to be free after a join returned", 5*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "a slot to be free after a join returned", func() bool {
 		j, err := dialJoin(t, addr, cid, capability.PeerJoinALPN)
 		if err != nil {
 			return false
@@ -362,7 +363,7 @@ func TestJoinSlots(t *testing.T) {
 	for _, j := range held {
 		j.c.Close()
 	}
-	eventually(t, "the held connections to free their slots", 5*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the held connections to free their slots", func() bool {
 		var opened []*joinConn
 		defer func() {
 			for _, j := range opened {
@@ -407,7 +408,7 @@ func TestFailedHandshakesFreeTheirSlots(t *testing.T) {
 	}
 	var res hosting.JoinResult
 	var err error
-	eventually(t, "a valid join to be admitted", 5*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "a valid join to be admitted", func() bool {
 		res, err = hosting.Join(context.Background(), cid, codeFor(t, host, addr, secret), "anna", "0.0.0")
 		return err == nil
 	})
@@ -439,7 +440,7 @@ func TestJoinConnectionIsBounded(t *testing.T) {
 	if took := time.Since(start); took > 3*time.Second {
 		t.Errorf("the idle join connection lived %s; want about the join timeout", took)
 	}
-	eventually(t, "the cut connection's slot", 5*time.Second, func() bool {
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the cut connection's slot", func() bool {
 		j, err := dialJoin(t, addr, client.host.Identity(), capability.PeerJoinALPN)
 		if err != nil {
 			return false

@@ -19,6 +19,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	"github.com/jtortosasen/droidyard/internal/hosting"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // seededBuild is a finished build in the client's history whose one output is an APK on its
@@ -103,13 +104,17 @@ func (l *remoteLab) uploadsOnHost(t *testing.T) []string {
 	return out
 }
 
-func hasInstall(calls []string) bool {
+func hasInstall(calls []string) bool { return installCount(calls) > 0 }
+
+// installCount is how many `adb install` calls the fake adb has logged.
+func installCount(calls []string) int {
+	n := 0
 	for _, c := range calls {
 		if strings.Contains(c, " install ") {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // Decision (verifier N1): two installs from one client to two devices one host lends both
@@ -235,19 +240,28 @@ func TestRemoteInstall(t *testing.T) {
 	t.Run("a cancel leaves nothing on the host", func(t *testing.T) {
 		devicetest.Write(t, lab.hostDir, phone1+".install.hang", nil)
 		defer os.Remove(filepath.Join(lab.hostDir, phone1+".install.hang"))
+		installsBefore := installCount(lab.hostCalls(t))
 		id, err := lab.client.ops.Start(context.Background(), capability.Request{Capability: "device.install", Workspace: b.wid, Client: capability.ClientUI,
 			Params: json.RawMessage(`{` + dev(remotePhone) + `,"build":{"buildId":"` + b.id + `","module":":app","variant":"debug"}}`)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		hostOp := ""
-		eventually(t, "the host to run the install", func() bool {
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to run the install", func() bool {
 			for _, op := range lab.host.ops.Active() {
 				if op.Capability == "device.installUpload" {
 					hostOp = op.OperationID
 				}
 			}
 			return hostOp != ""
+		})
+		// The claim is a cancel while the host installs, so the cancel waits for the install
+		// to be running. The host's operation being active is not enough: a cancel that
+		// lands before its handler has taken the upload ends the operation without the
+		// handler, and the upload then stays until the 10 minutes ADR-0099 §3 allows
+		// (TestInstallUploadCancelledBeforeItRuns in internal/domain/device records that).
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host's adb to be running the install", func() bool {
+			return installCount(lab.hostCalls(t)) > installsBefore
 		})
 		if err := lab.client.ops.Cancel(id); err != nil {
 			t.Fatal(err)
@@ -258,7 +272,7 @@ func TestRemoteInstall(t *testing.T) {
 		if out, err := lab.host.ops.Wait(context.Background(), hostOp, time.Now().Add(10*time.Second)); err != nil || out.State != capability.StateCancelled {
 			t.Fatalf("the host's operation: %+v, %v; want cancelled", out, err)
 		}
-		eventually(t, "the host to remove the upload", func() bool { return len(lab.uploadsOnHost(t)) == 0 })
+		testtime.Eventually(t, testtime.Bound(10*time.Second), "the host to remove the upload", func() bool { return len(lab.uploadsOnHost(t)) == 0 })
 	})
 
 	// installUpload is no tool and no MCP call (ADR-0060 §2).

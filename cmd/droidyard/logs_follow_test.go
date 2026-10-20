@@ -12,6 +12,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 	proc "github.com/jtortosasen/droidyard/internal/process"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The daemon-level half of step 3's check (plan m1i D9): a follow's client is a real
@@ -37,7 +38,7 @@ func newFakeFollowDaemon(t *testing.T) *fakeFollowDaemon {
 	devicetest.Write(t, d.dir, serial+".date.out", []byte("1791337000.500000\n"))
 	devicetest.Write(t, d.dir, serial+".log", []byte("--------- beginning of main\n"+
 		"1791339999.000000 10146 6406 6406 I App: far_future\n"))
-	d.env = []string{adbFakeEnv + "=" + d.dir, adbPortEnv + "=" + unusedPort(t)}
+	d.env = []string{adbFakeEnv + "=" + d.dir, adbPortEnv + "=" + unusedPort(t), adbFloorVar()}
 	return d
 }
 
@@ -66,7 +67,7 @@ func (d *fakeFollowDaemon) records(t *testing.T) []proc.Record {
 // waitFollowRecord polls for the one device-stream record a running follow wrote.
 func (d *fakeFollowDaemon) waitFollowRecord(t *testing.T) proc.Record {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(testtime.Bound(processGuard)); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if recs := d.records(t); len(recs) == 1 {
 			return recs[0]
 		}
