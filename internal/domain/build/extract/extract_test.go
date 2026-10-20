@@ -140,7 +140,7 @@ func TestKotlinKGP2420Console(t *testing.T) {
 	if w.Source != SourceEvent || w.Tool != ToolKotlin {
 		t.Errorf("warning source/tool = %s/%s, want event/kotlin", w.Source, w.Tool)
 	}
-	if w.File != "feature/applist/src/main/kotlin/com/example/ownerappa/feature/applist/ui/AppListScreen.kt" || w.Line != 400 || w.Column != 75 {
+	if w.File != "feature/list/src/main/kotlin/com/example/ownerappa/feature/list/ui/ListScreen.kt" || w.Line != 400 || w.Column != 75 {
 		t.Errorf("warning location = %s:%d:%d", w.File, w.Line, w.Column)
 	}
 	if w.ProblemID != "UNNECESSARY_NOT_NULL_ASSERTION" {

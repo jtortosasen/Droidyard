@@ -1,10 +1,10 @@
-stdout	> Task :core:detection:compileDebugJavaWithJavac UP-TO-DATE
-stdout	> Task :core:usagestats:compileDebugJavaWithJavac UP-TO-DATE
-stdout	> Task :core:blocking:compileDebugJavaWithJavac UP-TO-DATE
+stdout	> Task :core:engine:compileDebugJavaWithJavac UP-TO-DATE
+stdout	> Task :core:util:compileDebugJavaWithJavac UP-TO-DATE
+stdout	> Task :core:alpha:compileDebugJavaWithJavac UP-TO-DATE
 stdout	> Task :core:database:compileDebugJavaWithJavac UP-TO-DATE
-stdout	> Task :core:capture:compileDebugJavaWithJavac UP-TO-DATE
+stdout	> Task :core:beta:compileDebugJavaWithJavac UP-TO-DATE
 stdout	> Task :core:designsystem:compileDebugJavaWithJavac NO-SOURCE
-stdout	> Task :feature:applist:compileDebugJavaWithJavac UP-TO-DATE
+stdout	> Task :feature:list:compileDebugJavaWithJavac UP-TO-DATE
 stdout	> Task :app:compileDebugJavaWithJavac FAILED
 stderr	/w/dc/app/src/main/java/com/example/ownerappa/SpikeBrokenJava.java:4: error: cannot find symbol
 stderr	    int x = undefinedSymbol;

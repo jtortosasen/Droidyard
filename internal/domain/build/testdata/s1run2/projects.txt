@@ -1,12 +1,12 @@
 :
 :app
 :core
-:core:blocking
-:core:capture
+:core:alpha
+:core:beta
 :core:database
 :core:designsystem
-:core:detection
+:core:engine
 :core:model
-:core:usagestats
+:core:util
 :feature
-:feature:applist
+:feature:list
