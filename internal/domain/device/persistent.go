@@ -1063,28 +1063,26 @@ func (a *ADB) killPid(ctx context.Context, t *target, pid string) {
 // dexNeedsPush decides, before a start, whether the dex must be pushed first. It is on the
 // slow path only (the callers are about to start a process), never on a warm read. A dex
 // this daemon has not pushed is pushed. One it has pushed is trusted only after one
-// bounded `stat -c %s` of the fixed remote path: the pushed flag outlives a device restart
+// bounded `sha256sum` of the fixed remote path: the pushed flag outlives a device restart
 // under the same serial, and a restart that kills the guest before its page cache reaches
 // the disk leaves the dex 0 bytes long (milestone 2c step 2), or gone after a wipe, so a start
-// from it fails and the read falls back for good. A dex whose size is not the embedded
-// one, a missing file, a failed or unparseable stat all mean push: a push is idempotent and
-// its own failure carries the reason. The stat is not content proof (a same-length
-// corruption is not seen); the loss a restart causes is a truncation or a removal.
+// from it fails and the read falls back for good. The dex is trusted only when the first
+// field of the output is the embedded digest; another digest, a missing file or tool
+// (observed present on API 31 and 36), a non-zero exit, a truncated or unparseable
+// output all mean push: a push is idempotent and its own failure carries the reason. A
+// missing tool costs a push per start, never a wrong trust.
 func (a *ADB) dexNeedsPush(ctx context.Context, t *target, c *readerClient) bool {
 	if !c.isPushed() {
 		return true
 	}
 	// c.remote is readerRemote: a fixed shape built from the pinned digest, no untrusted
 	// text reaches the shell.
-	out, err := a.Run(ctx, t.adb, readerCloseBound, 1<<10, "-s", t.serial, "shell", "stat", "-c", "%s", c.remote)
+	out, err := a.Run(ctx, t.adb, readerCloseBound, 1<<10, "-s", t.serial, "shell", "sha256sum", c.remote)
 	if err != nil || out.ExitCode != 0 || out.Truncated {
 		return true
 	}
-	n, perr := strconv.ParseInt(strings.TrimSpace(string(out.Stdout)), 10, 64)
-	if perr != nil {
-		return true
-	}
-	return n != int64(len(reader.Dex()))
+	fields := strings.Fields(string(out.Stdout))
+	return len(fields) == 0 || !strings.EqualFold(fields[0], reader.SHA256)
 }
 
 // pushReader puts the embedded dex on the device. It is the same file the one-shot

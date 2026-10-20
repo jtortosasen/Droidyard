@@ -91,7 +91,7 @@
 - Not here: below API 31 the tool is not checked (Unverified); a missing tool costs a push per start, never a wrong trust.
 - Rests on: a device copy is executed only after its full digest matched, level 4 (fake adb); level 5 in step 8.
 - Review: the Opus verifier (what runs on the device), default effort.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: implementer: the three new tests and the four rewritten ones pass; `TestDexWithAnotherDigestIsPushed` seen failing with the check weakened to trust any digest ("1 pushes, want 2"). Opus verifier, proceed, no blocking finding (1 [doc], 3 [nit]): mutations M1 (a non-zero exit trusted) and M2 (the whole output compared) each caught by two tests; the [nit] on the tests' "stat" wording fixed by the main session. The real output, `<hex>  <path>`, is in step 1's `~/Library/Caches/droidyard-dev/m2w/spike-{31,36}/s6-sha256.txt`. `internal/domain/git` timed out under a load average of 83 (`TestLogFromRefused`: "git did not finish in time") and passed in 47 s once the machine was quiet.
 
 ### 3. The reader's full dump
 
