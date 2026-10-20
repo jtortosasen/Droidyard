@@ -10,11 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // startGroup is the spawner the daemon passes, as the supervisor's Spawn does it: the
@@ -110,24 +112,55 @@ func (h *dialogHarness) start(t *testing.T) string {
 	return id
 }
 
+// waitForFile waits for the complete file a fake dialog writes. The wait is a hang guard:
+// the first run of a script the test has just written can take seconds on a loaded
+// machine, so no short bound is a claim about the dialog.
 func waitForFile(t *testing.T, path string) string {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if raw, err := os.ReadFile(path); err == nil && strings.HasSuffix(string(raw), "\n") {
-			return strings.TrimSpace(string(raw))
+	var got string
+	testtime.Eventually(t, testtime.Bound(10*time.Second), path+" was never written", func() bool {
+		raw, err := os.ReadFile(path)
+		if err != nil || !strings.HasSuffix(string(raw), "\n") {
+			return false
+		}
+		got = strings.TrimSpace(string(raw))
+		return true
+	})
+	return got
+}
+
+// upSpawn wraps a spawner so that the dialog's bound starts only once the fake is running:
+// it returns after the script has written its child's pid, and records when. The bound is
+// measured from the spawn's return (Dialog.choose), so a script that is slow to start on
+// a loaded machine cannot be taken down before it has forked what the test then expects
+// gone. It runs on the operation's goroutine, so it reports a failure by its error.
+func upSpawn(spawn func(*exec.Cmd) (func() error, error), dir string, up *atomic.Int64) func(*exec.Cmd) (func() error, error) {
+	return func(cmd *exec.Cmd) (func() error, error) {
+		wait, err := spawn(cmd)
+		if err != nil {
+			return nil, err
+		}
+		for deadline := time.Now().Add(testtime.Bound(30 * time.Second)); ; time.Sleep(10 * time.Millisecond) {
+			if raw, err := os.ReadFile(filepath.Join(dir, "child")); err == nil && strings.HasSuffix(string(raw), "\n") {
+				up.Store(time.Now().UnixNano())
+				return wait, nil
+			}
+			if !time.Now().Before(deadline) {
+				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				wait()
+				return nil, errors.New("the fake dialog never wrote its child's pid")
+			}
 		}
 	}
-	t.Fatalf("%s was never written", path)
-	return ""
 }
 
 func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
 
 func waitGone(t *testing.T, what string, pid int) {
 	t.Helper()
-	// 10 s: a killed process stays a zombie until launchd reaps it, and load delays that;
-	// the loop returns as soon as the process is gone.
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	// A hang guard: a killed process stays a zombie until launchd reaps it, and load delays
+	// that; the loop returns as soon as the process is gone.
+	for deadline := time.Now().Add(testtime.Bound(10 * time.Second)); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if gone(pid) {
 			return
 		}
@@ -246,7 +279,7 @@ func TestChooseRootCancelTakesTheDialogDown(t *testing.T) {
 	if err := h.ops.Cancel(id); err != nil {
 		t.Fatal(err)
 	}
-	out, err := h.ops.Wait(context.Background(), id, time.Now().Add(5*time.Second))
+	out, err := h.ops.Wait(context.Background(), id, time.Now().Add(testtime.Bound(5*time.Second)))
 	if err != nil || out.State != capability.StateCancelled || out.Error == nil || out.Error.Code != capability.ErrOperationCancelled {
 		t.Fatalf("after the cancel: %+v, %v; want cancelled with OPERATION_CANCELLED", out, err)
 	}
@@ -258,15 +291,19 @@ func TestChooseRootCancelTakesTheDialogDown(t *testing.T) {
 // answers dismissed, rather than staying on the screen for ever (plan m2c D18).
 func TestChooseRootBoundDismisses(t *testing.T) {
 	d, dir := sleepingDialog(t)
-	d.Bound = 2 * time.Second
+	var up atomic.Int64
+	d.Spawn = upSpawn(startGroup, dir, &up)
+	d.Bound = time.Second
 	h := newDialogHarness(t, d)
-	start := time.Now()
 	out := h.choose(t)
+	end := time.Now()
 	if out.State != capability.StateCompleted || out.Result.(ChooseRootResult) != (ChooseRootResult{Dismissed: true}) {
 		t.Fatalf("after the bound: %s %+v %v; want completed, dismissed", out.State, out.Result, out.Error)
 	}
-	if took := time.Since(start); took < 1900*time.Millisecond || took > 8*time.Second {
-		t.Errorf("the dialog ended after %v; want about its bound, 2s", took)
+	// The bound is measured from the moment the fake is up (upSpawn), so a slow start of
+	// the script cannot make it pass early; its upper end is a hang guard.
+	if took := end.Sub(time.Unix(0, up.Load())); took < 950*time.Millisecond || took > testtime.Bound(8*time.Second) {
+		t.Errorf("the dialog ended %v after it was up; want about its bound, 1s", took)
 	}
 	waitGone(t, "the dialog", pidIn(t, dir, "pid"))
 	waitGone(t, "what the dialog forked", pidIn(t, dir, "child"))
@@ -367,7 +404,8 @@ func TestDialogIsRecordedWhileItRuns(t *testing.T) {
 	t.Run("the bound", func(t *testing.T) {
 		rec := &recordingSpawn{}
 		d, dir := sleepingDialog(t)
-		d.Spawn, d.Bound = rec.spawn, 2*time.Second
+		var up atomic.Int64
+		d.Spawn, d.Bound = upSpawn(rec.spawn, dir, &up), time.Second
 		if _, dismissed, err := d.choose(context.Background()); err != nil || !dismissed {
 			t.Fatalf("the bound: dismissed %v, err %v", dismissed, err)
 		}

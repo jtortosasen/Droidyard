@@ -834,8 +834,21 @@ func TestStopHoldsTheDeviceWriteKey(t *testing.T) {
 	})
 
 	// Each operation is cancelled and waited for before scaleStop's cleanup puts the stop's
-	// bounds back, which a still running stop reads (main's CI -race, 2026-10-18).
+	// bounds back, which a still running stop reads (main's CI -race, 2026-10-18). The race
+	// itself is a window of microseconds the detector rarely sees, so the decision is
+	// asserted: this cleanup runs after every settle below and before scaleStop's, and fails
+	// when an operation has not ended by then.
+	var settled []string
+	t.Cleanup(func() {
+		for _, id := range settled {
+			snap, err := f.ops.Wait(context.Background(), id, time.Now().Add(-time.Second))
+			if err != nil || !snap.State.Terminal() {
+				t.Errorf("operation %s is %s when the stop's bounds are put back; want it ended", id, snap.State)
+			}
+		}
+	})
 	settle := func(id string) {
+		settled = append(settled, id)
 		t.Cleanup(func() {
 			f.ops.Cancel(id)
 			for {
