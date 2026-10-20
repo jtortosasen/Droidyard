@@ -31,7 +31,7 @@ Baseline on 2026-10-11 at `35ecba3` (macOS): `go vet ./...` printed nothing; `go
 
 ## Run rules
 
-- K1–K8 are m2d's (`m2d-redesign-file-tree.md` §Run rules) with `m2e` for `m2d`: `B=~/Library/Caches/droidyard-dev/m2e`, fresh state and configuration per run on every `droidyard` invocation, the adb guard at `$B/bin/adb`, `ANDROID_SERIAL=droidyard-m2e-none`, the scratch AVD `droidyard_m2a` through `$B/avd`, no owner device writes or UI dumps, no adb server restart, nothing in `~/Documents/DopamineControl`.
+- K1–K8 are m2d's (`m2d-redesign-file-tree.md` §Run rules) with `m2e` for `m2d`: `B=~/Library/Caches/droidyard-dev/m2e`, fresh state and configuration per run on every `droidyard` invocation, the adb guard at `$B/bin/adb`, `ANDROID_SERIAL=droidyard-m2e-none`, the scratch AVD `droidyard_m2a` through `$B/avd`, no owner device writes or UI dumps, no adb server restart, nothing in `~/Documents/OwnerAppA`.
 - K9. Uninstalling the sample (step 2's fresh uid) only on the scratch AVD.
 
 ## Delegated decisions

@@ -23,7 +23,7 @@ No design question is open: the documents name the four capabilities, their clas
 | `file.write` | yes | step 2 |
 | `file.watch` and its topic | yes | step 4, last: its consumer is the Phase 2 UI, so it is proven over the WebSocket in Go tests, as 1d's events were |
 | `policy.get`/`update` (human-only), `shell.exec` (off by default) | no | milestone 1k (D1) |
-| Phase 1 acceptance: golden path from Cursor and OpenCode on DopamineControl | part | step 3: golden-path steps 2 and 3 (a compile error written and fixed) from OpenCode through `file_*` and `build_*` alone, on the fixture. The DopamineControl run with Cursor is its own run after 1k |
+| Phase 1 acceptance: golden path from Cursor and OpenCode on OwnerAppA | part | step 3: golden-path steps 2 and 3 (a compile error written and fixed) from OpenCode through `file_*` and `build_*` alone, on the fixture. The OwnerAppA run with Cursor is its own run after 1k |
 | The Phase 2 explorer, editor and file panel | no | Phase 2; its editor is deferred (`mvp.md` §Phase 2) |
 
 ## Starting point
@@ -101,7 +101,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - Check: fresh `flavoured/` and `pristine/`, the copy trusted with `droidyard trust` under the S1 state, the daemon built from this tree. (1) OpenCode as in `verify-daemon` §Real client, cwd the copy, its configuration (removed after) denying its own shell, read, edit, write, list, glob and grep tools (the permission names checked in `opencode.err`), prompt: "Using only the droidyard tools: list the app module's Java sources, read MainActivity.java, add the statement `droidyardMissing();` as the last line of onCreate and save it, build the paid staging debug variant, tell me the compile error's file and line, then remove that statement, save, and build again until it succeeds". The wire shows `file_list`, `file_read` of `MainActivity.java`, `file_write` with the statement, `build_assemble` (and `operation_wait` if over the budget) `outcome: failed`, `build_errors` naming `MainActivity.java` and the statement's line, `file_write` without it, `build_assemble` `outcome: success`; no call of OpenCode's own file or shell tools. Then `diff -r -x build -x .gradle -x .kotlin -x .idea -x opencode.jsonc -x local.properties` of the copy against `pristine/` → empty, or a whitespace-only difference in `MainActivity.java`, recorded as it is; no `*.droidyard-*.tmp` in the copy. (2) With the built CLI: `file.read` of `escape/secret` and `file.write` of `escape/x` → `FILE_OUTSIDE_ROOT`; `m1j/outside` holds `secret` only. (3) `droidyard stop`; no sidecar left.
 - Schema: no change.
 - Needs: steps 1–2; OpenCode with a provider; 1g's Gradle toolchain.
-- Not here: Cursor; DopamineControl (§Scope).
+- Not here: Cursor; OwnerAppA (§Scope).
 - Rests on: —
 - Review: the main session's record; the close verifier reads it.
 - [x] Done. Evidence: level 5, main session, 2026-10-07, `~/Library/Caches/droidyard-dev/m1j/l5-20261007-0612`, daemon built at `88d2673`. (1) OpenCode v2.0.18, `opencode-go/deepseek-v4.1-flash`, `mcp connected … tools=33`; its own tools denied (`opencode debug agents`: shell, edit, read, list, glob, grep, webfetch resolve to `deny`). The wire: `workspace_describe`, `project_modules`, `project_variants`, seven `file_list` down to `dev/droidyard/flavoured`, `file_read` of `MainActivity.java`, `file_write` with `droidyardMissing();`, `build_assemble {":app","paidStagingDebug"}` `failed` with `errors[0]` javac `MainActivity.java:40:9` "cannot find symbol", `file_write` without it, `build_assemble` `success`. No `build_errors` call: `build_assemble`'s result carries the errors inline (1g), and the agent read file and line from it; recorded under Changes. No OpenCode file or shell tool was called (one `execute` tool search). The diff against `pristine/` is empty; no `*.droidyard-*.tmp`. (2) `file.read escape/secret` and `file.write escape/x` → `FILE_OUTSIDE_ROOT`; `outside/` holds `secret` only. (3) `droidyard stop`; no daemon or sidecar process left.
@@ -124,7 +124,7 @@ Taken under the owner's standing instruction; each can be reverted.
 - `policy.*`, `shell.exec`, the configuration specification: 1k (D1).
 - Base64, recursive listing, globbing, search, a list cursor, delete, rename, mkdir, conditional writes, writes through symlinks (steps 1–2).
 - An OS notification watcher; configurable interval, caps, exclusions; `file.watch` `since` and filters (D7, D8).
-- A real WebSocket client and the Phase 2 file panel; Cursor; DopamineControl; Linux.
+- A real WebSocket client and the Phase 2 file panel; Cursor; OwnerAppA; Linux.
 
 ## Design questions
 
@@ -138,7 +138,7 @@ None open; D7–D9 extend what documents describe and are reconciled by D11.
 | The escape error keeps its text across Go releases | 1–2 | the pinning test fails on change |
 | A rename onto the on-disk name keeps the name on APFS | 2 | step 2 (a), case row |
 | `rename(2)` in a directory is atomic for concurrent readers on APFS | 2 | step 2 (a); Linux not run |
-| A 1 s walk of 20 000 entries is cheap per watch | 4 | step 4 (a): about 35 ms for a flat directory of 20 000 empty files, warm cache (`TestWatchWalkIsCapped` log, 34.0 and 34.8 ms); a nested project tree and DopamineControl not measured |
+| A 1 s walk of 20 000 entries is cheap per watch | 4 | step 4 (a): about 35 ms for a flat directory of 20 000 empty files, warm cache (`TestWatchWalkIsCapped` log, 34.0 and 34.8 ms); a nested project tree and OwnerAppA not measured |
 | OpenCode can deny its own read, list, glob and grep tools | 3 | settled by step 3: `opencode debug agents` shows shell, edit, read, list, glob, grep, webfetch denied; its `execute` code runner was not denied and ran once (a tool search returning nothing) |
 | A crash between temporary file and rename is rare enough to leave as a stated limit | 2 | not tested beyond the seam (D6) |
 | 512 KiB of ordinary source stays under 1 MiB after JSON escaping | 2 | not tested over HTTP |

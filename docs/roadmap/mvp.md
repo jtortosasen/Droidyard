@@ -212,9 +212,9 @@ Acceptance:
 
 ## Validation target: the golden sample
 
-**The acceptance target is `samples/golden/`** (owner, 2026-10-07: "Si dopamine control
+**The acceptance target is `samples/golden/`** (owner, 2026-10-07: "Si OwnerAppA
 no te sirve, create una app de ejemplo sencilla que te haga el mismo papel"). The
-ratified 2026-09-29 choice, DopamineControl (the owner's real multi-module project),
+ratified 2026-09-29 choice, OwnerAppA (the owner's real multi-module project),
 lacked the form, the `testTagsAsResourceId` and the crash path; the argument for a real
 project still holds, and it stays the project the Gradle work was tried on (1g).
 

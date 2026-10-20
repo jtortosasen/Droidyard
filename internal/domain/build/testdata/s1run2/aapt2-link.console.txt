@@ -1,5 +1,5 @@
 stdout	> Task :app:processDebugResources FAILED
 stderr	Execution failed for task ':app:processDebugResources'.
 stderr	   > Android resource linking failed
-stderr	     com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.dopaminecontrol:string/this_string_does_not_exist) not found.
+stderr	     com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml:210: error: resource string/this_string_does_not_exist (aka com.example.ownerappa:string/this_string_does_not_exist) not found.
 stderr	     error: failed linking references.

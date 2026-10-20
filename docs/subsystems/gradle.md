@@ -46,7 +46,7 @@ in `sidecar/` and the client's `codec.go`.
   bounded to 1 MiB by construction**, so no build output can produce an over-long message; the
   per-field caps are commented constants in `sidecar/src/Build.kt`. An **unknown** method arriving as
   a notification (no id) gets no response. **Replies are bounded only by the model's size**
-  (`project.model` measured 342 KiB for DopamineControl's 12 projects). The **client accepts a line
+  (`project.model` measured 342 KiB for OwnerAppA's 12 projects). The **client accepts a line
   up to 16 MiB** (`process.DefaultMaxProtocolLine`); over it, it kills the sidecar and fails the call
   `BUILD_SIDECAR_CRASHED`, cause "protocol line over 16 MiB": an untrusted build cannot grow one
   without bound.
@@ -194,7 +194,7 @@ build holds the root and the build files changed, it answers from the cached mod
 
 `build.tasks` is a filter over the cached project model. AGP 8.13 gives the per-variant tasks
 (`assembleDebug`) no group, so hidden tasks (noise by default) are opt-in with `includeHidden`
-(observed on DopamineControl, 1g). Variant-aware filtering goes through `project.variants`, not
+(observed on OwnerAppA, 1g). Variant-aware filtering goes through `project.variants`, not
 through guessed prefixes.
 
 ## Concurrency

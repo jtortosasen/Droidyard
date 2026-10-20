@@ -75,7 +75,7 @@ Details: [`subsystems/gradle.md`](../subsystems/gradle.md) §Error model.
 
 ## Observed in spike S1, run 1 (command line, one cell)
 
-Run 1 used `DopamineControl`, a real multi-module Compose project (Gradle 8.13,
+Run 1 used `OwnerAppA`, a real multi-module Compose project (Gradle 8.13,
 AGP 8.13.2, **KGP 2.0.21**, which is outside the S1 matrix), through `./gradlew
 --no-daemon --console=plain`. Raw output, method and the full list of what was not
 run: [`../research/spike-s1-error-formats.md`](../research/spike-s1-error-formats.md).

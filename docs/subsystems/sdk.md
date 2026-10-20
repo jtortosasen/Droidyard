@@ -31,7 +31,7 @@ SDK** (global: where do *our* tools come from, used by `adb`, `emulator`, `avdma
 used by `sdk.requirements`). AGP resolves its SDK from the project's `local.properties`
 `sdk.dir` first, so checking requirements against the host SDK could check a different SDK than
 the build uses. Android Studio writes `sdk.dir` on import; the real project used in spike S1
-(`DopamineControl`) has one.
+(`OwnerAppA`) has one.
 
 ### Host SDK
 

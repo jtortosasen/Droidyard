@@ -36,7 +36,7 @@ Baseline on 2026-10-09 at `ca8ba71` (macOS): `go vet ./...` and `gofmt -l .` pri
 ## Run rules
 
 - K1. `B=~/Library/Caches/droidyard-dev/m2a`. Every daemon runs with a scratch `DROIDYARD_STATE_DIR` (`.claude/skills/verify-daemon/SKILL.md` §Launch); `~/Library/Application Support/droidyard` is absent or unchanged before and after.
-- K2. Step 6 (a device) follows `m1l-phase1-acceptance.md` §Owner's constraints and §Emulator rules (E1–E5, E7) with `m2a` for `m1l`: the guard as `ADB`, `-tags droidyard_nodump`, the scratch AVD `droidyard_m2a` the only one booted or stopped, 5037's pid unchanged, no `uiautomator dump` of an owner emulator, the SDK stamp unchanged; the Samsung not used; DopamineControl not read.
+- K2. Step 6 (a device) follows `m1l-phase1-acceptance.md` §Owner's constraints and §Emulator rules (E1–E5, E7) with `m2a` for `m1l`: the guard as `ADB`, `-tags droidyard_nodump`, the scratch AVD `droidyard_m2a` the only one booted or stopped, 5037's pid unchanged, no `uiautomator dump` of an owner emulator, the SDK stamp unchanged; the Samsung not used; OwnerAppA not read.
 - K3. Browser runs use Claude in Chrome on a new tab of the owner's Chrome at the URL `droidyard status` prints. Snippets run through its JavaScript tool and are kept as files. **Probe first** (step 2): one snippet's result recorded, and a deliberate violation (a `<script>` element with inline text appended by a snippet) seen in the console reader; until both are seen, "no violation" and every in-page measurement are not evidence.
 
 ## Delegated decisions

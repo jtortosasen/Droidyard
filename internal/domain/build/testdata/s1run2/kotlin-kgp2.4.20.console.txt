@@ -1,2 +1,2 @@
-stdout	w: file:///w/dc/feature/applist/src/main/kotlin/com/example/dopaminecontrol/feature/applist/ui/AppListScreen.kt:400:75 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.
-stderr	e: file:///w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt:3:24 Unresolved reference 'thisSymbolDoesNotExist'.
+stdout	w: file:///w/dc/feature/applist/src/main/kotlin/com/example/ownerappa/feature/applist/ui/AppListScreen.kt:400:75 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.
+stderr	e: file:///w/dc/app/src/main/java/com/example/ownerappa/SpikeBroken.kt:3:24 Unresolved reference 'thisSymbolDoesNotExist'.

@@ -30,7 +30,7 @@ Baseline on 2026-10-11 at `2a82cf7` (macOS): `go vet ./...` printed nothing; `go
 
 ## Run rules
 
-- K1–K9 are m2e's (`m2e-ux-round.md` §Run rules) with `m2f` for `m2e`: `B=~/Library/Caches/droidyard-dev/m2f`, fresh state per run, the adb guard, `ANDROID_SERIAL=droidyard-m2f-none`, the scratch AVD `droidyard_m2a` through `$B/avd`, headless captures only (the owner's screen never), a sample copy, nothing in `~/Documents/DopamineControl`.
+- K1–K9 are m2e's (`m2e-ux-round.md` §Run rules) with `m2f` for `m2e`: `B=~/Library/Caches/droidyard-dev/m2f`, fresh state per run, the adb guard, `ANDROID_SERIAL=droidyard-m2f-none`, the scratch AVD `droidyard_m2a` through `$B/avd`, headless captures only (the owner's screen never), a sample copy, nothing in `~/Documents/OwnerAppA`.
 - K8 (front-end steps: the two vendored Svelte skills first, `pnpm -C web run verify`, the autofixer gate on every changed `.svelte`/`.svelte.ts`, logic in `.ts` with Vitest beside it) applies to steps 2–4.
 
 ## Delegated decisions

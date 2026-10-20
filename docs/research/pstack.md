@@ -193,7 +193,7 @@ For Droidyard the recipe would be:
 
 The feature map is the table in `mvp.md` §MVP capability surface, with one file per
 domain, grown phase by phase. In Phase 1 it holds the golden path against
-DopamineControl. The natural home is a section of `prove-change`, or a sibling skill
+OwnerAppA. The natural home is a section of `prove-change`, or a sibling skill
 that it points to. It should not be a new agent.
 
 The skill's "Isolate" question already has something to find. ADR-0021's table places

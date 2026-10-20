@@ -51,7 +51,7 @@ fifteen above.
 | --- | --- | --- |
 | Project name | **Droidyard**, with `droidyard` as the binary and CLI, and a fixed set of derived identifiers: state and config directories, env overrides, socket name, artifact URI scheme, MCP `_meta` key and HTTP header. Recorded once so it is not decided again. | [ADR-0024](../adr/0024-project-name-and-identifiers.md) |
 | Which assistants matter | **Cursor and OpenCode.** They are what the owner uses, and they are what spike S2 measures — the MVP's "verify against at least two" now has names. | `roadmap/mvp.md` |
-| Validation target | **DopamineControl**, the owner's real multi-module project with `build-logic` convention plugins, replaces the sample app as the acceptance target. CI keeps small synthetic fixtures, including two Kotlin-plugin versions. An acceptance run needs a clean checkout, because the project has uncommitted work. | `roadmap/mvp.md` |
+| Validation target | **OwnerAppA**, the owner's real multi-module project with `build-logic` convention plugins, replaces the sample app as the acceptance target. CI keeps small synthetic fixtures, including two Kotlin-plugin versions. An acceptance run needs a clean checkout, because the project has uncommitted work. | `roadmap/mvp.md` |
 | Remote access | **After v1.** It is where the project started, but the MVP stays on loopback and the design already permits adding it without rework. | `roadmap/mvp.md` |
 
 ## Still to settle before Phase 1, and not a ratification

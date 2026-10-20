@@ -34,7 +34,7 @@ Baseline on 2026-10-11 at `a15f160` (macOS): `go vet ./...` printed nothing; `go
 
 ## Run rules
 
-- K1–K9 are m2f's (`m2f-sessions-overlay-and-fixed-controls.md` §Run rules) with `m2g` for `m2f`: `B=~/Library/Caches/droidyard-dev/m2g`, fresh state and configuration per run, the adb guard, `ANDROID_SERIAL=droidyard-m2g-none`, headless captures only (the owner's screen never), sample copies (`git archive` of `samples/golden`), nothing in `~/Documents/DopamineControl`. No step needs a device or an AVD.
+- K1–K9 are m2f's (`m2f-sessions-overlay-and-fixed-controls.md` §Run rules) with `m2g` for `m2f`: `B=~/Library/Caches/droidyard-dev/m2g`, fresh state and configuration per run, the adb guard, `ANDROID_SERIAL=droidyard-m2g-none`, headless captures only (the owner's screen never), sample copies (`git archive` of `samples/golden`), nothing in `~/Documents/OwnerAppA`. No step needs a device or an AVD.
 - K10. Never click "Open folder…" or call `workspace.chooseRoot`: a K1 daemon is started inside the sample copy, so its project is selected without a dialog.
 - K11. A cross-volume run uses an APFS disk image made under `$B` (`hdiutil create -size 64m -fs APFS`) and attached with `hdiutil attach -nobrowse`, detached and deleted in the run's cleanup; nothing else is mounted.
 

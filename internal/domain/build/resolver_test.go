@@ -66,7 +66,7 @@ func TestMergedPathResolvesOverTheRecordedLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newMergedResolver(gradle.Model{Projects: []gradle.Module{{Path: ":app", BuildDir: buildDir}}})
-	const reported = "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml"
+	const reported = "com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml"
 	file, line, col, ok := r.ResolveBlame(reported, 210)
 	if !ok || file != dev || line != 3 || col != 5 {
 		t.Errorf("ResolveBlame = %q %d:%d ok=%v, want spike_broken.xml 3:5", file, line, col, ok)

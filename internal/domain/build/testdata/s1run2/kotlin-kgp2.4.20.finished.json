@@ -8,7 +8,7 @@
    "problemDisplayName": "Kotlin compiler: UNNECESSARY_NOT_NULL_ASSERTION",
    "contextualLabel": "Kotlin compiler warning",
    "details": "Unnecessary non-null assertion (!!) on a non-null receiver of type 'Long'.",
-   "file": "/w/dc/feature/applist/src/main/kotlin/com/example/dopaminecontrol/feature/applist/ui/AppListScreen.kt",
+   "file": "/w/dc/feature/applist/src/main/kotlin/com/example/ownerappa/feature/applist/ui/AppListScreen.kt",
    "line": 400,
    "column": 75,
    "solutions": []
@@ -19,7 +19,7 @@
    "problemDisplayName": "Kotlin compiler: UNRESOLVED_REFERENCE",
    "contextualLabel": "Kotlin compiler error",
    "details": "Unresolved reference 'thisSymbolDoesNotExist'.",
-   "file": "/w/dc/app/src/main/java/com/example/dopaminecontrol/SpikeBroken.kt",
+   "file": "/w/dc/app/src/main/java/com/example/ownerappa/SpikeBroken.kt",
    "line": 3,
    "column": 24,
    "solutions": []

@@ -76,7 +76,7 @@ At `7b36dde` (2j merged), API `0.21.0`, with no `agent` domain.
 ## Run rules (steps 1, 4, 9)
 
 - **K1.** Each run works in a `git archive` copy of `samples/golden`.
-  - Its state and config live under a fresh `/tmp/dyk.*`. Never `~/Library/Application Support/droidyard`; never `~/Documents/DopamineControl`.
+  - Its state and config live under a fresh `/tmp/dyk.*`. Never `~/Library/Application Support/droidyard`; never `~/Documents/OwnerAppA`.
   - The binary is built at the step's commit, after `pnpm -C web build`.
   - `verify-daemon` §Launch, §Doctor, §Cleanup and §Emulator apply. The scratch daemon gets a guard script as `ADB` and `ANDROID_ADB_SERVER_PORT=5199`, in its own environment only.
 - **K2.** Nothing reaches the owner's daemon or adb:

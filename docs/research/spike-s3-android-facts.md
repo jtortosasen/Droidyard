@@ -17,7 +17,7 @@ flavours, the compile target, the effective build-tools and the SDK directory
 | --- | --- | --- | --- | --- |
 | C1 | `sidecar/testdata/flavoured` as pinned | 8.13 | 8.13.2 | KGP 2.0.21 |
 | C2 | the fixture, Kotlin plugin lines removed | 9.6.0 | 9.4.1 (newest stable 9.x on 2026-10-07) | AGP 9's built-in Kotlin |
-| C3 | a copy of DopamineControl's working tree (convention plugins in `build-logic`) | 8.13 | 8.13.2 | KGP 2.0.21 |
+| C3 | a copy of OwnerAppA's working tree (convention plugins in `build-logic`) | 8.13 | 8.13.2 | KGP 2.0.21 |
 | C4 | the fixture | 8.0.2 (zip SHA-256 `ff7bf6a8…d0d7`, as published) | 8.0.2 | KGP 2.0.21 |
 
 The init script, per Android project: `pluginManager.withPlugin('com.android.application' | 'com.android.library')`,
@@ -70,7 +70,7 @@ Further, on C1:
 ## Part 2: the probe over the Tooling API (step 2)
 
 The Java probe and the sidecar at protocol 2, driven directly (one sidecar process, the
-three embedded jars, the init script beside the probe jar), on the DopamineControl copy,
+three embedded jars, the init script beside the probe jar), on the OwnerAppA copy,
 `project.model` alternating unprobed and probed, three rounds:
 
 | Round | Unprobed | Probed |

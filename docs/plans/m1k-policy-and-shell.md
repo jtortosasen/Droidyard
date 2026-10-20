@@ -27,7 +27,7 @@
 | ADR-0032 keys: `devices.*` | yes | step 5, fakes only: no physical device exists here (Unverified) |
 | ADR-0032 keys: `gradle.sidecarJavaHome`, `tools.adb`, `tools.emulator` | yes | step 6 |
 | ADR-0032 key: `gradle.allowBelowFloor` | yes | step 7 |
-| Phase 1 acceptance: the golden path from Cursor and OpenCode on DopamineControl | no | its own run after 1k (1j §Scope): it exercises no 1k capability |
+| Phase 1 acceptance: the golden path from Cursor and OpenCode on OwnerAppA | no | its own run after 1k (1j §Scope): it exercises no 1k capability |
 | `droidyard trust` moved onto `policy.update` | no | ADR-0032 §5: it may stay a direct write |
 | Configurable HTTP port, environment source, timeouts, idle periods | no | deferred by Q2's draft (an ADR-0032 amendment); ADR-0032 Consequences defers timeouts only, and `http-websocket.md` rule 1 promises the port in Phase 1, so this row waits on Q2 |
 | A policy panel in the UI | no | Phase 2 |
@@ -168,7 +168,7 @@ Taken under the owner's standing instruction; each can be reverted.
 
 ## Not in this milestone
 
-- The Phase 1 acceptance run on DopamineControl with Cursor and OpenCode: its own run after 1k (§Scope).
+- The Phase 1 acceptance run on OwnerAppA with Cursor and OpenCode: its own run after 1k (§Scope).
 - A physical device on hardware; wireless pairing; Linux.
 - A revision token for `policy.update`; a `droidyard policy` subcommand; `droidyard trust` on `policy.update` (D3; ADR-0032 §5).
 - Configuration keys for the HTTP port, the environment source, timeouts, idle periods and build retention (Q2's draft).

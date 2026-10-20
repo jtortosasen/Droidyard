@@ -1,7 +1,7 @@
 {
  "logs": [
   {
-   "outputFile": "/home/u/.gradle/daemon/8.13/com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml",
+   "outputFile": "/home/u/.gradle/daemon/8.13/com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml",
    "map": [
     {
      "source": "/w/dc/app/src/main/res/values/spike_broken.xml",
@@ -23,7 +23,7 @@
    ]
   },
   {
-   "outputFile": "com.example.dopaminecontrol.app-mergeDebugResources-42:/values/values.xml",
+   "outputFile": "com.example.ownerappa.app-mergeDebugResources-42:/values/values.xml",
    "map": [
     {
      "source": "/home/u/.gradle/caches/8.13/transforms/3e6911e2ddc0d6695a74b44253c34ac6/transformed/ui-release/res/values/values.xml",
