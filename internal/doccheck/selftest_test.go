@@ -430,6 +430,10 @@ func TestPlanChecksCatchDrift(t *testing.T) {
 		tr := planFixture.with(t, p, "Proven by: step 2.", "Proven by: step 3.")
 		expect(t, checkPlans(tr.fs()), p+":8", "step 3", "does not exist")
 	})
+	t.Run("digits in a code span are not steps", func(t *testing.T) {
+		tr := planFixture.with(t, p, "Proven by: step 2.", "Proven by: step 2. Evidence: at `14e0148`.")
+		expectClean(t, checkPlans(tr.fs()))
+	})
 	t.Run("an acceptance item with no step", func(t *testing.T) {
 		tr := planFixture.with(t, p, " Proven by: step 2.", "")
 		expect(t, checkPlans(tr.fs()), p+":8", "Proven by: step <n>")

@@ -74,7 +74,7 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 
 ## Starting point
 
-- `main` at `118a38d`. API `0.26.0`. ADRs up to 0075.
+- `main` at `bce7944`. API `0.26.0`. ADRs up to 0075.
 - **Screens.** `device.screenshot` (`internal/domain/device/screenshot.go`) runs `exec-out screencap -p` and stores an ephemeral, untrusted artifact. Its `warnings` are adb's and untagged, and its nextStep already guesses "secured". The UI shows no stills (m2b Q2).
 - **Input.** `device.tapElement` and `device.inputText` (`tap.go`, `input.go`) act through the reader's `tap`, `keys` and `settext` (ADR-0035; `ACTING_VERBS` in `reader/src/DroidyardReader.java`), with `input` as the fallback. There is no coordinate tap, swipe or key capability; `ui-automation.md` §Input primitives reserves them, with coordinates "normalised 0..1".
 - **Streams.** `device.watchLogs` (`watchlogs.go`) is the precedent:
@@ -90,7 +90,7 @@ Neither C4 nor C5 is in scope. The plan keeps both open as follows:
 - **Host.** Homebrew's scrcpy 4.1 is installed: `/opt/homebrew/share/scrcpy/scrcpy-server`, 733,706 B, with an Apache-2.0 `LICENSE` (read 2026-10-17).
   - System images: android-31, 35, 36, 36.1 and 37.1.
   - The scratch AVD `droidyard_m2a` (API 31; m2h K5).
-- **Baseline, 2026-10-17 at `118a38d`:** `go vet ./...` clean; `go test ./...` ok in every package. This file fails `internal/doccheck` `TestPlansIndexMatchesFiles` until the main session adds its index row.
+- **Baseline, 2026-10-17 at `bce7944`:** `go vet ./...` clean; `go test ./...` ok in every package. This file fails `internal/doccheck` `TestPlansIndexMatchesFiles` until the main session adds its index row.
 
 ## Acceptance
 

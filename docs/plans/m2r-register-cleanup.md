@@ -5,7 +5,7 @@
 - Date: 2026-10-18
 - Milestone: the owner, 2026-10-18: "Hagamos la tanda quick, y de paso mira todas las líneas pendientes del known-limits a ver si puedes aprovechar y meter un buen bloque de tareas, y limpiamos." The seven `quick` rows, a block of other open rows fixable without devices, and a pass over the whole register. The block was chosen by the main session under the owner's standing instruction (Delegated); `docs/README.md` §Where the work stands says "next, the owner's choice".
 - Phase: none. The MVP is done; the register rows below are the requirement.
-- Lane: `2r`, branch `m2r` from `main` at `f52803d`, touches `process,build,docs,release` (`build`: step 9's Gradle root; `release`: step 10's `ci.yml`). Lane 2q (`m2q`, Approved) holds `devices` and edits `internal/workspace/{watch,workspace,capabilities,enter}.go`, `internal/capability/{operation,descriptor,error,registry}.go`, `internal/daemon/{daemon,hello}.go`, `internal/policy/policy.go`, `adapters/mcp/mcp.go`, `cmd/droidyard/{serve,client,hook}.go`, `internal/assistant/observe.go` (`DecodeAfterEvent`), `internal/domain/git`, `web/`, and in the register three rows' `Work` and `liveBudget`. No step here edits those files; the expected merges are the register and `liveBudget` at the second close, where 2q's hook-root ADR (on `m2q`, superseding ADR-0062 §Decision in part) is noted beside step 3, which it does not affect.
+- Lane: `2r`, branch `m2r` from `main` at `bc8053b`, touches `process,build,docs,release` (`build`: step 9's Gradle root; `release`: step 10's `ci.yml`). Lane 2q (`m2q`, Approved) holds `devices` and edits `internal/workspace/{watch,workspace,capabilities,enter}.go`, `internal/capability/{operation,descriptor,error,registry}.go`, `internal/daemon/{daemon,hello}.go`, `internal/policy/policy.go`, `adapters/mcp/mcp.go`, `cmd/droidyard/{serve,client,hook}.go`, `internal/assistant/observe.go` (`DecodeAfterEvent`), `internal/domain/git`, `web/`, and in the register three rows' `Work` and `liveBudget`. No step here edits those files; the expected merges are the register and `liveBudget` at the second close, where 2q's hook-root ADR (on `m2q`, superseding ADR-0062 §Decision in part) is noted beside step 3, which it does not affect.
 - Contract: no change. `schema/capabilities.json` and the API version stay as they are. ADR-0090, ADR-0091, ADR-0092, ADR-0093 (Delegated, the main session, 2026-10-18); ADR-0021 §Pid records; ADR-0037 §Decision 2; ADR-0054; ADR-0056; ADR-0061 §3; ADR-0062 §1–§3; ADR-0063 §4; ADR-0068 §3; ADR-0075 §8; ADR-0020 §Core primitives; `files.md` §The capabilities, §The watch; `workspace-state.md` §Lifecycle, §Cleanup; `process-lifecycle.md` §Kinds of processes.
 
 **The owner should see:**
@@ -15,10 +15,10 @@
 
 ## Scope
 
-| Register row (line on `main` at `f52803d`) | Here? | Where, or why not |
+| Register row (line on `main` at `bc8053b`) | Here? | Where, or why not |
 | --- | --- | --- |
 | 277 `TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails` flaked under load | yes | step 1 |
-| 278 `lock_test.go:110` and `TestServeStartsThroughAProbe` flaked under load | yes | step 1 (`lock_test`); `TestServeStartsThroughAProbe` counts only conclusive attempts since `ddd6c62` (2026-10-15), cited at the close |
+| 278 `lock_test.go:110` and `TestServeStartsThroughAProbe` flaked under load | yes | step 1 (`lock_test`); `TestServeStartsThroughAProbe` counts only conclusive attempts since `51c300a` (2026-10-15), cited at the close |
 | 270 the folder dialog is spawned unrecorded (`quick`) | yes | step 2 |
 | 210 `droidyard trash`: no deadline; no `command rm` line after a transport failure | yes | step 3 |
 | 160 watching the root never reports `pathGone` | yes | step 4 |
@@ -36,7 +36,7 @@
 
 ## Starting point
 
-`main` at `f52803d`, API `0.27.0`, ADRs to 0080 (lane 2q holds 0081–0089). On `m2r`: `db0a3f9`, 2q's gap-tolerant doccheck (`0e060f4`) cherry-picked, so ADR-0090 to ADR-0093 can sit above 2q's unmerged numbers; ADR-0090 to ADR-0093, their index rows, the superseded ADRs' header lines and this plan's index row, written by the main session and not yet committed (doccheck passes with them).
+`main` at `bc8053b`, API `0.27.0`, ADRs to 0080 (lane 2q holds 0081–0089). On `m2r`: `d8c41fc`, 2q's gap-tolerant doccheck (`fd70066`) cherry-picked, so ADR-0090 to ADR-0093 can sit above 2q's unmerged numbers; ADR-0090 to ADR-0093, their index rows, the superseded ADRs' header lines and this plan's index row, written by the main session and not yet committed (doccheck passes with them).
 
 - **277.** `internal/process/deathsignal_test.go:44`: `eventually(…, 2*time.Second, …)` for the background child and the group; `dead` is `kill(pid, 0) == ESRCH`, so an orphan zombie not yet reaped by launchd reads as alive; `beforeRecord` waits at most 5 s for the pid file.
 - **278.** `internal/daemon/lock_test.go:109`: the reader must read at least 10 times while the writer makes exactly 1000 rewrites. `go test -cpu 1 -count=50 -run TestSetHTTPNeverShowsAnEmptyLock ./internal/daemon` fails on `main` ("the reader read the lock only 1 times across 1000 rewrites", planner, 2026-10-18).
@@ -46,7 +46,7 @@
 - **199.** `internal/assistant/assistant.go` `plan` builds one `serverSpec` (`stdioServer{command, args}`) for `.cursor/mcp.json` and `.mcp.json`. `Options.StateDir` (`cmd/droidyard/init.go:153`, from `DROIDYARD_STATE_DIR`) already reaches the hook command inline (`hookentry.go` `HookCommand`, ADR-0061 §3). Cursor honours an `env` object in the entry: m1o's kit added `env: {DROIDYARD_STATE_DIR}` for its runs and `cursor-agent mcp list` showed droidyard ready ([obs] m1o §Changes 2026-10-09 (2), step 9).
 - **211.** `internal/domain/agent/agent.go` `validate` lets a nil `Words` (absent or `null`) through and normalises it to `[]`; the core's `decodeParams` (`internal/capability/operation.go:1100`) checks `required` on top-level fields only; the hook always sends `[]` (`cmd/droidyard/hook.go` `commandRecord`).
 - **CI.** `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests the hook's checks over the tree, without `-race` (ADR-0068 §3; plan m2m step 1 "Not here"), in a 20-minute job.
-- **Baseline, 2026-10-18 at `f52803d`, on a host other sessions were loading:** `go vet ./...` clean. `go test ./...` red in three packages over three runs, each a timing bound; each test passes alone (`-count=3`, `-cpu 1 -count=5`):
+- **Baseline, 2026-10-18 at `bc8053b`, on a host other sessions were loading:** `go vet ./...` clean. `go test ./...` red in three packages over three runs, each a timing bound; each test passes alone (`-count=3`, `-cpu 1 -count=5`):
   - `internal/domain/shell` `TestRunTimesOutAndKillsTheGroup` (twice): `signal = "SIGTERM", want SIGKILL` and no `pid` file, at 1.03 s: the 1 s timeout's SIGTERM landed before the shell ran `trap '' TERM`.
   - `internal/workspace` `TestChooseRootBoundDismisses` (once, 7.02 s, message not captured): the 2 s bound plus `waitGone`'s 5 s (`dialog_test.go:84`, `gone` is `kill(pid, 0) == ESRCH`).
   - `internal/domain/git` `TestHistoryFence` ("git did not finish in time") and `TestWriteSpike3NoGcOutlivesAFetch`, once each: lane 2q's package.
@@ -77,7 +77,7 @@
   - `internal/daemon/lock_test.go` `TestSetHTTPNeverShowsAnEmptyLock`: the writer rewrites at least 1000 times and keeps rewriting until the reader has read at least 200 times, within a 30 s deadline (passing it is a failure naming the reads), yielding (`runtime.Gosched`) after each rewrite; the final assertion (`lock_test.go:114`) compares with the last port written, no longer a fixed `11000`. Why: with one CPU or on a loaded host the 1000 rewrites end before the reader is scheduled, and the property is "never empty", not a rate.
   - `internal/process/deathsignal_test.go` `killsTheGroupWhenTheRecordWriteFails`: both `eventually` bounds and the `beforeRecord` wait 10 s. Why: a killed orphan stays a zombie until launchd reaps it and `dead` reads a zombie as alive; load delays both. `eventually` returns as soon as the condition holds.
   - `internal/workspace/dialog_test.go` `waitGone`: 10 s, the same reason (most likely `TestChooseRootBoundDismisses`'s failure; if a run beside a full `go test ./...` shows another message, the cause goes under Changes before any edit).
-  - `internal/domain/shell` `TestRunTimesOutAndKillsTheGroup`: an attempt counts only when the `pid` file exists (written after the `trap`, so the SIGTERM was ignored as the test assumes); otherwise it is made again, at most five times, then skipped as inconclusive, as `TestServeStartsThroughAProbe` does since `ddd6c62`.
+  - `internal/domain/shell` `TestRunTimesOutAndKillsTheGroup`: an attempt counts only when the `pid` file exists (written after the `trap`, so the SIGTERM was ignored as the test assumes); otherwise it is made again, at most five times, then skipped as inconclusive, as `TestServeStartsThroughAProbe` does since `51c300a`.
 - Implements: rows 277, 278 (the `lock_test` half); the baseline's two failures outside 2q's packages.
 - Check:
   - `go test -cpu 1 -count=50 -run TestSetHTTPNeverShowsAnEmptyLock ./internal/daemon` fails on `main` and passes after the step.
@@ -339,7 +339,7 @@
 ### 11. The audit of the open rows
 
 - Builds: `docs/roadmap/known-limits.md` only. Run by the main session (Opus), not the implementer: it checks claims against code (AGENTS.md: the implementer only writes code).
-  - Every row with an empty `Closed by` (265 at `f52803d`, device areas included, by reading code only) is checked against the code at the step's commit and the Done plans after its `Recorded` milestone.
+  - Every row with an empty `Closed by` (265 at `bc8053b`, device areas included, by reading code only) is checked against the code at the step's commit and the Done plans after its `Recorded` milestone.
   - A row is closed only when its whole claim is now untrue: `Closed by` `2r (audit: <evidence>)`, the evidence a `file:line`, a test or a commit that shows it. A row partly true, or stale in wording but true, stays as it is. Nothing is closed on opinion or reworded.
   - An empty `Work` cell is filled only where a Done plan's Not in this milestone or an ADR names the owning work, cited in the evidence; no new kind of work.
   - Untouched: the rows steps 1–10 close (closed at the close with their evidence), every row whose `Work` is `2q` on `m2q` or `C2` (2q is the C2 lane and its step 10 edits the register), every row's order and format.
@@ -350,7 +350,7 @@
 - Needs: steps 1–10 (their rows are not audited while a step changes them).
 - Not here: closing a row by judgement (a "won't fix" is the owner's or an ADR's); any device run.
 - Rests on: —
-- [x] Done. Evidence: 2026-10-18, by the main session, reading code only. Done twice: at 74d2d66, and again after `main` (with 2q's close) was merged in at 4e85d0e.
+- [x] Done. Evidence: 2026-10-18, by the main session, reading code only. Done twice: at 495d77a, and again after `main` (with 2q's close) was merged in at 69714ee.
   - Rows read: 244 open rows. Left out are the rows steps 1–10 close and every row whose `Work` is `2q` or `C2`. Per area: build 21, CLI 2, code 3, configuration 5, device 29, device/UI 27, emulator 12, files 14, git 16, MCP/agents 30, platform 11, policy/security 10, process 18, SDK 5, web UI 41.
   - Rows closed: **none**. No row's whole claim is now untrue. The register has been kept at every close, and the rows recorded since 2n are fresh.
   - `Work` values filled: none. No Done plan or ADR names the owning work of a row whose `Work` is empty (for example, m2p's Not in this milestone leaves the live view's input extras to "later minor changes on ADR-0079", with no work named).
@@ -410,7 +410,7 @@ Each row keeps its line in the register. At the close, row 284 loses `Work` `qui
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
-- 2026-10-18, before approval (Delegated). The main session took the plan's draft decisions as ADR-0090 (rows 202, 205; 201 as decided, 200 accepted), ADR-0091 (rows 163, 166), ADR-0092 (row 39) and ADR-0093 (row 251), and cherry-picked 2q's gap-tolerant doccheck (`db0a3f9` from `0e060f4`) so their numbers can sit above 2q's. Steps 7–10 added, one per ADR; the audit is now step 11; Scope, Acceptance (A8–A11), the lane's touches and Not in this milestone follow. Reviewed in round 3.
+- 2026-10-18, before approval (Delegated). The main session took the plan's draft decisions as ADR-0090 (rows 202, 205; 201 as decided, 200 accepted), ADR-0091 (rows 163, 166), ADR-0092 (row 39) and ADR-0093 (row 251), and cherry-picked 2q's gap-tolerant doccheck (`d8c41fc` from `fd70066`) so their numbers can sit above 2q's. Steps 7–10 added, one per ADR; the audit is now step 11; Scope, Acceptance (A8–A11), the lane's touches and Not in this milestone follow. Reviewed in round 3.
 
 - 2026-10-18, step 1. Two full `go test -count=1 ./...` runs at once on this host failed five tests step 1 does not name. Each is a timing bound under a doubled load, a heavier load than the plan's single loaded run. They are not fixed here: the close adds them to the new load-sensitive tests row, with the git ones.
   - `cmd/droidyard` `TestCtrlCDuringAutoStart`: "exited before printing interrupted".

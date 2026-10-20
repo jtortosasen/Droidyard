@@ -9,7 +9,7 @@ import (
 
 // maxToolListBytes is the model-facing budget for tools/list (ADR-0036 Decision 1; plan
 // m1o A2): what a client shows the model is each tool's name, description and
-// inputSchema. 66.7 KB at cc0c27b, 34,786 B at 9ec50b0, 28,032 B once the file
+// inputSchema. 66.7 KB at 1e736e6, 34,786 B at 3f6eac0, 28,032 B once the file
 // capabilities left MCP (ADR-0060 §4: the logged size rounded up to the next 1,000 B, so the
 // saving is held); outputSchema is left out because the two clients measured (OpenCode,
 // Cursor) do not show it to the model.

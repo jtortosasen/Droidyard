@@ -5,7 +5,7 @@ description: Use when a Droidyard claim needs a real daemon to settle it (the so
 
 # Verifying the daemon
 
-> A generic recipe against an isolated instance, run end to end on macOS. The per-milestone Drive blocks (device actions, build, probe, logs, files, policy, acceptance, emulator ownership, the reader, the pre-serial launch) were cut at milestone 1q; the last commit that held them is `f939153` (`git show f939153:.claude/skills/verify-daemon/SKILL.md`). A milestone that needs one takes it from there and adapts it. A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which. Not yet run on Linux.
+> A generic recipe against an isolated instance, run end to end on macOS. The per-milestone Drive blocks (device actions, build, probe, logs, files, policy, acceptance, emulator ownership, the reader, the pre-serial launch) were cut at milestone 1q; the last commit that held them is `1e31651` (`git show 1e31651:.claude/skills/verify-daemon/SKILL.md`). A milestone that needs one takes it from there and adapts it. A change to a command here is proven only by a run: fix the command and rerun the section in the same change, and say which. Not yet run on Linux.
 
 ## Launch
 
