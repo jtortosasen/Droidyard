@@ -383,7 +383,7 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	}
 	resp, truncated, readErr := readLimited(conn, dumpOutputCap)
 	a.logWarmRead(t.serial, time.Since(warmStart))
-	return classifyReader(resp, truncated, readErr)
+	return classifyReader(resp, truncated, readErr, strings.HasPrefix(request, "dump full"))
 }
 
 // readerActKind is what an acting request (ADR-0035 §1) did. The distinction is the
@@ -1206,8 +1206,15 @@ func (a *ADB) pingSock(ctx context.Context, sock string, deadline time.Time) boo
 // reader line is its own failure; a partial or missing document falls to the one-shot
 // reader. busyPkg is only meaningful with dumpAppBusy; the readerFailure names the two
 // restart cases for the log (plan m1n step 2).
-func classifyReader(resp []byte, truncated bool, readErr error) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
+//
+// full says the request was a full dump (ADR-0110 Decision 5): a document over the read cap
+// is then dumpOverCap, which fails the read naming the cap, and not dumpOther. A plain read
+// that passes the cap is a reader at fault, as ever, and falls to the one-shot reader.
+func classifyReader(resp []byte, truncated bool, readErr error, full bool) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if truncated {
+		if full {
+			return nil, dumpOverCap, "", fullOverCapReason, "", rfNone
+		}
 		return nil, dumpOther, "", "the reader printed more than the output limit", "", rfNone
 	}
 	if readErr != nil {

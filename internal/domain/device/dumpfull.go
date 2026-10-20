@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
@@ -36,6 +37,10 @@ const (
 	// reasons follow it.
 	fullNoDumpCause = "the UI reader could not run, and a full dump never uses uiautomator dump, which lacks the extras and would suspend the device's other accessibility services: "
 )
+
+// fullOverCapReason is why a full document the reader printed past the read cap fails
+// (ADR-0110 Decision 5): it names the cap, and nothing from the device.
+var fullOverCapReason = fmt.Sprintf("the full dump is larger than the %d MiB the daemon reads", dumpOutputCap>>20)
 
 // readSpec is what one pass of the read chain reads: the plain tree (allowDump says whether
 // `uiautomator dump` may be the last stage, idle the reader's idle bound for a poll) or, with
@@ -88,6 +93,14 @@ func (s readSpec) appBusy(ctx context.Context, a *ADB, t *target) *capability.Er
 	return a.appBusyError(ctx, t)
 }
 
+// overCap is the failure of a full document that passed the read cap (ADR-0110 Decision 5):
+// the cause names the cap. A retry reads the same document, so the next step does not offer
+// one; nothing was stored. Only a full read can pass it (readerDumpRequest), so a plain read
+// has no such failure.
+func (s readSpec) overCap() *capability.Error {
+	return fullDumpFailed(fullOverCapReason, "Retrying reads the same document. If invisible was set, call device.uiDump without it, which leaves out the off-screen children; or read a compact tree of the screen with device.uiTree.")
+}
+
 // fullDumpFailed is dumpFailed for the full dump: the same code and message, the next step
 // of device.uiDump.
 func fullDumpFailed(cause, nextStep string) *capability.Error {
@@ -100,7 +113,9 @@ func fullDumpFailed(cause, nextStep string) *capability.Error {
 // the one-shot reader with the same words, then DEVICE_UI_DUMP_FAILED. It never runs
 // `uiautomator dump`. The bytes are the reader's, device text; the second result carries the
 // one-shot warning when the persistent reader could not run. A document over the read cap
-// is a cut read here and fails like any unreadable one.
+// (dumpOutputCap) fails DEVICE_UI_DUMP_FAILED at once with a cause that names the cap, from
+// either reader, with no restart and no further reader (ADR-0110 Decision 5); no bytes are
+// returned.
 func (a *ADB) readFull(ctx context.Context, t *target, opts fullOpts) ([]byte, []string, error) {
 	return a.readWith(ctx, t, readSpec{full: &opts})
 }

@@ -236,6 +236,12 @@ func (a *ADB) readWith(ctx context.Context, t *target, spec readSpec) ([]byte, [
 		// stale when the foreground changed since (appBusyError).
 		return nil, nil, spec.appBusy(ctx, a, t)
 	}
+	if kind == dumpOverCap {
+		// A full document over the read cap (ADR-0110 Decision 5): the reader is alive and
+		// answered, and the one-shot would run the same traversal into the same cap, so
+		// neither a restart nor the one-shot is tried.
+		return nil, nil, spec.overCap()
+	}
 	if kind == dumpVanished || kind == dumpUnreachable {
 		// A reader found gone, a wedged one, or one behind a lost forward is restarted
 		// once (ADR-0030; plan m1f step 7). The restart and its reason go to the daemon
@@ -265,6 +271,9 @@ func (a *ADB) readWith(ctx context.Context, t *target, spec readSpec) ([]byte, [
 		// uiautomator dump would meet the same missing window, and suspend the services.
 		// The reader's line is device text: the cause is the fixed sentence.
 		return nil, nil, spec.failed(readerNoRootMessage)
+	case dumpOverCap:
+		// Reached by the read after a restart, as dumpAppBusy is.
+		return nil, nil, spec.overCap()
 	case dumpAppBusy:
 		// Reached by the read after a restart (ADR-0030): the first read timed out or met a
 		// reader reused because it answered ping, and the read that follows the restart came
@@ -287,6 +296,8 @@ func (a *ADB) readWith(ctx context.Context, t *target, spec readSpec) ([]byte, [
 		return nil, nil, disconnected(t.serial, line)
 	case dumpNoRoot:
 		return nil, nil, spec.failed(readerNoRootMessage)
+	case dumpOverCap:
+		return nil, nil, spec.overCap()
 	}
 
 	// uiautomator dump of ADR-0029, with its warning, which names both readers' reasons
@@ -355,6 +366,11 @@ func (a *ADB) runReader(parent context.Context, t *target, end time.Time, words 
 	runArgs := append([]string{"-s", t.serial, "exec-out", "CLASSPATH=" + readerRemoteOneShot, "app_process", "/system/bin", reader.Class}, words...)
 	out, err = a.Run(ctx, t.adb, readerRun, dumpOutputCap, runArgs...)
 	doc, kind, line := classifyDump(t.serial, run, out, err, true)
+	if len(words) > 0 && err == nil && out.Truncated && kind == dumpOther {
+		// A full dump's document passed the read cap (ADR-0110 Decision 5), which the words
+		// say this run was; a plain run that passes it is a reader at fault.
+		return nil, dumpOverCap, "", fullOverCapReason
+	}
 	if kind == dumpIdle {
 		kind = dumpOther // the reader reads on a timeout; an idle message is not its retry
 	}
@@ -549,6 +565,7 @@ const (
 	dumpVanished    // the persistent reader's connection ended before a document: restart once
 	dumpUnreachable // the persistent reader's cached forward did not answer or timed out: restart once
 	dumpAppBusy     // the reader answered `busy`: the app did not answer, so no restart and no fallback (ADR-0034 §1)
+	dumpOverCap     // a full dump's document passed the read cap: the failure naming the cap, no restart and no other reader (ADR-0110 Decision 5)
 )
 
 // dump runs `uiautomator dump` on the device and returns the hierarchy document. It

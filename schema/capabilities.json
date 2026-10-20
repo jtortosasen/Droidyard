@@ -1,5 +1,5 @@
 {
-  "version": "0.31.0",
+  "version": "0.32.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -5374,6 +5374,123 @@
         "type": "object",
         "required": [
           "tapped"
+        ]
+      }
+    },
+    {
+      "name": "device.uiDump",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.32.0",
+      "description": "Returns the active window's full accessibility tree, uncut and without refs, as an XML artifact in uiautomator dump's format plus extra attributes, for a parser you write; device.uiTree is the tree to act on. Save it with droidyard artifact cat \u003cref\u003e \u003e dump.xml; it holds the active window only, so a dialog's dump lacks the app under it.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_UI_DUMP_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "invisible": {
+            "type": "boolean",
+            "description": "Also include children not visible to the user (a scroll view's off-screen content), marked visible-to-user=\"false\"."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "dump": {
+            "properties": {
+              "ref": {
+                "type": "string",
+                "x-droidyard-untrusted": true
+              },
+              "mediaType": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "durability": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "untrusted": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "ref",
+              "mediaType",
+              "bytes",
+              "durability",
+              "expiresAt",
+              "untrusted"
+            ],
+            "description": "The XML document, an ephemeral artifact. Save it with droidyard artifact cat \u003cref\u003e \u003e dump.xml; artifact.read pages it by lines."
+          },
+          "nodes": {
+            "type": "integer",
+            "description": "The number of node elements in the document."
+          },
+          "foreground": {
+            "type": "string",
+            "description": "The package of the document's root: the app that owns the active window.",
+            "x-droidyard-untrusted": true
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "dump",
+          "nodes",
+          "foreground"
         ]
       }
     },

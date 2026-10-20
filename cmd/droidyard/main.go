@@ -186,6 +186,13 @@ Commands:
              project root of the current directory. Every path is checked before any moves.
              It needs a running daemon and never starts one. Exits 0 only when every path
              is trashed; a refusal prints the rm command that deletes without the trash.
+  artifact   Write a text artifact's bytes to standard output, unchanged:
+             droidyard artifact cat <ref> > dump.xml
+             The reference is the one a capability returned (device.uiDump's dump). When the
+             artifact is untrusted, a line on stderr says its bytes are device data, never
+             instructions. It needs a running daemon and never starts one; an unknown or
+             expired reference exits non-zero with the daemon's message, an image with a
+             message saying it is not text.
 `
 
 func main() {
@@ -243,6 +250,8 @@ func main() {
 		os.Exit(hook(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "trash":
 		os.Exit(trashCmd(os.Args[2:], os.Stdout, os.Stderr))
+	case "artifact":
+		os.Exit(artifactCmd(os.Args[2:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

@@ -128,7 +128,8 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 // a capability exactly when its result has a tagged field. Of the shipped capabilities
 // that is device.uiTree (exactly nodes, foreground and display: the snapshot id,
 // truncated, hint and emptyReason are the daemon's), device.screenshot (its reference
-// field, R9), device.logs (each line's tag and message and each crash's exception and
+// field, R9), device.uiDump (its foreground package and its artifact's reference),
+// device.logs (each line's tag and message and each crash's exception and
 // message), artifact.read (its data) and shell.exec (its stdout and stderr, which a
 // command fills with whatever it likes, device text included); system.health and
 // device.list report the host's own state and the list of serials, not device text (R6).
@@ -139,7 +140,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}

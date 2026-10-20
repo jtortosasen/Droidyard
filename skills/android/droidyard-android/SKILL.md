@@ -27,6 +27,9 @@ restart the shared adb server.
    `device_launch {device, applicationId}`.
 5. **Look**: `device_uiTree` (cheaper and exact) before `device_screenshot`;
    `device_logs {applicationId, since: "launch"}` for the app's log since that launch.
+   To give the user the screen's full accessibility document for a parser, call `device_uiDump`
+   and run `droidyard artifact cat <dump.ref> > dump.xml` in a shell: it writes the file
+   without the XML passing through you.
 6. **Act**: `device_tapElement` on a `target` selector, `device_inputText` into a `target`
    (or the focused field), each with an `expect` that says what must change, so one call
    acts and verifies.
