@@ -1,7 +1,7 @@
 # Spike: what the hooks see of an agent's edits, and what each client does with the answer (m2s step 1)
 
 Run 2026-10-18 by the main session, macOS (Darwin 25.6.0), against an isolated daemon built from
-`m2s` at `2145136` (`$R` = `/private/tmp/dy2s.gKln`, evidence in `$R/evidence`, hook lines in
+`m2s` at `845d4d7` (`$R` = `/private/tmp/dy2s.gKln`, evidence in `$R/evidence`, hook lines in
 `~/Library/Caches/droidyard-dev/2s/hooklog/hooks.jsonl`). The scratch repository was a copy of
 `samples/golden` with one commit (`~/Library/Caches/droidyard-dev/2s/repo`) and a linked worktree
 beside it (`../wt`, branch `t`). Every hook entry ran a recorder that kept the event (`user_email`

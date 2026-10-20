@@ -1,7 +1,7 @@
 # Plan: Milestone 2l — Git: the review diff and the Git tree
 
 - Status: Done
-- Approved: 2026-10-12, Delegated (the main session under the owner's standing instruction to apply the recommended option): the Scope table, the nine steps, Not in this milestone, Unverified, and Q1 and Q2 as drafted. `m2l` fast-forwarded to `main` at `3e1f1b5` at approval.
+- Approved: 2026-10-12, Delegated (the main session under the owner's standing instruction to apply the recommended option): the Scope table, the nine steps, Not in this milestone, Unverified, and Q1 and Q2 as drafted. `m2l` fast-forwarded to `main` at `e74a2a3` at approval.
 - Date: 2026-10-12
 - Milestone: "2l — Git: the review diff and the Git tree". The owner, 2026-10-12, in a discussion session (the brief that handed it over is not a repository document; this plan replaces it): two diff modes behind a toggle, Classic (`@codemirror/merge`) and Review (the owner's own: the file on disk editable on the left, a magit-style unified rendering on the right, an elastic anchored scroll between them); a Git tree in the left panel with a Full view and an Affected-only view (grouped or flat); working tree against HEAD, the base kept a parameter; read-only; git not offered to agents over MCP; the daemon's git reads never take `.git/index.lock`.
 - Phase: `docs/roadmap/mvp.md` §Phase 2, the **Git** milestone after the Definition of done (in part: no branches or commits, see Scope).
@@ -31,7 +31,7 @@
 
 ## Starting point
 
-m2k merged into `main` during the review (`3e1f1b5`, API `0.22.0`, ADRs up to 0065, `liveBudget` 26,377). `m2l` has no commits yet, so at approval the main session fast-forwards it to `main` and reruns the baseline there; the brief's "merge `main` once m2k lands" is that fast-forward, and no merge step is left. Read at `7b36dde`, unchanged by m2k unless said:
+m2k merged into `main` during the review (`e74a2a3`, API `0.22.0`, ADRs up to 0065, `liveBudget` 26,377). `m2l` has no commits yet, so at approval the main session fast-forwards it to `main` and reruns the baseline there; the brief's "merge `main` once m2k lands" is that fast-forward, and no merge step is left. Read at `c2c3b5b`, unchanged by m2k unless said:
 
 - No `git` domain. `capability.RequiresGit` exists; `cmd/droidyard/main.go` `requirements.Missing` answers it with the default "not found".
 - `internal/domain/file/watch.go`: the poller lifecycle to copy (subscription first, baseline, last-act `ctx` check, `Watchers.Stop` wired as `workspace.Options.StopPollers`), and `.git` in `excludedDirs`.
@@ -39,7 +39,7 @@ m2k merged into `main` during the review (`3e1f1b5`, API `0.22.0`, ADRs up to 00
 - `policy.Policy.Trusted(root)`; `event.Bus.PublishTo` (ring-less, one subscription).
 - Web: `panels.ts` has `git-side` (left), `diff` (centre) and `git` (bottom) disabled. `editor/surface.ts` is the editor seam (`cm/` alone imports `@codemirror/*`, `boundary.test.ts`); `cm/merge.ts` `mountCompare` (MergeView; the buffer side mirrors into the buffer, never back, which was safe only because Compare replaced the editor in its host); `@codemirror/merge` 6.12.2 exports `Chunk.build`, `Chunk.updateB` and `DiffConfig` (read in the main tree's `node_modules/@codemirror/merge/dist/index.d.ts`, same lockfile). `Shell.svelte` keeps every pane mounted, so the Editor and Diff tabs coexist on one buffer. `files/watch.ts` `FileWatch.listen` serves a second reader with no second `file.watch`. Activity hides UI queries and streams (`ops/blocks.ts` `hidden`), so git calls add no rows.
 - Host: `git` 2.51.2 (Homebrew, first on `PATH`) and Apple's `/usr/bin/git`. git's manual (2.51.2) says `--no-optional-locks` equals `GIT_OPTIONAL_LOCKS=0` and "will prevent `git status` from refreshing the index as a side effect" [doc, not run here: the planner cannot run git]. Step 1 runs it.
-- Baseline, 2026-10-12 at `7b36dde`: `go vet ./...` clean; `go test ./...` ok in all 31 packages with tests; live corpus 26,300 words. At `3e1f1b5`: not run here (the planner cannot check it out); the fast-forward's rerun records it. `web/node_modules` is absent in this worktree: `pnpm -C web install --frozen-lockfile` once.
+- Baseline, 2026-10-12 at `c2c3b5b`: `go vet ./...` clean; `go test ./...` ok in all 31 packages with tests; live corpus 26,300 words. At `e74a2a3`: not run here (the planner cannot check it out); the fast-forward's rerun records it. `web/node_modules` is absent in this worktree: `pnpm -C web install --frozen-lockfile` once.
 - What m2k changed that 2l builds on: `cmd/droidyard/main.go` (the `agent` registration), `system.Version` `0.22.0`, the golden registry, `mcp.md`'s not-exposed table, `mvp.md`'s surface table, `liveBudget`, and `web/src/lib/start/Project.svelte` (Activity's `records`), which step 5 also edits.
 
 ## Acceptance
@@ -81,7 +81,7 @@ m2k merged into `main` during the review (`3e1f1b5`, API `0.22.0`, ADRs up to 00
 - Implements: risk first. Q1 §2 and ADR-0015 §5 rest on these facts.
 - Check: the five tests pass, and each is seen failing under its mutation. If the empty override does not stop the filter, ADR-0066 takes Q1 §2's refusal branch and step 3 adds its test. Timings recorded; a p50 over 100 ms, fresh or touched, on the clone becomes a register row.
 - Schema: no change.
-- Needs: `m2l` fast-forwarded to `main` (`3e1f1b5`); real git; no daemon.
+- Needs: `m2l` fast-forwarded to `main` (`e74a2a3`); real git; no daemon.
 - Not here: no descriptor or capability.
 - Rests on: git's optional-lock switch keeps `status` from writing the index, at level 3 (real git, both builds).
 - Review: the Opus verifier (security fence), effort `high`.
@@ -382,7 +382,7 @@ Both drafted and Delegated under the owner's standing instruction (apply the rec
 | 1 | revise | [blocking] B1: the Diff tab's buffer side never follows the buffer; mounted beside the Editor tab, a stale side reverts it through `mirror`'s drift branch (m2i A5) | Q2 §2 "follows the buffer"; step 5 builds it in `merge.ts` with a Vitest seen failing without it; step 7 reuses it; A10 |
 | 1 | revise | [blocking] B2: step 3 lists unpublished `git.watch` in `mcp.md`, which `checkCapabilityNames` refuses | step 3 adds `git.read` only; step 4 adds `git.watch` |
 | 1 | revise | [blocking] B3: an empty override of a `required` driver (git-lfs) makes status die | Q1 §2 adds `required=false`, LFS consequence recorded; step 1's test gains a `required` case seen failing without it |
-| 1 | revise | [should] m2k merged into `main` (`3e1f1b5`): collisions and the merge step out of date; m2k edited `Project.svelte` | Starting point rewritten: fast-forward at approval and rebaseline; ADRs numbered 0066, 0067 at step 1; step 10 dropped |
+| 1 | revise | [should] m2k merged into `main` (`e74a2a3`): collisions and the merge step out of date; m2k edited `Project.svelte` | Starting point rewritten: fast-forward at approval and rebaseline; ADRs numbered 0066, 0067 at step 1; step 10 dropped |
 | 1 | revise | [should] trust read once per watch; [should] pid-only kill; [should] 9(c) cannot fail; [should] timing misses stat-dirty; [should] 7(a) conflicting assertions; [should] the owner judges the scroll last | per tick (`TestWatchRevokedTrustRunsNoFilter`); group kill (`TestCancelKillsTheGroup`); 9(c) a 50 ms sampler that must first see git; 1(d) timed after `touch`; 7(a) exact at line tops only; the scroll check moved to step 7 |
 | 2 | revise | B1 not resolved: the described Vitest cannot run (`environment: 'node'`, no view), and a follower over `sliceDoc()` corrupts CRLF files; a separator change on reload does too | step 5: a pure `follow` over `doc.toString()` positions, an annotation the `mirrored` listener skips, a remount on a separator or read-only change; tested on `EditorState`s, LF and CRLF, seen failing without `follow` and with `sliceDoc`; a level-4 two-tab save; step 7 reuses it. No third round (`milestone-plan` §Writing one, item 7) |
 | 2 | — | B2, B3 resolved | — |

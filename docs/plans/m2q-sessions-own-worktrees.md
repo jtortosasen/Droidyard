@@ -39,7 +39,7 @@
 
 ## Starting point
 
-`m2q` at `c81150a` (main `bce7944` plus the work-board change); API `0.26.0` (`internal/domain/system/system.go`); ADRs up to 0075.
+`m2q` at `06e4ded` (main `e395bda` plus the work-board change); API `0.26.0` (`internal/domain/system/system.go`); ADRs up to 0075.
 
 - **Trust** is one function: `internal/policy/policy.go` `Trusted(root)` (`trustedBy`: an exact `trust.roots` entry or a `trust.prefixes` entry at a component boundary, canonicalised). Every trust decision goes through it: `Authorize` (the Gradle capabilities, the git writes, `shell.exec`), `internal/workspace/workspace.go` `trusted` (`open`, `describe`, `workspace.watch` rows), `internal/domain/git/git.go` `trusted` (filter neutralising on an untrusted root). `ShellAllowed` matches `shell.roots` with the same `trustedBy`.
 - **Git worktrees.** Nothing reads git's administrative files; `git.refs` already lists the repository's worktrees (`internal/domain/git/refs.go` `RefsWorktree`, from `worktree list --porcelain -z`), and the Git side panel shows them read-only (`web/src/lib/git/refs.ts`, `RefsPanel.svelte`; a click reveals the commit).
@@ -48,7 +48,7 @@
 - **The hook.** `cmd/droidyard/hook.go` records an observed command (`recordCommands`) and routes an `rm` (`assistant.RouteRm`) against `--root`, the root `init` wrote. `assistant.DecodeAfterEvent` reads no `cwd`; `DecodeHookEvent` reads it, and Cursor's `beforeShellExecution` carries `""` [obs, m2j step 6].
 - **The tab.** `cmd/droidyard/client.go` `ui` opens a project, then always calls `openURL` (a new tab). `workspace.watch` subscriptions are the tabs' (`internal/workspace/watch.go`, `Bus.Broadcast`).
 - **The tool list** is 28,059 B of `maxToolListBytes` 29,000 (`TestToolListModelFacingBytes`, run 2026-10-18).
-- **Baseline, 2026-10-18 at `c81150a`:** `go vet ./...` clean; `go test ./...` ok in every package. This file fails `internal/doccheck` `TestPlansIndexMatchesFiles` until the main session adds its row to `docs/plans/README.md`.
+- **Baseline, 2026-10-18 at `06e4ded`:** `go vet ./...` clean; `go test ./...` ok in every package. This file fails `internal/doccheck` `TestPlansIndexMatchesFiles` until the main session adds its row to `docs/plans/README.md`.
 
 ## Acceptance
 
@@ -192,12 +192,12 @@
 - Needs: step 4; Claude Code; real Gradle with `samples/golden`'s dependencies cached (as m2o step 7).
 - Not here: the UI; a measurement of how often agents follow the rule (Unverified).
 - Rests on: an agent told by the skill makes or reuses the worktree and enters it before building, at level 5 (one run per client).
-- [x] Done. Evidence: with step 5b, final run on `7957aa4`, `$R` `/private/tmp/dy5q.7WIS`, Claude Code 2.1.302 `-p --model sonnet`, through the recorder.
+- [x] Done. Evidence: with step 5b, final run on `5f07019`, `$R` `/private/tmp/dy5q.7WIS`, Claude Code 2.1.302 `-p --model sonnet`, through the recorder.
   - **Chat 0**, a question: only `project_modules`; `git worktree list` is unchanged.
   - **Chat 1** (`chat1b`), with the text named; the unnamed prompt made the agent ask for the new text, saying it would use a `fix-greeting` worktree. The wire runs `workspace_describe`, then `workspace_enter {root: …/repo5-fix-greeting}` (`trusted: true`, `mainRoot` `…/repo5`), then `build_assemble`. The log shows `build.assemble workspace=repo5-fix-greeting-9fad7e414669`. Main has no tracked change.
   - **Chat 2**, "continue task": `workspace_describe`, whose `worktrees` lists `repo5-fix-greeting`, then `workspace_enter` into it, then a build in it. No new worktree.
   - **Chat 3**, `--resume` of chat 1: only `build_assemble` on the wire. The restore's `workspace.enter` is in the log, and the build ran in the worktree's workspace (ADR-0088).
-  - **Earlier runs:** on `c462718`, chat 1 built on main, which led to the text revision (Changes). On `032f30f`, chats 1 and 3 passed and chat 2 built on main, which led to step 5b (Changes, ADR-0089). The owner's adb server is unchanged (pid 70176, started Oct 15 10:21:23).
+  - **Earlier runs:** on `9d6b6c6`, chat 1 built on main, which led to the text revision (Changes). On `cae9b38`, chats 1 and 3 passed and chat 2 built on main, which led to step 5b (Changes, ADR-0089). The owner's adb server is unchanged (pid 70176, started Oct 15 10:21:23).
   - **cursor-agent:** not run here; step 10 runs it.
   - **Unverified:** how often agents follow the rule; one run per prompt is not a measurement.
 
@@ -341,7 +341,7 @@
 - Not here: the Cursor app (the owner's trial).
 - Rests on: —
 - Review: the Opus verifier at the close.
-- [x] Done. Evidence: the run was on `0ec06dc`, `$R` `/private/tmp/dy5q.MeSA`, with the UI held open in headless Chrome over CDP (`evidence/ui/watch.log`, `panel-final.png`).
+- [x] Done. Evidence: the run was on `029f423`, `$R` `/private/tmp/dy5q.MeSA`, with the UI held open in headless Chrome over CDP (`evidence/ui/watch.log`, `panel-final.png`).
   - **(a)** Two concurrent Claude Code chats that called no tool appeared as two rows, `claude-code 3` and `claude-code 4` on main, and left when they ended. Their connections show no `tools/call`.
   - **(b)** Chat A, a development task, made `repo5-fix-greeting`, entered it, and built there (`build.assemble workspace=repo5-fix-greeting-…`). Its row read `claude-code repo5-fix-greeting`. A selection that follows a session, and the Git panel's session names, were shown at level 4 in step 8.
   - **(c)** Chat A's own `./gradlew tasks`, run with `cd <worktree> && …`, was recorded under `repo5`, not the worktree. Claude Code printed "Shell cwd was reset to …/repo5" (a register row).
@@ -350,7 +350,7 @@
   - **(f)** A directory whose `.git` file was copied from the worktree's opened with `trusted: false` and no `mainRoot`. `build.tasks` there answered `WORKSPACE_UNTRUSTED`.
   - **cursor-agent**, one development chat: `workspace_describe`, a new worktree `repo5-rename-label`, `workspace_enter`, and a build there. Main has no tracked change.
   - The evidence holds no email address, and the owner's adb server is unchanged (pid 70176).
-  - **Contract meeting:** `main` was merged after 2p's close (`b4f2369`, API 0.28.0) and has not moved since.
+  - **Contract meeting:** `main` was merged after 2p's close (`fc76857`, API 0.28.0) and has not moved since.
   - **Documents:** `workspace-state.md` (worktrees, the moving binding, inherited trust), `overview.md`, and `http-websocket.md` (one tab). The register closes three rows and adds fifteen. The close verifier found `docs/vision/glossary.md`, whose Session entry now says the binding moves (ADR-0082 §Consequences).
 
 ## Not in this milestone

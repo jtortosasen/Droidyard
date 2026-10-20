@@ -36,7 +36,7 @@ Cursor app 3.23.23, `cursor-agent` 2026.10.01-e373342, OpenCode v2.0.18, Claude 
      sent in full, or they cost less than the built-in tools the droidyard arm had
      denied. The run logs cannot tell these apart. [inf]
 2. **What we actually ship is 130 KB, not 61 KB.** [obs] `tools/list` in
-   `runs/dy1/wire.s2c.jsonl` (commit 8924a73) is 130.0 KB of compact JSON:
+   `runs/dy1/wire.s2c.jsonl` (commit f501c25) is 130.0 KB of compact JSON:
    - descriptions 32.8 KB;
    - inputSchemas 22.0 KB;
    - **outputSchemas 75.2 KB**;

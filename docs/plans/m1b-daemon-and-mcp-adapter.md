@@ -35,7 +35,7 @@ The names 1c and 1d are this plan's proposal for the cut; the owner names milest
 
 ## Starting point
 
-Code, from milestone 1 (commit `81e0117`):
+Code, from milestone 1 (commit `8d34b6c`):
 
 - `internal/capability/`: `Descriptor`, `Registry` (name rule, required fields, override reasons), `ResolveAnnotations`, `Error` with the codes in `error.go`, including `DAEMON_VERSION_MISMATCH`, `OPERATION_NOT_FOUND`, `OPERATION_CANCELLED`, `REQUEST_CAPABILITY_NOT_FOUND`, `REQUEST_INVALID_PARAMS`, `REQUEST_MISSING_WORKSPACE`, `REQUEST_UNEXPECTED_WORKSPACE`, `REQUEST_NOT_ALLOWED_HERE`. **No operations**: there is no `Start`, `Wait`, `Cancel` or operation store. `Call.Untrusted` exists but nothing derives it.
 - `internal/schema/`: `Generate`, and `OperationView` / `Progress` / `BlockedBy`. A long-running capability's output is the bare view; its `result` is a `json.RawMessage`, not the capability's result schema.

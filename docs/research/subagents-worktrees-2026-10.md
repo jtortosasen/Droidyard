@@ -74,7 +74,7 @@ field.
   problem: the server instructions ([mcp.md](../interfaces/mcp.md) §Server instructions) and the
   `droidyard-android` skill (§Development in a worktree) tell every agent that a task changing
   code gets a worktree and `workspace_enter`s it, and that the builds that follow act on it. A
-  subagent that follows them moves its parent [read: the text at 2026-10-19, `main` 19f6025].
+  subagent that follows them moves its parent [read: the text at 2026-10-19, `main` 6009a91].
   Option G holds in this repository because its implementers do not use the droidyard tools.
 
 ## 4. Orca [read]
