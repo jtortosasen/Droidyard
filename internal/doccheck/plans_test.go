@@ -24,6 +24,7 @@ var (
 	acceptItem  = regexp.MustCompile(`^- \[( |x|X)\] `)
 	provenBy    = regexp.MustCompile(`Proven by:(.*)$`)
 	number      = regexp.MustCompile(`\d+`)
+	codeSpan    = regexp.MustCompile("`[^`]*`")
 	placeholder = regexp.MustCompile(`^<[^>]*>$`)
 )
 
@@ -160,7 +161,8 @@ func checkPlans(fsys fs.FS) []string {
 					add("%s:%d: the acceptance item does not say which step proves it. End it with \"Proven by: step <n>\"", p, lineNo(i))
 					continue
 				}
-				nums := number.FindAllString(m[1], -1)
+				// A code span (a commit, a path) is not a step number.
+				nums := number.FindAllString(codeSpan.ReplaceAllString(m[1], ""), -1)
 				if len(nums) == 0 {
 					add("%s:%d: \"Proven by:\" names no step number", p, lineNo(i))
 				}
