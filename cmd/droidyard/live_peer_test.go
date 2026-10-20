@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"net"
 	"net/netip"
@@ -133,10 +134,24 @@ func TestLivePeerConfig(t *testing.T) {
 	testtime.Eventually(t, reconcileBound, "the listener to bind again", func() bool { return hostingOf(t, hostState).Listen == addr })
 }
 
+// answersAsThisDaemon reports whether addr takes a TLS handshake and presents the certificate
+// whose fingerprint is fp: this daemon's peer listener. A bare dial would also take any other
+// socket that holds the port once the daemon's is closed, on a machine whose test processes
+// bind and release ports all the time (a free port is anyone's), and that is not the claim.
+func answersAsThisDaemon(addr, fp string) bool {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: time.Second}, "tcp", addr, &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	certs := conn.ConnectionState().PeerCertificates
+	return len(certs) > 0 && hosting.SamePin(hosting.FingerprintOf(certs[0]), fp)
+}
+
 // TestReconcileFollowsInterfaces: the daemon reads this machine's interfaces at every
 // reconcile, not once. An in-process daemon with an injected lister that holds 127.0.0.1 as
 // the only address, under hosting.on 127.0.0.1: when the lister drops it the listener closes
-// within 3 s and the port stops accepting; when it returns the listener is bound again, at the
+// within 3 s and the port no longer answers as this daemon; when it returns the listener is bound again, at the
 // same port. Seen failing with the interfaces read once (the first answer kept).
 func TestReconcileFollowsInterfaces(t *testing.T) {
 	t.Parallel()
@@ -162,11 +177,14 @@ func TestReconcileFollowsInterfaces(t *testing.T) {
 	listening := func() []string { return p.host.Health().Hosting.Listening }
 
 	testtime.Eventually(t, reconcileBound, "the listener to bind the address the lister holds", func() bool { return len(listening()) == 1 && listening()[0] == want })
+	// The probe below is only worth something if it sees the listener while it is up.
+	if !answersAsThisDaemon(want, p.host.Fingerprint()) {
+		t.Fatalf("%s is listed as listening, and does not answer as this daemon (%s)", want, p.host.Fingerprint())
+	}
 	present.Store(false)
 	testtime.Eventually(t, reconcileBound, "the listener to close when the lister drops the address", func() bool { return len(listening()) == 0 })
-	if c, err := net.DialTimeout("tcp", want, time.Second); err == nil {
-		c.Close()
-		t.Error("the port still accepts after the address left the interfaces")
+	if answersAsThisDaemon(want, p.host.Fingerprint()) {
+		t.Error("the port still answers as this daemon after the address left the interfaces")
 	}
 	present.Store(true)
 	testtime.Eventually(t, reconcileBound, "the listener to bind again when the address returns", func() bool { return len(listening()) == 1 && listening()[0] == want })

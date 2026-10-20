@@ -13,6 +13,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/git/gittest"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // submodulesPage calls git.submodules as the UI would.
@@ -495,9 +496,14 @@ func TestSubmodulesSlim(t *testing.T) {
 // dirty. No marker may appear. The control is plain git, asked the way that runs them,
 // and a walk that reads the drivers in the superproject only would run them here: the
 // superproject has no such driver.
+//
+// The claim is the fence, not git's speed: the fixture's limit is a hang guard, 60 s
+// scaled, as TestHistoryFence's is (a loaded machine took a submodule's status past the
+// product's 10 s).
 func TestSubmodulesFence(t *testing.T) {
 	t.Parallel()
 	f := newReadFx(t)
+	f.readTimeout = testtime.Bound(60 * time.Second)
 	s := gittest.Submodules(t, filepath.Join(t.TempDir(), "fx"))
 	f.at(s.Super)
 	lib := filepath.Join(s.Super, "lib")

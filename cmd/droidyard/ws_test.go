@@ -24,6 +24,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/file"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The WebSocket session, on the shipped wiring in process with real TCP and a
@@ -162,10 +163,14 @@ func (w *wsClient) next(d time.Duration) (f wsFrame, ok bool) {
 	return wsFrame{}, false
 }
 
-// must is next with a deadline that fails the test.
+// must is next with a hang guard that fails the test. It is a guard and no more: a response
+// can wait on the other daemon's start, which runs the fake adb as processes: a relayed
+// device.watchScreen answers when the host's stream is up, and a host whose fake adb is slow
+// (reproduced with a 12 s delay on `forward`) outlasted the 10 s that stood here, ending
+// the test while the daemon was still starting the stream (plan m2v, step 5).
 func (w *wsClient) must(what string) wsFrame {
 	w.t.Helper()
-	f, ok := w.next(10 * time.Second)
+	f, ok := w.next(testtime.Bound(30 * time.Second))
 	if !ok {
 		w.t.Fatalf("%s: no frame (the connection ended: %v)", what, w.endedErr())
 	}

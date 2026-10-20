@@ -114,11 +114,13 @@ func (h *dialogHarness) start(t *testing.T) string {
 
 // waitForFile waits for the complete file a fake dialog writes. The wait is a hang guard:
 // the first run of a script the test has just written can take seconds on a loaded
-// machine, so no short bound is a claim about the dialog.
+// machine (a host's scanner may read each new executable first: plan m2v, step 6's rerun
+// saw 0.35 s against 0.08 s for a second run at load 5), so no short bound is a claim
+// about the dialog. It is upSpawn's bound: at load 18 10 s was not enough, at 41 30 s.
 func waitForFile(t *testing.T, path string) string {
 	t.Helper()
 	var got string
-	testtime.Eventually(t, testtime.Bound(10*time.Second), path+" was never written", func() bool {
+	testtime.Eventually(t, testtime.Bound(60*time.Second), path+" was never written", func() bool {
 		raw, err := os.ReadFile(path)
 		if err != nil || !strings.HasSuffix(string(raw), "\n") {
 			return false
@@ -140,7 +142,7 @@ func upSpawn(spawn func(*exec.Cmd) (func() error, error), dir string, up *atomic
 		if err != nil {
 			return nil, err
 		}
-		for deadline := time.Now().Add(testtime.Bound(30 * time.Second)); ; time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(testtime.Bound(60 * time.Second)); ; time.Sleep(10 * time.Millisecond) {
 			if raw, err := os.ReadFile(filepath.Join(dir, "child")); err == nil && strings.HasSuffix(string(raw), "\n") {
 				up.Store(time.Now().UnixNano())
 				return wait, nil

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"slices"
@@ -159,6 +160,27 @@ func TestForegroundShare(t *testing.T) {
 		return false
 	}
 
+	// listedOnWS is listed over a WebSocket of the client daemon, which the loss measurement
+	// uses: no process is spawned between the share's end and the answer.
+	lw := wsConnect(t, client)
+	listings := 0
+	listedOnWS := func() bool {
+		listings++
+		id := fmt.Sprintf("list%d", listings)
+		lw.send(id, "device.list", "", `{}`, nil)
+		_, f := lw.collect(id)
+		var res device.ListResult
+		if f.Error != nil || json.Unmarshal(f.Result, &res) != nil {
+			t.Fatalf("client device.list over the WebSocket: %+v %s", f.Error, f.Result)
+		}
+		for _, d := range res.Devices {
+			if d.Device == remoteID {
+				return true
+			}
+		}
+		return false
+	}
+
 	// lossBound is ADR-0104 §4's 2 s with the slack the pre-commit hook's load needed (above).
 	// It is a product claim, scaled because level 5 timed every way the share ends: m2u's runs
 	// 7 (b) and 8 (a) timed SIGINT (190 ms, 89 ms), and SIGINT, SIGTERM and SIGHUP share one
@@ -194,17 +216,13 @@ func TestForegroundShare(t *testing.T) {
 			during(sh, code)
 		}
 
-		// The bound is 2 s (ADR-0104 §4; measured 40–600 ms alone and at level 5); a full
-		// parallel run of this package under the pre-commit hook has reached 2.0 s, so the
-		// test allows lossBound (the caller's) and logs what it measured.
+		// The bound is 2 s (ADR-0104 §4; measured 40–600 ms alone and at level 5), scaled to
+		// lossBound. It is measured on the daemon's own pushes: the stream's stopped event is
+		// read from the WebSocket the moment it arrives, and the listing is asked over another
+		// WebSocket of the same client daemon, not through a spawned CLI, whose start-up under
+		// load (seconds, at a load average of 20) took the budget the loss itself did not.
 		start := time.Now()
 		end(sh)
-		for listed() {
-			if time.Since(start) > lossBound {
-				t.Fatalf("the client still lists %s %v after the share ended", remoteID, time.Since(start))
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
 		for {
 			f, ok := ws.next(lossBound - time.Since(start))
 			if !ok {
@@ -218,6 +236,12 @@ func TestForegroundShare(t *testing.T) {
 				t.Errorf("the Logcat stream stopped as %s (%v); want deviceGone", f.Event.Payload, err)
 			}
 			break
+		}
+		for listedOnWS() {
+			if time.Since(start) > lossBound {
+				t.Fatalf("the client still lists %s %v after the share ended", remoteID, time.Since(start))
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
 		t.Logf("the client lost the device and its stream %v after the share ended", time.Since(start))
 		return sh
