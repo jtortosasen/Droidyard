@@ -9,7 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
+
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // The fence of the history reads (plan m2n step 1c; Q1 §3). ADR-0066 §Consequences: the
@@ -377,6 +380,12 @@ func TestHistoryFence(t *testing.T) {
 		t.Run(a.id, func(t *testing.T) {
 			t.Parallel()
 			e := needGit(t)
+			// The claim is the fence, not git's speed, and no attack here is a hang the
+			// product's 10 s limit is meant to end (none sleeps; the attacks' scripts end at
+			// once): the runner's limit is a hang guard, so a loaded machine cannot turn a
+			// slow git into a failure of the fence. A fence that ran something is still seen,
+			// by the marker, and a git that hangs is still ended, 60 s scaled later.
+			e.r.timeout = testtime.Bound(60 * time.Second)
 			mark := filepath.Join(t.TempDir(), "mark")
 			script := e.script("attack.sh", "touch '"+mark+"'\ncat")
 			dir, _ := e.historyRepo(a.attrs)

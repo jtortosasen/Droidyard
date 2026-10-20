@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/status/*.z from real git")
@@ -127,15 +129,51 @@ func (e *env) commit(dir string) {
 // touches counts touch's calls, so that each sets its own second.
 var touches atomic.Int64
 
+// touchBase is the one instant every touch counts back from, a whole second chosen once:
+// the touches of a run differ by whole seconds exactly, whatever time passes between them.
+var touchBase = time.Now().Truncate(time.Second).Add(-72 * time.Hour)
+
 // touch gives a file a new mtime and leaves its bytes alone: stat-dirty, same content.
 func (e *env) touch(dir, rel string) {
 	e.t.Helper()
 	// A whole second apart from every other touch: a git built without nanosecond stat
 	// times (Ubuntu's) compares seconds, so two touches within one second would look the
-	// same and git would not look at the file again.
-	when := time.Now().Add(-72*time.Hour - time.Duration(touches.Add(1))*time.Second)
+	// same and git would not look at the file again. Counting back from time.Now() at each
+	// call, as this once did, moved the base by the real time between two touches, and two
+	// touches in a row could land in one second again on a loaded machine.
+	when := touchBase.Add(-time.Duration(touches.Add(1)) * time.Second)
 	if err := os.Chtimes(filepath.Join(dir, rel), when, when); err != nil {
 		e.t.Fatal(err)
+	}
+}
+
+// Decision (plan m2v step 4): any two touches differ by a whole number of seconds, and by at
+// least one, whatever real time passed between them, so a git that compares whole seconds
+// (Ubuntu's) sees every touch as a change. Counting back from time.Now() at each call made
+// the difference a number of seconds less the time that had passed, which can be under a
+// second and then lands in the same second.
+func TestTouchSetsAWholeSecondOfItsOwn(t *testing.T) {
+	t.Parallel()
+	e := &env{t: t}
+	p := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var mtimes []time.Time
+	for i := 0; i < 4; i++ {
+		e.touch(filepath.Dir(p), "f")
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mtimes = append(mtimes, st.ModTime())
+		time.Sleep(30 * time.Millisecond)
+	}
+	for i := 1; i < len(mtimes); i++ {
+		d := mtimes[i-1].Sub(mtimes[i])
+		if d < time.Second || d%time.Second != 0 {
+			t.Errorf("touches %d and %d are %v apart; want a whole number of seconds, at least one", i-1, i, d)
+		}
 	}
 }
 
@@ -446,8 +484,14 @@ func TestCancelKillsTheGroup(t *testing.T) {
 
 // Decision (Q1 §2): the run's own timeout ends the call with ErrTimeout, not a bare
 // context error, and kills the group.
+//
+// The limit runs from git's start, so on a loaded machine it can pass before git reached
+// the filter; that attempt proves nothing about the filter's process (no pid file), and
+// untilConclusive tries again with twice the limit. An attempt that has the pid file is
+// decisive: it must end in ErrTimeout with the filter gone. The limit under test stays
+// short, far below the filter's 60 s sleep, so a runner that did not kill the group is seen.
 func TestTimeoutKillsTheGroup(t *testing.T) {
-	// Not parallel: its runner limit is 3 s and the filter has to start inside it.
+	t.Parallel()
 	e := needGit(t)
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	slow := e.script("slow.sh", "echo $$ > '"+pidFile+"'\nexec sleep 60")
@@ -457,28 +501,27 @@ func TestTimeoutKillsTheGroup(t *testing.T) {
 	e.commit(dir)
 	e.appendConfig(dir, "[filter \"slow\"]\n\tclean = "+slow+"\n")
 	e.write(dir, "c.txt", "two\n")
-	// Long enough for git to reach the filter under a loaded `go test ./...` (500 ms
-	// was not), far shorter than the filter's sleep.
-	e.r.timeout = 3 * time.Second
-	_, err := e.r.run(context.Background(), dir, true, nil, statusArgs...)
-	if !errors.Is(err, ErrTimeout) {
-		t.Fatalf("err = %v, want ErrTimeout", err)
-	}
-	b, rerr := os.ReadFile(pidFile)
-	if rerr != nil {
-		t.Fatal("the filter never started")
-	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-	defer syscall.Kill(pid, syscall.SIGKILL)
-	gone := false
-	for i := 0; i < 150 && !gone; i++ {
-		gone = syscall.Kill(pid, 0) == syscall.ESRCH
-		if !gone {
-			time.Sleep(20 * time.Millisecond)
+	tried, ok := untilConclusive(3*time.Second, func(limit time.Duration) bool {
+		os.Remove(pidFile)
+		e.r.timeout = limit
+		_, err := e.r.run(context.Background(), dir, true, nil, statusArgs...)
+		if !errors.Is(err, ErrTimeout) {
+			t.Fatalf("limit %s: err = %v, want ErrTimeout", limit, err)
 		}
-	}
-	if !gone {
-		t.Errorf("filter process %d outlived the timeout", pid)
+		b, rerr := os.ReadFile(pidFile)
+		if rerr != nil {
+			return false // git did not reach the filter inside the limit
+		}
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		defer syscall.Kill(pid, syscall.SIGKILL)
+		// The kill is done when run returned; this wait is init reaping the orphan, a hang guard.
+		testtime.Eventually(t, testtime.Bound(3*time.Second), "the filter process to be gone after the timeout", func() bool {
+			return syscall.Kill(pid, 0) == syscall.ESRCH
+		})
+		return true
+	})
+	if !ok {
+		t.Fatalf("git never reached the filter inside the limit, tried %v: the machine is too loaded to prove the group is ended", tried)
 	}
 }
 

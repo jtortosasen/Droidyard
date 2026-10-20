@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/git/gittest"
 	"github.com/jtortosasen/droidyard/internal/platform"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // subsFx is a wfx whose workspace is a superproject with submodules.
@@ -380,17 +381,19 @@ func TestUpdateCancel(t *testing.T) {
 // with a nextStep that names the exact submodule to update in a terminal (not every
 // submodule of the repository). The limit is shortened for the test, and the hang must be
 // reached: extra's clone hangs in a pack-objects hook that writes its pid, and that process
-// must be gone with its group. The limit runs from git's start, so on a loaded machine it can
-// pass before the hook starts; that attempt proves nothing about the grandchild and is
-// tried again, and the test fails if no attempt in five reached the hook.
+// must be gone with its group. The limit runs from git's start, so on a loaded machine it
+// can pass before the hook starts; that attempt proves nothing about the grandchild (no pid
+// file) and untilConclusive tries again with twice the limit. An attempt that has the pid
+// file is decisive and must end in GIT_FAILED with the hook and its group gone. The group
+// check of an inconclusive attempt stays: a retry never hides a leaked group.
 func TestUpdateTimeout(t *testing.T) {
-	// Not parallel: its limit is 3 s and the hung remote has to start inside it (it retries five times).
+	t.Parallel()
 	t.Log(gitVersion(t))
 	type answer struct {
 		res UpdateSubmodulesResult
 		err *capability.Error
 	}
-	for attempt := 1; attempt <= 5; attempt++ {
+	tried, ok := untilConclusive(3*time.Second, func(limit time.Duration) bool {
 		f := newSubsFx(t)
 		f.open(f.clone())
 		pidFile := filepath.Join(t.TempDir(), "hook.pid")
@@ -398,7 +401,7 @@ func TestUpdateTimeout(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(f.e.home, ".gitconfig"), []byte(hangingRemotes(hook)), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		f.timeout = 3 * time.Second
+		f.timeout = limit
 		f.register()
 
 		got := make(chan answer, 1)
@@ -423,7 +426,7 @@ func TestUpdateTimeout(t *testing.T) {
 			pgid = mustPgid(child)
 			select {
 			case a = <-got:
-			case <-time.After(30 * time.Second):
+			case <-time.After(limit + testtime.Bound(30*time.Second)): // a hang guard past the limit
 				t.Fatal("git.updateSubmodules did not return past its limit")
 			}
 		}
@@ -437,15 +440,17 @@ func TestUpdateTimeout(t *testing.T) {
 			}
 		}
 		if child == 0 {
-			t.Logf("attempt %d: the limit passed before the hook started; trying again", attempt)
-			continue
+			t.Logf("limit %s: it passed before the hook started; trying again with twice the limit", limit)
+			return false
 		}
 		if groupLive(pgid) || pidLive(child) {
 			t.Errorf("the group %d (hook %d) outlived the timed-out call", pgid, child)
 		}
-		return
+		return true
+	})
+	if !ok {
+		t.Fatalf("the hook never started inside the limit, tried %v: the machine is too loaded to prove the group is ended", tried)
 	}
-	t.Fatal("the hook never started within the limit in five attempts: the machine is too loaded to prove the group is ended")
 }
 
 // Decision (ADR-0071 §3): a timed-out nested run's nextStep names the path relative to the

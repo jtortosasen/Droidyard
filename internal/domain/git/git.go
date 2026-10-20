@@ -80,6 +80,10 @@ type Options struct {
 	// writeTimeout, when > 0, replaces ADR-0071 §3's limit of every write: a test
 	// shortens it. The shipped binary cannot set it.
 	writeTimeout time.Duration
+	// readTimeout, when > 0, replaces runTimeout for every read git: a test whose claim is
+	// not git's speed (the 4 MiB cap of an output git must write first) lengthens it as a
+	// hang guard. The shipped binary cannot set it.
+	readTimeout time.Duration
 }
 
 // Register adds git.read, git.watch, git.log, git.refs, git.show, git.fetch, git.pull,
@@ -128,7 +132,11 @@ func (o Options) runner() (*runner, *capability.Error) {
 	if o.Environ != nil {
 		environ = o.Environ
 	}
-	return newRunner(o.Starter, path, environ()), nil
+	r := newRunner(o.Starter, path, environ())
+	if o.readTimeout > 0 {
+		r.timeout = o.readTimeout
+	}
+	return r, nil
 }
 
 // trusted is policy.Trusted's answer for root; a missing hook or an unreadable

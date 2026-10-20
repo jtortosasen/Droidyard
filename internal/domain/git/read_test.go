@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/file"
@@ -28,6 +29,8 @@ type readFx struct {
 	look     func(string) (string, error)
 	reg      *capability.Registry
 	platform platform.Env
+	// readTimeout, when > 0, replaces the 10 s limit of every read git (Options.readTimeout).
+	readTimeout time.Duration
 }
 
 // newReadFx builds a repository (not yet holding a commit) and registers git.read on
@@ -63,6 +66,8 @@ func (f *readFx) register() {
 		Env:     f.platform,
 		Environ: f.osEnviron,
 		Trusted: func(root string) (bool, *capability.Error) { return f.trusted(root) },
+
+		readTimeout: f.readTimeout,
 		Starter: func(cmd *exec.Cmd) error {
 			f.starts.Add(1)
 			if f.onStart != nil {
