@@ -178,7 +178,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Scope:        capability.Workspace,
 		Statefulness: capability.Streaming,
 		Since:        "0.16.0",
-		Description:  "Streams every build console of the workspace to the calling WebSocket session while it runs: whole lines on topic build.output, with the byte offset of the first. The result lists the running builds with each console's size taken after the subscription opened; read [0, offset) with artifact.read, apply the events from there, and after an events.gap read on from the last offset.",
+		Description:  "Streams every build console of the workspace to the calling session (WebSocket or CLI) while it runs: whole lines on topic build.output, with the byte offset of the first. The result lists the running builds with each console's size taken after the subscription opened; read [0, offset) with artifact.read, apply the events from there, and after an events.gap read on from the last offset.",
 		Params:       struct{}{},
 		Result:       WatchOutputResult{},
 		Events: &capability.Events{

@@ -310,7 +310,7 @@ func TestUIWithoutAnHTTPListener(t *testing.T) {
 	reg, ops, _, _, _, _, _ := registry(isolatedEnv(t), st, nil, io.Discard)
 	d, err := daemon.Start(daemon.Options{
 		State: state, Store: st, Socket: sockFor(state), Version: system.Version, UID: os.Getuid(), Ops: ops,
-		Handlers: map[capability.ClientKind]daemon.Handler{capability.ClientCLI: daemon.Native(reg, ops)},
+		Handlers: map[capability.ClientKind]daemon.Handler{capability.ClientCLI: daemon.Native(reg, ops, nil)},
 	})
 	if err != nil {
 		t.Fatal(err)

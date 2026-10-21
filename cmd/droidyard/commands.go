@@ -93,7 +93,7 @@ type cmdTree struct {
 }
 
 // newCmdTree builds the tree from the binary's own registry, as caps does, so help works
-// with no daemon (ADR-0122 D14).
+// with no daemon (plan m2z D14).
 func newCmdTree() (*cmdTree, error) {
 	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
 	return buildTree(reg)
@@ -129,13 +129,23 @@ func (ct *cmdTree) prepare(args []string) {
 // dispatch runs a command line.
 func (ct *cmdTree) dispatch(args []string, out, errOut io.Writer) int {
 	ct.prepare(args)
-	return ct.Dispatch(args, os.Getenv, out, errOut, runDerived)
+	return ct.Dispatch(args, os.Getenv, out, errOut, ct.runDerived)
 }
 
-// runDerived makes the call a derived command parsed, as `droidyard call` does. The
-// envelope is printed as call prints it; human output is a later step (plan m2z step 4).
-func runDerived(d cli.Derived) int {
-	return runCapability(strings.ReplaceAll(d.Call.Capability, ".", " "), d.Call)
+// runDerived makes the call a derived command parsed. A derived command prints for a
+// person unless it was given --json (plan m2z D7, D8): the descriptor's Text renderer,
+// else the generic one. `droidyard call` stays the envelope.
+func (ct *cmdTree) runDerived(d cli.Derived) int {
+	c := d.Call
+	if !d.JSON {
+		c.Human = true
+		c.Who = strings.ReplaceAll(c.Capability, ".", " ")
+		if desc, ok := ct.reg.Lookup(c.Capability); ok {
+			c.Text = textAdapter(desc)
+			c.UntrustedEvents = untrustedEvents(desc)
+		}
+	}
+	return runCapability(strings.ReplaceAll(d.Call.Capability, ".", " "), c)
 }
 
 // help prints the help for a path: the index, a domain, a verb or a hand command.
@@ -165,7 +175,7 @@ func stdio(run func(args []string, out, errOut io.Writer) int) func([]string) in
 }
 
 // handCommands is every command that is not a capability. None is renamed from the
-// binary's first form (ADR-0122 D12); `device allow|disallow` and `artifact cat` are verbs
+// binary's first form (plan m2z D12); `device allow|disallow` and `artifact cat` are verbs
 // of the domains they belong to (D13).
 func handCommands(ct *cmdTree) []handCommand {
 	return []handCommand{

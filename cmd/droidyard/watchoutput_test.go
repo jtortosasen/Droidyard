@@ -15,10 +15,11 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle/gradletest"
 )
 
-// TestWatchOutputNeedsASession: build.watchOutput is streaming, so through plain HTTP, a
-// CLI call and the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET
-// /v1/ws, with no operation (ADR-0044 §4; ADR-0010). The MCP adapter lists no
-// build_watchOutput tool (TestMCPTranscript counts the tools).
+// TestWatchOutputNeedsASession: build.watchOutput is streaming, so through plain HTTP and
+// the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET /v1/ws, with no
+// operation (ADR-0044 §4; ADR-0010). A CLI connection carries streams (ADR-0122), so
+// the call succeeds there. The MCP adapter lists no build_watchOutput tool (TestMCPTranscript
+// counts the tools).
 func TestWatchOutputNeedsASession(t *testing.T) {
 	t.Parallel()
 	p, _ := startHTTP(t, "127.0.0.1:0")
@@ -37,20 +38,21 @@ func TestWatchOutputNeedsASession(t *testing.T) {
 	}
 	want("POST /v1/call build.watchOutput", envelopeOf(t, resp))
 
-	env, code := p.call(t, "build.watchOutput")
-	if code == 0 {
-		t.Error("droidyard call build.watchOutput exited 0")
+	root, _ := projectWith(t, "settings.gradle")
+	if env, code := callIn(t, p.state, root, "workspace.open"); code != 0 {
+		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
 	}
-	want("droidyard call build.watchOutput", env)
+	f := p.followIn(t, root, "build.watchOutput")
+	f.opened(t)
+	f.kill(t)
 
 	out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "build.watchOutput", Client: capability.ClientMCP})
 	var e *capability.Error
 	if !errors.As(err, &e) || e.Code != capability.ErrSessionRequired || out.OperationID != "" {
 		t.Errorf("build.watchOutput as client mcp: (%+v, %v); want SESSION_REQUIRED", out, err)
 	}
-	if n := p.bus.Subscriptions(); n != 0 {
-		t.Errorf("the rejected calls left %d subscriptions on the bus", n)
-	}
+	// The refused calls left none, and the CLI's was released with its connection.
+	waitSubscriptions(t, p, 0)
 }
 
 // TestWSWatchOutputSeesAnMCPBuild is the promise of ADR-0044: a WebSocket session that

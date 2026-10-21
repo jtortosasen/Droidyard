@@ -11,8 +11,8 @@ import (
 	"github.com/jtortosasen/droidyard/internal/event"
 )
 
-// device.watchUiEvents (ADR-0112): the screen's events as a stream for the calling WebSocket
-// session, for the web UI's panel. The call reads where the reader's ring ends, opens a
+// device.watchUiEvents (ADR-0112): the screen's events as a stream for the calling session
+// (WebSocket or CLI), for the web UI's panel. The call reads where the reader's ring ends, opens a
 // session subscription with an end hook and starts a poller that asks the reader for the
 // events after its own cursor and publishes them with Bus.PublishTo, outside the replay ring,
 // as device.watchLogs does (ADR-0041). The poller is device.uiEvents's own reach to the
@@ -50,7 +50,7 @@ type WatchUIEventsParams struct {
 
 // WatchUIEventsResult is device.watchUiEvents' result.
 type WatchUIEventsResult struct {
-	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the events arrive on, over the WebSocket session that made the call. End the stream with events.unsubscribe."`
+	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the events arrive on, over the session that made the call. End the stream with events.unsubscribe."`
 	Device         string `json:"device" jsonschema:"required"`
 }
 
@@ -93,7 +93,7 @@ func registerWatchUIEvents(reg *capability.Registry, adb *ADB) {
 		Lendable:     true,
 		Since:        "0.32.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Streams the screen's events from now on to the calling WebSocket session: batches on topic device.uiEvents, oldest first, with a gap when events were lost. One stream per session and device (a second replaces the first), ended with events.unsubscribe; an agent reads device.uiEvents instead.",
+		Description:  "Streams the screen's events from now on to the calling session (WebSocket or CLI): batches on topic device.uiEvents, oldest first, with a gap when events were lost. One stream per session and device (a second replaces the first), ended with events.unsubscribe; an agent reads device.uiEvents instead.",
 		Params:       WatchUIEventsParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(WatchUIEventsParams).Device) },
 		Result:       WatchUIEventsResult{},

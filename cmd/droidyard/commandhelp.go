@@ -1,7 +1,7 @@
 package main
 
 // The help of each hand-written command: the section of the binary's former global usage,
-// moved to the command it describes (ADR-0122 D12). `droidyard help <command>` and
+// moved to the command it describes (plan m2z D12). `droidyard help <command>` and
 // `droidyard <command> --help` print it.
 
 const capsHelp = `droidyard caps

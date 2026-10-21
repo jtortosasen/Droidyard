@@ -1095,9 +1095,10 @@ func TestWSFileWatchWorkspaceClose(t *testing.T) {
 	}
 }
 
-// TestFileWatchNeedsASession: file.watch is streaming, so through plain HTTP and a CLI call
-// it is SESSION_REQUIRED at Start, naming GET /v1/ws, with no operation (plan m1j step 4
-// (a); ADR-0010). From the core's MCP client kind it is REQUEST_NOT_ALLOWED_HERE: its
+// TestFileWatchNeedsASession: file.watch is streaming, so through plain HTTP it is
+// SESSION_REQUIRED at Start, naming GET /v1/ws, with no operation (plan m1j step 4 (a);
+// ADR-0010). A CLI connection carries streams (ADR-0122), so the call succeeds there
+// and the killed CLI releases the watch. From the core's MCP client kind it is REQUEST_NOT_ALLOWED_HERE: its
 // audience is human (ADR-0060), checked before statefulness.
 func TestFileWatchNeedsASession(t *testing.T) {
 	t.Parallel()
@@ -1118,20 +1119,22 @@ func TestFileWatchNeedsASession(t *testing.T) {
 	}
 	want("POST /v1/call file.watch", envelopeOf(t, resp))
 
-	env, code := p.call(t, "file.watch", "--params", params)
-	if code == 0 {
-		t.Error("droidyard call file.watch exited 0")
+	root, _ := projectWith(t, "settings.gradle")
+	if env, code := callIn(t, p.state, root, "workspace.open"); code != 0 {
+		t.Fatalf("workspace.open exited %d: %+v", code, env.Error)
 	}
-	want("droidyard call file.watch", env)
+	f := p.followIn(t, root, "file.watch", "--params", params)
+	f.opened(t)
+	f.kill(t)
+	waitLive(t, p.watchers, 0)
 
 	out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "file.watch", Params: json.RawMessage(params), Client: capability.ClientMCP})
 	var e *capability.Error
 	if !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere || out.OperationID != "" {
 		t.Errorf("file.watch as client mcp: (%+v, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", out, err)
 	}
-	if n := p.bus.Subscriptions(); n != 0 {
-		t.Errorf("the rejected calls left %d subscriptions on the bus", n)
-	}
+	// The refused calls left none, and the CLI's was released with its connection.
+	waitSubscriptions(t, p, 0)
 }
 
 // waitLive waits for the daemon's live poller count to reach want.

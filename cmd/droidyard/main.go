@@ -186,6 +186,9 @@ var (
 	// process starts: the in-process WebSocket test shortens it to 50 ms so a change is
 	// seen at once (plan m1j step 4). Set under adbSeamMu, like adbEnviron.
 	watchTick time.Duration
+	// gitWatchersSeam, when set, is given the git.watch poller set a registry builds: a test
+	// reads its Live count. The shipped binary never sets it. Set under adbSeamMu.
+	gitWatchersSeam func(*gitdomain.Watchers)
 	// dialogSeam, when set, adjusts the folder dialog before the daemon uses it: a test
 	// points Binary at a fake osascript and GOOS at darwin. The shipped binary never
 	// sets it.
@@ -421,6 +424,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// workspace's watches, each publishing its stopped event (plan m1j, D9; ADR-0066 §1).
 	watchers := file.NewWatchers()
 	gitWatchers := gitdomain.NewWatchers()
+	if gitWatchersSeam != nil {
+		gitWatchersSeam(gitWatchers)
+	}
 	// The trash of file.delete, under the state root, swept when a workspace opens beside
 	// the build history's sweep (ADR-0054 §3). Without a state store there is none, and
 	// file.delete and file.restore answer FILE_IO_FAILED.

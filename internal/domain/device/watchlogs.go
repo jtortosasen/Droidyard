@@ -14,7 +14,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/event"
 )
 
-// device.watchLogs (ADR-0041): a Logcat stream owned by the calling WebSocket session.
+// device.watchLogs (ADR-0041): a Logcat stream owned by the calling session.
 // The call opens a session subscription with an end hook and publishes batches of
 // parsed lines to it with Bus.PublishTo, outside the replay ring, as file.watch does
 // (ADR-0010). One `adb logcat` child runs per stream, recorded for its life and killed
@@ -78,7 +78,7 @@ type WatchLogsParams struct {
 
 // WatchLogsResult is device.watchLogs' result.
 type WatchLogsResult struct {
-	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the events arrive on, over the WebSocket session that made the call. End the stream with events.unsubscribe."`
+	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the events arrive on, over the session that made the call. End the stream with events.unsubscribe."`
 	Device         string `json:"device" jsonschema:"required"`
 	UID            *int   `json:"uid,omitempty" jsonschema:"nullable" jsonschema_description:"The application's uid when applicationId was given."`
 }
@@ -162,7 +162,7 @@ func registerWatchLogs(reg *capability.Registry, adb *ADB) {
 		Lendable:     true,
 		Since:        "0.14.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Streams a device's log to the calling WebSocket session: batches of parsed lines on topic device.logcat at most every 50 ms, from the newest tail lines or from a device-clock time. One stream per session and device (a second replaces the first), ended with events.unsubscribe.",
+		Description:  "Streams a device's log to the calling session (WebSocket or CLI): batches of parsed lines on topic device.logcat at most every 50 ms, from the newest tail lines or from a device-clock time. One stream per session and device (a second replaces the first), ended with events.unsubscribe.",
 		Params:       WatchLogsParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(WatchLogsParams).Device) },
 		Result:       WatchLogsResult{},

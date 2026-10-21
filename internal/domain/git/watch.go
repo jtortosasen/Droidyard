@@ -51,7 +51,7 @@ type WatchParams struct {
 // WatchResult is git.watch's result: the subscription, and the baseline status the
 // first event is compared with, so a client builds its view from one call and the events.
 type WatchResult struct {
-	SubscriptionID string  `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the status arrives on, over the WebSocket session that made the call. The events are the status (head, entries, truncated) on topic git.changes, at most one per second and only when it differs from the last one sent."`
+	SubscriptionID string  `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the status arrives on, over the session that made the call. The events are the status (head, entries, truncated) on topic git.changes, at most one per second and only when it differs from the last one sent."`
 	Base           string  `json:"base" jsonschema:"required,enum=HEAD" jsonschema_description:"What the status is against."`
 	Head           Head    `json:"head" jsonschema:"required" jsonschema_description:"What HEAD points at."`
 	Entries        []Entry `json:"entries" jsonschema:"required" jsonschema_description:"The paths that differ from HEAD, sorted by path; at most 5000. Empty in a result returned again after delivery."`
@@ -241,7 +241,7 @@ func (ws *Watchers) Stop(workspaceID string) {
 func (ws *Watchers) Live() int { return int(ws.live.Load()) }
 
 // registerWatch adds git.watch. A watch creates a subscription, so it is a command and
-// not a query; it is streaming, so it needs a WebSocket session (ADR-0010).
+// not a query; it is streaming, so it needs a session that carries events (ADR-0010).
 func registerWatch(reg *capability.Registry, opts Options) {
 	notDestructive := false
 	reg.MustRegister(capability.Descriptor{
@@ -252,7 +252,7 @@ func registerWatch(reg *capability.Registry, opts Options) {
 		Statefulness: capability.Streaming,
 		Since:        version,
 		Availability: []capability.Requirement{capability.RequiresGit},
-		Description:  "Watches the project's working tree against HEAD (WebSocket sessions only): the result is the status, and an event on topic git.changes carries the whole status whenever it differs from the last one sent, until the workspace closes or git can no longer report it. It asks git once a second and never takes the repository's index lock, so it cannot fail a commit made beside it.",
+		Description:  "Watches the project's working tree against HEAD for the calling session (WebSocket or CLI): the result is the status, and an event on topic git.changes carries the whole status whenever it differs from the last one sent, until the workspace closes or git can no longer report it. It asks git once a second and never takes the repository's index lock, so it cannot fail a commit made beside it.",
 		Params:       WatchParams{},
 		Result:       WatchResult{},
 		// The stream: the client is generated from it (ADR-0041 §4).

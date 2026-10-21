@@ -41,7 +41,7 @@ func blankedEnvelope(t *testing.T, raw []byte) (capability.ResponseEnvelope, str
 	return env, string(out)
 }
 
-// Decision (ADR-0122 D2, D14; plan m2z step 3): a derived command is the call. `droidyard
+// Decision (plan m2z D2, D14; plan m2z step 3): a derived command is the call. `droidyard
 // device list` and `droidyard call device.list` print the same envelope, and a workspace
 // command addresses the project root of the current directory as call does.
 func TestDerivedCommandIsTheCall(t *testing.T) {
@@ -99,7 +99,7 @@ func TestDerivedCommandIsTheCall(t *testing.T) {
 	})
 }
 
-// Decision (ADR-0122 D12): the index leads to the derived commands, the hand commands'
+// Decision (plan m2z D12): the index leads to the derived commands, the hand commands'
 // prose lives in each command's own help, and a domain lists its verbs, hand ones among
 // them.
 func TestHelpIndex(t *testing.T) {
@@ -144,7 +144,7 @@ func TestHelpIndex(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0122 D12): no hand command is renamed, so every first spelling of the
+// Decision (plan m2z D12): no hand command is renamed, so every first spelling of the
 // binary still resolves to the hand command it named; device and artifact, which are
 // capability domains too, keep their verbs as hand verbs of the domain (D13).
 func TestOldSpellings(t *testing.T) {
@@ -179,7 +179,7 @@ func TestOldSpellings(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0122 D2): a word nothing matches is a usage error that names the nearest
+// Decision (plan m2z D2): a word nothing matches is a usage error that names the nearest
 // commands, and nothing is dialled.
 func TestUnknownCommand(t *testing.T) {
 	t.Parallel()
@@ -198,7 +198,7 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0122 D5, D13): no capability's parameter may take a flag the CLI keeps for
+// Decision (plan m2z D5, D13): no capability's parameter may take a flag the CLI keeps for
 // itself or the same flag as another, and no capability may shadow a hand command (a
 // verb of its domain, or a domain named like a top-level command), so neither side is
 // shadowed silently.
@@ -232,7 +232,7 @@ func TestCLIFlagsDoNotCollide(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0122 D14): the tree is built from the binary's own registry, so `help` and
+// Decision (plan m2z D14): the tree is built from the binary's own registry, so `help` and
 // a usage error need no daemon and no state; a command reflects only its own input.
 func TestSpecsReflectNoInputUntilInvoked(t *testing.T) {
 	t.Parallel()

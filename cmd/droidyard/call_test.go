@@ -22,6 +22,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/file"
+	gitdomain "github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/hosting"
@@ -51,12 +52,14 @@ type inProcess struct {
 	bus      *event.Bus
 	store    *artifact.Store // the daemon's artifact store
 	watchers *file.Watchers  // the daemon's live file.watch pollers (plan m1j, D9)
-	adb      *device.ADB     // the daemon's adb: its Close is the daemon's AfterOps
-	token    string          // the HTTP token
-	log      *lockedBuffer   // the daemon's log, also copied to stderr
-	state    string
-	started  chan string
-	release  chan struct{}
+	// gitWatchers are the daemon's live git.watch pollers.
+	gitWatchers *gitdomain.Watchers
+	adb         *device.ADB   // the daemon's adb: its Close is the daemon's AfterOps
+	token       string        // the HTTP token
+	log         *lockedBuffer // the daemon's log, also copied to stderr
+	state       string
+	started     chan string
+	release     chan struct{}
 }
 
 func startInProcess(t *testing.T) *inProcess {
@@ -190,7 +193,9 @@ func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capabil
 		gradleLaunch, gradleFinder = adb.gradle.launch, adb.gradle.finder
 	}
 	watchTick = tick
+	gitWatchersSeam = func(w *gitdomain.Watchers) { p.gitWatchers = w }
 	reg, ops, bus, artifacts, deviceADB, watchers, host := registry(env, st, sup, os.Stderr)
+	gitWatchersSeam = nil
 	adbEnviron, adbExec, adbStreamWrap, watchTick = oldEnv, oldExec, oldWrap, oldTick
 	gradleLaunch, gradleFinder = oldLaunch, oldFinder
 	adbFloor = oldFloor
