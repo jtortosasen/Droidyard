@@ -106,6 +106,9 @@ type ADB struct {
 	bus     *event.Bus
 	streams streamSet
 
+	// uiStreams is every device.watchUiEvents stream (ADR-0112); Close ends them first.
+	uiStreams uiEventStreams
+
 	// screens is every live-view source, one per device (plan m2p step 3); Close ends
 	// them all beside the log streams.
 	screens screenSources

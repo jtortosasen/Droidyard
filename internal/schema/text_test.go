@@ -22,7 +22,7 @@ import (
 // (m1o step 5). A new one is a decision, so adding to it is a line here, deliberately.
 var rendered = []string{
 	"build.assemble", "build.lastResult", "build.run",
-	"device.inputText", "device.logs", "device.tapElement", "device.uiTree",
+	"device.inputText", "device.logs", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiTree",
 	"system.capabilities",
 }
 

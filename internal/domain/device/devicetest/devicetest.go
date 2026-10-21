@@ -29,11 +29,12 @@
 //	<serial>.screencap          `-s <serial> exec-out screencap -p` (.out holds raw bytes: a PNG)
 //	<serial>.push               `-s <serial> push <local> /data/local/tmp/droidyard-reader-*.dex` (persistent or one-shot)
 //	<serial>.reader             `-s <serial> exec-out CLASSPATH=<that file> app_process /system/bin DroidyardReader`
+//	<serial>.readerfull         the same with `dump full` or `dump full invisible` after the class name (the one-shot reader's full dump)
 //	<serial>.rmreader           `-s <serial> shell rm -f <that file>`
 //	<serial>.forward            `-s <serial> forward localfilesystem:<path> localabstract:droidyard-reader-<d12>` (.out holds the reader's port)
 //	<serial>.forwardremove      `-s <serial> forward --remove localfilesystem:<path>`
 //	<serial>.forwardlist        `-s <serial> forward --list` (see below)
-//	<serial>.stat               `-s <serial> shell stat -c %s <reader file>` (answers the fake device file's size, or fails as a missing file does, unless scripted)
+//	<serial>.sha256sum          `-s <serial> shell sha256sum <reader file>` (answers the fake device file's SHA-256 as the tool prints it, or fails as a missing file does, unless scripted)
 //	<serial>.start              `-s <serial> shell "CLASSPATH=<dex> nohup app_process /system/bin --nice-name=… DroidyardReader serve …"`
 //	<serial>.pidof              `-s <serial> shell pidof droidyard-reader-…`
 //	<serial>.kill               `-s <serial> shell kill <pid>`
@@ -140,8 +141,8 @@
 // rm -f <reader file>` removes it, and a serve start whose CLASSPATH= file is missing
 // exits 1, as does one whose file is 0 bytes long (a dex a restart truncated). So a dex a
 // fallback removed cannot be started from, and a test sees it. SetDeviceFile and
-// RemoveDeviceFile put the device in the state a restart or a wipe leaves; `shell stat -c
-// %s <reader file>` answers from the same files.
+// RemoveDeviceFile put the device in the state a restart or a wipe leaves; `shell sha256sum
+// <reader file>` answers from the same files.
 //
 // `adb version` answers as client 1.0.41; any other invocation exits 9.
 //
@@ -153,6 +154,7 @@ package devicetest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
@@ -472,6 +474,9 @@ func servedPrefix(args []string) string {
 		return args[1] + ".scrcpyserver"
 	case len(args) == 7 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader":
 		return args[1] + ".reader"
+	case len(args) >= 9 && len(args) <= 10 && args[2] == "exec-out" && isReaderClasspath(args[3]) && args[4] == "app_process" && args[5] == "/system/bin" && args[6] == "DroidyardReader" && args[7] == "dump" && args[8] == "full" && (len(args) == 9 || args[9] == "invisible"):
+		// The one-shot reader's full dump (ADR-0110): the same words as the serve mode's request.
+		return args[1] + ".readerfull"
 	case len(args) == 6 && args[2] == "shell" && args[3] == "rm" && args[4] == "-f" && isReaderFile(args[5]):
 		return args[1] + ".rmreader"
 	case len(args) == 5 && args[2] == "forward" && strings.HasPrefix(args[3], "localfilesystem:") && strings.HasPrefix(args[4], "localabstract:droidyard-reader-"):
@@ -480,8 +485,8 @@ func servedPrefix(args []string) string {
 		return args[1] + ".forwardremove"
 	case len(args) == 4 && args[2] == "shell" && isReaderServe(args[3]):
 		return args[1] + ".start"
-	case len(args) == 7 && args[2] == "shell" && args[3] == "stat" && args[4] == "-c" && args[5] == "%s" && isReaderFile(args[6]):
-		return args[1] + ".stat"
+	case len(args) == 5 && args[2] == "shell" && args[3] == "sha256sum" && isReaderFile(args[4]):
+		return args[1] + ".sha256sum"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof" && strings.HasPrefix(args[4], "droidyard-reader-"):
 		return args[1] + ".pidof"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "pidof":
@@ -635,15 +640,16 @@ func serve(ctx context.Context, dir, prefix string, n int, raw []string, stdout,
 		event("end")
 		return serveScrcpyServer(ctx, dir, raw, stderr)
 	}
-	// A stat of the reader's dex answers from the fake device's files unless the scenario
-	// scripts it: the size, or the failure of a file that is not there.
-	if strings.HasSuffix(prefix, ".stat") && code == 0 && len(raw) == 7 && !has(name+".out") {
-		if b, ok := readDeviceFile(dir, raw[6]); ok {
-			fmt.Fprintln(stdout, len(b))
+	// A sha256sum of the reader's dex answers from the fake device's files unless the
+	// scenario scripts it: the digest of what the device holds, or the failure of a file
+	// that is not there.
+	if strings.HasSuffix(prefix, ".sha256sum") && code == 0 && len(raw) == 5 && !has(name+".out") {
+		if b, ok := readDeviceFile(dir, raw[4]); ok {
+			fmt.Fprintf(stdout, "%x  %s\n", sha256.Sum256(b), raw[4])
 			event("end")
 			return 0
 		}
-		fmt.Fprintf(stderr, "stat: '%s': No such file or directory\n", raw[6])
+		fmt.Fprintf(stderr, "sha256sum: %s: No such file or directory\n", raw[4])
 		event("end")
 		return 1
 	}

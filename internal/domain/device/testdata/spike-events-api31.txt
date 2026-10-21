@@ -1,0 +1,52 @@
+connected; API 31
++7ms TYPE_WINDOW_STATE_CHANGED class=dev.droidyard.formapp.WidgetsActivity pkg=dev.droidyard.formapp text=[Form App] desc=null eventTime=468850 contentChange=0 windowChanges=0
++2910ms TYPE_VIEW_CLICKED class=android.widget.Button pkg=dev.droidyard.formapp text=[Toast] desc=null eventTime=471751 contentChange=0 windowChanges=0
++3064ms TYPE_NOTIFICATION_STATE_CHANGED class=android.widget.Toast pkg=dev.droidyard.formapp text=[Saved ñ ✓] desc=null eventTime=471908 contentChange=0 windowChanges=0
++6739ms TYPE_VIEW_CLICKED class=android.widget.Button pkg=dev.droidyard.formapp text=[Notify] desc=null eventTime=475572 contentChange=0 windowChanges=0
++6771ms TYPE_NOTIFICATION_STATE_CHANGED class=android.app.Notification pkg=dev.droidyard.formapp text=[] desc=null eventTime=475593 contentChange=0 windowChanges=0
++7193ms TYPE_WINDOW_STATE_CHANGED class=android.widget.FrameLayout pkg=com.android.systemui text=[Notification shade.] desc=null eventTime=476037 contentChange=CONTENT_CHANGE_TYPE_PANE_APPEARED windowChanges=0
++7382ms TYPE_WINDOW_STATE_CHANGED class=android.widget.FrameLayout pkg=com.android.systemui text=[Notification shade., 10:57, 100%, Internet, Networks unavailable, Bluetooth, On, Flashlight, Off, Do Not Disturb, Off, Tue, Oct 20, Droidyard, Code 123456] desc=null eventTime=476192 contentChange=0 windowChanges=0
++11986ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.ScrollView pkg=dev.droidyard.formapp text=[] desc=null eventTime=480801 contentChange=CONTENT_CHANGE_TYPE_SUBTREE windowChanges=0
++11988ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.LinearLayout pkg=dev.droidyard.formapp text=[] desc=null eventTime=480802 contentChange=0 windowChanges=0
++11988ms TYPE_VIEW_CLICKED class=android.widget.Button pkg=dev.droidyard.formapp text=[Spinner] desc=null eventTime=480803 contentChange=0 windowChanges=0
++12225ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.ScrollView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481065 contentChange=CONTENT_CHANGE_TYPE_SUBTREE|CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++12226ms TYPE_VIEW_SCROLLED class=android.widget.ListView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481066 contentChange=0 windowChanges=0
++12352ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481195 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++12468ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481309 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++12627ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481458 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++12729ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481571 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++12889ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481730 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++13026ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=481858 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++13454ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=482297 contentChange=CONTENT_CHANGE_TYPE_SUBTREE|CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++13657ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=482493 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++13926ms TYPE_WINDOW_STATE_CHANGED class=android.widget.FrameLayout pkg=com.android.systemui text=[Notification shade.] desc=null eventTime=482766 contentChange=CONTENT_CHANGE_TYPE_PANE_DISAPPEARED windowChanges=0
++13981ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=482808 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++14202ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483044 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++14439ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483193 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++14500ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483342 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++14639ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483482 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++14775ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483619 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++14888ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483726 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++15121ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=483907 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++15231ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.TextView pkg=dev.droidyard.formapp text=[] desc=null eventTime=484061 contentChange=CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++15325ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.ScrollView pkg=dev.droidyard.formapp text=[] desc=null eventTime=484166 contentChange=CONTENT_CHANGE_TYPE_SUBTREE|CONTENT_CHANGE_TYPE_TEXT windowChanges=0
++15326ms TYPE_VIEW_CLICKED class=android.widget.Button pkg=dev.droidyard.formapp text=[Spinner] desc=null eventTime=484166 contentChange=0 windowChanges=0
++15536ms TYPE_WINDOW_CONTENT_CHANGED class=android.widget.ScrollView pkg=dev.droidyard.formapp text=[] desc=null eventTime=484378 contentChange=CONTENT_CHANGE_TYPE_SUBTREE windowChanges=0
++15539ms TYPE_VIEW_SCROLLED class=android.widget.ListView pkg=dev.droidyard.formapp text=[] desc=null eventTime=484381 contentChange=0 windowChanges=0
+--- count per type over 25 s
+TYPE_NOTIFICATION_STATE_CHANGED 2
+TYPE_VIEW_CLICKED 4
+TYPE_VIEW_SCROLLED 2
+TYPE_WINDOW_CONTENT_CHANGED 22
+TYPE_WINDOW_STATE_CHANGED 4
+--- per second: content-changed scrolled
+s0 0 0
+s2 0 0
+s3 0 0
+s6 0 0
+s7 0 0
+s11 2 0
+s12 6 1
+s13 4 0
+s14 6 0
+s15 4 1

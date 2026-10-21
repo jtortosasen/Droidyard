@@ -25,6 +25,8 @@
 	import type { InputClient } from '../screen/input';
 	import { LiveViewModel } from '../screen/liveview';
 	import { browserCodec } from '../screen/decoder';
+	import { UiEventsModel } from '../devices/uievents';
+	import UiEvents from '../devices/UiEvents.svelte';
 	import { ConsoleModel } from '../build/console';
 	import Console from '../build/Console.svelte';
 	import type { EventsHub } from '../build/hub';
@@ -138,6 +140,7 @@
 	let act = $state.raw<ActModel | null>(null);
 	let appLogs = $state.raw<AppLogsModel | null>(null);
 	let liveView = $state.raw<LiveViewModel | null>(null);
+	let uiEvents = $state.raw<UiEventsModel | null>(null);
 	let fileTree = $state.raw<FileTreeModel | null>(null);
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let fileOps = $state.raw<FileOps | null>(null);
@@ -229,6 +232,14 @@
 			deviceList,
 			// A remote device whose host stopped lending it ends its stream: the list is read again.
 			{ supported: browserCodec() !== null, onDeviceGone: (serial) => deviceList.deviceGone(serial) },
+		);
+		// The screen's events of the toolbar's device, while the panel is shown (ADR-0112).
+		const events = new UiEventsModel(
+			{
+				subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+				call: (name, params) => c.call(name, params),
+			},
+			deviceList,
 		);
 		const files = new FileTreeModel(callOn, ws);
 		const watcher = new FileWatch(
@@ -335,6 +346,7 @@
 		act = actions;
 		appLogs = logs;
 		liveView = screen;
+		uiEvents = events;
 		fileTree = files;
 		gitWatch = gitStatus;
 		gitTree = treeOfGit;
@@ -442,6 +454,8 @@
 			act = null;
 			screen.dispose();
 			liveView = null;
+			events.dispose();
+			uiEvents = null;
 			appLogs = null;
 			fileTree = null;
 			fileOps = null;
@@ -611,6 +625,10 @@
 	{:else if id === 'liveview'}
 		{#if liveView}
 			<LiveView model={liveView} {token} {connection} visible={shell.rightOpen()} input={{ call: ((n, p) => client.call(n, p)) as InputClient['call'] }} />
+		{/if}
+	{:else if id === 'uievents'}
+		{#if uiEvents}
+			<UiEvents model={uiEvents} {connection} visible={shell.rightOpen()} />
 		{/if}
 	{:else if id === 'tree'}
 		{#if uiTree && act}

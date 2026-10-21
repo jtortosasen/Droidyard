@@ -189,7 +189,13 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 34 (to 29,592) at milestone 2u's close: the close verifier's corrections of
 // peer.md, adb-device.md and http-websocket.md (the foreground share, hosting.listen), and
 // README.md's status line names 2u.
-const liveBudget = 29592
+// Raised by 4 (to 29,596) at milestone 2w step 6: mvp.md's device row names `uiEvents`, and
+// mcp.md's list of renderings names the screen's events.
+// Raised by 2 (to 29,598) at milestone 2w step 7: the same two tables name `watchUiEvents`.
+// Raised by 203 (to 29,801) at milestone 2w's step 8: ui-automation.md's section on the full dump
+// and the events between reads, adb-device.md's event ring and digest check, capability-api.md's
+// `device.uiEvents` topic, and README.md's status line (ADR-0110 to ADR-0112).
+const liveBudget = 29801
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

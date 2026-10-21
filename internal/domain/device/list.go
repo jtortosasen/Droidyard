@@ -37,7 +37,8 @@ type ListResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// Register adds the device capabilities to reg: device.list, device.uiTree and
+// Register adds the device capabilities to reg: device.list, device.uiTree, device.uiDump
+// (which stores its document in store), device.uiEvents, device.watchUiEvents and
 // device.screenshot (which stores its image in store), device.tapElement,
 // device.launch, device.logs (which stores its capture in store), device.watchLogs, device.watchScreen, device.install
 // (which resolves its build reference through builds), device.uninstall and
@@ -94,6 +95,9 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 		},
 	})
 	registerUITree(reg, adb)
+	registerUIDump(reg, adb, store)
+	registerUIEvents(reg, adb)
+	registerWatchUIEvents(reg, adb)
 	registerScreenshot(reg, adb, store)
 	registerTapElement(reg, adb)
 	registerLaunch(reg, adb)

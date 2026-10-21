@@ -215,7 +215,10 @@ workspace; no arbitrary host paths.
 - **The UI reader** ([ADR-0030](../adr/0030-persistent-ui-reader.md)) is what Droidyard leaves on a
   device: `/data/local/tmp/droidyard-reader-<sha256>.dex`, pushed once and kept; a process named
   `droidyard-reader-<first 12 hex>`; and one `adb forward` on the host. It ends itself after 30 idle
-  minutes; the daemon's stop quits it and removes the forward. The daemon recovers a lost forward, a
+  minutes without a read (a `dump` or an `events` request); the daemon's stop quits it and removes
+  the forward. It also keeps the screen's accessibility events in a 512-entry ring for its whole life
+  ([ADR-0111](../adr/0111-ui-events-between-reads.md)). A start trusts the device's dex only when its
+  `sha256sum` is the pinned digest; anything else pushes it again. The daemon recovers a lost forward, a
   reader that does not answer (killed by its `pidof` pid and restarted) and an earlier daemon's
   reader (adopted); a reader of another digest is killed, since it holds the device's one
   `UiAutomation`. The one-shot fallback uses its own `...-oneshot.dex`, pushed and removed per read.

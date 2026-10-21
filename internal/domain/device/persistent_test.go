@@ -173,7 +173,7 @@ func TestReaderGoneIsStartedAgainOnce(t *testing.T) {
 }
 
 // statDexCall is the one bounded command that checks the dex on the device before a start.
-const statDexCall = "-s " + uiSerial + " shell stat -c %s " + readerRemote
+const statDexCall = "-s " + uiSerial + " shell sha256sum " + readerRemote
 
 // afterDeviceRestart is the state step 2 of milestone 2c observed once the emulator was
 // stopped and started again under the same serial: the host's forward is gone (a dial is
@@ -191,7 +191,7 @@ func afterDeviceRestart(t *testing.T, f *uiFixture, r *devicetest.FakeReader, se
 // guest before its page cache reaches the disk leaves the dex 0 bytes long. The read after
 // it must still be the persistent reader: the start path finds the dex is not the embedded
 // one, pushes it, starts and forwards again, and no fallback line is logged. The two warm
-// reads before the restart cost neither a stat nor a push. Seen failing without the check
+// reads before the restart cost neither a digest check nor a push. Seen failing without the check
 // (dexNeedsPush answering from the flag alone): the start from the empty dex fails, the
 // read falls to the one-shot reader with a warning and one push is all the fake ever sees.
 func TestReaderIsPushedAgainWhenARestartTruncatedItsDex(t *testing.T) {
@@ -200,7 +200,7 @@ func TestReaderIsPushedAgainWhenARestartTruncatedItsDex(t *testing.T) {
 	mustComplete(t, f.tree(t, uiSerial))
 	mustComplete(t, f.tree(t, uiSerial))
 	if n := count(f.calls(t), statDexCall); n != 0 {
-		t.Fatalf("%d stats before any restart: a warm read must not check the dex (calls %q)", n, f.calls(t))
+		t.Fatalf("%d digest checks before any restart: a warm read must not check the dex (calls %q)", n, f.calls(t))
 	}
 
 	afterDeviceRestart(t, f, r, func() { devicetest.SetDeviceFile(t, f.dir, readerRemote, nil) })
@@ -219,7 +219,7 @@ func TestReaderIsPushedAgainWhenARestartTruncatedItsDex(t *testing.T) {
 		t.Errorf("%d forwards, want the first and one after the restart (calls %q)", n, calls)
 	}
 	if n := count(calls, statDexCall); n != 1 {
-		t.Errorf("%d stats, want 1 before the one start (calls %q)", n, calls)
+		t.Errorf("%d digest checks, want 1 before the one start (calls %q)", n, calls)
 	}
 	if n := count(calls, rdRunCall) + count(calls, ttyCall); n != 0 {
 		t.Errorf("a fallback ran although the persistent reader could start: %q", calls)
@@ -228,7 +228,7 @@ func TestReaderIsPushedAgainWhenARestartTruncatedItsDex(t *testing.T) {
 		t.Errorf("the device's dex is %d bytes (present %v), want the embedded %d", len(b), ok, len(reader.Dex()))
 	}
 
-	// The next read is warm again: no stat, no push, no start.
+	// The next read is warm again: no digest check, no push, no start.
 	mustComplete(t, f.tree(t, uiSerial))
 	for _, c := range f.calls(t)[len(calls):] {
 		if c != "devices -l" {
@@ -238,7 +238,7 @@ func TestReaderIsPushedAgainWhenARestartTruncatedItsDex(t *testing.T) {
 }
 
 // Decision (milestone 2c step 5): the same recovery when a wipe removed the dex (the file is
-// gone, so `stat` fails). Seen failing without the check, as for the truncated dex.
+// gone, so `sha256sum` fails). Seen failing without the check, as for the truncated dex.
 func TestReaderIsPushedAgainWhenAWipeRemovedItsDex(t *testing.T) {
 	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
 	f := newUIFixture(t, files)
@@ -264,8 +264,8 @@ func TestReaderIsPushedAgainWhenAWipeRemovedItsDex(t *testing.T) {
 
 // Decision (milestone 2c step 5; ADR-0030 "started again once"): the check does not push
 // what is already right. When the restart left the dex intact (the 60 s case of step 2 R),
-// the start path pays one stat and no second push, and the restart is still one start.
-// Seen failing with a check that always pushes (2 pushes) and with none (0 stats).
+// the start path pays one digest check and no second push, and the restart is still one start.
+// Seen failing with a check that always pushes (2 pushes) and with none (0 digest checks).
 func TestReaderRestartDoesNotPushAnIntactDex(t *testing.T) {
 	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
 	f := newUIFixture(t, files)
@@ -280,7 +280,7 @@ func TestReaderRestartDoesNotPushAnIntactDex(t *testing.T) {
 		t.Errorf("%d pushes, want 1: an intact dex is not pushed again (calls %q)", n, calls)
 	}
 	if n := count(calls, statDexCall); n != 1 {
-		t.Errorf("%d stats, want 1 (calls %q)", n, calls)
+		t.Errorf("%d digest checks, want 1 (calls %q)", n, calls)
 	}
 	if n := countServeStarts(calls); n != 2 {
 		t.Errorf("%d serve starts, want the first and one restart (calls %q)", n, calls)
@@ -650,5 +650,63 @@ func TestReadObservesCancellationWhileTheWarmReadHangs(t *testing.T) {
 	}
 	if d := time.Since(start); d > 800*time.Millisecond {
 		t.Errorf("the read took %v after cancellation, want well under warmReadTimeout %v", d, warmReadTimeout)
+	}
+}
+
+// Decision (plan m2w step 2; R3): the dex is trusted by its SHA-256, not its length. A dex of
+// the embedded length with other bytes (a same-length corruption) is pushed again. Seen failing with
+// the size check restored: it trusted the same-length copy and pushed once.
+func TestDexWithAnotherDigestIsPushed(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial))
+	same := bytes.Repeat([]byte{0x5a}, len(reader.Dex()))
+	afterDeviceRestart(t, f, r, func() { devicetest.SetDeviceFile(t, f.dir, readerRemote, same) })
+	s := mustComplete(t, f.tree(t, uiSerial))
+	if len(s.Warnings) != 0 {
+		t.Errorf("warnings %q", s.Warnings)
+	}
+	calls := f.calls(t)
+	if n := count(calls, prPushCall); n != 2 {
+		t.Errorf("%d pushes, want 2: a same-length dex with another digest is pushed again (calls %q)", n, calls)
+	}
+	if b, ok := devicetest.DeviceFile(t, f.dir, readerRemote); !ok || !bytes.Equal(b, reader.Dex()) {
+		t.Errorf("the device's dex is not the embedded one after the start")
+	}
+}
+
+// Decision (plan m2w step 2; R3): a device without sha256sum (exit 127) is never trusted: the
+// dex is pushed again at each start, and the read still succeeds.
+func TestDexWithoutSha256sumIsPushed(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
+	files[uiSerial+".sha256sum.exit"] = "127"
+	files[uiSerial+".sha256sum.err"] = "sha256sum: inaccessible or not found\n"
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial))
+	afterDeviceRestart(t, f, r, func() {})
+	s := mustComplete(t, f.tree(t, uiSerial))
+	if len(s.Warnings) != 0 {
+		t.Errorf("warnings %q", s.Warnings)
+	}
+	calls := f.calls(t)
+	if n := count(calls, prPushCall); n != 2 {
+		t.Errorf("%d pushes, want 2: an unverifiable dex is pushed (calls %q)", n, calls)
+	}
+}
+
+// Decision (plan m2w step 2; R3): a dex with the pinned digest (the tool's `<hex>  <path>`
+// line) is not pushed again after a restart; it costs one digest check.
+func TestDexWithThePinnedDigestIsNotPushed(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t))
+	f := newUIFixture(t, files)
+	mustComplete(t, f.tree(t, uiSerial))
+	afterDeviceRestart(t, f, r, func() {})
+	mustComplete(t, f.tree(t, uiSerial))
+	calls := f.calls(t)
+	if n := count(calls, prPushCall); n != 1 {
+		t.Errorf("%d pushes, want 1 (calls %q)", n, calls)
+	}
+	if n := count(calls, statDexCall); n != 1 {
+		t.Errorf("%d digest checks, want 1 (calls %q)", n, calls)
 	}
 }

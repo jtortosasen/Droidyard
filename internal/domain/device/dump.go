@@ -170,6 +170,12 @@ func (a *ADB) readNoDump(ctx context.Context, t *target) ([]byte, []string, erro
 // reader's default wait. A nil idle is a plain `dump`, which is the first read's own
 // settle and every standalone read.
 func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *readerIdle) ([]byte, []string, error) {
+	return a.readWith(ctx, t, readSpec{allowDump: allowDump, idle: idle})
+}
+
+// readWith is the read chain for one kind of read (readSpec): the plain tree, which may end in
+// `uiautomator dump`, or the full dump of ADR-0110, which never does.
+func (a *ADB) readWith(ctx context.Context, t *target, spec readSpec) ([]byte, []string, error) {
 	start := time.Now()
 	end := start.Add(dumpDeadline)
 	// The read's own end is clamped to the caller's deadline when that is earlier
@@ -183,7 +189,10 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *re
 	// fallback is the dump stage, or, when the dump is not allowed (D17), the fixed
 	// failure the caller counts as a read without an observation.
 	fallback := func(reason string) ([]byte, []string, error) {
-		if !allowDump {
+		if spec.full != nil {
+			return nil, nil, spec.failed(fullNoDumpCause + reason)
+		}
+		if !spec.allowDump {
 			return nil, nil, dumpFailed("the UI reader could not run and uiautomator dump is not used after an action, which would suspend the device's other accessibility services: " + reason)
 		}
 		// The fallback and its reason go to the daemon log (plan m1n step 2): a read
@@ -207,11 +216,12 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *re
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, nil, cerr
 		}
-		return nil, nil, dumpBusy(fmt.Sprintf("the device's UI reader was busy for longer than the %s read deadline", dumpDeadline))
+		return nil, nil, spec.lockBusy(fmt.Sprintf("the device's UI reader was busy for longer than the %s read deadline", dumpDeadline))
 	}
 	defer c.release()
 
-	doc, kind, line, reason, _, rf := a.persistentRead(ctx, t, c, start, end, idle)
+	request := readerDumpRequest(spec.idle, spec.full)
+	doc, kind, line, reason, _, rf := a.persistentRead(ctx, t, c, start, end, request)
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
@@ -224,7 +234,13 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *re
 		// re-reads the same reader. The package in Details comes from the window manager's
 		// focus line, not the reader's busy line, which names the last app it read and is
 		// stale when the foreground changed since (appBusyError).
-		return nil, nil, a.appBusyError(ctx, t)
+		return nil, nil, spec.appBusy(ctx, a, t)
+	}
+	if kind == dumpOverCap {
+		// A full document over the read cap (ADR-0110 Decision 5): the reader is alive and
+		// answered, and the one-shot would run the same traversal into the same cap, so
+		// neither a restart nor the one-shot is tried.
+		return nil, nil, spec.overCap()
 	}
 	if kind == dumpVanished || kind == dumpUnreachable {
 		// A reader found gone, a wedged one, or one behind a lost forward is restarted
@@ -235,7 +251,7 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *re
 		// restartReader reconciles the forward, kills an unreachable reader of our name
 		// by its pid, and starts once.
 		if ok, why := a.restartReader(ctx, t, c, end); ok {
-			doc, kind, line, reason, _, _ = a.persistentRead(ctx, t, c, start, end, idle)
+			doc, kind, line, reason, _, _ = a.persistentRead(ctx, t, c, start, end, request)
 		} else {
 			// The restart did not bring a reader up: its reason (a ping that went
 			// unanswered, most often) is logged as the restart's own reason.
@@ -254,18 +270,22 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *re
 	case dumpNoRoot:
 		// uiautomator dump would meet the same missing window, and suspend the services.
 		// The reader's line is device text: the cause is the fixed sentence.
-		return nil, nil, dumpFailed(readerNoRootMessage)
+		return nil, nil, spec.failed(readerNoRootMessage)
+	case dumpOverCap:
+		// Reached by the read after a restart, as dumpAppBusy is.
+		return nil, nil, spec.overCap()
 	case dumpAppBusy:
 		// Reached by the read after a restart (ADR-0030): the first read timed out or met a
 		// reader reused because it answered ping, and the read that follows the restart came
 		// back busy. A busy answer is the failure, not a reason to fall back, so the one-shot
 		// reader and `uiautomator dump` are not tried (ADR-0034 §1).
-		return nil, nil, a.appBusyError(ctx, t)
+		return nil, nil, spec.appBusy(ctx, a, t)
 	}
 
-	// The one-shot reader of ADR-0029, with the persistent reader's reason (D3).
+	// The one-shot reader of ADR-0029, with the persistent reader's reason (D3). A full dump
+	// passes it the same words.
 	a.logReaderFallback(t.serial, "the one-shot reader", reason)
-	doc, kind, line, reason2 := a.runReader(ctx, t, end)
+	doc, kind, line, reason2 := a.runReader(ctx, t, end, spec.oneShotArgs()...)
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
@@ -275,7 +295,9 @@ func (a *ADB) readChain(ctx context.Context, t *target, allowDump bool, idle *re
 	case dumpGone:
 		return nil, nil, disconnected(t.serial, line)
 	case dumpNoRoot:
-		return nil, nil, dumpFailed(readerNoRootMessage)
+		return nil, nil, spec.failed(readerNoRootMessage)
+	case dumpOverCap:
+		return nil, nil, spec.overCap()
 	}
 
 	// uiautomator dump of ADR-0029, with its warning, which names both readers' reasons
@@ -306,7 +328,7 @@ func (a *ADB) readWithDump(ctx context.Context, t *target, start time.Time, reas
 //
 // The last result is the reason shown in the fallback warning: the reader's own line or
 // adb's, never device text (see readerReason).
-func (a *ADB) runReader(parent context.Context, t *target, end time.Time) ([]byte, dumpKind, string, string) {
+func (a *ADB) runReader(parent context.Context, t *target, end time.Time, words ...string) ([]byte, dumpKind, string, string) {
 	// The digest is checked before every push (ADR-0029): a dex that is not the pinned
 	// one is never put on a device.
 	if got := readerDigest(); got != reader.SHA256 {
@@ -341,8 +363,14 @@ func (a *ADB) runReader(parent context.Context, t *target, end time.Time) ([]byt
 		return nil, kind, line, readerReason(out, err)
 	}
 	const run = "exec-out app_process " + reader.Class
-	out, err = a.Run(ctx, t.adb, readerRun, dumpOutputCap, "-s", t.serial, "exec-out", "CLASSPATH="+readerRemoteOneShot, "app_process", "/system/bin", reader.Class)
+	runArgs := append([]string{"-s", t.serial, "exec-out", "CLASSPATH=" + readerRemoteOneShot, "app_process", "/system/bin", reader.Class}, words...)
+	out, err = a.Run(ctx, t.adb, readerRun, dumpOutputCap, runArgs...)
 	doc, kind, line := classifyDump(t.serial, run, out, err, true)
+	if len(words) > 0 && err == nil && out.Truncated && kind == dumpOther {
+		// A full dump's document passed the read cap (ADR-0110 Decision 5), which the words
+		// say this run was; a plain run that passes it is a reader at fault.
+		return nil, dumpOverCap, "", fullOverCapReason
+	}
 	if kind == dumpIdle {
 		kind = dumpOther // the reader reads on a timeout; an idle message is not its retry
 	}
@@ -537,6 +565,7 @@ const (
 	dumpVanished    // the persistent reader's connection ended before a document: restart once
 	dumpUnreachable // the persistent reader's cached forward did not answer or timed out: restart once
 	dumpAppBusy     // the reader answered `busy`: the app did not answer, so no restart and no fallback (ADR-0034 §1)
+	dumpOverCap     // a full dump's document passed the read cap: the failure naming the cap, no restart and no other reader (ADR-0110 Decision 5)
 )
 
 // dump runs `uiautomator dump` on the device and returns the hierarchy document. It

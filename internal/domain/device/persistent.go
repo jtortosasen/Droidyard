@@ -183,6 +183,9 @@ type readerClient struct {
 	sock     string // the forward's socket file, "" until forwarded
 	launched bool   // the serve command ran at least once (or a reader was adopted)
 	pushed   bool   // the dex was pushed by this daemon; not proof it is still there (dexNeedsPush)
+	// serves counts the serve commands that ran, so a call can tell that it started the reader
+	// (device.uiEvents reports that as a gap) and not another call's start.
+	serves int
 	// reconciled is true once `forward --list` has been read for this client: the
 	// forward list is consulted on the client's first read and after a failed read,
 	// never on a warm read (plan m1f step 7).
@@ -311,6 +314,13 @@ func (c *readerClient) adopt(sock string) {
 	c.setStarted(sock)
 }
 
+// serveCount is how many serve commands this client has run.
+func (c *readerClient) serveCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.serves
+}
+
 func (c *readerClient) setStarted(sock string) {
 	c.mu.Lock()
 	c.launched = true
@@ -329,13 +339,26 @@ type readerIdle struct {
 	max   int
 }
 
+// readerDumpRequest is the request line of a read over the forward: a plain `dump` is the
+// reader's default idle wait (100/500); the polls after an action's first read ask for the
+// shorter pollIdle (D2), `dump idle <quietMs> <maxMs>`. A full dump (ADR-0110) is `dump
+// full`, with `invisible` after it when asked; it takes the default idle wait.
+func readerDumpRequest(idle *readerIdle, full *fullOpts) string {
+	switch {
+	case full != nil:
+		return "dump " + full.words() + "\n"
+	case idle != nil:
+		return fmt.Sprintf("dump idle %d %d\n", idle.quiet, idle.max)
+	}
+	return "dump\n"
+}
+
 // persistentRead is the persistent reader's turn in read: ensure the reader is
-// reachable, then take one dump over its forward. It also reports why a warm read
-// failed (rf), so the chain can log a restart with its reason without parsing the
-// sentence back out (plan m1n step 2), and the app's package (busyPkg) of a `busy`
-// answer (ADR-0034 §1). idle, when non-nil, asks for the shorter poll bound of D2; a nil
-// idle sends a plain `dump`.
-func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time, idle *readerIdle) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
+// reachable, then take one dump over its forward, request being the line
+// readerDumpRequest made. It also reports why a warm read failed (rf), so the chain can
+// log a restart with its reason without parsing the sentence back out (plan m1n step 2),
+// and the app's package (busyPkg) of a `busy` answer (ADR-0034 §1).
+func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient, start, end time.Time, request string) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if ok, why := a.ensureReader(parent, t, c, end); !ok {
 		return nil, dumpOther, "", why, "", rfNone
 	}
@@ -365,18 +388,12 @@ func (a *ADB) persistentRead(parent context.Context, t *target, c *readerClient,
 	stop := context.AfterFunc(parent, func() { conn.Close() })
 	defer stop()
 	conn.SetDeadline(deadline)
-	// A plain `dump` is the reader's default idle wait (100/500); the polls after an
-	// action's first read ask for the shorter pollIdle (D2).
-	request := "dump\n"
-	if idle != nil {
-		request = fmt.Sprintf("dump idle %d %d\n", idle.quiet, idle.max)
-	}
 	if _, err := io.WriteString(conn, request); err != nil {
 		return nil, dumpOther, "", "the reader's forward did not take the request", "", rfEOF
 	}
 	resp, truncated, readErr := readLimited(conn, dumpOutputCap)
 	a.logWarmRead(t.serial, time.Since(warmStart))
-	return classifyReader(resp, truncated, readErr)
+	return classifyReader(resp, truncated, readErr, strings.HasPrefix(request, "dump full"))
 }
 
 // readerActKind is what an acting request (ADR-0035 §1) did. The distinction is the
@@ -1063,28 +1080,26 @@ func (a *ADB) killPid(ctx context.Context, t *target, pid string) {
 // dexNeedsPush decides, before a start, whether the dex must be pushed first. It is on the
 // slow path only (the callers are about to start a process), never on a warm read. A dex
 // this daemon has not pushed is pushed. One it has pushed is trusted only after one
-// bounded `stat -c %s` of the fixed remote path: the pushed flag outlives a device restart
+// bounded `sha256sum` of the fixed remote path: the pushed flag outlives a device restart
 // under the same serial, and a restart that kills the guest before its page cache reaches
 // the disk leaves the dex 0 bytes long (milestone 2c step 2), or gone after a wipe, so a start
-// from it fails and the read falls back for good. A dex whose size is not the embedded
-// one, a missing file, a failed or unparseable stat all mean push: a push is idempotent and
-// its own failure carries the reason. The stat is not content proof (a same-length
-// corruption is not seen); the loss a restart causes is a truncation or a removal.
+// from it fails and the read falls back for good. The dex is trusted only when the first
+// field of the output is the embedded digest; another digest, a missing file or tool
+// (observed present on API 31 and 36), a non-zero exit, a truncated or unparseable
+// output all mean push: a push is idempotent and its own failure carries the reason. A
+// missing tool costs a push per start, never a wrong trust.
 func (a *ADB) dexNeedsPush(ctx context.Context, t *target, c *readerClient) bool {
 	if !c.isPushed() {
 		return true
 	}
 	// c.remote is readerRemote: a fixed shape built from the pinned digest, no untrusted
 	// text reaches the shell.
-	out, err := a.Run(ctx, t.adb, readerCloseBound, 1<<10, "-s", t.serial, "shell", "stat", "-c", "%s", c.remote)
+	out, err := a.Run(ctx, t.adb, readerCloseBound, 1<<10, "-s", t.serial, "shell", "sha256sum", c.remote)
 	if err != nil || out.ExitCode != 0 || out.Truncated {
 		return true
 	}
-	n, perr := strconv.ParseInt(strings.TrimSpace(string(out.Stdout)), 10, 64)
-	if perr != nil {
-		return true
-	}
-	return n != int64(len(reader.Dex()))
+	fields := strings.Fields(string(out.Stdout))
+	return len(fields) == 0 || !strings.EqualFold(fields[0], reader.SHA256)
 }
 
 // pushReader puts the embedded dex on the device. It is the same file the one-shot
@@ -1120,6 +1135,9 @@ func (a *ADB) startServe(ctx context.Context, t *target, c *readerClient) (bool,
 		return false, readerReason(out, err) + ": " + line
 	}
 	c.setStarted("")
+	c.mu.Lock()
+	c.serves++
+	c.mu.Unlock()
 	return true, ""
 }
 
@@ -1201,8 +1219,15 @@ func (a *ADB) pingSock(ctx context.Context, sock string, deadline time.Time) boo
 // reader line is its own failure; a partial or missing document falls to the one-shot
 // reader. busyPkg is only meaningful with dumpAppBusy; the readerFailure names the two
 // restart cases for the log (plan m1n step 2).
-func classifyReader(resp []byte, truncated bool, readErr error) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
+//
+// full says the request was a full dump (ADR-0110 Decision 5): a document over the read cap
+// is then dumpOverCap, which fails the read naming the cap, and not dumpOther. A plain read
+// that passes the cap is a reader at fault, as ever, and falls to the one-shot reader.
+func classifyReader(resp []byte, truncated bool, readErr error, full bool) (doc []byte, kind dumpKind, line, reason, busyPkg string, rf readerFailure) {
 	if truncated {
+		if full {
+			return nil, dumpOverCap, "", fullOverCapReason, "", rfNone
+		}
 		return nil, dumpOther, "", "the reader printed more than the output limit", "", rfNone
 	}
 	if readErr != nil {
@@ -1292,6 +1317,8 @@ func (a *ADB) Close(ctx context.Context) {
 	// The Logcat streams first: each child is killed and reaped, and its pid record
 	// removed, before the daemon's supervisor stops (ADR-0041 §6).
 	a.streams.StopAll(ctx)
+	// The UI events streams' pollers return before the readers they ask are stopped below.
+	a.uiStreams.StopAll(ctx)
 	// The live view's streams drop their references, then the servers likewise (ADR-0078
 	// §6): each child is killed and reaped, its record removed and its forward removed
 	// before the supervisor stops.

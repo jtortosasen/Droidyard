@@ -71,7 +71,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 
 | Not exposed | Why |
 | --- | --- |
-| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `operation.watch`, `build.watchOutput`, `workspace.watch`, `session.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
+| `events.subscribe`, `events.unsubscribe`, `device.watchLogs`, `device.watchScreen`, `device.watchUiEvents`, `operation.watch`, `build.watchOutput`, `workspace.watch`, `session.watch` | Streaming or stateful. A tool call has no channel to push into after it returns. Agents wait on operations instead. |
 | `policy.get`, `policy.update`, `workspace.chooseRoot`, `workspace.show`, `workspace.forget`, `session.release` | Audience `human` ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6; [ADR-0045](../adr/0045-project-start-flow.md) §4; [ADR-0084](../adr/0084-one-tab-workspace-show.md); [ADR-0086](../adr/0086-workspace-forget.md); [ADR-0094](../adr/0094-occupation-by-a-session.md) §3). The core rejects them from an MCP session: enforcement, not just omission. |
 | `file.list`, `file.read`, `file.write`, `file.create`, `file.copy`, `file.move`, `file.delete`, `file.restore`, `file.trash`, `file.watch` | Audience `human` ([ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md)): agents have their own file tools; the UI and the CLI call them. |
 | `git.read`, `git.watch`, `git.log`, `git.refs`, `git.show`, `git.fetch`, `git.pull`, `git.checkout`, `git.createBranch`, `git.submodules`, `git.updateSubmodules` | Audience `human` ([ADR-0066](../adr/0066-daemon-git-watch-and-read.md), [ADR-0069](../adr/0069-git-history-reads.md), [ADR-0071](../adr/0071-git-writes-for-the-ui.md), [ADR-0060](../adr/0060-file-capabilities-not-mcp-tools.md) §2): every agent has git; the UI uses them. |
@@ -183,7 +183,7 @@ test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 
 Each tool returns **structured content** on success (the object matching the advertised
 `outputSchema`; error results carry none) and a **text block**: the capability's declared
-compact rendering where it has one (the UI tree, action results, logs,
+compact rendering where it has one (the UI tree, the screen's events, action results, logs,
 `system_capabilities`, build results; `operation_wait` renders as its tool does), else the
 result's compact JSON. The model reads the text block, not the structured content
 (observed for OpenCode and Cursor), so the rendering is where tokens are saved; the

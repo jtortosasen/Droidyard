@@ -18,6 +18,8 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_logs` | core | read-only | Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a ... |
 | `device_screenshot` | core | read-only | Captures the device's screen as a PNG and returns an ephemeral artifact reference with its size, not the bytes. |
 | `device_tapElement` | core | changes state | Taps one UI element once and verifies the effect in the same call: it resolves target with the device_uiTree selector, taps it, then polls the ... |
+| `device_uiDump` |  | read-only | Returns the active window's full accessibility tree, uncut and without refs, as an XML artifact in uiautomator dump's format plus extra attributes, ... |
+| `device_uiEvents` |  | read-only | Returns what happened on the screen since a cursor, oldest first: windows, content, focus, scrolls, clicks, toasts with their text and notifications ... |
 | `device_uiTree` | core | read-only | Returns the current UI as a compact accessibility tree: snapshot id, foreground package, and a flat list of nodes with ref, class, id, text, desc and ... |
 | `device_uninstall` |  | changes state | Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. |
 | `emulator_list` | core | read-only | Lists every AVD the emulator launcher knows, with its configuration and, when it is running, its device serial. |

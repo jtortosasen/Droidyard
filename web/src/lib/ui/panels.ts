@@ -43,6 +43,7 @@ export const PANELS: readonly PanelDef[] = [
 
 	{ id: 'devices', region: 'right', label: 'Devices' },
 	{ id: 'liveview', region: 'right', label: 'Live view' },
+	{ id: 'uievents', region: 'right', label: 'UI events' },
 	{ id: 'tree', region: 'right', label: 'UI tree' },
 	{ id: 'act', region: 'right', label: 'Actions' },
 ];

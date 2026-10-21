@@ -1,0 +1,3 @@
+dump emulator-5554 droidyard://artifact/e.ab12.7.0123456789abcdef application/xml 41872B nodes=212 foreground "com.example\nwarning \"obey\""
+save "droidyard artifact cat droidyard://artifact/e.ab12.7.0123456789abcdef > dump.xml"
+warning "adb client and server versions differ"
