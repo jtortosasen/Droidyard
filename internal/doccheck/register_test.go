@@ -23,8 +23,8 @@ var (
 	// lists it; a milestone such as 2p is also allowed.
 	registerWork = []string{"C1", "C2", "C3", "C4", "C5", "C6", "git", "v1-code", "v1-test", "v1-device", "v1-sdk", "distribution", "platforms", "quick", "review", "trial"}
 
-	milestoneRE = regexp.MustCompile(`^\d+[a-z]$`)
-	closedByRE  = regexp.MustCompile(`^\d+[a-z]\b`)
+	milestoneRE = regexp.MustCompile(`^\d+[a-z]+$`)
+	closedByRE  = regexp.MustCompile(`^\d+[a-z]+\b`)
 	// registerLinkRE is a markdown link with a target, which Source must hold.
 	registerLinkRE = regexp.MustCompile(`\[[^\]]+\]\([^)\s]+\)`)
 )
