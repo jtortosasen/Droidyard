@@ -172,6 +172,14 @@ type screenStream struct {
 
 	holder screen.Holder // who holds the finger for this stream's gestures (ADR-0117 §4)
 
+	// What the records of the stream's gestures need (inputrecord.go): the device.watchScreen
+	// call's origin, which they are made under, where they go, and the clock they are timed
+	// by (nil is time.Now). The gesture state is guarded by mu.
+	origin capability.Origin
+	record func(capability.Recorded)
+	now    func() time.Time
+	g      gestures
+
 	mu         sync.Mutex
 	attached   bool
 	ended      bool
@@ -205,7 +213,13 @@ func (s *screenStream) end(reason, cause string) {
 	close(s.quit)
 	stopSecure, activity := s.stopSecure, s.activity
 	lastX, lastY := s.lastX, s.lastY
+	// What the view still had open is recorded as the end found it: a finger down was
+	// cancelled (the release below writes that cancel), or failed when the source failed.
+	closing := s.finishGestures(s.clock(), reason == StopFailed)
 	s.mu.Unlock()
+	for _, r := range closing {
+		s.record(r)
+	}
 
 	// An ended stream is no longer activity of its lease.
 	if activity != nil {
@@ -462,17 +476,17 @@ func newStreamID() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
-// controlOn is whether a stream takes input (WatchScreenResult.Control). In this step it is
-// true only in a droidyard_inputprobe build, so the product never has an input path whose
-// gestures are not recorded; plan m2y step 3 records them and turns it on for a local device.
-var controlOn = probeBuild
+// controlOn is whether a stream of a local device takes input (WatchScreenResult.Control): in
+// every build, since each gesture it carries is recorded (inputrecord.go). A variable so a
+// test can turn it off.
+var controlOn = true
 
 // The limits of one stream's input (ADR-0117 §3).
 const maxInputPerSecond = 1000
 
 var (
-	// errInputOff is an input for a stream that takes none: a build without the probe, a
-	// remote device's or a peer's (plan m2y step 5), or a stream that is not the daemon's own.
+	// errInputOff is an input for a stream that takes none: a remote device's or a peer's
+	// (plan m2y step 5), or a stream that is not the daemon's own.
 	errInputOff = errors.New("device: this stream takes no input")
 	// errInputEnded is an input for a stream that ended: it sends nothing.
 	errInputEnded = errors.New("device: the stream ended")
@@ -505,10 +519,11 @@ func (s *screenStream) Input(frame []byte) error {
 	if s.src.Size() == (screen.Size{}) {
 		return nil
 	}
+	touching := s.touching
 	if ev.Kind == screen.EventTouch {
 		switch ev.Action {
 		case screen.TouchDown:
-			s.touching = true
+			touching = true
 		case screen.TouchMove:
 			if !s.touching {
 				return nil // the rest of a gesture whose down never came
@@ -517,11 +532,40 @@ func (s *screenStream) Input(frame []byte) error {
 			if !s.touching {
 				return nil
 			}
-			s.touching = false
+			touching = false
 		}
+	}
+	if err := s.src.Control(s.holder, ev); err != nil {
+		return err // refused, so the stream's state is as it was: the same frame may be sent again
+	}
+	s.touching = touching
+	if ev.Kind == screen.EventTouch {
 		s.lastX, s.lastY = ev.X, ev.Y
 	}
-	return s.src.Control(s.holder, ev)
+	// Recorded once the source has it, and handed to the sink by a send that cannot wait
+	// (ADR-0117 §6): the input never waits on its record.
+	now := s.clock()
+	var done []capability.Recorded
+	switch ev.Kind {
+	case screen.EventTouch:
+		done = s.touchGesture(ev, now)
+	case screen.EventKey:
+		done = []capability.Recorded{s.keyGesture(ev, now)}
+	case screen.EventScroll:
+		done = s.scrollGesture(ev, now)
+	}
+	for _, r := range done {
+		s.record(r)
+	}
+	return nil
+}
+
+// clock is the time the stream's gestures are timed by.
+func (s *screenStream) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // admitLocked counts a message against the second's bound: the 1,001st message in any
@@ -574,6 +618,7 @@ func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event
 		set: &a.screenViews, bus: a.bus, id: newStreamID(), device: deviceID, operation: call.OperationID,
 		src: src, viewer: src.Join(), release: release,
 		physical: kind.physical, remote: kind.remote,
+		origin: call.Origin, record: a.recordGesture,
 		quit: make(chan struct{}), released: make(chan struct{}),
 	}
 	if call.Origin.Client == capability.ClientPeer {

@@ -143,6 +143,8 @@ func TestScreenInputCapabilitiesPassTheInput(t *testing.T) {
 		{"device.swipe", `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.8,"t":0},{"x":0.5,"y":0.5,"t":120},{"x":0.5,"y":0.2,"t":5000}]}`,
 			screen.Swipe{Points: []screen.Point{{X: 0.5, Y: 0.8}, {X: 0.5, Y: 0.5, T: 120 * time.Millisecond}, {X: 0.5, Y: 0.2, T: 5 * time.Second}}}},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"back"}`, screen.Key{Name: "back"}},
+		{"device.scroll", `{"device":"` + uiSerial + `","x":0.25,"y":0.75,"dx":-2.5,"dy":16}`, screen.Scroll{X: 0.25, Y: 0.75, DX: -2.5, DY: 16}},
+		{"device.scroll", `{"device":"` + uiSerial + `","x":1,"y":0,"dx":16,"dy":0}`, screen.Scroll{X: 1, Y: 0, DX: 16, DY: 0}},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"appSwitch"}`, screen.Key{Name: "appSwitch"}},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"delete"}`, screen.Key{Name: "delete"}},
 	}
@@ -201,6 +203,14 @@ func TestScreenInputRefusesWhatTheBoundsRefuse(t *testing.T) {
 		{"first t not 0", "device.swipe", path(pt(0.5, 0.5, 10), pt(0.5, 0.6, 100))},
 		{"a point without y", "device.swipe", path(pt(0.5, 0.5, 0), `{"x":0.5,"t":100}`)},
 		{"an unknown key", "device.pressKey", `{` + dev + `,"key":"power"}`},
+		// device.scroll's bounds (plan m2y step 3, S1): each axis within 16 notches, not both
+		// zero, every number present.
+		{"dy above 16", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":0,"dy":16.01}`},
+		{"dx below -16", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":-16.01,"dy":1}`},
+		{"dx and dy both zero", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":0,"dy":0}`},
+		{"scroll x above 1", "device.scroll", `{` + dev + `,"x":1.01,"y":0.5,"dx":0,"dy":1}`},
+		{"scroll dx null", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":null,"dy":1}`},
+		{"scroll dy missing", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":1}`},
 		{"a key in the wrong case", "device.pressKey", `{` + dev + `,"key":"Back"}`},
 	}
 	for _, c := range cases {
@@ -231,6 +241,7 @@ func TestScreenInputWithNoLiveViewSendsNothing(t *testing.T) {
 		{"device.tap", `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`},
 		{"device.swipe", `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"home"}`},
+		{"device.scroll", `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`},
 	} {
 		t.Run(c.name+" with the lookup finding none", func(t *testing.T) {
 			f := newSIFix(t, "") // no live serial
@@ -274,6 +285,7 @@ func TestScreenInputIsAuthorizedBeforeTheSourceIsLooked(t *testing.T) {
 		"device.tap":      `{"device":"` + physSerial + `","x":0.5,"y":0.5}`,
 		"device.swipe":    `{"device":"` + physSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`,
 		"device.pressKey": `{"device":"` + physSerial + `","key":"home"}`,
+		"device.scroll":   `{"device":"` + physSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`,
 	}
 	for name, p := range params {
 		t.Run(name+" not admitted", func(t *testing.T) {
@@ -310,6 +322,7 @@ func TestScreenInputIsRefusedFromMCP(t *testing.T) {
 		"device.tap":      `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`,
 		"device.swipe":    `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`,
 		"device.pressKey": `{"device":"` + uiSerial + `","key":"home"}`,
+		"device.scroll":   `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newSIFix(t, "", uiSerial)

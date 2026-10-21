@@ -882,7 +882,7 @@ func (s *screenSource) Reason() error { return s.hub.Reason() }
 // one finger as holder for its whole gesture: it waits for a holder it does not take the
 // finger from, so two gestures never interleave their touches, and it ends, with a
 // *screen.PartialError once it wrote, if a local view takes the finger from it (ADR-0117 §4).
-// A key has no finger. A gesture cut short by ctx still lifts the finger, with the last
+// A key and a scroll have no finger. A gesture cut short by ctx still lifts the finger, with the last
 // message of its encoding. A failure after the first byte was written is a
 // *screen.PartialError (ADR-0079 §3); one before it is returned as it is.
 func (s *screenSource) Inject(ctx context.Context, holder screen.Holder, in screen.Input) error {
@@ -890,10 +890,14 @@ func (s *screenSource) Inject(ctx context.Context, holder screen.Holder, in scre
 	if err != nil {
 		return err
 	}
-	_, isKey := in.(screen.Key)
+	fingerless := false
+	switch in.(type) {
+	case screen.Key, screen.Scroll:
+		fingerless = true
+	}
 	var lost <-chan struct{}
 	write := s.line.injectKeyWrite
-	if isKey {
+	if fingerless {
 		s.line.keyMu.Lock()
 		defer s.line.keyMu.Unlock()
 	} else {

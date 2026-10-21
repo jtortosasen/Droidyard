@@ -273,6 +273,8 @@ type Operations struct {
 	// are not yet written; traceLog writes them (see flush). Guarded by mu.
 	traces   []string
 	traceLog func(format string, v ...any)
+	// flushing is whether a flushLoop (record.go) is running. Guarded by mu.
+	flushing bool
 
 	// events holds the operation.state events not yet published, in transition order,
 	// appended under mu where the transition happens. flush publishes them after mu is

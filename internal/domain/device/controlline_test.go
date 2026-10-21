@@ -24,8 +24,8 @@ import (
 // would give it a socket (lineFix); the streams are the real screenStreams that
 // device.watchScreen makes (openStream).
 
-// enableControl turns the stream input on for the test, as the probe build does for the
-// product (watchscreen.go, controlOn).
+// enableControl makes sure the stream input is on for the test. It is on by default in every
+// build (watchscreen.go, controlOn); step 2's tests keep the call.
 func enableControl(t *testing.T) {
 	t.Helper()
 	old := controlOn

@@ -430,6 +430,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	adb.LengthenLimits(adbFloor)
 	// device.watchLogs publishes its streams to the daemon's bus (ADR-0041).
 	adb.SetBus(bus)
+	// The live view's gestures are recorded as operations of the capability that replays
+	// them (ADR-0117 §6).
+	adb.SetRecorder(ops)
 	// `tools.adb` is the first adb candidate, fixed at this start (ADR-0032 §3, §6;
 	// plan m1k D8).
 	adb.SetToolKey(startup.ADBKey())

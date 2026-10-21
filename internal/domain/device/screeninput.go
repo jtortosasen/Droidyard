@@ -3,17 +3,20 @@ package device
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 )
 
-// device.tap, device.swipe and device.pressKey (plan m2p step 6; ADR-0079): input to the
-// device from the live view, sent down the control socket of the device's running screen
-// source. They are capabilities like any other, so each input passes the device policy
-// (authorize), the device's write key and the operation trace; they are for humans (ADR-0060
-// §2), so an MCP session is refused by the core, not by omission.
+// device.tap, device.swipe, device.pressKey and device.scroll (plan m2p step 6, ADR-0079;
+// device.scroll m2y step 3, ADR-0117): input to the device, sent down the control socket of
+// the device's running screen source. They are capabilities like any other, so each call
+// passes the device policy (authorize), the device's write key and the operation trace; they
+// are for humans (ADR-0060 §2), so an MCP session is refused by the core, not by omission.
+// The live view's own input does not call them: it travels its stream and is recorded as one
+// operation of the capability that replays it (inputrecord.go).
 
 // ErrNoStream is an input with no live view open on the device: nothing was sent
 // (ADR-0079 §3). The input capabilities never start a source.
@@ -25,10 +28,12 @@ const (
 	minSwipePoints   = 2
 	maxSwipePoints   = 64
 	maxSwipeSpanMs   = 5000
+	maxScrollNotches = screen.MaxScrollNotches
 	screenInputSince = "0.27.0"
+	scrollSince      = "0.33.0"
 )
 
-// ScreenInputResult is the result of the three input capabilities.
+// ScreenInputResult is the result of the four input capabilities.
 type ScreenInputResult struct {
 	Delivered bool `json:"delivered" jsonschema:"required" jsonschema_description:"True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."`
 	// Warnings are the daemon's own words, never device text.
@@ -62,6 +67,16 @@ type ScreenSwipeParams struct {
 type ScreenKeyParams struct {
 	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list. Its live view must be open."`
 	Key    string `json:"key" jsonschema:"required,enum=back,enum=home,enum=appSwitch,enum=enter,enum=delete" jsonschema_description:"The system key to press and release."`
+}
+
+// ScreenScrollParams is device.scroll's parameters.
+type ScreenScrollParams struct {
+	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list. Its live view must be open."`
+	// Every number is a pointer so that a null is refused rather than read as 0.
+	X  *float64 `json:"x" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Where to turn the wheel, from the left edge of the frame (0) to the right edge (1)."`
+	Y  *float64 `json:"y" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Where to turn the wheel, from the top edge of the frame (0) to the bottom edge (1)."`
+	DX *float64 `json:"dx" jsonschema:"required,minimum=-16,maximum=16" jsonschema_description:"Horizontal wheel notches, positive to the right (Android's AXIS_HSCROLL). Within 16 either way; not both dx and dy zero."`
+	DY *float64 `json:"dy" jsonschema:"required,minimum=-16,maximum=16" jsonschema_description:"Vertical wheel notches, positive up (Android's AXIS_VSCROLL). Within 16 either way; not both dx and dy zero."`
 }
 
 func unitInterval(v float64) bool { return v >= 0 && v <= 1 } // false for NaN
@@ -112,6 +127,24 @@ func (p ScreenSwipeParams) input() (screen.Input, error) {
 	return screen.Swipe{Points: pts}, nil
 }
 
+func (p ScreenScrollParams) input() (screen.Input, error) {
+	if p.X == nil || p.Y == nil || p.DX == nil || p.DY == nil {
+		return nil, capability.Errorf(capability.ErrInvalidParams, "x, y, dx and dy are required numbers")
+	}
+	if !unitInterval(*p.X) || !unitInterval(*p.Y) {
+		return nil, capability.Errorf(capability.ErrInvalidParams, "x and y must be between 0 and 1, got %v and %v", *p.X, *p.Y)
+	}
+	for _, d := range []float64{*p.DX, *p.DY} {
+		if !(math.Abs(d) <= maxScrollNotches) { // false for NaN
+			return nil, capability.Errorf(capability.ErrInvalidParams, "dx and dy must be between -%d and %d notches, got %v and %v", maxScrollNotches, maxScrollNotches, *p.DX, *p.DY)
+		}
+	}
+	if *p.DX == 0 && *p.DY == 0 {
+		return nil, capability.Errorf(capability.ErrInvalidParams, "dx and dy are both 0: there is nothing to scroll")
+	}
+	return screen.Scroll{X: *p.X, Y: *p.Y, DX: *p.DX, DY: *p.DY}, nil
+}
+
 var pressKeys = []string{"back", "home", "appSwitch", "enter", "delete"}
 
 func (p ScreenKeyParams) input() (screen.Input, error) {
@@ -123,18 +156,19 @@ func (p ScreenKeyParams) input() (screen.Input, error) {
 	return nil, capability.Errorf(capability.ErrInvalidParams, "key must be one of back, home, appSwitch, enter, delete, got %q", p.Key)
 }
 
-// registerScreenInput registers the three. build turns a call's parameters into the Input
+// registerScreenInput registers the four. build turns a call's parameters into the Input
 // (validating them) and names the device.
 func registerScreenInput(reg *capability.Registry, adb *ADB) {
 	type spec struct {
-		name, description string
-		params            any
-		device            func(*capability.Call) string
-		build             func(*capability.Call) (screen.Input, error)
+		name, description, since string
+		params                   any
+		device                   func(*capability.Call) string
+		build                    func(*capability.Call) (screen.Input, error)
 	}
 	specs := []spec{
 		{
 			name:        "device.tap",
+			since:       screenInputSince,
 			description: "Touches the device's screen at a point of its open live view, normalised to the frame, and lifts after durationMs (a long press). With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
 			params:      ScreenTapParams{},
 			device:      func(c *capability.Call) string { return c.Params.(ScreenTapParams).Device },
@@ -142,6 +176,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		},
 		{
 			name:        "device.swipe",
+			since:       screenInputSince,
 			description: "Drags a finger along a path of points of the open live view, normalised to the frame and replayed with the points' timing. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
 			params:      ScreenSwipeParams{},
 			device:      func(c *capability.Call) string { return c.Params.(ScreenSwipeParams).Device },
@@ -149,10 +184,19 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		},
 		{
 			name:        "device.pressKey",
+			since:       screenInputSince,
 			description: "Presses and releases a system key on the device. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
 			params:      ScreenKeyParams{},
 			device:      func(c *capability.Call) string { return c.Params.(ScreenKeyParams).Device },
 			build:       func(c *capability.Call) (screen.Input, error) { return c.Params.(ScreenKeyParams).input() },
+		},
+		{
+			name:        "device.scroll",
+			since:       scrollSince,
+			description: "Turns the mouse wheel at a point of the open live view, normalised to the frame, by dx and dy notches. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+			params:      ScreenScrollParams{},
+			device:      func(c *capability.Call) string { return c.Params.(ScreenScrollParams).Device },
+			build:       func(c *capability.Call) (screen.Input, error) { return c.Params.(ScreenScrollParams).input() },
 		},
 	}
 	for _, s := range specs {
@@ -161,7 +205,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 			Kind:         capability.Command,
 			Scope:        capability.Global,
 			Audience:     capability.AudienceHuman,
-			Since:        screenInputSince,
+			Since:        s.since,
 			Availability: []capability.Requirement{capability.RequiresADB},
 			Description:  s.description,
 			Params:       s.params,

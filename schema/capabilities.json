@@ -4313,6 +4313,98 @@
       }
     },
     {
+      "name": "device.scroll",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.33.0",
+      "description": "Turns the mouse wheel at a point of the open live view, normalised to the frame, by dx and dy notches. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
+        "DEVICE_NO_STREAM",
+        "DEVICE_STREAM_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list. Its live view must be open."
+          },
+          "x": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "description": "Where to turn the wheel, from the left edge of the frame (0) to the right edge (1)."
+          },
+          "y": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "description": "Where to turn the wheel, from the top edge of the frame (0) to the bottom edge (1)."
+          },
+          "dx": {
+            "type": "number",
+            "maximum": 16,
+            "minimum": -16,
+            "description": "Horizontal wheel notches, positive to the right (Android's AXIS_HSCROLL). Within 16 either way; not both dx and dy zero."
+          },
+          "dy": {
+            "type": "number",
+            "maximum": 16,
+            "minimum": -16,
+            "description": "Vertical wheel notches, positive up (Android's AXIS_VSCROLL). Within 16 either way; not both dx and dy zero."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "x",
+          "y",
+          "dx",
+          "dy"
+        ]
+      },
+      "output": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "delivered"
+        ]
+      }
+    },
+    {
       "name": "device.swipe",
       "kind": "command",
       "scope": "global",

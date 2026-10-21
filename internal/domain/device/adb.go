@@ -125,6 +125,12 @@ type ADB struct {
 	// reference on a source in screens or relayedScreens. Close ends them before the sources.
 	screenViews screenStreams
 
+	// recorder is the operation store the live view's gestures are recorded in, set once at
+	// wiring; gestures is the sink between the two (inputrecord.go). With no recorder the
+	// gestures are not recorded.
+	recorder Recorder
+	gestures gestureSink
+
 	// screenLookup replaces the lookup of a device's running source in a test (a fake
 	// screen.Source recording Inject); nil in production.
 	screenLookup func(serial string) screen.Source
