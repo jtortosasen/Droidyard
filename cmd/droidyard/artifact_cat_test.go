@@ -7,8 +7,11 @@ import (
 	"image/png"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
+	"github.com/jtortosasen/droidyard/internal/daemon"
+	"github.com/jtortosasen/droidyard/internal/testtime"
 )
 
 // bigXML is a 3,000-line XML document of more than 600 KiB, one element per line as the full
@@ -68,11 +71,11 @@ func TestArtifactCatSaysNothingOfATrustedArtifact(t *testing.T) {
 	}
 }
 
-// Decision (plan m2w step 4: an image or unknown ref exits non-zero with the error's message):
-// a reference nothing holds is ARTIFACT_NOT_FOUND on stderr, and an image is refused with its
-// media type named; neither writes a byte to stdout. Seen failing with the daemon's error
-// envelope not read (the exit was non-zero but the message was a parse error, with no
-// ARTIFACT_NOT_FOUND).
+// Decision (plan m2z D16, superseding plan m2w step 4's refusal of an image): an unknown
+// reference is ARTIFACT_NOT_FOUND on stderr with nothing on stdout; an image is written
+// byte-identical when stdout is a pipe (`artifact cat <screenshot> > shot.png`) and refused,
+// naming its media type, on a terminal; a state with no daemon is "no daemon is running",
+// exit 1, and none is started. Seen failing with the old pager (the image refused on a pipe).
 func TestArtifactCatRefusesWhatItCannotWrite(t *testing.T) {
 	t.Parallel()
 	p := startInProcess(t)
@@ -90,9 +93,71 @@ func TestArtifactCatRefusesWhatItCannotWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	img := droidyard(t, p.state, "artifact", "cat", ref.Ref)
-	if code := img.wait(t); code == 0 || img.stdout.Len() != 0 || !strings.Contains(img.stderr.String(), "image/png") {
-		t.Errorf("image: exit %d, stdout %d bytes, stderr %q; want non-zero, nothing on stdout, image/png named", code, img.stdout.Len(), img.stderr.String())
+	pipe := droidyard(t, p.state, "artifact", "cat", ref.Ref)
+	if code := pipe.wait(t); code != 0 || !bytes.Equal(pipe.stdout.Bytes(), enc.Bytes()) {
+		t.Errorf("image to a pipe: exit %d, %d bytes on stdout (stderr %q); want the %d PNG bytes unchanged", code, pipe.stdout.Len(), pipe.stderr.String(), enc.Len())
+	}
+	var out, errs bytes.Buffer
+	if code := artifactCatFrom(p.state, ref.Ref, &out, &errs, true); code != 1 || out.Len() != 0 || !strings.Contains(errs.String(), "image/png") {
+		t.Errorf("image to a terminal: exit %d, stdout %d bytes, stderr %q; want 1, nothing written, image/png named", code, out.Len(), errs.String())
+	}
+
+	out.Reset()
+	errs.Reset()
+	empty := shortDir(t)
+	if code := artifactCatFrom(empty, ref.Ref, &out, &errs, false); code != 1 || out.Len() != 0 || !strings.Contains(errs.String(), "no daemon is running") {
+		t.Errorf("no daemon: exit %d, stdout %d bytes, stderr %q; want 1 and no daemon is running", code, out.Len(), errs.String())
+	}
+	if _, held, _ := daemon.Holder(empty); held {
+		t.Error("artifact cat started a daemon")
+	}
+}
+
+// Decision (plan m2z D16: one request is one recorded artifact.read): the 889 KB fixture,
+// which artifact.read pages at 256 KiB, is read in exactly one operation. Seen failing with
+// the old pager (four artifact.read operations in the daemon's trace).
+func TestArtifactCatIsOneOperation(t *testing.T) {
+	t.Parallel()
+	p := startInProcess(t)
+	trace := new(lockedBuffer)
+	p.ops.UseTrace(func(format string, v ...any) { fmt.Fprintf(trace, format+"\n", v...) })
+	doc := bigXML()
+	ref, err := p.store.Put(artifact.Item{Data: []byte(doc), MediaType: "application/xml", Untrusted: true, Producer: "device.uiDump"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat := droidyard(t, p.state, "artifact", "cat", ref.Ref)
+	if code := cat.wait(t); code != 0 || cat.stdout.String() != doc {
+		t.Fatalf("artifact cat exited %d with %d of %d bytes, stderr %q", code, cat.stdout.Len(), len(doc), cat.stderr.String())
+	}
+	// An operation's trace line is written when it ends.
+	deadline := time.Now().Add(testtime.Bound(2 * time.Second))
+	for !strings.Contains(trace.String(), "capability=artifact.read ") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := strings.Count(trace.String(), "capability=artifact.read "); n != 1 {
+		t.Errorf("the daemon recorded %d artifact.read operations; want exactly 1\n%s", n, trace.String())
+	}
+}
+
+// Decision (http-websocket.md §GET /v1/artifacts/{id}: a growing artifact is never served as
+// if whole): a text artifact still being written is exit 1 with the route's message, and
+// nothing on stdout.
+func TestArtifactCatGrowing(t *testing.T) {
+	t.Parallel()
+	p := startInProcess(t)
+	d, err := p.store.CreateDurable("w", "growing", artifact.DurableOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if _, err := d.Write([]byte("half a file\n")); err != nil {
+		t.Fatal(err)
+	}
+	cat := droidyard(t, p.state, "artifact", "cat", d.Ref().Ref)
+	if code := cat.wait(t); code != 1 || cat.stdout.Len() != 0 || !strings.Contains(cat.stderr.String(), "still being written") {
+		t.Errorf("growing: exit %d, stdout %q, stderr %q; want 1, nothing on stdout, the route's message", code, cat.stdout.String(), cat.stderr.String())
 	}
 }
 
@@ -106,7 +171,7 @@ func TestArtifactCatUsage(t *testing.T) {
 			t.Errorf("%q: exit %d, stderr %q; want 2 and the usage", args, code, proc.stderr.String())
 		}
 	}
-	// artifact is a domain of the tree (ADR-0122 D13): alone it lists its verbs, and a verb
+	// artifact is a domain of the tree (plan m2z D13): alone it lists its verbs, and a verb
 	// it does not have is the tree's usage error naming the nearest.
 	group := droidyard(t, shortDir(t), "artifact")
 	if code := group.wait(t); code != 0 || !strings.Contains(group.stdout.String(), "cat") || !strings.Contains(group.stdout.String(), "read") {
