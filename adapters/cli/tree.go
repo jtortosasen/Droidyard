@@ -801,6 +801,8 @@ func ParseDerived(s Spec, args []string, getenv func(string) string) (Derived, e
 				m += " (or ANDROID_SERIAL)"
 			}
 			missing = append(missing, m)
+		} else if subs := in.subFlagsFor(p.name); len(subs) > 0 {
+			missing = append(missing, strings.Join(subs, "|"))
 		} else {
 			missing = append(missing, p.name+" (only through --params)")
 		}
@@ -845,6 +847,18 @@ func (in *input) flagFor(key string) *flagDef {
 		}
 	}
 	return nil
+}
+
+// subFlagsFor names the dotted flags of an object parameter, so a missing required
+// object points at them rather than at --params.
+func (in *input) subFlagsFor(key string) []string {
+	var names []string
+	for _, f := range in.flags {
+		if f.key == key && f.sub != "" {
+			names = append(names, "--"+f.name)
+		}
+	}
+	return names
 }
 
 func sortedKeys[V any](m map[string]V) []string {

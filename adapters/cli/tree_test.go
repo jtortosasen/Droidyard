@@ -275,6 +275,13 @@ func TestRequiredBeforeDial(t *testing.T) {
 			t.Errorf("message %q", msg)
 		}
 	})
+	t.Run("a required object names its dotted flags, not --params", func(t *testing.T) {
+		s := spec("device.tapElement", `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string"},"id":{"type":"string"}}}}}`)
+		msg := parseErr(t, s, noEnv)
+		if !strings.Contains(msg, "--target.text") || strings.Contains(msg, "only through --params") {
+			t.Errorf("message %q", msg)
+		}
+	})
 }
 
 // TestAndroidSerial: ANDROID_SERIAL fills a *required* device only, after the flag and
