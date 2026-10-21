@@ -354,8 +354,9 @@ func TestTwoQuickChangesLeaveTheLastInTheLink(t *testing.T) {
 // Decision (ADR-0123 §2, Rests on): Marked closes for a mark frame that was written and for
 // nothing else, so a view that ends on it never ends for a loss. The write is held, the
 // connection is cut under it, and the write is let go: the link was down, Marked stays open,
-// and the channel of the session that comes next is not closed by the old sender (a sender
-// whose connection was replaced closes nothing). Seen failing with the channel closed whatever
+// and the channel of the session that comes next is not closed by the old sender, whose write
+// failed. A write that succeeds as its connection is replaced (link.go's replaced-connection
+// check) is not staged here: it is held correct by reading. Seen failing with the channel closed whatever
 // the write did: Marked closed on the lost link.
 func TestMarkedNeverClosesForALoss(t *testing.T) {
 	m := newMarkingHost(t, "0.36.0")

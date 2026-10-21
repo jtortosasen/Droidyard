@@ -62,8 +62,9 @@
 	});
 
 	// The remote's mark is read at each answered watch of a remote device (a local one reads nothing).
+	const generation = $derived(view.generation);
 	$effect(() => {
-		if (view.generation > 0) untrack(() => void quality.read());
+		if (generation > 0) untrack(() => void quality.read());
 	});
 
 	$effect(() => model.setActive(visible && !pageHidden));

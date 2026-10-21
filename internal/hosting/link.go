@@ -76,7 +76,7 @@ type Link struct {
 	connected bool
 	lost      chan struct{} // closed when the connection now up is lost; nil while down
 	hostAPI   string
-	fast      bool // the remote's mark (ADR-0118 §4), sent in the hello; update changes it
+	fast      bool // the remote's mark (ADR-0118 §4), sent in the hello, then in a mark frame when update changes it (ADR-0123 §1)
 	// sentFast is the mark the host was last told: the hello's, then each mark frame written
 	// (ADR-0123 §1). The mark sender writes a frame when fast differs from it.
 	sentFast bool
