@@ -120,6 +120,9 @@ type ADB struct {
 	// relayedLogs are the Logcat streams of remote devices, by client session and device
 	// (remotelogs.go).
 	relayedLogs relayedLogSet
+	// relayedUIEvents are the UI events streams of remote devices, by client session and
+	// device (remoteuievents.go).
+	relayedUIEvents relayedUISet
 
 	// screenViews is every device.watchScreen stream (plan m2p step 4): each holds one
 	// reference on a source in screens or relayedScreens. Close ends them before the sources.

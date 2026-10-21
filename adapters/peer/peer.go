@@ -669,7 +669,7 @@ func (l *listener) serveArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	// The types a store holds for the peer-lendable producers; anything else is not served.
 	switch a.MediaType {
-	case "image/png", "image/jpeg", "text/plain":
+	case "image/png", "image/jpeg", "text/plain", "application/xml":
 	default:
 		http.Error(w, "the artifact cannot be served", http.StatusInternalServerError)
 		return

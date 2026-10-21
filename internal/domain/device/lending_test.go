@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
 )
@@ -20,10 +21,11 @@ func usbLine(serial string) string {
 // (the physical policy and hosting.lend) read live from a configuration directory the
 // test rewrites. Calls are made as a local caller or as a paired peer.
 type hostFixture struct {
-	adb *ADB
-	ops *capability.Operations
-	cfg string
-	dir string // the fake adb's scenario directory
+	adb   *ADB
+	ops   *capability.Operations
+	cfg   string
+	dir   string // the fake adb's scenario directory
+	store *artifact.Store
 }
 
 const (
@@ -52,10 +54,11 @@ func newHostFixture(t *testing.T, listing string, serials []string, config strin
 	adb.SetPolicy(pol)
 	adb.SetLending(pol)
 	reg := capability.NewRegistry()
-	Register(reg, adb, testStore(t), nil)
+	store := testStore(t)
+	Register(reg, adb, store, nil)
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
-	return &hostFixture{adb: adb, ops: ops, cfg: cfg, dir: dir}
+	return &hostFixture{adb: adb, ops: ops, cfg: cfg, dir: dir, store: store}
 }
 
 // call runs capName as who: "" is a local caller, a name a paired peer of that name.
@@ -155,7 +158,8 @@ func TestLendingToPeers(t *testing.T) {
 
 // Decision (ADR-0099 §2): a peer calls only what is Lendable. The core refuses the rest
 // with REQUEST_NOT_ALLOWED_HERE, before an operation exists. This pins which device
-// capabilities are lent so far; a capability added to the set must be added here.
+// capabilities are lent so far; a capability added to the set must be added here. The three
+// UI reads joined it with ADR-0115 Decision 1.
 func TestDeviceLendableSet(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, newFake(t, t.TempDir(), closedPort(t)), testStore(t), nil)
@@ -166,7 +170,7 @@ func TestDeviceLendableSet(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload", "device.screenshot", "device.logs", "device.watchLogs"}
+	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload", "device.screenshot", "device.logs", "device.watchLogs", "device.uiDump", "device.uiEvents", "device.watchUiEvents"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("lendable device capabilities = %v; want %v", got, want)

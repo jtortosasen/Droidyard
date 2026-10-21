@@ -55,7 +55,7 @@ type Artifact struct {
 }
 
 // artifactTypes are the media types a host serves an artifact as (the peer route's rule).
-var artifactTypes = map[string]bool{"image/png": true, "image/jpeg": true, "text/plain": true}
+var artifactTypes = map[string]bool{"image/png": true, "image/jpeg": true, "text/plain": true, "application/xml": true}
 
 // Artifact fetches the bytes of the artifact id from the host (ADR-0099 §2), on its own
 // pinned connection, which ends when ctx does. At most max bytes are kept: a declared length

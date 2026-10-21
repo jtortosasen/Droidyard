@@ -2,7 +2,6 @@ package device
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -219,35 +218,21 @@ func TestUIDumpPhysicalNotAllowed(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0110 Decision 6: not lendable): a remote device id is the local
-// DEVICE_NOT_FOUND, with no relay through the link. device.uiTree, which is lendable, relays
-// the same id (the link is down: DEVICE_NOT_READY), which shows the fixture would have sent it.
-// Seen failing with the descriptor wrapped in adb.plain (DEVICE_NOT_READY from the link).
-func TestUIDumpRemoteIDNotFound(t *testing.T) {
+// Decision (ADR-0115 Decision 1): a remote device id is relayed to its host, as device.uiTree's
+// is: with the link down both are DEVICE_NOT_READY, unreachable, and nothing runs here. Seen
+// failing with the descriptor not wrapped in adb.plainThen (the local DEVICE_NOT_FOUND).
+func TestUIDumpRemoteIDRelayed(t *testing.T) {
 	f := newUIFixture(t, nil)
 	f.adb.remotes = oneRemote{&hosting.Link{}}
 	f.adb.policy = admitting{"c/X1"}
 	if tree := mustFail(t, f.tree(t, "c/X1"), ErrNotReady); tree.Details["state"] != "unreachable" {
 		t.Fatalf("uiTree on the remote id: %+v; want it relayed (the link is down)", tree)
 	}
-	mustFail(t, f.dumpCall(t, `{"device":"c/X1"}`), ErrNotFound)
-}
-
-// Decision (ADR-0110 Decision 6, ADR-0099 §2 unchanged): a paired peer's call to device.uiDump
-// is refused before anything runs, because the capability is not Lendable. Seen failing with
-// Lendable set.
-func TestUIDumpIsNotLendableToAPeer(t *testing.T) {
-	f := newUIFixture(t, nil)
-	_, err := f.ops.Start(context.Background(), capability.Request{
-		Capability: "device.uiDump", Params: []byte(`{"device":"` + uiSerial + `"}`),
-		Client: capability.ClientPeer, Origin: capability.Origin{ID: "peer-anna", Name: "anna"},
-	})
-	var ce *capability.Error
-	if !errors.As(err, &ce) || ce.Code != capability.ErrNotAllowedHere {
-		t.Fatalf("a peer's device.uiDump: %v; want %s", err, capability.ErrNotAllowedHere)
+	if dump := mustFail(t, f.dumpCall(t, `{"device":"c/X1"}`), ErrNotReady); dump.Details["state"] != "unreachable" {
+		t.Fatalf("uiDump on the remote id: %+v; want it relayed too (the link is down)", dump)
 	}
 	if calls := f.calls(t); len(calls) != 0 {
-		t.Errorf("adb was asked %q for a refused peer call", calls)
+		t.Errorf("adb was asked %q for a remote device", calls)
 	}
 }
 

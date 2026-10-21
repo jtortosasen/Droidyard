@@ -1,5 +1,5 @@
 {
-  "version": "0.32.0",
+  "version": "0.33.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -5401,6 +5401,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5518,6 +5519,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS"
       ],
@@ -6290,6 +6292,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS",
         "SESSION_REQUIRED"

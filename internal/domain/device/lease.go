@@ -56,16 +56,17 @@ func (a *ADB) lentNow(peer, serial string) bool {
 	return a.admitted(serial).Admitted && a.lending != nil && a.lending.Lent(peer, serial)
 }
 
-// endLease stops the streams the link session holds on serial (ADR-0104 §4): the live view
-// and every Logcat stream, each with `stopped deviceGone` and the cause of the host's end.
-// The registry calls it after the lease is gone, outside its lock.
+// endLease stops the streams the link session holds on serial (ADR-0104 §4): the live view,
+// every Logcat stream and every UI events stream, each with `stopped deviceGone` and the
+// cause of the host's end. The registry calls it after the lease is gone, outside its lock.
 func (a *ADB) endLease(session, serial string) {
 	a.screenViews.endLease(session, serial)
 	a.streams.endLease(session, serial)
+	a.uiStreams.endLease(session, serial)
 }
 
-// SetStartHook makes every live view and Logcat stream run f after it has started or joined
-// its source and before it enters its table. Test-only: it is where a lease can end while a
+// SetStartHook makes every live view, Logcat stream and UI events stream run f after it has
+// started or joined its source and before it enters its table. Test-only: it is where a lease can end while a
 // stream is starting, the window endLease cannot see. Nil removes it.
 func (a *ADB) SetStartHook(f func()) {
 	if f == nil {

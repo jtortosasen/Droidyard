@@ -94,9 +94,10 @@ type UIEventsResult struct {
 }
 
 func registerUIEvents(reg *capability.Registry, adb *ADB) {
-	// Not adb.plain: not lendable (ADR-0111 Decision 9; ADR-0099 §2 unchanged). No Resource:
-	// a poll takes no lock, so a wait never queues a read or an action (Decision 8).
-	reg.MustRegister(capability.Descriptor{
+	// Lent (ADR-0115 Decision 1): a remote id is relayed and the host's cursor passed through
+	// (remoteuievents.go). No Resource: a poll takes no lock, so a wait never queues a read or
+	// an action (ADR-0111 Decision 8).
+	d := adb.plainThen(capability.Descriptor{
 		Name:         "device.uiEvents",
 		Kind:         capability.Query,
 		Scope:        capability.Global,
@@ -107,7 +108,7 @@ func registerUIEvents(reg *capability.Registry, adb *ADB) {
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UIEventsParams).Device) },
 		Result:       UIEventsResult{},
 		Text:         capability.TextOf(uiEventsText),
-		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams),
+		Errors:       append(append([]capability.ErrorCode{}, LentErrors...), ErrUIDumpFailed, capability.ErrInvalidParams),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			return adb.authorize(ctx, call.Origin, call.Params.(UIEventsParams).Device, "device.uiEvents")
 		},
@@ -123,7 +124,19 @@ func registerUIEvents(reg *capability.Registry, adb *ADB) {
 			}
 			return adb.uiEvents(ctx, t, p.Device, q)
 		},
+	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+		return uiEventsRelayed(rt, res.(UIEventsResult))
 	})
+	// The parameters are checked before the host is asked: a remote id never reaches the
+	// handler above, and a malformed cursor is the caller's to hear, not the host's.
+	authorize := d.Authorize
+	d.Authorize = func(ctx context.Context, call *capability.Call) (any, error) {
+		if _, err := call.Params.(UIEventsParams).query(); err != nil {
+			return nil, err
+		}
+		return authorize(ctx, call)
+	}
+	reg.MustRegister(d)
 }
 
 // eventsQuery is UIEventsParams checked and with its defaults.

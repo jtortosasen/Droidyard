@@ -608,26 +608,21 @@ func TestUIEventsPhysicalNotAllowed(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0111 Decision 9): not lendable. A remote device id is the local
-// DEVICE_NOT_FOUND with no relay (device.uiTree, which is lendable, relays the same id), and a
-// paired peer's own call is refused before anything runs. Seen failing with the descriptor
-// wrapped in adb.plain (DEVICE_NOT_READY from the link).
-func TestUIEventsIsNotLendable(t *testing.T) {
+// Decision (ADR-0115 Decision 1): a remote device id is relayed to its host, as device.uiTree's
+// is (the link is down: DEVICE_NOT_READY, unreachable), with no adb command here, and a
+// malformed cursor is refused on this side before any host is asked. Seen failing with the
+// descriptor not wrapped in adb.plainThen (the local DEVICE_NOT_FOUND), and with the
+// parameters checked only by the local handler (a bad cursor on a remote id reached the host).
+func TestUIEventsRemoteIDRelayed(t *testing.T) {
 	f := newUIFixture(t, nil)
 	f.adb.remotes = oneRemote{&hosting.Link{}}
 	f.adb.policy = admitting{"c/X1"}
-	if tree := mustFail(t, f.tree(t, "c/X1"), ErrNotReady); tree.Details["state"] != "unreachable" {
-		t.Fatalf("uiTree on the remote id: %+v; want it relayed (the link is down)", tree)
+	if ev := mustFail(t, f.eventsCall(t, `{"device":"c/X1"}`), ErrNotReady); ev.Details["state"] != "unreachable" {
+		t.Fatalf("uiEvents on the remote id: %+v; want it relayed (the link is down)", ev)
 	}
-	mustFail(t, f.eventsCall(t, `{"device":"c/X1"}`), ErrNotFound)
-
-	_, err := f.ops.Start(context.Background(), capability.Request{
-		Capability: "device.uiEvents", Params: []byte(`{"device":"` + uiSerial + `"}`),
-		Client: capability.ClientPeer, Origin: capability.Origin{ID: "peer-anna", Name: "anna"},
-	})
-	var ce *capability.Error
-	if !errors.As(err, &ce) || ce.Code != capability.ErrNotAllowedHere {
-		t.Fatalf("a peer's device.uiEvents: %v; want %s", err, capability.ErrNotAllowedHere)
+	mustFail(t, f.eventsCall(t, `{"device":"c/X1","since":"not-a-cursor"}`), capability.ErrInvalidParams)
+	if calls := f.calls(t); len(calls) != 0 {
+		t.Errorf("adb was asked %q for a remote device", calls)
 	}
 }
 

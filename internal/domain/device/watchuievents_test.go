@@ -3,7 +3,6 @@ package device
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -542,10 +541,10 @@ func TestWatchUIEventsRefusals(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0015 §4; ADR-0112 Decision 1: not lendable): a physical device the policy does
-// not admit is DEVICE_NOT_ALLOWED with nothing asked of it, a remote id is the local
-// DEVICE_NOT_FOUND with no relay, and a paired peer's own call is refused before anything runs.
-// Seen failing with the descriptor wrapped in adb.plain (the peer's call was accepted).
+// Decision (ADR-0015 §4; ADR-0115 Decision 1: lendable): a physical device the policy does not
+// admit is DEVICE_NOT_ALLOWED with nothing asked of it, and a remote id is relayed to its host
+// (the link is down: DEVICE_NOT_READY, unreachable) with no adb command here. Seen failing with
+// the Authorize hook not trying the remote id first (the local DEVICE_NOT_FOUND).
 func TestWatchUIEventsIsGatedAsUIEventsIs(t *testing.T) {
 	sess := event.NewSession(event.New(event.Options{}), "s9")
 	f := newDevicePolicyFixture(t, nil, "")
@@ -569,14 +568,11 @@ func TestWatchUIEventsIsGatedAsUIEventsIs(t *testing.T) {
 	g := newUIFixture(t, nil)
 	g.adb.remotes = oneRemote{&hosting.Link{}}
 	g.adb.policy = admitting{"c/X1"}
-	mustFail(t, startOn(t, g, sess, `{"device":"c/X1"}`), ErrNotFound)
-
-	_, err = g.ops.Start(context.Background(), capability.Request{
-		Capability: "device.watchUiEvents", Params: []byte(`{"device":"` + uiSerial + `"}`),
-		Client: capability.ClientPeer, Origin: capability.Origin{ID: "peer-anna", Name: "anna"}, Session: sess,
-	})
-	var ce *capability.Error
-	if !errors.As(err, &ce) || ce.Code != capability.ErrNotAllowedHere {
-		t.Fatalf("a peer's device.watchUiEvents: %v; want %s", err, capability.ErrNotAllowedHere)
+	g.adb.SetBus(event.New(event.Options{}))
+	if got := mustFail(t, startOn(t, g, sess, `{"device":"c/X1"}`), ErrNotReady); got.Details["state"] != "unreachable" {
+		t.Fatalf("watchUiEvents on the remote id: %+v; want it relayed (the link is down)", got)
+	}
+	if calls := g.calls(t); len(calls) != 0 {
+		t.Errorf("adb was asked %q for a remote device", calls)
 	}
 }

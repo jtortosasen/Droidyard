@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -51,7 +52,12 @@ type leaseLab struct {
 	trace *lockedBuffer // the host's trace lines
 }
 
-func newLeaseLab(t *testing.T) *leaseLab {
+func newLeaseLab(t *testing.T) *leaseLab { return newLeaseLabWith(t, nil, false) }
+
+// newLeaseLabWith is newLeaseLab with more files in the host's fake adb directory (a UI
+// reader's forward, for the tests of the UI reads) and, with noScreen, a host with no live view
+// source (no screen listener, and its fake adb in this process).
+func newLeaseLabWith(t *testing.T, files map[string]string, noScreen bool) *leaseLab {
 	t.Helper()
 	// Bob's identity first: the host pins it. His fake adb lists one emulator of his own.
 	bobDir := t.TempDir()
@@ -66,10 +72,20 @@ func newLeaseLab(t *testing.T) *leaseLab {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sl := newScreenLab(t, 3, labOptions{
-		hostFiles:  map[string]string{phone1 + ".log": remoteLog},
+	hostFiles := map[string]string{phone1 + ".log": remoteLog}
+	maps.Copy(hostFiles, files)
+	o := labOptions{
+		hostFiles:  hostFiles,
 		extraPeers: []labPeer{{"bob", bob.host.Identity().Fingerprint()}, {"carol", carolID.Fingerprint()}},
-	})
+	}
+	var sl *screenLab
+	if noScreen {
+		// The host's fake adb in this process: a forward to a fake UI reader is a listener of
+		// the process that made it (devicetest), which a re-executed fake would take with it.
+		sl = &screenLab{remoteLab: newRemoteLabWith(t, o)}
+	} else {
+		sl = newScreenLab(t, 3, o)
+	}
 	addr := sl.host.host.Health().Hosting.Listen
 	hostFP := sl.host.host.Identity().Fingerprint()
 
