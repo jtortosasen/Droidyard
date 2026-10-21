@@ -154,6 +154,14 @@ func call(args []string) int {
 		fmt.Fprintf(os.Stderr, "droidyard call: %v\n%s\n", err, cli.Usage)
 		return cli.ExitUsage
 	}
+	return runCapability("call", c)
+}
+
+// runCapability makes one capability call as `droidyard call` does, and a derived command
+// (`droidyard device list`) the same way: it starts a daemon when none answers, unless the
+// call says NoAutostart, sends the current directory's project root in the hello, and prints
+// the response envelope. who names the command in its own messages.
+func runCapability(who string, c cli.Call) int {
 	// Installed before the request goes out, so a Ctrl-C is never lost to the default
 	// action. The first one asks the adapter to cancel; a second one, if cancelling
 	// hangs, kills the process as usual.
@@ -175,17 +183,17 @@ func call(args []string) int {
 	}
 	conn, r, socket, err := connectOrStart(hello, !c.NoAutostart, interrupt)
 	if errors.Is(err, errInterrupted) {
-		fmt.Fprintln(os.Stderr, "droidyard call:", err)
+		fmt.Fprintln(os.Stderr, "droidyard "+who+":", err)
 		return cli.ExitInterrupted
 	}
 	if err != nil {
-		reportDialError("call", socket, err)
+		reportDialError(who, socket, err)
 		return 1
 	}
 	defer conn.Close()
 	code, err := c.Run(r, conn, cli.Streams{Out: os.Stdout, Err: os.Stderr}, interrupt)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "droidyard call:", err)
+		fmt.Fprintln(os.Stderr, "droidyard "+who+":", err)
 		return 1
 	}
 	return code

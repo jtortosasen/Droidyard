@@ -100,10 +100,20 @@ func TestArtifactCatRefusesWhatItCannotWrite(t *testing.T) {
 // (exit 2) and no daemon is asked.
 func TestArtifactCatUsage(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{{"artifact"}, {"artifact", "cat"}, {"artifact", "cat", "a", "b"}, {"artifact", "list"}} {
+	for _, args := range [][]string{{"artifact", "cat"}, {"artifact", "cat", "a", "b"}} {
 		proc := droidyard(t, shortDir(t), args...)
 		if code := proc.wait(t); code != 2 || !strings.Contains(proc.stderr.String(), artifactUsage) {
 			t.Errorf("%q: exit %d, stderr %q; want 2 and the usage", args, code, proc.stderr.String())
 		}
+	}
+	// artifact is a domain of the tree (ADR-0122 D13): alone it lists its verbs, and a verb
+	// it does not have is the tree's usage error naming the nearest.
+	group := droidyard(t, shortDir(t), "artifact")
+	if code := group.wait(t); code != 0 || !strings.Contains(group.stdout.String(), "cat") || !strings.Contains(group.stdout.String(), "read") {
+		t.Errorf("artifact alone: exit %d, stdout %q; want the group's verbs, cat and read", code, group.stdout.String())
+	}
+	unknown := droidyard(t, shortDir(t), "artifact", "list")
+	if code := unknown.wait(t); code != 2 || !strings.Contains(unknown.stderr.String(), `unknown command "list"`) {
+		t.Errorf("artifact list: exit %d, stderr %q; want 2 and an unknown command", code, unknown.stderr.String())
 	}
 }
