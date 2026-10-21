@@ -31,7 +31,9 @@ const MaxViewerLag = 500 * time.Millisecond
 //     cannot loop; it counts as one rejoin;
 //   - a viewer whose oldest queued packet entered its queue more than MaxViewerLag ago, seen
 //     when a packet is pushed or when the viewer reads, is rejoined the same way and the
-//     Hub's OnLag hook is told, so the source can ask the encoder for a key frame.
+//     Hub's OnLag hook is told, so the source can ask the encoder for a key frame. The age
+//     counts only from the viewer's first read (its socket may attach seconds after the
+//     join), and not at all in a Hub made by NewHubWithoutAgeBound.
 //
 // A merged packet has Key and Config set and Data = config followed by the key frame.
 // Every other packet is the device's, unchanged. The Hub is safe for concurrent use.
@@ -45,6 +47,7 @@ type Hub struct {
 	viewers  map[*hubViewer]struct{}
 	rejoins  int
 	now      func() time.Time // the clock of a queue's age; a test replaces it
+	noAge    bool             // no viewer is reset for its queue's age (NewHubWithoutAgeBound)
 	onLag    func()           // told, outside mu, when a viewer lagged; never blocks
 
 	closed bool
@@ -55,6 +58,16 @@ type Hub struct {
 // NewHub returns an empty Hub.
 func NewHub() *Hub {
 	return &Hub{viewers: make(map[*hubViewer]struct{}), done: make(chan struct{}), now: time.Now}
+}
+
+// NewHubWithoutAgeBound returns a Hub whose viewers are never reset for their queue's age: only
+// the byte and packet bounds apply. It is for a relayed source (ADR-0121): a lagging
+// viewer there would wait for a key frame its host's encoder never sends on a static screen,
+// and the link is already bounded at the host.
+func NewHubWithoutAgeBound() *Hub {
+	h := NewHub()
+	h.noAge = true
+	return h
 }
 
 // Push gives the Hub the next packet from the device. Only one goroutine pushes. The Hub
@@ -121,7 +134,7 @@ func (h *Hub) push(p Packet) (lag bool) {
 			if p.Key && h.pending {
 				out = merge()
 			}
-			stale := v.head < len(v.queue) && now.Sub(v.queue[v.head].at) > MaxViewerLag
+			stale := h.aged(v, now)
 			if !stale && v.bytes+len(out.Data) <= MaxQueue && len(v.queue)-v.head < MaxPackets {
 				v.push(out, now)
 				continue
@@ -232,7 +245,14 @@ type hubViewer struct {
 	head    int
 	bytes   int  // Data bytes in queue[head:]
 	waiting bool // dropping packets until the next key frame
+	started bool // the viewer has read once, so its queue's age counts
 	closed  bool
+}
+
+// aged says whether v's oldest queued packet has waited more than MaxViewerLag at now. A
+// viewer that has not read yet, and any viewer of a Hub without the age bound, is never aged.
+func (h *Hub) aged(v *hubViewer, now time.Time) bool {
+	return !h.noAge && v.started && v.head < len(v.queue) && now.Sub(v.queue[v.head].at) > MaxViewerLag
 }
 
 // queued is a packet and when it entered its viewer's queue.
@@ -264,6 +284,15 @@ func (v *hubViewer) Next(ctx context.Context) (Packet, error) {
 			return Packet{}, err
 		}
 		h.mu.Lock()
+		if !v.started {
+			// The age clock starts at the first read: a viewer joins when the stream opens and
+			// its socket attaches up to seconds later, and what it queued meanwhile is not lag.
+			v.started = true
+			at := h.now()
+			for i := v.head; i < len(v.queue); i++ {
+				v.queue[i].at = at
+			}
+		}
 		switch {
 		case v.closed:
 			h.mu.Unlock()
@@ -273,7 +302,7 @@ func (v *hubViewer) Next(ctx context.Context) (Packet, error) {
 			h.mu.Unlock()
 			return Packet{}, err
 		case v.head < len(v.queue):
-			if h.now().Sub(v.queue[v.head].at) > MaxViewerLag {
+			if h.aged(v, h.now()) {
 				// The reader came for a packet that has waited too long: a viewer that
 				// keeps up never finds one.
 				v.reset()

@@ -48,6 +48,7 @@ func TestLaggingViewerRejoinsAtTheNextKeyFrame(t *testing.T) {
 	behind, steady := join(h), join(h)
 	h.Push(cfgPacket(cfgA))
 	h.Push(keyPacket(1, "K1"))
+	drain(t, behind, 1) // the age counts from a viewer's first read
 	h.Push(deltaPacket(2, "d2"))
 	drain(t, steady, 2)
 
@@ -102,6 +103,7 @@ func TestAJoinIsNotLag(t *testing.T) {
 
 	// A joiner that then does not read is lag like any other, from its join.
 	late := join(h)
+	next(t, late)
 	clock.advance(MaxViewerLag + time.Millisecond)
 	h.Push(deltaPacket(4, "d4"))
 	if h.Rejoins() != 1 {
@@ -138,6 +140,8 @@ func TestAViewerThatReadsLateIsRejoined(t *testing.T) {
 	v := join(h)
 	h.Push(cfgPacket(cfgA))
 	h.Push(keyPacket(1, "K1"))
+	expectMerged(t, next(t, v), cfgA, keyPacket(1, "K1"))
+	h.Push(deltaPacket(2, "d2"))
 	clock.advance(MaxViewerLag + time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
@@ -150,4 +154,61 @@ func TestAViewerThatReadsLateIsRejoined(t *testing.T) {
 	}
 	h.Push(keyPacket(2, "K2"))
 	expectMerged(t, next(t, v), cfgA, keyPacket(2, "K2"))
+}
+
+// Decision (ADR-0118 §1, the close verifier's B2): a viewer's age clock starts at its first
+// read. A viewer joins when the stream opens and its socket attaches up to 10 s later; on a
+// static screen the joined GOP is all it will ever get, and a viewer reset for waiting to
+// attach would never draw and would ask the encoder for a key frame every 2 s. Joined 3 s
+// before its first read, with packets pushed meanwhile, it gets the GOP and those packets in
+// order, is never reset, and the owner is never told; after that read the age counts as usual.
+func TestAViewerDoesNotAgeBeforeItsFirstRead(t *testing.T) {
+	h, clock, lags := lagHub()
+	h.Push(cfgPacket(cfgA))
+	h.Push(keyPacket(1, "K1"))
+	v := join(h)
+	for i := int64(2); i <= 4; i++ {
+		clock.advance(time.Second)
+		h.Push(deltaPacket(i, "d"))
+	}
+	if h.Rejoins() != 0 || lags.Load() != 0 {
+		t.Fatalf("%d rejoins and %d lag calls for a viewer that has not read yet, want none", h.Rejoins(), lags.Load())
+	}
+	expectMerged(t, next(t, v), cfgA, keyPacket(1, "K1"))
+	for i := int64(2); i <= 4; i++ {
+		expectPlain(t, next(t, v), deltaPacket(i, "d"))
+	}
+	if h.Rejoins() != 0 || lags.Load() != 0 {
+		t.Fatalf("%d rejoins and %d lag calls after a late first read, want none", h.Rejoins(), lags.Load())
+	}
+
+	h.Push(deltaPacket(5, "d"))
+	clock.advance(MaxViewerLag + time.Millisecond)
+	h.Push(deltaPacket(6, "d"))
+	if h.Rejoins() != 1 || lags.Load() != 1 {
+		t.Fatalf("%d rejoins and %d lag calls for a viewer that stopped reading, want one each", h.Rejoins(), lags.Load())
+	}
+}
+
+// Decision (ADR-0118 §1, the close verifier's B2): a Hub made without the age bound (a relayed
+// source's) never resets a viewer for its age, at a push or at a read, whatever the delay; the
+// byte bound stays. Its viewer could not get a key frame from a static screen's host.
+func TestHubWithoutAgeBoundNeverResetsForAge(t *testing.T) {
+	clock := &lagClock{t: time.Unix(1_000_000, 0)}
+	h := NewHubWithoutAgeBound()
+	h.now = clock.now
+	lags := new(atomic.Int32)
+	h.OnLag(func() { lags.Add(1) })
+	v := join(h)
+	h.Push(cfgPacket(cfgA))
+	h.Push(keyPacket(1, "K1"))
+	expectMerged(t, next(t, v), cfgA, keyPacket(1, "K1"))
+	h.Push(deltaPacket(2, "d2"))
+	clock.advance(2 * time.Second)
+	h.Push(deltaPacket(3, "d3"))
+	expectPlain(t, next(t, v), deltaPacket(2, "d2")) // read 2 s late
+	expectPlain(t, next(t, v), deltaPacket(3, "d3"))
+	if h.Rejoins() != 0 || lags.Load() != 0 {
+		t.Fatalf("%d rejoins and %d lag calls without the age bound, want none", h.Rejoins(), lags.Load())
+	}
 }

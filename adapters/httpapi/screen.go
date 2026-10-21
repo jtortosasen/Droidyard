@@ -206,6 +206,9 @@ func (h *screenHandler) serve(parent context.Context, c *websocket.Conn, attach 
 	sendScreen(ctx, cancel, c, v, wt, nil)
 }
 
+// sendHook is a test seam: called after each message's write returns.
+var sendHook func()
+
 // sendScreen sends the viewer's packets on c until the stream or the socket ends, then
 // closes the viewer, which ends the stream (as detached when the socket was the reason). It
 // is the part of /v1/screen and /peer/v1/screen that comes after the first frame. cancel
@@ -254,8 +257,15 @@ func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Con
 
 	var buf []byte
 	for {
-		if win != nil && win.wait(ctx) != nil {
-			return
+		if win != nil {
+			// A window held shut by a client that stopped acknowledging ends the socket after
+			// the write bound, as a write that cannot finish does.
+			wctx, wcancel := context.WithTimeout(ctx, wt)
+			err := win.wait(wctx)
+			wcancel()
+			if err != nil {
+				return
+			}
 		}
 		p, err := v.Next(ctx)
 		if err != nil {
@@ -265,14 +275,20 @@ func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Con
 			return
 		}
 		buf = screenMessage(buf, p)
+		if win != nil {
+			// Counted before the write: the client may read the frame and acknowledge it before
+			// Write returns, and an acknowledgement ahead of the count is refused. A write that
+			// fails ends the socket, so the count is moot then.
+			win.sentBytes(len(buf))
+		}
 		wctx, wcancel := context.WithTimeout(ctx, wt)
 		err = c.Write(wctx, websocket.MessageBinary, buf)
 		wcancel()
+		if sendHook != nil {
+			sendHook()
+		}
 		if err != nil {
 			return // the library closed a connection whose write failed or timed out
-		}
-		if win != nil {
-			win.sentBytes(len(buf))
 		}
 		if cap(buf) > 1<<20 {
 			buf = nil // do not keep a key frame's buffer for the delta frames behind it

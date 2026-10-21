@@ -118,6 +118,12 @@ func TestAScreenSourceAsksForAKeyFrameWhenAViewerLags(t *testing.T) {
 	s.hub.Push(pkts[1]) // the key frame
 	ctx, cancel := context.WithTimeout(context.Background(), testtime.Bound(5*time.Second))
 	defer cancel()
+	for _, v := range []screen.Viewer{steady, behind} { // the age counts from a first read
+		if _, err := v.Next(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.hub.Push(screen.Packet{PTS: 1, Data: []byte("delta")})
 	if _, err := steady.Next(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -127,10 +133,42 @@ func TestAScreenSourceAsksForAKeyFrameWhenAViewerLags(t *testing.T) {
 	}
 
 	time.Sleep(screen.MaxViewerLag + 100*time.Millisecond)
-	s.hub.Push(screen.Packet{PTS: 1, Data: []byte("delta")})
+	s.hub.Push(screen.Packet{PTS: 2, Data: []byte("delta")})
 	rec.waitN(t, 1)
 	settle(s.line)
 	if got := rec.all(); len(got) != 1 || !bytes.Equal(got[0], resetVideo) {
 		t.Fatalf("a lagging viewer made the source write % x, want one reset-video (11)", got)
+	}
+}
+
+// Decision (ADR-0118 §1, the close verifier's B2): a relayed source's Hub applies no age bound,
+// because its viewer could only wait for a key frame its host's encoder will not send on a
+// static screen. A viewer of the real relayed source that reads MaxViewerLag late keeps its
+// packets and is not rejoined; newRelayedSource's own Hub is tested, so a constructor that
+// leaves the bound on fails here.
+func TestARelayedSourceDoesNotResetALateViewer(t *testing.T) {
+	_, pkts, _ := ssFixture(t)
+	s := (&ADB{}).newRelayedSource(&relayedScreens{}, &remoteTarget{remote: "far", id: "far/X1", serial: "X1"})
+	t.Cleanup(s.cancel)
+	v := s.hub.Join()
+	defer v.Close()
+	s.hub.Push(pkts[0])
+	s.hub.Push(pkts[1])
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Bound(5*time.Second))
+	defer cancel()
+	if _, err := v.Next(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s.hub.Push(screen.Packet{PTS: 1, Data: []byte("delta")})
+	time.Sleep(screen.MaxViewerLag + 100*time.Millisecond)
+	s.hub.Push(screen.Packet{PTS: 2, Data: []byte("delta2")})
+	for _, want := range []int64{1, 2} {
+		p, err := v.Next(ctx)
+		if err != nil || p.PTS != want {
+			t.Fatalf("a viewer reading late got pts %d, %v; want pts %d kept", p.PTS, err, want)
+		}
+	}
+	if n := s.hub.Rejoins(); n != 0 {
+		t.Fatalf("%d rejoins on a relayed source, want none", n)
 	}
 }

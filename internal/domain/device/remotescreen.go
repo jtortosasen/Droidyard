@@ -191,7 +191,7 @@ func (a *ADB) newRelayedSource(rs *relayedScreens, rt *remoteTarget) *relayedSou
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &relayedSource{
 		set: rs, adb: a, rt: rt,
-		ctx: ctx, cancel: cancel, hub: screen.NewHub(),
+		ctx: ctx, cancel: cancel, hub: screen.NewHubWithoutAgeBound(), // the host's Hub and the peer window bound the age (ADR-0121)
 		ready: make(chan struct{}), done: make(chan struct{}),
 	}
 	// The line writes the wire for the host, which owns the device's frame size and finger:

@@ -212,17 +212,16 @@ func (l *controlLine) sizeChanged() {
 // keyFrameRequestEvery, dropped when the queue is full. It never blocks, so the Hub's owner may
 // call it from the goroutine that found the lag.
 func (l *controlLine) requestKeyFrame() {
-	l.resetMu.Lock()
-	now := l.now()
-	if !l.lastReset.IsZero() && now.Sub(l.lastReset) < keyFrameRequestEvery {
-		l.resetMu.Unlock()
-		return
-	}
-	l.resetMu.Unlock()
 	select {
 	case <-l.done:
 		return
 	default:
+	}
+	l.resetMu.Lock()
+	defer l.resetMu.Unlock()
+	now := l.now()
+	if !l.lastReset.IsZero() && now.Sub(l.lastReset) < keyFrameRequestEvery {
+		return
 	}
 	l.qmu.Lock()
 	if len(l.queue) >= controlQueueCap {
@@ -231,9 +230,7 @@ func (l *controlLine) requestKeyFrame() {
 	}
 	l.queue = append(l.queue, lineItem{reset: true})
 	l.qmu.Unlock()
-	l.resetMu.Lock()
 	l.lastReset = now
-	l.resetMu.Unlock()
 	l.signal()
 }
 

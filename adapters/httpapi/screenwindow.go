@@ -61,8 +61,11 @@ func (w *ackWindow) ack(frame []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.stamps = append(w.stamps, now)
-	if len(w.stamps) > maxAcksPerSecond {
+	if len(w.stamps) > maxAcksPerSecond+1 {
 		w.stamps = w.stamps[1:]
+	}
+	if len(w.stamps) == maxAcksPerSecond+1 {
+		// The 101st ack inside a second is more than 100 in it.
 		if now.Sub(w.stamps[0]) < time.Second {
 			return errAckRefused
 		}

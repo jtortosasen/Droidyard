@@ -1,6 +1,7 @@
 # ADR-0119: The live view stays on TCP; a datagram transport waits for a measured loss
 
 - Status: Accepted
+- Superseded in part by: ADR-0121 (§2)
 - Date: 2026-10-21
 - Relates to: ADR-0117, ADR-0118, ADR-0097, ADR-0109; plan m2y Q8, step 8
 - Decided by the main session under the owner's standing instruction, Delegated. The owner asked whether "a mode that switches to UDP or WebRTC" would win something over the internet or a VPN (2026-10-21).

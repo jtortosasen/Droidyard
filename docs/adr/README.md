@@ -145,6 +145,7 @@ edits made before this rule and are not added to.
 | [0118](0118-a-view-never-far-behind.md) | A view never far behind, and a lighter stream for a remote marked fast | Accepted |
 | [0119](0119-the-live-view-stays-on-tcp.md) | The live view stays on TCP; a datagram transport waits for a measured loss | Accepted |
 | [0120](0120-remote-view-input-on-the-peer-socket.md) | A remote device's view sends its input on the peer screen socket | Accepted |
+| [0121](0121-lag-bound-from-the-first-read.md) | Lag counts from the first read, not on a relayed Hub | Accepted |
 
 ## Open decisions (not yet ADRs)
 
