@@ -27,6 +27,9 @@
 	import { browserCodec } from '../screen/decoder';
 	import { UiEventsModel } from '../devices/uievents';
 	import UiEvents from '../devices/UiEvents.svelte';
+	import { UiRecordingModel, type UiRecordingClient } from '../devices/uirecording';
+	import UiRecording from '../devices/UiRecording.svelte';
+	import { saveBlob } from '../devices/saveblob';
 	import { ConsoleModel } from '../build/console';
 	import Console from '../build/Console.svelte';
 	import type { EventsHub } from '../build/hub';
@@ -141,6 +144,7 @@
 	let appLogs = $state.raw<AppLogsModel | null>(null);
 	let liveView = $state.raw<LiveViewModel | null>(null);
 	let uiEvents = $state.raw<UiEventsModel | null>(null);
+	let uiRecording = $state.raw<UiRecordingModel | null>(null);
 	let fileTree = $state.raw<FileTreeModel | null>(null);
 	let fileWatch = $state.raw<FileWatch | null>(null);
 	let fileOps = $state.raw<FileOps | null>(null);
@@ -240,6 +244,19 @@
 				call: (name, params) => c.call(name, params),
 			},
 			deviceList,
+		);
+		// The UI recordings of every device, and Record and Stop for the toolbar's (ADR-0113 §6).
+		const recordings = new UiRecordingModel(
+			{
+				subscribe: (name, params, handlers) => c.subscribe(name, params, handlers),
+				call: ((name: string, params: unknown) => c.call(name as 'device.recordUi', params as never)) as UiRecordingClient['call'],
+			},
+			deviceList,
+			{
+				fetch: (url, init) => fetch(url, init),
+				token,
+				save: saveBlob,
+			},
 		);
 		const files = new FileTreeModel(callOn, ws);
 		const watcher = new FileWatch(
@@ -347,6 +364,7 @@
 		appLogs = logs;
 		liveView = screen;
 		uiEvents = events;
+		uiRecording = recordings;
 		fileTree = files;
 		gitWatch = gitStatus;
 		gitTree = treeOfGit;
@@ -456,6 +474,8 @@
 			liveView = null;
 			events.dispose();
 			uiEvents = null;
+			recordings.dispose();
+			uiRecording = null;
 			appLogs = null;
 			fileTree = null;
 			fileOps = null;
@@ -627,6 +647,9 @@
 			<LiveView model={liveView} {token} {connection} visible={shell.rightOpen()} input={{ call: ((n, p) => client.call(n, p)) as InputClient['call'] }} />
 		{/if}
 	{:else if id === 'uievents'}
+		{#if uiRecording}
+			<UiRecording model={uiRecording} {connection} visible={shell.rightOpen()} />
+		{/if}
 		{#if uiEvents}
 			<UiEvents model={uiEvents} {connection} visible={shell.rightOpen()} />
 		{/if}
