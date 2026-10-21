@@ -3,7 +3,14 @@ package screen
 import (
 	"context"
 	"sync"
+	"time"
 )
+
+// MaxViewerLag is how old the oldest packet in a viewer's queue may be (ADR-0118 §1, a
+// working default): a viewer further behind is emptied and rejoined at the next key frame,
+// so it never replays a stale backlog. The time counts from the packet's entry into that
+// viewer's queue, so a join's GOP, which enters at the join, is not lag.
+const MaxViewerLag = 500 * time.Millisecond
 
 // Hub fans one producer's packets out to any number of viewers (plan m2p Q3, ADR-0078
 // §5). It exists because a decoder needs the SPS/PPS and a key frame before it can show
@@ -21,7 +28,10 @@ import (
 //     it) the viewer waits for the next key frame and gets it with the config;
 //   - a viewer whose queue would pass MaxQueue bytes or MaxPackets packets is emptied
 //     and rejoined at the next key frame, never at the current GOP, so a stalled viewer
-//     cannot loop; it counts as one rejoin.
+//     cannot loop; it counts as one rejoin;
+//   - a viewer whose oldest queued packet entered its queue more than MaxViewerLag ago, seen
+//     when a packet is pushed or when the viewer reads, is rejoined the same way and the
+//     Hub's OnLag hook is told, so the source can ask the encoder for a key frame.
 //
 // A merged packet has Key and Config set and Data = config followed by the key frame.
 // Every other packet is the device's, unchanged. The Hub is safe for concurrent use.
@@ -34,6 +44,8 @@ type Hub struct {
 	size     Size
 	viewers  map[*hubViewer]struct{}
 	rejoins  int
+	now      func() time.Time // the clock of a queue's age; a test replaces it
+	onLag    func()           // told, outside mu, when a viewer lagged; never blocks
 
 	closed bool
 	reason error
@@ -42,17 +54,36 @@ type Hub struct {
 
 // NewHub returns an empty Hub.
 func NewHub() *Hub {
-	return &Hub{viewers: make(map[*hubViewer]struct{}), done: make(chan struct{})}
+	return &Hub{viewers: make(map[*hubViewer]struct{}), done: make(chan struct{}), now: time.Now}
 }
 
 // Push gives the Hub the next packet from the device. Only one goroutine pushes. The Hub
 // keeps p.Data, so the caller must not reuse it. A push after Close is ignored.
 func (h *Hub) Push(p Packet) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closed {
-		return
+	lag := h.push(p)
+	fn := h.onLag
+	h.mu.Unlock()
+	if lag && fn != nil {
+		fn()
 	}
+}
+
+// OnLag sets the hook Push and a viewer's read call when a viewer's queue was emptied for
+// its age (not for its size). It runs on the goroutine that found the lag, with no lock held,
+// and must not block.
+func (h *Hub) OnLag(fn func()) {
+	h.mu.Lock()
+	h.onLag = fn
+	h.mu.Unlock()
+}
+
+// push is Push under mu; it says whether a viewer lagged.
+func (h *Hub) push(p Packet) (lag bool) {
+	if h.closed {
+		return false
+	}
+	now := h.now()
 
 	if p.Config {
 		h.config = p.Data
@@ -62,7 +93,7 @@ func (h *Hub) Push(p Packet) {
 		h.pending = true
 		// The encoder restarted: what the GOP holds belongs to the old stream.
 		h.gop, h.gopBytes = nil, 0
-		return // never on its own
+		return false // never on its own
 	}
 
 	if p.Key {
@@ -90,22 +121,25 @@ func (h *Hub) Push(p Packet) {
 			if p.Key && h.pending {
 				out = merge()
 			}
-			if v.bytes+len(out.Data) <= MaxQueue && len(v.queue)-v.head < MaxPackets {
-				v.push(out)
+			stale := v.head < len(v.queue) && now.Sub(v.queue[v.head].at) > MaxViewerLag
+			if !stale && v.bytes+len(out.Data) <= MaxQueue && len(v.queue)-v.head < MaxPackets {
+				v.push(out, now)
 				continue
 			}
 			v.reset()
 			h.rejoins++
+			lag = lag || stale
 		}
 		// v waits for a key frame: this one, if it is one.
 		if p.Key {
-			v.push(merge())
+			v.push(merge(), now)
 			v.waiting = false
 		}
 	}
 	if p.Key {
 		h.pending = false
 	}
+	return lag
 }
 
 // withConfig returns the key frame k with the current config in front of it, flagged
@@ -134,11 +168,13 @@ func (h *Hub) Join() Viewer {
 		return v
 	}
 	// GOP <= MaxGOP and the config is one packet, <= MaxPacket: this fits MaxQueue.
+	// Every packet is stamped with the join: the GOP is old, the viewer is not behind.
+	now := h.now()
 	first := h.withConfig(h.gop[0])
-	v.queue = make([]Packet, 0, len(h.gop))
-	v.push(first)
+	v.queue = make([]queued, 0, len(h.gop))
+	v.push(first, now)
 	for _, p := range h.gop[1:] {
-		v.push(p)
+		v.push(p, now)
 	}
 	return v
 }
@@ -150,8 +186,8 @@ func (h *Hub) Size() Size {
 	return h.size
 }
 
-// Rejoins is how many times a viewer's queue overflowed and the viewer was emptied to
-// wait for the next key frame, over all viewers.
+// Rejoins is how many times a viewer's queue overflowed or aged past MaxViewerLag and the
+// viewer was emptied to wait for the next key frame, over all viewers.
 func (h *Hub) Rejoins() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -192,15 +228,21 @@ func (h *Hub) Reason() error {
 type hubViewer struct {
 	h       *Hub
 	wake    chan struct{}
-	queue   []Packet
+	queue   []queued
 	head    int
 	bytes   int  // Data bytes in queue[head:]
 	waiting bool // dropping packets until the next key frame
 	closed  bool
 }
 
-func (v *hubViewer) push(p Packet) {
-	v.queue = append(v.queue, p)
+// queued is a packet and when it entered its viewer's queue.
+type queued struct {
+	Packet
+	at time.Time
+}
+
+func (v *hubViewer) push(p Packet, at time.Time) {
+	v.queue = append(v.queue, queued{p, at})
 	v.bytes += len(p.Data)
 	select {
 	case v.wake <- struct{}{}:
@@ -231,8 +273,20 @@ func (v *hubViewer) Next(ctx context.Context) (Packet, error) {
 			h.mu.Unlock()
 			return Packet{}, err
 		case v.head < len(v.queue):
-			p := v.queue[v.head]
-			v.queue[v.head] = Packet{}
+			if h.now().Sub(v.queue[v.head].at) > MaxViewerLag {
+				// The reader came for a packet that has waited too long: a viewer that
+				// keeps up never finds one.
+				v.reset()
+				h.rejoins++
+				fn := h.onLag
+				h.mu.Unlock()
+				if fn != nil {
+					fn()
+				}
+				continue
+			}
+			p := v.queue[v.head].Packet
+			v.queue[v.head] = queued{}
 			v.head++
 			v.bytes -= len(p.Data)
 			if v.head == len(v.queue) {

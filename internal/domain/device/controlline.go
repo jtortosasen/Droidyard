@@ -37,6 +37,12 @@ import (
 // messages are the wire's frames for the host, which owns the frame size and its own finger:
 // encode and cancelOf are what differ.
 //
+// A key-frame request (requestKeyFrame, ADR-0118 §2) is the line's own message, not a view's:
+// the Hub tells the source that a viewer lagged and the source asks the encoder for a key frame
+// with scrcpy's reset-video. It queues like a key (it has no finger and takes none, and it is
+// written in its place among the events), at most once every keyFrameRequestEvery, and a full
+// queue drops it: the GOP still bounds the wait, and nothing may block the Hub.
+//
 // All writes and the finger's state are under one lock, wmu, so a message is whole and the
 // state a write depends on cannot change under it. A write can wait on a stalled socket
 // for screenWriteBound with wmu held; Control never takes wmu, so it never blocks on it.
@@ -55,14 +61,23 @@ var (
 	errFingerLost = errors.New("device: the finger was taken from the gesture")
 )
 
-// lineItem is one entry of the queue: a view's event, a check of the frame size, or a
-// marker the flush waits for.
+// keyFrameRequestEvery is the least time between two reset-video messages of one source
+// (ADR-0118 §2): the encoder answers within 0.1 s to 2 s, and a request before the answer
+// would only restart the wait.
+const keyFrameRequestEvery = 2 * time.Second
+
+// lineItem is one entry of the queue: a view's event, a check of the frame size, a request for
+// a key frame, or a marker the flush waits for.
 type lineItem struct {
 	h     screen.Holder
 	ev    screen.Event
 	size  bool          // a check of the frame size
+	reset bool          // a request for a key frame
 	flush chan struct{} // a marker, closed when the writer reaches it
 }
+
+// isEvent is whether the item is a view's event, the only kind a holder owns.
+func (it lineItem) isEvent() bool { return it.flush == nil && !it.size && !it.reset }
 
 // finger is who has the device's one finger and where it is.
 type finger struct {
@@ -96,6 +111,10 @@ type controlLine struct {
 	running    atomic.Bool
 	lastWrite  atomic.Int64 // when a message was last written, Unix nanoseconds; zero before the first
 
+	now       func() time.Time // the clock of the key-frame limiter; a test replaces it
+	resetMu   sync.Mutex       // guards lastReset
+	lastReset time.Time        // when a key frame was last requested; zero before the first
+
 	keyMu sync.Mutex // an Inject's key messages are one pair
 
 	wmu   sync.Mutex // guards dead, f and freed, and serialises the writes
@@ -107,7 +126,7 @@ type controlLine struct {
 func newControlLine(size func() screen.Size, write func([]byte) (int, error), fail func(), done <-chan struct{}, why func() error) *controlLine {
 	return &controlLine{
 		size: size, write: write, fail: fail, done: done, why: why,
-		encode: screen.EncodeEvent, cancelOf: screen.CancelOf,
+		encode: screen.EncodeEvent, cancelOf: screen.CancelOf, now: time.Now,
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), freed: make(chan struct{}),
 	}
 }
@@ -132,14 +151,14 @@ func (l *controlLine) Control(h screen.Holder, ev screen.Event) error {
 		// The stream is gone: what it still has queued is dropped, and its release (at the
 		// point it gave) lifts its finger if it has one. A release is never refused for a
 		// full queue; there is one per stream.
-		l.queue = slices.DeleteFunc(l.queue, func(it lineItem) bool { return it.h == h && it.flush == nil && !it.size })
+		l.queue = slices.DeleteFunc(l.queue, func(it lineItem) bool { return it.h == h && it.isEvent() })
 		l.queue = append(l.queue, lineItem{h: h, ev: ev})
 		l.signal()
 		return nil
 	}
 	for i := len(l.queue) - 1; i >= 0; i-- {
 		it := &l.queue[i]
-		if it.flush != nil || it.size || it.h != h {
+		if !it.isEvent() || it.h != h {
 			continue
 		}
 		switch {
@@ -165,7 +184,7 @@ func (l *controlLine) Control(h screen.Holder, ev screen.Event) error {
 func (l *controlLine) peerQueuedLocked() int {
 	n := 0
 	for _, it := range l.queue {
-		if it.flush == nil && !it.size && it.h.Peer() {
+		if it.isEvent() && it.h.Peer() {
 			n++
 		}
 	}
@@ -185,6 +204,36 @@ func (l *controlLine) sizeChanged() {
 		l.queue = append(l.queue, lineItem{size: true})
 	}
 	l.qmu.Unlock()
+	l.signal()
+}
+
+// requestKeyFrame asks the device's encoder for a key frame, as a lagging viewer needs one to
+// rejoin (ADR-0118 §2): one reset-video message on the line, at most one every
+// keyFrameRequestEvery, dropped when the queue is full. It never blocks, so the Hub's owner may
+// call it from the goroutine that found the lag.
+func (l *controlLine) requestKeyFrame() {
+	l.resetMu.Lock()
+	now := l.now()
+	if !l.lastReset.IsZero() && now.Sub(l.lastReset) < keyFrameRequestEvery {
+		l.resetMu.Unlock()
+		return
+	}
+	l.resetMu.Unlock()
+	select {
+	case <-l.done:
+		return
+	default:
+	}
+	l.qmu.Lock()
+	if len(l.queue) >= controlQueueCap {
+		l.qmu.Unlock()
+		return // dropped: a request that did not queue does not start the interval
+	}
+	l.queue = append(l.queue, lineItem{reset: true})
+	l.qmu.Unlock()
+	l.resetMu.Lock()
+	l.lastReset = now
+	l.resetMu.Unlock()
 	l.signal()
 }
 
@@ -271,6 +320,11 @@ func (l *controlLine) handle(it lineItem) {
 		return
 	}
 	if l.dead || l.stopsWriting() {
+		return
+	}
+	if it.reset {
+		// No finger and no frame size: the encoder is asked and nothing else changes.
+		l.writeLocked(screen.EncodeResetVideo())
 		return
 	}
 	size := l.size()

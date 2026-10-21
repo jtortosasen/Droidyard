@@ -72,8 +72,9 @@ type Control struct {
 
 // scrcpy's control message types and Android's MotionEvent and KeyEvent actions.
 const (
-	msgKeycode = 0
-	msgTouch   = 2
+	msgKeycode    = 0
+	msgTouch      = 2
+	msgResetVideo = 17 // TYPE_RESET_VIDEO: one byte, no payload
 
 	actionDown   = 0 // ACTION_DOWN, for a key and for a touch
 	actionUp     = 1
@@ -83,6 +84,10 @@ const (
 	pressureDown = 0xffff // 1.0 as a u16 fixed point
 	pressureUp   = 0
 )
+
+// EncodeResetVideo is scrcpy's reset-video message, which has the encoder produce a key frame
+// (ADR-0118 §2; docs/research/spike-live-input-2026-10.md §Stop rules, S3).
+func EncodeResetVideo() []byte { return []byte{msgResetVideo} }
 
 // fingerID is scrcpy's generic finger pointer id, -2 (confirmed by taps that landed,
 // docs/research/spike-screen-stream-2026-10.md §(d)).

@@ -287,6 +287,7 @@ func (a *ADB) newScreenSource(ss *screenSources, t *target) *screenSource {
 		childDone: make(chan struct{}), demuxDone: make(chan struct{}), first: make(chan struct{}),
 	}
 	s.line = newControlLine(s.hub.Size, s.write, s.endOnWriteError, s.hub.Done(), s.hub.Reason)
+	s.hub.OnLag(s.line.requestKeyFrame) // a lagging viewer asks the encoder for a key frame (ADR-0118 §2)
 	return s
 }
 
