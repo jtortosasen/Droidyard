@@ -55,8 +55,9 @@ func peerSocketAcking(t *testing.T, v ScreenViewer) {
 // received, at once, and the hook holds each write's return for 50 ms. Seen failing with the
 // count after the write: the socket closed 1008 on an honest client.
 func TestPeerAckBeforeTheWriteReturnsIsNotRefused(t *testing.T) {
-	sendHook = func() { time.Sleep(50 * time.Millisecond) }
-	t.Cleanup(func() { sendHook = nil })
+	hold := func() { time.Sleep(50 * time.Millisecond) }
+	sendHook.Store(&hold)
+	t.Cleanup(func() { sendHook.Store(nil) })
 	v := &countingViewer{data: make([]byte, 100), closed: make(chan struct{})}
 	peerSocketAcking(t, v)
 	select {

@@ -206,8 +206,9 @@ func (h *screenHandler) serve(parent context.Context, c *websocket.Conn, attach 
 	sendScreen(ctx, cancel, c, v, wt, nil)
 }
 
-// sendHook is a test seam: called after each message's write returns.
-var sendHook func()
+// sendHook is a test seam: called after each message's write returns. Atomic, because a
+// test sets and clears it while a server goroutine may still be sending.
+var sendHook atomic.Pointer[func()]
 
 // sendScreen sends the viewer's packets on c until the stream or the socket ends, then
 // closes the viewer, which ends the stream (as detached when the socket was the reason). It
@@ -284,8 +285,8 @@ func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Con
 		wctx, wcancel := context.WithTimeout(ctx, wt)
 		err = c.Write(wctx, websocket.MessageBinary, buf)
 		wcancel()
-		if sendHook != nil {
-			sendHook()
+		if h := sendHook.Load(); h != nil {
+			(*h)()
 		}
 		if err != nil {
 			return // the library closed a connection whose write failed or timed out
