@@ -133,10 +133,11 @@ close codes and the keepalive are in `adapters/httpapi/ws.go`.
 ### `GET /v1/screen`
 
 The live view's video ([ADR-0078](../adr/0078-screen-watch-and-endpoint.md) §4), on a socket of its
-own, bound by the `streamId` of a session's `device.watchScreen`; nothing the client sends reaches
-the device. The 4 KiB read limit lasts the socket's life: a frame over it closes 1009 (ADR-0028),
-any other client frame after `auth` 1003. The id is not kept in the operation record. Header, close
-codes and deadline: `adapters/httpapi/screen.go`.
+own, bound by the `streamId` of a session's `device.watchScreen`. After `auth`, binary frames are the
+view's input ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md) §3) when the result's
+`control` is true; a text or malformed frame closes 1003, any other refusal 1008, over 4 KiB
+1009 (ADR-0028). The id is not kept in the operation record. Header, close codes:
+`adapters/httpapi/screen.go`.
 
 ### `GET /v1/artifacts/{id}`
 

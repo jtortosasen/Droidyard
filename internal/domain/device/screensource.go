@@ -24,7 +24,8 @@ import (
 
 // The live view's source on the device (plan m2p step 3; ADR-0077, ADR-0078 §5, §6): scrcpy's
 // server, pushed, run as a recorded `device-stream` child over a forward to a socket file (ADR-0102), its video
-// socket demuxed into a screen.Hub and its control socket written by Inject.
+// socket demuxed into a screen.Hub and its control socket written through the control line
+// (controlline.go): by Inject for a call's gesture, by the line's writer for a view's input.
 //
 // There is one source per device, shared and reference-counted. A source's life is one
 // goroutine, run: it starts the server, waits to be ended, and tears everything down. Every
@@ -81,6 +82,9 @@ var (
 	screenFirstBound   = 5 * time.Second
 	screenCleanupBound = 5 * time.Second
 	screenWriteBound   = 2 * time.Second
+	// screenChildExitBound is how long teardown lets the server exit on its own after the
+	// control socket closed behind a cancel, before the child is killed.
+	screenChildExitBound = time.Second
 )
 
 // screenServerBytes is the server the daemon pushes; a variable so a test can corrupt it
@@ -123,6 +127,7 @@ type screenSource struct {
 	adb    *ADB
 	path   string // the adb binary
 	serial string
+	fast   bool // started for a peer marked fast: screenFastOptions (ADR-0118 §4)
 
 	refs   int  // holders of the source, an acquire still starting included; set.mu
 	ending bool // end was called; set.mu
@@ -130,6 +135,13 @@ type screenSource struct {
 	ctx    context.Context // the source's own: the callers' contexts never reach the child
 	cancel context.CancelFunc
 	hub    *screen.Hub
+
+	// The child's own context. The source's ending does not kill the child by itself: a clean
+	// end (the last viewer's) lets the server read the cancels written to its control socket
+	// and exit on that socket's end (teardown); every other end kills it at once (close), and
+	// teardown kills it whatever happened before.
+	childCtx  context.Context
+	killChild context.CancelFunc
 
 	ready     chan struct{} // closed when the start finished, failed or not
 	startFail *startFailure // set before ready closes
@@ -153,7 +165,7 @@ type screenSource struct {
 	firstOnce   sync.Once
 	wg          sync.WaitGroup // the demux, control and monitor goroutines
 
-	inj chan struct{} // holds a token while an Inject runs
+	line *controlLine // everything written to the control socket, and who holds the finger (controlline.go)
 
 	secure secureState // the focused window's FLAG_SECURE, polled while the source runs (secure.go)
 }
@@ -165,7 +177,7 @@ var _ screen.Source = (*screenSource)(nil)
 // serial wait on the start in progress; a start that fails fails every waiter. A caller
 // whose ctx ends while waiting leaves, and the start is abandoned if it was the last one
 // waiting. After StopAll has begun, acquire is refused.
-func (ss *screenSources) acquire(ctx context.Context, a *ADB, t *target) (*screenSource, func(), error) {
+func (ss *screenSources) acquireWith(ctx context.Context, a *ADB, t *target, fast bool) (*screenSource, func(), error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -188,6 +200,7 @@ func (ss *screenSources) acquire(ctx context.Context, a *ADB, t *target) (*scree
 		}
 		if s == nil {
 			s = a.newScreenSource(ss, t)
+			s.fast = fast // the first starter decides, for the source's life (ADR-0118 §4)
 			if ss.by == nil {
 				ss.by, ss.all = map[string]*screenSource{}, map[*screenSource]struct{}{}
 			}
@@ -267,13 +280,17 @@ func (ss *screenSources) running(serial string) *screenSource {
 
 func (a *ADB) newScreenSource(ss *screenSources, t *target) *screenSource {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &screenSource{
+	childCtx, killChild := context.WithCancel(context.Background())
+	s := &screenSource{
 		set: ss, adb: a, path: t.adb, serial: t.serial,
 		ctx: ctx, cancel: cancel, hub: screen.NewHub(),
+		childCtx: childCtx, killChild: killChild,
 		ready: make(chan struct{}), done: make(chan struct{}),
 		childDone: make(chan struct{}), demuxDone: make(chan struct{}), first: make(chan struct{}),
-		inj: make(chan struct{}, 1),
 	}
+	s.line = newControlLine(s.hub.Size, s.write, s.endOnWriteError, s.hub.Done(), s.hub.Reason)
+	s.hub.OnLag(s.line.requestKeyFrame) // a lagging viewer asks the encoder for a key frame (ADR-0118 §2)
+	return s
 }
 
 // unref drops one holder. The last one ends the source and waits until it is gone, so a
@@ -327,6 +344,9 @@ func (s *screenSource) end(reason error) {
 func (s *screenSource) close(reason error) {
 	s.hub.Close(reason)
 	s.cancel()
+	if reason != nil && s.killChild != nil {
+		s.killChild() // only the last viewer's end leaves the child to teardown
+	}
 }
 
 // run is the source's life: start, wait to be ended, tear down, leave the set.
@@ -340,9 +360,14 @@ func (s *screenSource) run() {
 		return
 	}
 	close(s.ready)
-	s.wg.Add(2)
+	s.wg.Add(3)
 	go s.monitor()
 	go s.pollSecure()
+	s.line.running.Store(true)
+	go func() {
+		defer s.wg.Done()
+		s.line.run()
+	}()
 	<-s.ctx.Done()
 	s.teardown()
 	s.finish()
@@ -499,8 +524,8 @@ func (s *screenSource) spawn(remote, scid string) *startFailure {
 		return &startFailure{phase: "start", detail: "no recorded process starter is configured"}
 	}
 	args := append([]string{"-s", s.serial, "shell", "CLASSPATH=" + remote, "app_process", "/", screenClass,
-		scrcpyserver.Version, "scid=" + scid}, screenServerOptions...)
-	cmd := exec.CommandContext(s.ctx, s.path, args...)
+		scrcpyserver.Version, "scid=" + scid}, s.serverOptions()...)
+	cmd := exec.CommandContext(s.childCtx, s.path, args...)
 	cmd.Env = s.adb.env
 	cmd.Cancel = func() error { return cmd.Process.Kill() } // the pid, never the group
 	cmd.WaitDelay = waitDelay
@@ -638,8 +663,10 @@ func (s *screenSource) demux() {
 	defer s.wg.Done()
 	err := screen.Demux(s.br, func(p screen.Packet) error {
 		s.hub.Push(p)
+		probePacket("scrcpy", p)
 		if p.Config {
 			s.firstOnce.Do(func() { close(s.first) })
+			s.line.sizeChanged() // a finger held for the old size is lifted for this one
 		}
 		return nil
 	})
@@ -781,13 +808,40 @@ func (s *screenSource) endByExit(cause string) {
 // teardown leaves nothing of the source on the host: the sockets closed, the child
 // killed by its pid and reaped (its record removed), the goroutines joined, and the
 // forward removed. It runs on run's goroutine, once.
+//
+// A source that ended with its last viewer first writes what its streams queued, the
+// cancels of the fingers they held (ADR-0117 §5); one that failed has no socket to write. A
+// cancel that was written still has to be read and injected by the server on the device,
+// which reads the control socket in order and ends when the socket does (scrcpy's
+// Controller), so the control socket is closed first and the child gets screenChildExitBound
+// to exit on its own before the video socket is closed and the child killed. That is when
+// something was written to the socket within that bound; a source that has not written lately
+// (a view that held no finger) is not slowed.
 func (s *screenSource) teardown() {
 	s.cancel()
+	wrote := false
+	if s.control != nil && errors.Is(s.hub.Reason(), screen.ErrClosed) {
+		s.line.flush(screenWriteBound)
+		wrote = s.line.wroteWithin(screenChildExitBound)
+	}
+	s.line.shutdown()
+	if wrote && s.cmd != nil {
+		s.control.Close()
+		t := time.NewTimer(screenChildExitBound)
+		select {
+		case <-s.childDone:
+		case <-t.C:
+		}
+		t.Stop()
+	}
 	if s.video != nil {
 		s.video.Close()
 	}
 	if s.control != nil {
 		s.control.Close()
+	}
+	if s.killChild != nil {
+		s.killChild()
 	}
 	if s.cmd != nil {
 		if p := s.cmd.Process; p != nil {
@@ -827,25 +881,41 @@ func (s *screenSource) Done() <-chan struct{} { return s.hub.Done() }
 func (s *screenSource) Reason() error { return s.hub.Reason() }
 
 // Inject implements screen.Source: EncodeControl's messages against the current frame
-// size, written to the control socket on their schedule. Injections are serialised, so
-// two gestures never interleave their touches. A gesture cut short by ctx still lifts the
-// finger, with the last message of its encoding. A failure after the first byte was
-// written is a *screen.PartialError (ADR-0079 §3); one before it is returned as it is.
-func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
+// size, written to the control socket on their schedule. A tap or a swipe holds the device's
+// one finger as holder for its whole gesture: it waits for a holder it does not take the
+// finger from, so two gestures never interleave their touches, and it ends, with a
+// *screen.PartialError once it wrote, if a local view takes the finger from it (ADR-0117 §4).
+// A key and a scroll have no finger. A gesture cut short by ctx still lifts the finger, with the last
+// message of its encoding. A failure after the first byte was written is a
+// *screen.PartialError (ADR-0079 §3); one before it is returned as it is.
+func (s *screenSource) Inject(ctx context.Context, holder screen.Holder, in screen.Input) error {
 	msgs, err := screen.EncodeControl(in, s.hub.Size())
 	if err != nil {
 		return err
 	}
-	select {
-	case s.inj <- struct{}{}:
-		defer func() { <-s.inj }()
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.hub.Done():
-		return s.hub.Reason()
+	fingerless := false
+	switch in.(type) {
+	case screen.Key, screen.Scroll:
+		fingerless = true
 	}
-	// The select above picks at random when the source has ended and the token is free: an
-	// ended source sends nothing.
+	var lost <-chan struct{}
+	write := s.line.injectKeyWrite
+	if fingerless {
+		s.line.keyMu.Lock()
+		defer s.line.keyMu.Unlock()
+	} else {
+		var size screen.Size
+		if size, lost, err = s.line.acquire(ctx, holder); err != nil {
+			return err
+		}
+		defer s.line.release(holder)
+		// The frame may have changed while the gesture waited for the finger.
+		if msgs, err = screen.EncodeControl(in, size); err != nil {
+			return err
+		}
+		write = func(b []byte) (int, error) { return s.line.injectWrite(holder, b) }
+	}
+	// An ended source sends nothing, whichever of the waits above won.
 	select {
 	case <-s.hub.Done():
 		return s.hub.Reason()
@@ -867,7 +937,7 @@ func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
 			case <-ctx.Done():
 				t.Stop()
 				if i > 0 {
-					if _, err := s.write(msgs[len(msgs)-1].Data); err != nil { // lift
+					if _, err := write(msgs[len(msgs)-1].Data); err != nil && !errors.Is(err, errFingerLost) { // lift
 						s.endOnWriteError()
 					}
 				}
@@ -875,13 +945,19 @@ func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
 			case <-s.hub.Done():
 				t.Stop()
 				return fail(s.hub.Reason())
+			case <-lost:
+				t.Stop()
+				return fail(errFingerLost)
 			}
 		}
-		n, err := s.write(m.Data)
+		n, err := write(m.Data)
 		if n > 0 {
 			sent = true
 		}
 		if err != nil {
+			if errors.Is(err, errFingerLost) {
+				return fail(err)
+			}
 			select {
 			case <-s.hub.Done():
 				return fail(s.hub.Reason())
@@ -894,6 +970,11 @@ func (s *screenSource) Inject(ctx context.Context, in screen.Input) error {
 	return nil
 }
 
+// Control implements screen.Source: a view's event, queued for the control line's writer.
+func (s *screenSource) Control(holder screen.Holder, ev screen.Event) error {
+	return s.line.Control(holder, ev)
+}
+
 // endOnWriteError ends the source after a control write that failed. A write that timed out
 // midway leaves half a message on the socket, and every later input would be read out of
 // frame, so the control socket is not used again: the viewers see failed and the next input
@@ -904,5 +985,9 @@ func (s *screenSource) endOnWriteError() {
 
 func (s *screenSource) write(b []byte) (int, error) {
 	s.control.SetWriteDeadline(time.Now().Add(screenWriteBound))
-	return s.control.Write(b)
+	n, err := s.control.Write(b)
+	if err == nil {
+		probeWrite(b)
+	}
+	return n, err
 }

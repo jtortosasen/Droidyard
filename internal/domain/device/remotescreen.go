@@ -18,9 +18,13 @@ import (
 // and a subscription; this source attaches the stream's video socket on the host's peer
 // port, feeds what it reads to a Hub of this daemon's own (so the client's viewers get
 // ADR-0078 §5's join and rejoin as for a local device), and reads the host's `state` and
-// `stopped` events for the seam. A remote device's input is not here: it is the host's
-// device.tap, swipe and pressKey, relayed like any plain call, which find the host's
-// running source (ADR-0100 §5).
+// `stopped` events for the seam. A remote device's input has two ways in. A call (device.tap,
+// swipe, pressKey, scroll) is relayed like any plain call and finds the host's running source
+// (ADR-0100 §5). A view's own input (ADR-0117) travels this source's video socket as the
+// wire's frames, when the host's result granted `control`: the source's control line queues
+// them (the one writer, 256 entries, moves coalesced), keeps the client's own finger between
+// its views, and writes the cancel of a finger down when a view ends. The host injects them
+// for the stream this daemon opened, its lease being the authorization.
 //
 // There is one source per remote device, shared by every viewer of this daemon and
 // reference-counted like screenSources. Its life is one goroutine, run, shaped like the
@@ -44,8 +48,9 @@ var (
 // maxRelayedID bounds the stream and subscription ids a host names: its own are 22 bytes.
 const maxRelayedID = 128
 
-// errRelayedInput is what Inject answers: a remote device's input is a capability call on
-// the host, not a message on the stream.
+// errRelayedInput is what Inject answers (a remote device's gesture is a capability call on the
+// host), and what Control answers when the host did not grant input (an older host's result
+// lacks `control`).
 var errRelayedInput = errors.New("device: a remote device's input is a call on its host")
 
 // watchScreenErrors are the codes device.watchScreen declares; a host's other code is not
@@ -85,7 +90,12 @@ type relayedSource struct {
 	stopRoute func()          // ends the link's routing of that subscription's events
 	conn      *hosting.ScreenConn
 	size      screen.Size // the size the host announced at start
+	control   bool        // the host's grant: its result said control true
 	wg        sync.WaitGroup
+
+	// line is the one writer of the view's input to conn, with the queue and the client's
+	// finger (controlline.go). It runs only when the host granted control.
+	line *controlLine
 }
 
 var _ screen.Source = (*relayedSource)(nil)
@@ -179,11 +189,40 @@ func (rs *relayedScreens) Live() int {
 
 func (a *ADB) newRelayedSource(rs *relayedScreens, rt *remoteTarget) *relayedSource {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &relayedSource{
+	s := &relayedSource{
 		set: rs, adb: a, rt: rt,
-		ctx: ctx, cancel: cancel, hub: screen.NewHub(),
+		ctx: ctx, cancel: cancel, hub: screen.NewHubWithoutAgeBound(), // the host's Hub and the peer window bound the age (ADR-0121)
 		ready: make(chan struct{}), done: make(chan struct{}),
 	}
+	// The line writes the wire for the host, which owns the device's frame size and finger:
+	// the size here is a constant, so the line never lifts a finger for a size change (the host
+	// does), and a write that failed is the socket's end, which read hears and reports (a
+	// close code it knows, or failed after relayScreenGrace), so it does not end the source
+	// itself.
+	s.line = newControlLine(func() screen.Size { return screen.Size{Width: 1, Height: 1} }, s.sendInput, func() {}, s.hub.Done(), s.hub.Reason)
+	s.line.encode = func(ev screen.Event, _ screen.Size) ([]byte, error) { return screen.EncodeWire(ev) }
+	s.line.cancelOf = wireCancelOf
+	return s
+}
+
+// wireCancelOf is the cancel frame for the finger whose last frame of the wire was last: the
+// same point.
+func wireCancelOf(last []byte, _ screen.Size) ([]byte, bool) {
+	if len(last) != 6 || last[0] != 1 {
+		return nil, false
+	}
+	return []byte{1, byte(screen.TouchCancel), last[2], last[3], last[4], last[5]}, true
+}
+
+// sendInput writes one frame of the view's input to the host, bounded like a write to the
+// device's control socket.
+func (s *relayedSource) sendInput(b []byte) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), screenWriteBound)
+	defer cancel()
+	if err := s.conn.Send(ctx, b); err != nil {
+		return 0, err
+	}
+	return len(b), nil
 }
 
 // unref drops one holder. The last one ends the source and waits until it is gone, so a
@@ -239,6 +278,14 @@ func (s *relayedSource) run() {
 	s.wg.Add(2)
 	go s.read()
 	go s.watchLink()
+	if s.control {
+		s.wg.Add(1)
+		s.line.running.Store(true)
+		go func() {
+			defer s.wg.Done()
+			s.line.run()
+		}()
+	}
 	<-s.ctx.Done()
 	s.teardown()
 	s.finish()
@@ -288,6 +335,9 @@ func (s *relayedSource) start() error {
 	if json.Unmarshal(resp.Result, &r) != nil {
 		return incompatible(rt, "its result is not one this version reads")
 	}
+	// The host's grant is the view's own rule (ADR-0117 §1); an older host's result lacks the
+	// field, which reads as false, and nothing else about the view changes.
+	s.control = r.Control
 	// From here the host holds a subscription for us: teardown ends it, whatever follows.
 	if len(r.SubscriptionID) <= maxRelayedID {
 		s.sub = r.SubscriptionID
@@ -371,6 +421,7 @@ func (s *relayedSource) read() {
 		}
 		for _, p := range pkts {
 			s.hub.Push(p)
+			probePacket("relayed", p)
 		}
 	}
 }
@@ -384,6 +435,12 @@ func (s *relayedSource) readEnded(err error) {
 	}
 	if errors.Is(err, hosting.ErrScreenFrame) {
 		s.end(&ScreenEnd{Reason: StopFailed, Cause: "the video from the remote " + s.rt.remote + " was not in the expected format"})
+		return
+	}
+	// The host closing the socket because this daemon is no longer paired is the end of a
+	// device it no longer lends, at once: nothing else is going to say why (ADR-0098 §3).
+	if hosting.ScreenRevoked(err) {
+		s.end(&ScreenEnd{Reason: StopDeviceGone, Cause: "the remote " + s.rt.remote + " revoked the pairing"})
 		return
 	}
 	t := time.NewTimer(relayScreenGrace)
@@ -410,6 +467,10 @@ func (s *relayedSource) watchLink() {
 // and the host asked to end the subscription. It runs on run's goroutine, once.
 func (s *relayedSource) teardown() {
 	s.cancel()
+	// Nothing queued is flushed: the read's context, cancelled by the end, has already closed
+	// the socket. A finger the last view held is lifted by the host, whose release of the
+	// stream writes ACTION_CANCEL when this socket closes (ADR-0117 §5).
+	s.line.shutdown()
 	if s.conn != nil {
 		s.conn.Close()
 	}
@@ -447,7 +508,21 @@ func (s *relayedSource) Reason() error { return s.hub.Reason() }
 
 // Inject implements screen.Source: a remote device's input is the host's capability call
 // (ADR-0100 §3), so this one is never the way in.
-func (s *relayedSource) Inject(context.Context, screen.Input) error { return errRelayedInput }
+func (s *relayedSource) Inject(context.Context, screen.Holder, screen.Input) error {
+	return errRelayedInput
+}
+
+// Control implements screen.Source: a remote view's event is queued for the peer's screen
+// socket as the wire's frame (ADR-0117), when the host granted control; otherwise it is refused.
+func (s *relayedSource) Control(h screen.Holder, ev screen.Event) error {
+	if !s.control {
+		return errRelayedInput
+	}
+	return s.line.Control(h, ev)
+}
+
+// ControlGranted says whether the host's result granted input to this view (controlGranter).
+func (s *relayedSource) ControlGranted() bool { return s.control }
 
 // WatchSecure implements screen.Source: the host's FLAG_SECURE state, from its events.
 func (s *relayedSource) WatchSecure(fn func(secure bool)) (stop func()) { return s.secure.watch(fn) }

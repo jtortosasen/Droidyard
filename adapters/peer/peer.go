@@ -131,6 +131,9 @@ type Options struct {
 	// Admit pairs a peer that joined with a code; nil serves no join, and a hello that
 	// offers the join protocol is refused at the handshake.
 	Admit Admit
+	// SetFast records whether a peer's hello said its remote is marked fast (ADR-0118 §4);
+	// nil records nothing.
+	SetFast func(peer string, fast bool)
 	// API is this daemon's API version, named in the hello.
 	API string
 	Log io.Writer
@@ -720,6 +723,9 @@ func (s *Server) hello(ctx context.Context, c *websocket.Conn, name string) bool
 		fmt.Fprintf(s.o.Log, "droidyard: peer %s speaks peer protocol %d and this host %d; refused\n", name, f.Hello.PeerProtocol, capability.PeerProtocol)
 		c.Close(capability.PeerCloseProtocol, fmt.Sprintf("peerProtocol %d is not supported; this host speaks %d", f.Hello.PeerProtocol, capability.PeerProtocol))
 		return false
+	}
+	if s.o.SetFast != nil {
+		s.o.SetFast(name, f.Hello.Fast) // read when the peer starts a live view (ADR-0118 §4)
 	}
 	if f.Hello.API != s.o.API {
 		fmt.Fprintf(s.o.Log, "droidyard: peer %s runs API %s and this host %s; the peer protocol is the same, so the link is kept\n", name, f.Hello.API, s.o.API)

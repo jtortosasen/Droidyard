@@ -93,10 +93,16 @@ type Source interface {
 	Join() Viewer
 	// Size is the newest frame size the stream announced; the zero Size before the first.
 	Size() Size
-	// Inject sends one input to the device against Size. An error from before the first
-	// byte reached the device is returned as it is; one from after it is wrapped in a
+	// Inject sends one input to the device against Size, holding the device's one finger
+	// for the whole gesture as holder (ADR-0117 §4). An error from before the first byte
+	// reached the device is returned as it is; one from after it is wrapped in a
 	// *PartialError, so the caller can tell a refused input from a cut one.
-	Inject(ctx context.Context, in Input) error
+	Inject(ctx context.Context, holder Holder, in Input) error
+	// Control queues one event of a view's own socket for the device, as holder, and
+	// returns at once: ErrControlQueueFull when the source's queue is at its bound, the
+	// stream's end when the stream ended. The source decides, in the order the events
+	// arrive, whether the holder has the finger (ADR-0117 §4) and drops what it has not.
+	Control(holder Holder, ev Event) error
 	// Done is closed when the stream ended; Reason then says why.
 	Done() <-chan struct{}
 	Reason() error

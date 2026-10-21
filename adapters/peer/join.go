@@ -47,8 +47,18 @@ func (l *joinListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tc, ok := c.(*net.TCPConn); ok {
+		// A cheap addition to the window of ADR-0118 §3, UNVERIFIED: step 1 §S7 could not
+		// measure it on macOS, where a loopback backlog leaves the sender's socket. The
+		// route a connection serves is unknown at accept, and the session's small frames
+		// are not held back by it. A failure leaves the connection as it was.
+		_ = setNotsentLowat(tc, notsentLowat)
+	}
 	return &joinConn{Conn: c, s: l.s}, nil
 }
+
+// notsentLowat is TCP_NOTSENT_LOWAT for every connection the peer listener accepts.
+const notsentLowat = 64 << 10
 
 // joinConn is a connection that may hold a join slot, from the hello that offered the join
 // protocol to its Close, whatever became of its handshake.

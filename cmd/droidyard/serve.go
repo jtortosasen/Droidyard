@@ -107,8 +107,9 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 
 // screenAttach is the live view as the HTTP adapter may hold it (ADR-0078 §4): the
 // device's AttachScreen, with the viewer's packets and the two refusals in the adapter's
-// own terms. A viewer of the adapter's has Next and Close and nothing else, so nothing a
-// socket sends can reach the source's Inject.
+// own terms. A viewer of the adapter's has Next, Close and Input and nothing else: what a
+// socket sends reaches the device only as a frame Input parses, never as a call or as bytes
+// for the control socket (ADR-0117 §3).
 func screenAttach(adb *device.ADB) httpapi.ScreenAttach {
 	return func(id string) (httpapi.ScreenViewer, error) {
 		v, err := adb.AttachScreen(id)
@@ -154,8 +155,9 @@ func peerArtifacts(store *artifact.Store) peer.ArtifactReader {
 	}
 }
 
-// screenViewer adapts a screen.Viewer to the adapter's, packet for packet and byte for byte.
-type screenViewer struct{ v screen.Viewer }
+// screenViewer adapts the device's handle to the adapter's viewer, packet for packet and
+// byte for byte. An input frame that is not the wire is the adapter's ErrInputMalformed.
+type screenViewer struct{ v device.ScreenHandle }
 
 func (s screenViewer) Next(ctx context.Context) (httpapi.ScreenPacket, error) {
 	p, err := s.v.Next(ctx)
@@ -166,6 +168,14 @@ func (s screenViewer) Next(ctx context.Context) (httpapi.ScreenPacket, error) {
 }
 
 func (s screenViewer) Close() { s.v.Close() }
+
+func (s screenViewer) Input(frame []byte) error {
+	err := s.v.Input(frame)
+	if errors.Is(err, screen.ErrBadControl) {
+		return httpapi.ErrInputMalformed
+	}
+	return err
+}
 
 // serve runs the daemon until SIGTERM or SIGINT (ADR-0019 §5). It returns the exit
 // status: 0 after a graceful stop, 1 when it could not start, including when another
@@ -271,7 +281,7 @@ func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Op
 		return func() {}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Admit: host.Admit, API: system.Version, Log: logw})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Admit: host.Admit, SetFast: host.SetPeerFast, API: system.Version, Log: logw})
 	host.SetDefaultPort(peerDefaultPort)
 	host.UseListeners(srv)
 	leased := make(chan struct{})

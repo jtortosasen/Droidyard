@@ -1,9 +1,9 @@
 # Peers: lending devices between Droidyards
 
-A Droidyard may lend the physical devices plugged into its machine to other Droidyards
-it has paired with, over a private network both already share: a VPN or the LAN (ADR-0097,
-ADR-0109). This document
-says how the pieces fit; the rules are the ADRs and the code (`internal/hosting`,
+A Droidyard may lend its machine's physical devices to Droidyards
+it has paired with, over a VPN or the LAN both share (ADR-0097,
+ADR-0109). How the pieces
+fit is here; the rules are ADRs and the code (`internal/hosting`,
 `adapters/peer`, `internal/domain/device/remote*.go`, `lease.go`).
 
 ```text
@@ -18,9 +18,9 @@ says how the pieces fit; the rules are the ADRs and the code (`internal/hosting`
 
 - **Host.** A peer listener, separate from the UI's loopback one, binds `hosting.listen`
   when it is set; otherwise, while something is lent and `hosting.on` is set, every private
-  address of the machine on `hosting.port`: a VPN's (a tunnel interface) and the LAN's,
-  never a public one. `hosting.peers` names whom it admits, by certificate fingerprint;
-  `hosting.lend`, and a foreground share in memory, which serials go to whom. It lends only physical devices its own physical
+  address of the machine on `hosting.port`: a VPN's and the LAN's,
+  never public. `hosting.peers` names whom it admits, by certificate fingerprint;
+  `hosting.lend`, and a foreground share in memory, which serials go to whom. It lends only devices its physical
   policy admits (ADR-0098, ADR-0099, ADR-0109).
 - **Client.** `remotes` names each host, its addresses (tagged `vpn` or `lan`, its own
   subnet's tried first) and fingerprint. A lent device appears
@@ -33,15 +33,15 @@ says how the pieces fit; the rules are the ADRs and the code (`internal/hosting`
 `droidyard share [<serial>]` on the host, with no serial, lists its physical devices and takes
 the only one; it admits the device in the host's physical policy, opens the listener and prints one line,
 `droidyard join dy1.…`: the addresses, port, the host's fingerprint and a 128-bit secret.
-In the foreground the share lasts while the command runs (Ctrl-C ends it); with `-d` until
+In the foreground it lasts while the command runs; with `-d` until
 `droidyard unshare`, across restarts. On the client, `droidyard join <code>` pins the host,
 sends the secret inside that TLS, and writes the remote and `<remote>/<serial>` to its own
 policy. The code works once and never expires; the host keeps only its hash; another person
 needs another `share` (ADR-0107, ADR-0108).
 
 The advanced path pairs by hand: each side runs `droidyard id` and the other pastes the
-fingerprint (`droidyard host admit`, `droidyard remote add`). Every key is live: the
-listeners and links follow the configuration and the interfaces every 2 s, and a revocation
+fingerprint (`droidyard host admit`, `droidyard remote add`). Every key is live:
+listeners and links follow the configuration and interfaces every 2 s, a revocation
 closes the peer's sockets within 2 s (ADR-0109).
 
 ## The peer port
@@ -49,8 +49,10 @@ closes the peer's sockets within 2 s (ADR-0109).
 TLS 1.3 only, a client certificate required and pinned at the handshake, at each request
 and every 2 s on open sockets. One exception: a hello offering ALPN `droidyard-join/1`
 may present an unpaired certificate while a code is unused, and that connection is served
-one `POST /peer/v1/join` and closed. Otherwise four routes, nothing else: `/peer/v1/ws` (the capability
-envelope, as the UI's WebSocket), `/peer/v1/screen` (a stream the same peer opened),
+one `POST /peer/v1/join` and closed. Otherwise four routes: `/peer/v1/ws` (the capability
+envelope, as the UI's WebSocket), `/peer/v1/screen` (a stream the same peer opened; with
+`control` granted it takes the client's input, lease-authorized, ADR-0117; the client's
+acknowledgements bound its bytes in flight and a `fast` remote gets a lighter stream, ADR-0118),
 `/peer/v1/upload` (one APK slot per peer, at most 512 MiB) and `/peer/v1/artifacts/{id}`
 (artifacts the same peer produced). A request with `Origin` is refused: no browser speaks to
 this port.

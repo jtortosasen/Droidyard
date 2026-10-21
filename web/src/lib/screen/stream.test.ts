@@ -4,12 +4,12 @@ import { parsePacket, ScreenSocket, type ScreenWire } from './stream';
 
 class FakeWire implements ScreenWire {
 	binaryType = '';
-	sent: string[] = [];
+	sent: (string | Uint8Array)[] = [];
 	closedWith: number | undefined;
 	onopen: ((ev: Event) => void) | null = null;
 	onmessage: ((ev: MessageEvent) => void) | null = null;
 	onclose: ((ev: CloseEvent) => void) | null = null;
-	send(d: string) {
+	send(d: string | Uint8Array<ArrayBuffer>) {
 		this.sent.push(d);
 	}
 	close(code?: number) {
@@ -69,5 +69,41 @@ describe('ScreenSocket', () => {
 		expect(wire.closedWith).toBe(1000);
 		expect(wire.onclose).toBeNull();
 		expect(closes).toEqual([]);
+	});
+});
+
+describe('ScreenSocket.send', () => {
+	function open() {
+		const wire = new FakeWire();
+		const s = new ScreenSocket(
+			{ url: 'u', token: 'T', streamId: 'S', createSocket: () => wire },
+			{ packet: () => {}, closed: () => {} },
+		);
+		return { wire, s };
+	}
+
+	// Decision (ADR-0117 §3): the daemon reads the first frame as the auth; an input frame
+	// sent before it would be read as one, so nothing goes out until it has.
+	it('sends nothing before the auth frame went out', () => {
+		const { wire, s } = open();
+		s.send(Uint8Array.of(2, 1));
+		expect(wire.sent).toEqual([]);
+		wire.onopen?.(new Event('open'));
+		s.send(Uint8Array.of(2, 1));
+		expect(wire.sent).toEqual(['{"auth":"T","stream":"S"}', Uint8Array.of(2, 1)]);
+	});
+
+	// Decision: after our close, or the daemon's, sending is a no-op, not a throw.
+	it('sends nothing after a close, ours or the daemon\'s', () => {
+		const a = open();
+		a.wire.onopen?.(new Event('open'));
+		a.s.close();
+		expect(() => a.s.send(Uint8Array.of(2, 1))).not.toThrow();
+		expect(a.wire.sent).toHaveLength(1);
+		const b = open();
+		b.wire.onopen?.(new Event('open'));
+		b.wire.onclose?.({ code: 1006 } as CloseEvent);
+		b.s.send(Uint8Array.of(2, 1));
+		expect(b.wire.sent).toHaveLength(1);
 	});
 });

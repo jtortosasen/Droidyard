@@ -9,6 +9,8 @@ class FakeClient implements ScreenClient {
 	watches: { device: string; handlers: SubscribeHandlers; resolve: (s: Answer) => void }[] = [];
 	unsubscribed: string[] = [];
 	stoppedLocally: string[] = [];
+	/** What the next answer says; undefined is an older host's result, which lacks the field. */
+	control: boolean | undefined = false;
 
 	subscribe(_n: 'device.watchScreen', params: Params<'device.watchScreen'>, handlers: SubscribeHandlers): Promise<Answer> {
 		return new Promise((resolve) => this.watches.push({ device: params.device, handlers, resolve }));
@@ -22,7 +24,14 @@ class FakeClient implements ScreenClient {
 		const id = `sub${i + 1}`;
 		w.resolve({
 			subscriptionId: id,
-			result: { subscriptionId: id, device: w.device, streamId: `stream${i + 1}`, width: 1080, height: 2400 },
+			result: {
+				subscriptionId: id,
+				device: w.device,
+				streamId: `stream${i + 1}`,
+				width: 1080,
+				height: 2400,
+				...(this.control === undefined ? {} : { control: this.control }),
+			} as Result<'device.watchScreen'>,
 			stop: () => this.stoppedLocally.push(id),
 		});
 	}
@@ -277,6 +286,26 @@ describe('LiveViewModel', () => {
 		t.client.state(0, true);
 		t.client.state(0, true);
 		expect(n).toBe(1);
+	});
+
+	// Decision (ADR-0117 §3): the view carries the watch's `control`, per stream; a result
+	// without the field (an older host) is false, and it does not outlive its stream.
+	it('keeps the control the watch answered, false when absent, per stream', async () => {
+		const t = make();
+		t.client.control = true;
+		t.model.setActive(true);
+		t.client.answer(0);
+		await settle();
+		expect(t.model.view.control).toBe(true);
+		t.client.stopped(0, 'deviceGone');
+		expect(t.model.view.control).toBe(false);
+
+		const old = make();
+		old.client.control = undefined;
+		old.model.setActive(true);
+		old.client.answer(0);
+		await settle();
+		expect(old.model.view).toMatchObject({ streamId: 'stream1', control: false });
 	});
 
 	it('drops the secure state when the stream stops', async () => {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -57,6 +58,9 @@ func TestRoutedEventsOutlastTheResponse(t *testing.T) {
 type packetViewer struct {
 	packets []httpapi.ScreenPacket
 	closed  chan struct{}
+
+	mu     sync.Mutex
+	frames [][]byte // the input frames Input took
 }
 
 func (v *packetViewer) Next(ctx context.Context) (httpapi.ScreenPacket, error) {
@@ -73,6 +77,28 @@ func (v *packetViewer) Next(ctx context.Context) (httpapi.ScreenPacket, error) {
 }
 
 func (v *packetViewer) Close() { close(v.closed) }
+
+// Input takes what the peer's socket sends after its stream id (ADR-0117): a frame of one
+// byte 9 is not the wire (the adapter's ErrInputMalformed), one byte 8 is refused, and any
+// other is kept.
+func (v *packetViewer) Input(frame []byte) error {
+	switch {
+	case bytes.Equal(frame, []byte{9}):
+		return httpapi.ErrInputMalformed
+	case bytes.Equal(frame, []byte{8}):
+		return errors.New("input refused")
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.frames = append(v.frames, append([]byte(nil), frame...))
+	return nil
+}
+
+func (v *packetViewer) got() [][]byte {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([][]byte(nil), v.frames...)
+}
 
 // TestPeerScreenSocket is ADR-0078 §4 on the peer port: the first text frame, within the
 // deadline, is {"stream": <id>}; the attach is made for the peer the certificate pins to, by
@@ -178,6 +204,90 @@ func TestPeerScreenSocket(t *testing.T) {
 	if len(attachedBy) != 3 {
 		t.Errorf("attaches = %v; want three (nope, taken, good)", attachedBy)
 	}
+}
+
+// TestPeerScreenSocketTakesInputFrames is ADR-0117 §3 on the peer port: after the stream id,
+// the peer's binary frames reach the stream's viewer one by one, in order (the host's wiring
+// parses and validates them; the adapter reads nothing of the wire), a frame the viewer calls
+// malformed closes the socket with 1003 and one it refuses closes it with 1008, in each case
+// only that socket and ending its stream, and a text frame is 1003. Seen failing with the
+// peer endpoint dropping the frames after the id (the viewer saw none).
+func TestPeerScreenSocketTakesInputFrames(t *testing.T) {
+	host, client := newSide(t, "0.0.0"), newSide(t, "0.0.0")
+	host.cfg.hosting.Peers = []policy.HostPeer{{Name: "anna", Fingerprint: client.host.Identity().Fingerprint()}}
+	viewers := map[string]*packetViewer{}
+	for _, id := range []string{"ok", "malformed", "refused", "text"} {
+		viewers[id] = &packetViewer{closed: make(chan struct{})}
+	}
+	host.screens = func(_, id string) (httpapi.ScreenViewer, error) { return viewers[id], nil }
+	addr, _ := host.listen(t, "127.0.0.1:0")
+	open := func(id string) *websocket.Conn {
+		t.Helper()
+		cfg := hosting.PinnedConfig(client.host.Identity(), func(fp string) bool { return fp == host.host.Identity().Fingerprint() })
+		c, _, err := websocket.Dial(context.Background(), "wss://"+addr+capability.PeerScreenPath, &websocket.DialOptions{
+			HTTPClient: &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, DisableKeepAlives: true}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.CloseNow() })
+		if err := c.Write(context.Background(), websocket.MessageText, []byte(`{"stream":"`+id+`"}`)); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	send := func(c *websocket.Conn, typ websocket.MessageType, b []byte) {
+		t.Helper()
+		if err := c.Write(context.Background(), typ, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code := func(c *websocket.Conn) websocket.StatusCode {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for {
+			if _, _, err := c.Read(ctx); err != nil {
+				return websocket.CloseStatus(err)
+			}
+		}
+	}
+	ended := func(id string) {
+		t.Helper()
+		select {
+		case <-viewers[id].closed:
+		case <-time.After(5 * time.Second):
+			t.Errorf("the viewer of %q was not closed with its socket", id)
+		}
+	}
+
+	c := open("ok")
+	frames := [][]byte{{1, 0, 0, 1, 0, 2}, {2, 2}, {3, 0, 1, 0, 2, 0, 0, 1, 0}}
+	for _, f := range frames {
+		send(c, websocket.MessageBinary, f)
+	}
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the three frames at the viewer", func() bool { return len(viewers["ok"].got()) == 3 })
+	for i, f := range frames {
+		if got := viewers["ok"].got()[i]; !bytes.Equal(got, f) {
+			t.Errorf("frame %d reached the viewer as % x, want % x", i, got, f)
+		}
+	}
+	c.CloseNow()
+	ended("ok")
+
+	for id, want := range map[string]websocket.StatusCode{"malformed": websocket.StatusUnsupportedData, "refused": websocket.StatusPolicyViolation} {
+		c := open(id)
+		send(c, websocket.MessageBinary, map[string][]byte{"malformed": {9}, "refused": {8}}[id])
+		if got := code(c); got != want {
+			t.Errorf("a %s frame closed the socket with %d, want %d", id, got, want)
+		}
+		ended(id)
+	}
+	c = open("text")
+	send(c, websocket.MessageText, []byte("hello"))
+	if got := code(c); got != websocket.StatusUnsupportedData {
+		t.Errorf("a text frame closed the socket with %d, want 1003", got)
+	}
+	ended("text")
 }
 
 // TestAbandonedRoutedCallLeavesNoSubscription: a caller that gives up on a routed call

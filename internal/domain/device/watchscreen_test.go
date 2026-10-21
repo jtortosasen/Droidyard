@@ -28,7 +28,12 @@ type wsFix struct {
 
 func newWSFix(t *testing.T) *wsFix {
 	t.Helper()
-	f := startedFixture(t, nil)
+	return newWSFixFrom(t, startedFixture(t, nil))
+}
+
+// newWSFixFrom is newWSFix over a live-view fixture the test scripted.
+func newWSFixFrom(t *testing.T, f *ssFix) *wsFix {
+	t.Helper()
 	bus := event.New(event.Options{})
 	f.adb.SetBus(bus)
 	w := &wsFix{ssFix: f, bus: bus, sess: event.NewSession(bus, "s1")}
@@ -246,8 +251,8 @@ func TestScreenStreamEnds(t *testing.T) {
 // Decision (ADR-0078 §3, §4): AttachScreen claims a stream id once. An id never issued is
 // unknown, a second claim is refused, a closed stream's id is unknown again, and what it
 // returns is a screen.Viewer whose packets are the source's own bytes (the key frame with
-// the config in front, then the device's packets) and which offers nothing that reaches the
-// device: no Inject. Seen failing with the claim not recorded (attached never set): the
+// the config in front, then the device's packets) and which offers one thing that reaches the
+// device, Input (ADR-0117 §3: a frame of the wire, parsed and validated), and no Inject. Seen failing with the claim not recorded (attached never set): the
 // second attach got a handle on the same viewer.
 func TestAttachScreen(t *testing.T) {
 	w := newWSFix(t)
@@ -265,14 +270,14 @@ func TestAttachScreen(t *testing.T) {
 	if _, err := w.adb.AttachScreen(res.StreamID); !errors.Is(err, ErrScreenStreamAttached) {
 		t.Errorf("a second attach: %v, want ErrScreenStreamAttached", err)
 	}
-	// The handle's whole method set is the Viewer's: a method added to it, Inject
+	// The handle's whole method set is the Viewer's and Input: a method added to it, Inject
 	// included, would be reachable by whoever holds the handle.
-	if rt := reflect.TypeOf(h); rt.NumMethod() != 2 {
+	if rt := reflect.TypeOf(h); rt.NumMethod() != 3 {
 		var names []string
 		for i := 0; i < rt.NumMethod(); i++ {
 			names = append(names, rt.Method(i).Name)
 		}
-		t.Errorf("the handle's methods are %v, want Close and Next only", names)
+		t.Errorf("the handle's methods are %v, want Close, Input and Next only", names)
 	}
 	_, pkts, _ := ssFixture(t)
 	ctx, cancel := ssCtx()

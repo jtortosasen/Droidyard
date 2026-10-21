@@ -180,3 +180,28 @@ func TestEncodeControlRefuses(t *testing.T) {
 		t.Errorf("65535 frame: % x %v", got, err)
 	}
 }
+
+// Decision (plan m2y step 3; ADR-0117 §3): a Scroll that a call injects writes the very bytes
+// the view's own wheel event does, so a replayed wheel (device.scroll) and a live one are the
+// same message to the device; its amounts are notches, rounded to the wire's 1/256, and an
+// amount past the bound of 16 notches or not a number is refused before a byte is made. Seen
+// failing with the notch converted without the factor of 256: the amounts differed.
+func TestEncodeControlScroll(t *testing.T) {
+	size := Size{720, 1280}
+	got, err := EncodeControl(Scroll{X: 0, Y: 1, DX: -2.5, DY: 16}, size)
+	if err != nil || len(got) != 1 || got[0].At != 0 {
+		t.Fatalf("EncodeControl(Scroll) = %v, %v; want one message at 0", got, err)
+	}
+	want, err := EncodeEvent(Event{Kind: EventScroll, X: 0, Y: 65535, H: -640, V: 4096}, size)
+	if err != nil || string(got[0].Data) != string(want) {
+		t.Errorf("the injected scroll is % x, the view's is % x (%v)", got[0].Data, want, err)
+	}
+	for name, in := range map[string]Scroll{
+		"dy past the bound": {X: 0.5, Y: 0.5, DY: 16.01}, "dx past the bound": {X: 0.5, Y: 0.5, DX: -16.01},
+		"NaN": {X: 0.5, Y: 0.5, DY: math.NaN()}, "x past the frame": {X: 1.5, Y: 0.5, DY: 1},
+	} {
+		if got, err := EncodeControl(in, size); !errors.Is(err, ErrBadInput) || got != nil {
+			t.Errorf("%s: %v, %v; want ErrBadInput and nothing", name, got, err)
+		}
+	}
+}

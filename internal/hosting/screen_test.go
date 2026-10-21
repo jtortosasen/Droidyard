@@ -263,3 +263,51 @@ func TestDialScreenReadsAndRefuses(t *testing.T) {
 		})
 	}
 }
+
+// Decision (ADR-0117 §3, §1; ADR-0098 §3): the video socket carries the client's input to the
+// host as binary messages, each exactly the frame given (Send adds nothing), and a host that
+// closes the socket with the pairing's revocation code (4403) is told apart from the stream
+// ending (4410): ScreenRevoked is true for the first and false for the second and for a
+// socket that just broke. Seen failing with ScreenRevoked true for any close: the 4410 row
+// read as a revocation.
+func TestScreenConnSendsInputAndReadsARevocation(t *testing.T) {
+	frames := make(chan []byte, 4)
+	addr, fp, got := screenHost(t, func(ctx context.Context, c *websocket.Conn) {
+		for range 2 {
+			typ, data, err := c.Read(ctx)
+			if err != nil || typ != websocket.MessageBinary {
+				return
+			}
+			frames <- data
+		}
+		c.Close(capability.PeerCloseRevoked, "no longer paired")
+	})
+	id, _, err := LoadIdentity(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := newLink(policy.Remote{Name: "x", Address: addr, Fingerprint: fp}, id, "0.0.0", &lockedLog{})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	sc, err := l.DialScreen(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sc.Close()
+	<-got
+	for _, f := range [][]byte{{1, 0, 0, 1, 0, 2}, {2, 2}} {
+		if err := sc.Send(ctx, f); err != nil {
+			t.Fatal(err)
+		}
+		if read := <-frames; !bytes.Equal(read, f) {
+			t.Errorf("the host read % x, want % x", read, f)
+		}
+	}
+	_, err = sc.Next(ctx)
+	if !ScreenRevoked(err) {
+		t.Errorf("the host's 4403 close read as %v: not a revocation", err)
+	}
+	if ScreenRevoked(websocket.CloseError{Code: 4410}) || ScreenRevoked(errors.New("broken pipe")) || ScreenRevoked(nil) {
+		t.Error("a close that is not 4403 read as a revocation")
+	}
+}

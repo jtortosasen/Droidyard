@@ -9,13 +9,12 @@ document keeps the rules behind them.
 
 ## Design rule: adb-centric, serial is the only identity
 
-A device's one and only identity is the **serial** reported by `adb devices -l`. Emulators,
+A device's only identity is the **serial** reported by `adb devices -l`. Emulators,
 USB devices and `ip:port` devices share a single code path, and nothing assumes a
 particular emulator product. The `emulator` launcher is **optional**: only the boot-an-AVD
-verbs need it. This is the single most portable idea in the prior art
+verbs need it. The most portable idea in the prior art
 ([dsh-android](../research/dsh-android.md),
-[concepts](../research/dsh-codex-android-concepts.md)) and it halves the surface compared
-with a per-platform split. A device another Droidyard lends is named `<remote>/<serial>`
+[concepts](../research/dsh-codex-android-concepts.md)); it halves a per-platform split's surface. A device another Droidyard lends is named `<remote>/<serial>`
 and runs no local adb: its calls are relayed to the host, which applies this document
 ([ADR-0100](../adr/0100-remote-devices-on-the-client.md); [peer.md](../interfaces/peer.md)).
 
@@ -30,8 +29,8 @@ another adb could mismatch the running server and restart it (1e, Q6). When the 
 with `ADB` set, `system.health` lists `ADB` as "overridden by tools.adb". An invalid
 configuration file at start is a rejected entry naming the file, and resolution falls
 through. A fence set through `ADB` (a guard script) is bypassed by a configured `tools.adb`.
-The host SDK is resolved as in [sdk](sdk.md) §Host SDK; it comes before `PATH` so that we
-use the same adb as Android Studio and the same SDK as the emulator launcher.
+The host SDK is resolved as in [sdk](sdk.md) §Host SDK; it precedes `PATH` to match Android
+Studio's adb and the emulator launcher's SDK.
 
 **Never restart the shared server by accident.** An adb client whose version differs from
 the running server's kills and restarts that server, cutting off Android Studio and every other tool
@@ -87,7 +86,7 @@ target). A call without `device` fails schema validation at `Start`, before any 
 Text commands run as `adb -s <serial> shell ...` (CRLF-normalised); binary output uses
 `exec-out`, which skips the pty so PNG bytes survive; long-lived children use `spawn`, in a
 process group killed as a group. Every invocation has an explicit timeout and a bounded
-buffer: no unbounded accumulation anywhere. The reader and the screen server are reached
+buffer: no unbounded accumulation. The reader and the screen server are reached
 through `adb forward localfilesystem:` sockets in `<state>/run/fwd/` (0700; past
 `sun_path`, `/tmp/droidyard-<uid>`), never a TCP port;
 adb prints their paths raw in `forward --list`, spaces included
@@ -174,18 +173,17 @@ exits 0 (1i, D10).
 
 Screenshots are **in-memory bytes referenced by an opaque id**
 ([ADR-0012](../adr/0012-visual-artifacts-as-refs.md)), owned by a **single** store in the core
-with TTL/eviction. No temp files, no filesystem paths leaking into results, and no duplicate
-stores.
+with TTL/eviction. No temp files, no paths in results, no duplicate stores.
 
 ## Policy and safety
 
-Physical devices are ordinary devices to us: same code path, same capabilities. What is
+Physical devices share the code path and capabilities. What is
 specific to them:
 
 - **States**: `unauthorized` and `offline` are surfaced with the fix ("accept the USB
   debugging prompt on the device"), not as an empty device list.
 - **Wireless ADB**: pairing and connecting over the network is an adb-layer capability, and
-  the one that makes physical devices usable from the remote UI scenario.
+  makes physical devices usable from the remote UI scenario.
 - **Policy**: emulators by default; a physical device is listed and usable only when
   `devices.allowPhysical` is true **and** its exact serial is in `devices.allowlist`, re-read at each
   call; otherwise it is hidden from listings and `DEVICE_NOT_ALLOWED`, and an invalid file admits none
@@ -210,8 +208,7 @@ workspace; no arbitrary host paths.
 ## Lifecycle and concurrency
 
 - **The adb server is shared and never killed implicitly**; other tools use it.
-- Long-lived children (logcat follow, the screen server's `adb shell`) are per-operation and die with their
-  operation.
+- Long-lived children (logcat follow, the screen server's `adb shell`) are per-operation and die with it.
 - **The UI reader** ([ADR-0030](../adr/0030-persistent-ui-reader.md)) is what Droidyard leaves on a
   device: `/data/local/tmp/droidyard-reader-<sha256>.dex`, pushed once and kept; a process named
   `droidyard-reader-<first 12 hex>`; and one `adb forward` on the host. It ends itself after 30 idle
@@ -251,6 +248,9 @@ device could feed the same seam unchanged; its wire, sharing and lifetimes are
 [ADR-0079](../adr/0079-screen-input-capabilities.md), and `FLAG_SECURE`
 [ADR-0080](../adr/0080-flag-secure-detection.md). Agents keep `device.screenshot`, on demand. The
 facts it rests on are [the spike](../research/spike-screen-stream-2026-10.md).
+
+A viewer is behind by its queue's age: past 500 ms it is emptied and rejoins at the next key frame,
+and the source asks the encoder for one ([ADR-0118](../adr/0118-a-view-never-far-behind.md)).
 
 **Upgrading the server** is deliberate, never automatic: take the new release's `scrcpy-server`
 asset, compare its SHA-256 with the release's `SHA256SUMS.txt`, replace the file and its `LICENSE`

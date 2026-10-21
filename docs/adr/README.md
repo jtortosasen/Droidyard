@@ -141,6 +141,11 @@ edits made before this rule and are not added to.
 | [0110](0110-full-ui-dump.md) | A full UI dump for parsers, as an artifact in `uiautomator dump`'s format | Accepted |
 | [0111](0111-ui-events-between-reads.md) | The UI's events kept on the device, read since a cursor and waited on | Accepted |
 | [0112](0112-ui-events-stream-and-panel.md) | The UI events stream and its panel in the web UI | Accepted |
+| [0117](0117-live-view-input-over-the-stream.md) | The live view's input travels its own stream, authorized when the view opened | Accepted |
+| [0118](0118-a-view-never-far-behind.md) | A view never far behind, and a lighter stream for a remote marked fast | Accepted |
+| [0119](0119-the-live-view-stays-on-tcp.md) | The live view stays on TCP; a datagram transport waits for a measured loss | Accepted |
+| [0120](0120-remote-view-input-on-the-peer-socket.md) | A remote device's view sends its input on the peer screen socket | Accepted |
+| [0121](0121-lag-bound-from-the-first-read.md) | Lag counts from the first read, not on a relayed Hub | Accepted |
 
 ## Open decisions (not yet ADRs)
 

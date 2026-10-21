@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-17
+- Superseded in part by: ADR-0117 (§Decision 3)
 - Relates to: ADR-0010, ADR-0015 §2, §4, ADR-0035, ADR-0036, ADR-0060 §2, ADR-0077, ADR-0078; `ui-automation.md` §Input primitives, §Design rules; plan m2p Q5, Q6; [`spike-screen-stream-2026-10.md`](../research/spike-screen-stream-2026-10.md)
 - Decided by the owner, 2026-10-17: every input from the view is a capability call, with the policy, the audit and the operation trace an agent's call has, so a later recorder (C5) sees each action. The path behind the calls is Delegated (plan m2p Q5, Q6, reviewed in two rounds).
 

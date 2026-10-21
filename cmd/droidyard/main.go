@@ -127,7 +127,8 @@ Commands:
              devices.allowlist. A running daemon applies a change within seconds.
              It writes the user configuration; no daemon is involved or started.
   remote     Use the devices another Droidyard lends, the client's side:
-             droidyard remote add <name> <ip:port> <fingerprint> | remove <name> | list
+             droidyard remote add <name> <ip:port> <fingerprint> | remove <name> | fast <name> on|off | list
+             fast marks a slow link: a live view started on its device is lighter.
              The host's devices join the list as <name>/<serial>, used once
              devices.allowPhysical is true and that id is in devices.allowlist. A running
              daemon applies a change within seconds. No daemon is involved or started.
@@ -430,6 +431,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	adb.LengthenLimits(adbFloor)
 	// device.watchLogs publishes its streams to the daemon's bus (ADR-0041).
 	adb.SetBus(bus)
+	// The live view's gestures are recorded as operations of the capability that replays
+	// them (ADR-0117 §6).
+	adb.SetRecorder(ops)
 	// `tools.adb` is the first adb candidate, fixed at this start (ADR-0032 §3, §6;
 	// plan m1k D8).
 	adb.SetToolKey(startup.ADBKey())
@@ -526,6 +530,8 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		// What the host lends is hosting.lend and its foreground shares, which live in the
 		// host (ADR-0108 §3); both are read live at each call.
 		adb.SetLending(host)
+		// A source a peer marked fast starts gets the lighter preset (ADR-0118 §4).
+		adb.SetPeerFast(host.PeerFast)
 		// A foreground share belongs to the native connection that made it: when that connection
 		// ends, however it ends, the share does, the listeners are matched to what is left
 		// and the streams its peers held are stopped at once, not at the next sweep.

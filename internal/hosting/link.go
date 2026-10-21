@@ -76,6 +76,7 @@ type Link struct {
 	connected bool
 	lost      chan struct{} // closed when the connection now up is lost; nil while down
 	hostAPI   string
+	fast      bool // the remote's mark (ADR-0118 §4), sent in the hello; update changes it
 	lastErr   string
 	addr      string                 // the remote's address
 	addrs     []policy.RemoteAddress // its tagged others
@@ -83,7 +84,7 @@ type Link struct {
 }
 
 func newLink(r policy.Remote, id *Identity, api string, log io.Writer) *Link {
-	return &Link{remote: r, id: id, api: api, log: log, addr: r.Address, addrs: slices.Clone(r.Addresses),
+	return &Link{remote: r, id: id, api: api, log: log, addr: r.Address, addrs: slices.Clone(r.Addresses), fast: r.Fast,
 		pending: map[string]chan capability.ResponseEnvelope{}, routes: map[string]*route{},
 		events: map[string]func(json.RawMessage){}}
 }
@@ -93,6 +94,14 @@ func newLink(r policy.Remote, id *Identity, api string, log io.Writer) *Link {
 func (l *Link) update(r policy.Remote) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.fast != r.Fast {
+		// The host learns the mark in the hello, so a change is a new session: the connection
+		// is dropped and the run dials again within seconds (ADR-0118 §4).
+		l.fast = r.Fast
+		if l.conn != nil {
+			go l.conn.CloseNow()
+		}
+	}
 	if l.addr == r.Address && slices.Equal(l.addrs, r.Addresses) {
 		return false
 	}
@@ -464,7 +473,10 @@ func (l *Link) dialAny(ctx context.Context, client *http.Client) (*websocket.Con
 func (l *Link) hello(ctx context.Context, conn *websocket.Conn, rem policy.Remote) (capability.PeerHello, error) {
 	hctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
-	out, _ := json.Marshal(capability.PeerHelloFrame{Hello: &capability.PeerHello{PeerProtocol: capability.PeerProtocol, API: l.api}})
+	l.mu.Lock()
+	fast := l.fast
+	l.mu.Unlock()
+	out, _ := json.Marshal(capability.PeerHelloFrame{Hello: &capability.PeerHello{PeerProtocol: capability.PeerProtocol, API: l.api, Fast: fast}})
 	if err := conn.Write(hctx, websocket.MessageText, out); err != nil {
 		return capability.PeerHello{}, dialError(rem, err)
 	}
