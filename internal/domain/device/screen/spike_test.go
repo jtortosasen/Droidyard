@@ -46,7 +46,12 @@ package screen
 //	                 (scid and log_level=info are always added in front)
 //	-spike.ctl       control script, ';' separated "<offset>:<kind>:<args>"; offsets are
 //	                 from the first session packet. Kinds: down|move|up:<x>:<y> (a touch of
-//	                 the finger pointer, on the stream's own frame size), keydown|keyup:<keycode>
+//	                 the finger pointer, on the stream's own frame size), cancel:<x>:<y> (ACTION_CANCEL
+//	                 of that finger), scroll:<x>:<y>:<h>:<v> (a wheel at that point; h and v are
+//	                 notches as scrcpy takes them, decimals in [-16, 16], v positive scrolls up),
+//	                 reset (the client's reset-video message), keydown|keyup:<keycode>
+//	-spike.dial      host:port to dial the video and control sockets at instead of the forward's
+//	                 127.0.0.1:<spike.port>, for a proxy standing in front of it (default: the forward)
 //	-spike.lifetime  after recording, kill the adb shell client and poll the device
 //
 // Sources followed, scrcpy v4.1 (read at that tag, not from memory):
@@ -69,6 +74,23 @@ package screen
 //     all big endian. Binary.java: pressure 0xffff is 1.0.
 //   - server/.../Options.java: the option keys; send_dummy_byte, send_device_meta,
 //     send_frame_meta and send_stream_meta default to true.
+//
+// Plan m2y step 1 adds three control kinds, read at tag v4.1 (.refs/scrcpy), not from memory:
+//
+//   - cancel: a touch message (above) with action 3, AMOTION_EVENT_ACTION_CANCEL
+//     (app/src/android/input.h line 231). The server hands the action to injectTouch as is
+//     (server/.../control/Controller.java lines 358-359 and 512-559); only ACTION_UP marks
+//     the pointer up (line 545), so what a cancel leaves in the server's pointer state is
+//     the S4 question.
+//   - scroll: TYPE_INJECT_SCROLL_EVENT (3), 21 bytes, big endian: type, position (i32 x,
+//     i32 y, u16 screen w, u16 screen h; app/src/control_msg.c lines 68-73 and 128-141,
+//     ControlMessageReader.java lines 121-128 and 193-199), i16 hscroll, i16 vscroll, i32
+//     buttons. A scroll is notches in [-16, 16] divided by 16 and clamped, then
+//     sc_float_to_i16fp: int(f*0x8000), with 0x8000 stored as 0x7fff (app/src/util/binary.h
+//     lines 83-93).
+//   - reset: TYPE_RESET_VIDEO (17), one byte with no payload (ControlMessage.java line 27,
+//     ControlMessageReader.java lines 49-52); the server calls resetVideo() (Controller.java
+//     lines 337-338 and 872-877), which asks the capture to restart the encoder.
 //
 // ASSUMED, not read at the tag: the finger's pointer id is -2 (scrcpy's
 // SC_POINTER_ID_GENERIC_FINGER, named in Controller.java line 540; the value is from
@@ -97,6 +119,7 @@ var (
 	spikePort     = flag.Int("spike.port", 27183, "local TCP port of the adb forward")
 	spikeSCID     = flag.String("spike.scid", "1a2b3c4d", "the server's session id, 8 hex digits")
 	spikeLifetime = flag.Bool("spike.lifetime", false, "kill the adb shell client afterwards and poll the device")
+	spikeDial     = flag.String("spike.dial", "", "host:port to dial instead of the forward's 127.0.0.1:<spike.port>")
 	spikeCtl      = flag.String("spike.ctl", "", "control script: <offset>:<kind>:<args>;...")
 	spikeOpts     = flag.String("spike.opts",
 		"tunnel_forward=true video=true audio=false control=true video_codec=h264 max_size=1280 "+
@@ -179,7 +202,11 @@ func TestSpikeScrcpy(t *testing.T) {
 
 	// 4. connect: video first (wait for the dummy byte), then control.
 	dial := func() net.Conn {
-		c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", *spikePort))
+		addr := fmt.Sprintf("127.0.0.1:%d", *spikePort)
+		if *spikeDial != "" {
+			addr = *spikeDial
+		}
+		c, err := net.Dial("tcp", addr)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -459,7 +486,7 @@ func parseSpikeScript(script string) ([]spikeStep, error) {
 	}
 	for _, item := range strings.Split(script, ";") {
 		f := strings.Split(strings.TrimSpace(item), ":")
-		if len(f) < 3 {
+		if len(f) < 2 || (len(f) == 2 && f[1] != "reset") {
 			return nil, fmt.Errorf("control step %q: want <offset>:<kind>:<args>", item)
 		}
 		at, err := time.ParseDuration(f[0])
@@ -471,7 +498,23 @@ func parseSpikeScript(script string) ([]spikeStep, error) {
 			return int32(v), err
 		}
 		switch f[1] {
-		case "down", "move", "up":
+		case "reset":
+			steps = append(steps, spikeStep{at, "reset video",
+				func(uint16, uint16) []byte { return []byte{17} }}) // TYPE_RESET_VIDEO
+		case "scroll":
+			if len(f) != 6 {
+				return nil, fmt.Errorf("control step %q: want scroll:<x>:<y>:<h>:<v>", item)
+			}
+			x, err1 := num(2)
+			y, err2 := num(3)
+			hs, err3 := strconv.ParseFloat(f[4], 32)
+			vs, err4 := strconv.ParseFloat(f[5], 32)
+			if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+				return nil, fmt.Errorf("control step %q: bad scroll arguments", item)
+			}
+			steps = append(steps, spikeStep{at, fmt.Sprintf("scroll at %d,%d by %g,%g", x, y, hs, vs),
+				func(w, h uint16) []byte { return spikeScroll(x, y, w, h, float32(hs), float32(vs)) }})
+		case "down", "move", "up", "cancel":
 			if len(f) != 4 {
 				return nil, fmt.Errorf("control step %q: want %s:<x>:<y>", item, f[1])
 			}
@@ -480,9 +523,9 @@ func parseSpikeScript(script string) ([]spikeStep, error) {
 			if err1 != nil || err2 != nil {
 				return nil, fmt.Errorf("control step %q: bad coordinates", item)
 			}
-			action := map[string]byte{"down": 0, "up": 1, "move": 2}[f[1]] // MotionEvent.ACTION_*
+			action := map[string]byte{"down": 0, "up": 1, "move": 2, "cancel": 3}[f[1]] // MotionEvent.ACTION_*
 			pressure := uint16(0xffff)
-			if f[1] == "up" {
+			if f[1] == "up" || f[1] == "cancel" {
 				pressure = 0
 			}
 			steps = append(steps, spikeStep{at, fmt.Sprintf("%s at %s", f[1], strings.Join(f[2:], ",")),
@@ -518,6 +561,30 @@ func spikeTouch(action byte, x, y int32, w, h, pressure uint16) []byte {
 	binary.BigEndian.PutUint16(b[20:], h)
 	binary.BigEndian.PutUint16(b[22:], pressure)
 	// action button and buttons stay 0
+	return b
+}
+
+// spikeScroll is TYPE_INJECT_SCROLL_EVENT (3), 21 bytes, big endian (control_msg.c lines
+// 128-141): the position, then each axis in notches divided by 16, clamped to [-1, 1] and
+// made a signed 16-bit fixed point (binary.h sc_float_to_i16fp: 1.0 is 0x7fff), then the
+// buttons (0).
+func spikeScroll(x, y int32, w, h uint16, hscroll, vscroll float32) []byte {
+	fp := func(notches float32) uint16 {
+		f := min(max(notches/16, -1), 1)
+		i := int32(f * 0x8000)
+		if i >= 0x7fff {
+			i = 0x7fff
+		}
+		return uint16(int16(i))
+	}
+	b := make([]byte, 21)
+	b[0] = 3
+	binary.BigEndian.PutUint32(b[1:], uint32(x))
+	binary.BigEndian.PutUint32(b[5:], uint32(y))
+	binary.BigEndian.PutUint16(b[9:], w)
+	binary.BigEndian.PutUint16(b[11:], h)
+	binary.BigEndian.PutUint16(b[13:], fp(hscroll))
+	binary.BigEndian.PutUint16(b[15:], fp(vscroll))
 	return b
 }
 

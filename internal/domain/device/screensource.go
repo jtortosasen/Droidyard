@@ -638,6 +638,7 @@ func (s *screenSource) demux() {
 	defer s.wg.Done()
 	err := screen.Demux(s.br, func(p screen.Packet) error {
 		s.hub.Push(p)
+		probePacket("scrcpy", p)
 		if p.Config {
 			s.firstOnce.Do(func() { close(s.first) })
 		}
@@ -904,5 +905,9 @@ func (s *screenSource) endOnWriteError() {
 
 func (s *screenSource) write(b []byte) (int, error) {
 	s.control.SetWriteDeadline(time.Now().Add(screenWriteBound))
-	return s.control.Write(b)
+	n, err := s.control.Write(b)
+	if err == nil {
+		probeWrite(b)
+	}
+	return n, err
 }

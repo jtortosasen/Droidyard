@@ -371,6 +371,7 @@ func (s *relayedSource) read() {
 		}
 		for _, p := range pkts {
 			s.hub.Push(p)
+			probePacket("relayed", p)
 		}
 	}
 }

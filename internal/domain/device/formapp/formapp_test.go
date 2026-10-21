@@ -54,7 +54,10 @@ func TestFormAppBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aapt2 dump xmltree: %v\n%s", err, tree)
 	}
-	for _, want := range []string{".WidgetsActivity", "android.permission.POST_NOTIFICATIONS"} {
+	// m2y step 1: TouchActivity is the screen whose colour the latency spike reads; like
+	// WidgetsActivity it is no launcher, so only the manifest names it, and a build
+	// without its entry installs fine and fails on `am start -n .../.TouchActivity`.
+	for _, want := range []string{".WidgetsActivity", ".TouchActivity", "android.permission.POST_NOTIFICATIONS"} {
 		if !strings.Contains(string(tree), want) {
 			t.Errorf("manifest does not declare %s:\n%s", want, tree)
 		}

@@ -37,5 +37,12 @@
             android:name=".WidgetsActivity"
             android:exported="true"
             android:excludeFromRecents="true" />
+        <!-- m2y step 1: a screen that changes only on touch (the colour follows the finger,
+             black on the lift, magenta on a cancel, green steps on a wheel), started with
+             `am start -n dev.droidyard.formapp/.TouchActivity`. Not a launcher. -->
+        <activity
+            android:name=".TouchActivity"
+            android:exported="true"
+            android:excludeFromRecents="true" />
     </application>
 </manifest>
