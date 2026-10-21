@@ -20,6 +20,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -70,6 +71,7 @@ type Server struct {
 	handler http.Handler
 	ws      *wsHandler
 	screen  *screenHandler
+	art     *artifactRoute
 }
 
 // New builds the UI's HTTP side. A nil bus serves no WebSocket. ui is the built web
@@ -78,8 +80,9 @@ func New(reg *capability.Registry, ops *capability.Operations, bus *event.Bus, t
 	c := &caller{reg: reg, ops: ops}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/call", c)
-	mux.Handle(artifactsPath, &artifactRoute{c})
-	s := &Server{screen: newScreenHandler(token)}
+	art := &artifactRoute{c: c}
+	mux.Handle(artifactsPath, art)
+	s := &Server{screen: newScreenHandler(token), art: art}
 	mux.Handle(screenPath, s.screen)
 	if bus != nil {
 		s.ws = newWSHandler(c, bus, token)
@@ -373,7 +376,30 @@ const artifactsPath = "/v1/artifacts/"
 // The status carries the meaning an envelope cannot: 404 ARTIFACT_NOT_FOUND, 410
 // ARTIFACT_EXPIRED, 400 for a malformed query or REQUEST_INVALID_PARAMS, each with the
 // typed error as a JSON body.
-type artifactRoute struct{ c *caller }
+type artifactRoute struct {
+	c    *caller
+	text atomic.Pointer[TextArtifacts]
+}
+
+// TextFile is a text artifact's bytes, open for ranged reads. The route closes Body.
+type TextFile struct {
+	Body io.ReadSeekCloser
+}
+
+// TextArtifacts opens a finished text artifact by the last segment of its reference
+// (http-websocket.md §GET /v1/artifacts/{id}); the route has already had artifact.read
+// authorize and resolve it. The daemon's wiring supplies it over the artifact store, so
+// the adapter never imports the domain.
+type TextArtifacts func(id string) (TextFile, error)
+
+// UseTextArtifacts gives the server the reader of text artifacts; until it is called a
+// text artifact answers 500, the daemon not being able to serve it.
+func (s *Server) UseTextArtifacts(open TextArtifacts) { s.art.text.Store(&open) }
+
+// textProbeLimit is the smallest limit artifact.read accepts: the route's read of a text
+// artifact is only for authorization, existence, the mark and the growing flag; the bytes
+// come from TextArtifacts.
+const textProbeLimit = 4
 
 // readParams is artifact.read's wire parameters, spelled here so that the adapter does
 // not import the domain package (overview.md §Adapter boundary).
@@ -381,6 +407,7 @@ type readParams struct {
 	Ref     string      `json:"ref"`
 	MaxEdge *int        `json:"maxEdge,omitempty"`
 	Region  *readRegion `json:"region,omitempty"`
+	Limit   *int        `json:"limit,omitempty"`
 }
 
 type readRegion struct {
@@ -433,6 +460,8 @@ func (a *artifactRoute) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		p.Region = &readRegion{f[0], f[1], f[2], f[3]}
 	}
+	probe := textProbeLimit
+	p.Limit = &probe // ignored by an image; the smallest page of a text artifact
 	params, _ := json.Marshal(p)
 	out, err := a.c.run(r.Context(), capability.Request{Capability: "artifact.read", Params: params, Client: capability.ClientUI}, nil)
 	if r.Context().Err() != nil {
@@ -448,14 +477,20 @@ func (a *artifactRoute) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := json.Marshal(out.Result)
 	var res struct {
-		MediaType string `json:"mediaType"`
-		Data      string `json:"data"`
+		MediaType string  `json:"mediaType"`
+		Data      string  `json:"data"`
+		Growing   *bool   `json:"growing"`
+		Text      *string `json:"text"`
 	}
 	var data []byte
 	if err == nil {
 		if err = json.Unmarshal(raw, &res); err == nil {
 			data, err = base64.StdEncoding.DecodeString(res.Data)
 		}
+	}
+	if err == nil && res.Text != nil {
+		a.serveText(w, r, strings.TrimPrefix(r.URL.Path, artifactsPath), res.Growing != nil && *res.Growing, out.Untrusted)
+		return
 	}
 	// A completed read always carries its bytes in `data`: the result is slimmed only
 	// after its first delivery (ADR-0020, 2026-10-04), so an empty one means this
@@ -482,6 +517,39 @@ func (a *artifactRoute) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		w.Write(data)
 	}
+}
+
+// serveText answers a text artifact (rule 8): the whole of a finished one through
+// http.ServeContent, so Range works, always as text/plain; a growing one is refused,
+// since half a file served as a whole would pass for it (ADR-0012 §Reading artifacts).
+func (a *artifactRoute) serveText(w http.ResponseWriter, r *http.Request, id string, growing, untrusted bool) {
+	if growing {
+		writeError(w, capability.NewError(capability.ErrInvalidParams, "the artifact is still being written; read it with artifact.read, or download it once it ends"))
+		return
+	}
+	open := a.text.Load()
+	if open == nil || *open == nil {
+		writeStatus(w, http.StatusInternalServerError, capability.NewError(capability.ErrInvalidParams, "the artifact cannot be served").WithCause("this daemon serves no text artifacts"))
+		return
+	}
+	f, err := (*open)(id)
+	if err != nil {
+		writeError(w, capability.AsError(err))
+		return
+	}
+	defer f.Body.Close()
+	h := w.Header()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	if untrusted {
+		h.Set("X-Droidyard-Untrusted", "true")
+	}
+	// Several ranges would go out as multipart/byteranges, a type outside rule 8's three:
+	// such a request gets the whole artifact instead.
+	if strings.Contains(r.Header.Get("Range"), ",") {
+		r.Header.Del("Range")
+	}
+	http.ServeContent(w, r, "", time.Time{}, f.Body)
 }
 
 // writeError answers with the typed error as the JSON body: the status is the meaning

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -77,6 +78,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 	token := newToken()
 	ui := httpapi.New(reg, ops, bus, token, web.Assets())
 	ui.UseScreens(screenAttach(adb))
+	ui.UseTextArtifacts(uiTextArtifacts(artifacts))
 	return daemon.Options{
 		State:      st.Root(),
 		Store:      st,
@@ -157,6 +159,33 @@ func peerArtifacts(store *artifact.Store) peer.ArtifactReader {
 		return peer.Artifact{MediaType: e.Ref.MediaType, Untrusted: e.Ref.Untrusted, Data: e.Data}, nil
 	}
 }
+
+// uiTextArtifacts is what the UI route serves of a finished text artifact (rule 8): the
+// bytes of the store's entry, from memory or from the file in place.
+func uiTextArtifacts(store *artifact.Store) httpapi.TextArtifacts {
+	return func(id string) (httpapi.TextFile, error) {
+		e, err := store.Get(artifact.RefPrefix + id)
+		if err != nil {
+			return httpapi.TextFile{}, err
+		}
+		if e.Growing {
+			// The route refuses a growing artifact before it opens one; never serve one as whole.
+			return httpapi.TextFile{}, capability.NewError(capability.ErrInvalidParams, "the artifact is still being written")
+		}
+		if e.File == "" {
+			return httpapi.TextFile{Body: nopCloseSeeker{bytes.NewReader(e.Data)}}, nil
+		}
+		f, err := os.Open(e.File)
+		if err != nil {
+			return httpapi.TextFile{}, err
+		}
+		return httpapi.TextFile{Body: f}, nil
+	}
+}
+
+type nopCloseSeeker struct{ *bytes.Reader }
+
+func (nopCloseSeeker) Close() error { return nil }
 
 // screenViewer adapts a screen.Viewer to the adapter's, packet for packet and byte for byte.
 type screenViewer struct{ v screen.Viewer }
