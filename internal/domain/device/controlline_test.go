@@ -161,7 +161,7 @@ func (f *lineFix) openWith(t *testing.T, who capability.Origin, kind viewKind, s
 	t.Cleanup(sess.Close)
 	device := fmt.Sprintf("D%d", f.n)
 	out, err := f.a.openStream(context.Background(), &capability.Call{Origin: who, OperationID: fmt.Sprintf("op%d", f.n)},
-		sess, device, kind, src, func() { f.released.Add(1) })
+		sess, device, kind, src, &sourceRef{drop: func() func() { f.released.Add(1); return func() {} }})
 	if err != nil {
 		t.Fatalf("openStream: %v", err)
 	}

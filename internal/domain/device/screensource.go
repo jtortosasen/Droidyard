@@ -178,6 +178,16 @@ var _ screen.Source = (*screenSource)(nil)
 // whose ctx ends while waiting leaves, and the start is abandoned if it was the last one
 // waiting. After StopAll has begun, acquire is refused.
 func (ss *screenSources) acquireWith(ctx context.Context, a *ADB, t *target, fast bool) (*screenSource, func(), error) {
+	s, ref, err := ss.acquireRef(ctx, a, t, fast)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, ref.Release, nil
+}
+
+// acquireRef is acquireWith whose reference can be dropped in two parts (sourceRef.Drop), as
+// a live view's end needs (ADR-0123 §3).
+func (ss *screenSources) acquireRef(ctx context.Context, a *ADB, t *target, fast bool) (*screenSource, *sourceRef, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -219,8 +229,7 @@ func (ss *screenSources) acquireWith(ctx context.Context, a *ADB, t *target, fas
 		if s.startFail != nil {
 			return nil, nil, s.startFail.err()
 		}
-		var once sync.Once
-		return s, func() { once.Do(s.unref) }, nil
+		return s, &sourceRef{drop: s.dropRef}, nil
 	}
 }
 
@@ -296,11 +305,16 @@ func (a *ADB) newScreenSource(ss *screenSources, t *target) *screenSource {
 // unref drops one holder. The last one ends the source and waits until it is gone, so a
 // caller that released the last reference knows the child is reaped and the forward
 // removed when it returns.
+func (s *screenSource) unref() { s.dropRef()() }
+
+// dropRef is unref in two parts (ADR-0123 §3): the reference is dropped when it returns, and
+// the wait for the source's teardown, which only the last reference has, is the function it
+// returns.
 //
 // The last decrement claims the end in the same critical section (ending is set under the
 // set's mutex with refs at zero), so an acquire that arrives next sees a source that is
 // ending and waits for its teardown, never one that is about to close under it.
-func (s *screenSource) unref() {
+func (s *screenSource) dropRef() (wait func()) {
 	s.set.mu.Lock()
 	s.refs--
 	last := s.refs == 0
@@ -316,9 +330,30 @@ func (s *screenSource) unref() {
 		s.close(nil)
 	}
 	if last {
-		<-s.done
+		return func() { <-s.done }
 	}
+	return func() {}
 }
+
+// sourceRef is one holder's reference to a source, dropped once: Drop gives it up at once and
+// returns the wait for the source's teardown (a no-op unless it was the last), Release does
+// both. A second Drop or Release returns only after the first has dropped, and waits for
+// nothing.
+type sourceRef struct {
+	once sync.Once
+	drop func() (wait func())
+}
+
+func (r *sourceRef) Drop() (wait func()) {
+	r.once.Do(func() { wait = r.drop() })
+	if wait == nil {
+		wait = func() {}
+	}
+	return wait
+}
+
+// Release drops the reference and waits for the teardown it caused.
+func (r *sourceRef) Release() { r.Drop()() }
 
 // screenAfterLastUnref is a test hook, nil in production: it runs after the last
 // reference was dropped and the end claimed, before the Hub closes, so a test can make an

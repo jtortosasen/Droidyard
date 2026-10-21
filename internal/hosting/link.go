@@ -77,16 +77,23 @@ type Link struct {
 	lost      chan struct{} // closed when the connection now up is lost; nil while down
 	hostAPI   string
 	fast      bool // the remote's mark (ADR-0118 §4), sent in the hello; update changes it
-	lastErr   string
-	addr      string                 // the remote's address
-	addrs     []policy.RemoteAddress // its tagged others
-	answered  string                 // the address the last connection was made at; "" before
+	// sentFast is the mark the host was last told: the hello's, then each mark frame written
+	// (ADR-0123 §1). The mark sender writes a frame when fast differs from it.
+	sentFast bool
+	// marked is the mark channel (ADR-0123 §1): closed by the mark sender once a mark frame
+	// has been written, and replaced at once, so it is never closed twice.
+	marked   chan struct{}
+	markWake chan struct{} // wakes the mark sender; one pending wake is enough
+	lastErr  string
+	addr     string                 // the remote's address
+	addrs    []policy.RemoteAddress // its tagged others
+	answered string                 // the address the last connection was made at; "" before
 }
 
 func newLink(r policy.Remote, id *Identity, api string, log io.Writer) *Link {
 	return &Link{remote: r, id: id, api: api, log: log, addr: r.Address, addrs: slices.Clone(r.Addresses), fast: r.Fast,
 		pending: map[string]chan capability.ResponseEnvelope{}, routes: map[string]*route{},
-		events: map[string]func(json.RawMessage){}}
+		events: map[string]func(json.RawMessage){}, marked: make(chan struct{}), markWake: make(chan struct{}, 1)}
 }
 
 // update replaces the addresses the link dials, keeping the link and its connection
@@ -95,12 +102,8 @@ func (l *Link) update(r policy.Remote) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.fast != r.Fast {
-		// The host learns the mark in the hello, so a change is a new session: the connection
-		// is dropped and the run dials again within seconds (ADR-0118 §4).
 		l.fast = r.Fast
-		if l.conn != nil {
-			go l.conn.CloseNow()
-		}
+		l.markChangedLocked()
 	}
 	if l.addr == r.Address && slices.Equal(l.addrs, r.Addresses) {
 		return false
@@ -111,6 +114,90 @@ func (l *Link) update(r policy.Remote) bool {
 	}
 	return true
 }
+
+// markChangedLocked tells the host the mark changed, with l.mu held and no I/O under it
+// (update runs under Host.mu too). A host whose hello names PeerMarkAPI is sent a mark frame
+// by the mark sender, which this only wakes (ADR-0123 §1). An older host learns the mark in
+// the hello, so the connection is dropped and the run dials again within seconds (ADR-0118
+// §4). With the link down there is nothing to do: the next hello carries the mark.
+func (l *Link) markChangedLocked() {
+	if l.conn == nil {
+		return
+	}
+	if !APIAtLeast(l.hostAPI, capability.PeerMarkAPI) {
+		go l.conn.CloseNow()
+		return
+	}
+	select {
+	case l.markWake <- struct{}{}:
+	default: // a wake is pending already; the sender reads the current mark when it runs
+	}
+}
+
+// Marked is closed once a mark frame has been written to the host (ADR-0123 §1): a source
+// that took it while a write was pending ends after the write and watches again behind the
+// frame. It is taken like Down, and a fresh channel replaces it as it closes. While the link
+// is down it is open, not closed: a loss is Down's to report.
+func (l *Link) Marked() <-chan struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.marked
+}
+
+// markSender writes the mark frames of one connection (ADR-0123 §1). It reads the current
+// mark and the connection under l.mu and writes outside every lock, through the link's one
+// writer, so a slow write blocks no call, no reconcile and no health. Two quick changes leave
+// the host with the last value: the sender writes what the mark is when it runs, and nothing
+// when that is what the host already has. A write that fails is the connection's loss.
+func (l *Link) markSender(ctx context.Context, conn *websocket.Conn) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-l.markWake:
+		}
+		l.mu.Lock()
+		if l.conn != conn {
+			l.mu.Unlock()
+			return
+		}
+		fast, ch := l.fast, l.marked
+		if fast == l.sentFast {
+			l.mu.Unlock()
+			continue
+		}
+		l.mu.Unlock()
+		if markBeforeWrite != nil {
+			markBeforeWrite()
+		}
+		frame, _ := json.Marshal(capability.PeerMarkFrame{Mark: &capability.PeerMark{Fast: &fast}})
+		if err := l.write(conn, frame); err != nil {
+			conn.CloseNow()
+			return
+		}
+		l.mu.Lock()
+		if l.conn != conn {
+			// The connection was replaced while the frame was written: the new session's
+			// hello told the host its mark, and the channel is the new sender's to close.
+			l.mu.Unlock()
+			return
+		}
+		l.sentFast = fast
+		if l.marked == ch {
+			close(ch)
+			l.marked = make(chan struct{})
+		}
+		l.mu.Unlock()
+	}
+}
+
+// markBeforeWrite is a test hook, nil in production: it runs in the mark sender after it
+// chose the mark to write and before the write, holding no lock.
+var markBeforeWrite func()
+
+// afterHello is a test hook, nil in production: it runs in session between the hello and the
+// link being marked up.
+var afterHello func()
 
 // current is the address a request that goes straight to the host is made at: the one the
 // last connection was made at, else the remote's own.
@@ -425,16 +512,25 @@ func (l *Link) session(ctx context.Context) (up bool, err error) {
 		fmt.Fprintf(l.log, "droidyard: remote %s runs API %s and this daemon %s; the peer protocol is the same, so the link is kept\n", l.remote.Name, host.API, l.api)
 	}
 
+	if afterHello != nil {
+		afterHello()
+	}
 	sctx, stop := context.WithCancel(ctx)
 	defer stop()
 	l.mu.Lock()
 	l.conn, l.connected, l.hostAPI, l.lastErr, l.answered = conn, true, host.API, "", addr
 	l.lost = make(chan struct{})
+	if l.fast != l.sentFast {
+		// The mark changed since the hello, while update found no connection to tell it on:
+		// it is sent now, as a change of an open link is (ADR-0123 §1).
+		l.markChangedLocked()
+	}
 	l.mu.Unlock()
 	fmt.Fprintf(l.log, "droidyard: remote %s: link up (API %s)\n", l.remote.Name, host.API)
 	defer l.down()
 
 	go l.pings(sctx, conn)
+	go l.markSender(sctx, conn)
 	err = l.read(sctx, conn)
 	return true, &atError{addr, fmt.Errorf("link down: %w", err)}
 }
@@ -475,6 +571,7 @@ func (l *Link) hello(ctx context.Context, conn *websocket.Conn, rem policy.Remot
 	defer cancel()
 	l.mu.Lock()
 	fast := l.fast
+	l.sentFast = fast // what this hello tells the host
 	l.mu.Unlock()
 	out, _ := json.Marshal(capability.PeerHelloFrame{Hello: &capability.PeerHello{PeerProtocol: capability.PeerProtocol, API: l.api, Fast: fast}})
 	if err := conn.Write(hctx, websocket.MessageText, out); err != nil {

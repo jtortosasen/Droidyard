@@ -106,6 +106,16 @@ var _ screen.Source = (*relayedSource)(nil)
 // failed start fails every waiter, a caller whose ctx ends leaves, and a new start waits for
 // an ending source's teardown.
 func (rs *relayedScreens) acquire(ctx context.Context, a *ADB, rt *remoteTarget) (*relayedSource, func(), error) {
+	s, ref, err := rs.acquireRef(ctx, a, rt)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, ref.Release, nil
+}
+
+// acquireRef is acquire whose reference can be dropped in two parts (sourceRef.Drop), as a
+// live view's end needs (ADR-0123 §3).
+func (rs *relayedScreens) acquireRef(ctx context.Context, a *ADB, rt *remoteTarget) (*relayedSource, *sourceRef, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -145,8 +155,7 @@ func (rs *relayedScreens) acquire(ctx context.Context, a *ADB, rt *remoteTarget)
 		if s.startFail != nil {
 			return nil, nil, s.startFail
 		}
-		var once sync.Once
-		return s, func() { once.Do(s.unref) }, nil
+		return s, &sourceRef{drop: s.dropRef}, nil
 	}
 }
 
@@ -227,7 +236,12 @@ func (s *relayedSource) sendInput(b []byte) (int, error) {
 
 // unref drops one holder. The last one ends the source and waits until it is gone, so a
 // caller that released the last reference knows the host was released when it returns.
-func (s *relayedSource) unref() {
+func (s *relayedSource) unref() { s.dropRef()() }
+
+// dropRef is unref in two parts (ADR-0123 §3): the reference is dropped, and the end claimed
+// when it is the last, before it returns; the wait for the teardown is the function it
+// returns.
+func (s *relayedSource) dropRef() (wait func()) {
 	s.set.mu.Lock()
 	s.refs--
 	last := s.refs == 0
@@ -240,8 +254,9 @@ func (s *relayedSource) unref() {
 		s.close(nil)
 	}
 	if last {
-		<-s.done
+		return func() { <-s.done }
 	}
+	return func() {}
 }
 
 // end decides why the source ended, once: the first reason wins. A nil reason is the end of

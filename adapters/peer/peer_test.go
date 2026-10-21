@@ -105,6 +105,8 @@ type side struct {
 	admit peer.Admit
 	// setFast, when set before listen, is told each peer hello's fast mark (ADR-0118 §4).
 	setFast func(peer string, fast bool)
+	// api, when set before listen, is the API version the host names in its hello; "0.0.0".
+	api string
 }
 
 func newSide(t *testing.T, api string) *side {
@@ -129,6 +131,15 @@ func newSide(t *testing.T, api string) *side {
 	reg.MustRegister(capability.Descriptor{Name: "peertest.echo", Kind: capability.Query, Scope: capability.Global, Lendable: true,
 		Description: "Lent.", Params: none{}, Result: tick{},
 		Handler: func(context.Context, *capability.Call) (any, error) { return tick{N: 7}, nil }})
+	// The mark the host has recorded for the calling peer, as a live view the peer starts reads it.
+	reg.MustRegister(capability.Descriptor{Name: "peertest.mark", Kind: capability.Query, Scope: capability.Global, Lendable: true,
+		Description: "Lent, reads the peer's fast mark.", Params: none{}, Result: tick{},
+		Handler: func(_ context.Context, call *capability.Call) (any, error) {
+			if s.host.PeerFast(call.Origin.Name) {
+				return tick{N: 1}, nil
+			}
+			return tick{N: 0}, nil
+		}})
 	reg.MustRegister(capability.Descriptor{Name: "peertest.secret", Kind: capability.Query, Scope: capability.Global,
 		Description: "Not lent.", Params: none{}, Result: tick{},
 		Handler: func(context.Context, *capability.Call) (any, error) { return tick{N: 1}, nil }})
@@ -186,7 +197,11 @@ func newSide(t *testing.T, api string) *side {
 // and admit seams of the side before calling it.
 func (s *side) server(t *testing.T) *peer.Server {
 	t.Helper()
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, SetFast: s.setFast, API: "0.0.0", Log: s.log})
+	api := s.api
+	if api == "" {
+		api = "0.0.0"
+	}
+	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, SetFast: s.setFast, API: api, Log: s.log})
 	t.Cleanup(srv.Close)
 	return srv
 }

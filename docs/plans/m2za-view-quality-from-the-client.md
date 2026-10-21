@@ -65,7 +65,7 @@
 - Not here: nothing ends a view yet on a mark (step 2); no web change.
 - Rests on: the host applies the mark before it reads the client's next frame, and a stream's end drops its source before any answer that follows it: level 4, each test seen failing reversed.
 - Review: none of its own; the Opus verifier reviews steps 1 and 2 together after step 2 (the owner's call for pace), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4. Every test the step names, each listed reversal seen failing (the mark change closing the session, the version gate removed, the frame served on its own goroutine, a missing `fast` read as false, `allowed()` removed, a UI session given `setFast`, the up-time comparison off, the channel closed before the write, the write under `l.mu`, the wake drained, the drop moved back onto the goroutine, the early return on a second end); `go test -race` on the four packages and `go test ./...` passed. The main session's review added: a mark sender whose connection was replaced while it wrote neither sets `sentFast` nor closes a channel the new sender holds. `cmd/droidyard`'s `holdRelease` lab option is plumbed for step 2's test.
 
 ### 2. The client restarts its views of that host, `renewed`
 

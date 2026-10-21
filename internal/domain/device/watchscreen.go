@@ -162,7 +162,7 @@ type screenStream struct {
 	session   string // the link session of a paired peer's stream, whose lease it is under (ADR-0104); "" otherwise
 	src       screen.Source
 	viewer    screen.Viewer
-	release   func() // the source reference, idempotent
+	ref       *sourceRef // the source reference, dropped by the stream's end (ADR-0123 §3)
 
 	sub *event.Subscription // set before the stream is in the set
 
@@ -192,18 +192,37 @@ type screenStream struct {
 	timer      *time.Timer
 	stopSecure func()        // ends the secure-state watch (secure.go); set once the stream is in the table
 	quit       chan struct{} // closed when the stream ended
-	released   chan struct{} // closed when the viewer's source reference was dropped
+	dropped    chan struct{} // closed when the end has dropped the source reference
+	released   chan struct{} // closed when the source's teardown, if this was its last viewer, is over
+}
+
+// screenReleaseHold is a test seam, nil in production: it runs on the goroutine that waits
+// for a source's teardown, before the wait, so a test can hold the teardown's wait while the
+// reference is already dropped (ADR-0123 §3).
+var screenReleaseHold atomic.Pointer[func()]
+
+// SetScreenReleaseHold makes every live view's end call f before it waits for its source's
+// teardown, on the goroutine that waits; nil removes it. Test-only.
+func SetScreenReleaseHold(f func()) {
+	if f == nil {
+		screenReleaseHold.Store(nil)
+		return
+	}
+	screenReleaseHold.Store(&f)
 }
 
 // end ends the stream: the id becomes unknown, the viewer is closed, stopped is published
-// when reason is not empty, and the source reference is dropped on a goroutine of its own
-// (the last one waits for the server's teardown, which a subscription's end hook must not).
-// Only the first end counts. An end by the subscription passes no reason: its subscriber is
-// gone, so there is nobody to tell.
+// when reason is not empty, and the source reference is dropped before end returns, so what
+// an end is followed by (the answer to events.unsubscribe, then a new view) finds the source
+// ending and starts its own (ADR-0123 §3). Only the wait for the server's teardown, which a
+// subscription's end hook must not do, is on a goroutine of its own. Only the first end
+// counts, and a second, concurrent one returns once the first has dropped the reference. An
+// end by the subscription passes no reason: its subscriber is gone, so there is nobody to tell.
 func (s *screenStream) end(reason, cause string) {
 	s.mu.Lock()
 	if s.ended {
 		s.mu.Unlock()
+		<-s.dropped
 		return
 	}
 	s.ended = true
@@ -242,10 +261,15 @@ func (s *screenStream) end(reason, cause string) {
 		s.bus.PublishTo(s.sub, TopicScreen, EventStopped, "", s.operation,
 			ScreenStoppedEvent{Device: s.device, Reason: reason, Cause: cause})
 	}
+	wait := s.ref.Drop()
+	close(s.dropped)
 	go func() {
 		defer close(s.released)
 		defer s.set.remove(s)
-		s.release()
+		if hold := screenReleaseHold.Load(); hold != nil {
+			(*hold)()
+		}
+		wait()
 	}()
 }
 
@@ -621,24 +645,24 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 		return nil, capability.NewError(capability.ErrSessionRequired, "device.watchScreen needs the daemon's event bus").
 			WithNextStep("watch over the WebSocket session, GET /v1/ws")
 	}
-	deviceID, kind, src, release, err := a.screenSourceFor(ctx, call)
+	deviceID, kind, src, ref, err := a.screenSourceFor(ctx, call)
 	if err != nil {
 		return nil, err
 	}
-	return a.openStream(ctx, call, sess, deviceID, kind, src, release)
+	return a.openStream(ctx, call, sess, deviceID, kind, src, ref)
 }
 
 // openStream makes the stream of a joined source: its subscription, its place in the table,
-// its timers, and the result. It owns release from here on.
-func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event.Session, deviceID string, kind viewKind, src screen.Source, release func()) (any, error) {
+// its timers, and the result. It owns the source reference from here on.
+func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event.Session, deviceID string, kind viewKind, src screen.Source, ref *sourceRef) (any, error) {
 	a.started()
 
 	s := &screenStream{
 		set: &a.screenViews, bus: a.bus, id: newStreamID(), device: deviceID, operation: call.OperationID,
-		src: src, viewer: src.Join(), release: release,
+		src: src, viewer: src.Join(), ref: ref,
 		physical: kind.physical, remote: kind.remote,
 		origin: call.Origin, record: a.recordGesture,
-		quit: make(chan struct{}), released: make(chan struct{}),
+		quit: make(chan struct{}), dropped: make(chan struct{}), released: make(chan struct{}),
 	}
 	if call.Origin.Client == capability.ClientPeer {
 		s.owner, s.session = peerOwner(call.Origin.Name), sess.ID()
@@ -647,7 +671,7 @@ func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event
 	subID, sub, err := sess.Open([]string{TopicScreen}, func() { s.end("", "") })
 	if err != nil {
 		s.viewer.Close()
-		release()
+		ref.Release()
 		return nil, err
 	}
 	s.sub = sub
@@ -692,28 +716,28 @@ func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event
 
 // screenSourceFor joins the live-view source of the device the call names, and returns the
 // device as the caller named it, what kind of device it is for the view sweep, and the
-// release to call when done. For a remote id it is the relayed source of the host's stream,
+// reference to drop when done. For a remote id it is the relayed source of the host's stream,
 // and the answer is another machine's, so the call is marked untrusted (ADR-0100 §3, §4);
 // otherwise it is this machine's scrcpy source.
-func (a *ADB) screenSourceFor(ctx context.Context, call *capability.Call) (device string, kind viewKind, src screen.Source, release func(), err error) {
+func (a *ADB) screenSourceFor(ctx context.Context, call *capability.Call) (device string, kind viewKind, src screen.Source, ref *sourceRef, err error) {
 	if rt, ok := call.Authorized.(*remoteTarget); ok {
 		yes := true
 		call.Untrusted = &yes
-		rs, release, err := a.relayedScreens.acquire(ctx, a, rt)
+		rs, ref, err := a.relayedScreens.acquireRef(ctx, a, rt)
 		if err != nil {
 			return "", viewKind{}, nil, nil, err
 		}
-		return rt.id, viewKind{remote: true}, rs, release, nil
+		return rt.id, viewKind{remote: true}, rs, ref, nil
 	}
 	t := call.Authorized.(*target)
 	if err := a.ready(ctx, t); err != nil {
 		return "", viewKind{}, nil, nil, err
 	}
-	ls, release, err := a.screens.acquireWith(ctx, a, t, a.callFast(call))
+	ls, ref, err := a.screens.acquireRef(ctx, a, t, a.callFast(call))
 	if err != nil {
 		return "", viewKind{}, nil, nil, err
 	}
 	// The kind the listing gave at authorization (target.go): the policy governs every
 	// device that is not an emulator.
-	return t.serial, viewKind{physical: t.dev != nil && t.dev.Kind != KindEmulator}, ls, release, nil
+	return t.serial, viewKind{physical: t.dev != nil && t.dev.Kind != KindEmulator}, ls, ref, nil
 }

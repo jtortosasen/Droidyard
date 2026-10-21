@@ -223,6 +223,8 @@ type wsSession struct {
 	// allowed, when set, is asked before each request is served; false ends the session
 	// without serving it (a peer that is no longer paired, ADR-0098 §3).
 	allowed func() bool
+	// setFast, when set (a peer session), takes the mark of a mark frame (ADR-0123 §1).
+	setFast func(fast bool)
 	// registry, when set, is the daemon's session registry, where a peer's link is a
 	// session for as long as it lives: the lease of a lent device is its occupation
 	// (ADR-0104 §1).
@@ -317,12 +319,56 @@ func (s *wsSession) readLoop(ctx context.Context) {
 			s.c.Close(websocket.StatusUnsupportedData, "text frames only")
 			return
 		}
+		if s.setFast != nil {
+			// In the loop, not on a goroutine of its own: the mark is applied before the next
+			// frame is read, so a request the peer sends right behind it sees the new mark
+			// (ADR-0123 §1).
+			switch s.mark(data) {
+			case markApplied:
+				continue
+			case markMalformed:
+				s.c.Close(websocket.StatusUnsupportedData, "a malformed mark")
+				return
+			}
+		}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.serve(ctx, data)
 		}()
 	}
+}
+
+type markResult int
+
+const (
+	notMark       markResult = iota // not a mark frame: a request envelope, served as any
+	markApplied                     // a mark frame, applied or ignored: there is nothing to answer
+	markMalformed                   // a mark frame whose mark is not {"fast": <bool>}
+)
+
+// mark reads a frame as a peer's mark frame (capability.PeerMarkFrame) and applies it after
+// the same check serve makes of a request: a peer that is no longer paired changes nothing.
+// A frame is a mark frame when it is a JSON object with a top-level "mark"; it gets no answer.
+func (s *wsSession) mark(data []byte) markResult {
+	if !bytes.Contains(data, []byte(`"mark"`)) {
+		return notMark
+	}
+	var head struct {
+		Mark json.RawMessage `json:"mark"`
+	}
+	if json.Unmarshal(data, &head) != nil || head.Mark == nil {
+		return notMark
+	}
+	var m capability.PeerMark
+	if json.Unmarshal(head.Mark, &m) != nil || m.Fast == nil {
+		return markMalformed
+	}
+	if s.allowed != nil && !s.allowed() {
+		return markApplied
+	}
+	s.setFast(*m.Fast)
+	return markApplied
 }
 
 // serve answers one request envelope with its response envelope.
