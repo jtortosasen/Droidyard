@@ -23,7 +23,7 @@ remote, including clients that never record.
    the link stays down. A match still running is waited for, at most the longest recording
    (3600 s) plus 5 minutes from the first listing.
 2. **The host's delete after the copy is one attempt.** A failed delete is logged. The host's
-   per-peer retention (10 recordings, 1 GiB, ADR-0115 §3) removes the copy later.
+   per-peer retention (10 recordings, 1 GiB, ADR-0115 §3) removes the copy once the peer passes it.
 
 ## Consequences
 

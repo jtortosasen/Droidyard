@@ -149,8 +149,7 @@ view's input ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md) §3) wh
   meaning (`404`, `410` for `ARTIFACT_EXPIRED`, `400`, `500`).
 - A finished text artifact (a UI dump, a recording's timeline) is served whole or by `Range`.
   One that is still growing, such as a running recording or a remote one not yet copied, is
-  `400`: the route never serves a partial file as if it were the whole
-  ([ADR-0113](../adr/0113-ui-recording.md)). To follow a running build, call `build.watchOutput`
+  `400`: the route never serves a partial file as if it were the whole. To follow a running build, call `build.watchOutput`
   ([ADR-0044](../adr/0044-build-watchoutput.md)). Images accept `?maxEdge=` and `?region=`.
 - An artifact produced by an untrusted capability (a screenshot) is served with
   `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`

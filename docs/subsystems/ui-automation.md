@@ -74,7 +74,7 @@ records. The client copies the timeline at the end and serves it once the SHA-25
 ([ADR-0115](../adr/0115-ui-reads-and-recordings-lent.md), [ADR-0116](../adr/0116-remote-recording-adoption.md)).
 
 Chrome builds a page's accessibility tree only while an accessibility client is connected, so the
-first dump after the reader connects may lack the page. It carries the warning `chromePageHidden`
+first dump after the reader connects may lack the page; such a dump carries a warning
 ([spike](../research/spike-ui-recording-2026-10.md)).
 
 ## Selectors
