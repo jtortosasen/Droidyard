@@ -95,7 +95,7 @@
 - Not here: the look (`review`); an indicator of the quality actually received (a shared source keeps its options; the register row stays).
 - Rests on: —
 - Review: the main session's diff and Svelte review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: Vitest (114 files, 1279 tests): `quality.test.ts` (10: the whole list rewritten with only that entry's mark, `ifRevision`, off removes the key, one retry on a conflict, a local device reads nothing, an unlisted remote writes nothing, a second press ignored) and three `liveview.test.ts` cases (`renewed` re-watches once without `onDeviceGone`; a second before a frame stops with Restart; `deviceGone` unchanged); seen failing with `renewed` handled as `deviceGone`, and with the entry rebuilt from its name. `pnpm -C web run verify`, the autofixer gate. The main session's review of the diff: no finding. Level 5 at step 4.
 
 ### 4. Level 5, the documents, the close
 
