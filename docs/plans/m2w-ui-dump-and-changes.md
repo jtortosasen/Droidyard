@@ -200,7 +200,7 @@
 - Not here: G4 (Qustodio) stays its own row; the owner's phone is not used.
 - Rests on: —
 - Review: the Opus verifier at the close, over the Acceptance items.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: main session, 2026-10-21, K1–K3 on `m2w31` and `m2w36`, the final binary (`-tags droidyard_nodump`) and digest `b855f4a0…89ec`, `~/Library/Caches/droidyard-dev/m2w/step{4,6,6b,6c,7,8}*`. (a) Step 4's run again: `artifact cat` byte-identical to the `artifact.read` pages, 25 and 23 nodes parsed; steps 6 and 7 ran on this digest (their evidence lines); A4's idle exit: a reader started with `idleSeconds` 60 under the daemon's name is adopted, exits idle after 61 s, and the next `uiEvents {since}` reports `readerRestarted`. (b) G1: the reader's ppid is 1; G2: 20 warm `uiTree` through the CLI, median 22–23 ms (CLI start included; step 5's raw warm dump 2.2–2.6 ms); G3: 5 of 5 reads fresh after a real tap on the switch; G5: with a client that connects and never sends, a 60 s reader exits after 61 s, then a one-shot read gives a whole hierarchy; the dex overwritten by `dd` with zeros of the same length is pushed again (the copy's digest back to `b855f4a0…`), and an intact copy is not (its mtime unchanged). (c) `ui-automation.md` §The full dump and the events between reads, `adb-device.md` §Lifecycle and concurrency, `capability-api.md` §Subscriptions; the register: R1 closed in part (the active window; every window its own row), R2–R4 closed, ten rows added; `liveBudget` raised for them.
 
 ## Not in this milestone
 
