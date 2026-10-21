@@ -206,7 +206,7 @@
 - Needs: step 7.
 - Not here: no UDP code; real packet loss and a real VPN are not measured (Unverified).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: shortened by the owner's call for pace (Changes): the step 7 binary only, on the phone through the pair and `linkem`, 10 taps and a 2 s drag from the client's UI per run, full and fast on L2 and L3 (figures in ADR-0119's Context; the before is step 1's and step 4's). The fast mark gives 472×1024 against 590×1280 (checked from the client's `watchScreen` result). L3 did not draw in two of four runs (host load 30–90); not rerun. ADR-0119 (number 0119) records Q8. A7 (Lag and Staleness over 60 s) and A8's datagram estimate from a stall log were not measured: open.
 
 ### 9. Level 5, the documents, the close
 
