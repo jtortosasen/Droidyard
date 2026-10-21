@@ -141,6 +141,7 @@ edits made before this rule and are not added to.
 | [0110](0110-full-ui-dump.md) | A full UI dump for parsers, as an artifact in `uiautomator dump`'s format | Accepted |
 | [0111](0111-ui-events-between-reads.md) | The UI's events kept on the device, read since a cursor and waited on | Accepted |
 | [0112](0112-ui-events-stream-and-panel.md) | The UI events stream and its panel in the web UI | Accepted |
+| [0117](0117-live-view-input-over-the-stream.md) | The live view's input travels its own stream, authorized when the view opened | Accepted |
 
 ## Open decisions (not yet ADRs)
 
