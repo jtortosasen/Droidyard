@@ -199,7 +199,10 @@ func checkRegister(fsys fs.FS) []string {
 // streams per device too (ADR-0115).
 // Raised by 38 (to 29,845) at milestone 2x step 5: mcp.md says a UI recording is the daemon's,
 // not an operation's, and mvp.md's device row names recordUi and stopUiRecording (ADR-0113).
-const liveBudget = 29845
+// Raised by 20 (to 29,865) at milestone 2x step 6: mcp.md's not-exposed table names
+// device.watchUiRecordings and device.deleteUiRecording (a registry check requires it), mvp.md's
+// device row the three new capabilities, and the skill says device_uiRecordings lists them (ADR-0113).
+const liveBudget = 29865
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

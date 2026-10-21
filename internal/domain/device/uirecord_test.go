@@ -18,6 +18,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device/devicetest"
+	"github.com/jtortosasen/droidyard/internal/event"
 	"github.com/jtortosasen/droidyard/internal/store"
 	"github.com/jtortosasen/droidyard/internal/testtime"
 )
@@ -62,6 +63,8 @@ type recFix struct {
 	rec  *UIRecordings
 	art  *artifact.Store
 	root string
+	// bus is the daemon's event bus the recorder announces on (device.watchUiRecordings).
+	bus *event.Bus
 }
 
 // newRecFix starts the fake reader answering full dumps with docs in order, the last
@@ -102,7 +105,9 @@ func newRecFix(t *testing.T, docs ...string) *recFix {
 	ops := capability.NewOperations(reg)
 	ops.RegisterCapabilities()
 	adb.SetOccupation(ops.Sessions())
-	f := &recFix{uiFixture: &uiFixture{dir: dir, adb: adb, ops: ops, store: art}, r: r, rec: rec, art: art, root: root}
+	bus := event.New(event.Options{})
+	adb.SetBus(bus)
+	f := &recFix{uiFixture: &uiFixture{dir: dir, adb: adb, ops: ops, store: art}, r: r, rec: rec, art: art, root: root, bus: bus}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -816,11 +821,15 @@ func TestRecordingNeverPublishesTheChatID(t *testing.T) {
 	f.ops.Sessions().Connect("s1", chat)
 	f.ops.Sessions().Connect("s3", "chat-other")
 	mcp1 := capability.Origin{ID: "s1", Name: "agent"}
+	w := f.watch(t, "ws-1")
 	startOut := f.call(t, "device.recordUi", recParams, capability.ClientMCP, mcp1)
 	rec := mustRecording(t, startOut)
 	var published []string
 	note := func(what string, v any) { published = append(published, what+": "+string(marshalJSON(t, v))) }
 	note("start result", startOut.Result)
+	note("list while running", f.list(t, `{}`))
+	_, raw := w.nextState(t, rec.ID, anyState)
+	published = append(published, "start event: "+string(raw))
 	if rec.StartedBy != (PublishedStarter{Client: "mcp", Session: "s1"}) {
 		t.Errorf("startedBy = %+v, want mcp and s1 alone", rec.StartedBy)
 	}
@@ -833,6 +842,12 @@ func TestRecordingNeverPublishesTheChatID(t *testing.T) {
 	note("stop result", stopOut.Result)
 	published = append(published, "stop text: "+stopUIRecordingText(mustStop(t, stopOut)))
 	testtime.Eventually(t, testtime.Bound(5*time.Second), "the recording to end", func() bool { return f.adb.LiveRecorders() == 0 })
+	_, raw = w.nextState(t, rec.ID, func(r UIRecording) bool { return r.State == RecordingEnded })
+	published = append(published, "end event: "+string(raw))
+	kept := f.list(t, `{}`)
+	note("list after", kept)
+	published = append(published, "list text: "+uiRecordingsText(UIRecordingsResult{Recordings: kept}))
+	note("late watch snapshot", f.watch(t, "ws-2").snap)
 	for _, p := range published {
 		if strings.Contains(p, chat) {
 			t.Errorf("the chat id was published: %s", p)

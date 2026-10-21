@@ -86,6 +86,10 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		UID:        os.Getuid(),
 		Ops:        ops,
 		AfterOps:   adb.Close,
+		// Recordings a dead daemon left running are finalised once this one holds the lock (a
+		// daemon that lost it must not touch them) and before anything is served; a recorder's
+		// start and the recordings' capabilities run it first too, and it runs once.
+		AfterLock: func() { adb.RecoverRecordings() },
 		Handlers: map[capability.ClientKind]daemon.Handler{
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
@@ -232,9 +236,6 @@ func serve(args []string) int {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
 	}
-	// Recordings a dead daemon left running are finalised now that this one holds the lock
-	// (a daemon that lost it must not touch them); a recorder's start would run it first.
-	adb.RecoverRecordings()
 	// The peer link (ADR-0098), once the lock is held: the identity has one writer. A daemon
 	// that cannot make one runs without peers.
 	stopPeers := startPeers(host, reg, ops, bus, artifacts, adb, logw)

@@ -353,6 +353,9 @@ func (r *uiRecorder) run() {
 func (r *uiRecorder) loop() {
 	tick := time.NewTicker(recordTick)
 	defer tick.Stop()
+	// The start was published by recordUI; a running recording is told again at most every
+	// recordPublishEvery, for the watchers' live counts.
+	published := time.Now()
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -361,6 +364,10 @@ func (r *uiRecorder) loop() {
 		}
 		if r.step() {
 			return
+		}
+		if time.Since(published) >= recordPublishEvery {
+			published = time.Now()
+			r.adb.publishRecording(r.summary())
 		}
 	}
 }
@@ -641,7 +648,13 @@ func (r *uiRecorder) finish() {
 	r.mu.Lock()
 	r.rec = rec
 	r.mu.Unlock()
-	if _, err := r.adb.recordings.Sweep(); err != nil {
+	// Told only now: the record is finalised and the timeline closed.
+	r.adb.publishRecording(r.summary())
+	gone, err := r.adb.recordings.Sweep()
+	if err != nil {
 		r.adb.logf("recordings: sweep: %v", err)
+	}
+	for _, id := range gone {
+		r.adb.broadcastRecording(EventDeleted, UIRecordingDeleted{ID: id})
 	}
 }

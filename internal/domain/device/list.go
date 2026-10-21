@@ -99,6 +99,7 @@ func Register(reg *capability.Registry, adb *ADB, store *artifact.Store, builds 
 	registerUIEvents(reg, adb)
 	registerWatchUIEvents(reg, adb)
 	registerUIRecord(reg, adb, store)
+	registerUIRecordings(reg, adb)
 	registerScreenshot(reg, adb, store)
 	registerTapElement(reg, adb)
 	registerLaunch(reg, adb)

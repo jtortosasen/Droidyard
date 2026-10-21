@@ -336,9 +336,8 @@ func TestRecordKeepsTheChatOnDiskButNeverPublishesIt(t *testing.T) {
 	if string(pub) != `{"client":"ui","session":"s1"}` {
 		t.Fatalf("published starter = %s", pub)
 	}
-	if err := r.Delete(id); !errors.Is(err, ErrRecordingRunning) {
-		t.Fatalf("Delete of a running recording = %v, want ErrRecordingRunning", err)
-	}
+	// Whether a live recorder holds the id is the ADB's to check (TestDeleteRunningRefused);
+	// the store deletes what it is told to, so a record left `recording` can go.
 	endRecord(t, r, w, id, time.Now(), 0)
 	if err := r.Delete(id); err != nil {
 		t.Fatal(err)

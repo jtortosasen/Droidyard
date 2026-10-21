@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -48,9 +49,6 @@ const (
 	RecordingsKept     = 50
 	RecordingsKeptSize = 2 << 30
 )
-
-// ErrRecordingRunning is Delete's refusal of a recording that has not ended.
-var ErrRecordingRunning = errors.New("the recording is still running")
 
 // RecordingStarter is who started a recording, kept on disk for the stop rule only
 // (ADR-0113 §4). Chat is ADR-0088's chat id: it never leaves the record; Published drops it.
@@ -311,15 +309,13 @@ func (r *UIRecordings) Finalise(rec UIRecord) error {
 	return r.Save(rec)
 }
 
-// Delete removes a recording: its record, its timeline and its directory. A running one is
-// refused (ErrRecordingRunning); a missing one is not an error.
+// Delete removes a recording: its record, its timeline and its directory; a missing one is
+// not an error. Whether a live recorder still writes it is the caller's to check (ADB
+// refuses one it holds): a record left `recording` with no recorder, as a failed Finalise
+// leaves, must stay deletable.
 func (r *UIRecordings) Delete(id string) error {
-	rec, found, err := r.Get(id)
-	if err != nil {
+	if err := checkRecordingID(id); err != nil {
 		return err
-	}
-	if found && rec.State == RecordingRunning {
-		return ErrRecordingRunning
 	}
 	return os.RemoveAll(r.dir(id))
 }
@@ -411,6 +407,11 @@ func (r *UIRecordings) finaliseCrashed(id string, rec *UIRecord) error {
 	if err := f.Truncate(keep); err != nil {
 		return err
 	}
+	// The counts the dead recorder held only in memory, recounted from the whole lines kept.
+	// `unchanged` was never written to the file and stays 0.
+	if err := recountLines(f, keep, rec); err != nil {
+		return err
+	}
 	endReason := EndDaemonExit
 	if reason, ok := lastLineEnd(f, keep); ok {
 		// The recorder had already written its end line: no second one.
@@ -440,6 +441,39 @@ func (r *UIRecordings) finaliseCrashed(id string, rec *UIRecord) error {
 	t := hostTime
 	rec.EndedAt = &t
 	return r.Finalise(*rec)
+}
+
+// recountLines sets rec's dumps, events, gaps and missed from the first size bytes of f, which
+// end at a newline.
+func recountLines(f *os.File, size int64, rec *UIRecord) error {
+	rec.Dumps, rec.Events, rec.Gaps, rec.Missed = 0, 0, 0, 0
+	br := bufio.NewReader(io.NewSectionReader(f, 0, size))
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			var l struct {
+				Kind string `json:"kind"`
+			}
+			if json.Unmarshal(line, &l) == nil {
+				switch l.Kind {
+				case "dump":
+					rec.Dumps++
+				case "event":
+					rec.Events++
+				case "gap":
+					rec.Gaps++
+				case "missed":
+					rec.Missed++
+				}
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // lastNewline is the length of the file's prefix that ends at its last newline (0 when it
@@ -494,7 +528,8 @@ func (r *UIRecordings) Sweep() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var ended []UIRecord // newest first
+	// Newest ended first: a long recording that started before others is as new as it ended.
+	var ended []UIRecord
 	var total int64
 	for _, rec := range recs {
 		if rec.State == RecordingEnded {
@@ -502,6 +537,18 @@ func (r *UIRecordings) Sweep() ([]string, error) {
 			total += rec.Bytes
 		}
 	}
+	endedAt := func(r UIRecord) time.Time {
+		if r.EndedAt != nil {
+			return *r.EndedAt
+		}
+		return r.StartedAt
+	}
+	sort.SliceStable(ended, func(i, j int) bool {
+		if a, b := endedAt(ended[i]), endedAt(ended[j]); !a.Equal(b) {
+			return a.After(b)
+		}
+		return ended[i].ID > ended[j].ID
+	})
 	var gone []string
 	for i := len(ended) - 1; i >= 0 && (len(ended)-len(gone) > r.MaxRecordings || total > r.MaxBytes); i-- {
 		if err := os.RemoveAll(r.dir(ended[i].ID)); err != nil {

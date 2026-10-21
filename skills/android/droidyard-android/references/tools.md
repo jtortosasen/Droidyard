@@ -22,6 +22,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_tapElement` | core | changes state | Taps one UI element once and verifies the effect in the same call: it resolves target with the device_uiTree selector, taps it, then polls the ... |
 | `device_uiDump` |  | read-only | Returns the active window's full accessibility tree, uncut and without refs, as an XML artifact in uiautomator dump's format plus extra attributes, ... |
 | `device_uiEvents` |  | read-only | Returns what happened on the screen since a cursor, oldest first: windows, content, focus, scrolls, clicks, toasts with their text and notifications ... |
+| `device_uiRecordings` |  | read-only | Lists the UI recordings kept, newest first and at most 50, a running one with its live counts and growing timeline (save a timeline with droidyard ... |
 | `device_uiTree` | core | read-only | Returns the current UI as a compact accessibility tree: snapshot id, foreground package, and a flat list of nodes with ref, class, id, text, desc and ... |
 | `device_uninstall` |  | changes state | Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. |
 | `emulator_list` | core | read-only | Lists every AVD the emulator launcher knows, with its configuration and, when it is running, its device serial. |

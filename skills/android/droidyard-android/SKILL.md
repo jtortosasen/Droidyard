@@ -33,7 +33,7 @@ restart the shared adb server.
    a cursor from `device_uiEvents`, act, then call it with `since`, `waitMs` and `until: "settle"`.
    To see every screen between two moments (how an app or a page loads), call
    `device_recordUi {device}`, act, then `device_stopUiRecording {device}` and run
-   `droidyard artifact cat <timeline.ref> > rec.jsonl`: one JSON line per record, each `dump`
+   `droidyard artifact cat <timeline.ref> > rec.jsonl` (`device_uiRecordings` lists the kept ones): one JSON line per record, each `dump`
    with its whole `xml`. Read it with a script, not through yourself:
 
    ```python

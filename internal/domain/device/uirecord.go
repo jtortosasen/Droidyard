@@ -214,6 +214,8 @@ type uiRecorders struct {
 	mu       sync.Mutex
 	stopping bool
 	byDevice map[string]*uiRecorder
+	// delMu serialises device.deleteUiRecording.
+	delMu sync.Mutex
 }
 
 var errRecordersStopping = errors.New("the daemon is stopping")
@@ -356,8 +358,11 @@ func (a *ADB) recordUI(ctx context.Context, call *capability.Call, t *target, p 
 		r.abandon()
 		return UIRecording{}, err
 	}
+	// Before the goroutine can end the recording, so no watcher sees an end before the start.
+	sum := r.summary()
+	a.publishRecording(sum)
 	go r.run()
-	return r.summary(), nil
+	return sum, nil
 }
 
 // stopUIRecording serves device.stopUiRecording. A caller ADR-0101 does not let reach the
