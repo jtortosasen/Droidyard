@@ -54,7 +54,7 @@ findings on identity-first resolution and one-call verification
 ## The full dump and the events between reads
 
 `device.uiDump` ([ADR-0110](../adr/0110-full-ui-dump.md)) is the tree for a parser, not for an
-agent that acts: every node of the active window, uncompacted and uncapped, in `uiautomator dump`'s
+agent that acts: every node of the active window, uncompacted and uncut, in `uiautomator dump`'s
 XML with the attributes it lacks added, stored as an artifact that `droidyard artifact cat` saves.
 The reader already reads every node `uiautomator dump` reads; what `uiTree` leaves out it leaves out
 when it compacts ([spike](../research/spike-ui-dump-events-2026-10.md)). Other windows are not read:

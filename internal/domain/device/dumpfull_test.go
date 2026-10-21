@@ -214,7 +214,7 @@ var fullFixtures = []struct {
 // On API 31 `bounds` of the root node and of the navigation bar background are excepted: the
 // reader writes the real display's, `uiautomator` the app area's (ADR-0110 Context; the
 // step-1 note). The fixtures are the level-5 capture of the reader's own output; this guards
-// the recorded bytes, and skips a fixture that is not recorded yet.
+// the recorded bytes, and fails when a fixture is missing.
 func TestFullDumpIsASupersetOfUiautomator(t *testing.T) {
 	for _, fx := range fullFixtures {
 		t.Run(fmt.Sprintf("api%d", fx.api), func(t *testing.T) {
@@ -287,8 +287,8 @@ func TestSupersetCheckCatchesALostAttribute(t *testing.T) {
 
 // Decision (the format is parsed by what already parses `uiautomator dump`'s): every recorded
 // full dump is read by parseDump, with as many nodes as the file has start tags, and holds one
-// element per line, so `artifact.read` pages it by whole lines (ADR-0110 Decision 2). Skips
-// until the fixtures are recorded.
+// element per line, so `artifact.read` pages it by whole lines (ADR-0110 Decision 2). Fails
+// when no fixture is recorded.
 func TestFullFixturesParse(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("testdata", "reader-full-*.xml"))
 	if err != nil {
