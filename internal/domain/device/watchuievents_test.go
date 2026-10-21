@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -330,6 +331,137 @@ func TestWatchUIEventsStopsFailedWhenTheReaderCannotStart(t *testing.T) {
 		t.Errorf("%d adb commands after the stream stopped", n-calls)
 	}
 	quiet(t, sub, 100*time.Millisecond)
+}
+
+// Decision (ADR-0114, with ADR-0111 Decision 6): a tick that sees a new reader instance and
+// then meets a held lock before it has read the new ring keeps its cursor on the old instance,
+// so the next tick still reports readerRestarted. Seen failing with the cursor moved before the
+// new ring was read (the next tick published the new reader's events with no gap).
+func TestWatchUIEventsBusyTickKeepsTheRestartGap(t *testing.T) {
+	shortRecovery(t)
+	eventsLockWait = 5 * time.Millisecond
+	w := newUWFix(t)
+	w.r.AddEvents(clickEvents(1, 3)...)
+	w.prime(t)
+	s, sub := w.manualStream(t, fakeInstance, 3)
+	w.r.RestartEvents("fedcba9876543210")
+	w.r.AddEvents(clickEvents(20, 2)...)
+	release := holdReader(t, w.uiFixture)
+	w.r.SetEventsGoneAfter(1, 1) // the new instance answers, then the read of its ring fails
+	if reason, cause := s.step(); reason != "" {
+		t.Fatalf("a busy tick ended the stream: %s (%s)", reason, cause)
+	}
+	quiet(t, sub, 50*time.Millisecond)
+	release()
+	if reason, cause := s.step(); reason != "" {
+		t.Fatalf("step: %s (%s)", reason, cause)
+	}
+	p := uiPush(t, sub)
+	if p.Gap == nil || p.Gap.Reason != gapRestarted || !slices.Equal(windowsOfPush(p), []int{20, 21}) {
+		t.Fatalf("push %+v, want readerRestarted with the new reader's two events", p)
+	}
+}
+
+// holdReader takes the device's read lock, as a read chain or an act does, and returns the
+// function that frees it (once; a second call does nothing).
+func holdReader(t *testing.T, f *uiFixture) (release func()) {
+	t.Helper()
+	c := f.adb.reader(uiSerial)
+	if err := c.acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	release = func() { once.Do(c.release) }
+	t.Cleanup(release)
+	return release
+}
+
+// Decision (ADR-0114 Decision 1: a patient reach treats a lock held by another caller as an
+// empty tick, no recovery spent and no failure): the read lock is held across 50 ticks while the
+// reader's `events` answers keep failing (a reader that died; the holder is the one recovering
+// it). The stream publishes nothing, does not stop and starts nothing itself; when the holder
+// has restarted the reader and frees the lock, the stream goes on with the new reader's events
+// (readerRestarted, never lost silently) and then without a gap. Seen failing with the old
+// rule (the poller as a device.uiEvents call: two lock waits, then `stopped failed` although
+// nothing had failed).
+func TestWatchUIEventsWaitsOutAHeldLock(t *testing.T) {
+	shortRecovery(t)
+	eventsLockWait = 5 * time.Millisecond
+	w := newUWFix(t)
+	w.prime(t)
+	_, sub := w.watch(t)
+
+	release := holdReader(t, w.uiFixture)
+	w.r.SetEventsGone(1 << 30) // every events request ends with nothing written
+	before := len(w.r.EventsRequests())
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "50 ticks behind the held lock", func() bool {
+		if w.adb.LiveUIEventStreams() == 0 {
+			se := uiStopped(t, sub)
+			t.Fatalf("the stream ended behind a held lock: stopped %s (%s)", se.Reason, se.Cause)
+		}
+		return len(w.r.EventsRequests()) >= before+50
+	})
+	quiet(t, sub, 100*time.Millisecond)
+	if n := w.adb.LiveUIEventStreams(); n != 1 {
+		t.Fatalf("%d streams live behind a held lock, want the one", n)
+	}
+	if n := countServeStarts(w.calls(t)); n != 1 {
+		t.Errorf("%d serve starts; the poller restarts only a reader whose lock it holds", n)
+	}
+
+	// The holder restarts the reader: a new instance with two events, then the lock is freed.
+	w.r.RestartEvents("fedcba9876543210")
+	w.r.AddEvents(clickEvents(50, 2)...)
+	w.r.SetEventsGone(0)
+	release()
+	p := uiPush(t, sub)
+	if p.Gap == nil || p.Gap.Reason != gapRestarted || !slices.Equal(windowsOfPush(p), []int{50, 51}) {
+		t.Fatalf("push %+v, want readerRestarted with the new reader's two events", p)
+	}
+	w.r.AddEvents(clickEvents(52, 1)...)
+	if p := uiPush(t, sub); p.Gap != nil || !slices.Equal(windowsOfPush(p), []int{52}) {
+		t.Errorf("push %+v, want 52 only and no gap: the stream goes on", p)
+	}
+	if n := countServeStarts(w.calls(t)); n != 1 {
+		t.Errorf("%d serve starts, want the first only", n)
+	}
+}
+
+// Decision (ADR-0114 Decision 2: with the lock the poller still restarts a dead reader once and
+// fails only when that restart fails): the reader is gone and cannot be started again, and the
+// lock is held for 30 ticks. Nothing is published and no start is attempted while it is held (a
+// held lock is not the failure); once the lock is free the stream makes exactly one attempt,
+// publishes `stopped failed` with a cause, and asks no more. Seen failing with the old rule (the
+// stream stopped while the lock was held, without a start attempt) and, for the single attempt,
+// by the existing TestWatchUIEventsStopsFailedWhenTheReaderCannotStart.
+func TestWatchUIEventsFailsOnlyWhenItsRestartFails(t *testing.T) {
+	shortRecovery(t)
+	eventsLockWait = 5 * time.Millisecond
+	w := newUWFix(t)
+	w.prime(t)
+	_, sub := w.watch(t)
+	before := countServeStarts(w.calls(t))
+
+	release := holdReader(t, w.uiFixture)
+	devicetest.Write(t, w.dir, uiSerial+".start.exit", []byte("1"))
+	w.r.Close() // the reader is gone behind a live forward, and its restart fails
+	quiet(t, sub, 30*uiStreamEvery)
+	if n := countServeStarts(w.calls(t)) - before; n != 0 {
+		t.Fatalf("%d start attempts while another caller held the lock, want none", n)
+	}
+	if n := w.adb.LiveUIEventStreams(); n != 1 {
+		t.Fatalf("%d streams live behind a held lock, want the one", n)
+	}
+
+	release()
+	se := uiStopped(t, sub)
+	if se.Reason != StopFailed || se.Cause == "" {
+		t.Fatalf("stopped %+v, want failed with a cause", se)
+	}
+	testtime.Eventually(t, testtime.Bound(5*time.Second), "the stream to leave the set", func() bool { return w.adb.LiveUIEventStreams() == 0 })
+	if n := countServeStarts(w.calls(t)) - before; n != 1 {
+		t.Errorf("%d start attempts, want one", n)
+	}
 }
 
 // Decision (ADR-0112 Decision 2: deviceGone): the same failure with the device no longer

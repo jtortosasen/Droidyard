@@ -83,6 +83,8 @@ type FakeReader struct {
 	ring           []FakeEvent
 	eventsRaw      string
 	eventsGone     int
+	eventsSkip     int // answered before eventsLater arms eventsGone
+	eventsLater    int
 	eventsHold     bool
 	// eventsFold folds a new event into the newest entry the way the reader does, unless an
 	// answer has returned (sealed) it; sealed is keyed by sequence number.
@@ -451,6 +453,14 @@ func (r *FakeReader) SetEventsGone(n int) {
 	r.mu.Unlock()
 }
 
+// SetEventsGoneAfter makes the `events` requests after the next skip answered ones end with
+// nothing written, n of them: a reader that dies between two requests of one tick.
+func (r *FakeReader) SetEventsGoneAfter(skip, n int) {
+	r.mu.Lock()
+	r.eventsSkip, r.eventsLater = skip, n
+	r.mu.Unlock()
+}
+
 // SetEventsAnswer makes the fake answer every `events` request with raw, verbatim, in place of
 // its ring: a reader's own line, a malformed answer, or ReaderGone (the connection closed with
 // nothing written).
@@ -483,6 +493,11 @@ func (r *FakeReader) handleEvents(conn net.Conn, request string) {
 		r.eventsGone--
 		r.mu.Unlock()
 		return
+	}
+	if r.eventsSkip > 0 {
+		if r.eventsSkip--; r.eventsSkip == 0 {
+			r.eventsGone, r.eventsLater = r.eventsLater, 0
+		}
 	}
 	if r.eventsRawSet {
 		raw := r.eventsRaw

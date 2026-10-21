@@ -260,7 +260,7 @@ func (s *uiEventStream) run() {
 	}
 	reason, cause := s.poll()
 	if reason != "" {
-		// A replace can land while the failure is being classified (stopOf lists devices):
+		// A replace can land while the failure is being classified (readerStopOf lists devices):
 		// the replaced subscription is told so, as when the replace comes first.
 		switch s.end(uiEndFailed) {
 		case uiEndFailed:
@@ -294,19 +294,18 @@ func (s *uiEventStream) poll() (reason, cause string) {
 }
 
 // step reads what the ring holds after the cursor, up to uiStreamPages pages, and publishes
-// it. A reader that does not answer is recovered by the reach (once per failure, as a
-// device.uiEvents call does); one that still does not ends the stream: it is never asked
-// again.
+// it. A reader that does not answer is restarted once by the patient reach, under the read
+// lock; one that still does not ends the stream: it is never asked again. A lock another
+// caller holds ends the tick quietly.
 func (s *uiEventStream) step() (reason, cause string) {
-	// The bound of one tick, recoveries included: what a device.uiEvents call without a wait
-	// is allowed.
-	end := time.Now().Add(eventsPollTimeout + eventsRecoveries*(eventsLockWait+readerPingCheck+readerStartBound))
-	r := &eventsReach{a: s.adb, t: s.t, c: s.adb.reader(s.t.serial), end: end}
+	// The poller is patient (ADR-0114): a reader another call holds the lock of is an empty
+	// tick, never a failure; it fails only when restarting a dead reader, with the lock, fails.
+	r := &eventsReach{a: s.adb, t: s.t, c: s.adb.reader(s.t.serial), end: patientEnd(), patient: true}
 	fail := func(err error) (string, string) {
-		if s.ctx.Err() != nil {
+		if s.ctx.Err() != nil || errors.Is(err, errReaderBusy) {
 			return "", ""
 		}
-		return s.stopOf(err)
+		return readerStopOf(s.ctx, s.adb, s.t, err)
 	}
 	for page := 0; page < uiStreamPages; page++ {
 		ans, err := r.poll(s.ctx, s.base, eventsMaxLimit)
@@ -316,17 +315,21 @@ func (s *uiEventStream) step() (reason, cause string) {
 		// An answer from another instance, or a cursor ahead of the ring, is a reader that is
 		// not the one the cursor names: read the new ring from its first entry (ADR-0111
 		// Decision 6).
+		// The stream's cursor moves only once the new ring is read: a busy tick in between
+		// leaves it on the old instance, so the next tick sees the change and reports the gap.
 		restarted := false
-		for changes := 0; ans.Instance != s.inst || s.base > ans.NextSeq-1; changes++ {
+		inst, base := s.inst, s.base
+		for changes := 0; ans.Instance != inst || base > ans.NextSeq-1; changes++ {
 			if changes >= eventsInstanceMax {
 				return fail(eventsFailed("the reader behind the device's forward keeps changing"))
 			}
 			restarted = true
-			s.inst, s.base = ans.Instance, 0
+			inst, base = ans.Instance, 0
 			if ans, err = r.poll(s.ctx, 0, eventsMaxLimit); err != nil {
 				return fail(err)
 			}
 		}
+		s.inst, s.base = inst, base
 		var gap *UIEventsGap
 		switch {
 		case r.started:
@@ -366,22 +369,22 @@ func (s *uiEventStream) publishStopped(reason, cause string) {
 		UIEventsStopped{Device: s.t.serial, Reason: reason, Cause: cause})
 }
 
-// stopOf is the reason and cause of a stream whose reader cannot be read: deviceGone when
-// device.list no longer holds the serial online, else failed. The cause is the error's own,
-// which names no device text (events.go), or a fixed sentence.
-func (s *uiEventStream) stopOf(err error) (reason, cause string) {
+// readerStopOf is the reason and cause of a stream or a recording whose reader cannot be read:
+// deviceGone when device.list no longer holds the serial online, else failed. The cause is the
+// error's own, which names no device text (events.go), or a fixed sentence.
+func readerStopOf(ctx context.Context, adb *ADB, t *target, err error) (reason, cause string) {
 	cause = uiStreamCause
 	var ce *capability.Error
 	if errors.As(err, &ce) && ce.Cause != "" {
 		cause = ce.Cause
 	}
 	reason = StopFailed
-	lctx, cancel := context.WithTimeout(s.ctx, streamListBound)
+	lctx, cancel := context.WithTimeout(ctx, streamListBound)
 	defer cancel()
-	if devices, lerr := s.adb.listAll(lctx, s.t.adb); lerr == nil {
+	if devices, lerr := adb.listAll(lctx, t.adb); lerr == nil {
 		gone := true
 		for _, d := range devices {
-			if d.Device == s.t.serial && d.State == StateDevice {
+			if d.Device == t.serial && d.State == StateDevice {
 				gone = false
 				break
 			}

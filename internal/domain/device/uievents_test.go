@@ -488,6 +488,31 @@ func TestUIEventsLockWaitIsBounded(t *testing.T) {
 	}
 }
 
+// Decision (ADR-0114 Decision 1: a call keeps ADR-0111 Decision 8 unchanged; only the stream's
+// poller and the recorder are patient): a device.uiEvents call whose reader does not answer,
+// with the read lock held by another caller for good, uses both of its recoveries, each waiting
+// the lock wait, and fails DEVICE_UI_DUMP_FAILED naming the held reader. It does not return at
+// the first busy lock with a retry-able "busy" of its own. Seen failing with the call made
+// patient (it returned the busy error raw, at once, not a DEVICE_UI_DUMP_FAILED).
+func TestUIEventsCallKeepsTwoRecoveries(t *testing.T) {
+	shortRecovery(t)
+	f, r, cur := primedEvents(t)
+	r.SetEventsAnswer(devicetest.ReaderGone)
+	holdReader(t, f)
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := f.eventsDirect(t, ctx, UIEventsParams{Device: uiSerial, Since: cur})
+	ce := mustErrorCode(t, err, ErrUIDumpFailed)
+	if errors.Is(err, errReaderBusy) {
+		t.Errorf("the call returned the patient reach's busy error: %v", err)
+	}
+	if d := time.Since(start); d < 2*eventsLockWait-50*time.Millisecond || !strings.Contains(ce.Cause, "held the reader") {
+		t.Errorf("failed after %v with cause %q; want two lock waits (%v) and the held reader named", d, ce.Cause, 2*eventsLockWait)
+	}
+}
+
 // Decision (ADR-0015 §1: nothing the device sent is quoted in an error): a reader that answers
 // the events request with a line of its own, or with a malformed answer, fails
 // DEVICE_UI_DUMP_FAILED after the recoveries are used, and the cause is a fixed sentence with
