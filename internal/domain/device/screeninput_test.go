@@ -23,9 +23,10 @@ import (
 
 // fakeScreen is a screen.Source that records what Inject was given and answers with err.
 type fakeScreen struct {
-	mu     sync.Mutex
-	inputs []screen.Input
-	err    error
+	mu      sync.Mutex
+	inputs  []screen.Input
+	holders []screen.Holder // who each Inject was made as, in the same order
+	err     error
 	// block, when set, holds Inject until it is closed or ctx ends (a gesture in progress).
 	block   chan struct{}
 	entered chan struct{} // receives once per Inject that began, when set
@@ -40,9 +41,11 @@ func (f *fakeScreen) Reason() error { return nil }
 func (f *fakeScreen) WatchSecure(func(bool)) func() {
 	return func() {}
 }
-func (f *fakeScreen) Inject(ctx context.Context, in screen.Input) error {
+func (f *fakeScreen) Control(screen.Holder, screen.Event) error { return nil }
+func (f *fakeScreen) Inject(ctx context.Context, h screen.Holder, in screen.Input) error {
 	f.mu.Lock()
 	f.inputs = append(f.inputs, in)
+	f.holders = append(f.holders, h)
 	f.mu.Unlock()
 	if f.entered != nil {
 		f.entered <- struct{}{}
@@ -423,6 +426,28 @@ func TestScreenInputFailureBeforeAndAfterTheFirstByte(t *testing.T) {
 			t.Errorf("result %+v, want delivered with one warning naming the cause", res)
 		}
 	})
+	// Decision (ADR-0117 §4): a gesture whose finger the live view's user took is not a failed
+	// live view. Before its first byte the call fails (nothing sent) with a cause and next step
+	// that say so, not "open the live view again"; after it the warning says the finger was
+	// taken. Seen failing with the generic stream-failed text for both.
+	t.Run("the finger taken before the first byte", func(t *testing.T) {
+		f := newSIFix(t, "", uiSerial)
+		f.fake.err = errFingerLost
+		ce := mustFail(t, f.call(t, capability.ClientUI, "device.tap", tap), ErrStreamFailed)
+		if !strings.Contains(ce.Message, "took the finger") || !strings.Contains(ce.NextStep, "Retry") || strings.Contains(ce.NextStep, "Open the device's live view again") {
+			t.Errorf("error %+v, want it to say the live view's user took the finger and the call can be retried", ce)
+		}
+	})
+	t.Run("the finger taken after the first byte", func(t *testing.T) {
+		f := newSIFix(t, "", uiSerial)
+		f.fake.err = &screen.PartialError{Err: errFingerLost}
+		out := f.call(t, capability.ClientUI, "device.tap", tap)
+		res, _ := out.Result.(ScreenInputResult)
+		if out.State != capability.StateCompleted || !res.Delivered || len(res.Warnings) != 1 ||
+			!strings.Contains(res.Warnings[0], "took the finger") || strings.Contains(res.Warnings[0], "failed") {
+			t.Errorf("outcome %s %+v, want delivered with a warning that the live view took the finger", out.State, res)
+		}
+	})
 	t.Run("a cancelled call", func(t *testing.T) {
 		f := newSIFix(t, "", uiSerial)
 		f.fake.block = make(chan struct{})
@@ -568,7 +593,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		defer release()
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 		defer cancel()
-		err := src.Inject(ctx, swipe)
+		err := src.Inject(ctx, screen.NewHolder(false), swipe)
 		var partial *screen.PartialError
 		if !errors.As(err, &partial) || !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("Inject = %v, want a PartialError wrapping the deadline", err)
@@ -580,7 +605,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		src, release := f.mustAcquire(t)
 		defer release()
 		done := make(chan error, 1)
-		go func() { done <- src.Inject(context.Background(), swipe) }()
+		go func() { done <- src.Inject(context.Background(), screen.NewHolder(false), swipe) }()
 		testtime.Eventually(t, testtime.Bound(10*time.Second), "the finger down", func() bool { return len(f.ln.controlBytes()) >= len(down[0].Data) })
 		src.end(&ScreenEnd{Reason: StopExited, Cause: "adb shell terminated"})
 		select {
@@ -601,7 +626,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		defer release()
 		src.end(&ScreenEnd{Reason: StopFailed, Cause: "x"})
 		<-src.Done()
-		err := src.Inject(context.Background(), screen.Tap{X: 0.5, Y: 0.5})
+		err := src.Inject(context.Background(), screen.NewHolder(false), screen.Tap{X: 0.5, Y: 0.5})
 		var partial *screen.PartialError
 		var end *ScreenEnd
 		if errors.As(err, &partial) || !errors.As(err, &end) {
@@ -647,7 +672,7 @@ func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
 		src, release := f.mustAcquire(t)
 		defer release()
 		src.control.Close()
-		err := src.Inject(context.Background(), screen.Tap{X: 0.5, Y: 0.5})
+		err := src.Inject(context.Background(), screen.NewHolder(false), screen.Tap{X: 0.5, Y: 0.5})
 		var partial *screen.PartialError
 		if err == nil || errors.As(err, &partial) || !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("Inject = %v, want a plain error wrapping the closed socket's", err)
@@ -664,7 +689,7 @@ func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
 		defer release()
 		swipe := screen.Swipe{Points: []screen.Point{{X: 0.5, Y: 0.8}, {X: 0.5, Y: 0.2, T: 400 * time.Millisecond}}}
 		done := make(chan error, 1)
-		go func() { done <- src.Inject(context.Background(), swipe) }()
+		go func() { done <- src.Inject(context.Background(), screen.NewHolder(false), swipe) }()
 		testtime.Eventually(t, testtime.Bound(10*time.Second), "the finger down", func() bool { return len(f.ln.controlBytes()) > 0 })
 		src.control.Close()
 		select {

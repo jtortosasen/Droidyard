@@ -448,7 +448,13 @@ func (s *relayedSource) Reason() error { return s.hub.Reason() }
 
 // Inject implements screen.Source: a remote device's input is the host's capability call
 // (ADR-0100 §3), so this one is never the way in.
-func (s *relayedSource) Inject(context.Context, screen.Input) error { return errRelayedInput }
+func (s *relayedSource) Inject(context.Context, screen.Holder, screen.Input) error {
+	return errRelayedInput
+}
+
+// Control implements screen.Source: a remote view's input travels the peer's screen socket
+// (ADR-0117), which is built in plan m2y step 5; until then it is refused.
+func (s *relayedSource) Control(screen.Holder, screen.Event) error { return errRelayedInput }
 
 // WatchSecure implements screen.Source: the host's FLAG_SECURE state, from its events.
 func (s *relayedSource) WatchSecure(fn func(secure bool)) (stop func()) { return s.secure.watch(fn) }

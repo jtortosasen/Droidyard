@@ -22,7 +22,7 @@ class FakeClient implements ScreenClient {
 		const id = `sub${i + 1}`;
 		w.resolve({
 			subscriptionId: id,
-			result: { subscriptionId: id, device: w.device, streamId: `stream${i + 1}`, width: 1080, height: 2400 },
+			result: { subscriptionId: id, device: w.device, streamId: `stream${i + 1}`, width: 1080, height: 2400, control: false },
 			stop: () => this.stoppedLocally.push(id),
 		});
 	}

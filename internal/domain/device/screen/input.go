@@ -69,9 +69,10 @@ const (
 	msgKeycode = 0
 	msgTouch   = 2
 
-	actionDown = 0 // ACTION_DOWN, for a key and for a touch
-	actionUp   = 1
-	actionMove = 2
+	actionDown   = 0 // ACTION_DOWN, for a key and for a touch
+	actionUp     = 1
+	actionMove   = 2
+	actionCancel = 3 // ACTION_CANCEL, for a view's events (control.go)
 
 	pressureDown = 0xffff // 1.0 as a u16 fixed point
 	pressureUp   = 0

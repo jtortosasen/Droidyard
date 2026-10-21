@@ -450,12 +450,12 @@ func TestWatchScreenEndToEnd(t *testing.T) {
 }
 
 // TestScreenEndpointFence pins what GET /v1/screen refuses (ADR-0078 §4; http-websocket.md
-// §Security baseline) and, above all, that nothing a client sends reaches the device: the
-// handler holds a viewer that reads and closes, so a frame after the auth frame closes the
-// socket with 1003 and the control socket of the source has received no byte. Seen failing
-// with the client's binary frame handed to the source's Inject (a mutation: the viewer the
-// adapter holds also offered Frame, which tapped): the control listener received the tap's
-// bytes.
+// §Security baseline) and, above all, that nothing a client sends reaches the device but as
+// a frame of the input wire (ADR-0117 §3): a binary frame that is not the wire closes the
+// socket with 1003, a text frame too, and the control socket of the source has received no
+// byte. Seen failing with the client's binary frame handed to the source's Inject (a
+// mutation: the viewer the adapter holds also offered Frame, which tapped): the control
+// listener received the tap's bytes.
 func TestScreenEndpointFence(t *testing.T) {
 	t.Parallel()
 	data, _, keyEnd := scRecording(t)
@@ -538,8 +538,9 @@ func TestScreenEndpointFence(t *testing.T) {
 		t.Errorf("a second attach: closed with %d, want 4409", code)
 	}
 
-	// Nothing the client sends reaches the device: a binary frame, then a text frame on
-	// another stream, each closes with 1003, and the control socket saw nothing.
+	// Nothing the client sends reaches the device but as a frame of the wire: a binary frame
+	// that is not one (a key frame, type 2, of 13 bytes), then a text frame on another stream,
+	// each closes with 1003, and the control socket saw nothing.
 	good.write(websocket.MessageBinary, "\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
 	if code := good.closedWith(testtime.Bound(30 * time.Second)); code != websocket.StatusUnsupportedData {
 		t.Errorf("a binary frame after auth: closed with %d, want 1003", code)

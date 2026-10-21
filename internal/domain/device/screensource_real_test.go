@@ -97,7 +97,7 @@ func TestRealScreenSource(t *testing.T) {
 		}
 	}
 	t.Logf("%d packets, %d key frames", packets, keys)
-	if err := src.Inject(ctx, screen.Key{Name: "home"}); err != nil {
+	if err := src.Inject(ctx, screen.NewHolder(false), screen.Key{Name: "home"}); err != nil {
 		t.Errorf("Inject: %v", err)
 	}
 

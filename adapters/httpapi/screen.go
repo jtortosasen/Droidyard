@@ -20,10 +20,11 @@ import (
 // stream, binary messages the server sends and the client never answers.
 //
 // The adapter holds one thing of the live view: ScreenAttach, which claims a stream id for
-// this socket and returns a viewer that reads packets and closes. It has no way to send
-// anything to the device (constraint 2 of plan m2p: every input is a capability call), and
-// it does not look for one: any frame the client sends after its auth frame closes the
-// socket.
+// this socket and returns a viewer that reads packets, closes, and takes the socket's binary
+// frames after the auth frame (Input; ADR-0117). It does not read them: it hands each to the
+// viewer, whose owner parses, validates and encodes (the adapter defines nothing of the
+// wire), and closes the socket with 1003 on a text frame or a frame the viewer calls
+// malformed, and with 1008 on any other refusal.
 
 // screenPath is the stream socket's route.
 const screenPath = "/v1/screen"
@@ -57,11 +58,18 @@ type ScreenPacket struct {
 	Data        []byte
 }
 
-// ScreenViewer is what a stream socket reads: Next blocks until a packet, the stream's end
-// or ctx, and Close ends the stream. It is deliberately all there is.
+// ErrInputMalformed is what Input answers for a frame that is not the input wire: the socket
+// closes with 1003. Any other error from Input is a refusal (the stream ended, too many
+// frames, a full queue, a stream that takes no input): the socket closes with 1008.
+var ErrInputMalformed = errors.New("httpapi: the input frame is malformed")
+
+// ScreenViewer is what a stream socket reads and says: Next blocks until a packet, the
+// stream's end or ctx, Close ends the stream, and Input takes one binary frame the client
+// sent after its auth frame. It is deliberately all there is.
 type ScreenViewer interface {
 	Next(ctx context.Context) (ScreenPacket, error)
 	Close()
+	Input(frame []byte) error
 }
 
 // ScreenAttach claims the viewer of a stream id, once. The daemon's wiring supplies it; the
@@ -122,7 +130,7 @@ func (h *screenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return // Accept has answered
 	}
 	// 4 KiB for the socket's whole life: the auth frame is a token and an id in a small
-	// object, and nothing else the client sends is read.
+	// object, and an input frame is a handful of bytes.
 	c.SetReadLimit(preAuthLimit)
 	if !h.add(c) {
 		c.Close(websocket.StatusGoingAway, "the daemon is stopping")
@@ -201,13 +209,29 @@ func (h *screenHandler) serve(parent context.Context, c *websocket.Conn, attach 
 // is the part of /v1/screen and /peer/v1/screen that comes after the first frame. cancel
 // ends ctx.
 func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, v ScreenViewer, wt time.Duration) {
-	// Reads: the only thing the socket may still say is that it is gone. Any frame, text
-	// or binary, closes it; nothing it carries is looked at.
+	// Reads: the client's binary frames after the auth frame are the view's input, handed to
+	// the viewer one by one. A text frame, a frame the viewer calls malformed (1003) or a
+	// refusal of any other kind (1008) closes the socket; so does a frame over the read limit.
 	readerDone := make(chan struct{})
 	go func() {
 		defer close(readerDone)
-		if _, _, err := c.Read(ctx); err == nil {
-			c.Close(websocket.StatusUnsupportedData, "this socket only receives")
+		for {
+			typ, frame, err := c.Read(ctx)
+			if err != nil {
+				break
+			}
+			if typ != websocket.MessageBinary {
+				c.Close(websocket.StatusUnsupportedData, "this socket takes binary input frames only")
+				break
+			}
+			if err := v.Input(frame); err != nil {
+				if errors.Is(err, ErrInputMalformed) {
+					c.Close(websocket.StatusUnsupportedData, "not an input frame")
+				} else {
+					c.Close(websocket.StatusPolicyViolation, "input refused")
+				}
+				break
+			}
 		}
 		cancel()
 	}()

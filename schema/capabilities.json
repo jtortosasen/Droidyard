@@ -1,5 +1,5 @@
 {
-  "version": "0.32.0",
+  "version": "0.33.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -6204,6 +6204,10 @@
           "height": {
             "type": "integer",
             "description": "The frame height in pixels when the stream started."
+          },
+          "control": {
+            "type": "boolean",
+            "description": "True: binary input frames on the stream socket reach the device (the view's own input, authorized when this call was). False: the stream takes none, and an older host's result, which lacks the field, reads as false."
           }
         },
         "additionalProperties": false,
@@ -6213,7 +6217,8 @@
           "device",
           "streamId",
           "width",
-          "height"
+          "height",
+          "control"
         ]
       },
       "events": {

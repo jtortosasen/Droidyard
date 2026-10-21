@@ -18,8 +18,9 @@ import (
 // device.watchScreen (plan m2p step 4; ADR-0078): the live view of a device for the
 // calling WebSocket session. The call joins the device's shared source (screensource.go)
 // as a viewer and returns a stream id; the video itself travels on GET /v1/screen, whose
-// handler holds only AttachScreen: a screen.Viewer, which can read packets and close, and
-// nothing that reaches the device (constraint 2). The events on the session carry the
+// handler holds only AttachScreen: a ScreenHandle, which can read packets, close and take
+// the view's own input frames (Input, ADR-0117), and nothing else that reaches the device.
+// The events on the session carry the
 // focused window's secure state (secure.go; ADR-0080) and the stream's end.
 
 // TopicScreen is the topic device.watchScreen's events carry. Like device.logcat it is not
@@ -54,6 +55,7 @@ type WatchScreenResult struct {
 	StreamID       string `json:"streamId" jsonschema:"required" jsonschema_description:"The id to send, with the daemon's token, as the first frame of GET /v1/screen within 10 s. It works once, for as long as the subscription lives."`
 	Width          int    `json:"width" jsonschema:"required" jsonschema_description:"The frame width in pixels when the stream started; a rotation announces a new size in the stream itself."`
 	Height         int    `json:"height" jsonschema:"required" jsonschema_description:"The frame height in pixels when the stream started."`
+	Control        bool   `json:"control" jsonschema:"required" jsonschema_description:"True: binary input frames on the stream socket reach the device (the view's own input, authorized when this call was). False: the stream takes none, and an older host's result, which lacks the field, reads as false."`
 }
 
 // ScreenStoppedEvent is the payload of a stopped event on topic device.screen. After it
@@ -164,9 +166,20 @@ type screenStream struct {
 
 	sub *event.Subscription // set before the stream is in the set
 
+	// What the view sweep needs (lease.go), recorded at the start so the sweep runs no adb
+	// command: the policy governs a physical device and a remote id, never an emulator.
+	physical, remote bool
+
+	holder screen.Holder // who holds the finger for this stream's gestures (ADR-0117 §4)
+
 	mu         sync.Mutex
 	attached   bool
 	ended      bool
+	touching   bool // a down was accepted and its lift has not come
+	lastX      uint16
+	lastY      uint16 // the last point of the finger, where its cancel is written
+	rate       []int64
+	rateAt     int
 	activity   func() // ends the stream's count as its lease's activity; set while it is open (ADR-0104 §3)
 	timer      *time.Timer
 	stopSecure func()        // ends the secure-state watch (secure.go); set once the stream is in the table
@@ -191,6 +204,7 @@ func (s *screenStream) end(reason, cause string) {
 	}
 	close(s.quit)
 	stopSecure, activity := s.stopSecure, s.activity
+	lastX, lastY := s.lastX, s.lastY
 	s.mu.Unlock()
 
 	// An ended stream is no longer activity of its lease.
@@ -202,6 +216,13 @@ func (s *screenStream) end(reason, cause string) {
 		stopSecure()
 	}
 	s.set.forget(s)
+	// Every end tells the source the stream is gone, before the viewer is released: what the
+	// stream still has queued is dropped (an ended stream accepts nothing, ADR-0117 §2, so a
+	// click or a key queued behind a stalled write never reaches a revoked device), and a
+	// finger it holds is lifted with a cancel and not an up, so ending a view never completes
+	// a click or a drop its user began (§5). A stream with no queued input and no finger
+	// costs the line nothing. Input holds s.mu across its Control, so none follows this.
+	s.src.Control(s.holder, screen.Event{Kind: screen.EventRelease, X: lastX, Y: lastY})
 	s.viewer.Close()
 	if reason != "" {
 		s.bus.PublishTo(s.sub, TopicScreen, EventStopped, "", s.operation,
@@ -344,21 +365,22 @@ func (ss *screenStreams) StopAll(ctx context.Context) {
 
 // AttachScreen is the only thing of the live view the HTTP adapter holds (ADR-0078 §4): it
 // claims the stream id's viewer for one socket, once. The viewer reads packets and closes;
-// closing it ends the stream as detached. Nothing it offers reaches the device.
-func (a *ADB) AttachScreen(id string) (screen.Viewer, error) { return a.attachScreen(id, "") }
+// closing it ends the stream as detached. The one thing of the device it reaches is Input,
+// which parses and validates before anything is queued.
+func (a *ADB) AttachScreen(id string) (ScreenHandle, error) { return a.attachScreen(id, "") }
 
 // AttachPeerScreen is AttachScreen for the video socket of a paired peer (ADR-0100 §3): the
 // id must be one a device.watchScreen of that same peer issued, so a stream id another peer
 // holds is as unknown as one never issued, and a stream of the daemon's own clients is
 // unreachable from the peer port.
-func (a *ADB) AttachPeerScreen(peer, id string) (screen.Viewer, error) {
+func (a *ADB) AttachPeerScreen(peer, id string) (ScreenHandle, error) {
 	return a.attachScreen(id, peerOwner(peer))
 }
 
 // peerOwner names the paired peer that made a stream.
 func peerOwner(peer string) string { return "peer:" + peer }
 
-func (a *ADB) attachScreen(id, owner string) (screen.Viewer, error) {
+func (a *ADB) attachScreen(id, owner string) (ScreenHandle, error) {
 	ss := &a.screenViews
 	ss.mu.Lock()
 	s := ss.byID[id]
@@ -391,14 +413,25 @@ func (a *ADB) LiveScreenSources() int { return a.screens.Live() }
 // practice.
 func (a *ADB) LiveRelayedScreens() int { return a.relayedScreens.Live() }
 
-// screenHandle is the viewer AttachScreen hands out. It is a screen.Viewer and nothing
-// more: no Inject, no source.
+// ScreenHandle is what AttachScreen hands out: a screen.Viewer, and the one way a stream
+// socket's binary frames reach the device, Input (ADR-0117). It has no Inject and no source.
+type ScreenHandle interface {
+	screen.Viewer
+	// Input takes one binary frame of the view's input. An error wrapping
+	// screen.ErrBadControl is a frame that is not the wire; any other is a refusal (the stream
+	// ended, too many frames, a full queue, a stream that takes no input).
+	Input(frame []byte) error
+}
+
+// screenHandle is the handle AttachScreen hands out.
 type screenHandle struct {
 	s *screenStream
 	// sourceEnded: Next failed because the source's video ended, not because the socket
 	// went or the stream was ended.
 	sourceEnded atomic.Bool
 }
+
+func (h *screenHandle) Input(frame []byte) error { return h.s.Input(frame) }
 
 func (h *screenHandle) Next(ctx context.Context) (screen.Packet, error) {
 	p, err := h.s.viewer.Next(ctx)
@@ -429,6 +462,87 @@ func newStreamID() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
+// controlOn is whether a stream takes input (WatchScreenResult.Control). In this step it is
+// true only in a droidyard_inputprobe build, so the product never has an input path whose
+// gestures are not recorded; plan m2y step 3 records them and turns it on for a local device.
+var controlOn = probeBuild
+
+// The limits of one stream's input (ADR-0117 §3).
+const maxInputPerSecond = 1000
+
+var (
+	// errInputOff is an input for a stream that takes none: a build without the probe, a
+	// remote device's or a peer's (plan m2y step 5), or a stream that is not the daemon's own.
+	errInputOff = errors.New("device: this stream takes no input")
+	// errInputEnded is an input for a stream that ended: it sends nothing.
+	errInputEnded = errors.New("device: the stream ended")
+	// errInputRate is more than maxInputPerSecond messages in a second.
+	errInputRate = errors.New("device: too many input messages")
+)
+
+// Input takes one binary frame the stream's socket received after its auth frame. It parses
+// and validates it, so only an Event the daemon built the scrcpy message for reaches the
+// source (ADR-0117 §3), and hands it to the source's control line, which returns at once.
+// The stream's authorization is the one device.watchScreen passed, so no policy is read here;
+// the view sweep (lease.go) bounds a revocation. An ended stream accepts nothing.
+func (s *screenStream) Input(frame []byte) error {
+	ev, err := screen.ParseControl(frame)
+	if err != nil {
+		return err
+	}
+	if !controlOn || s.owner != "" || s.remote {
+		return errInputOff
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ended {
+		return errInputEnded
+	}
+	if !s.admitLocked() {
+		return errInputRate
+	}
+	// Events wait for a frame size: before the first one there is no screen to put a point on.
+	if s.src.Size() == (screen.Size{}) {
+		return nil
+	}
+	if ev.Kind == screen.EventTouch {
+		switch ev.Action {
+		case screen.TouchDown:
+			s.touching = true
+		case screen.TouchMove:
+			if !s.touching {
+				return nil // the rest of a gesture whose down never came
+			}
+		default:
+			if !s.touching {
+				return nil
+			}
+			s.touching = false
+		}
+		s.lastX, s.lastY = ev.X, ev.Y
+	}
+	return s.src.Control(s.holder, ev)
+}
+
+// admitLocked counts a message against the second's bound: the 1,001st message in any
+// second is refused. A ring of the last 1,000 arrival times; the message that would reuse
+// the oldest slot is the 1,001st if that slot is under a second old.
+func (s *screenStream) admitLocked() bool {
+	now := time.Now().UnixNano()
+	if s.rate == nil {
+		s.rate = make([]int64, maxInputPerSecond)
+	}
+	if old := s.rate[s.rateAt]; old != 0 && now-old < int64(time.Second) {
+		return false
+	}
+	s.rate[s.rateAt] = now
+	s.rateAt = (s.rateAt + 1) % maxInputPerSecond
+	return true
+}
+
+// viewKind is what the view sweep needs of a stream's device, known when it started.
+type viewKind struct{ physical, remote bool }
+
 // watchScreen serves device.watchScreen: it joins the device's source, opens the session's
 // subscription with its end hook, and returns once the stream is in the table.
 func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, error) {
@@ -444,20 +558,28 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 		return nil, capability.NewError(capability.ErrSessionRequired, "device.watchScreen needs the daemon's event bus").
 			WithNextStep("watch over the WebSocket session, GET /v1/ws")
 	}
-	deviceID, src, release, err := a.screenSourceFor(ctx, call)
+	deviceID, kind, src, release, err := a.screenSourceFor(ctx, call)
 	if err != nil {
 		return nil, err
 	}
+	return a.openStream(ctx, call, sess, deviceID, kind, src, release)
+}
+
+// openStream makes the stream of a joined source: its subscription, its place in the table,
+// its timers, and the result. It owns release from here on.
+func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event.Session, deviceID string, kind viewKind, src screen.Source, release func()) (any, error) {
 	a.started()
 
 	s := &screenStream{
 		set: &a.screenViews, bus: a.bus, id: newStreamID(), device: deviceID, operation: call.OperationID,
 		src: src, viewer: src.Join(), release: release,
+		physical: kind.physical, remote: kind.remote,
 		quit: make(chan struct{}), released: make(chan struct{}),
 	}
 	if call.Origin.Client == capability.ClientPeer {
 		s.owner, s.session = peerOwner(call.Origin.Name), sess.ID()
 	}
+	s.holder = screen.NewHolder(s.owner != "")
 	subID, sub, err := sess.Open([]string{TopicScreen}, func() { s.end("", "") })
 	if err != nil {
 		s.viewer.Close()
@@ -500,30 +622,34 @@ func (a *ADB) watchScreen(ctx context.Context, call *capability.Call) (any, erro
 		return nil, ctx.Err()
 	}
 	size := src.Size()
-	return WatchScreenResult{SubscriptionID: subID, Device: deviceID, StreamID: s.id, Width: size.Width, Height: size.Height}, nil
+	return WatchScreenResult{SubscriptionID: subID, Device: deviceID, StreamID: s.id, Width: size.Width, Height: size.Height,
+		Control: controlOn && s.owner == "" && !s.remote}, nil
 }
 
 // screenSourceFor joins the live-view source of the device the call names, and returns the
-// device as the caller named it and the release to call when done. For a remote id it is
-// the relayed source of the host's stream, and the answer is another machine's, so the call
-// is marked untrusted (ADR-0100 §3, §4); otherwise it is this machine's scrcpy source.
-func (a *ADB) screenSourceFor(ctx context.Context, call *capability.Call) (device string, src screen.Source, release func(), err error) {
+// device as the caller named it, what kind of device it is for the view sweep, and the
+// release to call when done. For a remote id it is the relayed source of the host's stream,
+// and the answer is another machine's, so the call is marked untrusted (ADR-0100 §3, §4);
+// otherwise it is this machine's scrcpy source.
+func (a *ADB) screenSourceFor(ctx context.Context, call *capability.Call) (device string, kind viewKind, src screen.Source, release func(), err error) {
 	if rt, ok := call.Authorized.(*remoteTarget); ok {
 		yes := true
 		call.Untrusted = &yes
 		rs, release, err := a.relayedScreens.acquire(ctx, a, rt)
 		if err != nil {
-			return "", nil, nil, err
+			return "", viewKind{}, nil, nil, err
 		}
-		return rt.id, rs, release, nil
+		return rt.id, viewKind{remote: true}, rs, release, nil
 	}
 	t := call.Authorized.(*target)
 	if err := a.ready(ctx, t); err != nil {
-		return "", nil, nil, err
+		return "", viewKind{}, nil, nil, err
 	}
 	ls, release, err := a.screens.acquire(ctx, a, t)
 	if err != nil {
-		return "", nil, nil, err
+		return "", viewKind{}, nil, nil, err
 	}
-	return t.serial, ls, release, nil
+	// The kind the listing gave at authorization (target.go): the policy governs every
+	// device that is not an emulator.
+	return t.serial, viewKind{physical: t.dev != nil && t.dev.Kind != KindEmulator}, ls, release, nil
 }

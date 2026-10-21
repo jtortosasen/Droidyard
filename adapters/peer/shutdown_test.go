@@ -35,6 +35,8 @@ func (v *endingViewer) Close() {
 	close(v.closed)
 }
 
+func (v *endingViewer) Input([]byte) error { return nil }
+
 // Decision (a lost link ends a relayed screen deviceGone, internal/domain/device/remotescreen.go):
 // a link the host cuts reaches the client as a lost link, not as whatever the host's own streams say while it goes down. When a listener shuts down, its
 // session sockets are closed before its live views' sockets, so the event a view's close

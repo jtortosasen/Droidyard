@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -73,6 +74,9 @@ func (v *packetViewer) Next(ctx context.Context) (httpapi.ScreenPacket, error) {
 }
 
 func (v *packetViewer) Close() { close(v.closed) }
+
+// Input refuses: a peer's stream takes no input until plan m2y step 5.
+func (v *packetViewer) Input([]byte) error { return errors.New("no input") }
 
 // TestPeerScreenSocket is ADR-0078 §4 on the peer port: the first text frame, within the
 // deadline, is {"stream": <id>}; the attach is made for the peer the certificate pins to, by

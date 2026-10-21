@@ -4,6 +4,10 @@ package device
 
 import "github.com/jtortosasen/droidyard/internal/domain/device/screen"
 
+// probeBuild is whether this build carries the input probe; in this step it is also the only
+// build whose live view takes input from its stream socket (watchscreen.go, controlOn).
+const probeBuild = false
+
 // The input probe's hooks, empty in the shipped build (plan m2y step 1, K4): the product
 // carries no measurement code. The droidyard_inputprobe build tag replaces them with
 // inputprobe_tagged.go, which logs one line per control write and per Hub push. They must

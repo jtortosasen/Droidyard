@@ -10,6 +10,9 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen"
 )
 
+// probeBuild is whether this build carries the input probe (inputprobe.go).
+const probeBuild = true
+
 // This build was compiled with -tags droidyard_inputprobe (plan m2y step 1, K4): it logs a
 // line per control write and per Hub push for the latency measurements (T1 and Lag). The
 // times are the wall clock in Unix nanoseconds, comparable between two daemons on one

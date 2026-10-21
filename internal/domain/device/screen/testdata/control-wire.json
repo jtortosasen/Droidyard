@@ -1,0 +1,293 @@
+{
+  "note": "ADR-0117 §3: a frame of the input wire, the Event it means, and the scrcpy bytes the daemon writes for it against size. Generated from the spike's encoders by go test ./internal/domain/device/screen -update-control-golden; read by the Go test and by the web client's Vitest.",
+  "cases": [
+    {
+      "name": "down at the top left",
+      "wire": "010000000000",
+      "event": {
+        "kind": "touch",
+        "action": "down",
+        "x": 0,
+        "y": 0,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "0200fffffffffffffffe000000000000000004380960ffff0000000000000000"
+    },
+    {
+      "name": "down at the bottom right clamps to the last pixel",
+      "wire": "0100ffffffff",
+      "event": {
+        "kind": "touch",
+        "action": "down",
+        "x": 65535,
+        "y": 65535,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "0200fffffffffffffffe000004370000095f04380960ffff0000000000000000"
+    },
+    {
+      "name": "move to the middle",
+      "wire": "010280004000",
+      "event": {
+        "kind": "touch",
+        "action": "move",
+        "x": 32768,
+        "y": 16384,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "0202fffffffffffffffe0000021c0000025804380960ffff0000000000000000"
+    },
+    {
+      "name": "up",
+      "wire": "010103e807d0",
+      "event": {
+        "kind": "touch",
+        "action": "up",
+        "x": 1000,
+        "y": 2000,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "0201fffffffffffffffe00000010000000490438096000000000000000000000"
+    },
+    {
+      "name": "cancel",
+      "wire": "0103ffff0000",
+      "event": {
+        "kind": "touch",
+        "action": "cancel",
+        "x": 65535,
+        "y": 0,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "0203fffffffffffffffe00000437000000000438096000000000000000000000"
+    },
+    {
+      "name": "down on another size",
+      "wire": "010080008000",
+      "event": {
+        "kind": "touch",
+        "action": "down",
+        "x": 32768,
+        "y": 32768,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 590,
+        "height": 1280
+      },
+      "scrcpy": "0200fffffffffffffffe0000012700000280024e0500ffff0000000000000000"
+    },
+    {
+      "name": "key back",
+      "wire": "0201",
+      "event": {
+        "kind": "key",
+        "action": "",
+        "x": 0,
+        "y": 0,
+        "key": "back",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "00000000000400000000000000000001000000040000000000000000"
+    },
+    {
+      "name": "key home",
+      "wire": "0202",
+      "event": {
+        "kind": "key",
+        "action": "",
+        "x": 0,
+        "y": 0,
+        "key": "home",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "00000000000300000000000000000001000000030000000000000000"
+    },
+    {
+      "name": "key appSwitch",
+      "wire": "0203",
+      "event": {
+        "kind": "key",
+        "action": "",
+        "x": 0,
+        "y": 0,
+        "key": "appSwitch",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "0000000000bb00000000000000000001000000bb0000000000000000"
+    },
+    {
+      "name": "key enter",
+      "wire": "0204",
+      "event": {
+        "kind": "key",
+        "action": "",
+        "x": 0,
+        "y": 0,
+        "key": "enter",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "00000000004200000000000000000001000000420000000000000000"
+    },
+    {
+      "name": "key delete",
+      "wire": "0205",
+      "event": {
+        "kind": "key",
+        "action": "",
+        "x": 0,
+        "y": 0,
+        "key": "delete",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "00000000004300000000000000000001000000430000000000000000"
+    },
+    {
+      "name": "scroll one notch",
+      "wire": "038000800000000100",
+      "event": {
+        "kind": "scroll",
+        "action": "",
+        "x": 32768,
+        "y": 32768,
+        "key": "",
+        "h": 0,
+        "v": 256
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "030000021c000004b0043809600000080000000000"
+    },
+    {
+      "name": "scroll left and down",
+      "wire": "0300000000ff00fe00",
+      "event": {
+        "kind": "scroll",
+        "action": "",
+        "x": 0,
+        "y": 0,
+        "key": "",
+        "h": -256,
+        "v": -512
+      },
+      "size": {
+        "width": 1080,
+        "height": 2400
+      },
+      "scrcpy": "03000000000000000004380960f800f00000000000"
+    },
+    {
+      "name": "scroll at the bound saturates",
+      "wire": "03006400c81000f000",
+      "event": {
+        "kind": "scroll",
+        "action": "",
+        "x": 100,
+        "y": 200,
+        "key": "",
+        "h": 4096,
+        "v": -4096
+      },
+      "size": {
+        "width": 590,
+        "height": 1280
+      },
+      "scrcpy": "030000000100000004024e05007fff800000000000"
+    },
+    {
+      "name": "scroll past the bound is the bound",
+      "wire": "03006400c87fff8000",
+      "event": {
+        "kind": "scroll",
+        "action": "",
+        "x": 100,
+        "y": 200,
+        "key": "",
+        "h": 32767,
+        "v": -32768
+      },
+      "size": {
+        "width": 590,
+        "height": 1280
+      },
+      "scrcpy": "030000000100000004024e05007fff800000000000"
+    },
+    {
+      "name": "scroll of nothing",
+      "wire": "030005000600000000",
+      "event": {
+        "kind": "scroll",
+        "action": "",
+        "x": 5,
+        "y": 6,
+        "key": "",
+        "h": 0,
+        "v": 0
+      },
+      "size": {
+        "width": 590,
+        "height": 1280
+      },
+      "scrcpy": "030000000000000000024e05000000000000000000"
+    }
+  ]
+}

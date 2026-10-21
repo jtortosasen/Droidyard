@@ -193,7 +193,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 				if err != nil {
 					return nil, err
 				}
-				return adb.injectScreen(ctx, call.Authorized.(*target).serial, in)
+				return adb.injectScreen(ctx, call.Origin, call.Authorized.(*target).serial, in)
 			},
 		}))
 	}
@@ -215,13 +215,15 @@ func (a *ADB) runningScreen(serial string) screen.Source {
 // after it completes the call with a warning, since part of the gesture is on the device
 // and an error would invite a repeat (ui-automation.md §Design rules). A cancelled or
 // timed-out call is that, not a stream failure.
-func (a *ADB) injectScreen(ctx context.Context, serial string, in screen.Input) (any, error) {
+func (a *ADB) injectScreen(ctx context.Context, who capability.Origin, serial string, in screen.Input) (any, error) {
 	src := a.runningScreen(serial)
 	if src == nil {
 		return nil, capability.NewError(ErrNoStream, "the device has no live view open, so there is nothing to send the input through").
 			WithNextStep("Open the device's live view, then retry.")
 	}
-	err := src.Inject(ctx, in)
+	// The call's origin classes its gesture (ADR-0117 §4): a peer's lent call holds the finger
+	// as a peer, which the host's own views take it from; any other call is a local holder.
+	err := src.Inject(ctx, screen.NewHolder(who.Client == capability.ClientPeer), in)
 	switch {
 	case err == nil:
 		return ScreenInputResult{Delivered: true}, nil
@@ -230,12 +232,24 @@ func (a *ADB) injectScreen(ctx context.Context, serial string, in screen.Input) 
 	}
 	var partial *screen.PartialError
 	if errors.As(err, &partial) {
+		what := "the live view failed after the input began (" + injectCause(partial.Err) + ")"
+		if errors.Is(partial.Err, errFingerLost) {
+			what = "the live view took the finger after the input began"
+		}
 		return ScreenInputResult{Delivered: true, Warnings: []string{
-			"the live view failed after the input began (" + injectCause(partial.Err) + "): the device may have received only part of it; look at the screen before repeating it",
+			what + ": the device may have received only part of it; look at the screen before repeating it",
 		}}, nil
 	}
 	if errors.Is(err, screen.ErrBadInput) {
 		return nil, capability.Errorf(capability.ErrInvalidParams, "the input cannot be sent to the live view's frame").WithCause(err.Error())
+	}
+	if errors.Is(err, errFingerLost) {
+		// Taken before the first message: the live view is fine and the call can be retried.
+		// (No existing code says "someone else holds the finger": DEVICE_OCCUPIED is the
+		// session registry's, ADR-0094, and is never returned for this.)
+		return nil, capability.NewError(ErrStreamFailed, "the input was not sent: the live view's user took the finger").
+			WithCause(injectCause(err)).
+			WithNextStep("Nothing was sent and the live view is unharmed. Retry once the person using the live view has lifted the finger.")
 	}
 	return nil, capability.NewError(ErrStreamFailed, "the input could not be sent: the device's live view failed").
 		WithCause(injectCause(err)).
@@ -250,6 +264,8 @@ func injectCause(err error) string {
 		return "the live view ended: " + end.Reason + ": " + end.Cause
 	case errors.Is(err, screen.ErrClosed):
 		return "the live view was closed"
+	case errors.Is(err, errFingerLost):
+		return "the host's own live view took the finger, or the frame changed"
 	}
 	return "the control socket could not be written"
 }
