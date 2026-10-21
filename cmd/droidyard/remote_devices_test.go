@@ -210,14 +210,7 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostSeam.wrapStream = o.hostWrapStream
 	if hold := o.holdRelease; hold != nil {
 		device.SetScreenReleaseHold(func() { <-hold })
-		t.Cleanup(func() {
-			select {
-			case <-hold:
-			default:
-				close(hold)
-			}
-			device.SetScreenReleaseHold(nil)
-		})
+		t.Cleanup(func() { device.SetScreenReleaseHold(nil) })
 	}
 	if o.hostProcesses {
 		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
@@ -247,6 +240,16 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	lab.stopClient = func() { onceClient.Do(stopClient) }
 	t.Cleanup(lab.stopClient)
 	testtime.Eventually(t, testtime.Bound(10*time.Second), "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
+	if hold := o.holdRelease; hold != nil {
+		// Registered last, so it runs first: the daemons' stop waits for the views' releases.
+		t.Cleanup(func() {
+			select {
+			case <-hold:
+			default:
+				close(hold)
+			}
+		})
+	}
 	return lab
 }
 

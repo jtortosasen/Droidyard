@@ -79,7 +79,7 @@
 - Not here: the web (step 3); a view starting while the mark changes ends `renewed` at once after its start and is watched again, nothing more.
 - Rests on: a `renewed` end is published only for a mark change, never for a loss: level 4.
 - Review: the Opus verifier (steps 1 and 2: the peer frame, the ordering, the contract), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: level 4. `TestAFastChangeReopensTheRemoteViewAtTheNewQuality` (two daemons): `stopped renewed`, nothing for the Logcat stream, the host's second start at `max_size=1024`, one hello; seen failing `deviceGone` with step 1's close restored, and with step 1's drop reverted (no second start in 15 s). `TestARelayedSourceNeverEndsRenewedForALoss` (200 runs with both channels closed: `deviceGone`; seen failing without the inner `down` check), `TestMarkedNeverClosesForALoss` (seen failing with a close on a failed write). Schema: `renewed` and its sentence only. `go test -race` on `internal/domain/device` and `internal/hosting`, `pnpm -C web run verify` and `go test ./...` passed (`internal/domain/shell` `TestRecordsTheCommandWhileItRuns` failed once under load, passed on rerun; untouched). The main session corrected `remote fast`'s message (it no longer says the daemon reconnects).
 
 ### 3. The web: the toggle, and a view that watches again on `renewed`
 

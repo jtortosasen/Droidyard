@@ -42,8 +42,8 @@ import (
 const StopFailed = "failed"
 
 // ScreenEnd is why a source ended: the error its viewers' Next and Source.Reason return
-// (ADR-0078 §2). Reason is one of StopDeviceGone, StopExited and StopFailed; Cause is ours,
-// never device text.
+// (ADR-0078 §2). Reason is one of StopDeviceGone, StopExited, StopFailed and, for a relayed
+// source, StopRenewed (ADR-0123 §2); Cause is ours, never device text.
 type ScreenEnd struct{ Reason, Cause string }
 
 func (e *ScreenEnd) Error() string { return "screen ended (" + e.Reason + "): " + e.Cause }

@@ -86,6 +86,7 @@ type relayedSource struct {
 
 	// Written by run's goroutine before ready closes or the goroutines below start.
 	down      <-chan struct{} // closed when the link connection the stream lives on is lost
+	marked    <-chan struct{} // closed when a mark frame was written to the host: the view is renewed (ADR-0123 §2)
 	sub       string          // the host's subscription, "" until the host named one
 	stopRoute func()          // ends the link's routing of that subscription's events
 	conn      *hosting.ScreenConn
@@ -326,6 +327,7 @@ func (s *relayedSource) start() error {
 	rt := s.rt
 	// Before the call: a connection lost between the call and the attach counts as lost.
 	s.down = rt.link.Down()
+	s.marked = rt.link.Marked() // before the call too: a mark written after it is seen, one before it is in the host's start
 	params, err := json.Marshal(WatchScreenParams{Device: rt.serial})
 	if err != nil {
 		return capability.AsError(err)
@@ -467,13 +469,24 @@ func (s *relayedSource) readEnded(err error) {
 	}
 }
 
-// watchLink ends the source with deviceGone when the link it lives on is lost.
+// watchLink ends the source when the link it lives on is lost (deviceGone), or when the
+// remote's fast mark was written to the host (renewed, ADR-0123 §2): the view is ended so it
+// can start again at the new quality; nothing else of the remote is touched. A loss is never
+// reported as renewed: when the link is down by the time the mark channel is seen closed,
+// the end is the loss.
 func (s *relayedSource) watchLink() {
 	defer s.wg.Done()
 	select {
 	case <-s.ctx.Done():
 	case <-s.down:
 		s.end(&ScreenEnd{Reason: StopDeviceGone, Cause: "the link to the remote " + s.rt.remote + " was lost"})
+	case <-s.marked:
+		select {
+		case <-s.down:
+			s.end(&ScreenEnd{Reason: StopDeviceGone, Cause: "the link to the remote " + s.rt.remote + " was lost"})
+		default:
+			s.end(&ScreenEnd{Reason: StopRenewed, Cause: "the remote " + s.rt.remote + "'s fast mark changed"})
+		}
 	}
 }
 

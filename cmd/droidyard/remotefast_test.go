@@ -17,7 +17,7 @@ func TestRemoteFastSetsTheMark(t *testing.T) {
 
 	out := mustVerb(t, pol, "remote", "fast", "two", "on")
 	if !strings.Contains(out, "within seconds") {
-		t.Errorf("remote fast printed %q; a running daemon reconnects within seconds", out)
+		t.Errorf("remote fast printed %q; a running daemon tells the remote within seconds", out)
 	}
 	got := pol.Get().Remotes
 	if len(got) != 2 || got[0].Fast || !got[1].Fast || got[1].Address != "100.64.0.4:7421" || got[1].Fingerprint != fpAnna {

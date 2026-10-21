@@ -26,6 +26,7 @@ type markingHost struct {
 	mu     sync.Mutex
 	hellos []bool // the fast mark of each hello
 	seen   []bool // the mark of each hello and each mark frame, in order
+	conns  []*websocket.Conn
 }
 
 func newMarkingHost(t *testing.T, api string) *markingHost {
@@ -42,6 +43,9 @@ func newMarkingHost(t *testing.T, api string) *markingHost {
 			return
 		}
 		defer c.CloseNow()
+		m.mu.Lock()
+		m.conns = append(m.conns, c)
+		m.mu.Unlock()
 		ctx := r.Context()
 		_, data, err := c.Read(ctx)
 		if err != nil {
@@ -93,6 +97,15 @@ func (m *markingHost) marks() []bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]bool(nil), m.seen...)
+}
+
+// cut drops every connection the host holds, as a lost link does.
+func (m *markingHost) cut() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.conns {
+		c.CloseNow()
+	}
 }
 
 func (m *markingHost) helloMarks() []bool {
@@ -335,5 +348,45 @@ func TestTwoQuickChangesLeaveTheLastInTheLink(t *testing.T) {
 	}
 	if got := m.helloMarks(); len(got) != 1 {
 		t.Errorf("%d hellos, want 1", len(got))
+	}
+}
+
+// Decision (ADR-0123 §2, Rests on): Marked closes for a mark frame that was written and for
+// nothing else, so a view that ends on it never ends for a loss. The write is held, the
+// connection is cut under it, and the write is let go: the link was down, Marked stays open,
+// and the channel of the session that comes next is not closed by the old sender (a sender
+// whose connection was replaced closes nothing). Seen failing with the channel closed whatever
+// the write did: Marked closed on the lost link.
+func TestMarkedNeverClosesForALoss(t *testing.T) {
+	m := newMarkingHost(t, "0.36.0")
+	_, link, set := markClient(t, m, false)
+	entered, release := holdMarkWrites(t)
+	pending := link.Marked()
+	down := link.Down()
+
+	set(true)
+	select {
+	case <-entered:
+	case <-time.After(testtime.Bound(10 * time.Second)):
+		t.Fatal("the mark sender never reached the write")
+	}
+	m.cut()
+	select {
+	case <-down:
+	case <-time.After(testtime.Bound(10 * time.Second)):
+		t.Fatal("the cut connection was not noticed")
+	}
+	release()
+	// The link comes back (the run dials again) with the new mark in its hello; the old
+	// sender's write failed or found the connection replaced, and closed nothing.
+	testtime.Eventually(t, testtime.Bound(15*time.Second), "the link to come back with the new mark", func() bool {
+		return link.Connected() && markEq(m.helloMarks(), false, true)
+	})
+	select {
+	case <-pending:
+		t.Fatal("Marked closed for a connection that was lost under the write")
+	case <-link.Marked():
+		t.Fatal("the channel of the new session was closed by the old sender")
+	case <-time.After(300 * time.Millisecond):
 	}
 }

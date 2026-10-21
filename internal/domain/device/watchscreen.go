@@ -31,6 +31,11 @@ const TopicScreen = "device.screen"
 // (ADR-0078 §2): the stream socket closed, or no socket attached in time.
 const StopDetached = "detached"
 
+// StopRenewed is a fifth reason a stream ended (ADR-0123 §2, superseding ADR-0078 §2 in
+// part): this daemon changed how the remote that lends the device streams it, and ended the
+// view so it can start again that way.
+const StopRenewed = "renewed"
+
 // screenAttachBound is how long a stream id waits for its socket (ADR-0078 §3); a variable
 // so a test is quick.
 var screenAttachBound = 10 * time.Second
@@ -62,7 +67,7 @@ type WatchScreenResult struct {
 // the subscription stays open and empty until events.unsubscribe or the session's end.
 type ScreenStoppedEvent struct {
 	Device string `json:"device" jsonschema:"required"`
-	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=failed,enum=detached" jsonschema_description:"deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."`
+	Reason string `json:"reason" jsonschema:"required,enum=deviceGone,enum=exited,enum=failed,enum=detached,enum=renewed" jsonschema_description:"deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s. renewed: this daemon changed how the remote that lends the device streams it (its fast mark) and ended the view so it can start again that way; watch again."`
 	Cause  string `json:"cause,omitempty" jsonschema_description:"The daemon's words for why, never device text."`
 }
 

@@ -7022,9 +7022,10 @@
                   "deviceGone",
                   "exited",
                   "failed",
-                  "detached"
+                  "detached",
+                  "renewed"
                 ],
-                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s."
+                "description": "deviceGone: the stream ended and device.list no longer holds the serial online (absent, or offline as an emulator shutting down is), or the host ended a peer's lease. exited: the server on the device ended by itself, or the daemon is stopping. failed: the video stream broke the protocol. detached: the stream socket closed, or none attached within 10 s. renewed: this daemon changed how the remote that lends the device streams it (its fast mark) and ended the view so it can start again that way; watch again."
               },
               "cause": {
                 "type": "string",
