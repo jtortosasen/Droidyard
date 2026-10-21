@@ -96,7 +96,7 @@
 - Needs: real emulators, the SDK's build tools, network for the scrcpy source.
 - Not here: no product behaviour changes; `linkem` and `notsentprobe` are not committed (measurement tools, not tests of the product).
 - Rests on: F is causal (the screen changes only on touch), level 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: [`spike-live-input-2026-10.md`](../research/spike-live-input-2026-10.md), main session, on a host at load 14–58 (another lane's emulator at 350–370 % CPU). S1 pass, S2 not adopted, S3 exists (API 31 83–156 ms, API 36 0.5–2.0 s), S4 pass, S5 from the source (dropped silently), S6 T1 before local p50 50.3 / 65.0 ms (API 31 / 36), pair p50 71.1 ms; S7 not measurable on macOS loopback; S8 inconclusive (the encoder, not the link, set the rate); H.265 does not start on the API 36 emulator. T2 moved to step 4 (Changes).
 
 ### 2. The tunnel in the daemon: a view's input over its own socket, authorized when it opened
 
@@ -274,6 +274,8 @@ Each is Delegated: the main session applies the recommendation and writes the AD
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-21, step 1's results (the research note): **S5**: scrcpy drops a touch for a stale size silently, a lift included, so Q2 gains a rule for ADR-A: when the stream's size changes while a finger is held, the daemon writes `ACTION_CANCEL` with the new size. **S2**: the low-latency options are not adopted (Q6). **S3**: the key-frame request comes within 500 ms on API 31 only; step 6 sends it and still bounds staleness by the GOP where it is slow (A7's two cases stand). **S6**: T2 is measured in step 4 with the CDP harness written there, for the before binary (`ed85490`) and the after one in the same run, so A3's "40 ms under the before" compares like with like. **S7**: not measurable here (macOS grows a loopback receive buffer past `SO_RCVBUF`, so the backlog leaves the sender's socket); step 7's socket option stays, labelled unverified, and step 6 decides in ADR-B whether a viewer's queue is also bounded at the application level (the receiver acknowledging, the sender keeping a bounded amount unacknowledged), which does not depend on kernel buffers. **S8**: inconclusive under the host's load; Q7's preset values and the H.265 question (it does not start on the API 36 emulator) are taken from step 8's rerun on a quieter host.
 
 - 2026-10-21, Q7 (the owner's answer): the remote preset follows a per-remote fast mark on the client, not the listener's `vpn` tag. So step 1 drops `DROIDYARD_PROBE_LISTENER_TAG` (a loopback pair takes the preset by marking its remote fast), and step 7's `TestPresetFollowsTheListenersTag` becomes a test that the preset follows the remote's mark (seen failing with the mark ignored), with the mark's key and command in ADR-B.
 - 2026-10-21, step 1: scrcpy v4.1 has reset-video (`TYPE_RESET_VIDEO` 17, no payload), so S3 runs; a scroll is 21 bytes (axes as notches/16 × 0x8000); a cancel is the touch message with action 3, and only `ACTION_UP` marks the server's pointer up, which S4 must watch (the next down after a cancel). `TouchActivity`'s scroll colour counts the notches since the activity started. A first `notsentprobe` run on macOS read `TCP_NOTSENT_LOWAT` back as set but saw no change in arrival delay (p95 3.8 s both ways, one 8 s run each): S7's `SO_SNDBUF` branch is likely.
