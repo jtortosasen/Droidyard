@@ -71,8 +71,8 @@ filesystem can say fails its item, and the call completes with every item's outc
 
 ## The watch
 
-`file.watch` creates a **subscription** (so it is a command, and streaming: WebSocket only,
-`SESSION_REQUIRED` elsewhere, [ADR-0010](../adr/0010-capability-statefulness.md)). It **polls**
+`file.watch` creates a **subscription** (so it is a command, and streaming: a WebSocket or a
+CLI connection, `SESSION_REQUIRED` elsewhere, [ADR-0010](../adr/0010-capability-statefulness.md)). It **polls**
 (D7): the handler walks the directory through the root's `fs.FS` for a baseline, then a
 goroutine walks again **every second** and publishes the differences. No OS notification API is
 used (FSEvents needs cgo, inotify is Linux-only). The baseline is the result's `entries`, the map the

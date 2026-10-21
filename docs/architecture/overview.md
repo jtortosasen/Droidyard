@@ -124,7 +124,7 @@ subscription: [files](../subsystems/files.md)). Detail in
   what other subscribers resume from; so do `operation.state` and `build.output`.
 - The bus is the **only** cross-cutting channel. Progress goes to it tagged with the
   operation id; adapters subscribe and translate (MCP progress notifications, WebSocket
-  frames). No adapter polls, and no handler knows which adapter is watching.
+  frames, the CLI's stderr). No adapter polls, and no handler knows which adapter is watching.
 
 ## Concurrency
 
