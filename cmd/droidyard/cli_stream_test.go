@@ -40,11 +40,23 @@ func (p *inProcess) follow(t *testing.T, args ...string) *follower { return p.fo
 // hello names.
 func (p *inProcess) followIn(t *testing.T, dir string, args ...string) *follower {
 	t.Helper()
+	return p.followEnv(t, dir, nil, args...)
+}
+
+// followEnv is followIn with more environment, such as the test seams.
+func (p *inProcess) followEnv(t *testing.T, dir string, env []string, args ...string) *follower {
+	t.Helper()
+	return p.followRaw(t, dir, env, append([]string{"call", "--no-autostart"}, args...)...)
+}
+
+// followRaw starts `droidyard args...` as followEnv does, for a command that is not `call`.
+func (p *inProcess) followRaw(t *testing.T, dir string, env []string, args ...string) *follower {
+	t.Helper()
 	f := &follower{lines: make(chan []byte, 4096), exited: make(chan error, 1)}
 	f.cmd = &exec.Cmd{
 		Path: os.Args[0],
-		Args: append([]string{"droidyard", "call", "--no-autostart"}, args...),
-		Env:  append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+p.state),
+		Args: append([]string{"droidyard"}, args...),
+		Env:  append(append(os.Environ(), reexec+"=1", "DROIDYARD_STATE_DIR="+p.state), env...),
 		Dir:  dir,
 	}
 	stdout, err := f.cmd.StdoutPipe()

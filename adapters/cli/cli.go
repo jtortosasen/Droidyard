@@ -23,7 +23,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
@@ -132,6 +134,7 @@ func startsOperation(name string) bool {
 const (
 	startID  = "cli-1"
 	waitID   = "cli-2"
+	subID    = "cli-progress"
 	cancelID = "cli-cancel"
 )
 
@@ -139,6 +142,13 @@ const (
 type Streams struct {
 	Out io.Writer
 	Err io.Writer
+	// Terminal says Err is a person's terminal: a call that is still running then
+	// shows its progress and its queued line on Err (plan m2z D9). Off a terminal
+	// nothing is subscribed or printed.
+	Terminal bool
+	// ProgressEvery is the least time between two progress lines (plan m2z D9); a report
+	// that comes sooner is held and printed at the next tick. Zero: no limit.
+	ProgressEvery time.Duration
 }
 
 // Run sends the call on w and reads its answers from r. It prints the final
@@ -192,6 +202,29 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 		return c.finish(first, responses, s, interrupt)
 	}
 
+	// On a terminal the operation's progress comes from the bus (plan m2z D9): the
+	// subscription is opened on this connection before the wait, so no adapter polls
+	// (overview.md §Events).
+	var pr *progressPrinter
+	progressSub := ""
+	if s.Terminal {
+		pr = &progressPrinter{w: s.Err, every: s.ProgressEvery}
+		if op.State == capability.StateQueued && op.BlockedBy != nil {
+			fmt.Fprintf(s.Err, "queued behind %s (%s)\n", str(op.BlockedBy.Capability, false), str(op.BlockedBy.OperationID, false))
+		}
+		if op.Progress != nil {
+			pr.print(*op.Progress) // what came before the subscription opened
+		}
+		id, err := c.subscribeProgress(w, responses, interrupt)
+		switch {
+		case errors.Is(err, errInterrupted):
+			return c.cancel(w, responses, s, op.ID)
+		case err != nil:
+			return 1, err
+		}
+		progressSub = id
+	}
+
 	params, _ := json.Marshal(capability.WaitParams{OperationID: op.ID})
 	if err := send(w, capability.RequestEnvelope{ID: waitID, Capability: capability.OperationWait, Params: params}); err != nil {
 		return 1, err
@@ -202,38 +235,160 @@ func (c Call) Run(r *bufio.Reader, w io.Writer, s Streams, interrupt <-chan stru
 			if !ok || resp.err != nil {
 				return 1, resp.closed()
 			}
+			if resp.frame {
+				if pr != nil && progressSub != "" && resp.subscription == progressSub && resp.topic == capability.ProgressTopic &&
+					resp.eventType == capability.ProgressType && resp.operation == op.ID {
+					var p capability.Progress
+					if json.Unmarshal(resp.payload, &p) == nil {
+						pr.offer(p)
+					}
+				}
+				continue
+			}
 			if resp.env.ID == waitID {
+				if pr != nil {
+					pr.flush() // a held report is printed before the result
+				}
 				return c.finish(resp, responses, s, interrupt)
 			}
+		case <-pr.tick():
+			pr.fire()
 		case <-interrupt:
 			return c.cancel(w, responses, s, op.ID)
 		}
 	}
 }
 
+// subscribeProgress opens, on this connection, a subscription to operation.progress and
+// returns its id; "" with no error when the daemon refused it, since progress is a nicety
+// the call does not depend on (ADR-0020 §Adapter projections).
+func (c Call) subscribeProgress(w io.Writer, responses <-chan response, interrupt <-chan struct{}) (string, error) {
+	params, _ := json.Marshal(map[string][]string{"topics": {capability.ProgressTopic}})
+	if err := send(w, capability.RequestEnvelope{ID: subID, Capability: "events.subscribe", Params: params}); err != nil {
+		return "", err
+	}
+	resp, err := awaitOr(responses, subID, interrupt)
+	if err != nil {
+		return "", err
+	}
+	if resp.env.Error != nil {
+		return "", nil
+	}
+	return subscriptionIDOf(resp.env.Result), nil
+}
+
+// progressPrinter prints a call's progress lines on Err, at most one per interval: a report
+// that comes sooner is held, the latest of them replacing the one before, and printed at
+// the next tick or, if the result comes first, before it. The latest report is never
+// dropped (plan m2z D9).
+type progressPrinter struct {
+	w     io.Writer
+	every time.Duration
+
+	printed bool
+	last    time.Time
+	held    *capability.Progress
+	timer   *time.Timer
+}
+
+// offer prints r now if the interval since the last line has passed, and holds it
+// otherwise.
+func (p *progressPrinter) offer(r capability.Progress) {
+	if p.every <= 0 || !p.printed || time.Since(p.last) >= p.every {
+		p.print(r)
+		return
+	}
+	p.held = &r
+	if p.timer == nil {
+		p.timer = time.NewTimer(p.every - time.Since(p.last))
+	}
+}
+
+func (p *progressPrinter) print(r capability.Progress) {
+	p.stop()
+	p.printed, p.last = true, time.Now()
+	fmt.Fprintln(p.w, progressLine(r))
+}
+
+// tick is the channel of the pending tick; nil, which is never ready, with none or on a
+// nil printer.
+func (p *progressPrinter) tick() <-chan time.Time {
+	if p == nil || p.timer == nil {
+		return nil
+	}
+	return p.timer.C
+}
+
+// fire prints the held report at its tick.
+func (p *progressPrinter) fire() {
+	p.timer = nil
+	if p.held != nil {
+		p.print(*p.held)
+	}
+}
+
+// flush prints the held report now, whatever the interval.
+func (p *progressPrinter) flush() {
+	if p.held != nil {
+		p.print(*p.held)
+	}
+	p.stop()
+}
+
+func (p *progressPrinter) stop() {
+	if p.timer != nil {
+		p.timer.Stop()
+		p.timer = nil
+	}
+	p.held = nil
+}
+
+// progressLine is `progress <done>/<total> <phase> <message>`: the total, the phase and
+// the message only where the report has them, strings quoted (plan m2z D9).
+func progressLine(r capability.Progress) string {
+	out := "progress " + strconv.Itoa(r.Done)
+	if r.Total > 0 {
+		out += "/" + strconv.Itoa(r.Total)
+	}
+	if r.Phase != "" {
+		out += " " + str(r.Phase, true)
+	}
+	if r.Message != "" {
+		out += " " + str(r.Message, true)
+	}
+	return out
+}
+
 // finish prints the final envelope and, when it is a success whose result names a
 // subscription, follows the stream it opened.
 func (c Call) finish(resp response, responses <-chan response, s Streams, interrupt <-chan struct{}) (int, error) {
 	code, noted, err := c.emit(s, resp)
-	if err != nil || code != 0 || !namesSubscription(resp.env.Result) {
+	sub := ""
+	if err == nil && code == 0 {
+		sub = subscriptionIDOf(resp.env.Result)
+	}
+	if sub == "" {
 		return code, err
 	}
 	if c.Human && c.UntrustedEvents && !noted {
 		fmt.Fprintln(s.Err, UntrustedNote)
 	}
-	return c.follow(responses, s, interrupt)
+	return c.follow(responses, s, interrupt, sub)
 }
 
-// namesSubscription reports whether a result carries a subscriptionId: the daemon
-// releases that subscription's events after this response.
-func namesSubscription(result json.RawMessage) bool {
+// subscriptionIDOf is the subscriptionId a result carries, "" if it carries none: the
+// daemon releases that subscription's events after the response.
+func subscriptionIDOf(result json.RawMessage) string {
 	if !bytes.Contains(result, []byte(`"subscriptionId"`)) {
-		return false
+		return ""
 	}
 	var r struct {
 		ID string `json:"subscriptionId"`
 	}
-	return json.Unmarshal(result, &r) == nil && r.ID != ""
+	if json.Unmarshal(result, &r) != nil {
+		return ""
+	}
+	return r.ID
 }
 
 // stoppedType is the event type that ends a stream of its own accord (a descriptor
@@ -243,7 +398,7 @@ const stoppedType = "stopped"
 // follow writes each event frame to Out, unchanged, until a stopped event (0), the
 // interrupt (130) or the daemon closing the connection (1). Interrupting sends nothing:
 // the caller closes the connection and the daemon releases what it owned.
-func (c Call) follow(responses <-chan response, s Streams, interrupt <-chan struct{}) (int, error) {
+func (c Call) follow(responses <-chan response, s Streams, interrupt <-chan struct{}, sub string) (int, error) {
 	for {
 		select {
 		case resp, ok := <-responses:
@@ -253,8 +408,8 @@ func (c Call) follow(responses <-chan response, s Streams, interrupt <-chan stru
 				}
 				return 1, errors.New("the daemon closed the connection")
 			}
-			if !resp.frame {
-				continue // a late answer to something else
+			if !resp.frame || resp.subscription != sub {
+				continue // a late answer to something else, or another subscription's frame
 			}
 			if err := c.writeFrame(s, resp.line); err != nil {
 				return 1, err
@@ -293,8 +448,12 @@ type response struct {
 
 	// frame is true for an event frame, {"subscriptionId","event"}: a line with no id.
 	// eventType is its event's type.
-	frame     bool
-	eventType string
+	frame        bool
+	eventType    string
+	subscription string
+	topic        string
+	operation    string
+	payload      json.RawMessage
 }
 
 func (r response) closed() error {
@@ -324,11 +483,15 @@ func read(r *bufio.Reader, out chan<- response) {
 			var f struct {
 				SubscriptionID string `json:"subscriptionId"`
 				Event          struct {
-					Type string `json:"type"`
+					Topic     string          `json:"topic"`
+					Type      string          `json:"type"`
+					Operation string          `json:"operation"`
+					Payload   json.RawMessage `json:"payload"`
 				} `json:"event"`
 			}
 			if json.Unmarshal(line, &f) == nil && f.SubscriptionID != "" {
 				resp.frame, resp.eventType = true, f.Event.Type
+				resp.subscription, resp.topic, resp.operation, resp.payload = f.SubscriptionID, f.Event.Topic, f.Event.Operation, f.Event.Payload
 			}
 		}
 		out <- resp

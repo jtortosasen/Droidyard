@@ -84,6 +84,11 @@ const (
 	// that a re-executed daemon's hosting.join dials instead of the real one: the answer of a
 	// host whose text is hostile, read at each join.
 	joinReplyEnv = "DROIDYARD_TEST_JOIN_REPLY"
+	// terminalEnv makes a re-executed call take its standard error for a terminal, which the
+	// pipe a test reads it from never is; progressEveryEnv sets the least time between two of
+	// its progress lines (plan m2z step 5).
+	terminalEnv      = "DROIDYARD_TEST_STDERR_TERMINAL"
+	progressEveryEnv = "DROIDYARD_TEST_PROGRESS_EVERY"
 )
 
 // adbFloorFor is the limit floor a test gives the adb commands of a daemon it starts, when that
@@ -154,6 +159,12 @@ func installTestSeams() {
 	}
 	if d, err := time.ParseDuration(os.Getenv(shutdownEnv)); err == nil {
 		shutdownTimeout = d
+	}
+	if os.Getenv(terminalEnv) == "1" {
+		stderrTerminal = func() bool { return true }
+	}
+	if d, err := time.ParseDuration(os.Getenv(progressEveryEnv)); err == nil {
+		progressEvery = d
 	}
 	// A re-executed `droidyard trash` gives up on a daemon that does not answer sooner
 	// (plan m2r step 3).

@@ -157,6 +157,23 @@ func call(args []string) int {
 	return runCapability("call", c)
 }
 
+// progressEvery is the least time between two progress lines on a terminal (plan m2z D9);
+// a test lowers it through installTestSeams.
+var progressEvery = time.Second
+
+// stderrTerminal says whether standard error is a person's terminal, where a call that is
+// still running shows its progress (plan m2z D9): a character device, the standard library
+// alone, and not /dev/null, which a script that discards stderr names. A test replaces it
+// through installTestSeams, since the pipe a test reads stderr from is never one.
+var stderrTerminal = func() bool {
+	fi, err := os.Stderr.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(fi, null)
+}
+
 // runCapability makes one capability call as `droidyard call` does, and a derived command
 // (`droidyard device list`) the same way: it starts a daemon when none answers, unless the
 // call says NoAutostart, sends the current directory's project root in the hello, and prints
@@ -191,7 +208,7 @@ func runCapability(who string, c cli.Call) int {
 		return 1
 	}
 	defer conn.Close()
-	code, err := c.Run(r, conn, cli.Streams{Out: os.Stdout, Err: os.Stderr}, interrupt)
+	code, err := c.Run(r, conn, cli.Streams{Out: os.Stdout, Err: os.Stderr, Terminal: stderrTerminal(), ProgressEvery: progressEvery}, interrupt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "droidyard "+who+":", err)
 		return 1
