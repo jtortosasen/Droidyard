@@ -4,10 +4,12 @@
 	import { browserCodec, VideoPacketDecoder, type DecodedFrame } from './decoder';
 	import type { LiveViewModel, LiveViewView, StopReason } from './liveview';
 	import { ScreenSocket } from './stream';
-	import { GestureRecorder, InputSender, NAV_KEYS, toFrame, type InputClient, type NavKey } from './input';
+	import { encodeKey } from './control';
+	import { InputSender, NAV_KEYS, gated, PointerInput, WheelAccumulator, toFrame, type InputClient, type NavKey } from './input';
 
 	// The device's screen (plan m2p step 5): the model decides what is watched; this draws.
-	// A decoded frame replaces the one waiting to be drawn, and the canvas shows the newest
+	// The input (ADR-0117) travels this stream's own socket as binary frames when the watch's
+	// result said `control`. A decoded frame replaces the one waiting to be drawn, and the canvas shows the newest
 	// one on each animation frame. `data-packets` counts the messages received and
 	// `data-frames` the frames decoded, for the level-5 check.
 	interface Props {
@@ -16,7 +18,7 @@
 		connection: ConnectionState;
 		/** The panel's region is open. */
 		visible: boolean;
-		/** Where the input goes (plan m2p step 7). */
+		/** Where the text goes: the one input that is still a call. */
 		input: InputClient;
 	}
 	let { model, token, connection, visible, input }: Props = $props();
@@ -27,6 +29,14 @@
 	let canvas: HTMLCanvasElement | undefined;
 	let frames = 0;
 	let packets = 0;
+	let socket: ScreenSocket | null = null;
+	const emit = gated(
+		() => view.control,
+		(bytes) => socket?.send(bytes),
+	);
+	const pointer = new PointerInput(emit);
+	const wheel = new WheelAccumulator();
+	let wheelRaf = 0;
 
 	$effect(() => {
 		const m = model;
@@ -75,7 +85,7 @@
 			},
 			error: (message) => m.decoderError(message),
 		});
-		const socket = new ScreenSocket(
+		const s = new ScreenSocket(
 			{ url: `ws://${window.location.host}/v1/screen`, token, streamId, createSocket: (u) => new WebSocket(u) },
 			{
 				packet: (p) => {
@@ -86,21 +96,26 @@
 				closed: (code) => m.socketClosed(code, generation),
 			},
 		);
+		socket = s;
 		return () => {
-			socket.close();
+			socket = null;
+			pointer.reset();
+			wheel.reset();
+			if (wheelRaf !== 0) cancelAnimationFrame(wheelRaf);
+			wheelRaf = 0;
+			s.close();
 			decoder.close();
 			if (raf !== 0) cancelAnimationFrame(raf);
 			latest?.close();
 		};
 	});
 
-	// Input (plan m2p step 7): pointer events with capture, so a mouse, a pen and a finger
-	// work alike. Coordinates are the frame's, never the letterbox bars'.
+	// Input: pointer events with capture, so a mouse, a pen and a finger work alike. Each
+	// event is a frame of the wire at once; coordinates are the frame's, never the bars'.
 	const sender = $derived(new InputSender(input, () => view.device));
 	let problem = $state('');
 	let text = $state('');
 	let overFrame = $state(false);
-	let recorder: GestureRecorder | null = null;
 
 	const frameSize = () => ({ width: canvas?.width ?? 0, height: canvas?.height ?? 0 });
 	function report(p: Promise<string | null>): Promise<boolean> {
@@ -110,22 +125,39 @@
 		});
 	}
 	function down(e: PointerEvent) {
-		if (!canvas || e.button !== 0) return;
-		recorder = GestureRecorder.start(e.clientX, e.clientY, e.timeStamp, canvas.getBoundingClientRect(), frameSize());
-		if (recorder) canvas.setPointerCapture(e.pointerId);
+		if (!canvas || !view.control || e.button !== 0) return;
+		if (pointer.down(e.pointerId, e.clientX, e.clientY, canvas.getBoundingClientRect(), frameSize())) {
+			canvas.setPointerCapture(e.pointerId);
+		}
 	}
 	function move(e: PointerEvent) {
-		if (!canvas) return;
-		if (recorder) recorder.move(e.clientX, e.clientY, e.timeStamp);
+		if (!canvas || !view.control) return;
+		if (pointer.open) pointer.move(e.pointerId, e.clientX, e.clientY, canvas.getBoundingClientRect(), frameSize());
 		else overFrame = toFrame(e.clientX, e.clientY, canvas.getBoundingClientRect(), frameSize()) !== null;
 	}
 	function up(e: PointerEvent) {
-		const r = recorder;
-		recorder = null;
-		if (r) void report(sender.gesture(r.end(e.clientX, e.clientY, e.timeStamp)));
+		if (canvas) pointer.up(e.pointerId, e.clientX, e.clientY, canvas.getBoundingClientRect(), frameSize());
+	}
+	function flushWheel() {
+		wheelRaf = 0;
+		const frame = wheel.take();
+		if (frame !== null) emit(frame);
+	}
+	// A non-passive listener, so the page does not scroll under the wheel.
+	function wheelInput(node: HTMLCanvasElement) {
+		const onwheel = (e: WheelEvent) => {
+			if (!view.control) return;
+			const at = toFrame(e.clientX, e.clientY, node.getBoundingClientRect(), frameSize());
+			if (at === null) return;
+			e.preventDefault();
+			wheel.add(e.deltaX, e.deltaY, e.deltaMode, at);
+			if (wheelRaf === 0) wheelRaf = requestAnimationFrame(flushWheel);
+		};
+		node.addEventListener('wheel', onwheel, { passive: false });
+		return () => node.removeEventListener('wheel', onwheel);
 	}
 	function press(key: NavKey) {
-		void report(sender.key(key));
+		emit(encodeKey(key));
 	}
 	async function send(e: SubmitEvent) {
 		e.preventDefault();
@@ -163,11 +195,13 @@
 			bind:this={canvas}
 			hidden={view.state !== 'live'}
 			aria-label="Device screen"
-			class:acts={overFrame}
+			class:acts={overFrame && view.control}
+			{@attach wheelInput}
 			onpointerdown={down}
 			onpointermove={move}
 			onpointerup={up}
-			onpointercancel={() => (recorder = null)}
+			onpointercancel={(e) => pointer.cancel(e.pointerId)}
+			onlostpointercapture={(e) => pointer.cancel(e.pointerId)}
 			onpointerleave={() => (overFrame = false)}
 		></canvas>
 		{#if view.state === 'live' && view.secure}
@@ -177,9 +211,12 @@
 		{/if}
 	</div>
 	{#if view.state === 'live'}
+		{#if !view.control}
+			<p role="status">This view is watch-only: the host does not take input on it.</p>
+		{/if}
 		<div class="keys">
 			{#each NAV_KEYS as k (k.key)}
-				<button type="button" onclick={() => press(k.key)}>{k.label}</button>
+				<button type="button" disabled={!view.control} onclick={() => press(k.key)}>{k.label}</button>
 			{/each}
 		</div>
 		<form onsubmit={send}>

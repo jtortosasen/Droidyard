@@ -1,8 +1,10 @@
 // The screen socket (`GET /v1/screen`, ADR-0078 §4, §7): the first text frame names the
 // token and the stream within 5 s; every message after it is binary,
-// `[flags u8][pts u64 BE][Annex B]`, flags 1 = key frame, 2 = config. The client never
-// sends again after the first frame (the daemon closes 1003 if it does).
+// `[flags u8][pts u64 BE][Annex B]`, flags 1 = key frame, 2 = config. The client only
+// sends binary frames after it, the input wire's (control.ts), when the stream's result
+// said `control: true`; a text frame or a malformed one makes the daemon close 1003.
 import type { SocketLike } from '../api/client';
+import type { Frame } from './control';
 
 export const FLAG_KEY = 1;
 export const FLAG_CONFIG = 2;
@@ -31,7 +33,7 @@ export function parsePacket(buf: ArrayBuffer): Packet | null {
 }
 
 /** The slice of a browser WebSocket the player uses. */
-export type ScreenWire = SocketLike & { binaryType: string };
+export type ScreenWire = Omit<SocketLike, 'send'> & { binaryType: string; send(data: string | Frame): void };
 
 export interface ScreenSocketHandlers {
 	packet(p: Packet): void;
@@ -49,11 +51,15 @@ export interface ScreenSocketOptions {
 export class ScreenSocket {
 	#socket: ScreenWire;
 	#done = false;
+	#authed = false;
 
 	constructor(opts: ScreenSocketOptions, handlers: ScreenSocketHandlers) {
 		const s = opts.createSocket(opts.url);
 		s.binaryType = 'arraybuffer';
-		s.onopen = () => s.send(JSON.stringify({ auth: opts.token, stream: opts.streamId }));
+		s.onopen = () => {
+			s.send(JSON.stringify({ auth: opts.token, stream: opts.streamId }));
+			this.#authed = true;
+		};
 		s.onmessage = (ev) => {
 			if (this.#done || !(ev.data instanceof ArrayBuffer)) return;
 			const p = parsePacket(ev.data);
@@ -65,6 +71,12 @@ export class ScreenSocket {
 			handlers.closed(ev.code);
 		};
 		this.#socket = s;
+	}
+
+	/** One input frame; nothing before the auth frame went out or after the close (a no-op, not a throw). */
+	send(bytes: Frame): void {
+		if (!this.#authed || this.#done) return;
+		this.#socket.send(bytes);
 	}
 
 	/** Closes our side; no `closed` call follows. */

@@ -51,6 +51,8 @@ export interface LiveViewView {
 	device: string;
 	/** The stream the socket attaches to; '' until `device.watchScreen` was answered. */
 	streamId: string;
+	/** The stream takes binary input frames (`device.watchScreen`'s `control`; false for a host that lacks the field). */
+	control: boolean;
 	/** The focused window is secure (FLAG_SECURE): the screen is black by the platform's rule. */
 	secure: boolean;
 	/** Counts the answered watches: a new value means a new socket and a new decoder. */
@@ -88,6 +90,7 @@ export class LiveViewModel {
 	#device = ''; // the device the current watch (or stop) is for
 	#streamId = '';
 	#secure = false;
+	#control = false;
 	#generation = 0;
 	#width = 0;
 	#height = 0;
@@ -115,6 +118,7 @@ export class LiveViewModel {
 			cause: this.#cause,
 			device: this.#device,
 			streamId: this.#streamId,
+			control: this.#control,
 			secure: this.#secure,
 			generation: this.#generation,
 			width: this.#width,
@@ -210,6 +214,7 @@ export class LiveViewModel {
 		this.#waiting = false;
 		this.#device = device;
 		this.#streamId = '';
+		this.#control = false;
 		this.#secure = false;
 		this.#reason = null;
 		this.#cause = '';
@@ -237,6 +242,7 @@ export class LiveViewModel {
 				if (why.kind === 'lost') {
 					this.#waiting = true;
 					this.#streamId = '';
+					this.#control = false;
 					this.#state = 'starting';
 					this.#changed();
 				} else {
@@ -256,6 +262,7 @@ export class LiveViewModel {
 				}
 				this.#sub = sub;
 				this.#streamId = sub.result.streamId;
+				this.#control = sub.result.control === true;
 				this.#width = sub.result.width;
 				this.#height = sub.result.height;
 				this.#generation++;
@@ -311,6 +318,7 @@ export class LiveViewModel {
 		this.#reason = null;
 		this.#cause = '';
 		this.#streamId = '';
+		this.#control = false;
 		this.#secure = false;
 		this.#device = state === 'idle' ? '' : this.#device;
 		this.#waiting = false;
