@@ -54,4 +54,4 @@ the output.
 | [m2w-ui-dump-and-changes.md](m2w-ui-dump-and-changes.md) | 2w — A full UI dump for parsers, and the UI's changes between reads | Done |
 | [m2x-ui-recording.md](m2x-ui-recording.md) | 2x — A UI recording: every distinct screen of a span, with its events, local or lent | Done |
 | [m2y-live-view-that-responds.md](m2y-live-view-that-responds.md) | 2y — A live view that responds: input over the open stream, live drag, a remote view that keeps up | Done |
-| [m2z-cli-for-people.md](m2z-cli-for-people.md) | 2z — A CLI for people: commands per domain from the descriptors, help in levels, output to read | Approved |
+| [m2z-cli-for-people.md](m2z-cli-for-people.md) | 2z — A CLI for people: commands per domain from the descriptors, help in levels, output to read | Done |

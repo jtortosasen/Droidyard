@@ -71,12 +71,12 @@ func TestRenderValueGolden(t *testing.T) {
 // written quoted and escaped, never raw; a plain string stays bare in a trusted response.
 // Seen failing with strings written raw (the escape reaches stdout).
 func TestHumanQuotesWhatCouldForgeALine(t *testing.T) {
-	result := "{\"title\":\"a\\u001b[2Jb\",\"note\":\"x\\u2028y\",\"plain\":\"hello\"}"
+	result := "{\"title\":\"a\\u001b[2Jb\",\"note\":\"x\\u2028y\",\"rlo\":\"a\\u202egnp\",\"csi\":\"x\\u009b2J\",\"plain\":\"hello\"}"
 	out, _, code := runHuman(t, Call{Capability: "device.list"}, completed(result, ""))
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, bad := range []string{"\x1b", "\u2028"} {
+	for _, bad := range []string{"\x1b", "\u2028", "\u202e", "\u009b"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("the output holds a raw %q: %q", bad, out)
 		}

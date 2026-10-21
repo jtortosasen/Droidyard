@@ -241,7 +241,7 @@ optional fields and a free-form JSON blob.
 Each capability is `stateless`, `stateful` or `streaming`
 ([ADR-0010](../adr/0010-capability-statefulness.md)); the adapter enforces the session
 requirement. A streaming capability is not a separate kind. Only a session that can
-carry state and events, today the WebSocket, owns stateful resources. The bounded
+carry state and events, a WebSocket or a CLI connection, owns stateful resources. The bounded
 `device.logs` follow is a long-running *stateless* call, not a stream, and `operation.*`
 is stateless because operations belong to the daemon, not to a session.
 
