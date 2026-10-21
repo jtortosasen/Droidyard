@@ -263,6 +263,17 @@ func reflectInput(v any) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// Input is one capability's input schema, exactly as Generate publishes it: the same
+// reflection, so an adapter that needs a single capability's parameters (the CLI,
+// building one command's flags) does not reflect the whole registry.
+func Input(d capability.Descriptor) (json.RawMessage, error) {
+	input, err := reflectInput(d.Params)
+	if err != nil {
+		return nil, fmt.Errorf("capability %s: %w", d.Name, err)
+	}
+	return input, nil
+}
+
 // operationView is the output of a long-running capability: the operation view, with
 // the capability's own result schema, inlined, as its result
 // (ADR-0020 §Adapter projections). operation.wait keeps the view's open object, since
@@ -289,9 +300,9 @@ func Generate(reg *capability.Registry, version string) (*Document, error) {
 	doc := &Document{Version: version}
 
 	for _, d := range reg.All() {
-		input, err := reflectInput(d.Params)
+		input, err := Input(d)
 		if err != nil {
-			return nil, fmt.Errorf("capability %s: %w", d.Name, err)
+			return nil, err
 		}
 
 		var output json.RawMessage

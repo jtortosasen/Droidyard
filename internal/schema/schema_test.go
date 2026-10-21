@@ -111,6 +111,36 @@ func generate(t *testing.T) []byte {
 	return append(raw, '\n')
 }
 
+// TestInputIsWhatGeneratePublishes: schema.Input(d) is, byte for byte, the input
+// Generate publishes for every shipped capability, so an adapter that reflects one
+// capability (the CLI building one command's flags) sees the contract and not a second
+// reflection that could drift from it.
+func TestInputIsWhatGeneratePublishes(t *testing.T) {
+	reg := registry()
+	doc, err := schema.Generate(reg, system.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := map[string]string{}
+	for _, c := range doc.Capabilities {
+		published[c.Name] = string(c.Input)
+	}
+	n := 0
+	for _, d := range reg.All() {
+		got, err := schema.Input(d)
+		if err != nil {
+			t.Fatalf("%s: %v", d.Name, err)
+		}
+		if string(got) != published[d.Name] {
+			t.Errorf("%s: Input differs from Generate's input:\n%s\n%s", d.Name, got, published[d.Name])
+		}
+		n++
+	}
+	if n != len(doc.Capabilities) || n == 0 {
+		t.Errorf("compared %d capabilities of %d", n, len(doc.Capabilities))
+	}
+}
+
 func TestGeneratedSchemaMatchesTheGoldenFile(t *testing.T) {
 	got := generate(t)
 
