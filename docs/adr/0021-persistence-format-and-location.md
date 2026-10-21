@@ -1,6 +1,7 @@
 # ADR-0021: Persistence — JSON files in a per-user state directory
 
 - Status: Accepted
+- Superseded in part by: ADR-0113 (§Layout)
 - Superseded in part by: ADR-0046 (§Location)
 - Superseded in part by: ADR-0054 (§Layout)
 - Superseded in part by: ADR-0056 (§Format)

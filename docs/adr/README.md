@@ -141,6 +141,9 @@ edits made before this rule and are not added to.
 | [0110](0110-full-ui-dump.md) | A full UI dump for parsers, as an artifact in `uiautomator dump`'s format | Accepted |
 | [0111](0111-ui-events-between-reads.md) | The UI's events kept on the device, read since a cursor and waited on | Accepted |
 | [0112](0112-ui-events-stream-and-panel.md) | The UI events stream and its panel in the web UI | Accepted |
+| [0113](0113-ui-recording.md) | A UI recording: every distinct screen of a span, with its events | Accepted |
+| [0114](0114-patient-ui-events-reach.md) | A patient events reach for the UI events stream and the recorder | Accepted |
+| [0115](0115-ui-reads-and-recordings-lent.md) | The UI reads and the recording lent to a peer | Accepted |
 
 ## Open decisions (not yet ADRs)
 
