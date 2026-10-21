@@ -408,14 +408,25 @@ func (g Origin) stamped(client ClientKind) Origin {
 // ownerOf is the owner an operation of this client and origin records (ADR-0101): an MCP
 // session's chat as the registry holds it now, a peer's configured name.
 func (o *Operations) ownerOf(client ClientKind, origin Origin) opOwner {
-	owner := opOwner{session: origin.ID}
+	session, chat, peer := OwnerStamp(client, origin, o.sessions.Chat)
+	return opOwner{session: session, chat: chat, peer: peer}
+}
+
+// OwnerStamp is the owner fields ownerOf records, for a job the daemon owns beyond an
+// operation (a UI recording, ADR-0113): the starting session's id, an MCP session's chat as
+// chatOf (the session registry's) holds it now, and a peer's configured name. The job
+// stores them and asks OwnerReaches before it lets a caller stop it.
+func OwnerStamp(client ClientKind, origin Origin, chatOf func(session string) string) (session, chat, peer string) {
+	session = origin.ID
 	switch client {
 	case ClientMCP:
-		owner.chat = o.sessions.Chat(origin.ID)
+		if chatOf != nil {
+			chat = chatOf(origin.ID)
+		}
 	case ClientPeer:
-		owner.peer = SessionName(origin.Name)
+		peer = SessionName(origin.Name)
 	}
-	return owner
+	return session, chat, peer
 }
 
 // reaches reports whether the caller may wait on or cancel op (ADR-0101): the UI and the
@@ -424,21 +435,32 @@ func (o *Operations) ownerOf(client ClientKind, origin Origin) opOwner {
 // none. It reads only what the record fixed when it was made, so it needs no lock of the
 // store's.
 func (o *Operations) reaches(op *operation, who Origin) bool {
+	return OwnerReaches(op.client, op.owner.session, op.owner.chat, op.owner.peer, who, o.sessions.Chat)
+}
+
+// OwnerReaches is ADR-0101's rule over a stored owner (the client kind that started it and
+// OwnerStamp's fields): the UI and the CLI reach any; an MCP session what an MCP session
+// started, its own session's or its chat's (chatOf is the registry's chat of a session id);
+// a peer what a peer of its own configured name started. Any other kind reaches none.
+func OwnerReaches(client ClientKind, session, chat, peer string, who Origin, chatOf func(session string) string) bool {
 	switch who.Client {
 	case ClientUI, ClientCLI, "":
 		return true
 	case ClientMCP:
-		if op.client != ClientMCP {
+		if client != ClientMCP {
 			return false
 		}
-		if who.ID != "" && who.ID == op.owner.session {
+		if who.ID != "" && who.ID == session {
 			return true
 		}
-		chat := o.sessions.Chat(who.ID)
-		return chat != "" && chat == op.owner.chat
+		if chatOf == nil {
+			return false
+		}
+		c := chatOf(who.ID)
+		return c != "" && c == chat
 	case ClientPeer:
 		name := SessionName(who.Name)
-		return op.client == ClientPeer && name != "" && name == op.owner.peer
+		return client == ClientPeer && name != "" && name == peer
 	}
 	return false
 }

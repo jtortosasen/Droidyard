@@ -144,6 +144,13 @@ func (d *Durable) SHA256() string {
 
 func timelineRef(id string) string { return RefPrefix + classRecording + "." + id }
 
+// TimelineRef is the reference record of recording id's timeline with bytes as its size, for
+// a summary that names the artifact without opening it. Like every timeline reference it is
+// durable, untrusted and has no expiry.
+func TimelineRef(id string, bytes int64) Ref {
+	return Ref{Ref: timelineRef(id), MediaType: TimelineMediaType, Bytes: int(bytes), Durability: DurabilityDurable, Untrusted: true}
+}
+
 // recordMark is the part of recording.json the reference needs: a remote recording whose
 // bytes are not yet copied from the lending host (step 10) reads `growing`.
 type recordMark struct {

@@ -39,6 +39,9 @@ type Occupation interface {
 	LeaseDevice(session, serial string) (held capability.Holder, refused, gone bool)
 	// HoldsDevice reports whether the session holds the serial now.
 	HoldsDevice(session, serial string) bool
+	// Chat is the chat id the session's hello named, "" when it named none (ADR-0088): what a
+	// UI recording stores of its starter for ADR-0101's stop rule.
+	Chat(session string) string
 	// TakeDevice makes the session the holder of a serial it has booted, whoever held it.
 	TakeDevice(session, serial string)
 	// AdoptDevice makes the session the holder of a serial it adopted, only when free.

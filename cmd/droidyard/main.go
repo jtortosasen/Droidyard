@@ -538,6 +538,9 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 		// The hosts this daemon borrows devices from: <remote>/<serial> is relayed over
 		// their links (ADR-0100). The links exist once serve starts them.
 		adb.SetRemotes(host)
+		// The UI recordings (ADR-0113) live in the state directory; their recovery waits for
+		// the lock (serve calls adb.RecoverRecordings), and a recorder's start runs it first.
+		adb.SetRecordings(device.NewUIRecordings(st))
 		// The APKs the daemon's peers upload, installed by device.installUpload (ADR-0099 §3).
 		adb.SetUploads(host.Uploads())
 		base := problems

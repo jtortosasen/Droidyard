@@ -109,6 +109,10 @@ Fixed by [ADR-0020](../adr/0020-operation-contract.md) §Adapter projections:
   keeps booting, because we do not own it; before that its launch is ended so the AVD is
   free ([ADR-0033](../adr/0033-emulator-launch-owned-until-serial.md),
   [emulator](../subsystems/emulator.md) §Timeouts). The tool description says so.
+- `device_recordUi` is **not** long-running: it returns once the recording runs. The
+  recording is the daemon's, not the call's: `operation_cancel` and a disconnect leave it
+  running, and `device_stopUiRecording` ends it by ADR-0101's reach
+  ([ADR-0113](../adr/0113-ui-recording.md) §3, §4).
 
 ## Descriptions
 

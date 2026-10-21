@@ -99,10 +99,12 @@ func NewSnapshotID() string {
 // rawNode is a parsed <node>, before compaction.
 type rawNode struct {
 	class, pkg, id, text, desc, hint string
-	bounds                           [4]int
-	drawing                          int
-	flags                            []string
-	children                         []*rawNode
+	// fullClass is the class as the document wrote it; class is its last segment.
+	fullClass string
+	bounds    [4]int
+	drawing   int
+	flags     []string
+	children  []*rawNode
 }
 
 // meaningful reports whether a node survives compaction: an id, text, desc or flag.
@@ -166,7 +168,7 @@ func nodeFromAttrs(attrs []xml.Attr) *rawNode {
 	for _, a := range attrs {
 		switch a.Name.Local {
 		case "class":
-			n.class = a.Value
+			n.class, n.fullClass = a.Value, a.Value
 		case "package":
 			n.pkg = a.Value
 		case "resource-id":
@@ -232,12 +234,18 @@ func BuildSnapshot(dump []byte, id string, maxBytes int) (Snapshot, error) {
 // the ancestor selector are returned, before the cap, and emptyReason is noMatch when
 // nothing matched (plan m1f D6; ui-automation.md §The tree).
 func buildSnapshot(dump []byte, id string, maxBytes int, within *AncestorSelector) (Snapshot, error) {
-	if maxBytes <= 0 {
-		maxBytes = DefaultUITreeBytes
-	}
 	rotation, roots, err := parseDump(dump)
 	if err != nil {
 		return Snapshot{}, err
+	}
+	return snapshotOf(rotation, roots, id, maxBytes, within)
+}
+
+// snapshotOf is buildSnapshot over a document parseDump already read, so a caller that
+// needs the raw tree too (chromePageHidden) parses once.
+func snapshotOf(rotation int, roots []*rawNode, id string, maxBytes int, within *AncestorSelector) (Snapshot, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultUITreeBytes
 	}
 	s := Snapshot{ID: id, Nodes: []UINode{}, Display: UIDisplay{Rotation: rotation}}
 	if len(roots) > 0 {

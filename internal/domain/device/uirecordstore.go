@@ -137,12 +137,12 @@ type DumpLine struct {
 	Foreground string `json:"foreground,omitempty"`
 	Bytes      int    `json:"bytes"`
 	SHA256     string `json:"sha256"`
-	Unchanged  bool   `json:"unchanged,omitempty"`
 	Warning    string `json:"warning,omitempty"`
 	XML        string `json:"xml"`
 }
 
-// MissedLine says a dump was lost (past the bound, over 8 MiB or unreadable).
+// MissedLine says a dump was lost: past the bound, over 8 MiB, unreadable, or the last one,
+// at a stop, not taken (the lock was held, or the reader was in its pause).
 type MissedLine struct {
 	Kind   string `json:"kind"`
 	Time   string `json:"time,omitempty"`
@@ -163,21 +163,43 @@ type EndLine struct {
 // with artifact.ErrTimelineFull and nothing is written: the recorder then ends maxBytes.
 type TimelineWriter struct {
 	d *artifact.Durable
+	// limit, when above zero, is the size no line but the last may take the file past
+	// (Reserve): the room under the cap that End has to itself.
+	limit int64
 }
 
 // NewTimelineWriter wraps the handle artifact.Store.CreateTimeline returned.
 func NewTimelineWriter(d *artifact.Durable) *TimelineWriter { return &TimelineWriter{d: d} }
 
+// Reserve keeps room bytes of the handle's cap (the one CreateTimeline got) for End: Line
+// refuses, with artifact.ErrTimelineFull, any line that would leave less than room under it,
+// so a timeline that reached its cap still ends with its `end` line (ADR-0113 §3, §5).
+func (w *TimelineWriter) Reserve(cap, room int64) {
+	if cap > 0 && room > 0 && room < cap {
+		w.limit = cap - room
+	}
+}
+
 // Line appends v as one JSON line. HTML characters are not escaped, so a dump's XML stays
 // as readable as the reader sent it.
-func (w *TimelineWriter) Line(v any) error {
+func (w *TimelineWriter) Line(v any) error { return w.write(v, w.limit) }
+
+// End appends the closing line: it may use the room Reserve kept, and is refused only past
+// the handle's own cap.
+func (w *TimelineWriter) End(v any) error { return w.write(v, 0) }
+
+func (w *TimelineWriter) write(v any, limit int64) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
 		return err
 	}
-	return w.d.WriteLine(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+	line := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	if limit > 0 && w.d.Size()+int64(len(line))+1 > limit {
+		return artifact.ErrTimelineFull
+	}
+	return w.d.WriteLine(line)
 }
 
 // Size, SHA256 and Close pass through to the handle.

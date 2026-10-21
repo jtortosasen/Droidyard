@@ -99,6 +99,9 @@ func (a *ADB) uiDump(ctx context.Context, t *target, p UIDumpParams, store *arti
 	}
 	res.Dump = ref
 	res.Warnings = append(append([]string(nil), t.warnings...), warnings...)
+	if chromePageHidden(roots) {
+		res.Warnings = append(res.Warnings, chromePageHiddenWarning)
+	}
 	if len(res.Warnings) == 0 {
 		res.Warnings = nil
 	}

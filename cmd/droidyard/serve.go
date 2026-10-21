@@ -232,6 +232,9 @@ func serve(args []string) int {
 		fmt.Fprintf(logw, "droidyard serve (pid %d): %v\n", os.Getpid(), err)
 		return 1
 	}
+	// Recordings a dead daemon left running are finalised now that this one holds the lock
+	// (a daemon that lost it must not touch them); a recorder's start would run it first.
+	adb.RecoverRecordings()
 	// The peer link (ADR-0098), once the lock is held: the identity has one writer. A daemon
 	// that cannot make one runs without peers.
 	stopPeers := startPeers(host, reg, ops, bus, artifacts, adb, logw)

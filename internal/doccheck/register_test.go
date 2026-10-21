@@ -197,7 +197,9 @@ func checkRegister(fsys fs.FS) []string {
 // `device.uiEvents` topic, and README.md's status line (ADR-0110 to ADR-0112).
 // Raised by 6 (to 29,807) at milestone 2x step 3: peer.md says a peer's link holds four UI events
 // streams per device too (ADR-0115).
-const liveBudget = 29807
+// Raised by 38 (to 29,845) at milestone 2x step 5: mcp.md says a UI recording is the daemon's,
+// not an operation's, and mvp.md's device row names recordUi and stopUiRecording (ADR-0113).
+const liveBudget = 29845
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

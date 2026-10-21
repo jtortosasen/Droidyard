@@ -404,3 +404,43 @@ func TestTimelineWriterRefusesALinePastTheCap(t *testing.T) {
 		t.Fatalf("round trip = %q, %v; want the XML byte for byte", back.XML, err)
 	}
 }
+
+// Decision (ADR-0113 §5, the hand-off of step 4: a timeline at its cap still ends with its
+// `end` line): the room Reserve keeps is for End alone; ordinary lines are refused before it,
+// the end line fits in it, and nothing passes the handle's own cap. Seen failing with no
+// reserve (the ordinary lines took the file to within one line of the cap and the end line
+// was refused).
+func TestTimelineWriterKeepsRoomForTheEndLine(t *testing.T) {
+	_, art, root := newRecordings(t)
+	d, err := art.CreateTimeline(recID(8), 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := NewTimelineWriter(d)
+	w.Reserve(1000, 300)
+	line := DumpLine{Kind: "dump", N: 1, XML: strings.Repeat("x", 100)}
+	for i := 0; ; i++ {
+		err := w.Line(line)
+		if errors.Is(err, artifact.ErrTimelineFull) {
+			break
+		}
+		if err != nil || i > 20 {
+			t.Fatalf("line %d: %v", i, err)
+		}
+	}
+	if w.Size() > 700 {
+		t.Fatalf("ordinary lines took the file to %d bytes, past the cap minus the room kept (700)", w.Size())
+	}
+	if err := w.End(EndLine{Kind: "end", HostTime: "2026-10-21T10:20:00Z", Reason: EndMaxBytes}); err != nil {
+		t.Fatalf("the end line was refused in the room kept for it: %v", err)
+	}
+	if err := w.End(DumpLine{Kind: "dump", XML: strings.Repeat("x", 400)}); !errors.Is(err, artifact.ErrTimelineFull) {
+		t.Errorf("a line past the handle's own cap: %v, want ErrTimelineFull", err)
+	}
+	w.Close()
+	data, _ := os.ReadFile(filepath.Join(root, "recordings", recID(8), "timeline.jsonl"))
+	lastLine := data[bytes.LastIndexByte(data[:len(data)-1], '\n')+1:]
+	if len(data) > 1000 || !bytes.Contains(lastLine, []byte(`"kind":"end"`)) {
+		t.Errorf("file of %d bytes ends %q: want whole lines within the cap, the end line last", len(data), lastLine)
+	}
+}

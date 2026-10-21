@@ -12,9 +12,10 @@ import (
 // inputSchema. 66.7 KB at ee06eb7, 34,786 B at b5e8dd9, 28,032 B once the file
 // capabilities left MCP (ADR-0060 §4: the logged size rounded up to the next 1,000 B, so the
 // saving is held), 29,697 B with device_uiDump (plan m2w step 4: the same rule, 30,000 B), 31,187 B with
-// device_uiEvents (step 6: the same rule, 32,000 B); outputSchema is left out because the two
+// device_uiEvents (step 6: the same rule, 32,000 B), 32,690 B with device_recordUi and
+// device_stopUiRecording (plan m2x step 5: the same rule, 33,000 B); outputSchema is left out because the two
 // clients measured (OpenCode, Cursor) do not show it to the model.
-const maxToolListBytes = 32000
+const maxToolListBytes = 33000
 
 // TestToolListModelFacingBytes sends initialize and tools/list through a real shim to
 // the shipped wiring and holds the compact JSON of the shipped tools, outputSchema
@@ -48,8 +49,8 @@ func TestToolListModelFacingBytes(t *testing.T) {
 		delete(tool, "outputSchema")
 		shipped = append(shipped, tool)
 	}
-	if len(shipped) != 34 {
-		t.Fatalf("tools/list has %d shipped tools; want 34", len(shipped))
+	if len(shipped) != 36 {
+		t.Fatalf("tools/list has %d shipped tools; want 36", len(shipped))
 	}
 	raw, err := json.Marshal(shipped)
 	if err != nil {
