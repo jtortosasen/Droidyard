@@ -10852,6 +10852,10 @@
                   "type": "string",
                   "pattern": "^[0-9a-f]{64}$",
                   "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                },
+                "fast": {
+                  "type": "boolean",
+                  "description": "True marks the link slow: a live view this daemon starts on the host's device gets a lighter stream (ADR-0118 §4). Off when absent."
                 }
               },
               "additionalProperties": false,
@@ -11183,6 +11187,10 @@
                       "type": "string",
                       "pattern": "^[0-9a-f]{64}$",
                       "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                    },
+                    "fast": {
+                      "type": "boolean",
+                      "description": "True marks the link slow: a live view this daemon starts on the host's device gets a lighter stream (ADR-0118 §4). Off when absent."
                     }
                   },
                   "additionalProperties": false,
@@ -11411,6 +11419,10 @@
                   "type": "string",
                   "pattern": "^[0-9a-f]{64}$",
                   "description": "The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."
+                },
+                "fast": {
+                  "type": "boolean",
+                  "description": "True marks the link slow: a live view this daemon starts on the host's device gets a lighter stream (ADR-0118 §4). Off when absent."
                 }
               },
               "additionalProperties": false,

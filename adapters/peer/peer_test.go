@@ -103,6 +103,8 @@ type side struct {
 	artifacts peer.ArtifactReader
 	// admit, when set before listen, is what the listener admits a join with.
 	admit peer.Admit
+	// setFast, when set before listen, is told each peer hello's fast mark (ADR-0118 §4).
+	setFast func(peer string, fast bool)
 }
 
 func newSide(t *testing.T, api string) *side {
@@ -184,7 +186,7 @@ func newSide(t *testing.T, api string) *side {
 // and admit seams of the side before calling it.
 func (s *side) server(t *testing.T) *peer.Server {
 	t.Helper()
-	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, API: "0.0.0", Log: s.log})
+	srv := peer.New(peer.Options{Host: s.host, Sessions: httpapi.NewPeerSessions(s.reg, s.ops, s.bus), Screens: s.screens, Uploads: s.host.Uploads(), Artifacts: s.artifacts, Admit: s.admit, SetFast: s.setFast, API: "0.0.0", Log: s.log})
 	t.Cleanup(srv.Close)
 	return srv
 }

@@ -53,5 +53,5 @@ func ServePeerScreen(parent context.Context, c *websocket.Conn, peer string, fir
 		c.Close(websocket.StatusInternalError, "the stream could not be attached")
 		return
 	}
-	sendScreen(ctx, cancel, c, v, defaultScreenWriteTimeout)
+	sendScreen(ctx, cancel, c, v, defaultScreenWriteTimeout, newAckWindow())
 }

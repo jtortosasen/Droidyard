@@ -52,6 +52,9 @@ type ADB struct {
 	// occupation holds who occupies which device (ADR-0094), set once at wiring; nil holds
 	// nothing and refuses nothing.
 	occupation Occupation
+	// peerFast says whether a paired peer's hello said its remote is marked fast
+	// (ADR-0118 §4), set once at wiring; nil says no.
+	peerFast func(peer string) bool
 	// startHook is a test seam: see SetStartHook.
 	startHook atomic.Pointer[func()]
 	// floor is a test seam: see LengthenLimits. Zero in the product.

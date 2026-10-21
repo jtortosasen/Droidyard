@@ -709,7 +709,7 @@ func (a *ADB) screenSourceFor(ctx context.Context, call *capability.Call) (devic
 	if err := a.ready(ctx, t); err != nil {
 		return "", viewKind{}, nil, nil, err
 	}
-	ls, release, err := a.screens.acquire(ctx, a, t)
+	ls, release, err := a.screens.acquireWith(ctx, a, t, a.callFast(call))
 	if err != nil {
 		return "", viewKind{}, nil, nil, err
 	}

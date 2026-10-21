@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
 // GET /v1/screen (plan m2p step 4; ADR-0078 §4): the live view's video, one WebSocket per
@@ -201,14 +203,15 @@ func (h *screenHandler) serve(parent context.Context, c *websocket.Conn, attach 
 	if wt <= 0 {
 		wt = defaultScreenWriteTimeout
 	}
-	sendScreen(ctx, cancel, c, v, wt)
+	sendScreen(ctx, cancel, c, v, wt, nil)
 }
 
 // sendScreen sends the viewer's packets on c until the stream or the socket ends, then
 // closes the viewer, which ends the stream (as detached when the socket was the reason). It
 // is the part of /v1/screen and /peer/v1/screen that comes after the first frame. cancel
-// ends ctx.
-func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, v ScreenViewer, wt time.Duration) {
+// ends ctx. win is the peer socket's acknowledgement window (ADR-0118 §3), nil for the
+// local socket, which takes no acknowledgement: a type-4 frame there is the viewer's to refuse.
+func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, v ScreenViewer, wt time.Duration, win *ackWindow) {
 	// Reads: the client's binary frames after the auth frame are the view's input, handed to
 	// the viewer one by one. A text frame, a frame the viewer calls malformed (1003) or a
 	// refusal of any other kind (1008) closes the socket; so does a frame over the read limit.
@@ -223,6 +226,13 @@ func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Con
 			if typ != websocket.MessageBinary {
 				c.Close(websocket.StatusUnsupportedData, "this socket takes binary input frames only")
 				break
+			}
+			if win != nil && len(frame) > 0 && frame[0] == capability.PeerScreenAck {
+				if win.ack(frame) != nil {
+					c.Close(websocket.StatusPolicyViolation, "acknowledgement refused")
+					break
+				}
+				continue
 			}
 			if err := v.Input(frame); err != nil {
 				if errors.Is(err, ErrInputMalformed) {
@@ -244,6 +254,9 @@ func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Con
 
 	var buf []byte
 	for {
+		if win != nil && win.wait(ctx) != nil {
+			return
+		}
 		p, err := v.Next(ctx)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -257,6 +270,9 @@ func sendScreen(ctx context.Context, cancel context.CancelFunc, c *websocket.Con
 		wcancel()
 		if err != nil {
 			return // the library closed a connection whose write failed or timed out
+		}
+		if win != nil {
+			win.sentBytes(len(buf))
 		}
 		if cap(buf) > 1<<20 {
 			buf = nil // do not keep a key frame's buffer for the delta frames behind it

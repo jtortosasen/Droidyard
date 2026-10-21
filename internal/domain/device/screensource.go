@@ -127,6 +127,7 @@ type screenSource struct {
 	adb    *ADB
 	path   string // the adb binary
 	serial string
+	fast   bool // started for a peer marked fast: screenFastOptions (ADR-0118 §4)
 
 	refs   int  // holders of the source, an acquire still starting included; set.mu
 	ending bool // end was called; set.mu
@@ -176,7 +177,7 @@ var _ screen.Source = (*screenSource)(nil)
 // serial wait on the start in progress; a start that fails fails every waiter. A caller
 // whose ctx ends while waiting leaves, and the start is abandoned if it was the last one
 // waiting. After StopAll has begun, acquire is refused.
-func (ss *screenSources) acquire(ctx context.Context, a *ADB, t *target) (*screenSource, func(), error) {
+func (ss *screenSources) acquireWith(ctx context.Context, a *ADB, t *target, fast bool) (*screenSource, func(), error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -199,6 +200,7 @@ func (ss *screenSources) acquire(ctx context.Context, a *ADB, t *target) (*scree
 		}
 		if s == nil {
 			s = a.newScreenSource(ss, t)
+			s.fast = fast // the first starter decides, for the source's life (ADR-0118 §4)
 			if ss.by == nil {
 				ss.by, ss.all = map[string]*screenSource{}, map[*screenSource]struct{}{}
 			}
@@ -522,7 +524,7 @@ func (s *screenSource) spawn(remote, scid string) *startFailure {
 		return &startFailure{phase: "start", detail: "no recorded process starter is configured"}
 	}
 	args := append([]string{"-s", s.serial, "shell", "CLASSPATH=" + remote, "app_process", "/", screenClass,
-		scrcpyserver.Version, "scid=" + scid}, screenServerOptions...)
+		scrcpyserver.Version, "scid=" + scid}, s.serverOptions()...)
 	cmd := exec.CommandContext(s.childCtx, s.path, args...)
 	cmd.Env = s.adb.env
 	cmd.Cancel = func() error { return cmd.Process.Kill() } // the pid, never the group

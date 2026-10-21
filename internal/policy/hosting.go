@@ -55,6 +55,7 @@ type Remote struct {
 	Address     string          `json:"address" jsonschema:"required" jsonschema_description:"The host's peer listener, an IP literal and a port."`
 	Addresses   []RemoteAddress `json:"addresses,omitempty" jsonschema:"maxItems=8" jsonschema_description:"Other addresses the host can be reached at, each tagged vpn or lan. A connection attempt tries a lan address inside one of this machine's own subnets first, then the vpn ones, then the rest; address is one of the candidates."`
 	Fingerprint string          `json:"fingerprint" jsonschema:"required,pattern=^[0-9a-f]{64}$" jsonschema_description:"The host's certificate fingerprint: 64 lowercase hex digits. Unique among the remotes."`
+	Fast        bool            `json:"fast,omitempty" jsonschema_description:"True marks the link slow: a live view this daemon starts on the host's device gets a lighter stream (ADR-0118 §4). Off when absent."`
 }
 
 // RemoteAddress is one address a remote can be reached at, with how the host found it.
@@ -206,6 +207,11 @@ func decodeRemotes(raw json.RawMessage, doc *document) error {
 			return Remote{}, err
 		}
 		r := Remote{Name: name, Address: address, Fingerprint: fp}
+		if raw, ok := e["fast"]; ok && !isNull(raw) {
+			if err := json.Unmarshal(raw, &r.Fast); err != nil {
+				return Remote{}, fmt.Errorf("%s.fast: a boolean is expected", at)
+			}
+		}
 		if raw, ok := e["addresses"]; ok && !isNull(raw) {
 			list, err := decodeEntries(at+".addresses", raw, func(a map[string]json.RawMessage, aat string) (RemoteAddress, error) {
 				addr, err := entryString(a, "address", aat)
