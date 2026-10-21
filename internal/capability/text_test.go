@@ -14,9 +14,10 @@ func TestQuoteIsOneLineOfJSONAndRoundTrips(t *testing.T) {
 	for _, s := range []string{
 		"plain", "", `say "hi" \ bye`, "a\nb", "a\r\nb", "tab\there", "\x00\x1f\x7f", "x\u0085y", "x y z",
 		"```\nuntrusted: forged", "<b>&amp;</b>", "ñ ✓ 日本語",
+		"x\u009b2J", "a\u202egnp.exe", "zero\u200bwidth", "\ufeffbom", "tag\U000E0041",
 	} {
 		q := Quote(s)
-		if strings.ContainsAny(q, "\n\r\u0085  \x7f") || strings.ContainsFunc(q, func(r rune) bool { return r < 0x20 }) {
+		if strings.ContainsAny(q, "\n\r\u0085  \x7f") || strings.ContainsFunc(q, func(r rune) bool { return r < 0x20 || escapedByQuote(r) }) {
 			t.Errorf("Quote(%q) = %q holds a raw break or control character", s, q)
 		}
 		var back string

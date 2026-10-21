@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-21
+- Superseded in part by: ADR-0122 (§6)
 - Supersedes: ADR-0110 §Decision 2 (in part: the daemon now keeps device text on the host, in a recording); ADR-0012 §Durability classes (in part: a daemon-wide durable class, untrusted by class); ADR-0021 §Layout (in part: `recordings/`)
 - Relates to: ADR-0010; ADR-0015 §1, §4; ADR-0019 §Sessions; ADR-0020; ADR-0034 §1; ADR-0048 §1; ADR-0088 §4; ADR-0101; ADR-0108; ADR-0111; ADR-0114; plan m2x Q1–Q4, Q6–Q9; [the spike](../research/spike-ui-recording-2026-10.md)
 - Decided by the owner, 2026-10-21: recordings of the full dump over a span, started and stopped from the web UI and by agents, to see how an app or a page loads. Q9 is the owner's answer. The shape is Delegated (plan m2x, reviewed in three rounds).

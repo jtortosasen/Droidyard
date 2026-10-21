@@ -334,7 +334,7 @@ func Register(reg *capability.Registry, opts Options) {
 
 	// A watch creates a subscription, so it is a command, not a query (mcp.md
 	// §Annotations: "a query that writes is a Kind bug"); it is streaming, so it needs a
-	// WebSocket session (ADR-0010). It is not idempotent (each call opens a new
+	// session that carries events (ADR-0010). It is not idempotent (each call opens a new
 	// subscription) and, being a command, is destructive by default: the override and its
 	// reason say it changes no file (D7).
 	notDestructiveWatch := false
@@ -345,7 +345,7 @@ func Register(reg *capability.Registry, opts Options) {
 		Audience:     capability.AudienceHuman,
 		Statefulness: capability.Streaming,
 		Since:        version,
-		Description:  "Watches a directory in the project (WebSocket sessions only) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
+		Description:  "Watches a directory in the project for the calling session (WebSocket or CLI) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
 		Params:       WatchParams{},
 		Result:       WatchResult{},
 		// The stream (ADR-0049 §2): the client is generated from it (ADR-0041 §4).

@@ -42,7 +42,7 @@ type UIRecordingsResult struct {
 
 // WatchUIRecordingsResult is device.watchUiRecordings' result.
 type WatchUIRecordingsResult struct {
-	SubscriptionID string        `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the device.uiRecording events arrive on, over the WebSocket session that made the call, until events.unsubscribe or the session's end."`
+	SubscriptionID string        `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the device.uiRecording events arrive on, over the session that made the call, until events.unsubscribe or the session's end."`
 	Recordings     []UIRecording `json:"recordings" jsonschema:"required" jsonschema_description:"The recordings kept now, newest first, at most 50, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap."`
 }
 
@@ -102,7 +102,7 @@ func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 		Statefulness: capability.Streaming,
 		Lendable:     true,
 		Since:        "0.34.0",
-		Description:  "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+		Description:  "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling session (WebSocket or CLI) on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
 		Params:       struct{}{},
 		Result:       WatchUIRecordingsResult{},
 		Events: &capability.Events{

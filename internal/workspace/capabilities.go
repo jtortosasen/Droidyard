@@ -121,7 +121,7 @@ func Register(reg *capability.Registry, ws *Registry) {
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
 		Since:        sinceWatch,
-		Description:  "Streams every workspace's state transitions to the calling WebSocket session on topic workspace.state, with its name, root and trust. The result lists the workspaces this installation has known, the newest opened first and at most 50, with the live state of those open now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+		Description:  "Streams every workspace's state transitions to the calling session (WebSocket or CLI) on topic workspace.state, with its name, root and trust. The result lists the workspaces this installation has known, the newest opened first and at most 50, with the live state of those open now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
 		Params:       None{},
 		Result:       WatchResult{},
 		Events: &capability.Events{

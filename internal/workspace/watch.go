@@ -31,7 +31,7 @@ type Listed struct {
 
 // WatchResult is workspace.watch's result (ADR-0045 §3).
 type WatchResult struct {
-	SubscriptionID string   `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the workspace.state events arrive on, over the WebSocket session that made the call. It follows every workspace, opened by any client, until events.unsubscribe or the session's end."`
+	SubscriptionID string   `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the workspace.state events arrive on, over the session that made the call. It follows every workspace, opened by any client, until events.unsubscribe or the session's end."`
 	Workspaces     []Listed `json:"workspaces" jsonschema:"required" jsonschema_description:"The workspaces this state root has known, newest first, with the live state of those open now, taken after the subscription opened: merge it with the events by id."`
 	Truncated      bool     `json:"truncated" jsonschema:"required" jsonschema_description:"True when more than 50 are known and the oldest were left out."`
 }

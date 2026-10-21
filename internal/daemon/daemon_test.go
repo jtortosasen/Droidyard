@@ -92,7 +92,7 @@ func startAt(t *testing.T, uid int, state, socket string) *harness {
 	h.state, h.socket = state, socket
 	d, err := Start(Options{
 		State: h.state, Socket: h.socket, Version: system.Version, UID: uid, Ops: h.ops,
-		Handlers: map[capability.ClientKind]Handler{capability.ClientCLI: Native(reg, h.ops)},
+		Handlers: map[capability.ClientKind]Handler{capability.ClientCLI: Native(reg, h.ops, nil)},
 		Log:      testLog{t},
 	})
 	if err != nil {

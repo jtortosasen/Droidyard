@@ -5,6 +5,7 @@
 - Superseded in part by: ADR-0094 (§Decision)
 - Superseded in part by: ADR-0082 (§Decision)
 - Date: 2026-09-27
+- Superseded in part by: ADR-0122 (§Decision)
 - Amended: 2026-09-29. What changed: what a session is on each transport (plain HTTP
   has none; the WebSocket is the UI's session), and where session state lives — in the
   session, not the workspace; operations belong to the daemon

@@ -45,7 +45,7 @@ type SessionWatchParams struct{}
 
 // SessionWatchResult is session.watch's result.
 type SessionWatchResult struct {
-	SubscriptionID string          `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the session.state events arrive on, over the WebSocket session that made the call, until events.unsubscribe or the session's end."`
+	SubscriptionID string          `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the session.state events arrive on, over the session that made the call, until events.unsubscribe or the session's end."`
 	Sessions       []SessionListed `json:"sessions" jsonschema:"required" jsonschema_description:"The sessions connected now (MCP sessions and paired peers' links), the oldest first, taken after the subscription opened: merge it with the events by id."`
 }
 
@@ -61,7 +61,7 @@ func (o *Operations) registerSessionWatch() {
 		Scope:        Global,
 		Statefulness: Streaming,
 		Since:        sinceSessionWatch,
-		Description:  "Streams the agents connected over MCP to the calling WebSocket session on topic session.state, from the moment each connects: on connecting, on its name, on every binding and on its end. The result lists the sessions connected now, oldest first, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+		Description:  "Streams the agents connected over MCP to the calling session (WebSocket or CLI) on topic session.state, from the moment each connects: on connecting, on its name, on every binding and on its end. The result lists the sessions connected now, oldest first, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
 		Params:       SessionWatchParams{},
 		Result:       SessionWatchResult{},
 		Events: &Events{
@@ -71,7 +71,7 @@ func (o *Operations) registerSessionWatch() {
 		Errors: []ErrorCode{ErrSessionRequired},
 		Annotations: Annotations{
 			Destructive: &notDestructive,
-			Reason:      "adds a subscription to the calling WebSocket session; changes no MCP session",
+			Reason:      "adds a subscription to the calling session; changes no MCP session",
 		},
 		Handler: func(ctx context.Context, call *Call) (any, error) {
 			sess, ok := call.Session.(Follower)

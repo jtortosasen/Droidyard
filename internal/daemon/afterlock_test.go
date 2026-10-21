@@ -29,7 +29,7 @@ func TestAfterLockRunsHoldingTheLockBeforeTheSocketExists(t *testing.T) {
 	var socketThen error
 	opts := Options{
 		State: state, Socket: socket, Version: system.Version, UID: os.Getuid(), Ops: ops,
-		Handlers: map[capability.ClientKind]Handler{capability.ClientCLI: Native(reg, ops)},
+		Handlers: map[capability.ClientKind]Handler{capability.ClientCLI: Native(reg, ops, nil)},
 		Log:      testLog{t},
 		AfterLock: func() {
 			calls++

@@ -109,11 +109,13 @@ func TestEventsThroughASession(t *testing.T) {
 	}
 }
 
-// TestEventsNeedASessionThatCanCarryThem: through every adapter the daemon ships, a
-// call to events.subscribe or events.unsubscribe is rejected with SESSION_REQUIRED at
-// Start, naming GET /v1/ws, with no operation: plain HTTP, a CLI call, and the core's
-// MCP client kind (the MCP adapter lists no events tool at all; see
-// TestMCPTranscript). ADR-0010 as amended; plan m1d, D6.
+// TestEventsNeedASessionThatCanCarryThem: a call to events.subscribe or events.unsubscribe
+// is rejected with SESSION_REQUIRED at Start, naming GET /v1/ws, with no operation, through
+// plain HTTP and the core's MCP client kind (the MCP adapter lists no events tool at all; see
+// TestMCPTranscript). A CLI connection carries streams (ADR-0122), so the same calls
+// succeed there: subscribe follows its stream until the CLI is killed, which releases it, and
+// unsubscribe is a no-op {} for an id the connection does not own. ADR-0010 as amended; plan
+// m1d, D6.
 func TestEventsNeedASessionThatCanCarryThem(t *testing.T) {
 	t.Parallel()
 	p, _ := startHTTP(t, "127.0.0.1:0")
@@ -135,11 +137,16 @@ func TestEventsNeedASessionThatCanCarryThem(t *testing.T) {
 		}
 		want("POST /v1/call "+c.name, envelopeOf(t, resp))
 
-		env, code := p.call(t, c.name, "--params", c.params)
-		if code == 0 {
-			t.Errorf("droidyard call %s exited 0", c.name)
+		if c.name == "events.subscribe" {
+			f := p.follow(t, c.name, "--params", c.params)
+			f.opened(t)
+			f.kill(t)
+		} else {
+			env, code := p.call(t, c.name, "--params", c.params)
+			if code != 0 || env.Error != nil || string(env.Result) != "{}" {
+				t.Errorf("droidyard call %s = (%+v, exit %d, result %s); want a no-op {}", c.name, env.Error, code, env.Result)
+			}
 		}
-		want("droidyard call "+c.name, env)
 
 		out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: c.name, Params: json.RawMessage(c.params), Client: capability.ClientMCP})
 		var e *capability.Error
@@ -147,7 +154,6 @@ func TestEventsNeedASessionThatCanCarryThem(t *testing.T) {
 			t.Errorf("%s as client mcp: (%+v, %v); want SESSION_REQUIRED", c.name, out, err)
 		}
 	}
-	if n := p.bus.Subscriptions(); n != 0 {
-		t.Errorf("the rejected calls left %d subscriptions on the bus", n)
-	}
+	// The refused calls left none, and the CLI's was released with its connection.
+	waitSubscriptions(t, p, 0)
 }

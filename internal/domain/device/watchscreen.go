@@ -16,7 +16,7 @@ import (
 )
 
 // device.watchScreen (plan m2p step 4; ADR-0078): the live view of a device for the
-// calling WebSocket session. The call joins the device's shared source (screensource.go)
+// calling session. The call joins the device's shared source (screensource.go)
 // as a viewer and returns a stream id; the video itself travels on GET /v1/screen, whose
 // handler holds only AttachScreen: a ScreenHandle, which can read packets, close and take
 // the view's own input frames (Input, ADR-0117), and nothing else that reaches the device.
@@ -50,7 +50,7 @@ type WatchScreenParams struct {
 
 // WatchScreenResult is device.watchScreen's result.
 type WatchScreenResult struct {
-	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the stream's events arrive on, over the WebSocket session that made the call. Ending it (events.unsubscribe) ends the stream."`
+	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the stream's events arrive on, over the session that made the call. Ending it (events.unsubscribe) ends the stream."`
 	Device         string `json:"device" jsonschema:"required"`
 	StreamID       string `json:"streamId" jsonschema:"required" jsonschema_description:"The id to send, with the daemon's token, as the first frame of GET /v1/screen within 10 s. It works once, for as long as the subscription lives."`
 	Width          int    `json:"width" jsonschema:"required" jsonschema_description:"The frame width in pixels when the stream started; a rotation announces a new size in the stream itself."`
@@ -96,7 +96,7 @@ func registerWatchScreen(reg *capability.Registry, adb *ADB) {
 		Lendable:     true,
 		Since:        "0.27.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Starts the live view of a device for the calling WebSocket session: H.264 video on GET /v1/screen (its first frame is {\"auth\": <token>, \"stream\": <streamId>}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
+		Description:  "Starts the live view of a device for the calling session (WebSocket or CLI): H.264 video on GET /v1/screen (its first frame is {\"auth\": <token>, \"stream\": <streamId>}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
 		Params:       WatchScreenParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(WatchScreenParams).Device) },
 		Result:       WatchScreenResult{},

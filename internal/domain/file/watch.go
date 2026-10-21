@@ -81,7 +81,7 @@ type WatchParams struct {
 
 // WatchResult is file.watch's result (D7).
 type WatchResult struct {
-	SubscriptionID string         `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the changes arrive on, over the WebSocket session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."`
+	SubscriptionID string         `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the changes arrive on, over the session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."`
 	Watched        int            `json:"watched" jsonschema:"required" jsonschema_description:"How many entries the baseline walk recorded; at most 20000."`
 	Truncated      bool           `json:"truncated" jsonschema_description:"True when the baseline walk stopped at 20000 entries; watch a subdirectory."`
 	Excluded       []string       `json:"excluded" jsonschema:"required" jsonschema_description:"Directories and names the watch never reports."`

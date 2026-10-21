@@ -3,8 +3,11 @@ package capability
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf16"
 )
 
 // The compact text renderings (ADR-0036 Decision 2; mcp.md §Results). A descriptor may
@@ -20,10 +23,12 @@ import (
 // into every string under an untrusted-tagged field of each rendered result type, and the
 // adapter's own check on what it sends.
 
-// Quote is s as a JSON string: line breaks, quotes and every control character escaped,
-// and nothing but the escapes added (< > & are left as they are; U+0085, which some line
-// splitters read as a break and JSON leaves alone, is escaped). It is the single quoting
-// function of every rendering.
+// Quote is s as a JSON string: line breaks, quotes and every control and format character
+// escaped, and nothing but the escapes added (< > & are left as they are). JSON leaves the
+// C1 controls (U+0080–U+009F, U+0085 among them, which some line splitters read as a break
+// and U+009B, which a terminal reads as CSI), DEL and the format characters (U+202E and the
+// other bidi controls, zero-width ones, U+FEFF) alone, so Quote escapes them as \uXXXX,
+// a pair of escapes above U+FFFF. It is the single quoting function of every rendering.
 func Quote(s string) string {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -32,8 +37,29 @@ func Quote(s string) string {
 		return `""` // a string always encodes; kept so that Quote cannot fail open
 	}
 	out := strings.TrimSuffix(buf.String(), "\n")
-	out = strings.ReplaceAll(out, "\u0085", `\u0085`)
-	return strings.ReplaceAll(out, "\u007f", `\u007f`)
+	if strings.IndexFunc(out, escapedByQuote) < 0 {
+		return out
+	}
+	var b strings.Builder
+	for _, r := range out {
+		if !escapedByQuote(r) {
+			b.WriteRune(r)
+			continue
+		}
+		if r > 0xFFFF {
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+			continue
+		}
+		fmt.Fprintf(&b, `\u%04x`, r)
+	}
+	return b.String()
+}
+
+// escapedByQuote is a rune JSON's encoder writes raw that Quote escapes: a control
+// character (C0 ones are already escaped by then) or a format character.
+func escapedByQuote(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 }
 
 // wordSafe reports whether s can stand in a rendering as it is: one or more of letters,

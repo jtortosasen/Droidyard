@@ -204,8 +204,8 @@ func TestSessionWatchLosesNothingBetweenSubscriptionAndSnapshot(t *testing.T) {
 }
 
 // TestSessionWatchOffMCP: session.watch is streaming, so ADR-0010 keeps it off MCP (no
-// session_watch tool), and it is refused outside a session that can carry events: the CLI
-// and plain HTTP get SESSION_REQUIRED naming GET /v1/ws, with no subscription left.
+// session_watch tool). The CLI carries streams (ADR-0122): its call succeeds, and the
+// killed CLI leaves no subscription.
 func TestSessionWatchOffMCP(t *testing.T) {
 	t.Parallel()
 	p, _ := startHTTP(t, "127.0.0.1:0")
@@ -220,11 +220,8 @@ func TestSessionWatchOffMCP(t *testing.T) {
 	if len(names) == 0 {
 		t.Fatal("tools/list is empty")
 	}
-	env, code := p.call(t, "session.watch")
-	if code == 0 || env.Error == nil || env.Error.Code != capability.ErrSessionRequired || !strings.Contains(env.Error.NextStep, "GET /v1/ws") {
-		t.Errorf("droidyard call session.watch = (%+v, exit %d); want SESSION_REQUIRED naming GET /v1/ws", env.Error, code)
-	}
-	if n := p.bus.Subscriptions(); n != 0 {
-		t.Errorf("the refused call left %d subscriptions", n)
-	}
+	f := p.follow(t, "session.watch")
+	f.opened(t)
+	f.kill(t)
+	waitSubscriptions(t, p, 0)
 }

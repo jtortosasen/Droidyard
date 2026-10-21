@@ -13,10 +13,11 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
-// TestOperationWatchNeedsASession: operation.watch is streaming, so through plain HTTP, a
-// CLI call and the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET
-// /v1/ws, with no operation (ADR-0043 §1; ADR-0010). The MCP adapter lists no
-// operation_watch tool (TestMCPTranscript counts the tools).
+// TestOperationWatchNeedsASession: operation.watch is streaming, so through plain HTTP and
+// the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET /v1/ws, with no
+// operation (ADR-0043 §1; ADR-0010). A CLI connection carries streams (ADR-0122), so
+// the call succeeds there. The MCP adapter lists no operation_watch tool (TestMCPTranscript
+// counts the tools).
 func TestOperationWatchNeedsASession(t *testing.T) {
 	t.Parallel()
 	p, _ := startHTTP(t, "127.0.0.1:0")
@@ -35,20 +36,17 @@ func TestOperationWatchNeedsASession(t *testing.T) {
 	}
 	want("POST /v1/call operation.watch", envelopeOf(t, resp))
 
-	env, code := p.call(t, "operation.watch")
-	if code == 0 {
-		t.Error("droidyard call operation.watch exited 0")
-	}
-	want("droidyard call operation.watch", env)
+	f := p.follow(t, "operation.watch")
+	f.opened(t)
+	f.kill(t)
 
 	out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "operation.watch", Client: capability.ClientMCP})
 	var e *capability.Error
 	if !errors.As(err, &e) || e.Code != capability.ErrSessionRequired || out.OperationID != "" {
 		t.Errorf("operation.watch as client mcp: (%+v, %v); want SESSION_REQUIRED", out, err)
 	}
-	if n := p.bus.Subscriptions(); n != 0 {
-		t.Errorf("the rejected calls left %d subscriptions on the bus", n)
-	}
+	// The refused calls left none, and the CLI's was released with its connection.
+	waitSubscriptions(t, p, 0)
 }
 
 // TestWSOperationWatchSeesAnMCPCall is the promise of ADR-0043: a WebSocket session that

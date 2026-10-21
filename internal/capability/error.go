@@ -25,8 +25,8 @@ type ErrorCode string
 // Reserved, cross-cutting codes every adapter may see.
 const (
 	// ErrSessionRequired: a stateful or streaming capability was called on a connection
-	// that cannot carry its state and events: plain HTTP, a CLI call or an MCP session.
-	// Only the WebSocket can (ADR-0010).
+	// that cannot carry its state and events: plain HTTP or an MCP session. A WebSocket and
+	// a CLI connection can (ADR-0010; ADR-0122).
 	ErrSessionRequired ErrorCode = "SESSION_REQUIRED"
 	// ErrRequestIdempotencyConflict: an idempotencyKey was reused with different params
 	// (ADR-0020 §Idempotency keys).

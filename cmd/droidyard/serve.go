@@ -94,7 +94,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		// start and the recordings' capabilities run it first too, and it runs once.
 		AfterLock: func() { adb.RecoverRecordings() },
 		Handlers: map[capability.ClientKind]daemon.Handler{
-			capability.ClientCLI: daemon.Native(reg, ops),
+			capability.ClientCLI: daemon.Native(reg, ops, bus),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
 				budget := time.Duration(s.Hello.WaitMs) * time.Millisecond
 				if err := mcpServer.Serve(mcpadapter.WithSessionID(ctx, s.ID), s.Reader, s.Conn, budget, s.Hello.Root, s.Hello.Tools, s.Hello.Chat); err != nil {

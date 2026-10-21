@@ -210,7 +210,11 @@ func checkRegister(fsys fs.FS) []string {
 // why Chrome's first dump may lack the page, adb-device.md that a peer's recording holds the lease,
 // http-websocket.md that a growing text artifact is 400, README.md's line names 2x (ADR-0113 to
 // ADR-0116).
-const liveBudget = 30054
+// Raised by 13 (to 30,067) at milestone 2z step 7: capability-api.md, overview.md and files.md say a
+// CLI connection is a session that carries streams and the CLI's stderr takes progress (ADR-0122).
+// Raised by 14 (to 30,081) at milestone 2z's close: README.md's line names 2z, and capability-api.md
+// §Statefulness is declared names the CLI connection.
+const liveBudget = 30081
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

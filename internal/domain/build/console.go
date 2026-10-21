@@ -31,7 +31,7 @@ const streamDroidyard = "droidyard"
 
 // WatchOutputResult is build.watchOutput's result (ADR-0044 §1).
 type WatchOutputResult struct {
-	SubscriptionID string         `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the build.output events arrive on, over the WebSocket session that made the call. It follows every build of the workspace, started by any client, until events.unsubscribe or the session's end."`
+	SubscriptionID string         `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the build.output events arrive on, over the session that made the call. It follows every build of the workspace, started by any client, until events.unsubscribe or the session's end."`
 	Builds         []WatchedBuild `json:"builds" jsonschema:"required" jsonschema_description:"The workspace's running builds, taken after the subscription opened. Read each console's bytes [0, offset) with artifact.read; the rest arrives as events. An event whose offset is past what the client holds for its build, a build not listed included, is preceded by bytes to read with artifact.read."`
 }
 

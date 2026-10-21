@@ -291,8 +291,10 @@ func TestStopAllWaitsForTheReap(t *testing.T) {
 }
 
 // TestWatchLogsNeedsAWebSocketSession: device.watchLogs is streaming, so through plain
-// HTTP, a CLI call and the core's MCP client kind it is SESSION_REQUIRED at Start, naming
-// GET /v1/ws, with no operation and no subscription (ADR-0010; ADR-0041 §7). The MCP
+// HTTP and the core's MCP client kind it is SESSION_REQUIRED at Start, naming GET /v1/ws,
+// with no operation and no subscription (ADR-0010; ADR-0041 §7). A CLI connection carries
+// streams (ADR-0122), so the call succeeds there, on a second daemon over the fake
+// adb. The MCP
 // tool list holds no streaming capability: TestMCPTranscript pins it against the golden
 // file (34 stateless tools, the same as before this capability). Seen failing with the
 // capability stateless (and so without its Events, which the registry refuses on one):
@@ -312,11 +314,11 @@ func TestWatchLogsNeedsAWebSocketSession(t *testing.T) {
 	resp := callRequest(port, p.token, `{"id":"w","capability":"device.watchLogs","params":`+wlParams+`}`).send(t, p.d.HTTPAddr())
 	want("POST /v1/call device.watchLogs", envelopeOf(t, resp))
 
-	env, code := p.call(t, "device.watchLogs", "--params", wlParams)
-	if code == 0 {
-		t.Error("droidyard call device.watchLogs exited 0")
-	}
-	want("droidyard call device.watchLogs", env)
+	pw := startWatchDaemon(t, nil)
+	f := pw.follow(t, "device.watchLogs", "--params", wlParams)
+	f.opened(t)
+	f.kill(t)
+	waitSubscriptions(t, pw, 0)
 
 	out, err := p.ops.Invoke(context.Background(), capability.Request{Capability: "device.watchLogs", Params: json.RawMessage(wlParams), Client: capability.ClientMCP})
 	var e *capability.Error

@@ -1,5 +1,5 @@
 {
-  "version": "0.34.0",
+  "version": "0.35.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -2389,7 +2389,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.16.0",
-      "description": "Streams every build console of the workspace to the calling WebSocket session while it runs: whole lines on topic build.output, with the byte offset of the first. The result lists the running builds with each console's size taken after the subscription opened; read [0, offset) with artifact.read, apply the events from there, and after an events.gap read on from the last offset.",
+      "description": "Streams every build console of the workspace to the calling session (WebSocket or CLI) while it runs: whole lines on topic build.output, with the byte offset of the first. The result lists the running builds with each console's size taken after the subscription opened; read [0, offset) with artifact.read, apply the events from there, and after an events.gap read on from the last offset.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -2408,7 +2408,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the build.output events arrive on, over the WebSocket session that made the call. It follows every build of the workspace, started by any client, until events.unsubscribe or the session's end."
+            "description": "The subscription the build.output events arrive on, over the session that made the call. It follows every build of the workspace, started by any client, until events.unsubscribe or the session's end."
           },
           "builds": {
             "items": {
@@ -6725,7 +6725,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.14.0",
-      "description": "Streams a device's log to the calling WebSocket session: batches of parsed lines on topic device.logcat at most every 50 ms, from the newest tail lines or from a device-clock time. One stream per session and device (a second replaces the first), ended with events.unsubscribe.",
+      "description": "Streams a device's log to the calling session (WebSocket or CLI): batches of parsed lines on topic device.logcat at most every 50 ms, from the newest tail lines or from a device-clock time. One stream per session and device (a second replaces the first), ended with events.unsubscribe.",
       "availability": [
         "adb"
       ],
@@ -6779,7 +6779,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the events arrive on, over the WebSocket session that made the call. End the stream with events.unsubscribe."
+            "description": "The subscription the events arrive on, over the session that made the call. End the stream with events.unsubscribe."
           },
           "device": {
             "type": "string"
@@ -6919,7 +6919,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.27.0",
-      "description": "Starts the live view of a device for the calling WebSocket session: H.264 video on GET /v1/screen (its first frame is {\"auth\": \u003ctoken\u003e, \"stream\": \u003cstreamId\u003e}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
+      "description": "Starts the live view of a device for the calling session (WebSocket or CLI): H.264 video on GET /v1/screen (its first frame is {\"auth\": \u003ctoken\u003e, \"stream\": \u003cstreamId\u003e}) and the stream's end as a stopped event on topic device.screen. Every viewer of a device shares one screen server; end the stream with events.unsubscribe.",
       "availability": [
         "adb"
       ],
@@ -6958,7 +6958,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the stream's events arrive on, over the WebSocket session that made the call. Ending it (events.unsubscribe) ends the stream."
+            "description": "The subscription the stream's events arrive on, over the session that made the call. Ending it (events.unsubscribe) ends the stream."
           },
           "device": {
             "type": "string"
@@ -7048,7 +7048,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.32.0",
-      "description": "Streams the screen's events from now on to the calling WebSocket session: batches on topic device.uiEvents, oldest first, with a gap when events were lost. One stream per session and device (a second replaces the first), ended with events.unsubscribe; an agent reads device.uiEvents instead.",
+      "description": "Streams the screen's events from now on to the calling session (WebSocket or CLI): batches on topic device.uiEvents, oldest first, with a gap when events were lost. One stream per session and device (a second replaces the first), ended with events.unsubscribe; an agent reads device.uiEvents instead.",
       "availability": [
         "adb"
       ],
@@ -7087,7 +7087,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the events arrive on, over the WebSocket session that made the call. End the stream with events.unsubscribe."
+            "description": "The subscription the events arrive on, over the session that made the call. End the stream with events.unsubscribe."
           },
           "device": {
             "type": "string"
@@ -7242,7 +7242,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.34.0",
-      "description": "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "description": "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling session (WebSocket or CLI) on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -7261,7 +7261,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the device.uiRecording events arrive on, over the WebSocket session that made the call, until events.unsubscribe or the session's end."
+            "description": "The subscription the device.uiRecording events arrive on, over the session that made the call, until events.unsubscribe or the session's end."
           },
           "recordings": {
             "items": {
@@ -8062,7 +8062,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.3.0",
-      "description": "Subscribes the calling WebSocket session to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. With since {epoch, seq} missed events are replayed first, or an events.gap marker says to resync through queries.",
+      "description": "Subscribes the calling session (WebSocket or CLI) to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. With since {epoch, seq} missed events are replayed first, or an events.gap marker says to resync through queries.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -9093,7 +9093,7 @@
       "statefulness": "streaming",
       "audience": "human",
       "since": "0.9.0",
-      "description": "Watches a directory in the project (WebSocket sessions only) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
+      "description": "Watches a directory in the project for the calling session (WebSocket or CLI) and reports created, modified and deleted entries as events on topic file.changes until the workspace closes or the directory is gone. It polls once a second and skips .git/, .gradle/, .idea/ and build outputs.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -9121,7 +9121,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the changes arrive on, over the WebSocket session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."
+            "description": "The subscription the changes arrive on, over the session that made the call. The events are {path, changes, truncated} on topic file.changes, at most one per second."
           },
           "watched": {
             "type": "integer",
@@ -10743,7 +10743,7 @@
       "statefulness": "streaming",
       "audience": "human",
       "since": "0.23.0",
-      "description": "Watches the project's working tree against HEAD (WebSocket sessions only): the result is the status, and an event on topic git.changes carries the whole status whenever it differs from the last one sent, until the workspace closes or git can no longer report it. It asks git once a second and never takes the repository's index lock, so it cannot fail a commit made beside it.",
+      "description": "Watches the project's working tree against HEAD for the calling session (WebSocket or CLI): the result is the status, and an event on topic git.changes carries the whole status whenever it differs from the last one sent, until the workspace closes or git can no longer report it. It asks git once a second and never takes the repository's index lock, so it cannot fail a commit made beside it.",
       "availability": [
         "git"
       ],
@@ -10777,7 +10777,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the status arrives on, over the WebSocket session that made the call. The events are the status (head, entries, truncated) on topic git.changes, at most one per second and only when it differs from the last one sent."
+            "description": "The subscription the status arrives on, over the session that made the call. The events are the status (head, entries, truncated) on topic git.changes, at most one per second and only when it differs from the last one sent."
           },
           "base": {
             "type": "string",
@@ -11445,7 +11445,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.15.0",
-      "description": "Streams every operation's state transitions to the calling WebSocket session on topic operation.state: when it is recorded (running or queued), when a queued one starts running, when it ends. The result lists the operations not yet terminal, taken after the subscription opened: merge it with the events by operationId, and call this again after an events.gap.",
+      "description": "Streams every operation's state transitions to the calling session (WebSocket or CLI) on topic operation.state: when it is recorded (running or queued), when a queued one starts running, when it ends. The result lists the operations not yet terminal, taken after the subscription opened: merge it with the events by operationId, and call this again after an events.gap.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -13283,7 +13283,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.28.0",
-      "description": "Streams the agents connected over MCP to the calling WebSocket session on topic session.state, from the moment each connects: on connecting, on its name, on every binding and on its end. The result lists the sessions connected now, oldest first, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "description": "Streams the agents connected over MCP to the calling session (WebSocket or CLI) on topic session.state, from the moment each connects: on connecting, on its name, on every binding and on its end. The result lists the sessions connected now, oldest first, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -13302,7 +13302,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the session.state events arrive on, over the WebSocket session that made the call, until events.unsubscribe or the session's end."
+            "description": "The subscription the session.state events arrive on, over the session that made the call, until events.unsubscribe or the session's end."
           },
           "sessions": {
             "items": {
@@ -14684,7 +14684,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.16.0",
-      "description": "Streams every workspace's state transitions to the calling WebSocket session on topic workspace.state, with its name, root and trust. The result lists the workspaces this installation has known, the newest opened first and at most 50, with the live state of those open now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "description": "Streams every workspace's state transitions to the calling session (WebSocket or CLI) on topic workspace.state, with its name, root and trust. The result lists the workspaces this installation has known, the newest opened first and at most 50, with the live state of those open now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -14704,7 +14704,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the workspace.state events arrive on, over the WebSocket session that made the call. It follows every workspace, opened by any client, until events.unsubscribe or the session's end."
+            "description": "The subscription the workspace.state events arrive on, over the session that made the call. It follows every workspace, opened by any client, until events.unsubscribe or the session's end."
           },
           "workspaces": {
             "items": {

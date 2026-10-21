@@ -145,7 +145,7 @@ type WatchResult struct {
 	Operations     []capability.ActiveOperation `json:"operations" jsonschema:"required" jsonschema_description:"The operations not yet terminal, taken after the subscription opened: an operation in this list may also arrive as an event, merge by operationId."`
 }
 
-// Session is a session that can carry events: what a WebSocket connection sets on its
+// Session is a session that can carry events: what a WebSocket or a CLI connection sets on its
 // requests. It owns the subscriptions its calls make, so that its end closes them
 // (capability-api.md §Subscriptions: "Subscriptions belong to the session"). It
 // implements capability.Session.
@@ -297,7 +297,7 @@ func Register(reg *capability.Registry, active func() []capability.ActiveOperati
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
 		Since:        introduced,
-		Description:  "Subscribes the calling WebSocket session to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. With since {epoch, seq} missed events are replayed first, or an events.gap marker says to resync through queries.",
+		Description:  "Subscribes the calling session (WebSocket or CLI) to events on one or more topics (workspace.lifecycle, operation.progress) and returns the subscription's id. With since {epoch, seq} missed events are replayed first, or an events.gap marker says to resync through queries.",
 		Params:       SubscribeParams{},
 		Result:       SubscribeResult{},
 		Annotations: capability.Annotations{
@@ -335,7 +335,7 @@ func Register(reg *capability.Registry, active func() []capability.ActiveOperati
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
 		Since:        "0.15.0",
-		Description:  "Streams every operation's state transitions to the calling WebSocket session on topic operation.state: when it is recorded (running or queued), when a queued one starts running, when it ends. The result lists the operations not yet terminal, taken after the subscription opened: merge it with the events by operationId, and call this again after an events.gap.",
+		Description:  "Streams every operation's state transitions to the calling session (WebSocket or CLI) on topic operation.state: when it is recorded (running or queued), when a queued one starts running, when it ends. The result lists the operations not yet terminal, taken after the subscription opened: merge it with the events by operationId, and call this again after an events.gap.",
 		Params:       WatchParams{},
 		Result:       WatchResult{},
 		Events: &capability.Events{

@@ -34,9 +34,9 @@ const (
 )
 
 // Session is a session that can carry the state and the stream of a stateful or
-// streaming capability (ADR-0010 §Decision as amended; plan m1d, D6): in 1d, only a
-// WebSocket connection. A CLI call, an MCP session and a plain HTTP request are not
-// one, so their requests carry none. The event layer implements it; capability does
+// streaming capability (ADR-0010 §Decision as amended; plan m1d, D6): a WebSocket
+// connection or a CLI socket connection (ADR-0122). An MCP session and a plain HTTP
+// request are not one, so their requests carry none. The event layer implements it; capability does
 // not import it, and a handler asserts the session it needs.
 type Session interface {
 	// ID names the session, for logs and tests.

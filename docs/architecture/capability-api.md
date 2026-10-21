@@ -151,8 +151,8 @@ The fields are `event.Event`.
 `events.subscribe` is a command: each call creates a subscription, so it is neither
 read-only nor idempotent (a query that writes is a `Kind` bug,
 [mcp](../interfaces/mcp.md) §Annotations). `file.watch` creates a subscription the same
-way, so it is a command too. Subscriptions belong to the session: consumers unsubscribe
-explicitly, and the core also cleans up on disconnect. `events.unsubscribe` of an
+way, so it is a command too. Subscriptions belong to the session (a WebSocket or a CLI
+connection): consumers unsubscribe explicitly, and the core also cleans up on disconnect. `events.unsubscribe` of an
 unknown, ended or other session's id is a no-op returning `{}`, so no session can probe
 another's ids.
 
@@ -241,7 +241,7 @@ optional fields and a free-form JSON blob.
 Each capability is `stateless`, `stateful` or `streaming`
 ([ADR-0010](../adr/0010-capability-statefulness.md)); the adapter enforces the session
 requirement. A streaming capability is not a separate kind. Only a session that can
-carry state and events, today the WebSocket, owns stateful resources. The bounded
+carry state and events, a WebSocket or a CLI connection, owns stateful resources. The bounded
 `device.logs` follow is a long-running *stateless* call, not a stream, and `operation.*`
 is stateless because operations belong to the daemon, not to a session.
 
