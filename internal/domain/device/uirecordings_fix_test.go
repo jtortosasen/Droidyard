@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jtortosasen/droidyard/internal/capability"
 )
 
 // Decision (ADR-0113 §5: after a crash the record is finalised from the whole lines kept): the
@@ -116,7 +118,7 @@ func TestDeleteOfAStaleRecordAndConcurrentDeletes(t *testing.T) {
 	w := startRecord(t, f.rec, f.art, stale, time.Now().Add(-time.Hour))
 	w.Line(RecordingLine{Kind: "recording", ID: stale})
 	w.Close()
-	if res, err := f.adb.deleteRecording(stale); err != nil || !res.Deleted {
+	if res, err := f.adb.deleteRecording(stale, capability.Origin{}); err != nil || !res.Deleted {
 		t.Fatalf("delete of a record left recording, with no recorder = %+v, %v; want deleted", res, err)
 	}
 	id := recID(2)
@@ -130,7 +132,7 @@ func TestDeleteOfAStaleRecordAndConcurrentDeletes(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := f.adb.deleteRecording(id)
+			res, err := f.adb.deleteRecording(id, capability.Origin{})
 			if err != nil {
 				t.Error(err)
 			}

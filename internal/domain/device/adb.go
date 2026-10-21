@@ -113,8 +113,11 @@ type ADB struct {
 	// records nothing. recorders is every running recorder: Close ends them first
 	// (StopRecordings). recoverOnce runs the recovery of a crashed daemon's records before the
 	// first recorder can start.
-	recordings  *UIRecordings
-	recorders   uiRecorders
+	recordings *UIRecordings
+	recorders  uiRecorders
+	// recWatchers are the paired peers' device.watchUiRecordings subscriptions, which hear
+	// only of their own peer's recordings (uirecordpeer.go).
+	recWatchers recordingWatchers
 	recoverOnce sync.Once
 	recoverRep  RecoverReport
 	recoverErr  error

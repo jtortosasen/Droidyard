@@ -148,11 +148,16 @@ func (p UIRecordParams) validate() (maxSeconds int, err error) {
 	return p.MaxSeconds, nil
 }
 
+// registerUIRecord adds device.recordUi and device.stopUiRecording. Both are Lendable (ADR-0115
+// Decision 2): a paired peer's recorder runs on the host that owns the device, and a peer's call
+// holds the device's lease as any device call does (ADR-0104 §2), though the stop makes no adb
+// command (leaseOnly). What a peer may stop is its own (uirecordpeer.go).
 func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 	reg.MustRegister(capability.Descriptor{
 		Name:         "device.recordUi",
 		Kind:         capability.Command,
 		Scope:        capability.Global,
+		Lendable:     true,
 		Since:        "0.33.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Records the device's UI from now until device.stopUiRecording: the full dump (device.uiDump's document) each time the screen changes, with the events between, in one timeline artifact saved with droidyard artifact cat. The recording holds the device's UI reader, so a UiAutomation-based runner (UiAutomator, Appium, Maestro) cannot run beside it.",
@@ -160,7 +165,7 @@ func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store)
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UIRecordParams).Device) },
 		Result:       UIRecording{},
 		Text:         capability.TextOf(uiRecordingText),
-		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, ErrUIRecordingActive, capability.ErrInvalidParams),
+		Errors:       append(append([]capability.ErrorCode{}, LentErrors...), ErrUIDumpFailed, ErrUIRecordingActive, capability.ErrInvalidParams),
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
 			Reason:      "writes a recording file on the host and holds the device's UI reader; changes nothing on the device",
@@ -186,6 +191,7 @@ func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store)
 		Name:        "device.stopUiRecording",
 		Kind:        capability.Command,
 		Scope:       capability.Global,
+		Lendable:    true,
 		Since:       "0.33.0",
 		Description: "Ends the device's UI recording after a last dump and returns its summary; stopped is false when none runs or it was already ending, and recording is then that one or the newest one kept. An MCP agent stops only its own session's or chat's recording.",
 		Idempotent:  true,
@@ -193,15 +199,24 @@ func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store)
 		Target:      func(p any) *capability.OpTarget { return deviceTarget(p.(StopUIRecordingParams).Device) },
 		Result:      StopUIRecordingResult{},
 		Text:        capability.TextOf(stopUIRecordingText),
-		Errors:      []capability.ErrorCode{ErrUIRecordingActive, capability.ErrInvalidParams},
+		Errors:      []capability.ErrorCode{ErrUIRecordingActive, ErrOccupied, capability.ErrInvalidParams},
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
 			Reason:      "ends a daemon-owned recording the caller is allowed to stop; makes no adb call",
+		},
+		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
+			lent, err := adb.leaseOnly(call.Origin, call.Params.(StopUIRecordingParams).Device)
+			return lent, err
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(StopUIRecordingParams)
 			if p.Device == "" {
 				return nil, capability.Errorf(capability.ErrInvalidParams, "device is required: a serial from device.list")
+			}
+			// A device not lent to the calling peer is answered as a serial that is not there:
+			// the host's recording on it is not the peer's to learn of (ADR-0099 §1).
+			if lent, _ := call.Authorized.(bool); call.Origin.Client == capability.ClientPeer && !lent {
+				return adb.nothingToStop(p.Device, call.Origin), nil
 			}
 			return adb.stopUIRecording(ctx, call, p.Device)
 		},
@@ -310,10 +325,30 @@ func newRecordingID(now time.Time) string {
 	return now.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(b[:])
 }
 
-func recordingActive(device, id string) *capability.Error {
+// recordingActive is the refusal of a start on a device that a recording already holds. A
+// paired peer is told the id only of its own recording: another's, or the host's, is a
+// recording it must not learn the name of (ADR-0115 Decision 3).
+func recordingActive(device string, existing *uiRecorder, who capability.Origin) *capability.Error {
+	if !recordingVisible(existing.startedBy(), who) {
+		return capability.NewError(ErrUIRecordingActive, "a recording is already running on "+device).
+			WithNextStep("Try again later, or ask the person who runs the host.")
+	}
 	return capability.NewError(ErrUIRecordingActive, "a recording is already running on "+device).
-		WithDetails(map[string]any{"id": id}).
-		WithNextStep("Stop it with device.stopUiRecording, then start again; its timeline is the artifact r." + id + ".")
+		WithDetails(map[string]any{"id": existing.id}).
+		WithNextStep("Stop it with device.stopUiRecording, then start again; its timeline is the artifact r." + existing.id + ".")
+}
+
+// notYoursToStop is the refusal of a stop by a caller ADR-0101 does not let reach the
+// recording's starter. A paired peer is told nothing of the recording it may not stop, not
+// even its id.
+func notYoursToStop(device, id string, who capability.Origin) *capability.Error {
+	err := capability.NewError(ErrUIRecordingActive, "this caller may not stop the recording on "+device).
+		WithCause("a recording is stopped by the UI, the CLI, or the session or chat that started it")
+	if who.Client == capability.ClientPeer {
+		return err.WithNextStep("Ask the person who runs the host to stop it, or try again later.")
+	}
+	return err.WithDetails(map[string]any{"id": id}).
+		WithNextStep("Ask the user to stop it from the UI, or use another device.")
 }
 
 // recordStartFailed is DEVICE_UI_DUMP_FAILED for a recording that could not start: nothing
@@ -347,12 +382,34 @@ func (a *ADB) recordUI(ctx context.Context, call *capability.Call, t *target, p 
 		Device: t.serial, Invisible: p.Invisible, MaxSeconds: maxSeconds,
 		StartedBy: RecordingStarter{Client: string(call.Origin.Client), Session: session, Chat: chat, Peer: peer},
 	}, store)
+	// A paired peer's recording is held by its lease (ADR-0115 Decision 4): the lease's end,
+	// found through the recorder's place in the set, ends it.
+	leased := call.Origin.Client == capability.ClientPeer && call.Origin.ID != ""
+	if leased {
+		r.leaseSession = call.Origin.ID
+	}
+	// A lease that ends before the recorder is in the set finds nothing to stop; the check below,
+	// once it is in the set, catches it (the start hook is where a test ends the lease here).
+	a.started()
 	existing, err := a.recorders.claim(r)
 	if err != nil {
 		return UIRecording{}, recordStartFailed("the daemon is stopping, so it starts no recording")
 	}
 	if existing != nil {
-		return UIRecording{}, recordingActive(t.serial, existing.id)
+		return UIRecording{}, recordingActive(t.serial, existing, call.Origin)
+	}
+	if leased {
+		// An open recording is activity of the lease for the idle rule (ADR-0104 §3), and the
+		// peer's link ending ends it, as it ends the peer's streams.
+		r.activity = a.streamActivity(call)
+		r.watchLink(call)
+		if a.leaseLost(call, t.serial) {
+			// The device is no longer this link's: it is not read, and nothing is created.
+			r.abandon()
+			return UIRecording{}, capability.NewError(ErrDisconnected, "the lease of the device "+t.serial+" ended before the recording started").
+				WithCause(leaseEndedCause).
+				WithNextStep("Call again; nothing was recorded and nothing on the device was changed, so this call is safe to repeat.")
+		}
 	}
 	if err := r.begin(ctx); err != nil {
 		r.abandon()
@@ -360,7 +417,7 @@ func (a *ADB) recordUI(ctx context.Context, call *capability.Call, t *target, p 
 	}
 	// Before the goroutine can end the recording, so no watcher sees an end before the start.
 	sum := r.summary()
-	a.publishRecording(sum)
+	a.publishRecording(r.startedBy(), sum)
 	go r.run()
 	return sum, nil
 }
@@ -370,13 +427,10 @@ func (a *ADB) recordUI(ctx context.Context, call *capability.Call, t *target, p 
 func (a *ADB) stopUIRecording(ctx context.Context, call *capability.Call, device string) (StopUIRecordingResult, error) {
 	r := a.recorders.get(device)
 	if r == nil {
-		return a.nothingToStop(device), nil
+		return a.nothingToStop(device, call.Origin), nil
 	}
 	if !r.stoppableBy(call.Origin, a.chatOf()) {
-		return StopUIRecordingResult{}, capability.NewError(ErrUIRecordingActive, "this caller may not stop the recording on "+device).
-			WithCause("a recording is stopped by the UI, the CLI, or the session or chat that started it").
-			WithDetails(map[string]any{"id": r.id}).
-			WithNextStep("Ask the user to stop it from the UI, or use another device.")
+		return StopUIRecordingResult{}, notYoursToStop(device, r.id, call.Origin)
 	}
 	// Stopped is true when this call ended the recording; one already ending for another
 	// reason (a bound, a failure, the daemon's exit) is reported as it is, with stopped false.
@@ -386,7 +440,7 @@ func (a *ADB) stopUIRecording(ctx context.Context, call *capability.Call, device
 	select {
 	case <-r.done:
 		if r.startFailed() {
-			return a.nothingToStop(device), nil
+			return a.nothingToStop(device, call.Origin), nil
 		}
 	case <-wait.C:
 		// The end is slow (a dump that is still being read): the summary says it still runs.
@@ -397,8 +451,9 @@ func (a *ADB) stopUIRecording(ctx context.Context, call *capability.Call, device
 	return StopUIRecordingResult{Stopped: ended, Recording: &s}, nil
 }
 
-// nothingToStop is the answer when no recording runs on the device: the newest one kept.
-func (a *ADB) nothingToStop(device string) StopUIRecordingResult {
+// nothingToStop is the answer when no recording runs on the device: the newest one kept that
+// the caller may see (a paired peer's is its own).
+func (a *ADB) nothingToStop(device string, who capability.Origin) StopUIRecordingResult {
 	if a.recordings == nil {
 		return StopUIRecordingResult{}
 	}
@@ -407,7 +462,7 @@ func (a *ADB) nothingToStop(device string) StopUIRecordingResult {
 		return StopUIRecordingResult{}
 	}
 	for _, rec := range recs { // newest first
-		if rec.Device == device && rec.State == RecordingEnded {
+		if rec.Device == device && rec.State == RecordingEnded && recordingVisible(rec.StartedBy, who) {
 			s := publishedRecording(rec, rec.Bytes)
 			return StopUIRecordingResult{Recording: &s}
 		}

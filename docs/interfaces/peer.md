@@ -61,7 +61,8 @@ Only the capabilities marked `Lendable` (ADR-0099 §2): the device reads, action
 streams and `device.installUpload`, `artifact.read` of its own artifacts, and waits and
 cancels of its own operations (ADR-0101). Everything else is `REQUEST_NOT_ALLOWED_HERE`. A
 peer's call of any kind leases the device (ADR-0104); a peer's link holds up to four Logcat
-streams and four UI events streams per device (ADR-0106, ADR-0115). Every call is an operation on the host, its trace line
+streams and four UI events streams per device (ADR-0106, ADR-0115). A peer records a lent device on the host, sees only its own
+recordings, and gets its own finished timelines from the artifacts route. Every call is an operation on the host, its trace line
 ending `peer=<name>`.
 
 ## What is not here

@@ -48,6 +48,10 @@ const (
 const (
 	RecordingsKept     = 50
 	RecordingsKeptSize = 2 << 30
+	// PeerRecordingsKept and PeerRecordingsKeptSize bound what one paired peer keeps on the
+	// host that records for it, inside the global bounds above (ADR-0115 Decision 3).
+	PeerRecordingsKept     = 10
+	PeerRecordingsKeptSize = 1 << 30
 )
 
 // RecordingStarter is who started a recording, kept on disk for the stop rule only
@@ -212,12 +216,18 @@ type UIRecordings struct {
 	// RecordingsKept and RecordingsKeptSize).
 	MaxRecordings int
 	MaxBytes      int64
-	now           func() time.Time
+	// MaxPerPeer and MaxPerPeerBytes are the same for the ended recordings one paired peer
+	// started on this host (ADR-0115 Decision 3); a peer's oldest go first, before the
+	// global bounds are applied to what is left.
+	MaxPerPeer      int
+	MaxPerPeerBytes int64
+	now             func() time.Time
 }
 
 // NewUIRecordings returns the recordings of the state root st holds.
 func NewUIRecordings(st *store.Store) *UIRecordings {
-	return &UIRecordings{st: st, MaxRecordings: RecordingsKept, MaxBytes: RecordingsKeptSize, now: time.Now}
+	return &UIRecordings{st: st, MaxRecordings: RecordingsKept, MaxBytes: RecordingsKeptSize,
+		MaxPerPeer: PeerRecordingsKept, MaxPerPeerBytes: PeerRecordingsKeptSize, now: time.Now}
 }
 
 func (r *UIRecordings) dir(id string) string {
@@ -521,20 +531,31 @@ func lastLineEnd(f *os.File, size int64) (string, bool) {
 
 // Sweep deletes ended recordings, oldest first, until at most MaxRecordings remain and
 // their bytes are within MaxBytes. A running recording is never deleted; the count and the
-// size are of the ended ones (a running one may add up to 512 MiB beyond). It returns the
-// ids it deleted.
+// size are of the ended ones (a running one may add up to 512 MiB beyond). The ended
+// recordings one paired peer started on this host are bounded first, by MaxPerPeer and
+// MaxPerPeerBytes, its oldest going before anyone else's (ADR-0115 Decision 3). It returns
+// the ids it deleted.
 func (r *UIRecordings) Sweep() ([]string, error) {
+	gone, err := r.SweepRecords()
+	ids := make([]string, len(gone))
+	for i, rec := range gone {
+		ids[i] = rec.ID
+	}
+	return ids, err
+}
+
+// SweepRecords is Sweep returning the records it deleted as they were, so the caller can tell
+// each one's owner: a peer's watch hears only of its own recordings.
+func (r *UIRecordings) SweepRecords() ([]UIRecord, error) {
 	recs, err := r.List()
 	if err != nil {
 		return nil, err
 	}
 	// Newest ended first: a long recording that started before others is as new as it ended.
 	var ended []UIRecord
-	var total int64
 	for _, rec := range recs {
 		if rec.State == RecordingEnded {
 			ended = append(ended, rec)
-			total += rec.Bytes
 		}
 	}
 	endedAt := func(r UIRecord) time.Time {
@@ -549,13 +570,59 @@ func (r *UIRecordings) Sweep() ([]string, error) {
 		}
 		return ended[i].ID > ended[j].ID
 	})
-	var gone []string
-	for i := len(ended) - 1; i >= 0 && (len(ended)-len(gone) > r.MaxRecordings || total > r.MaxBytes); i-- {
-		if err := os.RemoveAll(r.dir(ended[i].ID)); err != nil {
+	var gone []UIRecord
+	doomed := map[string]bool{}
+	drop := func(rec UIRecord) error {
+		if err := os.RemoveAll(r.dir(rec.ID)); err != nil {
+			return err
+		}
+		doomed[rec.ID] = true
+		gone = append(gone, rec)
+		return nil
+	}
+	// Each peer's own bound first, its oldest going first.
+	byPeer := map[string][]UIRecord{}
+	for _, rec := range ended {
+		if rec.StartedBy.Client == "peer" && !rec.Remote {
+			byPeer[rec.StartedBy.Peer] = append(byPeer[rec.StartedBy.Peer], rec)
+		}
+	}
+	peers := make([]string, 0, len(byPeer))
+	for name := range byPeer {
+		peers = append(peers, name)
+	}
+	sort.Strings(peers)
+	for _, name := range peers {
+		list := byPeer[name]
+		var total int64
+		for _, rec := range list {
+			total += rec.Bytes
+		}
+		kept := len(list)
+		for i := len(list) - 1; i >= 0 && (kept > r.MaxPerPeer || total > r.MaxPerPeerBytes); i-- {
+			if err := drop(list[i]); err != nil {
+				return gone, err
+			}
+			total -= list[i].Bytes
+			kept--
+		}
+	}
+	// Then the global bound over what is left.
+	var left []UIRecord
+	var total int64
+	for _, rec := range ended {
+		if !doomed[rec.ID] {
+			left = append(left, rec)
+			total += rec.Bytes
+		}
+	}
+	kept := len(left)
+	for i := len(left) - 1; i >= 0 && (kept > r.MaxRecordings || total > r.MaxBytes); i-- {
+		if err := drop(left[i]); err != nil {
 			return gone, err
 		}
-		total -= ended[i].Bytes
-		gone = append(gone, ended[i].ID)
+		total -= left[i].Bytes
+		kept--
 	}
 	return gone, nil
 }

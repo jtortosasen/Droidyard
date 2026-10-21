@@ -202,7 +202,9 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 20 (to 29,865) at milestone 2x step 6: mcp.md's not-exposed table names
 // device.watchUiRecordings and device.deleteUiRecording (a registry check requires it), mvp.md's
 // device row the three new capabilities, and the skill says device_uiRecordings lists them (ADR-0113).
-const liveBudget = 29865
+// Raised by 24 (to 29,889) at milestone 2x step 9: peer.md says a peer records a lent device on
+// the host, sees only its own recordings and fetches its own finished timelines (ADR-0115).
+const liveBudget = 29889
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

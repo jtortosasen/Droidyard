@@ -4294,6 +4294,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "DEVICE_UI_RECORDING_ACTIVE",
         "REQUEST_INVALID_PARAMS"
@@ -4578,6 +4579,7 @@
       },
       "errors": [
         "DEVICE_UI_RECORDING_ACTIVE",
+        "DEVICE_OCCUPIED",
         "REQUEST_INVALID_PARAMS"
       ],
       "input": {
@@ -6152,6 +6154,9 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "errors": [
+        "DEVICE_OCCUPIED"
+      ],
       "input": {
         "properties": {
           "device": {
@@ -7113,7 +7118,7 @@
       "statefulness": "streaming",
       "audience": "all",
       "since": "0.33.0",
-      "description": "Streams every UI recording's changes, whoever started it, to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "description": "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,

@@ -68,21 +68,30 @@ type DeleteUIRecordingResult struct {
 	Deleted bool `json:"deleted" jsonschema:"required" jsonschema_description:"True when this call deleted a recording; false when none has this id (it may be gone already)."`
 }
 
+// registerUIRecordings adds the three calls on the kept recordings. All are Lendable (ADR-0115
+// Decision 2) and a paired peer sees, watches and deletes its own recordings only
+// (uirecordpeer.go); the list takes the device's lease for a peer that names one (leaseOnly).
 func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 	reg.MustRegister(capability.Descriptor{
 		Name:        "device.uiRecordings",
 		Kind:        capability.Query,
 		Scope:       capability.Global,
+		Lendable:    true,
 		Since:       "0.33.0",
 		Description: "Lists the UI recordings kept, newest first and at most 50, a running one with its live counts and growing timeline (save a timeline with droidyard artifact cat); device and id filter. Reads the daemon's records only, no adb.",
 		Params:      UIRecordingsParams{},
 		Target:      func(p any) *capability.OpTarget { return deviceTarget(p.(UIRecordingsParams).Device) },
 		Result:      UIRecordingsResult{},
 		Text:        capability.TextOf(uiRecordingsText),
+		Errors:      []capability.ErrorCode{ErrOccupied},
+		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
+			_, err := adb.leaseOnly(call.Origin, call.Params.(UIRecordingsParams).Device)
+			return nil, err
+		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(UIRecordingsParams)
 			adb.RecoverRecordings()
-			return UIRecordingsResult{Recordings: adb.listRecordings(p.Device, p.ID)}, nil
+			return UIRecordingsResult{Recordings: adb.listRecordings(call.Origin, p.Device, p.ID)}, nil
 		},
 	})
 	notDestructive := false
@@ -91,8 +100,9 @@ func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 		Kind:         capability.Command,
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
+		Lendable:     true,
 		Since:        "0.33.0",
-		Description:  "Streams every UI recording's changes, whoever started it, to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+		Description:  "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
 		Params:       struct{}{},
 		Result:       WatchUIRecordingsResult{},
 		Events: &capability.Events{
@@ -105,6 +115,10 @@ func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 			Reason:      "adds a subscription to the calling session; changes no recording",
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			if call.Origin.Client == capability.ClientPeer {
+				adb.RecoverRecordings()
+				return adb.watchRecordingsForPeer(ctx, call)
+			}
 			sess, ok := call.Session.(capability.Follower)
 			if !ok {
 				return nil, capability.NewError(capability.ErrSessionRequired, "events need a session that can carry them").
@@ -118,7 +132,7 @@ func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 			if err != nil {
 				return nil, err
 			}
-			list := adb.listRecordings("", "")
+			list := adb.listRecordings(call.Origin, "", "")
 			if err := ctx.Err(); err != nil {
 				sess.Unsubscribe(id)
 				return nil, err
@@ -131,6 +145,7 @@ func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 		Kind:        capability.Command,
 		Scope:       capability.Global,
 		Audience:    capability.AudienceHuman,
+		Lendable:    true,
 		Since:       "0.33.0",
 		Description: "Deletes a kept UI recording and its timeline, which then reads ARTIFACT_EXPIRED; refused while it runs, and from an agent session. An unknown id answers deleted false.",
 		Idempotent:  true,
@@ -143,14 +158,15 @@ func registerUIRecordings(reg *capability.Registry, adb *ADB) {
 				return nil, capability.Errorf(capability.ErrInvalidParams, "id is required: a recording id from device.uiRecordings")
 			}
 			adb.RecoverRecordings()
-			return adb.deleteRecording(p.ID)
+			return adb.deleteRecording(p.ID, call.Origin)
 		},
 	})
 }
 
 // listRecordings is the kept recordings, newest first and at most uiRecordingsMax, filtered
-// by device and id when given. A running recording is the recorder's own live summary.
-func (a *ADB) listRecordings(device, id string) []UIRecording {
+// by device and id when given, and to the ones who may see (recordingVisible: a paired peer
+// sees its own only). A running recording is the recorder's own live summary.
+func (a *ADB) listRecordings(who capability.Origin, device, id string) []UIRecording {
 	out := []UIRecording{}
 	if a.recordings == nil {
 		return out
@@ -164,7 +180,7 @@ func (a *ADB) listRecordings(device, id string) []UIRecording {
 		if len(out) >= uiRecordingsMax {
 			break
 		}
-		if (device != "" && rec.Device != device) || (id != "" && rec.ID != id) {
+		if (device != "" && rec.Device != device) || (id != "" && rec.ID != id) || !recordingVisible(rec.StartedBy, who) {
 			continue
 		}
 		if rec.State == RecordingRunning {
@@ -179,8 +195,10 @@ func (a *ADB) listRecordings(device, id string) []UIRecording {
 }
 
 // deleteRecording removes a kept recording: an unknown id is deleted false, a running one is
-// DEVICE_UI_RECORDING_ACTIVE, and a deleted one is announced to the watchers.
-func (a *ADB) deleteRecording(id string) (DeleteUIRecordingResult, error) {
+// DEVICE_UI_RECORDING_ACTIVE, and a deleted one is announced to the watchers. A paired peer
+// deletes its own only: another's is deleted false, as an unknown id is, so a peer learns
+// nothing of the recordings it did not start.
+func (a *ADB) deleteRecording(id string, who capability.Origin) (DeleteUIRecordingResult, error) {
 	if a.recordings == nil || !artifact.ValidTimelineID(id) {
 		return DeleteUIRecordingResult{}, nil
 	}
@@ -194,33 +212,27 @@ func (a *ADB) deleteRecording(id string) (DeleteUIRecordingResult, error) {
 	// id only the one that finds it answers true and announces it.
 	a.recorders.delMu.Lock()
 	defer a.recorders.delMu.Unlock()
-	if a.recorders.byID(id) != nil {
-		return DeleteUIRecordingResult{}, running()
-	}
-	_, found, err := a.recordings.Get(id)
+	rec, found, err := a.recordings.Get(id)
 	if err != nil {
 		return DeleteUIRecordingResult{}, err
 	}
-	if !found {
+	if !found || !recordingVisible(rec.StartedBy, who) {
 		return DeleteUIRecordingResult{}, nil
+	}
+	if a.recorders.byID(id) != nil {
+		return DeleteUIRecordingResult{}, running()
 	}
 	if err := a.recordings.Delete(id); err != nil {
 		return DeleteUIRecordingResult{}, err
 	}
-	a.broadcastRecording(EventDeleted, UIRecordingDeleted{ID: id})
+	a.announceRecording(rec.StartedBy, EventDeleted, UIRecordingDeleted{ID: id})
 	return DeleteUIRecordingResult{Deleted: true}, nil
 }
 
-// publishRecording tells every watching session where a recording stands. It carries what
-// publishedRecording does: no device text and no chat id.
-func (a *ADB) publishRecording(rec UIRecording) {
-	a.broadcastRecording(EventState, UIRecordingStatePush{Recording: rec})
-}
-
-func (a *ADB) broadcastRecording(typ string, payload any) {
-	if a.bus != nil {
-		a.bus.Broadcast(TopicUIRecording, typ, "", "", payload)
-	}
+// publishRecording tells the watching sessions where a recording started by owner stands. It
+// carries what publishedRecording does: no device text and no chat id.
+func (a *ADB) publishRecording(owner RecordingStarter, rec UIRecording) {
+	a.announceRecording(owner, EventState, UIRecordingStatePush{Recording: rec})
 }
 
 // byID is the running recorder of recording id, or nil.

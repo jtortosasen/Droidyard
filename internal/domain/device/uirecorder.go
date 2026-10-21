@@ -10,6 +10,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/event"
 )
 
 // The recorder of ADR-0113: one goroutine per recording, owned by the daemon, with a context
@@ -45,6 +46,16 @@ type uiRecorder struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{} // closed after the recording is finalised and has left the set
+
+	// leaseSession is the link session of the paired peer that started the recording, "" for
+	// any other starter: the lease it holds the device by (ADR-0115 Decision 4). Set before
+	// the recorder is in the set. activity ends its count as activity of that lease and unlink
+	// the subscription that ends the recording with the link; both are set once, after the
+	// claim and before the goroutine runs, and released once (releaseLease).
+	leaseSession string
+	activity     func()
+	unlink       func()
+	leaseOnce    sync.Once
 
 	mu          sync.Mutex
 	rec         UIRecord // the live counters; State ended only once finalised
@@ -112,6 +123,36 @@ func (r *uiRecorder) startedBy() RecordingStarter {
 func (r *uiRecorder) stoppableBy(who capability.Origin, chatOf func(string) string) bool {
 	st := r.startedBy()
 	return capability.OwnerReaches(capability.ClientKind(st.Client), st.Session, st.Chat, st.Peer, who, chatOf)
+}
+
+// watchLink ends the recording, as deviceGone with the link's cause, when the paired peer's
+// link session ends (ADR-0104 §4): a subscription of the link's own session whose end hook is
+// the end. A call that carries no event session has no link to watch.
+func (r *uiRecorder) watchLink(call *capability.Call) {
+	sess, err := event.SessionOf(call)
+	if err != nil {
+		return
+	}
+	id, _, err := sess.Open(nil, func() { r.requestEnd(EndDeviceGone, linkEndedCause, false) })
+	if err != nil {
+		// The session has ended already: so has the link.
+		r.requestEnd(EndDeviceGone, linkEndedCause, false)
+		return
+	}
+	r.unlink = func() { sess.Unsubscribe(id) }
+}
+
+// releaseLease ends the recording's count as activity of its lease and drops its watch of the
+// link; the recording's last act, or the start's if it failed.
+func (r *uiRecorder) releaseLease() {
+	r.leaseOnce.Do(func() {
+		if r.unlink != nil {
+			r.unlink()
+		}
+		if r.activity != nil {
+			r.activity()
+		}
+	})
 }
 
 func (r *uiRecorder) startFailed() bool {
@@ -243,6 +284,7 @@ func (r *uiRecorder) abandon() {
 	r.mu.Unlock()
 	r.cancel()
 	r.adb.recorders.remove(r)
+	r.releaseLease()
 	close(r.done)
 }
 
@@ -344,6 +386,7 @@ func (r *uiRecorder) dumpsStored() int {
 // the set and only then says it is done.
 func (r *uiRecorder) run() {
 	defer close(r.done)
+	defer r.releaseLease()
 	defer r.adb.recorders.remove(r)
 	r.loop()
 	r.finish()
@@ -367,7 +410,7 @@ func (r *uiRecorder) loop() {
 		}
 		if time.Since(published) >= recordPublishEvery {
 			published = time.Now()
-			r.adb.publishRecording(r.summary())
+			r.adb.publishRecording(r.startedBy(), r.summary())
 		}
 	}
 }
@@ -649,12 +692,12 @@ func (r *uiRecorder) finish() {
 	r.rec = rec
 	r.mu.Unlock()
 	// Told only now: the record is finalised and the timeline closed.
-	r.adb.publishRecording(r.summary())
-	gone, err := r.adb.recordings.Sweep()
+	r.adb.publishRecording(r.startedBy(), r.summary())
+	gone, err := r.adb.recordings.SweepRecords()
 	if err != nil {
 		r.adb.logf("recordings: sweep: %v", err)
 	}
-	for _, id := range gone {
-		r.adb.broadcastRecording(EventDeleted, UIRecordingDeleted{ID: id})
+	for _, g := range gone {
+		r.adb.announceRecording(g.StartedBy, EventDeleted, UIRecordingDeleted{ID: g.ID})
 	}
 }

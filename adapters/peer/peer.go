@@ -26,6 +26,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,7 +105,14 @@ type Artifact struct {
 	MediaType string
 	Untrusted bool
 	Data      []byte
+	// Body, when set, is served instead of Data, whole or by Range, and closed by the route:
+	// a recording's timeline is a file of the host's, not bytes held in memory.
+	Body io.ReadSeekCloser
 }
+
+// ErrArtifactGrowing is the reader's answer for an artifact of the peer's own that is not
+// finished yet (its recording still runs): the route answers 409, and the peer asks again.
+var ErrArtifactGrowing = errors.New("the artifact is still being written")
 
 // ArtifactReader resolves an artifact id for the named peer (ADR-0099 §2): the artifact only
 // if one of that peer's own calls made it. Every other id, a durable one, another peer's or
@@ -653,9 +661,15 @@ func (l *listener) serveArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	defer l.untrack(k)
 	a, err := s.o.Artifacts(name, r.PathValue("id"))
+	if a.Body != nil {
+		defer a.Body.Close()
+	}
 	if err != nil {
 		var ce *capability.Error
 		switch {
+		case errors.Is(err, ErrArtifactGrowing):
+			// The peer's own recording, not finished: it asks again (ADR-0115 Decision 5).
+			http.Error(w, "the artifact is still being written", http.StatusConflict)
 		case !errors.As(err, &ce):
 			http.Error(w, "the artifact cannot be served", http.StatusInternalServerError)
 		case ce.Code == capability.ErrArtifactNotFound:
@@ -669,7 +683,7 @@ func (l *listener) serveArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	// The types a store holds for the peer-lendable producers; anything else is not served.
 	switch a.MediaType {
-	case "image/png", "image/jpeg", "text/plain", "application/xml":
+	case "image/png", "image/jpeg", "text/plain", "application/xml", "application/x-ndjson":
 	default:
 		http.Error(w, "the artifact cannot be served", http.StatusInternalServerError)
 		return
@@ -693,6 +707,15 @@ func (l *listener) serveArtifact(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-store")
 	if a.Untrusted {
 		h.Set("X-Droidyard-Untrusted", "true")
+	}
+	if a.Body != nil {
+		// A file of the host's, whole or by Range. Several ranges would go out as
+		// multipart/byteranges, a type this route does not serve: such a request gets the whole.
+		if strings.Contains(r.Header.Get("Range"), ",") {
+			r.Header.Del("Range")
+		}
+		http.ServeContent(w, r, "", time.Time{}, a.Body)
+		return
 	}
 	h.Set("Content-Length", strconv.Itoa(len(a.Data)))
 	w.Write(a.Data)

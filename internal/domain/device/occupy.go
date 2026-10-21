@@ -206,6 +206,9 @@ func (a *ADB) listAllTracked(ctx context.Context, path string) ([]Device, error)
 		}
 		// A remote device's id is no adb serial: no local listing has it (ADR-0100 §1).
 		a.occupation.ForgetDevicesAbsent(serials, mark, a.isRemoteID)
+		// The lease of a device that left is gone with no lease-end call: a peer's recording on it
+		// ends here (ADR-0104 §4).
+		a.recorders.endUnheld(a.occupation)
 	}
 	return listed, nil
 }

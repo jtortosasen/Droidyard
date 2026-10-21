@@ -159,7 +159,7 @@ func TestLendingToPeers(t *testing.T) {
 // Decision (ADR-0099 §2): a peer calls only what is Lendable. The core refuses the rest
 // with REQUEST_NOT_ALLOWED_HERE, before an operation exists. This pins which device
 // capabilities are lent so far; a capability added to the set must be added here. The three
-// UI reads joined it with ADR-0115 Decision 1.
+// UI reads joined it with ADR-0115 Decision 1, and the five of the UI recording with Decision 2.
 func TestDeviceLendableSet(t *testing.T) {
 	reg := capability.NewRegistry()
 	Register(reg, newFake(t, t.TempDir(), closedPort(t)), testStore(t), nil)
@@ -170,7 +170,7 @@ func TestDeviceLendableSet(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload", "device.screenshot", "device.logs", "device.watchLogs", "device.uiDump", "device.uiEvents", "device.watchUiEvents"}
+	want := []string{"device.launch", "device.list", "device.pressKey", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload", "device.screenshot", "device.logs", "device.watchLogs", "device.uiDump", "device.uiEvents", "device.watchUiEvents", "device.recordUi", "device.stopUiRecording", "device.uiRecordings", "device.watchUiRecordings", "device.deleteUiRecording"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("lendable device capabilities = %v; want %v", got, want)
