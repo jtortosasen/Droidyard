@@ -42,9 +42,10 @@ type Host struct {
 	mu         sync.Mutex
 	identity   *Identity
 	problems   []store.Problem
-	listening  []string       // the addresses the listeners are bound to, in the order wanted
-	listenErrs []ListenError  // why an address wanted is not, by address
-	open       map[string]int // peer name → open sockets
+	listening  []string        // the addresses the listeners are bound to, in the order wanted
+	listenErrs []ListenError   // why an address wanted is not, by address
+	open       map[string]int  // peer name → open sockets
+	fast       map[string]bool // peer name → whether its last hello said fast (ADR-0118 §4)
 	links      map[string]*Link
 	// remotesRead is whether the last pass read the remotes' configuration: until one has, a
 	// remote with no link may only be one not read yet.
@@ -69,7 +70,7 @@ func New(cfg Config, state, api string, log io.Writer) *Host {
 		log = io.Discard
 	}
 	return &Host{cfg: cfg, state: state, api: api, log: log, uploads: NewUploads(state, log), pending: NewPending(),
-		open: map[string]int{}, links: map[string]*Link{}, ifaces: SystemInterfaces, defaultPort: DefaultPort, told: map[string]string{}}
+		open: map[string]int{}, fast: map[string]bool{}, links: map[string]*Link{}, ifaces: SystemInterfaces, defaultPort: DefaultPort, told: map[string]string{}}
 }
 
 // Uploads are the APKs paired peers uploaded to this daemon (ADR-0099 §3).
@@ -376,6 +377,21 @@ func (h *Host) PeerClosed(name string) {
 	if h.open[name] > 0 {
 		h.open[name]--
 	}
+}
+
+// SetPeerFast records whether a paired peer's last hello said its remote is marked fast
+// (ADR-0118 §4); PeerFast reads it, for a live view the peer starts.
+func (h *Host) SetPeerFast(name string, fast bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.fast[name] = fast
+}
+
+// PeerFast is what the peer's last hello said, false for one that sent none.
+func (h *Host) PeerFast(name string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.fast[name]
 }
 
 // IdentityHealth is system.health's identity.

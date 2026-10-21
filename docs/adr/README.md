@@ -145,6 +145,11 @@ edits made before this rule and are not added to.
 | [0114](0114-patient-ui-events-reach.md) | A patient events reach for the UI events stream and the recorder | Accepted |
 | [0115](0115-ui-reads-and-recordings-lent.md) | The UI reads and the recording lent to a peer | Accepted |
 | [0116](0116-remote-recording-adoption.md) | The client adopts only a remote recording whose start it lost | Accepted |
+| [0117](0117-live-view-input-over-the-stream.md) | The live view's input travels its own stream, authorized when the view opened | Accepted |
+| [0118](0118-a-view-never-far-behind.md) | A view never far behind, and a lighter stream for a remote marked fast | Accepted |
+| [0119](0119-the-live-view-stays-on-tcp.md) | The live view stays on TCP; a datagram transport waits for a measured loss | Accepted |
+| [0120](0120-remote-view-input-on-the-peer-socket.md) | A remote device's view sends its input on the peer screen socket | Accepted |
+| [0121](0121-lag-bound-from-the-first-read.md) | Lag counts from the first read, not on a relayed Hub | Accepted |
 
 ## Open decisions (not yet ADRs)
 

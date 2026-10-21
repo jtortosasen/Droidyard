@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -74,6 +75,7 @@ func ParseScreenFrame(msg []byte) ([]screen.Packet, error) {
 type ScreenConn struct {
 	c      *websocket.Conn
 	client *http.Client
+	acks   *ackSender // nil for a host that does not take acknowledgements
 }
 
 // DialScreen attaches the stream a device.watchScreen on the host issued: it opens the
@@ -98,7 +100,14 @@ func (l *Link) DialScreen(ctx context.Context, streamID string) (*ScreenConn, er
 		client.CloseIdleConnections()
 		return nil, dialError(l.remoteAt(addr), err)
 	}
-	return &ScreenConn{c: conn, client: client}, nil
+	sc := &ScreenConn{c: conn, client: client}
+	l.mu.Lock()
+	host := l.hostAPI
+	l.mu.Unlock()
+	if APIAtLeast(host, capability.PeerScreenAckAPI) {
+		sc.acks = &ackSender{c: conn, last: time.Now()}
+	}
+	return sc, nil
 }
 
 // Next reads the next message and returns its packets. An error is the socket's (the host
@@ -121,11 +130,33 @@ func (s *ScreenConn) Next(ctx context.Context) ([]screen.Packet, error) {
 		s.c.CloseNow()
 		return nil, err
 	}
+	if s.acks != nil {
+		s.acks.received(len(data))
+	}
 	return pkts, nil
+}
+
+// Send writes one binary message of the view's input (ADR-0117 §3: a frame of the wire) to the
+// host, within ctx; a write that does not finish by then fails and the library closes the
+// socket. The caller is the relayed source's control line, which is the one writer and keeps
+// the bounded queue in front of it (internal/domain/device/controlline.go), so Send itself
+// queues nothing.
+func (s *ScreenConn) Send(ctx context.Context, frame []byte) error {
+	return s.c.Write(ctx, websocket.MessageBinary, frame)
+}
+
+// ScreenRevoked says whether err is the host closing the socket because this daemon is no
+// longer paired with it (capability.PeerCloseRevoked, ADR-0098 §3), as opposed to the stream
+// ending (4410) or the link breaking.
+func ScreenRevoked(err error) bool {
+	return websocket.CloseStatus(err) == capability.PeerCloseRevoked
 }
 
 // Close drops the socket at once; the host sees it end and releases the stream.
 func (s *ScreenConn) Close() {
+	if s.acks != nil {
+		s.acks.stop()
+	}
 	s.c.CloseNow()
 	s.client.CloseIdleConnections()
 }

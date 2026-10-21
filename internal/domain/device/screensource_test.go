@@ -37,18 +37,32 @@ var ssWait = testtime.Bound(60 * time.Second)
 // its packets as Demux reads them, and the byte offset just after its key frame.
 func ssFixture(t *testing.T) (data []byte, pkts []screen.Packet, keyEnd int) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("screen", "testdata", "scrcpy-api31-portrait.bin"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	data, keyEnd = ssRecording(t, "scrcpy-api31-portrait.bin")
 	if err := screen.Demux(bytes.NewReader(data), func(p screen.Packet) error {
 		pkts = append(pkts, p)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The same stream, stopped after its second media packet (the config, then the key
-	// frame): the reader counts exactly the bytes Demux asked for.
+	return data, pkts, keyEnd
+}
+
+// ssRotation is the recording of a rotation (590x1280, then 1280x590) and the byte offset
+// just after its first key frame.
+func ssRotation(t *testing.T) (data []byte, keyEnd int) {
+	t.Helper()
+	return ssRecording(t, "scrcpy-api31-rotate.bin")
+}
+
+// ssRecording reads one of the recordings and finds the byte offset just after its key frame:
+// the stream stopped after its second media packet (the config, then the key frame), where
+// the reader counts exactly the bytes Demux asked for.
+func ssRecording(t *testing.T, name string) (data []byte, keyEnd int) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("screen", "testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cr := &countReader{r: bytes.NewReader(data)}
 	stop := errors.New("stop")
 	n := 0
@@ -61,7 +75,7 @@ func ssFixture(t *testing.T) (data []byte, pkts []screen.Packet, keyEnd int) {
 	if !errors.Is(err, stop) {
 		t.Fatalf("splitting the recording: %v", err)
 	}
-	return data, pkts, cr.n
+	return data, cr.n
 }
 
 type countReader struct {
@@ -86,6 +100,9 @@ type screenListenerOpts struct {
 	controlOut   []byte // written to the control socket as soon as it is connected
 	gateControl  bool   // controlOut waits for Release
 	cutAfterTail bool   // the video socket is closed right after the tail
+	// onControlEOF, when set, runs when the control socket ended (the source closed it), after
+	// the bytes it received were recorded: the server's view of the socket's end.
+	onControlEOF func()
 }
 
 // screenListener stands for the server behind the forward: the first connection that is
@@ -219,6 +236,9 @@ func (l *screenListener) controlSocket(c net.Conn) {
 		if err != nil {
 			break
 		}
+	}
+	if l.opts.onControlEOF != nil {
+		l.opts.onControlEOF()
 	}
 	l.mu.Lock()
 	l.controlClosed++
@@ -589,7 +609,7 @@ func TestScreenSourceInject(t *testing.T) {
 	}
 
 	tap := screen.Tap{X: 0.5, Y: 0.25}
-	if err := src.Inject(ctx, tap); err != nil {
+	if err := src.Inject(ctx, screen.NewHolder(false), tap); err != nil {
 		t.Fatal(err)
 	}
 	want := enc(tap)
@@ -604,7 +624,7 @@ func TestScreenSourceInject(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := src.Inject(ctx, in); err != nil {
+			if err := src.Inject(ctx, screen.NewHolder(false), in); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -622,7 +642,7 @@ func TestScreenSourceInject(t *testing.T) {
 	cs, _ := screen.EncodeControl(swipe, size)
 	cctx, ccancel := context.WithTimeout(ctx, 150*time.Millisecond)
 	defer ccancel()
-	if err := src.Inject(cctx, swipe); !errors.Is(err, context.DeadlineExceeded) {
+	if err := src.Inject(cctx, screen.NewHolder(false), swipe); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a cut swipe returned %v, want the context's error", err)
 	}
 	wantCut := append(append([]byte(nil), cs[0].Data...), cs[len(cs)-1].Data...)
@@ -632,7 +652,7 @@ func TestScreenSourceInject(t *testing.T) {
 
 	// An input the encoding refuses writes nothing.
 	prev += len(wantCut)
-	if err := src.Inject(ctx, screen.Tap{X: 2}); !errors.Is(err, screen.ErrBadInput) {
+	if err := src.Inject(ctx, screen.NewHolder(false), screen.Tap{X: 2}); !errors.Is(err, screen.ErrBadInput) {
 		t.Errorf("a tap outside the frame returned %v, want ErrBadInput", err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -1090,7 +1110,7 @@ func stormHolders(t *testing.T) {
 					return
 				}
 				v := src.Join()
-				src.Inject(ctx, screen.Tap{X: 0.5, Y: 0.5})
+				src.Inject(ctx, screen.NewHolder(false), screen.Tap{X: 0.5, Y: 0.5})
 				if _, err := v.Next(ctx); err != nil {
 					t.Errorf("Next: %v", err)
 				}

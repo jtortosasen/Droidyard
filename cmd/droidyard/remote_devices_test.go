@@ -419,6 +419,7 @@ func TestRemoteDevices(t *testing.T) {
 			{"device.tap", `{` + dev(remotePhone) + `,"x":0.5,"y":0.5}`, device.ErrNoStream, nil},
 			{"device.swipe", `{` + dev(remotePhone) + `,"path":[{"x":0.5,"y":0.8,"t":0},{"x":0.5,"y":0.2,"t":200}]}`, device.ErrNoStream, nil},
 			{"device.pressKey", `{` + dev(remotePhone) + `,"key":"home"}`, device.ErrNoStream, nil},
+			{"device.scroll", `{` + dev(remotePhone) + `,"x":0.5,"y":0.5,"dx":0,"dy":1}`, device.ErrNoStream, nil},
 		}
 		for _, s := range steps {
 			env := lab.on(t, s.capName, s.params)

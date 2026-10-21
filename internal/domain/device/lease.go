@@ -21,8 +21,10 @@ const leaseEndedCause = "the host ended the lease"
 // interval of the peer listener's pin check (ADR-0098 §3).
 const LeaseSweepEvery = 2 * time.Second
 
-// RunLeases checks the leases every LeaseSweepEvery until ctx ends, so un-lending a device
-// ends its holder's view within that time (ADR-0104 §4).
+// RunLeases checks the leases, and the views of the daemon's own clients, every
+// LeaseSweepEvery until ctx ends, so un-lending a device ends its holder's view within that
+// time (ADR-0104 §4) and a policy that stops admitting a device ends its views within it
+// (ADR-0117 §2).
 func (a *ADB) RunLeases(ctx context.Context) {
 	t := time.NewTicker(LeaseSweepEvery)
 	defer t.Stop()
@@ -32,6 +34,7 @@ func (a *ADB) RunLeases(ctx context.Context) {
 			return
 		case <-t.C:
 			a.SweepLeases()
+			a.SweepViews()
 		}
 	}
 }
@@ -47,6 +50,34 @@ func (a *ADB) SweepLeases() {
 		if !a.lentNow(h.Peer, h.Serial) {
 			// Only while the same link still holds it: a lease taken over meanwhile is not ended.
 			a.occupation.ReleaseDeviceOf(h.Session, h.Serial)
+		}
+	}
+}
+
+// viewPolicyCause is the cause of the stopped event (deviceGone) of a view the policy no
+// longer admits (ADR-0117 §2).
+const viewPolicyCause = "the policy no longer admits the device"
+
+// SweepViews ends, as stopped deviceGone, every live view of this daemon's own clients on a
+// physical device or a remote id that the policy no longer admits (ADR-0117 §2). A view's
+// input is authorized once, when it opened, so this sweep is what bounds a revocation: with
+// the tick, a view ends within 2.5 s of the policy changing. It runs no adb command: the kind
+// of the device was recorded when the view started, and the policy is re-read by admitted.
+// An emulator's view is never ended by it, and a paired peer's view keeps the lease sweep's
+// rules (SweepLeases).
+func (a *ADB) SweepViews() {
+	ss := &a.screenViews
+	ss.mu.Lock()
+	var list []*screenStream
+	for s := range ss.all {
+		if s.owner == "" && (s.physical || s.remote) {
+			list = append(list, s)
+		}
+	}
+	ss.mu.Unlock()
+	for _, s := range list {
+		if !a.admitted(s.device).Admitted {
+			s.end(StopDeviceGone, viewPolicyCause)
 		}
 	}
 }

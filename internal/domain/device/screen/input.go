@@ -18,7 +18,7 @@ const (
 // ErrBadInput: an Input EncodeControl cannot encode.
 var ErrBadInput = errors.New("screen: invalid input")
 
-// Input is one thing a person does to the screen: a Tap, a Swipe or a Key. Coordinates
+// Input is one thing a person does to the screen: a Tap, a Swipe, a Key or a Scroll. Coordinates
 // are normalised to the stream's frame, 0..1 from the left and from the top, so the
 // same Input means the same place whatever the size. Times are offsets from the moment
 // the input starts.
@@ -44,9 +44,15 @@ type Swipe struct{ Points []Point }
 // Key presses and releases a named key: back, home, appSwitch, enter or delete.
 type Key struct{ Name string }
 
-func (Tap) isInput()   {}
-func (Swipe) isInput() {}
-func (Key) isInput()   {}
+// Scroll turns the wheel at the point: DX and DY are in notches, each within
+// ±MaxScrollNotches, with Android's sign (DY > 0 scrolls up, DX > 0 right). It takes no
+// finger, like a Key (ADR-0117 §4).
+type Scroll struct{ X, Y, DX, DY float64 }
+
+func (Tap) isInput()    {}
+func (Swipe) isInput()  {}
+func (Key) isInput()    {}
+func (Scroll) isInput() {}
 
 // keycodes are Android's KeyEvent codes.
 var keycodes = map[string]int32{
@@ -66,16 +72,22 @@ type Control struct {
 
 // scrcpy's control message types and Android's MotionEvent and KeyEvent actions.
 const (
-	msgKeycode = 0
-	msgTouch   = 2
+	msgKeycode    = 0
+	msgTouch      = 2
+	msgResetVideo = 17 // TYPE_RESET_VIDEO: one byte, no payload
 
-	actionDown = 0 // ACTION_DOWN, for a key and for a touch
-	actionUp   = 1
-	actionMove = 2
+	actionDown   = 0 // ACTION_DOWN, for a key and for a touch
+	actionUp     = 1
+	actionMove   = 2
+	actionCancel = 3 // ACTION_CANCEL, for a view's events (control.go)
 
 	pressureDown = 0xffff // 1.0 as a u16 fixed point
 	pressureUp   = 0
 )
+
+// EncodeResetVideo is scrcpy's reset-video message, which has the encoder produce a key frame
+// (ADR-0118 §2; docs/research/spike-live-input-2026-10.md §Stop rules, S3).
+func EncodeResetVideo() []byte { return []byte{msgResetVideo} }
 
 // fingerID is scrcpy's generic finger pointer id, -2 (confirmed by taps that landed,
 // docs/research/spike-screen-stream-2026-10.md §(d)).
@@ -87,7 +99,8 @@ const fingerID = ^uint64(1)
 //   - Tap: a touch down at 0 and a touch up at Hold;
 //   - Swipe: a touch down at the first point, a move at each later point, then a touch up
 //     at the last point, all at the points' T;
-//   - Key: a key down and a key up, both at 0.
+//   - Key: a key down and a key up, both at 0;
+//   - Scroll: one scroll message at 0, its notches rounded to the wire's 1/256.
 //
 // A coordinate becomes the nearest pixel, math.Round(v*size), clamped to the last pixel
 // so that 1.0 is the frame's edge, not past it. The messages carry the frame size they
@@ -95,8 +108,8 @@ const fingerID = ^uint64(1)
 //
 // An Input that is not encodable (a coordinate that is NaN or outside 0..1, a negative
 // or over-long Hold or T, a Swipe with fewer than two or more than MaxSwipePoints points
-// or with T going backwards, an unknown key, a size outside 1..MaxDimension) is an error
-// wrapping ErrBadInput.
+// or with T going backwards, an unknown key, a Scroll with an amount that is NaN or over
+// MaxScrollNotches, a size outside 1..MaxDimension) is an error wrapping ErrBadInput.
 func EncodeControl(in Input, size Size) ([]Control, error) {
 	if size.Width < 1 || size.Height < 1 || size.Width > MaxDimension || size.Height > MaxDimension {
 		return nil, fmt.Errorf("%w: frame size %dx%d", ErrBadInput, size.Width, size.Height)
@@ -149,9 +162,31 @@ func EncodeControl(in Input, size Size) ([]Control, error) {
 			{0, keycode(actionDown, code)},
 			{0, keycode(actionUp, code)},
 		}, nil
+	case Scroll:
+		x, y, err := pixel(in.X, in.Y, size)
+		if err != nil {
+			return nil, err
+		}
+		h, err := scrollWire(in.DX)
+		if err != nil {
+			return nil, err
+		}
+		v, err := scrollWire(in.DY)
+		if err != nil {
+			return nil, err
+		}
+		return []Control{{0, scroll(x, y, size, h, v)}}, nil
 	default:
 		return nil, fmt.Errorf("%w: %T", ErrBadInput, in)
 	}
+}
+
+// scrollWire is an amount in notches as the wire's notches*256.
+func scrollWire(notches float64) (int16, error) {
+	if math.IsNaN(notches) || math.Abs(notches) > MaxScrollNotches {
+		return 0, fmt.Errorf("%w: scroll of %v notches", ErrBadInput, notches)
+	}
+	return int16(math.Round(notches * ScrollUnit)), nil
 }
 
 // pixel maps a normalised point to the nearest pixel of the frame.

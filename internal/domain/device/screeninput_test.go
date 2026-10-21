@@ -23,9 +23,10 @@ import (
 
 // fakeScreen is a screen.Source that records what Inject was given and answers with err.
 type fakeScreen struct {
-	mu     sync.Mutex
-	inputs []screen.Input
-	err    error
+	mu      sync.Mutex
+	inputs  []screen.Input
+	holders []screen.Holder // who each Inject was made as, in the same order
+	err     error
 	// block, when set, holds Inject until it is closed or ctx ends (a gesture in progress).
 	block   chan struct{}
 	entered chan struct{} // receives once per Inject that began, when set
@@ -40,9 +41,11 @@ func (f *fakeScreen) Reason() error { return nil }
 func (f *fakeScreen) WatchSecure(func(bool)) func() {
 	return func() {}
 }
-func (f *fakeScreen) Inject(ctx context.Context, in screen.Input) error {
+func (f *fakeScreen) Control(screen.Holder, screen.Event) error { return nil }
+func (f *fakeScreen) Inject(ctx context.Context, h screen.Holder, in screen.Input) error {
 	f.mu.Lock()
 	f.inputs = append(f.inputs, in)
+	f.holders = append(f.holders, h)
 	f.mu.Unlock()
 	if f.entered != nil {
 		f.entered <- struct{}{}
@@ -140,6 +143,8 @@ func TestScreenInputCapabilitiesPassTheInput(t *testing.T) {
 		{"device.swipe", `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.8,"t":0},{"x":0.5,"y":0.5,"t":120},{"x":0.5,"y":0.2,"t":5000}]}`,
 			screen.Swipe{Points: []screen.Point{{X: 0.5, Y: 0.8}, {X: 0.5, Y: 0.5, T: 120 * time.Millisecond}, {X: 0.5, Y: 0.2, T: 5 * time.Second}}}},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"back"}`, screen.Key{Name: "back"}},
+		{"device.scroll", `{"device":"` + uiSerial + `","x":0.25,"y":0.75,"dx":-2.5,"dy":16}`, screen.Scroll{X: 0.25, Y: 0.75, DX: -2.5, DY: 16}},
+		{"device.scroll", `{"device":"` + uiSerial + `","x":1,"y":0,"dx":16,"dy":0}`, screen.Scroll{X: 1, Y: 0, DX: 16, DY: 0}},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"appSwitch"}`, screen.Key{Name: "appSwitch"}},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"delete"}`, screen.Key{Name: "delete"}},
 	}
@@ -198,6 +203,14 @@ func TestScreenInputRefusesWhatTheBoundsRefuse(t *testing.T) {
 		{"first t not 0", "device.swipe", path(pt(0.5, 0.5, 10), pt(0.5, 0.6, 100))},
 		{"a point without y", "device.swipe", path(pt(0.5, 0.5, 0), `{"x":0.5,"t":100}`)},
 		{"an unknown key", "device.pressKey", `{` + dev + `,"key":"power"}`},
+		// device.scroll's bounds (plan m2y step 3, S1): each axis within 16 notches, not both
+		// zero, every number present.
+		{"dy above 16", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":0,"dy":16.01}`},
+		{"dx below -16", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":-16.01,"dy":1}`},
+		{"dx and dy both zero", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":0,"dy":0}`},
+		{"scroll x above 1", "device.scroll", `{` + dev + `,"x":1.01,"y":0.5,"dx":0,"dy":1}`},
+		{"scroll dx null", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":null,"dy":1}`},
+		{"scroll dy missing", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":1}`},
 		{"a key in the wrong case", "device.pressKey", `{` + dev + `,"key":"Back"}`},
 	}
 	for _, c := range cases {
@@ -228,6 +241,7 @@ func TestScreenInputWithNoLiveViewSendsNothing(t *testing.T) {
 		{"device.tap", `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`},
 		{"device.swipe", `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`},
 		{"device.pressKey", `{"device":"` + uiSerial + `","key":"home"}`},
+		{"device.scroll", `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`},
 	} {
 		t.Run(c.name+" with the lookup finding none", func(t *testing.T) {
 			f := newSIFix(t, "") // no live serial
@@ -271,6 +285,7 @@ func TestScreenInputIsAuthorizedBeforeTheSourceIsLooked(t *testing.T) {
 		"device.tap":      `{"device":"` + physSerial + `","x":0.5,"y":0.5}`,
 		"device.swipe":    `{"device":"` + physSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`,
 		"device.pressKey": `{"device":"` + physSerial + `","key":"home"}`,
+		"device.scroll":   `{"device":"` + physSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`,
 	}
 	for name, p := range params {
 		t.Run(name+" not admitted", func(t *testing.T) {
@@ -307,6 +322,7 @@ func TestScreenInputIsRefusedFromMCP(t *testing.T) {
 		"device.tap":      `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`,
 		"device.swipe":    `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`,
 		"device.pressKey": `{"device":"` + uiSerial + `","key":"home"}`,
+		"device.scroll":   `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newSIFix(t, "", uiSerial)
@@ -421,6 +437,28 @@ func TestScreenInputFailureBeforeAndAfterTheFirstByte(t *testing.T) {
 		res := out.Result.(ScreenInputResult)
 		if !res.Delivered || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "part of it") || !strings.Contains(res.Warnings[0], "adb shell terminated") {
 			t.Errorf("result %+v, want delivered with one warning naming the cause", res)
+		}
+	})
+	// Decision (ADR-0117 §4): a gesture whose finger the live view's user took is not a failed
+	// live view. Before its first byte the call fails (nothing sent) with a cause and next step
+	// that say so, not "open the live view again"; after it the warning says the finger was
+	// taken. Seen failing with the generic stream-failed text for both.
+	t.Run("the finger taken before the first byte", func(t *testing.T) {
+		f := newSIFix(t, "", uiSerial)
+		f.fake.err = errFingerLost
+		ce := mustFail(t, f.call(t, capability.ClientUI, "device.tap", tap), ErrStreamFailed)
+		if !strings.Contains(ce.Message, "took the finger") || !strings.Contains(ce.NextStep, "Retry") || strings.Contains(ce.NextStep, "Open the device's live view again") {
+			t.Errorf("error %+v, want it to say the live view's user took the finger and the call can be retried", ce)
+		}
+	})
+	t.Run("the finger taken after the first byte", func(t *testing.T) {
+		f := newSIFix(t, "", uiSerial)
+		f.fake.err = &screen.PartialError{Err: errFingerLost}
+		out := f.call(t, capability.ClientUI, "device.tap", tap)
+		res, _ := out.Result.(ScreenInputResult)
+		if out.State != capability.StateCompleted || !res.Delivered || len(res.Warnings) != 1 ||
+			!strings.Contains(res.Warnings[0], "took the finger") || strings.Contains(res.Warnings[0], "failed") {
+			t.Errorf("outcome %s %+v, want delivered with a warning that the live view took the finger", out.State, res)
 		}
 	})
 	t.Run("a cancelled call", func(t *testing.T) {
@@ -568,7 +606,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		defer release()
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 		defer cancel()
-		err := src.Inject(ctx, swipe)
+		err := src.Inject(ctx, screen.NewHolder(false), swipe)
 		var partial *screen.PartialError
 		if !errors.As(err, &partial) || !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("Inject = %v, want a PartialError wrapping the deadline", err)
@@ -580,7 +618,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		src, release := f.mustAcquire(t)
 		defer release()
 		done := make(chan error, 1)
-		go func() { done <- src.Inject(context.Background(), swipe) }()
+		go func() { done <- src.Inject(context.Background(), screen.NewHolder(false), swipe) }()
 		testtime.Eventually(t, testtime.Bound(10*time.Second), "the finger down", func() bool { return len(f.ln.controlBytes()) >= len(down[0].Data) })
 		src.end(&ScreenEnd{Reason: StopExited, Cause: "adb shell terminated"})
 		select {
@@ -601,7 +639,7 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 		defer release()
 		src.end(&ScreenEnd{Reason: StopFailed, Cause: "x"})
 		<-src.Done()
-		err := src.Inject(context.Background(), screen.Tap{X: 0.5, Y: 0.5})
+		err := src.Inject(context.Background(), screen.NewHolder(false), screen.Tap{X: 0.5, Y: 0.5})
 		var partial *screen.PartialError
 		var end *ScreenEnd
 		if errors.As(err, &partial) || !errors.As(err, &end) {
@@ -647,7 +685,7 @@ func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
 		src, release := f.mustAcquire(t)
 		defer release()
 		src.control.Close()
-		err := src.Inject(context.Background(), screen.Tap{X: 0.5, Y: 0.5})
+		err := src.Inject(context.Background(), screen.NewHolder(false), screen.Tap{X: 0.5, Y: 0.5})
 		var partial *screen.PartialError
 		if err == nil || errors.As(err, &partial) || !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("Inject = %v, want a plain error wrapping the closed socket's", err)
@@ -664,7 +702,7 @@ func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
 		defer release()
 		swipe := screen.Swipe{Points: []screen.Point{{X: 0.5, Y: 0.8}, {X: 0.5, Y: 0.2, T: 400 * time.Millisecond}}}
 		done := make(chan error, 1)
-		go func() { done <- src.Inject(context.Background(), swipe) }()
+		go func() { done <- src.Inject(context.Background(), screen.NewHolder(false), swipe) }()
 		testtime.Eventually(t, testtime.Bound(10*time.Second), "the finger down", func() bool { return len(f.ln.controlBytes()) > 0 })
 		src.control.Close()
 		select {

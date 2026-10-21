@@ -35,6 +35,7 @@ javac --release 11 -cp "$androidjar" -d "$work/classes" \
     "$here/src/dev/droidyard/formapp/FormActivity.java" \
     "$here/src/dev/droidyard/formapp/ProbeActivity.java" \
     "$here/src/dev/droidyard/formapp/WidgetsActivity.java" \
+    "$here/src/dev/droidyard/formapp/TouchActivity.java" \
     "$work/gen/dev/droidyard/formapp/R.java"
 
 mkdir "$work/dex"

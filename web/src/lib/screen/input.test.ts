@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CapabilityError } from '../api/client';
-import {
-	GestureRecorder,
-	InputSender,
-	MAX_POINTS,
-	NAV_KEYS,
-	toFrame,
-	type Box,
-	type Gesture,
-	type InputClient,
-} from './input';
+import { hex } from './golden';
+import { encodeKey } from './control';
+import { gated, InputSender, NAV_KEYS, PointerInput, toFrame, WheelAccumulator, wheelNotches, type Box, type InputClient } from './input';
 
 // A 1000x500 canvas box at (100, 50) showing a 100x200 frame: contain makes it 250 px
 // wide, centred, with 375 px bars at each side.
@@ -33,76 +26,156 @@ describe('the pointer to the frame', () => {
 	it('clamps a drag that leaves the frame', () => {
 		expect(toFrame(1000, 700, box, frame, true)).toEqual({ x: 1, y: 1 });
 	});
+});
 
-	// Decision: a gesture that starts on a bar is not a gesture.
-	it('records nothing for a pointer that goes down on a bar', () => {
-		expect(GestureRecorder.start(300, 300, 0, box, frame)).toBeNull();
+function pointer() {
+	const sent: string[] = [];
+	return { sent, p: new PointerInput((b) => sent.push(hex(b))) };
+}
+const at = (u: number, v: number): [number, number] => [inFrameX(u), inFrameY(v)];
+
+describe('the pointer input', () => {
+	// Decision (ADR-0117 §3): down, every move and the up reach the wire in order, each as
+	// its own frame; nothing is sampled away or merged into a swipe.
+	it('sends the down, every move and the up, in order', () => {
+		const { sent, p } = pointer();
+		expect(p.down(1, ...at(0.5, 0.5), box, frame)).toBe(true);
+		p.move(1, ...at(0.5, 0.4), box, frame);
+		p.move(1, ...at(0.5, 0.25), box, frame);
+		p.move(1, ...at(0.5, 0.25), box, frame); // the same place again is still a move
+		p.up(1, ...at(0.5, 0.2), box, frame);
+		expect(sent).toEqual([
+			'010080008000', // down in the middle
+			'010280006666', // move to y 0.4
+			'010280004000', // move to y 0.25
+			'010280004000',
+			'010180003333', // up at y 0.2
+		]);
+	});
+
+	// Decision: a drag that leaves the frame is held at its edge on the wire.
+	it('holds a move that leaves the frame at the edge', () => {
+		const { sent, p } = pointer();
+		p.down(1, ...at(0.5, 0.5), box, frame);
+		p.move(1, 5000, 5000, box, frame);
+		expect(sent[1]).toBe('0102ffffffff');
+	});
+
+	// Decision: losing the pointer's capture or a pointercancel cancels the open gesture,
+	// at the last place it was, so the device is never left with a finger held down.
+	it('cancels an open gesture, at its last point', () => {
+		const { sent, p } = pointer();
+		p.down(1, ...at(0.5, 0.5), box, frame);
+		p.move(1, ...at(0.25, 0.5), box, frame);
+		p.cancel(1);
+		expect(sent[sent.length - 1]).toBe('010340008000');
+		expect(p.open).toBe(false);
+	});
+
+	// Decision: a normal up releases the capture too, and that release (lostpointercapture)
+	// must not follow the up with a cancel.
+	it('does not cancel after an up, nor with no gesture open', () => {
+		const { sent, p } = pointer();
+		p.down(1, ...at(0.5, 0.5), box, frame);
+		p.up(1, ...at(0.5, 0.5), box, frame);
+		p.cancel(1);
+		p.cancel();
+		expect(sent).toHaveLength(2);
+		const idle = pointer();
+		idle.p.cancel(1);
+		expect(idle.sent).toEqual([]);
+	});
+
+	// Decision: a gesture that starts on a bar is not a gesture: nothing is sent, nothing
+	// is open, and what follows it is not a gesture either.
+	it('sends nothing for a pointer that goes down on a bar', () => {
+		const { sent, p } = pointer();
+		expect(p.down(1, 300, 300, box, frame)).toBe(false);
+		p.move(1, ...at(0.5, 0.5), box, frame);
+		p.up(1, ...at(0.5, 0.5), box, frame);
+		p.cancel(1);
+		expect(sent).toEqual([]);
+	});
+
+	// Decision: one finger at a time; a second pointer neither starts nor ends the first.
+	it('follows the pointer that went down', () => {
+		const { sent, p } = pointer();
+		p.down(1, ...at(0.5, 0.5), box, frame);
+		expect(p.down(2, ...at(0.1, 0.1), box, frame)).toBe(false);
+		p.move(2, ...at(0.9, 0.9), box, frame);
+		p.up(2, ...at(0.9, 0.9), box, frame);
+		expect(sent).toHaveLength(1);
+		expect(p.open).toBe(true);
+	});
+
+	// Decision: a stream that ends drops its gesture without writing to the closed socket.
+	it('forgets a gesture on reset without sending', () => {
+		const { sent, p } = pointer();
+		p.down(1, ...at(0.5, 0.5), box, frame);
+		p.reset();
+		p.cancel(1);
+		expect(sent).toHaveLength(1);
 	});
 });
 
-const X = inFrameX(0.5);
-const Y = inFrameY(0.5);
-
-function run(points: [number, number, number][]): Gesture {
-	const [first, ...rest] = points;
-	const r = GestureRecorder.start(first![0], first![1], first![2], box, frame)!;
-	for (const p of rest.slice(0, -1)) r.move(p[0], p[1], p[2]);
-	const last = rest[rest.length - 1] ?? first!;
-	return r.end(last[0], last[1], last[2]);
-}
-
-describe('the gesture', () => {
-	// Decision: under 10 px and under 300 ms is a tap, with no duration.
-	it('is a tap when short and still', () => {
-		const g = run([[X, Y, 1000], [X + 3, Y + 2, 1100], [X + 3, Y + 2, 1150]]);
-		expect(g).toMatchObject({ kind: 'tap' });
-		expect(g.kind === 'tap' && g.durationMs).toBeUndefined();
-		expect(run([[X, Y, 0], [X, Y, 299]]).kind).toBe('tap');
+describe('the wheel', () => {
+	// Decision: a pixel delta is 100 px a notch, a line delta one notch a line, a page 16.
+	it('reads a notch from each delta mode', () => {
+		expect(wheelNotches(100, 0)).toBe(1);
+		expect(wheelNotches(50, 0)).toBe(0.5);
+		expect(wheelNotches(3, 1)).toBe(3);
+		expect(wheelNotches(1, 2)).toBe(16);
 	});
 
-	// Decision: held in place for 300 ms or more is a tap with its duration, at most 2000.
-	it('is a long tap when held in place', () => {
-		expect(run([[X, Y, 0], [X, Y, 800]])).toMatchObject({ kind: 'tap', durationMs: 800 });
-		expect(run([[X, Y, 0], [X, Y, 9000]])).toMatchObject({ kind: 'tap', durationMs: 2000 });
+	// Decision: the browser's positive deltaY (scroll down) is a NEGATIVE v (Android's
+	// AXIS_VSCROLL is positive up); positive deltaX (right) is a positive h.
+	it('turns down into a negative v and right into a positive h', () => {
+		const down = new WheelAccumulator();
+		down.add(0, 100, 0, { x: 0.5, y: 0.5 });
+		expect(hex(down.take()!)).toBe('03' + '8000' + '8000' + '0000' + 'ff00'); // h 0, v -256
+		const right = new WheelAccumulator();
+		right.add(100, 0, 0, { x: 0.5, y: 0.5 });
+		expect(hex(right.take()!)).toBe('03' + '8000' + '8000' + '0100' + '0000'); // h 256, v 0
 	});
 
-	// Decision: 10 px of travel at any moment makes it a swipe, even if the pointer comes back.
-	it('is a swipe once it has moved 10 px, even if it comes back', () => {
-		expect(run([[X, Y, 0], [X + 12, Y, 50], [X, Y, 100]]).kind).toBe('swipe');
+	// Decision: small events add up, and a frame is sent only when the sum reaches a unit
+	// of the wire (1/256 notch); the remainder is kept, not lost.
+	it('accumulates small deltas and keeps the remainder', () => {
+		const w = new WheelAccumulator();
+		w.add(0, 0.1, 0, { x: 0, y: 0 }); // 0.001 notch: under a unit
+		expect(w.take()).toBeNull();
+		for (let i = 0; i < 49; i++) w.add(0, 0.1, 0, { x: 0, y: 0 });
+		// 5 px in all: 0.05 notch = 12.8 units, so 13 units sent, v negative
+		expect(hex(w.take()!)).toBe('03' + '0000' + '0000' + '0000' + 'fff3');
+		expect(w.take()).toBeNull();
 	});
 
-	// Decision: the swipe is sampled at 16 ms or more, t is from the first point, strictly
-	// increasing, first and last always kept.
-	it('decimates to 16 ms and keeps the first and the last', () => {
-		const pts: [number, number, number][] = [];
-		for (let t = 0; t <= 200; t += 4) pts.push([X, Y - t, 5000 + t]);
-		const g = run(pts);
-		if (g.kind !== 'swipe') throw new Error('swipe expected');
-		expect(g.path[0]!.t).toBe(0);
-		expect(g.path[g.path.length - 1]!.t).toBe(200);
-		for (let i = 1; i < g.path.length - 1; i++) expect(g.path[i]!.t - g.path[i - 1]!.t).toBeGreaterThanOrEqual(16);
-		expect(g.path.length).toBeLessThan(20);
-		for (let i = 1; i < g.path.length; i++) expect(g.path[i]!.t).toBeGreaterThan(g.path[i - 1]!.t);
+	// Decision: each axis is held to 16 notches, and the excess is dropped, not queued.
+	it('holds an axis to the bound and drops the excess', () => {
+		const w = new WheelAccumulator();
+		w.add(0, 100_000, 0, { x: 0, y: 0 });
+		expect(hex(w.take()!)).toBe('03' + '0000' + '0000' + '0000' + 'f000');
+		expect(w.take()).toBeNull();
 	});
+});
 
-	// Decision: at most 64 points and 5 s, whatever the pointer did.
-	it('caps the path at 64 points and 5 seconds', () => {
-		const pts: [number, number, number][] = [];
-		for (let t = 0; t <= 8000; t += 20) pts.push([X + (t % 50), inFrameY(0.9) - t / 20, t]);
-		const g = run(pts);
-		if (g.kind !== 'swipe') throw new Error('swipe expected');
-		expect(g.path.length).toBeLessThanOrEqual(MAX_POINTS);
-		expect(g.path[g.path.length - 1]!.t).toBeLessThanOrEqual(5000);
-		expect(g.path[0]!.t).toBe(0);
-		for (let i = 1; i < g.path.length; i++) expect(g.path[i]!.t).toBeGreaterThan(g.path[i - 1]!.t);
-	});
-
-	// Decision: a swipe is at least two points with strictly increasing t, even when every
-	// event carries the same timestamp.
-	it('gives two points with increasing t for a swipe with no elapsed time', () => {
-		const g = run([[X, Y, 10], [X + 50, Y, 10]]);
-		if (g.kind !== 'swipe') throw new Error('swipe expected');
-		expect(g.path.map((p) => p.t)).toEqual([0, 1]);
+describe('a watch-only view', () => {
+	// Decision (ADR-0117 §3): with `control` false the view sends nothing, whatever the pointer,
+	// the wheel or a button does; the same input sends once `control` is true.
+	it('sends nothing with control false and everything with control true', () => {
+		for (const control of [false, true]) {
+			const sent: string[] = [];
+			const emit = gated(() => control, (b) => sent.push(hex(b)));
+			const p = new PointerInput(emit);
+			p.down(1, ...at(0.5, 0.5), box, frame);
+			p.move(1, ...at(0.4, 0.4), box, frame);
+			p.up(1, ...at(0.4, 0.4), box, frame);
+			const w = new WheelAccumulator();
+			w.add(0, 100, 0, { x: 0.5, y: 0.5 });
+			emit(w.take()!);
+			emit(encodeKey('back'));
+			expect(sent.length).toBe(control ? 5 : 0);
+		}
 	});
 });
 
@@ -119,16 +192,10 @@ function fake(over: Record<string, () => unknown> = {}) {
 }
 
 describe('the sender', () => {
-	// Decision (ADR-0079): Back, Home and Recents are the keys back, home and appSwitch.
-	it('presses back, home and appSwitch for the three buttons', async () => {
-		const f = fake();
-		const s = new InputSender(f.client, () => 'emulator-5554');
-		for (const k of NAV_KEYS) expect(await s.key(k.key)).toBeNull();
-		expect(f.calls).toEqual([
-			{ name: 'device.pressKey', params: { device: 'emulator-5554', key: 'back' } },
-			{ name: 'device.pressKey', params: { device: 'emulator-5554', key: 'home' } },
-			{ name: 'device.pressKey', params: { device: 'emulator-5554', key: 'appSwitch' } },
-		]);
+	// Decision: Back, Home and Recents are the keys back, home and appSwitch (they travel
+	// the stream now; the list is the buttons).
+	it('lists back, home and appSwitch for the three buttons', () => {
+		expect(NAV_KEYS.map((k) => k.key)).toEqual(['back', 'home', 'appSwitch']);
 		expect(NAV_KEYS.map((k) => k.label)).toEqual(['Back', 'Home', 'Recents']);
 	});
 
@@ -139,32 +206,19 @@ describe('the sender', () => {
 		expect(f.calls).toEqual([{ name: 'device.inputText', params: { device: 'd', text: 'ñandú' } }]);
 	});
 
-	it('sends a tap, a long tap and a swipe to their capabilities', async () => {
-		const f = fake();
-		const s = new InputSender(f.client, () => 'd');
-		await s.gesture({ kind: 'tap', x: 0.1, y: 0.2 });
-		await s.gesture({ kind: 'tap', x: 0.1, y: 0.2, durationMs: 500 });
-		await s.gesture({ kind: 'swipe', path: [{ x: 0, y: 0, t: 0 }, { x: 1, y: 1, t: 9 }] });
-		expect(f.calls.map((c) => c.name)).toEqual(['device.tap', 'device.tap', 'device.swipe']);
-		expect(f.calls[0]!.params).toEqual({ device: 'd', x: 0.1, y: 0.2 });
-		expect(f.calls[1]!.params).toEqual({ device: 'd', x: 0.1, y: 0.2, durationMs: 500 });
-	});
-
 	// Decision: a failure shows as text (code and message); a partial delivery shows its warnings.
 	it('turns a refusal and a warning into text', async () => {
 		const refusing = {
 			call: () => Promise.reject(new CapabilityError({ code: 'DEVICE_NO_STREAM', message: 'no live view' }, false)),
 		} as unknown as InputClient;
-		expect(await new InputSender(refusing, () => 'd').gesture({ kind: 'tap', x: 0, y: 0 })).toBe(
-			'DEVICE_NO_STREAM: no live view',
-		);
-		const warn = fake({ 'device.pressKey': () => ({ delivered: true, warnings: ['the view failed'] }) });
-		expect(await new InputSender(warn.client, () => 'd').key('home')).toBe('the view failed');
+		expect(await new InputSender(refusing, () => 'd').text('x')).toBe('DEVICE_NO_STREAM: no live view');
+		const warn = fake({ 'device.inputText': () => ({ delivered: true, warnings: ['the view failed'] }) });
+		expect(await new InputSender(warn.client, () => 'd').text('x')).toBe('the view failed');
 	});
 
 	it('sends nothing without a device', async () => {
 		const f = fake();
-		expect(await new InputSender(f.client, () => '').key('back')).toBe('Select a device first.');
+		expect(await new InputSender(f.client, () => '').text('x')).toBe('Select a device first.');
 		expect(f.calls).toEqual([]);
 	});
 });

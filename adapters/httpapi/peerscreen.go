@@ -9,6 +9,10 @@ import (
 	"github.com/coder/websocket"
 )
 
+// peerWriteTimeout bounds each message's write and the wait on a closed window; a variable so a
+// test is quick.
+var peerWriteTimeout = defaultScreenWriteTimeout
+
 // PeerScreenAttach claims the viewer of a stream id for the named peer, once (ADR-0078 §4 on
 // the peer port): an id that was not issued to that peer is ErrScreenUnknown, as one that
 // was never issued, so a peer learns nothing of another's streams. Like ScreenAttach it is
@@ -53,5 +57,5 @@ func ServePeerScreen(parent context.Context, c *websocket.Conn, peer string, fir
 		c.Close(websocket.StatusInternalError, "the stream could not be attached")
 		return
 	}
-	sendScreen(ctx, cancel, c, v, defaultScreenWriteTimeout)
+	sendScreen(ctx, cancel, c, v, peerWriteTimeout, newAckWindow())
 }

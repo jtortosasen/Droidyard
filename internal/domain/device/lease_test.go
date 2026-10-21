@@ -101,6 +101,7 @@ func leased(serial string) []struct{ name, params string } {
 		{"device.tap", `{` + d + `,"x":0.5,"y":0.5}`},
 		{"device.swipe", `{` + d + `,"path":[{"x":0.5,"y":0.8,"t":0},{"x":0.5,"y":0.2,"t":200}]}`},
 		{"device.pressKey", `{` + d + `,"key":"home"}`},
+		{"device.scroll", `{` + d + `,"x":0.5,"y":0.5,"dx":0,"dy":1}`},
 		{"device.tapElement", `{` + d + `,"target":{"desc":"Navigate up"}}`},
 		{"device.launch", `{` + d + `,"applicationId":"dev.droidyard.formapp"}`},
 		{"device.uninstall", `{` + d + `,"applicationId":"dev.droidyard.formapp"}`},

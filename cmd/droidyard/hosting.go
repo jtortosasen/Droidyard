@@ -20,7 +20,7 @@ import (
 const (
 	idUsage     = "usage: droidyard id"
 	hostUsage   = "usage: droidyard host admit <name> <fingerprint> | revoke <name> | lend <serial> --to <name>[,<name>] | unlend <serial> | listen <ip:port>|off | list"
-	remoteUsage = "usage: droidyard remote add <name> <ip:port> <fingerprint> | remove <name> | list"
+	remoteUsage = "usage: droidyard remote add <name> <ip:port> <fingerprint> | remove <name> | fast <name> on|off | list"
 )
 
 // lendWarning is what lending a device means (ADR-0099 §4), said each time one is lent.
@@ -306,6 +306,30 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 				said:  []string{"removed the remote " + name, "A running daemon closes its link within seconds."},
 			}, nil
 		})
+	case "fast":
+		if len(rest) != 2 || rest[1] != "on" && rest[1] != "off" {
+			return usageError(stderr, "remote fast", remoteUsage)
+		}
+		name, on := rest[0], rest[1] == "on"
+		if err := policy.ValidName("name", name); err != nil {
+			return invalid(stderr, "remote fast", err)
+		}
+		return apply(pol, "remote fast", stdout, stderr, func(cur policy.GetResult) (edit, error) {
+			i := slices.IndexFunc(cur.Remotes, func(r policy.Remote) bool { return r.Name == name })
+			if i < 0 {
+				return edit{}, fmt.Errorf("%s is not a remote", name)
+			}
+			if cur.Remotes[i].Fast == on {
+				return edit{said: []string{name + " is already marked " + onOff(on)}}, nil
+			}
+			next := slices.Clone(cur.Remotes)
+			next[i].Fast = on
+			return edit{
+				patch: map[string]any{"remotes": next},
+				said: []string{name + " is marked " + onOff(on) + ": a live view this daemon starts on its device uses " + map[bool]string{true: "a lighter stream", false: "the full stream"}[on],
+					"A running daemon reconnects within seconds."},
+			}, nil
+		})
 	case "list":
 		if len(rest) != 0 {
 			return usageError(stderr, "remote list", remoteUsage)
@@ -313,12 +337,23 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 		return show(pol, "remote list", stdout, stderr, func(cur policy.GetResult) {
 			fmt.Fprintf(stdout, "remotes: %d\n", len(cur.Remotes))
 			for _, r := range cur.Remotes {
-				fmt.Fprintf(stdout, "  %s  %s  %s\n", r.Name, r.Address, r.Fingerprint)
+				fast := ""
+				if r.Fast {
+					fast = "  fast"
+				}
+				fmt.Fprintf(stdout, "  %s  %s  %s%s\n", r.Name, r.Address, r.Fingerprint, fast)
 			}
 		})
 	default:
 		return usageError(stderr, "remote", remoteUsage, fmt.Errorf("unknown verb %q", verb))
 	}
+}
+
+func onOff(on bool) string {
+	if on {
+		return "fast"
+	}
+	return "not fast"
 }
 
 // validPair checks a name and a fingerprint with the rules the configuration applies to

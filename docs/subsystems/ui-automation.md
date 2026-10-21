@@ -66,6 +66,17 @@ screen to settle instead of polling blind; a lost stretch is always a gap. Only 
 text. `device.watchUiEvents` ([ADR-0112](../adr/0112-ui-events-stream-and-panel.md)) streams the
 same events to the web UI's panel.
 
+`device.recordUi` ([ADR-0113](../adr/0113-ui-recording.md)) keeps both over a span the user times
+by hand: a full dump at start, at stop and after each change, with the events between, in one
+timeline owned by the daemon, so the web can start what an agent reads. A held read lock is waited
+out, not a failure ([ADR-0114](../adr/0114-patient-ui-events-reach.md)). On a lent device the host
+records. The client copies the timeline at the end and serves it once the SHA-256 matches
+([ADR-0115](../adr/0115-ui-reads-and-recordings-lent.md), [ADR-0116](../adr/0116-remote-recording-adoption.md)).
+
+Chrome builds a page's accessibility tree only while an accessibility client is connected, so the
+first dump after the reader connects may lack the page. It carries the warning `chromePageHidden`
+([spike](../research/spike-ui-recording-2026-10.md)).
+
 ## Selectors
 
 One grammar, used for the tap target, for `within` and inside expectations. `id`, `text`, `desc`,
@@ -204,11 +215,11 @@ The delivery paths, the read-back, the partial-result and the timing bounds are
 The adb verbs beneath UI actions. Agents get `tapElement` and `inputText`; scroll-to-find and
 coordinate actions for agents are later and use these rules and the same `expect` vocabulary. **The
 live view's input** ([ADR-0079](../adr/0079-screen-input-capabilities.md), people only) normalises
-coordinates against the **stream's frame size** and needs a live view; on an emulator a click
-reaches the next decoded frame in p50 51–53 ms, a tap's operation takes p50 76–83 ms (plan m2p
-step 7). On a device another Droidyard lends, each input is the host's own capability call
-([ADR-0100](../adr/0100-remote-devices-on-the-client.md) §3); over loopback that added about
-1 ms (plan m2t step 3). **Coordinates for agents' coordinate actions are normalised 0..1** too, resolved to
+coordinates against the **stream's frame size** and needs a live view. **The view's own input is not
+a call to `tap`, `swipe`, `pressKey` or `scroll`** ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md)): authorized when the
+view opens, it travels its stream, recorded as one operation per gesture. On a device another
+Droidyard lends, each call's input is the host's own capability call
+([ADR-0100](../adr/0100-remote-devices-on-the-client.md) §3). **Coordinates for agents' coordinate actions are normalised 0..1** too, resolved to
 pixels using the **display size from a fresh screencap**, not `wm size`, which commonly reports the
 portrait panel size even in landscape; this removes rotation math entirely. **Tree-derived actions work in display
 pixels**, because the tree's bounds are already in that space. Text and taps go through the persistent

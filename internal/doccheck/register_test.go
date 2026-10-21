@@ -204,7 +204,13 @@ func checkRegister(fsys fs.FS) []string {
 // device row the three new capabilities, and the skill says device_uiRecordings lists them (ADR-0113).
 // Raised by 24 (to 29,889) at milestone 2x step 9: peer.md says a peer records a lent device on
 // the host, sees only its own recordings and fetches its own finished timelines (ADR-0115).
-const liveBudget = 29889
+// Raised by 6 (to 29,895) at the merge of 2y's close into 2x: README.md's status line names 2y; the
+// steps' own additions (ADR-0117 to ADR-0121) were cut from the documents they touched.
+// Raised by 159 (to 30,054) at milestone 2x's close: ui-automation.md says what a recording is and
+// why Chrome's first dump may lack the page, adb-device.md that a peer's recording holds the lease,
+// http-websocket.md that a growing text artifact is 400, README.md's line names 2x (ADR-0113 to
+// ADR-0116).
+const liveBudget = 30054
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

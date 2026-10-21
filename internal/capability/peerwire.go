@@ -19,6 +19,12 @@ const (
 	// a socket of its own, TLS-pinned like the session, whose first frame is
 	// {"stream": <id>}, an id from a device.watchScreen of the same peer.
 	PeerScreenPath = "/peer/v1/screen"
+	// PeerScreenAck is the type byte of the client's acknowledgement on the peer screen
+	// socket (ADR-0118 §3): a binary frame [4][u32 bytes received, mod 2^32, big endian].
+	// Only a host whose hello names PeerScreenAckAPI or later takes it.
+	PeerScreenAck = 4
+	// PeerScreenAckAPI is the first API version whose host takes PeerScreenAck.
+	PeerScreenAckAPI = "0.33.0"
 	// PeerUploadPath is the route of an APK upload (ADR-0099 §3): a PUT whose body is the
 	// file, with a Content-Length of at most PeerMaxUpload, answered with a PeerUploadReply.
 	PeerUploadPath = "/peer/v1/upload"
@@ -88,6 +94,9 @@ const (
 type PeerHello struct {
 	PeerProtocol int    `json:"peerProtocol"`
 	API          string `json:"api"`
+	// Fast is the client's per-remote mark (ADR-0118 §4): the host starts a live view this
+	// peer asks for with a lighter stream. A host's hello leaves it out.
+	Fast bool `json:"fast,omitempty"`
 }
 
 // PeerHelloFrame is the hello as it travels.
