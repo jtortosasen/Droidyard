@@ -82,8 +82,14 @@ type FakeReader struct {
 	eventsOldest   uint64
 	ring           []FakeEvent
 	eventsRaw      string
-	eventsRawSet   bool
-	eventsReqs     []string
+	eventsGone     int
+	eventsHold     bool
+	// eventsFold folds a new event into the newest entry the way the reader does, unless an
+	// answer has returned (sealed) it; sealed is keyed by sequence number.
+	eventsFold   bool
+	sealed       map[uint64]bool
+	eventsRawSet bool
+	eventsReqs   []string
 	// mutePings is how many forthcoming ping requests are accepted but never answered,
 	// as a reader that is alive but wedged does (plan m1f step 7).
 	mutePings int
@@ -371,9 +377,48 @@ func (r *FakeReader) SetEventsInstance(instance string) {
 }
 
 // AddEvents appends entries to the fake's ring; each takes the next sequence number, from 1.
+//
+// With SetEventsFold, an event folds into the newest entry as the reader's ring does
+// (DroidyardReader's EventRing.record): a content, scroll or text event of the same type,
+// package and window within 250 ms of the entry's time, while no answer has returned that entry.
 func (r *FakeReader) AddEvents(events ...FakeEvent) {
 	r.mu.Lock()
-	r.ring = append(r.ring, events...)
+	defer r.mu.Unlock()
+	for _, e := range events {
+		if n := len(r.ring); r.eventsFold && n > 0 {
+			last := &r.ring[n-1]
+			if foldable(e.Type) && !r.sealed[r.eventsOldest+uint64(n)-1] && last.Type == e.Type &&
+				last.Package == e.Package && last.Window == e.Window && e.TimeMs-last.TimeMs <= 250 {
+				if last.Count == 0 {
+					last.Count = 1
+				}
+				last.Count++
+				last.TimeMs = max(last.TimeMs, e.TimeMs)
+				last.Changes |= e.Changes
+				continue
+			}
+		}
+		r.ring = append(r.ring, e)
+	}
+}
+
+func foldable(typ string) bool {
+	return typ == "windowContent" || typ == "scroll" || typ == "textChanged"
+}
+
+// SetEventsFold makes AddEvents fold as the reader's ring does (off by default, so a test
+// that counts the events it added is not surprised).
+func (r *FakeReader) SetEventsFold(on bool) {
+	r.mu.Lock()
+	r.eventsFold = on
+	r.mu.Unlock()
+}
+
+// SetEventsHold makes the fake accept every `events` request and never answer it, as a
+// reader whose accept thread is wedged does; `ping` still answers.
+func (r *FakeReader) SetEventsHold(on bool) {
+	r.mu.Lock()
+	r.eventsHold = on
 	r.mu.Unlock()
 }
 
@@ -388,6 +433,22 @@ func (r *FakeReader) DropEventsBefore(seq uint64) {
 	drop := min(seq-r.eventsOldest, uint64(len(r.ring)))
 	r.ring = r.ring[drop:]
 	r.eventsOldest += drop
+}
+
+// RestartEvents makes the fake a restarted reader: a new instance and an empty ring, whose
+// first entry is numbered 1 again.
+func (r *FakeReader) RestartEvents(instance string) {
+	r.mu.Lock()
+	r.eventsInstance, r.ring, r.eventsOldest, r.sealed = instance, nil, 1, nil
+	r.mu.Unlock()
+}
+
+// SetEventsGone makes the next n `events` requests end with nothing written, as a reader that
+// exited behind a live forward does; the ring is untouched, and `ping` still answers.
+func (r *FakeReader) SetEventsGone(n int) {
+	r.mu.Lock()
+	r.eventsGone = n
+	r.mu.Unlock()
 }
 
 // SetEventsAnswer makes the fake answer every `events` request with raw, verbatim, in place of
@@ -413,6 +474,16 @@ func (r *FakeReader) EventsRequests() []string {
 func (r *FakeReader) handleEvents(conn net.Conn, request string) {
 	r.mu.Lock()
 	r.eventsReqs = append(r.eventsReqs, request)
+	if r.eventsHold {
+		r.mu.Unlock()
+		holdUntilClose(conn)
+		return
+	}
+	if r.eventsGone > 0 {
+		r.eventsGone--
+		r.mu.Unlock()
+		return
+	}
 	if r.eventsRawSet {
 		raw := r.eventsRaw
 		r.mu.Unlock()
@@ -446,6 +517,10 @@ func (r *FakeReader) handleEvents(conn net.Conn, request string) {
 			continue
 		}
 		sent++
+		if r.sealed == nil {
+			r.sealed = map[uint64]bool{}
+		}
+		r.sealed[seq] = true
 		count := e.Count
 		if count == 0 {
 			count = 1

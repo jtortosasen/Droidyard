@@ -183,6 +183,9 @@ type readerClient struct {
 	sock     string // the forward's socket file, "" until forwarded
 	launched bool   // the serve command ran at least once (or a reader was adopted)
 	pushed   bool   // the dex was pushed by this daemon; not proof it is still there (dexNeedsPush)
+	// serves counts the serve commands that ran, so a call can tell that it started the reader
+	// (device.uiEvents reports that as a gap) and not another call's start.
+	serves int
 	// reconciled is true once `forward --list` has been read for this client: the
 	// forward list is consulted on the client's first read and after a failed read,
 	// never on a warm read (plan m1f step 7).
@@ -309,6 +312,13 @@ func (c *readerClient) setSock(sock string) {
 // ADR-0030).
 func (c *readerClient) adopt(sock string) {
 	c.setStarted(sock)
+}
+
+// serveCount is how many serve commands this client has run.
+func (c *readerClient) serveCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.serves
 }
 
 func (c *readerClient) setStarted(sock string) {
@@ -1125,6 +1135,9 @@ func (a *ADB) startServe(ctx context.Context, t *target, c *readerClient) (bool,
 		return false, readerReason(out, err) + ": " + line
 	}
 	c.setStarted("")
+	c.mu.Lock()
+	c.serves++
+	c.mu.Unlock()
 	return true, ""
 }
 

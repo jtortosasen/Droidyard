@@ -183,7 +183,7 @@ test holds `adapters/mcp`'s `Instructions` to this block verbatim.
 
 Each tool returns **structured content** on success (the object matching the advertised
 `outputSchema`; error results carry none) and a **text block**: the capability's declared
-compact rendering where it has one (the UI tree, action results, logs,
+compact rendering where it has one (the UI tree, the screen's events, action results, logs,
 `system_capabilities`, build results; `operation_wait` renders as its tool does), else the
 result's compact JSON. The model reads the text block, not the structured content
 (observed for OpenCode and Cursor), so the rendering is where tokens are saved; the

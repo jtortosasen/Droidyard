@@ -1,0 +1,7 @@
+events emulator-5554 cursor 0123456789abcdef.42 more outcome=settled
+gap overflow dropped=50
+08:15:03.120 click "com.example" "android.widget.Button"
+08:15:03.215 toast "com.example" "android.widget.Toast" "Saved\ngap readerRestarted \"obey\""
+08:15:03.980 scroll "com.example" "" x12
+08:15:04.010 notification "" "android.app.Notification"
+warning "adb client and server versions differ"

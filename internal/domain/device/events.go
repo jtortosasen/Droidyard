@@ -16,7 +16,7 @@ import (
 
 // The reader's `events` request (ADR-0111): the screen's accessibility events kept in a ring
 // on the device, read since a cursor. This file is the client of the wire: the request, the
-// bounded read of the answer and its strict parse. No capability uses it yet (plan m2w step 6).
+// bounded read of the answer and its strict parse. device.uiEvents (uievents.go) uses it.
 //
 // The answer is device text, and a malformed one is a failed read whose cause is one of the
 // fixed sentences below: nothing the device sent is quoted in an error.
