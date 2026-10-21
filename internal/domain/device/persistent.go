@@ -1317,6 +1317,8 @@ func (a *ADB) Close(ctx context.Context) {
 	// The Logcat streams first: each child is killed and reaped, and its pid record
 	// removed, before the daemon's supervisor stops (ADR-0041 §6).
 	a.streams.StopAll(ctx)
+	// The UI events streams' pollers return before the readers they ask are stopped below.
+	a.uiStreams.StopAll(ctx)
 	// The live view's streams drop their references, then the servers likewise (ADR-0078
 	// §6): each child is killed and reaped, its record removed and its forward removed
 	// before the supervisor stops.

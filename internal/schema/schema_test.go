@@ -337,7 +337,7 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 	}
 	want := []string{"build.assemble", "device.inputText", "device.install", "device.installUpload", "device.launch", "device.logs",
 		"device.pressKey", "device.screenshot", "device.swipe", "device.tap", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiTree",
-		"device.uninstall", "device.watchLogs", "device.watchScreen", "emulator.start", "emulator.stop", "emulator.wipe",
+		"device.uninstall", "device.watchLogs", "device.watchScreen", "device.watchUiEvents", "emulator.start", "emulator.stop", "emulator.wipe",
 		"hosting.share", "hosting.unshare", "hosting.watchShare", "session.release"}
 	var got []string
 	for name := range declared {

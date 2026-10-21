@@ -21,7 +21,10 @@ describe('panels', () => {
 		// Decision (plan m2e D35): the project file's indicator lives in the status bar.
 		expect(region('projectfile')).toBe('status');
 		for (const id of ['logcat', 'applogs', 'console', 'problems', 'activity']) expect(region(id)).toBe('bottom');
-		for (const id of ['devices', 'tree', 'act']) expect(region(id)).toBe('right');
+		// Plan m2w step 7: the UI events panel sits in the right region, after the live view it accompanies.
+		for (const id of ['devices', 'tree', 'act', 'uievents']) expect(region(id)).toBe('right');
+		const right = panelsIn('right').map((p) => p.id);
+		expect(right.indexOf('uievents')).toBe(right.indexOf('liveview') + 1);
 	});
 
 	// Decision (plan m2e D34): the toolbar reads the project name on the left and, right-aligned,
