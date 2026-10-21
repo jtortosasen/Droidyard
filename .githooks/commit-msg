@@ -1,0 +1,17 @@
+#!/bin/sh
+# Strips Claude attribution from the commit message: Co-Authored-By: Claude, Claude-Session,
+# a bare session URL and "Generated with Claude Code", then any trailing blank lines.
+#   git config core.hooksPath .githooks
+msg="$1"
+tmp="$msg.strip.$$"
+awk '
+  tolower($0) ~ /^co-authored-by: claude/ { next }
+  /^Claude-Session:/ { next }
+  /Generated with \[?Claude Code/ { next }
+  /^https:\/\/claude\.ai\/code\/session_/ { next }
+  { lines[++n] = $0 }
+  END {
+    while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+    for (i = 1; i <= n; i++) print lines[i]
+  }
+' "$msg" > "$tmp" && mv "$tmp" "$msg"
