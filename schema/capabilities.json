@@ -4453,6 +4453,14 @@
               "untrusted"
             ],
             "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+          },
+          "remote": {
+            "type": "boolean",
+            "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+          },
+          "copied": {
+            "type": "boolean",
+            "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
           }
         },
         "additionalProperties": false,
@@ -4580,6 +4588,9 @@
       "errors": [
         "DEVICE_UI_RECORDING_ACTIVE",
         "DEVICE_OCCUPIED",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_NOT_READY",
+        "DEVICE_DISCONNECTED",
         "REQUEST_INVALID_PARAMS"
       ],
       "input": {
@@ -4732,6 +4743,14 @@
                   "untrusted"
                 ],
                 "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+              },
+              "remote": {
+                "type": "boolean",
+                "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+              },
+              "copied": {
+                "type": "boolean",
+                "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
               }
             },
             "additionalProperties": false,
@@ -6305,6 +6324,14 @@
                     "untrusted"
                   ],
                   "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+                },
+                "remote": {
+                  "type": "boolean",
+                  "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+                },
+                "copied": {
+                  "type": "boolean",
+                  "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
                 }
               },
               "additionalProperties": false,
@@ -7271,6 +7298,14 @@
                     "untrusted"
                   ],
                   "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+                },
+                "remote": {
+                  "type": "boolean",
+                  "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+                },
+                "copied": {
+                  "type": "boolean",
+                  "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
                 }
               },
               "additionalProperties": false,
@@ -7453,6 +7488,14 @@
                       "untrusted"
                     ],
                     "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+                  },
+                  "remote": {
+                    "type": "boolean",
+                    "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+                  },
+                  "copied": {
+                    "type": "boolean",
+                    "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
                   }
                 },
                 "additionalProperties": false,

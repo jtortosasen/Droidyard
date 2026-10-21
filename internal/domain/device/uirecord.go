@@ -110,6 +110,8 @@ type UIRecording struct {
 	Bytes      int64            `json:"bytes" jsonschema:"required" jsonschema_description:"Size of the timeline so far."`
 	SHA256     string           `json:"sha256,omitempty" jsonschema_description:"SHA-256 of the finished timeline."`
 	Timeline   artifact.Ref     `json:"timeline" jsonschema:"required" jsonschema_description:"The timeline, one JSON line per record. Save it with droidyard artifact cat <ref> > rec.jsonl."`
+	Remote     bool             `json:"remote,omitempty" jsonschema_description:"True for a recording of a device a remote host lends (device is <remote>/<serial>): it runs on the host, and its timeline is copied here when it ends."`
+	Copied     bool             `json:"copied,omitempty" jsonschema_description:"With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."`
 }
 
 // publishedRecording is a record as anything published carries it: its starter without the
@@ -120,7 +122,7 @@ func publishedRecording(rec UIRecord, size int64) UIRecording {
 		StartedBy: rec.StartedBy.Published(), State: rec.State, StartedAt: rec.StartedAt, EndedAt: rec.EndedAt,
 		EndReason: rec.EndReason, Cause: rec.Cause, Dumps: rec.Dumps, Unchanged: rec.Unchanged, Missed: rec.Missed,
 		LockWaits: rec.LockWaits, Events: rec.Events, Gaps: rec.Gaps, Bytes: size, SHA256: rec.SHA256,
-		Timeline: artifact.TimelineRef(rec.ID, size),
+		Timeline: artifact.TimelineRef(rec.ID, size), Remote: rec.Remote, Copied: rec.Copied,
 	}
 }
 
@@ -153,7 +155,7 @@ func (p UIRecordParams) validate() (maxSeconds int, err error) {
 // holds the device's lease as any device call does (ADR-0104 §2), though the stop makes no adb
 // command (leaseOnly). What a peer may stop is its own (uirecordpeer.go).
 func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store) {
-	reg.MustRegister(capability.Descriptor{
+	reg.MustRegister(adb.lentRecordUI(capability.Descriptor{
 		Name:         "device.recordUi",
 		Kind:         capability.Command,
 		Scope:        capability.Global,
@@ -186,8 +188,8 @@ func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store)
 			}
 			return adb.recordUI(ctx, call, call.Authorized.(*target), p, maxSeconds, store)
 		},
-	})
-	reg.MustRegister(capability.Descriptor{
+	}, adb.recordRemote))
+	reg.MustRegister(adb.lentRecordUI(capability.Descriptor{
 		Name:        "device.stopUiRecording",
 		Kind:        capability.Command,
 		Scope:       capability.Global,
@@ -199,7 +201,7 @@ func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store)
 		Target:      func(p any) *capability.OpTarget { return deviceTarget(p.(StopUIRecordingParams).Device) },
 		Result:      StopUIRecordingResult{},
 		Text:        capability.TextOf(stopUIRecordingText),
-		Errors:      []capability.ErrorCode{ErrUIRecordingActive, ErrOccupied, capability.ErrInvalidParams},
+		Errors:      []capability.ErrorCode{ErrUIRecordingActive, ErrOccupied, ErrNotAllowed, ErrNotReady, ErrDisconnected, capability.ErrInvalidParams},
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
 			Reason:      "ends a daemon-owned recording the caller is allowed to stop; makes no adb call",
@@ -220,7 +222,7 @@ func registerUIRecord(reg *capability.Registry, adb *ADB, store *artifact.Store)
 			}
 			return adb.stopUIRecording(ctx, call, p.Device)
 		},
-	})
+	}, adb.stopRemote))
 }
 
 // uiRecorders is every recorder of the daemon, one per device. A recorder is in it from its
@@ -306,6 +308,8 @@ func (a *ADB) RecoverRecordings() (RecoverReport, error) {
 		if a.recoverErr != nil {
 			a.logf("recordings: recovery: %v", a.recoverErr)
 		}
+		// The recordings of remote devices a daemon that restarted still has to mirror or copy.
+		a.resumeRemoteRecordings()
 	})
 	return a.recoverRep, a.recoverErr
 }
@@ -475,6 +479,13 @@ func (a *ADB) nothingToStop(device string, who capability.Origin) StopUIRecordin
 // §3). ADB.Close calls it first. No operation is involved.
 func (a *ADB) StopRecordings(ctx context.Context) {
 	list := a.recorders.refuse()
+	// The recordings of remote devices run on their hosts: only the client's mirror of them and
+	// its copies end here, within the same bound.
+	defer func() {
+		rctx, cancel := context.WithTimeout(ctx, recordStopAllWait)
+		defer cancel()
+		a.stopRemoteRecordings(rctx)
+	}()
 	for _, r := range list {
 		r.requestEnd(EndDaemonExit, "", false)
 	}
@@ -503,6 +514,9 @@ func (a *ADB) removeRecordingDir(id string) {
 //
 //	recording <id> <device> <state> [end=<reason>] dumps=<n> unchanged=<n> missed=<n> events=<n> gaps=<n> <bytes>B <seconds>s
 //	save "droidyard artifact cat <ref> > <id>.jsonl"
+//
+// A remote recording whose timeline is not copied here yet has no save line: it has `copy "..."`
+// saying to wait for copied, or `not copied "<cause>"` when the copy was given up.
 func uiRecordingText(r UIRecording) string {
 	var t capability.Text
 	writeRecording(&t, r)
@@ -522,6 +536,17 @@ func writeRecording(t *capability.Text, r UIRecording) {
 	t.W(kv("dumps", int64(r.Dumps)), kv("unchanged", int64(r.Unchanged)), kv("missed", int64(r.Missed)),
 		kv("events", int64(r.Events)), kv("gaps", int64(r.Gaps)),
 		strconv.FormatInt(r.Bytes, 10)+"B", strconv.FormatFloat(max(secs, 0), 'f', 1, 64)+"s").Nl()
+	if r.Remote && !r.Copied {
+		// A remote recording's timeline is on the host until its copy matched the host's
+		// digest: nothing here to save yet (ADR-0115 Decision 5).
+		switch r.Cause {
+		case causeCopyMismatch, causeHostGone, causeCopyRefused, causeCopyBad, causeRemoteGone:
+			t.W("not", "copied").Q(r.Cause).Nl()
+		default:
+			t.W("copy").Q("the timeline comes from the host when the recording ends; wait for copied=true in device.uiRecordings id=" + r.ID + " before droidyard artifact cat").Nl()
+		}
+		return
+	}
 	t.W("save").Q("droidyard artifact cat " + r.Timeline.Ref + " > " + r.ID + ".jsonl").Nl()
 }
 

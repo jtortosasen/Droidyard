@@ -54,10 +54,13 @@ type leaseLab struct {
 
 func newLeaseLab(t *testing.T) *leaseLab { return newLeaseLabWith(t, nil, false) }
 
+// labMod changes the options of a lab before it is built.
+type labMod func(*labOptions)
+
 // newLeaseLabWith is newLeaseLab with more files in the host's fake adb directory (a UI
 // reader's forward, for the tests of the UI reads) and, with noScreen, a host with no live view
 // source (no screen listener, and its fake adb in this process).
-func newLeaseLabWith(t *testing.T, files map[string]string, noScreen bool) *leaseLab {
+func newLeaseLabWith(t *testing.T, files map[string]string, noScreen bool, mods ...labMod) *leaseLab {
 	t.Helper()
 	// Bob's identity first: the host pins it. His fake adb lists one emulator of his own.
 	bobDir := t.TempDir()
@@ -77,6 +80,9 @@ func newLeaseLabWith(t *testing.T, files map[string]string, noScreen bool) *leas
 	o := labOptions{
 		hostFiles:  hostFiles,
 		extraPeers: []labPeer{{"bob", bob.host.Identity().Fingerprint()}, {"carol", carolID.Fingerprint()}},
+	}
+	for _, m := range mods {
+		m(&o)
 	}
 	var sl *screenLab
 	if noScreen {

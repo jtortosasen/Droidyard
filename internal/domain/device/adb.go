@@ -118,6 +118,9 @@ type ADB struct {
 	// recWatchers are the paired peers' device.watchUiRecordings subscriptions, which hear
 	// only of their own peer's recordings (uirecordpeer.go).
 	recWatchers recordingWatchers
+	// remoteRec is the client's state for the recordings of remote devices
+	// (remoteuirecord.go).
+	remoteRec   remoteRecs
 	recoverOnce sync.Once
 	recoverRep  RecoverReport
 	recoverErr  error

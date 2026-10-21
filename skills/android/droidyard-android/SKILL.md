@@ -43,7 +43,9 @@ restart the shared adb server.
    ```
 
    A recording holds the device's UI reader, so a UiAutomation-based runner (UiAutomator,
-   Appium, Maestro) cannot run beside it.
+   Appium, Maestro) cannot run beside it. On a remote device (`<remote>/<serial>`) the timeline
+   is copied here after the stop: run `droidyard artifact cat` only once `device_uiRecordings
+   {id}` says `copied`.
 6. **Act**: `device_tapElement` on a `target` selector, `device_inputText` into a `target`
    (or the focused field), each with an `expect` that says what must change, so one call
    acts and verifies.

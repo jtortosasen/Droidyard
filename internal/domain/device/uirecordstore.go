@@ -98,6 +98,10 @@ type UIRecord struct {
 	Bytes      int64            `json:"bytes"`
 	SHA256     string           `json:"sha256,omitempty"`
 	Copied     bool             `json:"copied,omitempty"`
+	// CopyGaveUp is set on a remote record whose timeline will never be copied: the copy did
+	// not match the host's digest, or the host no longer holds the recording. The record stays
+	// (ended, failed, with a fixed cause) until it is deleted.
+	CopyGaveUp bool `json:"copyGaveUp,omitempty"`
 }
 
 // The timeline's lines (plan m2x Q3), in write order. `time` is the device clock; a dump is
@@ -554,7 +558,9 @@ func (r *UIRecordings) SweepRecords() ([]UIRecord, error) {
 	// Newest ended first: a long recording that started before others is as new as it ended.
 	var ended []UIRecord
 	for _, rec := range recs {
-		if rec.State == RecordingEnded {
+		// A remote one whose timeline is still to be copied is held like a running one: sweeping
+		// it would lose what the host is about to hand over.
+		if rec.State == RecordingEnded && !pendingCopy(rec) {
 			ended = append(ended, rec)
 		}
 	}

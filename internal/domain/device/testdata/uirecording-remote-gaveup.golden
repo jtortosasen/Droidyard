@@ -1,0 +1,2 @@
+recording 20261021T100000Z-0a1b2c3d qa/R58M001 ended end=failed dumps=14 unchanged=3 missed=1 events=212 gaps=1 1843201B 12.4s
+not copied "the timeline copied from the host did not match the host's SHA-256; the host still holds the recording"

@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-21
 - Supersedes: ADR-0099 §Decision 2 (in part: its closed list gains the UI reads and the recording); ADR-0110 §Decision 6 (in part: `device.uiDump` is lendable); ADR-0111 §Decision 9 (in part: `device.uiEvents` is lendable); ADR-0112 §Decision 1 (in part: `device.watchUiEvents` is lendable); ADR-0104 §Decision 3 (in part: a running recording counts as an open stream)
+- Superseded in part by: ADR-0116 (§Decision 5)
 - Relates to: ADR-0100 §2–§4, §6; ADR-0101; ADR-0104 §2, §4; ADR-0106; ADR-0113; plan m2x Q10, Q11
 - Decided by the owner, 2026-10-21: "Si precisamente esta opcion la hice para poder hacer dumps remotos!!"; and a standing rule: a new device capability is lendable by default, and leaving one out is the owner's question. The shape is Delegated (plan m2x, reviewed in three rounds).
 

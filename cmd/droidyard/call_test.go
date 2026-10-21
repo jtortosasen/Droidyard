@@ -109,6 +109,9 @@ type adbSeam struct {
 	// (device.ADB.LengthenLimits): for a test whose claim is not one of those limits and
 	// whose fake adb is a process this binary re-executes. Applied beside the adb seam.
 	floor time.Duration
+	// state, when set, is the state root the daemon uses instead of a new one: a daemon that
+	// restarts on the state its predecessor left.
+	state string
 }
 
 // gradleSeam is the Gradle sidecar one in-process daemon is given: how it is launched
@@ -146,6 +149,9 @@ func startInProcessFull(t *testing.T, httpAddr string, extra func(reg *capabilit
 func startInProcessConfig(t *testing.T, httpAddr string, extra func(reg *capability.Registry, env platform.Env), adb *adbSeam, tick time.Duration, configBody string) *inProcess {
 	t.Helper()
 	p := &inProcess{state: shortDir(t), log: &lockedBuffer{}, started: make(chan string, 4), release: make(chan struct{})}
+	if adb != nil && adb.state != "" {
+		p.state = adb.state
+	}
 	if configBody != "" {
 		dir := filepath.Join(p.state, "config")
 		if err := os.MkdirAll(dir, 0o700); err != nil {

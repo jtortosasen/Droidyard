@@ -30,11 +30,11 @@ const remoteUIDump = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><h
 const remoteUIInstance = "0123456789abcdef"
 
 // newUILab is the lease lab whose host phone has a fake UI reader that answers remoteUIDump.
-func newUILab(t *testing.T) (*leaseLab, *devicetest.FakeReader) {
+func newUILab(t *testing.T, mods ...labMod) (*leaseLab, *devicetest.FakeReader) {
 	t.Helper()
 	r := devicetest.StartReader(t)
 	r.SetFullDocs(remoteUIDump)
-	lab := newLeaseLabWith(t, map[string]string{phone1 + ".push.exit": "0", phone1 + ".start.out": "", phone1 + ".forward.out": r.Port}, true)
+	lab := newLeaseLabWith(t, map[string]string{phone1 + ".push.exit": "0", phone1 + ".start.out": "", phone1 + ".forward.out": r.Port}, true, mods...)
 	return lab, r
 }
 

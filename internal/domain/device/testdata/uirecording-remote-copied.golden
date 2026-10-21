@@ -1,0 +1,2 @@
+recording 20261021T100000Z-0a1b2c3d qa/R58M001 ended end=stopped dumps=14 unchanged=3 missed=1 events=212 gaps=1 1843201B 12.4s
+save "droidyard artifact cat droidyard://artifact/r.20261021T100000Z-0a1b2c3d > 20261021T100000Z-0a1b2c3d.jsonl"

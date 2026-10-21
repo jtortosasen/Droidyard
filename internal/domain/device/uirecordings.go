@@ -222,6 +222,10 @@ func (a *ADB) deleteRecording(id string, who capability.Origin) (DeleteUIRecordi
 	if a.recorders.byID(id) != nil {
 		return DeleteUIRecordingResult{}, running()
 	}
+	if rec.Remote {
+		// The client's record of a recording that runs on a host (remoteuirecord.go).
+		return a.deleteRemote(rec)
+	}
 	if err := a.recordings.Delete(id); err != nil {
 		return DeleteUIRecordingResult{}, err
 	}

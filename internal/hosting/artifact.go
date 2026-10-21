@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
@@ -67,24 +68,11 @@ func (l *Link) Artifact(ctx context.Context, id string, max int64) (Artifact, er
 	if !artifactIDRE.MatchString(id) {
 		return Artifact{}, ErrArtifactID
 	}
-	if !l.Connected() {
-		return Artifact{}, ErrNotConnected
-	}
-	client := l.pinnedClient()
-	defer client.CloseIdleConnections()
-	addr := l.current()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+addr+capability.PeerArtifactsPath+url.PathEscape(id), nil)
+	resp, done, err := l.peerGet(ctx, id, "")
 	if err != nil {
 		return Artifact{}, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return Artifact{}, ctx.Err()
-		}
-		return Artifact{}, dialError(l.remoteAt(addr), err)
-	}
-	defer resp.Body.Close()
+	defer done()
 	if resp.StatusCode != http.StatusOK {
 		return Artifact{}, &ErrArtifactRefused{Status: resp.StatusCode}
 	}
@@ -106,4 +94,102 @@ func (l *Link) Artifact(ctx context.Context, id string, max int64) (Artifact, er
 		return Artifact{}, ErrArtifactTooLarge
 	}
 	return Artifact{MediaType: mt, Untrusted: resp.Header.Get("X-Droidyard-Untrusted") == "true", Data: data}, nil
+}
+
+// peerGet is a GET of the host's artifact route for id (the path segment, already checked by
+// the caller), on a pinned connection of its own, with rng as the Range header when it is not
+// empty. done releases the connection and the body. A link that is down is ErrNotConnected; a
+// request that fails on the way is the transport's error, wrapped by dialError when the pin or
+// the pairing is the cause.
+func (l *Link) peerGet(ctx context.Context, id, rng string) (resp *http.Response, done func(), err error) {
+	if !l.Connected() {
+		return nil, nil, ErrNotConnected
+	}
+	client := l.pinnedClient()
+	addr := l.current()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+addr+capability.PeerArtifactsPath+url.PathEscape(id), nil)
+	if err != nil {
+		client.CloseIdleConnections()
+		return nil, nil, err
+	}
+	if rng != "" {
+		req.Header.Set("Range", rng)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		client.CloseIdleConnections()
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		return nil, nil, dialError(l.remoteAt(addr), err)
+	}
+	return resp, func() { resp.Body.Close(); client.CloseIdleConnections() }, nil
+}
+
+// contentRangeRE is a 206's Content-Range as ArtifactRange reads it: exactly `bytes a-b/total`,
+// with nothing after the total.
+var contentRangeRE = regexp.MustCompile(`^bytes ([0-9]{1,18})-([0-9]{1,18})/([0-9]{1,18})$`)
+
+// ErrArtifactRange is a ranged fetch the host answered with something other than the range
+// asked for: nothing of it is kept as the range.
+var ErrArtifactRange = errors.New("the host's answer is not the range asked for")
+
+// ArtifactRange fetches bytes [off, off+n) of the finished timeline of the recording id, the
+// one the host's peer route serves a peer of its own (ADR-0115 Decision 5), and writes them to
+// w as they arrive. A host's answer is only a 206 of this timeline's media type whose
+// Content-Range starts at off, ends within the range and agrees with the body's length; the
+// total size it names is returned, so the caller bounds the next range by it. Whatever was
+// written before an error is a correct prefix of the range, so a caller that kept it asks for
+// the rest from off+written. A host that refuses is ErrArtifactRefused, whose status says
+// whether the recording still runs (409) or is gone (404, 410). id is checked to be a
+// recording id before it becomes a URL path.
+func (l *Link) ArtifactRange(ctx context.Context, id string, off, n int64, w io.Writer) (written, total int64, err error) {
+	if !artifact.ValidTimelineID(id) {
+		return 0, 0, ErrArtifactID
+	}
+	if off < 0 || n <= 0 {
+		return 0, 0, ErrArtifactRange
+	}
+	resp, done, err := l.peerGet(ctx, "r."+id, fmt.Sprintf("bytes=%d-%d", off, off+n-1))
+	if err != nil {
+		return 0, 0, err
+	}
+	defer done()
+	if resp.StatusCode != http.StatusPartialContent {
+		if resp.StatusCode == http.StatusOK {
+			return 0, 0, ErrArtifactRange // the host did not honour the Range
+		}
+		return 0, 0, &ErrArtifactRefused{Status: resp.StatusCode}
+	}
+	if mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err != nil || mt != artifact.TimelineMediaType {
+		return 0, 0, ErrArtifactReply
+	}
+	m := contentRangeRE.FindStringSubmatch(resp.Header.Get("Content-Range"))
+	if m == nil {
+		return 0, 0, ErrArtifactRange
+	}
+	first, err1 := strconv.ParseInt(m[1], 10, 64)
+	last, err2 := strconv.ParseInt(m[2], 10, 64)
+	total, err3 := strconv.ParseInt(m[3], 10, 64)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, ErrArtifactRange
+	}
+	if first != off || last < first || last >= off+n || last >= total {
+		return 0, 0, ErrArtifactRange
+	}
+	want := last - first + 1
+	if resp.ContentLength != want {
+		return 0, 0, ErrArtifactRange
+	}
+	written, err = io.Copy(w, io.LimitReader(resp.Body, want))
+	switch {
+	case err == nil && written != want:
+		err = io.ErrUnexpectedEOF
+	case err != nil && ctx.Err() != nil:
+		err = ctx.Err()
+	}
+	if err != nil {
+		return written, total, fmt.Errorf("reading the host's timeline: %w", err)
+	}
+	return written, total, nil
 }

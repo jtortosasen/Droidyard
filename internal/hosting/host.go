@@ -46,10 +46,13 @@ type Host struct {
 	listenErrs []ListenError  // why an address wanted is not, by address
 	open       map[string]int // peer name → open sockets
 	links      map[string]*Link
-	ctx        context.Context // the links' parent; nil before Start
-	cancel     context.CancelFunc
-	stopped    bool
-	wg         sync.WaitGroup
+	// remotesRead is whether the last pass read the remotes' configuration: until one has, a
+	// remote with no link may only be one not read yet.
+	remotesRead bool
+	ctx         context.Context // the links' parent; nil before Start
+	cancel      context.CancelFunc
+	stopped     bool
+	wg          sync.WaitGroup
 
 	binder      Binder
 	sharesStore *store.Store // hosting/shares.json; nil before Init, and when there is none
@@ -244,9 +247,15 @@ func (h *Host) reconcileLinks() {
 	remotes, err := h.cfg.Remotes()
 	if err != nil {
 		h.once("remotes", fmt.Sprintf("droidyard: the remotes are left as they are: %s\n", err.Cause))
+		h.mu.Lock()
+		h.remotesRead = false
+		h.mu.Unlock()
 		return
 	}
 	h.once("remotes", "")
+	h.mu.Lock()
+	h.remotesRead = true
+	h.mu.Unlock()
 	want := make(map[string]policy.Remote, len(remotes))
 	for _, r := range remotes {
 		want[r.Name] = r
@@ -311,6 +320,14 @@ func (h *Host) ownPrefixes() []netip.Prefix {
 		return nil
 	}
 	return OwnPrefixes(ifaces)
+}
+
+// RemotesRead is whether the last pass read the remotes' configuration, so that Remote's nil
+// means a remote that is not configured rather than one not read.
+func (h *Host) RemotesRead() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.remotesRead
 }
 
 // Remote is the link to the named remote, nil when none is configured.

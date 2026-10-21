@@ -144,6 +144,7 @@ edits made before this rule and are not added to.
 | [0113](0113-ui-recording.md) | A UI recording: every distinct screen of a span, with its events | Accepted |
 | [0114](0114-patient-ui-events-reach.md) | A patient events reach for the UI events stream and the recorder | Accepted |
 | [0115](0115-ui-reads-and-recordings-lent.md) | The UI reads and the recording lent to a peer | Accepted |
+| [0116](0116-remote-recording-adoption.md) | The client adopts only a remote recording whose start it lost | Accepted |
 
 ## Open decisions (not yet ADRs)
 
