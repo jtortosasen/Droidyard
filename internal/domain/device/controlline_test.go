@@ -878,10 +878,10 @@ func screenStoppedOf(t *testing.T, sub *event.Subscription) ScreenStoppedEvent {
 	return se
 }
 
-// Decision (ADR-0117 §1, plan m2y step 2): a remote device's view takes no input in this step
-// (its input travels the peer's screen socket from step 5), so its result says control
-// false and its Input is refused, whatever the build; likewise a paired peer's view of a
-// local device: AttachPeerScreen's handle refuses input. Nothing is queued for either.
+// Decision (ADR-0117 §1, plan m2y steps 2 and 5): a remote device's view takes input only when
+// its source says its host granted it (the relayed source's grant, peerinput_test.go), so a
+// remote id over a source that grants nothing says control false and its Input is refused,
+// whatever the build. Nothing is queued for it.
 func TestControlFalseForARemoteID(t *testing.T) {
 	f := newLineFix(t)
 	v := f.openWith(t, localUI, viewKind{remote: true}, f.src)
@@ -894,25 +894,6 @@ func TestControlFalseForARemoteID(t *testing.T) {
 	settle(f.src.line)
 	if got := f.rec.all(); len(got) != 0 {
 		t.Errorf("%d messages written for a remote view", len(got))
-	}
-}
-
-func TestPeerViewerRefusesInput(t *testing.T) {
-	f := newLineFix(t)
-	v := f.openWith(t, capability.Origin{Client: capability.ClientPeer, Name: "anna", ID: "link1"}, viewKind{physical: true}, f.src)
-	if v.res.Control {
-		t.Error("a peer's result says control true")
-	}
-	if err := v.h.Input(frameOf(screen.TouchDown, 1, 1)); !errors.Is(err, errInputOff) {
-		t.Errorf("a peer's input: %v, want errInputOff", err)
-	}
-	// A frame that is not the wire is the client's error, whatever the stream takes.
-	if err := v.h.Input([]byte{9}); !errors.Is(err, screen.ErrBadControl) {
-		t.Errorf("a malformed frame: %v, want ErrBadControl", err)
-	}
-	settle(f.src.line)
-	if got := f.rec.all(); len(got) != 0 {
-		t.Errorf("%d messages written for a peer's view", len(got))
 	}
 }
 

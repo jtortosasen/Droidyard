@@ -121,6 +121,39 @@ func ParseControl(b []byte) (Event, error) {
 	return Event{}, fmt.Errorf("%w: frame type %d", ErrBadControl, b[0])
 }
 
+// EncodeWire is the frame of the wire for ev, the inverse of ParseControl: what a daemon sends
+// its host on the peer's screen socket for an event of its own view (ADR-0117 §3). An
+// EventRelease is never on the wire, and an unknown kind, action or key is an error wrapping
+// ErrBadControl.
+func EncodeWire(ev Event) ([]byte, error) {
+	switch ev.Kind {
+	case EventTouch:
+		if ev.Action > TouchCancel {
+			return nil, fmt.Errorf("%w: touch action %d", ErrBadControl, ev.Action)
+		}
+		b := []byte{wireTouch, byte(ev.Action), 0, 0, 0, 0}
+		binary.BigEndian.PutUint16(b[2:], ev.X)
+		binary.BigEndian.PutUint16(b[4:], ev.Y)
+		return b, nil
+	case EventKey:
+		for i := 1; i < len(wireKeys); i++ {
+			if wireKeys[i] == ev.Key {
+				return []byte{wireKey, byte(i)}, nil
+			}
+		}
+		return nil, fmt.Errorf("%w: key %q", ErrBadControl, ev.Key)
+	case EventScroll:
+		b := make([]byte, wireScrollLen)
+		b[0] = wireScroll
+		binary.BigEndian.PutUint16(b[1:], ev.X)
+		binary.BigEndian.PutUint16(b[3:], ev.Y)
+		binary.BigEndian.PutUint16(b[5:], uint16(ev.H))
+		binary.BigEndian.PutUint16(b[7:], uint16(ev.V))
+		return b, nil
+	}
+	return nil, fmt.Errorf("%w: event kind %d", ErrBadControl, ev.Kind)
+}
+
 func badLength(what string, got, want int) error {
 	return fmt.Errorf("%w: a %s frame of %d bytes, want %d", ErrBadControl, what, got, want)
 }

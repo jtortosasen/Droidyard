@@ -484,9 +484,28 @@ var controlOn = true
 // The limits of one stream's input (ADR-0117 §3).
 const maxInputPerSecond = 1000
 
+// controlGranter is a source that says whether input can travel through it. Only the relayed
+// source is one: a remote device's view takes input only when its host granted it.
+type controlGranter interface{ ControlGranted() bool }
+
+// takesInput is whether the stream accepts input and says so in its result (ADR-0117 §1): a
+// view of a local device does, and so does a paired peer's view of a device this host lends it
+// (its grant is the device.watchScreen call's authorization, which leased the device); a view
+// of a remote device does only when its host's result said control true.
+func (s *screenStream) takesInput() bool {
+	if !controlOn {
+		return false
+	}
+	if !s.remote {
+		return true
+	}
+	g, ok := s.src.(controlGranter)
+	return ok && g.ControlGranted()
+}
+
 var (
-	// errInputOff is an input for a stream that takes none: a remote device's or a peer's
-	// (plan m2y step 5), or a stream that is not the daemon's own.
+	// errInputOff is an input for a stream that takes none: a remote device's view whose host
+	// did not grant input (an older host's), or a build with input off.
 	errInputOff = errors.New("device: this stream takes no input")
 	// errInputEnded is an input for a stream that ended: it sends nothing.
 	errInputEnded = errors.New("device: the stream ended")
@@ -504,7 +523,7 @@ func (s *screenStream) Input(frame []byte) error {
 	if err != nil {
 		return err
 	}
-	if !controlOn || s.owner != "" || s.remote {
+	if !s.takesInput() {
 		return errInputOff
 	}
 	s.mu.Lock()
@@ -668,7 +687,7 @@ func (a *ADB) openStream(ctx context.Context, call *capability.Call, sess *event
 	}
 	size := src.Size()
 	return WatchScreenResult{SubscriptionID: subID, Device: deviceID, StreamID: s.id, Width: size.Width, Height: size.Height,
-		Control: controlOn && s.owner == "" && !s.remote}, nil
+		Control: s.takesInput()}, nil
 }
 
 // screenSourceFor joins the live-view source of the device the call names, and returns the

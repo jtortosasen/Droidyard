@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-18
 - Supersedes: ADR-0077 §4 (in part: the seam carries the secure state)
+- Superseded in part by: ADR-0120 (§3, §5: a remote view's input travels the peer screen socket; a relayed source injects)
 - Relates to: ADR-0015 §4, ADR-0032 §2, ADR-0076, ADR-0078 §5, ADR-0079 §3, ADR-0080, ADR-0098, ADR-0099; `adb-device.md` §Design rule; plan m2t Q4
 - Decided by the main session under the owner's standing instruction (apply the recommended option), Delegated (plan m2t Q4, reviewed in two rounds). The owner asked that a remote device be driven as if it were local, by the UI and by agents (2026-10-18).
 

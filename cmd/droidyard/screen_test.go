@@ -122,6 +122,13 @@ func (l *scListener) controlSocket(c net.Conn) {
 	}
 }
 
+// controlData is everything the control socket received so far.
+func (l *scListener) controlData() []byte {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]byte(nil), l.control...)
+}
+
 func (l *scListener) controlBytes() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()

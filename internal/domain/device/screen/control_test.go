@@ -101,6 +101,44 @@ func wireOf(ev Event) []byte {
 	return nil
 }
 
+// Decision (ADR-0117 §3, step 5): what a client daemon sends its host is the wire the host's
+// ParseControl reads: EncodeWire is the inverse of ParseControl for every touch action, key and
+// signed scroll amount, equal to the test's own reading of the format (wireOf), and refuses
+// what is not on the wire (a release, an unknown key, action or kind). Seen failing with the
+// scroll's axes little endian: the round trip returned another event.
+func TestEncodeWireIsTheInverseOfParseControl(t *testing.T) {
+	events := []Event{
+		{Kind: EventTouch, Action: TouchDown, X: 1, Y: 65535},
+		{Kind: EventTouch, Action: TouchUp, X: 0x1234, Y: 0xfedc},
+		{Kind: EventTouch, Action: TouchMove, X: 300, Y: 20000},
+		{Kind: EventTouch, Action: TouchCancel, X: 65535, Y: 0},
+		{Kind: EventKey, Key: "back"}, {Kind: EventKey, Key: "home"}, {Kind: EventKey, Key: "appSwitch"},
+		{Kind: EventKey, Key: "enter"}, {Kind: EventKey, Key: "delete"},
+		{Kind: EventScroll, X: 0x0102, Y: 0x0304, H: 0x0506, V: -256},
+		{Kind: EventScroll, X: 7, Y: 8, H: -4096, V: 4096},
+	}
+	for _, ev := range events {
+		b, err := EncodeWire(ev)
+		if err != nil {
+			t.Fatalf("%+v: %v", ev, err)
+		}
+		if want := wireOf(ev); !bytes.Equal(b, want) {
+			t.Errorf("%+v: % x, want % x", ev, b, want)
+		}
+		if back, err := ParseControl(b); err != nil || back != ev {
+			t.Errorf("%+v came back as %+v (%v)", ev, back, err)
+		}
+	}
+	for _, ev := range []Event{
+		{Kind: EventRelease, X: 1, Y: 2}, {Kind: EventKey, Key: "power"}, {Kind: EventKey},
+		{Kind: EventTouch, Action: 4}, {},
+	} {
+		if b, err := EncodeWire(ev); !errors.Is(err, ErrBadControl) {
+			t.Errorf("%+v encoded as % x (%v), want ErrBadControl", ev, b, err)
+		}
+	}
+}
+
 // FuzzParseControl: no byte string panics ParseControl or EncodeEvent; a frame it accepts
 // is exactly the canonical frame of the Event it returned (so there is one way to say a
 // thing), and EncodeEvent gives it a 32, 28 or 21 byte answer for any frame size.

@@ -33,12 +33,21 @@ import (
 // video size, a lift included, so a lift for the old size would leave the app's finger
 // down); the client's own up is the only one that writes ACTION_UP.
 //
+// The same line serves a client daemon's view of a remote device (remotescreen.go), whose
+// messages are the wire's frames for the host, which owns the frame size and its own finger:
+// encode and cancelOf are what differ.
+//
 // All writes and the finger's state are under one lock, wmu, so a message is whole and the
 // state a write depends on cannot change under it. A write can wait on a stalled socket
 // for screenWriteBound with wmu held; Control never takes wmu, so it never blocks on it.
 
 // controlQueueCap is the most events a source's queue holds (ADR-0117 §3).
 const controlQueueCap = 256
+
+// controlPeerQueueCap is the most of those the peer holders' events may take together (plan
+// m2y step 5): a paired peer that floods the queue is refused at half of it, so the host's own
+// views always find room and only the peer's socket is closed.
+const controlPeerQueueCap = controlQueueCap / 2
 
 var (
 	// errFingerLost ends an Inject whose finger was taken from it: by a local view's down
@@ -72,6 +81,12 @@ type controlLine struct {
 	done  <-chan struct{}           // closed when the source ended
 	why   func() error              // the source's end reason
 
+	// What a message is made of: scrcpy's messages for the device's frame (the default), or the
+	// wire's frames for a host (the relayed source). cancelOf is the cancel of the finger whose
+	// last message was given.
+	encode   func(screen.Event, screen.Size) ([]byte, error)
+	cancelOf func([]byte, screen.Size) ([]byte, bool)
+
 	qmu        sync.Mutex // guards queue and sizeQueued; never held across a write
 	queue      []lineItem
 	sizeQueued bool
@@ -92,6 +107,7 @@ type controlLine struct {
 func newControlLine(size func() screen.Size, write func([]byte) (int, error), fail func(), done <-chan struct{}, why func() error) *controlLine {
 	return &controlLine{
 		size: size, write: write, fail: fail, done: done, why: why,
+		encode: screen.EncodeEvent, cancelOf: screen.CancelOf,
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), freed: make(chan struct{}),
 	}
 }
@@ -137,12 +153,23 @@ func (l *controlLine) Control(h screen.Holder, ev screen.Event) error {
 		}
 		break // the holder's newest queued event is not one this one replaces
 	}
-	if len(l.queue) >= controlQueueCap {
+	if len(l.queue) >= controlQueueCap || (h.Peer() && l.peerQueuedLocked() >= controlPeerQueueCap) {
 		return screen.ErrControlQueueFull
 	}
 	l.queue = append(l.queue, lineItem{h: h, ev: ev})
 	l.signal()
 	return nil
+}
+
+// peerQueuedLocked is how many events of peer holders the queue holds. qmu is held.
+func (l *controlLine) peerQueuedLocked() int {
+	n := 0
+	for _, it := range l.queue {
+		if it.flush == nil && !it.size && it.h.Peer() {
+			n++
+		}
+	}
+	return n
 }
 
 func isMove(ev screen.Event) bool {
@@ -261,7 +288,12 @@ func (l *controlLine) handle(it lineItem) {
 	case screen.EventTouch:
 		l.touchLocked(it.h, it.ev, size)
 	case screen.EventKey, screen.EventScroll:
-		if b, err := screen.EncodeEvent(it.ev, size); err == nil {
+		// A peer's key or wheel never reaches the device while the host's own user has the
+		// finger (ADR-0094 §5), as a peer's touch never takes it.
+		if it.h.Peer() && l.f.held && !l.f.holder.Peer() {
+			return
+		}
+		if b, err := l.encode(it.ev, size); err == nil {
 			l.writeLocked(b)
 		}
 	case screen.EventRelease:
@@ -281,7 +313,7 @@ func (l *controlLine) touchLocked(h screen.Holder, ev screen.Event, size screen.
 				return
 			}
 		}
-		b, err := screen.EncodeEvent(ev, size)
+		b, err := l.encode(ev, size)
 		if err != nil || !l.writeLocked(b) {
 			return
 		}
@@ -292,7 +324,7 @@ func (l *controlLine) touchLocked(h screen.Holder, ev screen.Event, size screen.
 	if !f.held || f.holder != h || f.inject {
 		return
 	}
-	b, err := screen.EncodeEvent(ev, size)
+	b, err := l.encode(ev, size)
 	if err != nil || !l.writeLocked(b) {
 		return
 	}
@@ -307,7 +339,7 @@ func (l *controlLine) releaseLocked(h screen.Holder, ev screen.Event, size scree
 	if !l.f.held || l.f.holder != h || l.f.inject {
 		return
 	}
-	b, err := screen.EncodeEvent(screen.Event{Kind: screen.EventTouch, Action: screen.TouchCancel, X: ev.X, Y: ev.Y}, size)
+	b, err := l.encode(screen.Event{Kind: screen.EventTouch, Action: screen.TouchCancel, X: ev.X, Y: ev.Y}, size)
 	if err == nil {
 		l.writeLocked(b)
 	}
@@ -317,7 +349,7 @@ func (l *controlLine) releaseLocked(h screen.Holder, ev screen.Event, size scree
 // liftLocked writes the cancel of the finger's gesture at its last point, for the frame size
 // now, and gives the finger back. False when the write failed.
 func (l *controlLine) liftLocked(size screen.Size) bool {
-	if b, ok := screen.CancelOf(l.f.last, size); ok {
+	if b, ok := l.cancelOf(l.f.last, size); ok {
 		if !l.writeLocked(b) {
 			return false
 		}
