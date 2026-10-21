@@ -64,6 +64,7 @@ type spyRead struct {
 	Ref     string                        `json:"ref"`
 	MaxEdge *int                          `json:"maxEdge"`
 	Region  *struct{ X, Y, W, H float64 } `json:"region"`
+	Limit   *int                          `json:"limit"` // the route always sends the text probe's limit
 }
 
 type spyResult struct {

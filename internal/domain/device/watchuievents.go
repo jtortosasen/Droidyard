@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -16,7 +17,9 @@ import (
 // events after its own cursor and publishes them with Bus.PublishTo, outside the replay ring,
 // as device.watchLogs does (ADR-0041). The poller is device.uiEvents's own reach to the
 // reader (uievents.go): it takes no lock and recovers a reader that does not answer. It is
-// never an MCP tool (ADR-0010) and not lendable.
+// never an MCP tool (ADR-0010). It is lendable (ADR-0115 Decision 1): a peer's stream counts as
+// activity for its lease and ends with it, and a link session keeps at most peerStreamsMax of
+// them per device; on a remote id it is relayed (remoteuievents.go).
 
 // TopicUIEvents is the topic device.watchUiEvents' events carry. Like device.logcat it is not
 // in events.subscribe's enum: only the subscription the call opened receives it.
@@ -85,7 +88,9 @@ func registerWatchUIEvents(reg *capability.Registry, adb *ADB) {
 		Kind:         capability.Command,
 		Scope:        capability.Global,
 		Statefulness: capability.Streaming,
-		// Not lendable (ADR-0112; ADR-0099 §2 unchanged), like device.uiEvents.
+		// A host lends the stream to a peer; for a remote id the client republishes the host's
+		// events (remoteuievents.go; ADR-0115 Decision 1).
+		Lendable:     true,
 		Since:        "0.32.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
 		Description:  "Streams the screen's events from now on to the calling WebSocket session: batches on topic device.uiEvents, oldest first, with a gap when events were lost. One stream per session and device (a second replaces the first), ended with events.unsubscribe; an agent reads device.uiEvents instead.",
@@ -96,7 +101,7 @@ func registerWatchUIEvents(reg *capability.Registry, adb *ADB) {
 			Topic: TopicUIEvents,
 			Types: map[string]any{EventUIEvents: UIEventsPush{}, EventStopped: UIEventsStopped{}},
 		},
-		Errors: append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrSessionRequired),
+		Errors: slices.Clone(watchUIEventsErrors),
 		Annotations: capability.Annotations{
 			Destructive: &notDestructive,
 			Reason:      "adds a subscription to the calling session and reads the reader's event ring; changes nothing on the device",
@@ -107,9 +112,19 @@ func registerWatchUIEvents(reg *capability.Registry, adb *ADB) {
 			if err := p.validate(); err != nil {
 				return nil, err
 			}
+			rt, remote, err := adb.authorizeRemote(call)
+			if err != nil {
+				return nil, err
+			}
+			if remote {
+				return rt, nil
+			}
 			return adb.authorize(ctx, call.Origin, p.Device, "device.watchUiEvents")
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
+			if rt, ok := call.Authorized.(*remoteTarget); ok {
+				return adb.watchUIEventsRemote(ctx, call, rt)
+			}
 			return adb.watchUIEvents(ctx, call)
 		},
 	})
@@ -125,6 +140,7 @@ const (
 	uiEndShutdown           // StopAll
 	uiEndCancelled          // the call was cancelled while starting
 	uiEndFailed             // the poller gave up: stopped is published
+	uiEndLease              // the host ended the peer's lease of the device (ADR-0104 §4): stopped is published
 )
 
 // uiEventStreams is every live stream of the daemon. A stream is in it from the call that
@@ -135,12 +151,15 @@ type uiEventStreams struct {
 	stopping bool
 	all      map[*uiEventStream]struct{}
 	byKey    map[streamKey]*uiEventStream
+	peers    map[streamKey][]*uiEventStream // a peer session's streams of a device, oldest first
 }
 
 var errUIStreamsStopping = errors.New("the daemon is stopping")
 
-// add puts s in the set, refusing once StopAll has begun, and returns the stream of the same
-// session and device it replaces, if any.
+// add puts s in the set, refusing once StopAll has begun, and returns the stream it replaces,
+// if any: for a local session the stream of the same session and device; for a paired peer's
+// link session, which keeps up to peerStreamsMax streams of a device (its client has one
+// session for all its own, ADR-0106), its oldest once the cap is reached.
 func (st *uiEventStreams) add(s *uiEventStream) (old *uiEventStream, err error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -148,9 +167,17 @@ func (st *uiEventStreams) add(s *uiEventStream) (old *uiEventStream, err error) 
 		return nil, errUIStreamsStopping
 	}
 	if st.all == nil {
-		st.all, st.byKey = map[*uiEventStream]struct{}{}, map[streamKey]*uiEventStream{}
+		st.all, st.byKey, st.peers = map[*uiEventStream]struct{}{}, map[streamKey]*uiEventStream{}, map[streamKey][]*uiEventStream{}
 	}
 	st.all[s] = struct{}{}
+	if s.peer {
+		list := st.peers[s.key]
+		if len(list) >= peerStreamsMax {
+			old, list = list[0], list[1:]
+		}
+		st.peers[s.key] = append(list, s)
+		return old, nil
+	}
 	old = st.byKey[s.key]
 	st.byKey[s.key] = s
 	return old, nil
@@ -158,11 +185,35 @@ func (st *uiEventStreams) add(s *uiEventStream) (old *uiEventStream, err error) 
 
 // remove takes s out of the set: the last thing a stream does.
 func (st *uiEventStreams) remove(s *uiEventStream) {
+	if s.activity != nil {
+		defer s.activity() // after the set's lock is released
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	delete(st.all, s)
 	if st.byKey[s.key] == s {
 		delete(st.byKey, s.key)
+	}
+	if list := st.peers[s.key]; s.peer {
+		if i := slices.Index(list, s); i >= 0 {
+			list = slices.Delete(list, i, i+1)
+		}
+		if len(list) == 0 {
+			delete(st.peers, s.key)
+		} else {
+			st.peers[s.key] = list
+		}
+	}
+}
+
+// endLease ends every stream the link session holds of serial, as stopped deviceGone with the
+// cause of the host's end of the lease (ADR-0104 §4).
+func (st *uiEventStreams) endLease(session, serial string) {
+	st.mu.Lock()
+	list := slices.Clone(st.peers[streamKey{session: session, serial: serial}])
+	st.mu.Unlock()
+	for _, s := range list {
+		s.end(uiEndLease)
 	}
 }
 
@@ -211,6 +262,10 @@ type uiEventStream struct {
 	key       streamKey
 	t         *target
 	operation string
+	peer      bool // opened by a paired peer's session: bounded by peerStreamsMax, not replaced
+	// activity ends the stream's count as activity of its peer's lease (ADR-0104 §3); set
+	// once, before the poller runs, and called when the stream leaves the set.
+	activity func()
 
 	// ctx is the poller's own context: the operation's ends when the call completes. cancel is
 	// the end.
@@ -260,19 +315,24 @@ func (s *uiEventStream) run() {
 	}
 	reason, cause := s.poll()
 	if reason != "" {
-		// A replace can land while the failure is being classified (stopOf lists devices):
+		// A replace can land while the failure is being classified (readerStopOf lists devices):
 		// the replaced subscription is told so, as when the replace comes first.
 		switch s.end(uiEndFailed) {
 		case uiEndFailed:
 			s.publishStopped(reason, cause)
 		case uiEndReplaced:
 			s.publishStopped(StopReplaced, "")
+		case uiEndLease:
+			s.publishStopped(StopDeviceGone, leaseEndedCause)
 		}
 		return
 	}
-	// Ended from outside: only a replaced stream has someone to tell.
-	if s.endedFor() == uiEndReplaced {
+	// Ended from outside: only a replaced stream, or one whose lease ended, has someone to tell.
+	switch s.endedFor() {
+	case uiEndReplaced:
 		s.publishStopped(StopReplaced, "")
+	case uiEndLease:
+		s.publishStopped(StopDeviceGone, leaseEndedCause)
 	}
 }
 
@@ -294,19 +354,18 @@ func (s *uiEventStream) poll() (reason, cause string) {
 }
 
 // step reads what the ring holds after the cursor, up to uiStreamPages pages, and publishes
-// it. A reader that does not answer is recovered by the reach (once per failure, as a
-// device.uiEvents call does); one that still does not ends the stream: it is never asked
-// again.
+// it. A reader that does not answer is restarted once by the patient reach, under the read
+// lock; one that still does not ends the stream: it is never asked again. A lock another
+// caller holds ends the tick quietly.
 func (s *uiEventStream) step() (reason, cause string) {
-	// The bound of one tick, recoveries included: what a device.uiEvents call without a wait
-	// is allowed.
-	end := time.Now().Add(eventsPollTimeout + eventsRecoveries*(eventsLockWait+readerPingCheck+readerStartBound))
-	r := &eventsReach{a: s.adb, t: s.t, c: s.adb.reader(s.t.serial), end: end}
+	// The poller is patient (ADR-0114): a reader another call holds the lock of is an empty
+	// tick, never a failure; it fails only when restarting a dead reader, with the lock, fails.
+	r := &eventsReach{a: s.adb, t: s.t, c: s.adb.reader(s.t.serial), end: patientEnd(), patient: true}
 	fail := func(err error) (string, string) {
-		if s.ctx.Err() != nil {
+		if s.ctx.Err() != nil || errors.Is(err, errReaderBusy) {
 			return "", ""
 		}
-		return s.stopOf(err)
+		return readerStopOf(s.ctx, s.adb, s.t, err)
 	}
 	for page := 0; page < uiStreamPages; page++ {
 		ans, err := r.poll(s.ctx, s.base, eventsMaxLimit)
@@ -316,17 +375,21 @@ func (s *uiEventStream) step() (reason, cause string) {
 		// An answer from another instance, or a cursor ahead of the ring, is a reader that is
 		// not the one the cursor names: read the new ring from its first entry (ADR-0111
 		// Decision 6).
+		// The stream's cursor moves only once the new ring is read: a busy tick in between
+		// leaves it on the old instance, so the next tick sees the change and reports the gap.
 		restarted := false
-		for changes := 0; ans.Instance != s.inst || s.base > ans.NextSeq-1; changes++ {
+		inst, base := s.inst, s.base
+		for changes := 0; ans.Instance != inst || base > ans.NextSeq-1; changes++ {
 			if changes >= eventsInstanceMax {
 				return fail(eventsFailed("the reader behind the device's forward keeps changing"))
 			}
 			restarted = true
-			s.inst, s.base = ans.Instance, 0
+			inst, base = ans.Instance, 0
 			if ans, err = r.poll(s.ctx, 0, eventsMaxLimit); err != nil {
 				return fail(err)
 			}
 		}
+		s.inst, s.base = inst, base
 		var gap *UIEventsGap
 		switch {
 		case r.started:
@@ -366,22 +429,22 @@ func (s *uiEventStream) publishStopped(reason, cause string) {
 		UIEventsStopped{Device: s.t.serial, Reason: reason, Cause: cause})
 }
 
-// stopOf is the reason and cause of a stream whose reader cannot be read: deviceGone when
-// device.list no longer holds the serial online, else failed. The cause is the error's own,
-// which names no device text (events.go), or a fixed sentence.
-func (s *uiEventStream) stopOf(err error) (reason, cause string) {
+// readerStopOf is the reason and cause of a stream or a recording whose reader cannot be read:
+// deviceGone when device.list no longer holds the serial online, else failed. The cause is the
+// error's own, which names no device text (events.go), or a fixed sentence.
+func readerStopOf(ctx context.Context, adb *ADB, t *target, err error) (reason, cause string) {
 	cause = uiStreamCause
 	var ce *capability.Error
 	if errors.As(err, &ce) && ce.Cause != "" {
 		cause = ce.Cause
 	}
 	reason = StopFailed
-	lctx, cancel := context.WithTimeout(s.ctx, streamListBound)
+	lctx, cancel := context.WithTimeout(ctx, streamListBound)
 	defer cancel()
-	if devices, lerr := s.adb.listAll(lctx, s.t.adb); lerr == nil {
+	if devices, lerr := adb.listAll(lctx, t.adb); lerr == nil {
 		gone := true
 		for _, d := range devices {
-			if d.Device == s.t.serial && d.State == StateDevice {
+			if d.Device == t.serial && d.State == StateDevice {
 				gone = false
 				break
 			}
@@ -428,6 +491,7 @@ func (a *ADB) watchUIEvents(ctx context.Context, call *capability.Call) (any, er
 	s := &uiEventStream{
 		adb: a, set: &a.uiStreams, bus: a.bus,
 		key: streamKey{session: sess.ID(), serial: t.serial}, t: t, operation: call.OperationID,
+		peer: call.Origin.Client == capability.ClientPeer,
 		done: make(chan struct{}), inst: inst, base: base, gap: first.Gap,
 	}
 	// The poller's own context: the operation's ends when this call completes.
@@ -438,12 +502,20 @@ func (a *ADB) watchUIEvents(ctx context.Context, call *capability.Call) (any, er
 		return nil, serr
 	}
 	s.sub = sub
+	a.started()
 	old, err := a.uiStreams.add(s)
 	if err != nil {
 		sess.Unsubscribe(id)
 		return nil, capability.NewError(ErrUIDumpFailed, "the device's UI events could not be streamed").
 			WithCause(err.Error()).
 			WithNextStep("Start the daemon again, then retry.")
+	}
+	// An open stream is activity of the peer's lease until it leaves the set (ADR-0104 §3).
+	s.activity = a.streamActivity(call)
+	// A lease that ended while the stream was starting found it in no table: it ends here
+	// (ADR-0104 §4), and one that ends after this check finds it in the table.
+	if a.leaseLost(call, t.serial) {
+		s.end(uiEndLease)
 	}
 	go s.run()
 	// The same session streaming the same device again replaces the stream it had.

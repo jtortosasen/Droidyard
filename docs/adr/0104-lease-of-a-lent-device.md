@@ -1,6 +1,7 @@
 # ADR-0104: A lent device is leased: one peer at a time, by 2s's occupation
 
 - Status: Accepted
+- Superseded in part by: ADR-0115 (§Decision 3)
 - Date: 2026-10-19
 - Supersedes: ADR-0094 §Decision (in part: §2, a peer's call of any kind holds a lent device; §4, a peer's lease is idle after 15 minutes and an open stream counts as activity; §5, a peer is refused whatever `conflict` says; §3, a lease also ends when the device is no longer lent)
 - Relates to: ADR-0015 §6, ADR-0048 §1, ADR-0097, ADR-0098, ADR-0099, ADR-0100; plan m2t Q3 §5

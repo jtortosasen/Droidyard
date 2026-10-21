@@ -1,5 +1,5 @@
 {
-  "version": "0.33.0",
+  "version": "0.34.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -2490,6 +2490,51 @@
       }
     },
     {
+      "name": "device.deleteUiRecording",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "human",
+      "since": "0.34.0",
+      "description": "Deletes a kept UI recording and its timeline, which then reads ARTIFACT_EXPIRED; refused while it runs, and from an agent session. An unknown id answers deleted false.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "DEVICE_UI_RECORDING_ACTIVE",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The recording's id, from device.uiRecordings."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "description": "True when this call deleted a recording; false when none has this id (it may be gone already)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "deleted"
+        ]
+      }
+    },
+    {
       "name": "device.inputText",
       "kind": "command",
       "scope": "global",
@@ -4226,6 +4271,220 @@
       }
     },
     {
+      "name": "device.recordUi",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.34.0",
+      "description": "Records the device's UI from now until device.stopUiRecording: the full dump (device.uiDump's document) each time the screen changes, with the events between, in one timeline artifact saved with droidyard artifact cat. The recording holds the device's UI reader, so a UiAutomation-based runner (UiAutomator, Appium, Maestro) cannot run beside it.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
+        "DEVICE_UI_DUMP_FAILED",
+        "DEVICE_UI_RECORDING_ACTIVE",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "invisible": {
+            "type": "boolean",
+            "description": "Also record children not visible to the user, as device.uiDump's invisible does."
+          },
+          "maxSeconds": {
+            "type": "integer",
+            "maximum": 3600,
+            "minimum": 10,
+            "description": "End the recording after this many seconds (10-3600, default 900)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The recording's id; its timeline is the artifact r.\u003cid\u003e."
+          },
+          "device": {
+            "type": "string"
+          },
+          "invisible": {
+            "type": "boolean"
+          },
+          "maxSeconds": {
+            "type": "integer"
+          },
+          "startedBy": {
+            "properties": {
+              "client": {
+                "type": "string"
+              },
+              "session": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "description": "Who started it: the client kind and its session, never a chat."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "recording",
+              "ended"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endReason": {
+            "type": "string",
+            "enum": [
+              "stopped",
+              "maxDuration",
+              "maxDumps",
+              "maxBytes",
+              "deviceGone",
+              "failed",
+              "daemonExit"
+            ],
+            "description": "Why it ended; the timeline's end line says the same."
+          },
+          "cause": {
+            "type": "string",
+            "description": "For deviceGone and failed, the daemon's words for why; never device text."
+          },
+          "dumps": {
+            "type": "integer",
+            "description": "Dumps stored in the timeline."
+          },
+          "unchanged": {
+            "type": "integer",
+            "description": "Dumps identical to the one before, counted and not stored."
+          },
+          "missed": {
+            "type": "integer",
+            "description": "Dumps lost: reader busy past its bound, over 8 MiB, unreadable, lock held or reader paused at the stop."
+          },
+          "lockWaits": {
+            "type": "integer",
+            "description": "Times another read or action held the reader when the recorder wanted it."
+          },
+          "events": {
+            "type": "integer"
+          },
+          "gaps": {
+            "type": "integer",
+            "description": "Times events were lost (a reader restart, or its ring overflowed)."
+          },
+          "bytes": {
+            "type": "integer",
+            "description": "Size of the timeline so far."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "SHA-256 of the finished timeline."
+          },
+          "timeline": {
+            "properties": {
+              "ref": {
+                "type": "string",
+                "x-droidyard-untrusted": true
+              },
+              "mediaType": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "durability": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "untrusted": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "ref",
+              "mediaType",
+              "bytes",
+              "durability",
+              "expiresAt",
+              "untrusted"
+            ],
+            "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+          },
+          "remote": {
+            "type": "boolean",
+            "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+          },
+          "copied": {
+            "type": "boolean",
+            "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "device",
+          "invisible",
+          "maxSeconds",
+          "startedBy",
+          "state",
+          "startedAt",
+          "dumps",
+          "unchanged",
+          "missed",
+          "lockWaits",
+          "events",
+          "gaps",
+          "bytes",
+          "timeline"
+        ]
+      }
+    },
+    {
       "name": "device.screenshot",
       "kind": "query",
       "scope": "global",
@@ -4401,6 +4660,217 @@
         "type": "object",
         "required": [
           "delivered"
+        ]
+      }
+    },
+    {
+      "name": "device.stopUiRecording",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.34.0",
+      "description": "Ends the device's UI recording after a last dump and returns its summary; stopped is false when none runs or it was already ending, and recording is then that one or the newest one kept. An MCP agent stops only its own session's or chat's recording.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "DEVICE_UI_RECORDING_ACTIVE",
+        "DEVICE_OCCUPIED",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_NOT_READY",
+        "DEVICE_DISCONNECTED",
+        "REQUEST_INVALID_PARAMS"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "output": {
+        "properties": {
+          "stopped": {
+            "type": "boolean",
+            "description": "True when this call ended a running recording; false when none ran or one was already ending."
+          },
+          "recording": {
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The recording's id; its timeline is the artifact r.\u003cid\u003e."
+              },
+              "device": {
+                "type": "string"
+              },
+              "invisible": {
+                "type": "boolean"
+              },
+              "maxSeconds": {
+                "type": "integer"
+              },
+              "startedBy": {
+                "properties": {
+                  "client": {
+                    "type": "string"
+                  },
+                  "session": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "description": "Who started it: the client kind and its session, never a chat."
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "recording",
+                  "ended"
+                ]
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endReason": {
+                "type": "string",
+                "enum": [
+                  "stopped",
+                  "maxDuration",
+                  "maxDumps",
+                  "maxBytes",
+                  "deviceGone",
+                  "failed",
+                  "daemonExit"
+                ],
+                "description": "Why it ended; the timeline's end line says the same."
+              },
+              "cause": {
+                "type": "string",
+                "description": "For deviceGone and failed, the daemon's words for why; never device text."
+              },
+              "dumps": {
+                "type": "integer",
+                "description": "Dumps stored in the timeline."
+              },
+              "unchanged": {
+                "type": "integer",
+                "description": "Dumps identical to the one before, counted and not stored."
+              },
+              "missed": {
+                "type": "integer",
+                "description": "Dumps lost: reader busy past its bound, over 8 MiB, unreadable, lock held or reader paused at the stop."
+              },
+              "lockWaits": {
+                "type": "integer",
+                "description": "Times another read or action held the reader when the recorder wanted it."
+              },
+              "events": {
+                "type": "integer"
+              },
+              "gaps": {
+                "type": "integer",
+                "description": "Times events were lost (a reader restart, or its ring overflowed)."
+              },
+              "bytes": {
+                "type": "integer",
+                "description": "Size of the timeline so far."
+              },
+              "sha256": {
+                "type": "string",
+                "description": "SHA-256 of the finished timeline."
+              },
+              "timeline": {
+                "properties": {
+                  "ref": {
+                    "type": "string",
+                    "x-droidyard-untrusted": true
+                  },
+                  "mediaType": {
+                    "type": "string"
+                  },
+                  "bytes": {
+                    "type": "integer"
+                  },
+                  "durability": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  },
+                  "untrusted": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "ref",
+                  "mediaType",
+                  "bytes",
+                  "durability",
+                  "expiresAt",
+                  "untrusted"
+                ],
+                "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+              },
+              "remote": {
+                "type": "boolean",
+                "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+              },
+              "copied": {
+                "type": "boolean",
+                "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "id",
+              "device",
+              "invisible",
+              "maxSeconds",
+              "startedBy",
+              "state",
+              "startedAt",
+              "dumps",
+              "unchanged",
+              "missed",
+              "lockWaits",
+              "events",
+              "gaps",
+              "bytes",
+              "timeline"
+            ],
+            "description": "The recording stopped or already ending (state ended within 10 s), else the newest one kept."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stopped"
         ]
       }
     },
@@ -5493,6 +5963,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5610,6 +6081,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS"
       ],
@@ -5776,6 +6248,212 @@
           "device",
           "cursor",
           "events"
+        ]
+      }
+    },
+    {
+      "name": "device.uiRecordings",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.34.0",
+      "description": "Lists the UI recordings kept, newest first and at most 50, a running one with its live counts and growing timeline (save a timeline with droidyard artifact cat); device and id filter. Reads the daemon's records only, no adb.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "DEVICE_OCCUPIED"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "Only the recordings of this device serial."
+          },
+          "id": {
+            "type": "string",
+            "description": "Only the recording with this id; an unknown id gives an empty list."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "recordings": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The recording's id; its timeline is the artifact r.\u003cid\u003e."
+                },
+                "device": {
+                  "type": "string"
+                },
+                "invisible": {
+                  "type": "boolean"
+                },
+                "maxSeconds": {
+                  "type": "integer"
+                },
+                "startedBy": {
+                  "properties": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Who started it: the client kind and its session, never a chat."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "recording",
+                    "ended"
+                  ]
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endReason": {
+                  "type": "string",
+                  "enum": [
+                    "stopped",
+                    "maxDuration",
+                    "maxDumps",
+                    "maxBytes",
+                    "deviceGone",
+                    "failed",
+                    "daemonExit"
+                  ],
+                  "description": "Why it ended; the timeline's end line says the same."
+                },
+                "cause": {
+                  "type": "string",
+                  "description": "For deviceGone and failed, the daemon's words for why; never device text."
+                },
+                "dumps": {
+                  "type": "integer",
+                  "description": "Dumps stored in the timeline."
+                },
+                "unchanged": {
+                  "type": "integer",
+                  "description": "Dumps identical to the one before, counted and not stored."
+                },
+                "missed": {
+                  "type": "integer",
+                  "description": "Dumps lost: reader busy past its bound, over 8 MiB, unreadable, lock held or reader paused at the stop."
+                },
+                "lockWaits": {
+                  "type": "integer",
+                  "description": "Times another read or action held the reader when the recorder wanted it."
+                },
+                "events": {
+                  "type": "integer"
+                },
+                "gaps": {
+                  "type": "integer",
+                  "description": "Times events were lost (a reader restart, or its ring overflowed)."
+                },
+                "bytes": {
+                  "type": "integer",
+                  "description": "Size of the timeline so far."
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "SHA-256 of the finished timeline."
+                },
+                "timeline": {
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "x-droidyard-untrusted": true
+                    },
+                    "mediaType": {
+                      "type": "string"
+                    },
+                    "bytes": {
+                      "type": "integer"
+                    },
+                    "durability": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "width": {
+                      "type": "integer"
+                    },
+                    "height": {
+                      "type": "integer"
+                    },
+                    "untrusted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "ref",
+                    "mediaType",
+                    "bytes",
+                    "durability",
+                    "expiresAt",
+                    "untrusted"
+                  ],
+                  "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+                },
+                "remote": {
+                  "type": "boolean",
+                  "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+                },
+                "copied": {
+                  "type": "boolean",
+                  "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "device",
+                "invisible",
+                "maxSeconds",
+                "startedBy",
+                "state",
+                "startedAt",
+                "dumps",
+                "unchanged",
+                "missed",
+                "lockWaits",
+                "events",
+                "gaps",
+                "bytes",
+                "timeline"
+              ]
+            },
+            "type": "array",
+            "description": "The recordings kept, newest first, at most 50: a running one with its live counts and its growing timeline."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recordings"
         ]
       }
     },
@@ -6387,6 +7065,7 @@
         "DEVICE_NOT_READY",
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
         "DEVICE_UI_DUMP_FAILED",
         "REQUEST_INVALID_PARAMS",
         "SESSION_REQUIRED"
@@ -6551,6 +7230,396 @@
             "required": [
               "device",
               "reason"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "device.watchUiRecordings",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "streaming",
+      "audience": "all",
+      "since": "0.34.0",
+      "description": "Streams the changes of the UI recordings the caller may see (a peer: its own) to the calling WebSocket session on topic device.uiRecording: state at its start, at most every 2 s while it runs and at its end, and deleted. The result lists the recordings kept now, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "errors": [
+        "SESSION_REQUIRED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "The subscription the device.uiRecording events arrive on, over the WebSocket session that made the call, until events.unsubscribe or the session's end."
+          },
+          "recordings": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The recording's id; its timeline is the artifact r.\u003cid\u003e."
+                },
+                "device": {
+                  "type": "string"
+                },
+                "invisible": {
+                  "type": "boolean"
+                },
+                "maxSeconds": {
+                  "type": "integer"
+                },
+                "startedBy": {
+                  "properties": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "session": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Who started it: the client kind and its session, never a chat."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "recording",
+                    "ended"
+                  ]
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endReason": {
+                  "type": "string",
+                  "enum": [
+                    "stopped",
+                    "maxDuration",
+                    "maxDumps",
+                    "maxBytes",
+                    "deviceGone",
+                    "failed",
+                    "daemonExit"
+                  ],
+                  "description": "Why it ended; the timeline's end line says the same."
+                },
+                "cause": {
+                  "type": "string",
+                  "description": "For deviceGone and failed, the daemon's words for why; never device text."
+                },
+                "dumps": {
+                  "type": "integer",
+                  "description": "Dumps stored in the timeline."
+                },
+                "unchanged": {
+                  "type": "integer",
+                  "description": "Dumps identical to the one before, counted and not stored."
+                },
+                "missed": {
+                  "type": "integer",
+                  "description": "Dumps lost: reader busy past its bound, over 8 MiB, unreadable, lock held or reader paused at the stop."
+                },
+                "lockWaits": {
+                  "type": "integer",
+                  "description": "Times another read or action held the reader when the recorder wanted it."
+                },
+                "events": {
+                  "type": "integer"
+                },
+                "gaps": {
+                  "type": "integer",
+                  "description": "Times events were lost (a reader restart, or its ring overflowed)."
+                },
+                "bytes": {
+                  "type": "integer",
+                  "description": "Size of the timeline so far."
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "SHA-256 of the finished timeline."
+                },
+                "timeline": {
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "x-droidyard-untrusted": true
+                    },
+                    "mediaType": {
+                      "type": "string"
+                    },
+                    "bytes": {
+                      "type": "integer"
+                    },
+                    "durability": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "width": {
+                      "type": "integer"
+                    },
+                    "height": {
+                      "type": "integer"
+                    },
+                    "untrusted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "ref",
+                    "mediaType",
+                    "bytes",
+                    "durability",
+                    "expiresAt",
+                    "untrusted"
+                  ],
+                  "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+                },
+                "remote": {
+                  "type": "boolean",
+                  "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+                },
+                "copied": {
+                  "type": "boolean",
+                  "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "device",
+                "invisible",
+                "maxSeconds",
+                "startedBy",
+                "state",
+                "startedAt",
+                "dumps",
+                "unchanged",
+                "missed",
+                "lockWaits",
+                "events",
+                "gaps",
+                "bytes",
+                "timeline"
+              ]
+            },
+            "type": "array",
+            "description": "The recordings kept now, newest first, at most 50, taken after the subscription opened: merge it with the events by id, and call this again after an events.gap."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subscriptionId",
+          "recordings"
+        ]
+      },
+      "events": {
+        "topic": "device.uiRecording",
+        "types": {
+          "deleted": {
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The id of the recording that was deleted, by device.deleteUiRecording or by the retention."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "id"
+            ]
+          },
+          "state": {
+            "properties": {
+              "recording": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The recording's id; its timeline is the artifact r.\u003cid\u003e."
+                  },
+                  "device": {
+                    "type": "string"
+                  },
+                  "invisible": {
+                    "type": "boolean"
+                  },
+                  "maxSeconds": {
+                    "type": "integer"
+                  },
+                  "startedBy": {
+                    "properties": {
+                      "client": {
+                        "type": "string"
+                      },
+                      "session": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "type": "object",
+                    "description": "Who started it: the client kind and its session, never a chat."
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "recording",
+                      "ended"
+                    ]
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endReason": {
+                    "type": "string",
+                    "enum": [
+                      "stopped",
+                      "maxDuration",
+                      "maxDumps",
+                      "maxBytes",
+                      "deviceGone",
+                      "failed",
+                      "daemonExit"
+                    ],
+                    "description": "Why it ended; the timeline's end line says the same."
+                  },
+                  "cause": {
+                    "type": "string",
+                    "description": "For deviceGone and failed, the daemon's words for why; never device text."
+                  },
+                  "dumps": {
+                    "type": "integer",
+                    "description": "Dumps stored in the timeline."
+                  },
+                  "unchanged": {
+                    "type": "integer",
+                    "description": "Dumps identical to the one before, counted and not stored."
+                  },
+                  "missed": {
+                    "type": "integer",
+                    "description": "Dumps lost: reader busy past its bound, over 8 MiB, unreadable, lock held or reader paused at the stop."
+                  },
+                  "lockWaits": {
+                    "type": "integer",
+                    "description": "Times another read or action held the reader when the recorder wanted it."
+                  },
+                  "events": {
+                    "type": "integer"
+                  },
+                  "gaps": {
+                    "type": "integer",
+                    "description": "Times events were lost (a reader restart, or its ring overflowed)."
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "description": "Size of the timeline so far."
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "description": "SHA-256 of the finished timeline."
+                  },
+                  "timeline": {
+                    "properties": {
+                      "ref": {
+                        "type": "string",
+                        "x-droidyard-untrusted": true
+                      },
+                      "mediaType": {
+                        "type": "string"
+                      },
+                      "bytes": {
+                        "type": "integer"
+                      },
+                      "durability": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "width": {
+                        "type": "integer"
+                      },
+                      "height": {
+                        "type": "integer"
+                      },
+                      "untrusted": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "ref",
+                      "mediaType",
+                      "bytes",
+                      "durability",
+                      "expiresAt",
+                      "untrusted"
+                    ],
+                    "description": "The timeline, one JSON line per record. Save it with droidyard artifact cat \u003cref\u003e \u003e rec.jsonl."
+                  },
+                  "remote": {
+                    "type": "boolean",
+                    "description": "True for a recording of a device a remote host lends (device is \u003cremote\u003e/\u003cserial\u003e): it runs on the host, and its timeline is copied here when it ends."
+                  },
+                  "copied": {
+                    "type": "boolean",
+                    "description": "With remote: true once the timeline is here and its SHA-256 matched the host's. Until then the timeline reads as still being written: wait for copied before saving it."
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "id",
+                  "device",
+                  "invisible",
+                  "maxSeconds",
+                  "startedBy",
+                  "state",
+                  "startedAt",
+                  "dumps",
+                  "unchanged",
+                  "missed",
+                  "lockWaits",
+                  "events",
+                  "gaps",
+                  "bytes",
+                  "timeline"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "recording"
             ]
           }
         }

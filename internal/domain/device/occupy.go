@@ -39,6 +39,9 @@ type Occupation interface {
 	LeaseDevice(session, serial string) (held capability.Holder, refused, gone bool)
 	// HoldsDevice reports whether the session holds the serial now.
 	HoldsDevice(session, serial string) bool
+	// Chat is the chat id the session's hello named, "" when it named none (ADR-0088): what a
+	// UI recording stores of its starter for ADR-0101's stop rule.
+	Chat(session string) string
 	// TakeDevice makes the session the holder of a serial it has booted, whoever held it.
 	TakeDevice(session, serial string)
 	// AdoptDevice makes the session the holder of a serial it adopted, only when free.
@@ -203,6 +206,9 @@ func (a *ADB) listAllTracked(ctx context.Context, path string) ([]Device, error)
 		}
 		// A remote device's id is no adb serial: no local listing has it (ADR-0100 §1).
 		a.occupation.ForgetDevicesAbsent(serials, mark, a.isRemoteID)
+		// The lease of a device that left is gone with no lease-end call: a peer's recording on it
+		// ends here (ADR-0104 §4).
+		a.recorders.endUnheld(a.occupation)
 	}
 	return listed, nil
 }

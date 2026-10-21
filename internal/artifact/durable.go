@@ -3,6 +3,7 @@ package artifact
 import (
 	"errors"
 	"fmt"
+	"hash"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -53,6 +54,10 @@ type Durable struct {
 	cap     int64
 	dropped int64
 	closed  bool
+	// sum is the running SHA-256 of what was written; set for a timeline only.
+	sum hash.Hash
+	// writeHook replaces the file's Write in WriteLine; tests inject a short write.
+	writeHook func([]byte) (int, error)
 }
 
 // CreateDurable starts the durable artifact owned by owner in workspace, truncating
@@ -149,6 +154,9 @@ func (d *Durable) Write(p []byte) (int, error) {
 	}
 	n, err := d.file.Write(p)
 	d.size += int64(n)
+	if d.sum != nil {
+		d.sum.Write(p[:n])
+	}
 	if err != nil {
 		return n, err
 	}
@@ -166,8 +174,12 @@ func (d *Durable) WriteMarker(line string) error {
 	if d.closed {
 		return fs.ErrClosed
 	}
-	n, err := d.file.Write([]byte(line + "\n"))
+	b := []byte(line + "\n")
+	n, err := d.file.Write(b)
 	d.size += int64(n)
+	if d.sum != nil {
+		d.sum.Write(b[:n])
+	}
 	return err
 }
 

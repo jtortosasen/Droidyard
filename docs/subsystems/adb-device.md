@@ -79,7 +79,9 @@ target). A call without `device` fails schema validation at `Start`, before any 
   device. Reads, the UI and the CLI are never refused ([ADR-0094](../adr/0094-occupation-by-a-session.md)).
 - On a host, a paired peer's call of any kind on a lent device leases it: one peer at a time,
   host agents refused too, the host's UI and CLI never
-  ([ADR-0104](../adr/0104-lease-of-a-lent-device.md)).
+  ([ADR-0104](../adr/0104-lease-of-a-lent-device.md)). What is lent is each descriptor's
+  `Lendable`, not a list kept here. A peer's running UI recording holds the lease and ends with it
+  ([ADR-0115](../adr/0115-ui-reads-and-recordings-lent.md)).
 
 ## Transport to the device
 

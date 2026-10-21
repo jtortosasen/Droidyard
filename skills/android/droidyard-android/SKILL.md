@@ -31,6 +31,21 @@ restart the shared adb server.
    and run `droidyard artifact cat <dump.ref> > dump.xml` in a shell: it writes the file
    without the XML passing through you. To learn what an action did between two reads, take
    a cursor from `device_uiEvents`, act, then call it with `since`, `waitMs` and `until: "settle"`.
+   To see every screen between two moments (how an app or a page loads), call
+   `device_recordUi {device}`, act, then `device_stopUiRecording {device}` and run
+   `droidyard artifact cat <timeline.ref> > rec.jsonl` (`device_uiRecordings` lists the kept ones): one JSON line per record, each `dump`
+   with its whole `xml`. Read it with a script, not through yourself:
+
+   ```python
+   import json
+   for l in map(json.loads, open("rec.jsonl")):
+       if l["kind"] == "dump": print(l["time"], l.get("foreground"), l["trigger"])
+   ```
+
+   A recording holds the device's UI reader, so a UiAutomation-based runner (UiAutomator,
+   Appium, Maestro) cannot run beside it. On a remote device (`<remote>/<serial>`) the timeline
+   is copied here after the stop: run `droidyard artifact cat` only once `device_uiRecordings
+   {id}` says `copied`.
 6. **Act**: `device_tapElement` on a `target` selector, `device_inputText` into a `target`
    (or the focused field), each with an `expect` that says what must change, so one call
    acts and verifies.

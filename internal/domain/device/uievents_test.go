@@ -488,6 +488,31 @@ func TestUIEventsLockWaitIsBounded(t *testing.T) {
 	}
 }
 
+// Decision (ADR-0114 Decision 1: a call keeps ADR-0111 Decision 8 unchanged; only the stream's
+// poller and the recorder are patient): a device.uiEvents call whose reader does not answer,
+// with the read lock held by another caller for good, uses both of its recoveries, each waiting
+// the lock wait, and fails DEVICE_UI_DUMP_FAILED naming the held reader. It does not return at
+// the first busy lock with a retry-able "busy" of its own. Seen failing with the call made
+// patient (it returned the busy error raw, at once, not a DEVICE_UI_DUMP_FAILED).
+func TestUIEventsCallKeepsTwoRecoveries(t *testing.T) {
+	shortRecovery(t)
+	f, r, cur := primedEvents(t)
+	r.SetEventsAnswer(devicetest.ReaderGone)
+	holdReader(t, f)
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := f.eventsDirect(t, ctx, UIEventsParams{Device: uiSerial, Since: cur})
+	ce := mustErrorCode(t, err, ErrUIDumpFailed)
+	if errors.Is(err, errReaderBusy) {
+		t.Errorf("the call returned the patient reach's busy error: %v", err)
+	}
+	if d := time.Since(start); d < 2*eventsLockWait-50*time.Millisecond || !strings.Contains(ce.Cause, "held the reader") {
+		t.Errorf("failed after %v with cause %q; want two lock waits (%v) and the held reader named", d, ce.Cause, 2*eventsLockWait)
+	}
+}
+
 // Decision (ADR-0015 §1: nothing the device sent is quoted in an error): a reader that answers
 // the events request with a line of its own, or with a malformed answer, fails
 // DEVICE_UI_DUMP_FAILED after the recoveries are used, and the cause is a fixed sentence with
@@ -583,26 +608,21 @@ func TestUIEventsPhysicalNotAllowed(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0111 Decision 9): not lendable. A remote device id is the local
-// DEVICE_NOT_FOUND with no relay (device.uiTree, which is lendable, relays the same id), and a
-// paired peer's own call is refused before anything runs. Seen failing with the descriptor
-// wrapped in adb.plain (DEVICE_NOT_READY from the link).
-func TestUIEventsIsNotLendable(t *testing.T) {
+// Decision (ADR-0115 Decision 1): a remote device id is relayed to its host, as device.uiTree's
+// is (the link is down: DEVICE_NOT_READY, unreachable), with no adb command here, and a
+// malformed cursor is refused on this side before any host is asked. Seen failing with the
+// descriptor not wrapped in adb.plainThen (the local DEVICE_NOT_FOUND), and with the
+// parameters checked only by the local handler (a bad cursor on a remote id reached the host).
+func TestUIEventsRemoteIDRelayed(t *testing.T) {
 	f := newUIFixture(t, nil)
 	f.adb.remotes = oneRemote{&hosting.Link{}}
 	f.adb.policy = admitting{"c/X1"}
-	if tree := mustFail(t, f.tree(t, "c/X1"), ErrNotReady); tree.Details["state"] != "unreachable" {
-		t.Fatalf("uiTree on the remote id: %+v; want it relayed (the link is down)", tree)
+	if ev := mustFail(t, f.eventsCall(t, `{"device":"c/X1"}`), ErrNotReady); ev.Details["state"] != "unreachable" {
+		t.Fatalf("uiEvents on the remote id: %+v; want it relayed (the link is down)", ev)
 	}
-	mustFail(t, f.eventsCall(t, `{"device":"c/X1"}`), ErrNotFound)
-
-	_, err := f.ops.Start(context.Background(), capability.Request{
-		Capability: "device.uiEvents", Params: []byte(`{"device":"` + uiSerial + `"}`),
-		Client: capability.ClientPeer, Origin: capability.Origin{ID: "peer-anna", Name: "anna"},
-	})
-	var ce *capability.Error
-	if !errors.As(err, &ce) || ce.Code != capability.ErrNotAllowedHere {
-		t.Fatalf("a peer's device.uiEvents: %v; want %s", err, capability.ErrNotAllowedHere)
+	mustFail(t, f.eventsCall(t, `{"device":"c/X1","since":"not-a-cursor"}`), capability.ErrInvalidParams)
+	if calls := f.calls(t); len(calls) != 0 {
+		t.Errorf("adb was asked %q for a remote device", calls)
 	}
 }
 

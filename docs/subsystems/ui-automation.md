@@ -66,6 +66,17 @@ screen to settle instead of polling blind; a lost stretch is always a gap. Only 
 text. `device.watchUiEvents` ([ADR-0112](../adr/0112-ui-events-stream-and-panel.md)) streams the
 same events to the web UI's panel.
 
+`device.recordUi` ([ADR-0113](../adr/0113-ui-recording.md)) keeps both over a span the user times
+by hand: a full dump at start, at stop and after each change, with the events between, in one
+timeline owned by the daemon, so the web can start what an agent reads. A held read lock is waited
+out, not a failure ([ADR-0114](../adr/0114-patient-ui-events-reach.md)). On a lent device the host
+records. The client copies the timeline at the end and serves it once the SHA-256 matches
+([ADR-0115](../adr/0115-ui-reads-and-recordings-lent.md), [ADR-0116](../adr/0116-remote-recording-adoption.md)).
+
+Chrome builds a page's accessibility tree only while an accessibility client is connected, so the
+first dump after the reader connects may lack the page; such a dump carries a warning
+([spike](../research/spike-ui-recording-2026-10.md)).
+
 ## Selectors
 
 One grammar, used for the tap target, for `within` and inside expectations. `id`, `text`, `desc`,

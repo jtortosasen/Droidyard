@@ -208,8 +208,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 34 {
-			t.Errorf("%v lists %d tools; want 34", args, len(names))
+		if len(names) != 37 {
+			t.Errorf("%v lists %d tools; want 37", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)
@@ -271,10 +271,12 @@ func TestCoreNextStepsNameCoreTools(t *testing.T) {
 	}
 	// Named by nextSteps that no core tool returns.
 	unreachable := map[string]string{
-		"device.uninstall":    "only device.uninstall's own DEVICE_UNINSTALL_FAILED",
-		"emulator.wipe":       "only emulator.wipe's own boot timeout",
-		"build.tasks":         "only build.run's task check (checkTasks)",
-		"system.capabilities": "the unknown-capability error, which an MCP session cannot send: an unknown tool name is refused by MCP first",
+		"device.uninstall":       "only device.uninstall's own DEVICE_UNINSTALL_FAILED",
+		"emulator.wipe":          "only emulator.wipe's own boot timeout",
+		"build.tasks":            "only build.run's task check (checkTasks)",
+		"device.recordUi":        "only device.recordUi's own DEVICE_UI_DUMP_FAILED retry (uirecord.go)",
+		"device.stopUiRecording": "only device.recordUi's own DEVICE_UI_RECORDING_ACTIVE (uirecord.go)",
+		"system.capabilities":    "the unknown-capability error, which an MCP session cannot send: an unknown tool name is refused by MCP first",
 	}
 
 	// Every published capability, exposed or not: a token naming one is a nextStep

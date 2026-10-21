@@ -16,10 +16,13 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_launch` | core | changes state | Starts an application's launcher activity and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, ... |
 | `device_list` | core | read-only | Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model ... |
 | `device_logs` | core | read-only | Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a ... |
+| `device_recordUi` |  | changes state | Records the device's UI from now until device_stopUiRecording: the full dump (device_uiDump's document) each time the screen changes, with the events ... |
 | `device_screenshot` | core | read-only | Captures the device's screen as a PNG and returns an ephemeral artifact reference with its size, not the bytes. |
+| `device_stopUiRecording` |  | changes state | Ends the device's UI recording after a last dump and returns its summary; stopped is false when none runs or it was already ending, and recording is ... |
 | `device_tapElement` | core | changes state | Taps one UI element once and verifies the effect in the same call: it resolves target with the device_uiTree selector, taps it, then polls the ... |
 | `device_uiDump` |  | read-only | Returns the active window's full accessibility tree, uncut and without refs, as an XML artifact in uiautomator dump's format plus extra attributes, ... |
 | `device_uiEvents` |  | read-only | Returns what happened on the screen since a cursor, oldest first: windows, content, focus, scrolls, clicks, toasts with their text and notifications ... |
+| `device_uiRecordings` |  | read-only | Lists the UI recordings kept, newest first and at most 50, a running one with its live counts and growing timeline (save a timeline with droidyard ... |
 | `device_uiTree` | core | read-only | Returns the current UI as a compact accessibility tree: snapshot id, foreground package, and a flat list of nodes with ref, class, id, text, desc and ... |
 | `device_uninstall` |  | changes state | Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. |
 | `emulator_list` | core | read-only | Lists every AVD the emulator launcher knows, with its configuration and, when it is running, its device serial. |

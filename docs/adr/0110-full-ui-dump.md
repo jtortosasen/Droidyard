@@ -1,6 +1,8 @@
 # ADR-0110: A full UI dump for parsers, as an artifact in `uiautomator dump`'s format
 
 - Status: Accepted
+- Superseded in part by: ADR-0113 (§Decision 2)
+- Superseded in part by: ADR-0115 (§Decision 6)
 - Date: 2026-10-20
 - Relates to: ADR-0012 §Durability classes, §Reading artifacts; ADR-0015 §1, §4; ADR-0029; ADR-0034 §1; ADR-0036; ADR-0099 §2; `ui-automation.md` §The tree; plan m2w Q1–Q3, Q9; [`spike-ui-dump-events-2026-10.md`](../research/spike-ui-dump-events-2026-10.md)
 - Decided by the owner, 2026-10-20: a mode exposing everything the accessibility tree holds, so an agent can write a complete parser. The shape is Delegated (plan m2w Q1–Q3, Q9, reviewed in two rounds; the spike's S3 took `windows` out, the plan's Changes).

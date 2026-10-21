@@ -195,9 +195,22 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 203 (to 29,801) at milestone 2w's step 8: ui-automation.md's section on the full dump
 // and the events between reads, adb-device.md's event ring and digest check, capability-api.md's
 // `device.uiEvents` topic, and README.md's status line (ADR-0110 to ADR-0112).
-// Raised by 6 (to 29,807) at milestone 2y's close: README.md's status line names 2y; the
+// Raised by 6 (to 29,807) at milestone 2x step 3: peer.md says a peer's link holds four UI events
+// streams per device too (ADR-0115).
+// Raised by 38 (to 29,845) at milestone 2x step 5: mcp.md says a UI recording is the daemon's,
+// not an operation's, and mvp.md's device row names recordUi and stopUiRecording (ADR-0113).
+// Raised by 20 (to 29,865) at milestone 2x step 6: mcp.md's not-exposed table names
+// device.watchUiRecordings and device.deleteUiRecording (a registry check requires it), mvp.md's
+// device row the three new capabilities, and the skill says device_uiRecordings lists them (ADR-0113).
+// Raised by 24 (to 29,889) at milestone 2x step 9: peer.md says a peer records a lent device on
+// the host, sees only its own recordings and fetches its own finished timelines (ADR-0115).
+// Raised by 6 (to 29,895) at the merge of 2y's close into 2x: README.md's status line names 2y; the
 // steps' own additions (ADR-0117 to ADR-0121) were cut from the documents they touched.
-const liveBudget = 29807
+// Raised by 159 (to 30,054) at milestone 2x's close: ui-automation.md says what a recording is and
+// why Chrome's first dump may lack the page, adb-device.md that a peer's recording holds the lease,
+// http-websocket.md that a growing text artifact is 400, README.md's line names 2x (ADR-0113 to
+// ADR-0116).
+const liveBudget = 30054
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

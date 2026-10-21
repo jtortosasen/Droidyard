@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -77,6 +79,7 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 	token := newToken()
 	ui := httpapi.New(reg, ops, bus, token, web.Assets())
 	ui.UseScreens(screenAttach(adb))
+	ui.UseTextArtifacts(uiTextArtifacts(artifacts))
 	return daemon.Options{
 		State:      st.Root(),
 		Store:      st,
@@ -86,6 +89,10 @@ func daemonOptions(st *store.Store, sup *proc.Supervisor, socket, httpAddr strin
 		UID:        os.Getuid(),
 		Ops:        ops,
 		AfterOps:   adb.Close,
+		// Recordings a dead daemon left running are finalised once this one holds the lock (a
+		// daemon that lost it must not touch them) and before anything is served; a recorder's
+		// start and the recordings' capabilities run it first too, and it runs once.
+		AfterLock: func() { adb.RecoverRecordings() },
 		Handlers: map[capability.ClientKind]daemon.Handler{
 			capability.ClientCLI: daemon.Native(reg, ops),
 			capability.ClientMCP: func(ctx context.Context, s *daemon.Session) {
@@ -144,9 +151,13 @@ func peerScreenAttach(adb *device.ADB) httpapi.PeerScreenAttach {
 
 // peerArtifacts is what the peer listener serves of the artifact store (ADR-0099 §2): the
 // artifacts the named peer's own calls made, by the same ownership rule artifact.read applies
-// to a peer, and no other.
-func peerArtifacts(store *artifact.Store) peer.ArtifactReader {
+// to a peer, and no other; and, beside them, the finished timelines of the recordings the peer
+// itself started on this host (ADR-0115 Decision 5), which artifact.read never reaches.
+func peerArtifacts(store *artifact.Store, adb *device.ADB) peer.ArtifactReader {
 	return func(name, id string) (peer.Artifact, error) {
+		if rec, ok := strings.CutPrefix(id, "r."); ok {
+			return peerTimeline(store, adb, name, rec)
+		}
 		e, err := store.GetOwned(artifact.RefPrefix+id, artifact.PeerOwner(name))
 		if err != nil {
 			return peer.Artifact{}, err
@@ -154,6 +165,57 @@ func peerArtifacts(store *artifact.Store) peer.ArtifactReader {
 		return peer.Artifact{MediaType: e.Ref.MediaType, Untrusted: e.Ref.Untrusted, Data: e.Data}, nil
 	}
 }
+
+// peerTimeline is the timeline of the named peer's own finished recording, opened for the peer
+// route to serve by Range: the file the host's recordings directory holds, opened with
+// O_NOFOLLOW, which guards the last component of the path against a link planted in place of the
+// file (the directories above it are the daemon's own, mode 0700), and only if it is a regular file. A recording that still runs is
+// peer.ErrArtifactGrowing; every other id is the not-found error the device package gives.
+func peerTimeline(store *artifact.Store, adb *device.ADB, name, id string) (peer.Artifact, error) {
+	e, err := adb.PeerTimeline(store, name, id)
+	if errors.Is(err, device.ErrTimelineRunning) {
+		return peer.Artifact{}, peer.ErrArtifactGrowing
+	}
+	if err != nil {
+		return peer.Artifact{}, err
+	}
+	f, err := os.OpenFile(e.File, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return peer.Artifact{}, capability.NewError(capability.ErrArtifactNotFound, "no artifact has this reference")
+	}
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		f.Close()
+		return peer.Artifact{}, capability.NewError(capability.ErrArtifactNotFound, "no artifact has this reference")
+	}
+	return peer.Artifact{MediaType: artifact.TimelineMediaType, Untrusted: true, Body: f}, nil
+}
+
+// uiTextArtifacts is what the UI route serves of a finished text artifact (rule 8): the
+// bytes of the store's entry, from memory or from the file in place.
+func uiTextArtifacts(store *artifact.Store) httpapi.TextArtifacts {
+	return func(id string) (httpapi.TextFile, error) {
+		e, err := store.Get(artifact.RefPrefix + id)
+		if err != nil {
+			return httpapi.TextFile{}, err
+		}
+		if e.Growing {
+			// The route refuses a growing artifact before it opens one; never serve one as whole.
+			return httpapi.TextFile{}, capability.NewError(capability.ErrInvalidParams, "the artifact is still being written")
+		}
+		if e.File == "" {
+			return httpapi.TextFile{Body: nopCloseSeeker{bytes.NewReader(e.Data)}}, nil
+		}
+		f, err := os.Open(e.File)
+		if err != nil {
+			return httpapi.TextFile{}, err
+		}
+		return httpapi.TextFile{Body: f}, nil
+	}
+}
+
+type nopCloseSeeker struct{ *bytes.Reader }
+
+func (nopCloseSeeker) Close() error { return nil }
 
 // screenViewer adapts the device's handle to the adapter's viewer, packet for packet and
 // byte for byte. An input frame that is not the wire is the adapter's ErrInputMalformed.
@@ -281,7 +343,7 @@ func startPeers(host *hosting.Host, reg *capability.Registry, ops *capability.Op
 		return func() {}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store), Admit: host.Admit, SetFast: host.SetPeerFast, API: system.Version, Log: logw})
+	srv := peer.New(peer.Options{Host: host, Sessions: httpapi.NewPeerSessions(reg, ops, bus), Screens: peerScreenAttach(adb), Uploads: host.Uploads(), Artifacts: peerArtifacts(store, adb), Admit: host.Admit, SetFast: host.SetPeerFast, API: system.Version, Log: logw})
 	host.SetDefaultPort(peerDefaultPort)
 	host.UseListeners(srv)
 	leased := make(chan struct{})

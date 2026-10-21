@@ -129,11 +129,19 @@ func (a *ADB) uiTree(ctx context.Context, t *target, within *AncestorSelector) (
 	if err != nil {
 		return Snapshot{}, err
 	}
-	s, err := buildSnapshot(doc, NewSnapshotID(), DefaultUITreeBytes, within)
+	rotation, roots, err := parseDump(doc)
+	if err != nil {
+		return Snapshot{}, dumpFailed(err.Error())
+	}
+	s, err := snapshotOf(rotation, roots, NewSnapshotID(), DefaultUITreeBytes, within)
 	if err != nil {
 		return Snapshot{}, dumpFailed(err.Error())
 	}
 	s.Warnings = append(slices.Clone(t.warnings), warnings...)
+	// Computed on the raw parse, before compaction drops the childless WebView (ADR-0113).
+	if chromePageHidden(roots) {
+		s.Warnings = append(s.Warnings, chromePageHiddenWarning)
+	}
 	// A tree that holds the system dialog's buttons names it (ADR-0034 §3; plan m1n step
 	// 6): a standalone read looks a minute back in the events buffer for the dialog's
 	// package, because the dialog was raised by an earlier call. The clock read and the

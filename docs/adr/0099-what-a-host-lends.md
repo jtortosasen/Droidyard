@@ -1,6 +1,7 @@
 # ADR-0099: What a host lends, to whom, and what a peer may call
 
 - Status: Accepted
+- Superseded in part by: ADR-0115 (§Decision 2)
 - Superseded in part by: ADR-0108 (§1)
 - Date: 2026-10-18
 - Relates to: ADR-0012 §Reading artifacts, ADR-0015 §4, §6, ADR-0032 §2, ADR-0097, ADR-0098, ADR-0100; plan m2t Q3

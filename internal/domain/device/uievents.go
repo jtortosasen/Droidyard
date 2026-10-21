@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -93,9 +94,10 @@ type UIEventsResult struct {
 }
 
 func registerUIEvents(reg *capability.Registry, adb *ADB) {
-	// Not adb.plain: not lendable (ADR-0111 Decision 9; ADR-0099 §2 unchanged). No Resource:
-	// a poll takes no lock, so a wait never queues a read or an action (Decision 8).
-	reg.MustRegister(capability.Descriptor{
+	// Lent (ADR-0115 Decision 1): a remote id is relayed and the host's cursor passed through
+	// (remoteuievents.go). No Resource: a poll takes no lock, so a wait never queues a read or
+	// an action (ADR-0111 Decision 8).
+	d := adb.plainThen(capability.Descriptor{
 		Name:         "device.uiEvents",
 		Kind:         capability.Query,
 		Scope:        capability.Global,
@@ -106,7 +108,7 @@ func registerUIEvents(reg *capability.Registry, adb *ADB) {
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UIEventsParams).Device) },
 		Result:       UIEventsResult{},
 		Text:         capability.TextOf(uiEventsText),
-		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams),
+		Errors:       append(append([]capability.ErrorCode{}, LentErrors...), ErrUIDumpFailed, capability.ErrInvalidParams),
 		Authorize: func(ctx context.Context, call *capability.Call) (any, error) {
 			return adb.authorize(ctx, call.Origin, call.Params.(UIEventsParams).Device, "device.uiEvents")
 		},
@@ -122,7 +124,19 @@ func registerUIEvents(reg *capability.Registry, adb *ADB) {
 			}
 			return adb.uiEvents(ctx, t, p.Device, q)
 		},
+	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+		return uiEventsRelayed(rt, res.(UIEventsResult))
 	})
+	// The parameters are checked before the host is asked: a remote id never reaches the
+	// handler above, and a malformed cursor is the caller's to hear, not the host's.
+	authorize := d.Authorize
+	d.Authorize = func(ctx context.Context, call *capability.Call) (any, error) {
+		if _, err := call.Params.(UIEventsParams).query(); err != nil {
+			return nil, err
+		}
+		return authorize(ctx, call)
+	}
+	reg.MustRegister(d)
 }
 
 // eventsQuery is UIEventsParams checked and with its defaults.
@@ -407,6 +421,32 @@ type eventsReach struct {
 	// reader restarted after it stopped answering is not that: its instance changes, and the
 	// result reports readerRestarted.
 	started bool
+	// patient is the reach of a stream's poller and a recording (ADR-0114): a read lock held by
+	// another caller past eventsLockWait is not a failure but errReaderBusy, and a dead reader is
+	// restarted once, the reach failing when that does not bring it back. A call
+	// (device.uiEvents) is not patient and keeps ADR-0111 Decision 8's two recoveries.
+	patient bool
+}
+
+// maxRecoveries is how many recoveries the reach may use: one for a patient reach (ADR-0114
+// Decision 2), eventsRecoveries for a call.
+func (r *eventsReach) maxRecoveries() int {
+	if r.patient {
+		return 1
+	}
+	return eventsRecoveries
+}
+
+// errReaderBusy is what a patient reach returns when a recovery found the read lock held by
+// another caller: the reader is not known to be dead, only in use. The caller skips the tick
+// (ADR-0114 Decision 1). Every lock holder is bounded by its own deadline, so this ends.
+var errReaderBusy = errors.New("another read or action holds the reader")
+
+// patientEnd is the time bound of one tick of a patient reach (ADR-0114 Decision 2): one exchange
+// that fails, the recovery it may bring (the lock wait, the ping and the reader start) and the
+// exchange that retries after it.
+func patientEnd() time.Time {
+	return time.Now().Add(2*eventsPollTimeout + eventsLockWait + readerPingCheck + readerStartBound)
 }
 
 type recovery int
@@ -456,7 +496,7 @@ func (r *eventsReach) poll(ctx context.Context, after uint64, max int) (eventsAn
 				return eventsAnswer{}, eventsFailed(cause)
 			}
 		}
-		if r.recoveries == eventsRecoveries {
+		if r.recoveries == r.maxRecoveries() {
 			return eventsAnswer{}, eventsFailed(cause + held)
 		}
 		r.recoveries++
@@ -464,6 +504,10 @@ func (r *eventsReach) poll(ctx context.Context, after uint64, max int) (eventsAn
 		case recoverFailed:
 			return eventsAnswer{}, eventsFailed(cause + "; and it could not be started again")
 		case recoverBusy:
+			if r.patient {
+				// A held lock is not a failure (ADR-0114 Decision 1): the tick ends empty.
+				return eventsAnswer{}, errReaderBusy
+			}
 			// Retry the dial at the next tick; the loop fails it once the recoveries are used.
 			held = "; and another read or action held the reader for longer than " + eventsLockWait.String()
 			if !sleepCtx(ctx, eventsPollEvery) {

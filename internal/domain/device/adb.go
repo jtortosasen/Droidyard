@@ -112,6 +112,22 @@ type ADB struct {
 	// uiStreams is every device.watchUiEvents stream (ADR-0112); Close ends them first.
 	uiStreams uiEventStreams
 
+	// recordings is the directory of UI recordings (ADR-0113), set once at wiring; nil
+	// records nothing. recorders is every running recorder: Close ends them first
+	// (StopRecordings). recoverOnce runs the recovery of a crashed daemon's records before the
+	// first recorder can start.
+	recordings *UIRecordings
+	recorders  uiRecorders
+	// recWatchers are the paired peers' device.watchUiRecordings subscriptions, which hear
+	// only of their own peer's recordings (uirecordpeer.go).
+	recWatchers recordingWatchers
+	// remoteRec is the client's state for the recordings of remote devices
+	// (remoteuirecord.go).
+	remoteRec   remoteRecs
+	recoverOnce sync.Once
+	recoverRep  RecoverReport
+	recoverErr  error
+
 	// screens is every live-view source, one per device (plan m2p step 3); Close ends
 	// them all beside the log streams.
 	screens screenSources
@@ -123,6 +139,9 @@ type ADB struct {
 	// relayedLogs are the Logcat streams of remote devices, by client session and device
 	// (remotelogs.go).
 	relayedLogs relayedLogSet
+	// relayedUIEvents are the UI events streams of remote devices, by client session and
+	// device (remoteuievents.go).
+	relayedUIEvents relayedUISet
 
 	// screenViews is every device.watchScreen stream (plan m2p step 4): each holds one
 	// reference on a source in screens or relayedScreens. Close ends them before the sources.
@@ -268,6 +287,10 @@ func (a *ADB) SetLending(l Lending) { a.lending = l }
 // SetRemotes gives the ADB the links to the hosts this daemon borrows devices from
 // (ADR-0100). Without them every device is local.
 func (a *ADB) SetRemotes(r Remotes) { a.remotes = r }
+
+// SetRecordings gives the ADB the directory device.recordUi writes to (ADR-0113 §5). It is
+// called once, at wiring, before any call. Without one no recording can start.
+func (a *ADB) SetRecordings(r *UIRecordings) { a.recordings = r }
 
 // SetUploads gives the ADB the APKs its peers uploaded, which device.installUpload installs
 // (ADR-0099 §3). Without them every upload is unknown.

@@ -147,9 +147,9 @@ view's input ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md) §3) wh
   that operation. Only the encoding differs: raw bytes instead of JSON. A binary route
   cannot return a `200` envelope, so this is the one place where the status carries
   meaning (`404`, `410` for `ARTIFACT_EXPIRED`, `400`, `500`).
-- A text artifact that is still growing (a running build's console) will return the bytes
-  written so far and a growing marker header, named in ADR-0024's identifier table when
-  growing artifacts land; to follow it live, call `build.watchOutput` instead of polling
+- A finished text artifact (a UI dump, a recording's timeline) is served whole or by `Range`.
+  One that is still growing, such as a running recording or a remote one not yet copied, is
+  `400`: the route never serves a partial file as if it were the whole. To follow a running build, call `build.watchOutput`
   ([ADR-0044](../adr/0044-build-watchoutput.md)). Images accept `?maxEdge=` and `?region=`.
 - An artifact produced by an untrusted capability (a screenshot) is served with
   `X-Droidyard-Untrusted: true`: the route has no envelope to carry `meta.untrusted`

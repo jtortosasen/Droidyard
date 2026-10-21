@@ -86,6 +86,45 @@ func screenshotRefused(rt *remoteTarget, why string) *capability.Error {
 		WithNextStep("Retry device.screenshot. If it keeps failing, check the host's droidyard and that it runs the same version.")
 }
 
+// uiDumpFetched completes a relayed device.uiDump (ADR-0115 Decision 1): the host's document
+// is fetched, checked to be a hierarchy this daemon reads and stored here as untrusted under
+// this daemon's own reference. The counts are recomputed from the bytes fetched, never taken
+// from the host's answer.
+func (a *ADB) uiDumpFetched(ctx context.Context, rt *remoteTarget, store *artifact.Store, r UIDumpResult) (any, error) {
+	return a.uiDumpFrom(ctx, rt.link, rt, store, r)
+}
+
+func (a *ADB) uiDumpFrom(ctx context.Context, f hostArtifacts, rt *remoteTarget, store *artifact.Store, r UIDumpResult) (any, error) {
+	id, ok := hosting.ArtifactID(r.Dump.Ref)
+	if !ok {
+		return nil, incompatible(rt, "it named a UI dump this version cannot fetch")
+	}
+	data, err := fetchArtifact(ctx, f, rt, id, "application/xml", dumpOutputCap, ErrUIDumpFailed, "UI dump")
+	if err != nil {
+		return nil, err
+	}
+	// The parser's own message can quote the document, which is the host's: the cause is fixed.
+	_, roots, perr := parseDump(data)
+	if perr != nil {
+		return nil, capability.NewError(ErrUIDumpFailed, "the UI dump from the host "+rt.remote+" is not one this daemon accepts").
+			WithCause(uiDumpUnreadable).
+			WithNextStep("Retry the call. If it keeps failing, check the host's droidyard and that it runs the same version.")
+	}
+	res := UIDumpResult{Device: rt.id, Warnings: remoteWarnings(rt, r.Warnings)}
+	for _, root := range roots {
+		res.Nodes += countNodes(root)
+	}
+	if len(roots) > 0 {
+		res.Foreground = roots[0].pkg
+	}
+	ref, err := store.Put(artifact.Item{Data: data, MediaType: "application/xml", Untrusted: true, Producer: "device.uiDump"})
+	if err != nil {
+		return nil, err
+	}
+	res.Dump = ref
+	return res, nil
+}
+
 // logsFetched completes a relayed device.logs: the lines and crashes are bounded as the
 // local read bounds them, and the capture the host names is fetched and stored here.
 func (a *ADB) logsFetched(ctx context.Context, rt *remoteTarget, store *artifact.Store, r LogsResult) (any, error) {

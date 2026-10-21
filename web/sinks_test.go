@@ -39,6 +39,11 @@ var sinks = []struct {
 // holds types and descriptions, no markup, and a description may name a sink in prose.
 const generated = "lib/api/capabilities.gen.ts"
 
+// blobSave is the one file allowed one URL sink, the line below: the anchor that saves a
+// download takes a blob URL made there from bytes the page holds (plan m2x step 8), never a
+// daemon or device value.
+const blobSave, blobSaveLine = "lib/devices/saveblob.ts", "a.href = url;"
+
 // findSinks lists the sinks in one file's text, with their line numbers.
 func findSinks(name, text string) []string {
 	var found []string
@@ -117,7 +122,11 @@ func TestNoHTMLSinks(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		all = append(all, findSinks("web/src/"+p, string(b))...)
+		text := string(b)
+		if p == blobSave {
+			text = strings.Replace(text, "\t"+blobSaveLine+"\n", "\n", 1)
+		}
+		all = append(all, findSinks("web/src/"+p, text)...)
 		return nil
 	})
 	if err != nil {

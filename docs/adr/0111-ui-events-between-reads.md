@@ -1,6 +1,7 @@
 # ADR-0111: The UI's events kept on the device, read since a cursor and waited on
 
 - Status: Accepted
+- Superseded in part by: ADR-0115 (§Decision 9)
 - Date: 2026-10-20
 - Relates to: ADR-0015 §1, §4, §6; ADR-0020 §Adapter projections; ADR-0029; ADR-0030; ADR-0034 §1; ADR-0099 §2; ADR-0102 §2; `ui-automation.md` §The tree; plan m2w Q4–Q7, Q9; [`spike-ui-dump-events-2026-10.md`](../research/spike-ui-dump-events-2026-10.md)
 - Decided by the owner, 2026-10-20: an agent should learn what happened on the screen between two reads, and be able to wait for it, with notification text off. The shape is Delegated (plan m2w Q4–Q7, Q9, reviewed in two rounds); keeping notification text out with no switch at all is Delegated too (Q5).

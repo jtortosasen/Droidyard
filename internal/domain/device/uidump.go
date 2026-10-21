@@ -37,9 +37,9 @@ type UIDumpResult struct {
 const uiDumpUnreadable = "the reader's document is not a readable hierarchy"
 
 func registerUIDump(reg *capability.Registry, adb *ADB, store *artifact.Store) {
-	// Not adb.plain: the dump is not lendable (ADR-0110 Decision 6; ADR-0099 §2 unchanged),
-	// so a remote id is the local DEVICE_NOT_FOUND and no relay is built.
-	reg.MustRegister(capability.Descriptor{
+	// Lent (ADR-0115 Decision 1): for a remote id the host's document is fetched over the peer
+	// port, parsed and stored here (remoteartifact.go).
+	reg.MustRegister(adb.plainThen(capability.Descriptor{
 		Name:         "device.uiDump",
 		Kind:         capability.Query,
 		Scope:        capability.Global,
@@ -50,7 +50,7 @@ func registerUIDump(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(UIDumpParams).Device) },
 		Result:       UIDumpResult{},
 		Text:         capability.TextOf(uiDumpText),
-		Errors:       append(append([]capability.ErrorCode{}, PreambleErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
+		Errors:       append(append([]capability.ErrorCode{}, LentErrors...), ErrUIDumpFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout),
 		Resource: func(call *capability.Call) string {
 			if s := call.Params.(UIDumpParams).Device; s != "" {
 				return dumpKey(s)
@@ -68,7 +68,9 @@ func registerUIDump(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 			}
 			return adb.uiDump(ctx, t, p, store, artifact.OwnerOf(call.Origin))
 		},
-	})
+	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+		return adb.uiDumpFetched(ctx, rt, store, res.(UIDumpResult))
+	}))
 }
 
 // uiDump reads the full document and stores it unchanged. The counts come from parseDump, so
@@ -97,6 +99,9 @@ func (a *ADB) uiDump(ctx context.Context, t *target, p UIDumpParams, store *arti
 	}
 	res.Dump = ref
 	res.Warnings = append(append([]string(nil), t.warnings...), warnings...)
+	if chromePageHidden(roots) {
+		res.Warnings = append(res.Warnings, chromePageHiddenWarning)
+	}
 	if len(res.Warnings) == 0 {
 		res.Warnings = nil
 	}

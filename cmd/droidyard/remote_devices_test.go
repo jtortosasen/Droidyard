@@ -48,7 +48,9 @@ type remoteLab struct {
 	host, client       *inProcess
 	hostDir, clientDir string
 	stopHost           func()
+	stopClient         func()
 	hostConf           map[string]any // the host's configuration as written, for a test that edits it
+	proxy              *linkProxy     // between the client and the host, with viaProxy
 }
 
 func callsIn(t *testing.T, dir string) []string {
@@ -124,6 +126,9 @@ type labOptions struct {
 	hostWrapStream func(device.StreamStarter) device.StreamStarter
 	// phone2ToAnna lends phone2 to the client as well as to bob.
 	phone2ToAnna bool
+	// viaProxy puts a TCP proxy between the client and the host (lab.proxy), so a test can cut
+	// the link, and restore it, without stopping the host.
+	viaProxy bool
 }
 
 // labPeer is a peer the host pairs: its name and certificate fingerprint.
@@ -216,10 +221,16 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 		return addr != ""
 	})
 
+	if o.viaProxy {
+		lab.proxy = newLinkProxy(t, addr)
+		addr = lab.proxy.addr
+	}
 	configAt(t, lab.client.state, clientConfig(t, addr, lab.host.host.Identity().Fingerprint(), true,
 		fullAllowlist()...))
 	stopClient := startPeers(lab.client.host, lab.client.reg, lab.client.ops, lab.client.bus, lab.client.store, lab.client.adb, os.Stderr)
-	t.Cleanup(stopClient)
+	var onceClient sync.Once
+	lab.stopClient = func() { onceClient.Do(stopClient) }
+	t.Cleanup(lab.stopClient)
 	testtime.Eventually(t, testtime.Bound(10*time.Second), "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
 	return lab
 }

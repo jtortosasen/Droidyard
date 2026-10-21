@@ -71,6 +71,11 @@ type Options struct {
 	// context, so cleanup runs even when the operations drained it; the daemon waits
 	// for AfterOps only up to that bound.
 	AfterOps func(ctx context.Context)
+	// AfterLock, when set, runs once, as soon as the daemon holds the lock and its pid
+	// records are reconciled, before the HTTP listener is bound or the socket accepts: the
+	// lock holder is the single writer of what a dead daemon left unfinished (the UI
+	// recordings, ADR-0113 §5), and no call reaches it before that is finished.
+	AfterLock func()
 	// Log receives one line per refused connection and per reconciled pid record.
 	// Nil discards.
 	Log io.Writer
@@ -152,6 +157,9 @@ func Start(opts Options) (*Daemon, error) {
 		if err := opts.Supervisor.Load(); err != nil {
 			fmt.Fprintln(opts.Log, "droidyard: supervisor: no process can be started:", err)
 		}
+	}
+	if opts.AfterLock != nil {
+		opts.AfterLock()
 	}
 	d := &Daemon{opts: opts, lock: lock, sessions: make(map[*Session]struct{})}
 	// The HTTP listener is bound, and its token written, before the socket: whatever

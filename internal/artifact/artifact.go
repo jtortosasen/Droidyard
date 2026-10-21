@@ -40,6 +40,7 @@ const (
 
 	classEphemeral = "e"
 	classDurable   = "d"
+	classRecording = "r"
 	randomHexLen   = 12
 )
 
@@ -262,6 +263,9 @@ func (s *Store) Get(ref string) (Entry, error) {
 	if rest, ok := strings.CutPrefix(id, classDurable+"."); ok {
 		return s.getDurable(rest)
 	}
+	if rest, ok := strings.CutPrefix(id, classRecording+"."); ok {
+		return s.getTimeline(rest)
+	}
 	return s.getEphemeral(id)
 }
 
@@ -287,6 +291,9 @@ func OwnerOf(o capability.Origin) string {
 func (s *Store) GetOwned(ref, owner string) (Entry, error) {
 	notFound := capability.NewError(capability.ErrArtifactNotFound, "no artifact has this reference")
 	id := strings.TrimPrefix(ref, RefPrefix)
+	// A recording's timeline ("r.<id>", device text kept on the host) is refused here with no
+	// guard of its own: parseID accepts only "e." ids, and TestPeerCannotReadATimeline holds
+	// that (ADR-0113 §5; the peer route serves a peer its own, step 9).
 	if owner == "" || strings.HasPrefix(id, classDurable+".") {
 		return Entry{}, notFound
 	}

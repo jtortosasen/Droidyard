@@ -1314,7 +1314,10 @@ func boundBy(a, b time.Time) time.Time {
 // parallel, all within readerCloseBound (plan m1f step 5). It is called after the
 // daemon's operations have drained. It never issues `forward --remove-all`.
 func (a *ADB) Close(ctx context.Context) {
-	// The Logcat streams first: each child is killed and reaped, and its pid record
+	// The UI recordings first (ADR-0113 §3): each reads its last events and writes its end
+	// while the readers still run, within recordStopAllWait.
+	a.StopRecordings(ctx)
+	// The Logcat streams: each child is killed and reaped, and its pid record
 	// removed, before the daemon's supervisor stops (ADR-0041 §6).
 	a.streams.StopAll(ctx)
 	// The UI events streams' pollers return before the readers they ask are stopped below.

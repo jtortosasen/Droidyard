@@ -141,6 +141,10 @@ edits made before this rule and are not added to.
 | [0110](0110-full-ui-dump.md) | A full UI dump for parsers, as an artifact in `uiautomator dump`'s format | Accepted |
 | [0111](0111-ui-events-between-reads.md) | The UI's events kept on the device, read since a cursor and waited on | Accepted |
 | [0112](0112-ui-events-stream-and-panel.md) | The UI events stream and its panel in the web UI | Accepted |
+| [0113](0113-ui-recording.md) | A UI recording: every distinct screen of a span, with its events | Accepted |
+| [0114](0114-patient-ui-events-reach.md) | A patient events reach for the UI events stream and the recorder | Accepted |
+| [0115](0115-ui-reads-and-recordings-lent.md) | The UI reads and the recording lent to a peer | Accepted |
+| [0116](0116-remote-recording-adoption.md) | The client adopts only a remote recording whose start it lost | Accepted |
 | [0117](0117-live-view-input-over-the-stream.md) | The live view's input travels its own stream, authorized when the view opened | Accepted |
 | [0118](0118-a-view-never-far-behind.md) | A view never far behind, and a lighter stream for a remote marked fast | Accepted |
 | [0119](0119-the-live-view-stays-on-tcp.md) | The live view stays on TCP; a datagram transport waits for a measured loss | Accepted |
