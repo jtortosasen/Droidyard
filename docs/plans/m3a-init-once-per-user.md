@@ -184,7 +184,7 @@
 - Not here: OpenCode hooks (ADR-0061 §Alternatives considered); joining Cursor's hooks to their session (the register).
 - Rests on: the rootless hook never connects outside the client's project. Level 4.
 - Review: the main session's diff review; effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/assistant/projectdir.go` (`ClientProjectDir`: Claude `CLAUDE_PROJECT_DIR` else `cwd`; Cursor `workspace_roots[0]` else `CURSOR_PROJECT_DIR` else `cwd`; a set but malformed source gives no project and does not fall through; `HasProjectHook`: a regular file, 1 MiB bound, init's per-project shape with a root, via `parseHookCommand`), `cmd/droidyard/hook.go` (`--root` optional, detected with `fs.Visit`; `clientRoot`: yield, then `projectOf`; with no project every event passes and nothing dials, the after-command hint still given). Seen failing with the decision reversed: `TestRootlessHookFollowsTheClientsProjectNotCwd` (root from cwd, cwd first, `CURSOR_PROJECT_DIR` unread), `TestRootlessHookOutsideAProjectDialsNothing` (cwd fallback; a `--root` control dials), `TestRootlessCursorHookReadsWorkspaceRoots`, `TestRootlessHookYieldsToTheProjectsOwn` (no yield; a rootless entry counted), `TestHookRootWhenGivenIsStillAnAbsolutePath`, `TestClientProjectDirTakesTheClientsOwnSourcesInOrder`, `TestClientProjectDirRefusesWhatIsNotAPathAndDoesNotFallThrough`, `TestHasProjectHookDoesNotTakeAUsersEntryForInits`, `TestHasProjectHookReadsOnlyARegularBoundedFile` (the FIFO); `TestRootlessHookRecordsInTheWorktree` and `TestHasProjectHookRecognisesWhatAProjectRunWrites` pass, not reversed. `hookHelp` updated with step 6. Not run with a real client (P0).
 
 ### 4. `internal/assistant`: the run at user level
 
