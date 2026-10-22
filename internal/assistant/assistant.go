@@ -2,6 +2,8 @@
 // user's project (ADR-0037, ADR-0038): the droidyard-android skill, and per client the
 // MCP server entry, an allowlist of the read-only tools and, for Claude Code and Cursor,
 // the entry that runs `droidyard hook` (ADR-0061). It writes no AGENTS.md or CLAUDE.md. `droidyard init` is its only caller.
+// With Options.User the same integration goes once into the user's own configuration
+// instead, with no root in any entry (ADR-0124; user.go).
 //
 // It edits files the user owns, so it follows one rule throughout: add what is absent,
 // keep what is there, and change nothing it cannot put back. JSON is merged by key, an
@@ -98,6 +100,15 @@ type Options struct {
 	DryRun bool
 	// Uninstall removes what a run with the same options would write.
 	Uninstall bool
+
+	// User makes the run write at user level (ADR-0124): Root is empty, Dirs names the
+	// user's configuration directories, and no entry names a root. user.go says the rest.
+	User bool
+	// Dirs are the directories of a user-level run; the caller resolves them.
+	Dirs UserDirs
+	// ClaudeMCP carries out the changes to Claude's MCP entry at user level; nil when
+	// there is no `claude` to run.
+	ClaudeMCP ClaudeMCP
 }
 
 // Change is what a run did, or in a dry run would do, to one file.
@@ -183,6 +194,9 @@ type job struct {
 // Run installs, or with Options.Uninstall removes, the integration. An error means the
 // options were unusable; a file init will not touch is a Refused change instead.
 func Run(o Options) (Result, error) {
+	if o.User {
+		return runUser(o)
+	}
 	root, err := newFSRoot(o.Root)
 	if err != nil {
 		return Result{}, err
@@ -254,18 +268,7 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 		withEnv := rawJSON(stdioServer{Command: o.Command, Args: []string{"mcp", "--root", o.Root}, Env: map[string]string{"DROIDYARD_STATE_DIR": o.StateDir}})
 		cursorServerSpec = jsonSpec{keys: []keyEntry{{path: cursorServers, key: ServerName, value: withEnv}}}
 	}
-	allowSpec := func(c Client) (jsonSpec, error) {
-		if len(tools) == 0 {
-			return jsonSpec{}, fmt.Errorf("no read-only tool to allowlist for %s", c)
-		}
-		var elems []json.RawMessage
-		for _, t := range tools {
-			rule := AllowRule(c, t)
-			allowed[c] = append(allowed[c], rule)
-			elems = append(elems, rawJSON(rule))
-		}
-		return jsonSpec{arrays: []arrayEntry{{path: []string{"permissions"}, key: "allow", elems: elems, stale: retiredRule(c)}}}, nil
-	}
+	allowSpec := func(c Client) (jsonSpec, error) { return allowlistSpec(c, tools, allowed) }
 
 	if has(o.Clients, Cursor) {
 		jobs = append(jobs, jsonJob(".cursor/mcp.json", cursorServerSpec))
@@ -298,28 +301,46 @@ func plan(o Options, root *fsRoot) ([]job, map[Client][]string, error) {
 			Codemode: false,
 		})
 		spec := jsonSpec{keys: []keyEntry{{path: openCodeServers, key: ServerName, value: entry}}}
-		if !o.Uninstall {
-			// Comments would be lost by a rewrite, and OpenCode reads both files: if
-			// opencode.jsonc is there (or cannot be looked at), refuse the entry and
-			// print it, and leave opencode.json alone (ADR-0037 Decision 2).
-			real, err := root.resolve("opencode.jsonc")
-			if err != nil {
-				jobs = append(jobs, job{rel: "opencode.jsonc", fixed: &edit{status: Refused,
-					notes: []string{err.Error() + "; opencode.json is left alone"}, entry: spec.handEntry()}})
-				return jobs, allowed, nil
-			}
-			if _, err := os.Stat(real); err == nil {
-				jobs = append(jobs, job{rel: "opencode.jsonc", fixed: &edit{
-					status: Refused,
-					notes:  []string{"opencode.jsonc may hold comments that a rewrite would lose, and OpenCode reads it too: add this to it yourself (opencode.json is left alone)"},
-					entry:  spec.handEntry(),
-				}})
-				return jobs, allowed, nil
-			}
-		}
-		jobs = append(jobs, jsonJob("opencode.json", spec))
+		jobs = append(jobs, openCodeJobs(root, spec, o.Uninstall)...)
 	}
 	return jobs, allowed, nil
+}
+
+// allowlistSpec is the allow array init adds to a client's permissions, one rule per
+// tool; the rules are also recorded in allowed.
+func allowlistSpec(c Client, tools []string, allowed map[Client][]string) (jsonSpec, error) {
+	if len(tools) == 0 {
+		return jsonSpec{}, fmt.Errorf("no read-only tool to allowlist for %s", c)
+	}
+	var elems []json.RawMessage
+	for _, t := range tools {
+		rule := AllowRule(c, t)
+		allowed[c] = append(allowed[c], rule)
+		elems = append(elems, rawJSON(rule))
+	}
+	return jsonSpec{arrays: []arrayEntry{{path: []string{"permissions"}, key: "allow", elems: elems, stale: retiredRule(c)}}}, nil
+}
+
+// openCodeJobs is OpenCode's config file job in the directory root names. On install,
+// comments would be lost by a rewrite and OpenCode reads both files: if opencode.jsonc is
+// there (or cannot be looked at), the entry is refused and printed, and opencode.json is
+// left alone (ADR-0037 Decision 2).
+func openCodeJobs(root *fsRoot, spec jsonSpec, uninstall bool) []job {
+	if !uninstall {
+		real, err := root.resolve("opencode.jsonc")
+		if err != nil {
+			return []job{{rel: "opencode.jsonc", fixed: &edit{status: Refused,
+				notes: []string{err.Error() + "; opencode.json is left alone"}, entry: spec.handEntry()}}}
+		}
+		if _, err := os.Stat(real); err == nil {
+			return []job{{rel: "opencode.jsonc", fixed: &edit{
+				status: Refused,
+				notes:  []string{"opencode.jsonc may hold comments that a rewrite would lose, and OpenCode reads it too: add this to it yourself (opencode.json is left alone)"},
+				entry:  spec.handEntry(),
+			}}}
+		}
+	}
+	return []job{jsonJob("opencode.json", spec)}
 }
 
 // stdioServer is Cursor's and Claude Code's server entry; the fields are in the order
@@ -359,6 +380,12 @@ func keepIfShared(jobs []job, root *fsRoot, o Options) []job {
 			users = append(users, string(c))
 		}
 	}
+	return keepFor(jobs, users)
+}
+
+// keepFor turns jobs into "kept" while the clients in users still read what they write;
+// with no user, the jobs stay as they are.
+func keepFor(jobs []job, users []string) []job {
 	if len(users) == 0 {
 		return jobs
 	}
@@ -372,18 +399,25 @@ func keepIfShared(jobs []job, root *fsRoot, o Options) []job {
 // hasEntry reports whether the client's file holds a droidyard server entry, or cannot
 // be told (unreadable, not an object).
 func (r *fsRoot) hasEntry(c Client) bool {
-	rel, path := ".cursor/mcp.json", cursorServers
 	if c == OpenCode {
-		// An opencode.jsonc is refused by init and edited by hand, so its presence (or a
-		// path that cannot be resolved) means OpenCode may be configured: init does not guess.
-		jsonc, err := r.resolve("opencode.jsonc")
+		return r.hasServerEntry("opencode.json", "opencode.jsonc", openCodeServers)
+	}
+	return r.hasServerEntry(".cursor/mcp.json", "", cursorServers)
+}
+
+// hasServerEntry is hasEntry for the file rel, whose servers sit at path. A file named
+// jsonc counts as an entry when it is there or cannot be looked at: it is refused by init
+// and edited by hand, so its presence means the client may be configured, and init does
+// not guess.
+func (r *fsRoot) hasServerEntry(rel, jsonc string, path []string) bool {
+	if jsonc != "" {
+		real, err := r.resolve(jsonc)
 		if err != nil {
 			return true
 		}
-		if _, err := os.Stat(jsonc); err == nil {
+		if _, err := os.Stat(real); err == nil {
 			return true
 		}
-		rel, path = "opencode.json", openCodeServers
 	}
 	real, err := r.resolve(rel)
 	if err != nil {

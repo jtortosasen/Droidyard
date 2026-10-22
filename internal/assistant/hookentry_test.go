@@ -253,3 +253,48 @@ func TestHookEntriesAreNotWrittenByADryRun(t *testing.T) {
 		t.Errorf("a dry run wrote %v", left)
 	}
 }
+
+// ADR-0090 §1 extended by ADR-0124: one parse of a hook command into its client, its root
+// (optional) and its state word, shared by the per-project and the user-level runs. Init's
+// shape is an absolute droidyard binary, `hook --client <c>` for a client with a hook, an
+// optional `--root <absolute>` and an optional absolute DROIDYARD_STATE_DIR word first;
+// everything else is a user's. The rootless and rooted shapes are told apart, which is what
+// keeps a user-level uninstall from taking a user's `--root /p` entry for init's.
+func TestParseHookCommand(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		want    hookShape
+		ok      bool
+	}{
+		{"/a/droidyard hook --client claude", hookShape{client: Claude}, true},
+		{"/a/droidyard hook --client cursor --root /p", hookShape{client: Cursor, root: "/p", hasRoot: true}, true},
+		{"DROIDYARD_STATE_DIR=/s /a/droidyard hook --client claude", hookShape{client: Claude, state: "/s", hasState: true}, true},
+		{"DROIDYARD_STATE_DIR='/s t' '/a b/droidyard' hook --client cursor --root '/p q'", hookShape{client: Cursor, root: "/p q", hasRoot: true, state: "/s t", hasState: true}, true},
+		{"/a/droidyard hook --client opencode", hookShape{}, false},        // no hook for the client
+		{"/a/droidyard hook --client claude --root p", hookShape{}, false}, // a relative root
+		{"/a/droidyard hook --client claude --root", hookShape{}, false},
+		{"/a/droidyard hook --client claude --from /p", hookShape{}, false},
+		{"/a/droidyard hook --client claude --extra", hookShape{}, false},
+		{"/a/droidyard hook --client claude --root /p --extra", hookShape{}, false},
+		{"DROIDYARD_STATE_DIR=s /a/droidyard hook --client claude", hookShape{}, false}, // a relative state root
+		{"droidyard hook --client claude", hookShape{}, false},                          // not an absolute binary
+		{"/a/other hook --client claude", hookShape{}, false},
+		{"sh -c '/a/droidyard hook --client claude'", hookShape{}, false},
+		{"/a/droidyard mcp", hookShape{}, false},
+		{"", hookShape{}, false},
+	} {
+		got, ok := parseHookCommand(tc.command)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("parseHookCommand(%q) = %+v, %v; want %+v, %v", tc.command, got, ok, tc.want, tc.ok)
+		}
+	}
+
+	// initHookShape is the per-client, per-root view of it: "" is the rootless shape and a
+	// rooted command is not it, nor is the rootless one any root's.
+	if !initHookShape("/a/droidyard hook --client claude", Claude, "") ||
+		initHookShape("/a/droidyard hook --client claude --root /p", Claude, "") ||
+		initHookShape("/a/droidyard hook --client claude", Claude, "/p") ||
+		initHookShape("/a/droidyard hook --client cursor", Claude, "") {
+		t.Error("initHookShape does not tell the rootless shape from the rooted one")
+	}
+}

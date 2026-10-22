@@ -20,47 +20,80 @@ import (
 // project root and, when init's own state root came from DROIDYARD_STATE_DIR, that
 // variable inline. A client's hook environment does not carry it [obs, m1o], and
 // without it the hook would dial the default state root's daemon and name it in its
-// replacement.
+// replacement. A user-level run has no root (Options.Root is empty) and its command names
+// none: the hook finds the project from the client's event (ADR-0124).
 func HookCommand(o Options, c Client) string {
 	cmd := ""
 	if o.StateDir != "" {
 		cmd = "DROIDYARD_STATE_DIR=" + shellArg(o.StateDir) + " "
 	}
-	return cmd + shellArg(o.Command) + " hook --client " + string(c) + " --root " + shellArg(o.Root)
+	cmd += shellArg(o.Command) + " hook --client " + string(c)
+	if o.Root != "" {
+		cmd += " --root " + shellArg(o.Root)
+	}
+	return cmd
 }
 
-// initHookShape reports whether a hook command has the shape HookCommand writes for this
-// client and root, with any absolute binary path and any state root (ADR-0090 §1): an
-// optional DROIDYARD_STATE_DIR=<absolute> word, an absolute path whose base name is
-// droidyard, and exactly `hook --client <c> --root <root>`. The command is split as the
-// hook splits it. A wrapper, `sh -c`, another root or client, or an extra word is not
-// init's, so an entry a user wrote by hand is never taken for one of init's.
-func initHookShape(command string, c Client, root string) bool {
+// hookShape is a hook command line of the shape HookCommand writes, taken apart.
+type hookShape struct {
+	client Client
+	// root is the --root word, "" when hasRoot is false.
+	root    string
+	hasRoot bool
+	// state is the DROIDYARD_STATE_DIR value, "" when hasState is false.
+	state    string
+	hasState bool
+}
+
+// parseHookCommand takes a hook command apart when it has init's shape (ADR-0090 §1,
+// extended by ADR-0124): an optional DROIDYARD_STATE_DIR=<absolute> word, an absolute
+// path whose base name is droidyard, and exactly `hook --client <c>` for a client with a
+// hook, with or without `--root <absolute>` after it. The command is split as the hook
+// splits it. A wrapper, `sh -c`, an extra word or a relative root is not init's, so an
+// entry a user wrote by hand is never taken for one of init's.
+func parseHookCommand(command string) (hookShape, bool) {
 	words, ok := splitWords(command)
 	if !ok {
-		return false
+		return hookShape{}, false
 	}
+	var hs hookShape
 	if len(words) > 0 {
 		if v, found := strings.CutPrefix(words[0].String(), "DROIDYARD_STATE_DIR="); found {
 			if !strings.HasPrefix(v, "/") {
-				return false
+				return hookShape{}, false
 			}
+			hs.state, hs.hasState = v, true
 			words = words[1:]
 		}
 	}
-	if len(words) != 6 {
-		return false
+	if len(words) != 4 && len(words) != 6 {
+		return hookShape{}, false
 	}
 	bin := words[0].String()
-	if !strings.HasPrefix(bin, "/") || path.Base(bin) != "droidyard" {
-		return false
+	if !strings.HasPrefix(bin, "/") || path.Base(bin) != "droidyard" ||
+		words[1].String() != "hook" || words[2].String() != "--client" {
+		return hookShape{}, false
 	}
-	for i, want := range []string{"hook", "--client", string(c), "--root", root} {
-		if words[i+1].String() != want {
-			return false
+	hs.client = Client(words[3].String())
+	if !hasHook(hs.client) {
+		return hookShape{}, false
+	}
+	if len(words) == 6 {
+		root := words[5].String()
+		if words[4].String() != "--root" || !strings.HasPrefix(root, "/") {
+			return hookShape{}, false
 		}
+		hs.root, hs.hasRoot = root, true
 	}
-	return true
+	return hs, true
+}
+
+// initHookShape reports whether a hook command has the shape HookCommand writes for this
+// client and root, with any absolute binary path and any state root. An empty root means
+// the rootless shape of a user-level entry: a command that names a root is not it.
+func initHookShape(command string, c Client, root string) bool {
+	hs, ok := parseHookCommand(command)
+	return ok && hs.client == c && hs.root == root
 }
 
 // strictUnmarshal decodes v from raw, refusing a field the type does not have: an

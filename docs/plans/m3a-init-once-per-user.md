@@ -216,7 +216,7 @@
 - Not here: the flags and the real runner (step 6); per-project entries without `--root` (§Not in this milestone).
 - Rests on: an uninstall at user level removes only what init wrote. Level 4 (seeded files, the shape mutation).
 - Review: the main session's diff review; effort `high` (the user's own configuration).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/assistant/user.go` (`UserDirs`, the `ClaudeMCP` runner interface, `runUser`), `Options.User`/`Dirs`/`ClaudeMCP` with `Run` dispatching, `hookentry.go`'s `parseHookCommand` and the rootless `HookCommand`. Claude's entry `{"type":"stdio","command":<bin>,"args":["mcp"]}` only through the runner (absent: Add; equal: unchanged; different: kept and reported; no runner or a runner error: refused with the command); `.claude.json` read only, bounded at 64 MiB. Cursor: `mcp --from ${workspaceFolder}`, `hooks.json`, `cli-config.json` with the close-cursor-agent note and no `deny` (P3). Tests in `user_test.go` and `TestParseHookCommand`; each listed reversal seen failing (Cursor's `--from` dropped, the entry never present, the shape matching any hook, rootless entries unrecognised, the keep dropped, the confinement always true, the 1 MiB bound). Deviation: `assistant.go` touched for the options and four shared helpers. Built in an isolated worktree and applied as a patch.
 
 ### 5. Ignoring init's untracked files: one git read and the block
 
