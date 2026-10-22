@@ -214,7 +214,10 @@ func checkRegister(fsys fs.FS) []string {
 // CLI connection is a session that carries streams and the CLI's stderr takes progress (ADR-0122).
 // Raised by 14 (to 30,081) at milestone 2z's close: README.md's line names 2z, and capability-api.md
 // §Statefulness is declared names the CLI connection.
-const liveBudget = 30081
+// Raised by 41 (to 30,122) at milestone 3a: README.md's install section adds the one `init --user`
+// line and its line names 3a; mcp.md binds a session without --root to the folder's project or a
+// session with no tools, and init writes per project or once per user (ADR-0124).
+const liveBudget = 30122
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

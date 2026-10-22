@@ -1,6 +1,6 @@
 # Plan: Milestone 3a — `init` once per user: every project and worktree, with no `init` per project
 
-- Status: Approved
+- Status: Done
 - Approved: 2026-10-23, Delegated (the main session, under the owner's standing instruction to apply the recommended option): Q1–Q4 as recommended, recorded in ADR-0124 after step 1.
 - Date: 2026-10-23
 - Milestone: "3a: `droidyard init --user` installs the assistant integration once, at user level, so every project and every worktree has it with no `init` per project; per-project `init` gains `--exclude` and `--gitignore` for the files it wrote that git does not track" (the owner's request, 2026-10-22, with the main session's recommendation accepted: "me parece perfecto"; `docs/README.md` §Where the work stands: "Phase 3: use and polish; next, the owner's choice").
@@ -60,24 +60,24 @@
 
 ## Acceptance
 
-- [ ] A1. **One install per user.** `init --user --client all` writes Q1's files in the user's configuration and nothing in any project, and starts no daemon.
+- [x] A1. **One install per user.** `init --user --client all` writes Q1's files in the user's configuration and nothing in any project, and starts no daemon.
   - A second run changes nothing, and `--dry-run` writes nothing.
   - `--uninstall --user` removes init's own files and keys, and keeps the user's own, including a `droidyard hook --root …` entry the user wrote.
   - A hook entry from another binary path is replaced, not doubled. A differing MCP entry is kept and reported (ADR-0037 §2).
   Source: owner item 2; ADR-0037 §2, §5; ADR-0090. Proven by: steps 4, 6, 7.
-- [ ] A2. **Every worktree, no file in it.** With only the user install, a Claude Code session started in a `git worktree add` worktree of a project lists droidyard's tools and is bound to the worktree (`mainRoot` is the main tree). Its Android command is recorded in the worktree's Activity. Source: owner item 2; row 288; ADR-0082 §6, ADR-0085 §1. Proven by: steps 2, 3, 7 (the session half reaches level 5 only if step 1's authentication probe passes; else it stays at level 4 and in Unverified).
-- [ ] A3. **Silent outside a project.** In a folder that is no project by `projectOf`:
+- [ ] A2. **Every worktree, no file in it.** With only the user install, a Claude Code session started in a `git worktree add` worktree of a project lists droidyard's tools and is bound to the worktree (`mainRoot` is the main tree). Its Android command is recorded in the worktree's Activity. Source: owner item 2; row 288; ADR-0082 §6, ADR-0085 §1. Proven by: steps 2, 3, 7 (the session half reaches level 5 only if step 1's authentication probe passes; else it stays at level 4 and in Unverified). Not ticked: the authentication probe failed, so no authenticated Claude Code session ran; at level 5 `claude mcp list` from the worktree connected and bound the shim to it (`mainRoot` the main tree), and a rootless hook event with `CLAUDE_PROJECT_DIR` the worktree recorded there; the session itself is level 4 and in the register's Unverified row.
+- [x] A3. **Silent outside a project.** In a folder that is no project by `projectOf`:
   - `droidyard mcp`, from the Claude entry or the Cursor one, answers a session with no tools, and dials and starts nothing;
-  - the hook answers the pass-through (or the hint), dials nothing, and costs no more than the bound measured at step 7;
+  - the hook answers the pass-through (no hint since the close verifier's B2, §Changes), dials nothing, and costs no more than the bound measured at step 7;
   - no workspace is opened.
   Source: Q2, Q3; the two conditions ADR-0038 §Alternatives considered named. Proven by: steps 2, 3, 7.
-- [ ] A4. **Cursor.** The user hook takes its project from `workspace_roots`, else `CURSOR_PROJECT_DIR`, else `cwd`. The user MCP entry's `--from ${workspaceFolder}` is the folder the project is found from when the client expands it, and is ignored when it arrives literally. Source: Q1, Q2, Q3. Proven by: steps 2, 3, 4 (level 4; the IDE is Unverified).
-- [ ] A5. **Per-project ignore.**
+- [x] A4. **Cursor.** The user hook takes its project from `workspace_roots`, else `CURSOR_PROJECT_DIR`, else `cwd`. The user MCP entry's `--from ${workspaceFolder}` is the folder the project is found from when the client expands it, and is ignored when it arrives literally. Source: Q1, Q2, Q3. Proven by: steps 2, 3, 4 (level 4; the IDE is Unverified).
+- [x] A5. **Per-project ignore.**
   - `--exclude` writes one marked block into the common directory's `info/exclude`, which every worktree reads; `--gitignore` writes it into the root's `.gitignore`.
   - The block holds lines for the run's files that git does not track; tracked ones are reported.
-  - A rerun brings the block up to date; `--uninstall` removes it and nothing else.
+  - A rerun brings the block up to date; `--uninstall` removes it and nothing else. Since ADR-0126 (§Changes) the block is shared: a rerun adds its paths, an uninstall removes only its own lines, the block going when empty.
   Source: owner item 1; Q4. Proven by: steps 5, 6, 7.
-- [ ] A6. **Contract.**
+- [x] A6. **Contract.**
   - No change in `schema/capabilities.json`; no capability or error code; the API version is unchanged.
   - In a project the MCP tool list is unchanged.
   - Only the help of `init`, `mcp` and `hook` changes, and `mcp` gains `--from`.
@@ -305,7 +305,7 @@
 - Not here: the Cursor IDE; the owner's own configuration and repositories.
 - Rests on: —
 - Review: the Opus verifier at the close, over steps 2–6 (one verifier at the close, the owner's pace), effort `high`.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) level 5, 2026-10-23, `/private/tmp/dy3a.tur17N` (binary at `ebad488`; claude 2.1.309, cursor-agent 2026.10.18; isolated `HOME`/`CLAUDE_CONFIG_DIR`/`XDG_CONFIG_HOME`/state; user content seeded first): `init --user --client all` exit 0, "mcpServers.droidyard: added by claude mcp add-json --scope user" and the close-cursor-agent note; `git status` empty in the repo and its `git worktree add` tree. From `wt`: `claude mcp list` "droidyard: … mcp - ✔ Connected", the lane daemon's `workspaces.json` holding `wt` with `mainRoot` the main tree; cursor-agent "droidyard: ready", "Tools for droidyard (37)", `cli-config.json` hash unchanged. Outside a project with no daemon: "✔ Connected", 0 bytes of stderr, `{"tools":[]}` and the no-project instructions, no `daemon.lock`, socket or process. Hook cost, median of 20 rootless runs over a 2,201-folder non-project dir: 18.7–19.3 ms quiet, 52.6–55.5 ms under other lanes' load (bound 100 ms; an empty folder 8.7–9.0 ms). A rootless PostToolUse `adb version` with `CLAUDE_PROJECT_DIR=wt` recorded `agent.recordCommand` in `wt-5edb3d42855b` only; an `rm` PreToolUse in `wt` denied with `droidyard trash … --root …/wt 'junk.txt'`. Per project: `init --client claude --exclude` in a repo and its worktree, one block in the common `info/exclude`, `git status` empty in both; the worktree's uninstall un-ignored the main tree's files (the shared-block defect, fixed by ADR-0126). `init --uninstall --user --client all`: every seeded file equal after parsing, `.claude.json` `mcpServers` byte-identical with only the user's `other`. `droidyard stop`, 0 orphans. Not run: every `-p` (P0), OpenCode (an isolated `opencode mcp list` hangs on the owner's OpenCode service port). The owner's `~/.claude.json` changed during the run with its `mcpServers` hash identical; a sandboxed rerun denying writes to it logged no denial [inferred: the owner's live sessions]; every other owner file identical. (b) `mcp.md` §Transport and session and §Features beyond tools, `docs/README.md` (install line, status line), the register (row 288 closed; new limit, unverified and `trial` rows), `liveBudget` +41. Close verifier: close after fixes, B1 (ADR-0126) and B2 fixed, §Changes.
 
 **Run rules (steps 1 and 7, the main session only).**
 
@@ -434,7 +434,14 @@ Each one is Delegated: the main session applies the recommendation and writes AD
 | 2 | revise | B1, B2, B3 resolved. New [test][order] (blocking): step 2 removes the cwd fallback, but about 40 shim tests start from `cmd/droidyard`, which is no project; `TestMCPSessionBindsAndOpensItsRoot` case (c) and `autostart_test.go`'s two tests assert the old rule, and the plan said they pass unchanged | Step 2: `startShimIn` defaults to a fresh project; case (c) becomes the no-tools assertion; the autostart tests run from a project; `toollist_bytes_test` is A6's proof. Answered in the plan without a third round (`milestone-plan` §Writing one, 7) |
 | 2 | revise | Nits: `mcp.md`'s Roots sentence; an empty or relative `--from`; `call` and `trash` keep the fallback | Step 7(b) names the sentence; empty is treated as unexpanded, and relative is resolved against the cwd (`TestMCPFrom`); Q2 says `call` and `trash` keep the fallback |
 | 1 | revise | N9 the steps were not disjoint; nits: `deny` garbled, A1's stale MCP entry, the "house rule" alternative, uninstall outside git, size | Step 3 after 2 and 4, the shape function in step 4; `deny` per P3; A1 splits hooks (replaced) from MCP (kept); Q1 cites and answers ADR-0061's alternative; the block's uninstall is a no-op outside git; trimmed |
+| close verifier | close after fixes | [bug] B1: the `info/exclude` block is shared by every client, worktree and root, but a rerun replaced it and any uninstall deleted it; [contract] B2: a rootless hook with no project hinted at a tool the session lacks; [safety] `info` symlinked out of the common dir; [doc] `projectOf` opens a parent folder with one build; [plan] the home guard not built; [safety] `settings.json` merged beside live sessions; 5 [nit] | B1: ADR-0126, the union and per-path uninstall, `info` confined; B2: the pass; the design note and the race as register rows; the guard under §Changes; two nits taken |
+| close verifier, fix round | close | [safety] a worktree `gitdir` read unbounded; [doc] `excludeConfined`'s comment; 2 [nit] | `readFile` (regular, bounded); the comment; ADR-0124's pointer names §Decision 4 |
+| level 5 | — | [bug] the shared block, the same as the verifier's B1; OpenCode not isolable; the owner's `.claude.json` mtime moved, `mcpServers` identical | B1's fix; register rows |
 
 ## Changes
+
+- 2026-10-23, the close verifier (B1, Delegated): one `info/exclude` block is shared by every client, worktree and root of a repository, so an install now writes the union of the block and the run's paths and an uninstall removes only the lines of what it removed (ADR-0126, superseding ADR-0124 §4 in part); `info` must resolve below the common directory.
+- 2026-10-23, the close verifier (B2): a rootless hook with no project now passes after a command too; the hint named a tool the session, which has none there, does not list. Steps 3 and A3's "or the hint" no longer apply outside a project.
+- 2026-10-23, the close verifier: the step 2–6 preamble's guard (a helper failing on a path under the real home) was not built; the tests set `HOME`, `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME` to temporary directories instead.
 
 - 2026-10-23, step 1: P0 failed for both clients, so P2 and P3's hook runs were not run. Q3 keeps `CLAUDE_PROJECT_DIR` and the yield on the clients' documents, labelled Unverified in ADR-0124; Q1 keeps the conservative `cli-config.json` branch (merge, say to close cursor-agent first), the evidence being inconclusive. P1 and P4 left Q1 and Q2 as drafted. Claude's `mcp list` and `mcp get` start every user server as a health check, which Q2's no-project session makes free.

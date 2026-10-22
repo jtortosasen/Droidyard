@@ -497,8 +497,18 @@ func TestInitExcludeHidesInitsFilesFromGit(t *testing.T) {
 	if out, _, code := u.init(t, wt, "--client", "all", "--root", wt, "--uninstall"); code != 0 {
 		t.Fatalf("uninstall exited %d:\n%s", code, out)
 	}
+	// ADR-0126: the main tree still has its files, so the shared block keeps hiding them
+	// (git status in BOTH trees is clean); only the last uninstall removes the block.
+	for _, root := range []string{repo, wt} {
+		if st := userGit(t, u, root, "status", "--porcelain", "--untracked-files=all"); st != "" {
+			t.Errorf("after the worktree's uninstall git status in %s lists:\n%s", root, st)
+		}
+	}
+	if out, _, code := u.init(t, repo, "--client", "all", "--root", repo, "--uninstall"); code != 0 {
+		t.Fatalf("uninstall in the main tree exited %d:\n%s", code, out)
+	}
 	if exclude, _ := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude")); strings.Contains(string(exclude), "droidyard init") {
-		t.Errorf("the uninstall left the block:\n%s", exclude)
+		t.Errorf("the last uninstall left the block:\n%s", exclude)
 	}
 }
 

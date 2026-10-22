@@ -1,6 +1,7 @@
 # ADR-0124: `init` once per user, a session with no tools outside a project, and init's files kept out of git
 
 - Status: Accepted
+- Superseded in part by: ADR-0126 (§Decision 4)
 - Date: 2026-10-23
 - Supersedes: ADR-0037 §Decision (in part: 2, `init` may also run at user level); ADR-0038 §Decision (in part: user level, rejected on 2026-10-09, is taken); ADR-0061 §Decision (in part: §1, the hook may run without `--root`; §5, user-level files); ADR-0019 §Processes (in part: 2 and 4, a shim with no project serves an empty session and starts nothing) and §Sessions (in part: no cwd fallback for `mcp` without `--root`); ADR-0075 §Decision (in part: §6, the MCP binding without `--root`); ADR-0085 §Decision (in part: §1–2, the root without `--root`)
 - Relates to: ADR-0004; ADR-0015 §5; ADR-0082 §3, §6; ADR-0090 §1 (extended); ADR-0095 §1, §3, §5; [plan m3a](../plans/m3a-init-once-per-user.md) Q1–Q4 and step 1

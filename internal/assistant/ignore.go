@@ -1,9 +1,9 @@
 package assistant
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -148,44 +148,66 @@ func Ignore(o IgnoreOptions) (Change, error) {
 		return c, nil
 	}
 
+	if o.Target == ExcludeFile {
+		if msg := excludeConfined(o.CommonDir); msg != "" {
+			return fail("%s; left as it is", msg)
+		}
+	}
 	old, exists, err := readFile(file)
 	if err != nil {
 		return fail("%v", err)
 	}
-	var lines []string
-	if !o.Uninstall {
-		var tracked []string
-		lines, tracked = ignoreLines(o, prefix, topPrefix)
-		for _, p := range tracked {
-			c.Notes = append(c.Notes, "tracked by git, so not ignored: "+p)
-		}
-	}
-	content, found, err := withBlock(old, lines)
+	text := string(old)
+	start, stop, have, found, err := findBlock(text)
 	if err != nil {
 		return fail("%v; left as it is", err)
 	}
 
+	// The block is shared by every client, root and worktree that wrote into this file
+	// (ADR-0126): an install adds to it, an uninstall takes out only what it removed.
+	var lines []string
+	if o.Uninstall {
+		drop := removedLines(o, root, prefix)
+		if o.Target == ExcludeFile {
+			dropIfElsewhere(drop, o)
+		}
+		for _, l := range have {
+			if !drop[l] {
+				lines = append(lines, l)
+			}
+		}
+	} else {
+		add, tracked := ignoreLines(o, prefix, topPrefix)
+		for _, p := range tracked {
+			c.Notes = append(c.Notes, "tracked by git, so not ignored: "+p)
+		}
+		lines = unionLines(have, add)
+	}
+	content := splice(text, start, stop, found, lines)
+
 	switch {
-	case o.Uninstall && !found:
-		c.Status = Unchanged
-		c.Notes = append(c.Notes, "no block of init's there")
-		return c, nil
-	case !o.Uninstall && len(lines) == 0 && !found:
+	case !found && len(lines) == 0:
 		c.Status = Unchanged
 		c.Notes = append(c.Notes, "nothing to ignore")
+		if o.Uninstall {
+			c.Notes = []string{"no block of init's there"}
+		}
 		return c, nil
-	case !o.Uninstall && len(lines) > 0 && exists && bytes.Equal(old, content):
+	case found && content == text:
 		c.Status = Unchanged
 		c.Notes = append(c.Notes, "already there")
+		if o.Uninstall {
+			c.Notes = []string{"no line of this run's is in the block"}
+		}
 		return c, nil
 	}
 	switch {
-	case len(content) == 0 && found:
+	case content == "":
 		c.Status = Deleted
-	case found && len(lines) == 0:
-		c.Status = Removed
 	case !exists:
 		c.Status = Created
+	case o.Uninstall && len(lines) == 0:
+		c.Status = Removed
 	default:
 		c.Status = Updated
 	}
@@ -196,7 +218,7 @@ func Ignore(o IgnoreOptions) (Change, error) {
 	if c.Status == Deleted {
 		werr = os.Remove(file)
 	} else {
-		werr = writeFile(file, content)
+		werr = writeFile(file, []byte(content))
 	}
 	if werr != nil {
 		return fail("cannot write: %v", werr)
@@ -204,7 +226,105 @@ func Ignore(o IgnoreOptions) (Change, error) {
 	return c, nil
 }
 
-// ignoreLines are the block's lines for the untracked files of the run, anchored with a
+// excludeConfined is "" when <commonDir>/info is inside commonDir once symlinks are
+// resolved, else why init will not write there: a symlinked info directory must not make
+// init edit a file outside the common directory (ADR-0126). Which common directory that is
+// comes from git and is trusted as git reports it.
+func excludeConfined(commonDir string) string {
+	real, err := filepath.EvalSymlinks(commonDir)
+	if err != nil {
+		return "the repository's common directory cannot be resolved: " + err.Error()
+	}
+	info, err := filepath.EvalSymlinks(filepath.Join(commonDir, "info"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return ""
+	}
+	if err != nil {
+		return "info cannot be resolved: " + err.Error()
+	}
+	if rel, err := filepath.Rel(real, info); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "the repository's info directory resolves outside its common directory (" + info + ")"
+	}
+	return ""
+}
+
+// lineOf is the block line for a path of the run, relative to the root.
+func lineOf(p, prefix string) string {
+	if d, ok := skillDir(p); ok {
+		p = d + "/"
+	}
+	return "/" + prefix + escapeIgnore(p)
+}
+
+// removedLines are the lines for the paths this uninstall removed, collapsed as on
+// install. A line stays when a file that maps to it is still there (a skill file the
+// user changed).
+func removedLines(o IgnoreOptions, root *fsRoot, prefix string) map[string]bool {
+	drop := map[string]bool{}
+	keep := map[string]bool{}
+	for _, c := range o.Changes {
+		l := lineOf(c.Path, prefix)
+		if c.Status == Deleted || c.Status == Removed {
+			drop[l] = true
+			continue
+		}
+		if real, err := root.resolve(c.Path); err == nil {
+			if _, err := os.Lstat(real); err == nil {
+				keep[l] = true
+			}
+		}
+	}
+	for l := range keep {
+		delete(drop, l)
+	}
+	return drop
+}
+
+// dropIfElsewhere spares, in the shared exclude file, the lines of paths that still exist
+// in another work tree of the repository: the line is anchored at each tree's top, so it
+// hides that tree's copy as well (ADR-0126).
+func dropIfElsewhere(drop map[string]bool, o IgnoreOptions) {
+	var trees []string
+	if filepath.Base(o.CommonDir) == ".git" {
+		trees = append(trees, filepath.Dir(o.CommonDir))
+	}
+	gitdirs, _ := filepath.Glob(filepath.Join(o.CommonDir, "worktrees", "*", "gitdir"))
+	for _, g := range gitdirs {
+		// A regular file, bounded: a crafted gitdir must not hang or flood the uninstall.
+		if b, ok, err := readFile(g); err == nil && ok {
+			trees = append(trees, filepath.Dir(strings.TrimSpace(string(b))))
+		}
+	}
+	top, _ := filepath.EvalSymlinks(o.Top)
+	for l := range drop {
+		rel := strings.ReplaceAll(strings.TrimPrefix(l, "/"), `\`, "")
+		for _, t := range trees {
+			if rt, err := filepath.EvalSymlinks(t); err != nil || rt == top {
+				continue
+			}
+			if _, err := os.Lstat(filepath.Join(t, filepath.FromSlash(rel))); err == nil {
+				delete(drop, l)
+				break
+			}
+		}
+	}
+}
+
+// unionLines is a and b, sorted and without repeats.
+func unionLines(a, b []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, l := range append(append([]string(nil), a...), b...) {
+		if !seen[l] {
+			seen[l] = true
+			out = append(out, l)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ignoreLines are the block lines for the untracked files of the run, anchored with a
 // leading slash (and prefix, for the exclude file), and the tracked paths that got none.
 func ignoreLines(o IgnoreOptions, prefix, topPrefix string) (lines, tracked []string) {
 	want := map[string]bool{}
@@ -216,13 +336,10 @@ func ignoreLines(o IgnoreOptions, prefix, topPrefix string) (lines, tracked []st
 		if strings.ContainsAny(p, "\n\r") {
 			continue // a pattern cannot say it; init writes no such name
 		}
-		if d, ok := skillDir(p); ok {
-			p = d + "/"
-		}
-		want[p] = true
+		want[lineOf(p, prefix)] = true
 	}
-	for p := range want {
-		lines = append(lines, "/"+prefix+escapeIgnore(p))
+	for l := range want {
+		lines = append(lines, l)
 	}
 	sort.Strings(lines)
 	sort.Strings(tracked)
@@ -245,24 +362,13 @@ func escapeIgnore(p string) string {
 	return s
 }
 
-// withBlock returns data with init's block replaced by one holding lines, appended when
-// there was none, or removed when lines is empty. found says whether a block was there.
-// A header with no end line is an error: where the user's own lines resume is unknown.
-func withBlock(data []byte, lines []string) (out []byte, found bool, err error) {
-	text := string(data)
-	var block string
-	if len(lines) > 0 {
-		block = ignoreHeader + "\n" + strings.Join(lines, "\n") + "\n" + ignoreEnd + "\n"
-	}
-	start := -1
-	pos := 0
-	for pos < len(text) {
-		end := strings.IndexByte(text[pos:], '\n')
-		next := len(text)
-		line := text[pos:]
-		if end >= 0 {
-			line, next = text[pos:pos+end], pos+end+1
-		}
+// findBlock locates init's block in text: [start, stop) spans its header to the line after
+// its end, and have are the lines between. A header with no end line is an error: where
+// the user's own lines resume is unknown.
+func findBlock(text string) (start, stop int, have []string, found bool, err error) {
+	start = -1
+	for pos := 0; pos < len(text); {
+		line, next := nextLine(text, pos)
 		if line == ignoreHeader {
 			start = pos
 			break
@@ -270,31 +376,42 @@ func withBlock(data []byte, lines []string) (out []byte, found bool, err error) 
 		pos = next
 	}
 	if start < 0 {
-		if block == "" {
-			return data, false, nil
-		}
-		if text != "" && !strings.HasSuffix(text, "\n") {
-			text += "\n"
-		}
-		return []byte(text + block), false, nil
+		return 0, 0, nil, false, nil
 	}
-	rest := text[start:]
-	var stop int
-	for off := 0; ; {
-		end := strings.IndexByte(rest[off:], '\n')
-		next := len(rest)
-		line := rest[off:]
-		if end >= 0 {
-			line, next = rest[off:off+end], off+end+1
-		}
+	_, pos := nextLine(text, start)
+	for pos < len(text) {
+		line, next := nextLine(text, pos)
 		if line == ignoreEnd {
-			stop = next
-			break
+			return start, next, have, true, nil
 		}
-		if end < 0 {
-			return nil, true, errors.New("the block's end line is missing")
-		}
-		off = next
+		have = append(have, line)
+		pos = next
 	}
-	return []byte(text[:start] + block + rest[stop:]), true, nil
+	return 0, 0, nil, true, errors.New("the block's end line is missing")
+}
+
+func nextLine(text string, pos int) (line string, next int) {
+	if i := strings.IndexByte(text[pos:], '\n'); i >= 0 {
+		return text[pos : pos+i], pos + i + 1
+	}
+	return text[pos:], len(text)
+}
+
+// splice puts a block of lines in place of the one at [start, stop), appends it when
+// none was found, and drops it when lines is empty.
+func splice(text string, start, stop int, found bool, lines []string) string {
+	var block string
+	if len(lines) > 0 {
+		block = ignoreHeader + "\n" + strings.Join(lines, "\n") + "\n" + ignoreEnd + "\n"
+	}
+	if found {
+		return text[:start] + block + text[stop:]
+	}
+	if block == "" {
+		return text
+	}
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text + block
 }

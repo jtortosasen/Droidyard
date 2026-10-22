@@ -39,8 +39,8 @@ func cursorAfterEvent(t *testing.T, command string, roots []string) string {
 	return cursorEvent(t, "cursor-4-postToolUse", roots, map[string]any{"tool_input": map[string]any{"command": command, "cwd": ""}})
 }
 
-// wantHintOnly fails unless the hook answered an after-command event with the hint, as
-// every after-command event does whether or not a project is found.
+// wantHint fails unless the hook answered an after-command event with the hint, as every
+// after-command event in a project does.
 func wantHint(t *testing.T, client string, res hookResult) {
 	t.Helper()
 	event := map[string]string{"claude": "PostToolUse", "cursor": "postToolUse"}[client]
@@ -49,6 +49,15 @@ func wantHint(t *testing.T, client string, res hookResult) {
 	}
 	if hint := hintOf(t, client, event, res.stdout); !strings.Contains(hint, "`build_assemble`") {
 		t.Errorf("the hint is %q; want it to name build_assemble", hint)
+	}
+}
+
+// wantPass fails unless the hook answered with the client's pass-through: outside a
+// project the session has no tools, so no hint names one (ADR-0124 §2, §3).
+func wantPass(t *testing.T, client string, res hookResult) {
+	t.Helper()
+	if res.code != 0 || res.stderr != "" || res.stdout != passOf(client) {
+		t.Errorf("the hook exited %d and printed %q (stderr %q); want 0 and %q", res.code, res.stdout, res.stderr, passOf(client))
 	}
 }
 
@@ -70,16 +79,23 @@ func TestRootlessHookFollowsTheClientsProjectNotCwd(t *testing.T) {
 	b := hookProject(t)
 	notProject := platform.Current().Canonical(t.TempDir())
 
-	for _, c := range []struct{ name, projectDir, cwd string }{
-		{"the project is A and cwd is in the unrelated project B", a, b},
-		{"the project dir is a folder that is no project and cwd is in B", notProject, b},
+	for _, c := range []struct {
+		name, projectDir, cwd string
+		hint                  bool
+	}{
+		{"the project is A and cwd is in the unrelated project B", a, b, true},
+		{"the project dir is a folder that is no project and cwd is in B", notProject, b, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			state := shortDir(t)
 			fake := startFakeDaemon(t, state, true)
 			res := runHook(t, state, claudeAfter(t, rootlessCmd, c.cwd), rootlessEnv("CLAUDE_PROJECT_DIR="+c.projectDir), "--client", "claude")
-			wantHint(t, "claude", res)
+			if c.hint {
+				wantHint(t, "claude", res)
+			} else {
+				wantPass(t, "claude", res)
+			}
 			if n := fake.dials.Load(); n != 0 {
 				t.Errorf("the hook dialled the daemon %d times; want 0: a command in %s is not the project's", n, c.cwd)
 			}
@@ -151,11 +167,11 @@ func TestRootlessHookOutsideAProjectDialsNothing(t *testing.T) {
 	cu := func(name, event string, hint bool) ev { return ev{"cursor: " + name, "cursor", event, hint} }
 	roots := []string{dir}
 	events := []ev{
-		cl("a build command after", claudeAfter(t, rootlessCmd, dir), true),
+		cl("a build command after", claudeAfter(t, rootlessCmd, dir), false),
 		cl("an rm before", claudeBash("rm -r dir", dir), false),
 		cl("an Edit before", editEvent(t, "claude-edit-4-pre-Edit", file, "chat-1", dir), false),
 		cl("a Write after", editEvent(t, "claude-edit-2-post-Write-create", file, "chat-1", dir), false),
-		cu("a build command after", cursorAfterEvent(t, rootlessCmd, roots), true),
+		cu("a build command after", cursorAfterEvent(t, rootlessCmd, roots), false),
 		cu("an rm before", cursorEvent(t, "cursor-3-beforeShellExecution", roots, map[string]any{"command": "rm -r " + filepath.Join(dir, "dir")}), false),
 		cu("the Delete tool before", cursorEvent(t, "cursor-2-preToolUse", roots, map[string]any{"tool_input": map[string]any{"file_path": file}}), false),
 		cu("a Write before", cursorEvent(t, "cursor-edit-2-pre-Write", roots, map[string]any{"tool_input": map[string]any{"file_path": file, "content": "x"}}), false),
@@ -286,7 +302,7 @@ func TestRootlessCursorHookReadsWorkspaceRoots(t *testing.T) {
 		t.Parallel()
 		state := shortDir(t)
 		fake := startFakeDaemon(t, state, true)
-		wantHint(t, "cursor", runHook(t, state, cursorAfterEvent(t, rootlessCmd, nil), nil, "--client", "cursor"))
+		wantPass(t, "cursor", runHook(t, state, cursorAfterEvent(t, rootlessCmd, nil), nil, "--client", "cursor"))
 		if n := fake.dials.Load(); n != 0 {
 			t.Errorf("the hook dialled the daemon %d times with no workspace root; want 0", n)
 		}

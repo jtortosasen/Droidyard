@@ -237,10 +237,11 @@ func TestIgnoreRerunAddsAndKeepsTheUsersLines(t *testing.T) {
 	if c := g.ignore(dir, created(".mcp.json", "opencode.json"), ExcludeFile, nil); c.Status != Unchanged || readAt(t, file) != want {
 		t.Errorf("an identical rerun: status %s, file changed %v", c.Status, readAt(t, file) != want)
 	}
-	// a smaller set drops the line that is no longer init's
+	// ADR-0126: a smaller set adds to the block, it does not replace it, because the
+	// block is shared by every client and root that wrote into the file.
 	g.ignore(dir, created(".mcp.json"), ExcludeFile, nil)
-	if got := readAt(t, file); strings.Contains(got, "opencode.json") || strings.Count(got, ignoreHeader) != 1 {
-		t.Errorf("the block was not replaced by the current set:\n%s", got)
+	if got := readAt(t, file); got != want {
+		t.Errorf("a smaller set changed the block:\n%s", got)
 	}
 }
 
@@ -263,7 +264,7 @@ func TestIgnoreUninstallRemovesOnlyTheBlock(t *testing.T) {
 		t.Fatal("the blocks were not written")
 	}
 	for _, target := range []IgnoreTarget{ExcludeFile, GitignoreFile} {
-		c := g.ignore(dir, nil, target, func(o *IgnoreOptions) { o.Uninstall = true })
+		c := g.ignore(dir, removed(initFiles...), target, uninstalling)
 		if c.Status != Removed {
 			t.Errorf("%s: status %s, want removed", target, c.Status)
 		}
@@ -275,7 +276,7 @@ func TestIgnoreUninstallRemovesOnlyTheBlock(t *testing.T) {
 		t.Errorf(".gitignore = %q, want the user's bytes %q", got, giUser)
 	}
 	// a second uninstall has nothing to remove
-	if c := g.ignore(dir, nil, GitignoreFile, func(o *IgnoreOptions) { o.Uninstall = true }); c.Status != Unchanged {
+	if c := g.ignore(dir, removed(initFiles...), GitignoreFile, uninstalling); c.Status != Unchanged {
 		t.Errorf("second uninstall: %s", c.Status)
 	}
 
@@ -284,7 +285,7 @@ func TestIgnoreUninstallRemovesOnlyTheBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.ignore(dir, chs, GitignoreFile, nil)
-	c := g.ignore(dir, nil, GitignoreFile, func(o *IgnoreOptions) { o.Uninstall = true })
+	c := g.ignore(dir, removed(initFiles...), GitignoreFile, uninstalling)
 	if _, err := os.Stat(gi); c.Status != Deleted || !os.IsNotExist(err) {
 		t.Errorf("a .gitignore of only the block: status %s, stat err %v; want deleted and gone", c.Status, err)
 	}

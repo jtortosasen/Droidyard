@@ -375,7 +375,11 @@ func mcpShim(args []string) int {
 
 // noToolsInstructions is the one line a session with no project gives its client.
 func noToolsInstructions(dir string) string {
-	return "No Android project at " + dir + ": droidyard has no tools in this session. " +
+	where := "No Android project at " + dir
+	if dir == "" {
+		where = "No Android project here"
+	}
+	return where + ": droidyard has no tools in this session. " +
 		"Start the assistant in the project's folder or one of its worktrees."
 }
 

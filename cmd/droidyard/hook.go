@@ -153,6 +153,11 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 		return hookCheckEdit(client, edit, deadline)
 	}
 	if after, ok := assistant.DecodeAfterEvent(client, raw); ok {
+		// A rootless hook with no project serves a session with no tools (ADR-0124 §2), so
+		// a hint naming one would point the agent at a tool it does not have.
+		if rootless && root == "" {
+			return pass
+		}
 		return hookObserve(client, root, after, deadline, fallback)
 	}
 	ev, ok := assistant.DecodeHookEvent(client, raw)
