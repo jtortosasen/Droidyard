@@ -4,6 +4,7 @@
 - Date: 2026-10-17
 - Superseded in part by: ADR-0117 (§Decision 1, §Decision 4)
 - Superseded in part by: ADR-0118 (§5)
+- Superseded in part by: ADR-0123 (§2)
 - Relates to: ADR-0010, ADR-0015 §2, §4, ADR-0016, ADR-0028, ADR-0041 §4, §6, ADR-0077; `http-websocket.md` §Security baseline; plan m2p Q3, Q4, Q7, Q8; [`spike-screen-stream-2026-10.md`](../research/spike-screen-stream-2026-10.md)
 - Decided by the main session under the owner's standing instruction (apply the recommended option), Delegated (plan m2p Q3, Q4, Q7, Q8, reviewed in two rounds).
 

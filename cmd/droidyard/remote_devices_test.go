@@ -124,6 +124,10 @@ type labOptions struct {
 	// hostWrapStream wraps the recorded starter of the host's Logcat streams, so a test can
 	// hold a child's reaping.
 	hostWrapStream func(device.StreamStarter) device.StreamStarter
+	// holdRelease, when set, holds every live view's wait for its source's teardown (on the host
+	// and on the client, which share this process) until the channel is closed, which the lab
+	// does at cleanup if the test has not (device.SetScreenReleaseHold, ADR-0123 §3).
+	holdRelease chan struct{}
 	// phone2ToAnna lends phone2 to the client as well as to bob.
 	phone2ToAnna bool
 	// viaProxy puts a TCP proxy between the client and the host (lab.proxy), so a test can cut
@@ -204,6 +208,10 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostConfig := jsonObject(t, hostConf)
 	hostSeam := &adbSeam{env: devicetest.Env(t, lab.hostDir, unusedPort(t)), exec: devicetest.Exec(lab.hostDir)}
 	hostSeam.wrapStream = o.hostWrapStream
+	if hold := o.holdRelease; hold != nil {
+		device.SetScreenReleaseHold(func() { <-hold })
+		t.Cleanup(func() { device.SetScreenReleaseHold(nil) })
+	}
 	if o.hostProcesses {
 		hostSeam.exec = nil // the fake adb as real processes, which the screen server's recorded child needs
 		// A process this binary re-executes starts later on a loaded host than the host's
@@ -232,6 +240,16 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	lab.stopClient = func() { onceClient.Do(stopClient) }
 	t.Cleanup(lab.stopClient)
 	testtime.Eventually(t, testtime.Bound(10*time.Second), "the client's link to come up", func() bool { return lab.client.host.Remote(remoteName).Connected() })
+	if hold := o.holdRelease; hold != nil {
+		// Registered last, so it runs first: the daemons' stop waits for the views' releases.
+		t.Cleanup(func() {
+			select {
+			case <-hold:
+			default:
+				close(hold)
+			}
+		})
+	}
 	return lab
 }
 

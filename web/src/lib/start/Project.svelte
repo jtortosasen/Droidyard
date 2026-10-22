@@ -24,6 +24,7 @@
 	import LiveView from '../screen/LiveView.svelte';
 	import type { InputClient } from '../screen/input';
 	import { LiveViewModel } from '../screen/liveview';
+	import { RemoteQualityModel } from '../screen/quality';
 	import { browserCodec } from '../screen/decoder';
 	import { UiEventsModel } from '../devices/uievents';
 	import UiEvents from '../devices/UiEvents.svelte';
@@ -143,6 +144,7 @@
 	let act = $state.raw<ActModel | null>(null);
 	let appLogs = $state.raw<AppLogsModel | null>(null);
 	let liveView = $state.raw<LiveViewModel | null>(null);
+	let remoteQuality = $state.raw<RemoteQualityModel | null>(null);
 	let uiEvents = $state.raw<UiEventsModel | null>(null);
 	let uiRecording = $state.raw<UiRecordingModel | null>(null);
 	let fileTree = $state.raw<FileTreeModel | null>(null);
@@ -237,6 +239,8 @@
 			// A remote device whose host stopped lending it ends its stream: the list is read again.
 			{ supported: browserCodec() !== null, onDeviceGone: (serial) => deviceList.deviceGone(serial) },
 		);
+		// The Fast toggle of a remote device's view: the remote's mark in the policy (ADR-0123).
+		const quality = new RemoteQualityModel(callOn, deviceList);
 		// The screen's events of the toolbar's device, while the panel is shown (ADR-0112).
 		const events = new UiEventsModel(
 			{
@@ -363,6 +367,7 @@
 		act = actions;
 		appLogs = logs;
 		liveView = screen;
+		remoteQuality = quality;
 		uiEvents = events;
 		uiRecording = recordings;
 		fileTree = files;
@@ -472,6 +477,8 @@
 			act = null;
 			screen.dispose();
 			liveView = null;
+			quality.dispose();
+			remoteQuality = null;
 			events.dispose();
 			uiEvents = null;
 			recordings.dispose();
@@ -643,8 +650,8 @@
 			<Devices {devices} {emulators} {install} {sessions} {lending} connected={connection === 'open'} />
 		{/if}
 	{:else if id === 'liveview'}
-		{#if liveView}
-			<LiveView model={liveView} {token} {connection} visible={shell.rightOpen()} input={{ call: ((n, p) => client.call(n, p)) as InputClient['call'] }} />
+		{#if liveView && remoteQuality}
+			<LiveView model={liveView} quality={remoteQuality} {token} {connection} visible={shell.rightOpen()} input={{ call: ((n, p) => client.call(n, p)) as InputClient['call'] }} />
 		{/if}
 	{:else if id === 'uievents'}
 		{#if uiRecording}

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0121 (§1, §2)
+- Superseded in part by: ADR-0123 (§4)
 - Date: 2026-10-21
 - Supersedes: ADR-0078 §5 (in part: a viewer is also reset by its queue's age, and the source asks for a key frame), ADR-0077 §1 (in part: a source started for a remote marked fast uses a lighter preset), ADR-0117 §3 (in part: the peer screen socket also carries the client's acknowledgements)
 - Relates to: ADR-0100 §3, ADR-0109 §4, ADR-0120; plan m2y Q6, Q7; [`spike-live-input-2026-10.md`](../research/spike-live-input-2026-10.md) §S3, §S7, §S8

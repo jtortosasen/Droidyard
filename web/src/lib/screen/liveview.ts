@@ -12,9 +12,10 @@
 //
 // It watches the toolbar's device only while the panel is shown (its tab is current and
 // its region open), and unsubscribes otherwise. One re-watch is allowed per failure
-// streak, whether it came from a `detached` event or a decoder error; a frame that
-// decodes ends the streak. The component opens the screen socket for each new
-// `generation` of the view and reports what the socket and the decoder do.
+// streak, whether it came from a `detached` event, a `renewed` one (this daemon changed
+// the remote's quality, ADR-0123 §2) or a decoder error; a frame that decodes ends the
+// streak. The component opens the screen socket for each new `generation` of the view and
+// reports what the socket and the decoder do.
 import type { Params, Result } from '../api/capabilities.gen';
 import {
 	CapabilityError,
@@ -40,7 +41,7 @@ export interface ScreenDevices {
 }
 
 export type LiveState = 'idle' | 'starting' | 'live' | 'stopped' | 'unsupported';
-export type StopReason = 'deviceGone' | 'exited' | 'failed' | 'detached';
+export type StopReason = 'deviceGone' | 'exited' | 'failed' | 'detached' | 'renewed';
 
 export interface LiveViewView {
 	state: LiveState;
@@ -288,10 +289,12 @@ export class LiveViewModel {
 		this.#sub?.stop();
 		this.#sub = null;
 		this.#send(subscriptionId);
-		const reason = (['deviceGone', 'exited', 'failed', 'detached'] as const).find((r) => r === p.reason) ?? 'failed';
+		const reason = (['deviceGone', 'exited', 'failed', 'detached', 'renewed'] as const).find((r) => r === p.reason) ?? 'failed';
 		const device = this.#device;
-		// Only `detached` (the socket went away) is worth one more try; the rest are shown as they are.
-		this.#failure(reason, typeof p.cause === 'string' ? p.cause : '', reason === 'detached');
+		// `detached` (the socket went away) and `renewed` (the view was ended to start again at the
+		// remote's new quality) are worth one more try; the rest are shown as they are. A `renewed`
+		// view is not a device that went: the device list is not read again.
+		this.#failure(reason, typeof p.cause === 'string' ? p.cause : '', reason === 'detached' || reason === 'renewed');
 		if (reason === 'deviceGone') this.#onDeviceGone(device);
 	}
 

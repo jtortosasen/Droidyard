@@ -52,7 +52,8 @@ may present an unpaired certificate while a code is unused, and that connection 
 one `POST /peer/v1/join` and closed. Otherwise four routes: `/peer/v1/ws` (the capability
 envelope, as the UI's WebSocket), `/peer/v1/screen` (a stream the same peer opened; with
 `control` granted it takes the client's input, lease-authorized, ADR-0117; the client's
-acknowledgements bound its bytes in flight and a `fast` remote gets a lighter stream, ADR-0118),
+acknowledgements bound its bytes in flight and a `fast` remote gets a lighter stream, ADR-0118;
+a changed mark travels in the open session, ADR-0123),
 `/peer/v1/upload` (one APK slot per peer, at most 512 MiB) and `/peer/v1/artifacts/{id}`
 (artifacts the same peer produced). A request with `Origin` is refused: no browser speaks to
 this port.

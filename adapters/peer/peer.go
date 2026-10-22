@@ -540,6 +540,13 @@ func (l *listener) serveWS(w http.ResponseWriter, r *http.Request) {
 			go revoke(c)
 			return false
 		},
+		// A changed mark in the open session, read when the peer starts a live view
+		// (ADR-0123 §1); always set, so a mark frame is never read as a request.
+		SetFast: func(fast bool) {
+			if s.o.SetFast != nil {
+				s.o.SetFast(name, fast)
+			}
+		},
 	}, func(ctx context.Context) bool {
 		if !s.hello(ctx, c, name) {
 			return false

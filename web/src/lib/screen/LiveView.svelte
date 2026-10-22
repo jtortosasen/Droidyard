@@ -2,7 +2,9 @@
 	import { untrack } from 'svelte';
 	import type { ConnectionState } from '../api/client';
 	import { browserCodec, VideoPacketDecoder, type DecodedFrame } from './decoder';
+	import { failureText } from '../build/failure';
 	import type { LiveViewModel, LiveViewView, StopReason } from './liveview';
+	import type { QualityView, RemoteQualityModel } from './quality';
 	import { ScreenSocket } from './stream';
 	import { encodeKey } from './control';
 	import { InputSender, NAV_KEYS, gated, PointerInput, WheelAccumulator, toFrame, type InputClient, type NavKey } from './input';
@@ -14,6 +16,8 @@
 	// `data-frames` the frames decoded, for the level-5 check.
 	interface Props {
 		model: LiveViewModel;
+		/** The remote's quality for a remote device's view: the Fast toggle. */
+		quality: RemoteQualityModel;
 		token: string;
 		connection: ConnectionState;
 		/** The panel's region is open. */
@@ -21,9 +25,10 @@
 		/** Where the text goes: the one input that is still a call. */
 		input: InputClient;
 	}
-	let { model, token, connection, visible, input }: Props = $props();
+	let { model, quality, token, connection, visible, input }: Props = $props();
 
 	let view = $state.raw<LiveViewView>(untrack(() => model.view));
+	let q = $state.raw<QualityView>(untrack(() => quality.view));
 	let pageHidden = $state(document.hidden);
 	let root: HTMLElement | undefined;
 	let canvas: HTMLCanvasElement | undefined;
@@ -45,6 +50,21 @@
 		};
 		read();
 		return m.subscribe(read);
+	});
+
+	$effect(() => {
+		const m = quality;
+		const read = () => {
+			q = m.view;
+		};
+		read();
+		return m.subscribe(read);
+	});
+
+	// The remote's mark is read at each answered watch of a remote device (a local one reads nothing).
+	const generation = $derived(view.generation);
+	$effect(() => {
+		if (generation > 0) untrack(() => void quality.read());
 	});
 
 	$effect(() => model.setActive(visible && !pageHidden));
@@ -170,8 +190,25 @@
 		exited: 'The screen server on the device ended.',
 		failed: 'The video stream failed.',
 		detached: 'The stream connection was lost.',
+		renewed: 'The view restarted for its new quality.',
 	};
+
+	// What the alert line says: a failed input, else a failed write of the remote's quality.
+	const alertText = $derived(problem !== '' && view.state === 'live' ? problem : q.error ? failureText(q.error) : '');
 </script>
+
+{#snippet fast()}
+	{#if q.shown}
+		<button
+			type="button"
+			class="fast"
+			aria-pressed={q.fast}
+			disabled={q.busy}
+			title="A lighter stream for a slow link; the view restarts"
+			onclick={() => void quality.setFast(!q.fast)}>Fast</button
+		>
+	{/if}
+{/snippet}
 
 <svelte:document onvisibilitychange={() => (pageHidden = document.hidden)} />
 
@@ -218,14 +255,17 @@
 			{#each NAV_KEYS as k (k.key)}
 				<button type="button" disabled={!view.control} onclick={() => press(k.key)}>{k.label}</button>
 			{/each}
+			{@render fast()}
 		</div>
 		<form onsubmit={send}>
 			<input type="text" bind:value={text} maxlength="500" aria-label="Text to type into the focused field" />
 			<button type="submit" disabled={text === ''}>Send</button>
 		</form>
-		{#if problem !== ''}
-			<p role="alert">{problem}</p>
-		{/if}
+	{:else if q.shown}
+		<div class="keys">{@render fast()}</div>
+	{/if}
+	{#if alertText !== ''}
+		<p role="alert">{alertText}</p>
 	{/if}
 </section>
 
@@ -265,6 +305,15 @@
 	input {
 		flex: 1;
 		min-width: 0;
+	}
+	.fast {
+		margin-left: auto;
+		font-size: 0.8em;
+		opacity: 0.75;
+	}
+	.fast[aria-pressed='true'] {
+		opacity: 1;
+		font-weight: 600;
 	}
 	canvas[hidden] {
 		display: none;

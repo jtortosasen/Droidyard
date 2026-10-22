@@ -86,6 +86,7 @@ type relayedSource struct {
 
 	// Written by run's goroutine before ready closes or the goroutines below start.
 	down      <-chan struct{} // closed when the link connection the stream lives on is lost
+	marked    <-chan struct{} // closed when a mark frame was written to the host: the view is renewed (ADR-0123 §2)
 	sub       string          // the host's subscription, "" until the host named one
 	stopRoute func()          // ends the link's routing of that subscription's events
 	conn      *hosting.ScreenConn
@@ -106,6 +107,16 @@ var _ screen.Source = (*relayedSource)(nil)
 // failed start fails every waiter, a caller whose ctx ends leaves, and a new start waits for
 // an ending source's teardown.
 func (rs *relayedScreens) acquire(ctx context.Context, a *ADB, rt *remoteTarget) (*relayedSource, func(), error) {
+	s, ref, err := rs.acquireRef(ctx, a, rt)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, ref.Release, nil
+}
+
+// acquireRef is acquire whose reference can be dropped in two parts (sourceRef.Drop), as a
+// live view's end needs (ADR-0123 §3).
+func (rs *relayedScreens) acquireRef(ctx context.Context, a *ADB, rt *remoteTarget) (*relayedSource, *sourceRef, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -145,8 +156,7 @@ func (rs *relayedScreens) acquire(ctx context.Context, a *ADB, rt *remoteTarget)
 		if s.startFail != nil {
 			return nil, nil, s.startFail
 		}
-		var once sync.Once
-		return s, func() { once.Do(s.unref) }, nil
+		return s, &sourceRef{drop: s.dropRef}, nil
 	}
 }
 
@@ -227,7 +237,12 @@ func (s *relayedSource) sendInput(b []byte) (int, error) {
 
 // unref drops one holder. The last one ends the source and waits until it is gone, so a
 // caller that released the last reference knows the host was released when it returns.
-func (s *relayedSource) unref() {
+func (s *relayedSource) unref() { s.dropRef()() }
+
+// dropRef is unref in two parts (ADR-0123 §3): the reference is dropped, and the end claimed
+// when it is the last, before it returns; the wait for the teardown is the function it
+// returns.
+func (s *relayedSource) dropRef() (wait func()) {
 	s.set.mu.Lock()
 	s.refs--
 	last := s.refs == 0
@@ -240,8 +255,9 @@ func (s *relayedSource) unref() {
 		s.close(nil)
 	}
 	if last {
-		<-s.done
+		return func() { <-s.done }
 	}
+	return func() {}
 }
 
 // end decides why the source ended, once: the first reason wins. A nil reason is the end of
@@ -311,6 +327,7 @@ func (s *relayedSource) start() error {
 	rt := s.rt
 	// Before the call: a connection lost between the call and the attach counts as lost.
 	s.down = rt.link.Down()
+	s.marked = rt.link.Marked() // before the call too: a mark written after it is seen, one before it is in the host's start
 	params, err := json.Marshal(WatchScreenParams{Device: rt.serial})
 	if err != nil {
 		return capability.AsError(err)
@@ -452,13 +469,24 @@ func (s *relayedSource) readEnded(err error) {
 	}
 }
 
-// watchLink ends the source with deviceGone when the link it lives on is lost.
+// watchLink ends the source when the link it lives on is lost (deviceGone), or when the
+// remote's fast mark was written to the host (renewed, ADR-0123 §2): the view is ended so it
+// can start again at the new quality; nothing else of the remote is touched. A loss is never
+// reported as renewed: when the link is down by the time the mark channel is seen closed,
+// the end is the loss.
 func (s *relayedSource) watchLink() {
 	defer s.wg.Done()
 	select {
 	case <-s.ctx.Done():
 	case <-s.down:
 		s.end(&ScreenEnd{Reason: StopDeviceGone, Cause: "the link to the remote " + s.rt.remote + " was lost"})
+	case <-s.marked:
+		select {
+		case <-s.down:
+			s.end(&ScreenEnd{Reason: StopDeviceGone, Cause: "the link to the remote " + s.rt.remote + " was lost"})
+		default:
+			s.end(&ScreenEnd{Reason: StopRenewed, Cause: "the remote " + s.rt.remote + "'s fast mark changed"})
+		}
 	}
 }
 

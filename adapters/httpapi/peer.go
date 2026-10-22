@@ -33,6 +33,10 @@ type Peer struct {
 	// Allowed is asked before each request is served; false ends the session without
 	// serving the request. The adapter closes the connection with its reason first.
 	Allowed func() bool
+	// SetFast, when set, takes the fast mark of a capability.PeerMarkFrame the peer sends in
+	// the open session (ADR-0123 §1). It is called in the read loop, so the mark is applied
+	// before the next frame is read; nil leaves a mark frame to be read as any other.
+	SetFast func(fast bool)
 }
 
 // Serve runs one peer's session on c until it ends. hello is the exchange that starts it:
@@ -40,7 +44,7 @@ type Peer struct {
 // itself, with the reason). Before it, c reads no frame over 4 KiB.
 func (p *PeerSessions) Serve(ctx context.Context, c *websocket.Conn, peer Peer, hello func(ctx context.Context) bool) {
 	c.SetReadLimit(preAuthLimit) // raised to MaxBody once the session has started
-	s := &wsSession{h: p.h, c: c, started: map[string]bool{}, who: requester{client: capability.ClientPeer, name: peer.Name}, allowed: peer.Allowed, registry: p.sessions}
+	s := &wsSession{h: p.h, c: c, started: map[string]bool{}, who: requester{client: capability.ClientPeer, name: peer.Name}, allowed: peer.Allowed, setFast: peer.SetFast, registry: p.sessions}
 	if !p.h.add(s) {
 		c.Close(websocket.StatusGoingAway, "the daemon is stopping")
 		return

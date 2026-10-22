@@ -103,3 +103,20 @@ type PeerHello struct {
 type PeerHelloFrame struct {
 	Hello *PeerHello `json:"hello"`
 }
+
+// PeerMarkAPI is the first API version whose host takes a PeerMarkFrame in an open session
+// (ADR-0123 §1); a client sends it to no older host, whose hello says its version.
+const PeerMarkAPI = "0.36.0"
+
+// PeerMark is the client's per-remote fast mark as a changed value (ADR-0118 §4).
+type PeerMark struct {
+	// Fast is a pointer so a frame that leaves it out is told from one that says false.
+	Fast *bool `json:"fast"`
+}
+
+// PeerMarkFrame is a changed fast mark as it travels, client to host, after the hello
+// (ADR-0123 §1): the host applies it before it reads the next frame and answers nothing. A
+// frame whose mark is not an object with a boolean fast closes the session with 1003.
+type PeerMarkFrame struct {
+	Mark *PeerMark `json:"mark"`
+}

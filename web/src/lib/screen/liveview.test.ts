@@ -161,6 +161,58 @@ describe('LiveViewModel', () => {
 		expect(t.client.unsubscribed).toEqual(['sub1', 'sub2']);
 	});
 
+	// Decision (ADR-0123 §2): `renewed` is this daemon ending the view so it starts again at the
+	// remote's new quality: one `device.watchScreen` of the same device, no stop shown, and the
+	// device list is not read again (the device did not go). Seen failing with `renewed`
+	// handled as `deviceGone` (shown with Restart, and the device reported gone).
+	it('watches the same device again on renewed, and does not report it gone', async () => {
+		const gone: string[] = [];
+		const client = new FakeClient();
+		const devices = new FakeDevices();
+		const model = new LiveViewModel(client, devices, { supported: true, onDeviceGone: (d) => gone.push(d) });
+		model.setActive(true);
+		client.answer(0);
+		await settle();
+		model.frameDecoded();
+		client.stopped(0, 'renewed', 'the remote qa\'s fast mark changed');
+		expect(client.watches.map((w) => w.device)).toEqual(['emulator-5554', 'emulator-5554']);
+		expect(model.view).toMatchObject({ state: 'starting', device: 'emulator-5554', reason: null });
+		expect(client.unsubscribed).toEqual(['sub1']);
+		expect(gone).toEqual([]);
+		client.answer(1);
+		await settle();
+		model.frameDecoded();
+		expect(model.view.state).toBe('live');
+	});
+
+	// Decision: the re-watch is the streak's one; a second `renewed` before a frame decodes is
+	// shown with its reason and Restart, as a second `detached` is.
+	it('stops with renewed and Restart when a second one comes before a frame decodes', async () => {
+		const t = await live();
+		t.client.stopped(0, 'renewed');
+		t.client.answer(1);
+		await settle();
+		t.client.stopped(1, 'renewed', 'again');
+		expect(t.client.watches).toHaveLength(2);
+		expect(t.model.view).toMatchObject({ state: 'stopped', reason: 'renewed', cause: 'again' });
+		t.model.restart();
+		expect(t.client.watches).toHaveLength(3);
+	});
+
+	// Decision: `deviceGone` still reports the device, as before (a remote that stopped lending it).
+	it('still reports deviceGone', async () => {
+		const gone: string[] = [];
+		const client = new FakeClient();
+		const model = new LiveViewModel(client, new FakeDevices(), { supported: true, onDeviceGone: (d) => gone.push(d) });
+		model.setActive(true);
+		client.answer(0);
+		await settle();
+		model.frameDecoded();
+		client.stopped(0, 'deviceGone', 'why');
+		expect(gone).toEqual(['emulator-5554']);
+		expect(model.view).toMatchObject({ state: 'stopped', reason: 'deviceGone' });
+	});
+
 	it('gives the allowance back once a frame decoded', async () => {
 		const t = await live();
 		t.client.stopped(0, 'detached');

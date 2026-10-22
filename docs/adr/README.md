@@ -151,6 +151,7 @@ edits made before this rule and are not added to.
 | [0120](0120-remote-view-input-on-the-peer-socket.md) | A remote device's view sends its input on the peer screen socket | Accepted |
 | [0121](0121-lag-bound-from-the-first-read.md) | Lag counts from the first read, not on a relayed Hub | Accepted |
 | [0122](0122-a-cli-for-people.md) | A CLI for people: commands per domain from the descriptors, and CLI connections that carry streams | Accepted |
+| [0123](0123-a-fast-change-renews-the-view.md) | A fast change travels in the open session and renews the view | Accepted |
 
 ## Open decisions (not yet ADRs)
 

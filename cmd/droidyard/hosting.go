@@ -327,7 +327,7 @@ func remoteWith(pol *policy.Policy, args []string, stdout, stderr io.Writer) int
 			return edit{
 				patch: map[string]any{"remotes": next},
 				said: []string{name + " is marked " + onOff(on) + ": a live view this daemon starts on its device uses " + map[bool]string{true: "a lighter stream", false: "the full stream"}[on],
-					"A running daemon reconnects within seconds."},
+					"A running daemon tells the remote within seconds; an open view of its device starts again that way when the remote runs API 0.36.0 or later, and ends otherwise."},
 			}, nil
 		})
 	case "list":

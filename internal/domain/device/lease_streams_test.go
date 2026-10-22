@@ -70,8 +70,8 @@ func (f *streamFixture) screen(t *testing.T, id, link, serial string) *screenStr
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := &screenStream{set: &f.adb.screenViews, bus: f.bus, id: id, device: serial, session: link, src: &fakeScreen{}, viewer: &stubViewer{}, release: func() {},
-		quit: make(chan struct{}), released: make(chan struct{}), sub: sub}
+	st := &screenStream{set: &f.adb.screenViews, bus: f.bus, id: id, device: serial, session: link, src: &fakeScreen{}, viewer: &stubViewer{}, ref: &sourceRef{drop: func() func() { return func() {} }},
+		quit: make(chan struct{}), dropped: make(chan struct{}), released: make(chan struct{}), sub: sub}
 	if err := f.adb.screenViews.add(st); err != nil {
 		t.Fatal(err)
 	}
