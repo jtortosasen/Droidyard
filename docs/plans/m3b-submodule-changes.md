@@ -1,0 +1,178 @@
+# Plan: Milestone 3b — Uncommitted changes inside submodules, in the Git tab and Review
+
+- Status: Approved
+- Approved: 2026-10-23, Delegated (the main session, under the owner's standing instruction to apply the recommended option): Q2 as recommended; Q1 and Q3 with the trusted/untrusted split recorded under Changes (ADR-0125).
+- Date: 2026-10-22
+- Milestone: "Uncommitted changes inside submodules shown in the UI's Git views (the Git tab's changes list and Review)" (the owner's scope, 2026-10-22, four items: the status stops ignoring submodules; a second status only in submodules with changes; `git.read` from the submodule's HEAD; the UI groups the changes by submodule). `docs/README.md` §Where the work stands says "next, the owner's choice".
+- Phase: none. The MVP is done (2h); the Scope table is the boundary.
+- Contract: ADR-0066 §1 (the watch, one status a tick), §2–§3 (the invocation and the fence on an untrusted root), §5 (marks), §Consequences ("submodules are ignored"); ADR-0071 §1 (`git.submodules`), §7 (submodules as roots: `git.read`'s `root`); ADR-0067 §2, §5 (the Diff tab, the Git tree); ADR-0015 §1, §2; ADR-0020 §Retention; ADR-0041 §4 (the generated client). ADR-0125 (Q1–Q3), superseding ADR-0066 §Decision in part (item 1's one status per tick, item 5's entries).
+- Register: the commit that adds this plan splits the row "Submodules are ignored by the status (`--ignore-submodules=all`); an unstaged rename shows as deleted plus untracked; a repository created after `git.watch` started is seen only after Retry" (Work `git`) into "Submodules are ignored by the status (`--ignore-submodules=all`)" with Work `3b`, and the rename and late-repository clauses as one row that keeps Work `git` and its source. No other row joins (owner): the `git.submodules` fail-whole row stays open, since this plan does not change `git.submodules` (step 2's degrade is the watch's own).
+- Parallel: steps 2 and 3, once step 1 has fixed the contract (disjoint: `internal/domain/git` and `web/`).
+
+**The owner should see:** in the Git tab's Changes view, the project's changes, then one group per submodule with its changed files (a submodule with only new commits says so); clicking a submodule's file opens Review against that submodule's HEAD, showing only what changed in it.
+
+## Scope
+
+| Item | Here? | Where, or why not |
+| --- | --- | --- |
+| 1. The status no longer ignores submodules; the flag's value decided against `diff.ignoreSubmodules` and `submodule.<name>.ignore`; the shape of a submodule's entry | yes | Q1, Q2; step 1 |
+| 2. A second status in each submodule, nested, bounded, a failure degrading that submodule only | yes | Q1, Q3; step 2 |
+| 3. `git.read` of a submodule's file from its own HEAD | yes, UI only | step 3: `git.read` with `root` already reads `HEAD:<path>` in the submodule (`read.go`, `TestRootReadAtCommit`); only `base.ts` does not pass `root` |
+| 4. The UI groups the changes by submodule; Review against the submodule's HEAD | yes | step 3 |
+| Register: the submodule clause of the row above | yes | closed `3b` at step 4 |
+| The rename and late-repository clauses of that row | no | owner's scope; they stay `git` |
+| `git.submodules`: its `dirty` state, its fail-whole row | no | unchanged (step 1 keeps its status arguments); the row stays open |
+| Writes inside a submodule (stage, commit, discard) | no | none exist for the project either (ADR-0066 §1: read-only status) |
+| MCP | no | `git.*` is human-only (ADR-0066 §1, ADR-0060 §2) |
+
+## Starting point
+
+- Branch `m3b` at `be75be1` (main), API `0.36.0` (`internal/domain/system/system.go`).
+- **The status** (`internal/domain/git/status.go`): one `statusArgs` with `--ignore-submodules=all`, used by the watch (`watch.go` `statusOf`, baseline and every tick) **and** by `git.submodules`' per-submodule read (`submodules.go` `walker.read`, whose `dirty` state's description says "its own nested submodules ignored"). `parseStatus` reads `1`/`2`/`u`/`?` records and ignores the `<sub>` field. `Entry` is `{path, mark, origPath}`; `Status` is `{head, entries, truncated}`, at most 5000 entries; `WatchResult` repeats the three fields.
+- **The tick** (`watch.go`): `statusOf` = `rev-parse --show-prefix` + `status`, each preceded by the driver read on an untrusted root (2 gits trusted, 4 untrusted); any error stops the watch `failed`; a status equal to the last publishes nothing.
+- **The submodule walk** (`submodules.go`): candidates from `config --file .gitmodules --no-includes`, kept if `ls-files --stage` records a gitlink; per submodule `file.ResolveDir` equal to the lexical join, a `.git` that is no symlink, `prefix` empty (own top); then `rev-parse HEAD` and the status; depth 8, 1000 rows; every git in the submodule's own directory with the workspace's trust, so its own filter drivers are read and switched off there (`TestSubmodulesFence`). m2n measured 20 untrusted submodules at 2.4–5.1 s for 126 gits (`TestSubmodulesTwenty`).
+- **`git.read` with `root`** (`read.go`, `roots.go`): the path is the workspace's, contained lexically in the root; `resolveRoot` proves the root an initialised gitlink level by level; `cat-file` runs in the submodule, so `HEAD` is the submodule's HEAD. Without `root` a path below a gitlink is `exists: false` (`TestRootReadAtCommit`). **So item 3 needs no daemon change.**
+- **Web** (`web/src/lib/git/`): `watch.ts` (`GitWatch`, the view `{head, entries, truncated}`); `changes.ts` (`groupedRows`, `flatRows`, letters); `GitTree.svelte` (Tree | Changes, Grouped | Flat); `tree.ts` (`setStatus`: every status path is a file row); `base.ts` (`HeadBase.follow({path, mark, origPath, oid})` calls `git.read` with no `root`); `DiffPanel.svelte` (finds the active file's entry by path); `submodules.ts` (`SubmodulesModel`, loaded at the first refs answer, `initialisedRoots`); `diffsource.ts` (`CommitText` already passes `root`); `history.ts:724` (the History tab's "Uncommitted Changes (N)" row, the workspace root's, counts `entries.length`); `files.ts` (the commit view's rows reuse `groupedRows`/`flatRows`).
+- Tests run on real git, Homebrew 2.51.2 and Apple 2.50.1 by `PATH`, as m2l and m2n did; fixtures from `submodules_test.go` (`env`, `gitmodules`, `untrusted`, `gitDirs`) and `roots_test.go` (`newRootFxShared`: lib, lib/nested, extra).
+- **Baseline, 2026-10-22 at `be75be1`:** `go vet ./...` clean; `go test ./...` ok in every package but `internal/domain/shell` (`TestRecordsTheCommandWhileItRuns`, once under load; it passed in the rerun of the whole suite, as m2za recorded it).
+
+## Acceptance
+
+- [ ] A1. **Commits**: a submodule whose checked-out commit differs from the one HEAD records (staged or not), a submodule added, removed or conflicted, appears in the status as its gitlink's entry, whatever `diff.ignoreSubmodules` and `submodule.<name>.ignore` say in the repository's configuration or `.gitmodules`. Source: owner's item 1; Q1, Q2. Proven by: steps 1, 4.
+- [ ] A2. **Contents**: a submodule with modified or untracked files, nested ones included to eight levels, lists them, workspace-relative, each with `root` naming its submodule; the gitlink's `commits`, `modified` and `untracked` equal git's own `S<c><m><u>` with `--ignore-submodules=none` on the same repository. Source: owner's item 2; Q2. Proven by: step 2.
+- [ ] A3. **The fence holds**: on an untrusted root no filter driver configured only in a submodule's (or nested submodule's) own configuration runs, and no git runs in a submodule directory that is, or sits behind, a symlink, or whose `.git` is one. Source: ADR-0066 §3, ADR-0071 §7. Proven by: steps 1, 2.
+- [ ] A4. **Bounded and degrading**: at most 32 submodules read per tick, within 5 s for the submodule pass (so the project's own entries are at most that much later), entries 5000 in all; a submodule that cannot be read is marked `unread` with a cause and the rest is published; a project whose submodules cannot be listed still gets its own status with `submodulesUnread`; a project without `.gitmodules` runs the gits it runs today. Source: owner's item 2; Q3. Proven by: step 2.
+- [ ] A5. **The UI**: Changes shows the project's group, then one group per submodule (its words: new commits, modified or untracked content, new, removed, conflicted, not read), each with its files; Review of a submodule's file reads the submodule's HEAD (`git.read` with `root`), a clean file in an initialised submodule too; the History tab's "Uncommitted Changes" count is the project's own entries, gitlinks included, not the submodules' files. Source: owner's items 3, 4. Proven by: steps 3, 4.
+- [ ] A6. **Contract**: one minor version; the schema diff is only `git.watch`'s new fields and descriptions (result and `status` event); `git.read` and `git.submodules` unchanged; MCP tool list unchanged. Source: `capability-api.md` §Discovery and versioning. Proven by: step 1.
+
+## Steps
+
+### 1. The contract, and the superproject's submodule records
+
+- Builds:
+  - `status.go`: the watch's arguments get `--ignore-submodules=none` on a trusted root and `--ignore-submodules=dirty` on an untrusted one (Q1, ADR-0125 §1), named apart from `git.submodules`' own (`submoduleStateArgs`, keeping `=all`, so its `dirty` state keeps its meaning); a comment says why each.
+  - `Entry` gains `Root string` (`root,omitempty`: "The submodule the path is in, relative to the project root, as git.read's root takes it; absent for the project's own repository") and `Submodule *SubmoduleChange` (`submodule,omitempty`, only on a gitlink's own entry): `commits`, `modified`, `untracked` (required booleans), `checkedOut` (oid, omitempty), `unread` (cause, omitempty), each with the description Q2 gives. `Status` and `WatchResult` gain `submodulesUnread` (omitempty, Q3). `truncated`'s description widens to the submodules' entries and their 4 MiB caps (Q3).
+  - `parseStatus`: a `1` or `u` record whose `<sub>` field begins `S` is a gitlink: its mark by the existing table (`.M`, `M.`, `MM` modified; `A.` added; `D.`, `.D` deleted; `u` conflicted) and `submodule {commits, modified, untracked}` from the field's `C`, `M`, `U` (with `dirty` only `C` can be set; with `none` all three, and a content-only gitlink is marked `modified`). `N...` records unchanged.
+  - `WatchResult.SubscriptionID`'s description stops listing the event's fields as "(head, entries, truncated)".
+  - API `0.37.0` (`system.go`); `go test ./internal/schema -update`; the generated web client regenerated as m2za step 2 did, so step 3 can start.
+- Implements: ADR-0125 §1, §3; Q1 (the flag) and Q2 (the shape).
+- Check: real git, both versions.
+  - `TestSubmoduleRecordsAgainstHEAD` on a lib/lib/nested/extra fixture: a new commit in lib, unstaged and then staged, is `lib modified commits`; a submodule added and not committed is `added`; one removed by `git rm` is `deleted`; a merge moving lib two ways is `conflicted`; a lib with content changes only has no entry yet. Seen failing with `=all` (no entries).
+  - `TestSubmoduleRecordsTrusted`: on a trusted root a lib with content changes only is `modified` with `modified`/`untracked` as git's own field; the same tree untrusted has no entry yet.
+  - `TestTrustedSubmoduleChildGuarded`: trusted root, lib holding `core.fsmonitor` set to a marker script and a stat-dirty file: the tick runs no marker and leaves lib's index unwritten (ADR-0066 §2's overrides reach git's child); and a lib that is a blobless partial clone with a local remote fetches nothing. Seen failing with the overrides passed by environment only (or record what reaches the child under Changes before step 2).
+  - `TestSubmoduleIgnoreConfigOverridden`: `diff.ignoreSubmodules=all` in `.git/config`, `ignore = all` in `.gitmodules` and `submodule.<name>.ignore=all` in `.git/config`: the new-commit entry is still there. Seen failing with the flag removed.
+  - `TestStatusStartsNoGitInASubmodule` (risk first, `TestSubmodulesFence`'s fixture): untrusted root, a filter driver configured only in lib's own config, a stat-dirty filtered file in lib: the watch's tick leaves no marker. The same tick with the trusted root's `none` substituted (an unexported test seam) leaves the marker: that is Q1's evidence. If `none` leaves none, record it under Changes and narrow Q1's reason before step 2.
+  - `TestMarksFromPorcelain` gains the `S` rows; `git mv lib lib2` is run and what it yields is recorded in the evidence (Unverified).
+  - `TestSubmodulesStates` and the rest of `submodules_test.go` pass unchanged.
+- Schema: `git.watch`: result and `status` event, `entries[]` gain `root` and `submodule {commits, modified, untracked, checkedOut, unread}`; `submodulesUnread` added; `truncated`'s description; the version. Nothing else.
+- Needs: ADR-0125 (written).
+- Not here: no git in any submodule (step 2), so a content-only change is not shown yet; no web change but the generated client. Not a stopping point on its own: until step 3 the Tree view shows a changed gitlink as a file row, and opening it in the Diff tab answers `FILE_WRONG_TYPE` "submodule" (`tree.ts:77-79`, `read.go:163`).
+- Rests on: with `--ignore-submodules=dirty` git starts no process in a submodule, so no submodule configuration runs on an untrusted root: level 3 on both gits, the fence test seen failing with `none`; on a trusted root, git's child keeps ADR-0066 §2's guards: `TestTrustedSubmoduleChildGuarded`.
+- Review: the Opus verifier reviews steps 1 and 2 together after step 2 (contract, untrusted text, the fence), effort `high`.
+- [ ] Done. Evidence:
+
+### 2. The second status, in each initialised submodule
+
+- Builds:
+  - `submodules.go`: the walk refactored so its listing (candidates, gitlinks, containment, own top, depth) yields each initialised submodule to a visitor; `git.submodules` and `git.updateSubmodules` (which lists through `listSubmodules`) keep their rows, order, caps and errors (`submodules_test.go`, `update_test.go` unchanged).
+  - `status.go`/`watch.go`: `statusOf` runs, after the superproject status, the **submodule pass** (Q3): only when a `.gitmodules` exists at the repository's top (found from the status's prefix, as `listSubmodules` does, so a workspace in a subfolder is covered; an `Lstat`, no git); for each initialised submodule in walk order, depth-first (on a trusted root only those whose gitlink record git flagged `M` or `U`, ADR-0125 §2; on an untrusted root every one), at most 32 per tick, nested to depth 8, under one 5 s deadline for the pass, the containment checks (`Lstat`, `ResolveDir`, `.git`, own top) rerun every tick: one status with the watch's arguments in its own directory, through the runner with the workspace's trust (its drivers read and switched off there). Its `path` and `origPath` are made workspace-relative, with `root` = its path. Its gitlink's entry gets `checkedOut` from `# branch.oid`; on an untrusted root it is created if the parent's status had none (mark `modified`, `commits` false) and its bits computed: `untracked` = an untracked file, or a nested gitlink whose `untracked` is set; `modified` = any other change, a nested gitlink with `commits` or `modified` included. Both can be set: git's own rule for `S<c><m><u>` (a nested record other than exactly `S..U` sets M, any `U` sets U). Entries of every repository share the 5000 cap, sorted by path.
+  - Degrade (Q3): an error of a git in a submodule's directory or of its nested listing (git failed, a timeout, a driver that cannot be switched off) sets that gitlink's `unread` (created if needed) with a cause sentence, lists none of its files and reads none of its nested ones; the pass goes on. A failure to list the project's own submodules sets `submodulesUnread`; so do the cap and the deadline, the gitlinks they leave with an entry getting `unread`. Only the superproject's own failures stop the watch `failed`, as today; a cancel ends the tick as today.
+  - The package comment states the per-tick cost: trusted, 2 gits as today (git's own child per populated submodule) plus 2 per flagged submodule and per level with a `.gitmodules`; untrusted (the default: only `trust.roots` are trusted), 2 gits plus 2 per level with a `.gitmodules` and 2 per initialised submodule, doubled by the driver reads, and that the project's own entries are published after the pass, so they wait up to its 5 s.
+  - The pass's deadline and cap are unexported options; every pass test but the bounds test sets the deadline from `testtime.Bound`, as `TestSubmodulesFence` sets `readTimeout`, so a loaded run does not turn a submodule `unread`.
+- Implements: ADR-0125 §2–§4; Q2 (filling the fields) and Q3 (bounds, nesting, degrade).
+- Check: real git, both versions.
+  - `TestSubmodulePassOnlyFlaggedWhenTrusted`: trusted, lib dirty and extra clean: no git starts in extra (`gitDirs`); untrusted, both read. Seen failing with every submodule read on a trusted root.
+  - `TestSubmoduleContentMatchesGit` (untrusted, so the daemon computes the bits; and trusted, where they are git's). Each nested case sits under a parent with no change of its own, so the parent's bits come from the child alone: lib clean, its lib/nested holding an untracked file only (lib must be exactly `U`); extra with new commits and a nested child with new commits and an untracked file (`SC.U`; extra must be `C`, `M` and `U`); a third submodule with a modified and an untracked file of its own; one with new commits only; a clean one: each gitlink's `commits`/`modified`/`untracked` equals the `S<c><m><u>` of `git status --porcelain=v2 --ignore-submodules=none` the test runs (commits as `C` or X ≠ `.`), and the files under `root: lib` are `git -C lib status`'s, prefixed. Seen failing with a nested untracked-only gitlink read as modified, and with a nested `SC.U` read as modified only.
+  - A subfolder workspace (`app/`, the `.gitmodules` at the top) lists its submodules' changes (`TestRootSubdirectoryWorkspace`'s shape).
+  - `TestSubmodulePassFence` (untrusted; drivers only in lib's and in lib/nested's own config): no marker, both listed. Seen failing with the drivers read in the superproject only.
+  - `TestSubmodulePassContainment`: a submodule directory that is a symlink, a symlinked `.git`, a `.git` that names no repository: no git starts there (`gitDirs`), no files listed.
+  - `TestSubmoduleFailureDegradesOnlyIt`: lib's config holds a `filter.""` key on an untrusted root: lib `unread` naming the driver, extra's files listed, the watch publishes and goes on. Seen failing with the error returned (stopped `failed`).
+  - `TestSubmodulesUnreadWhenTheListFails`: a malformed top `.gitmodules`: the project's entries, `submodulesUnread` set, no stop (it also settles whether the project's own status parses `.gitmodules`; if it does and fails, record it under Changes, since A4 then needs the status to survive it).
+  - `TestSubmodulePassBounds`, with the cap and deadline shortened by unexported options (as `readTimeout`): the third of three dirty submodules unread with `submodulesUnread`; a ninth level not read; a deadline passed leaves `submodulesUnread` and no stop.
+  - `TestWatchWithoutGitmodulesRunsAsBefore`: no `.gitmodules`: the tick starts the same gits as before (count by `onStart`). Seen failing with the pass listing unconditionally.
+  - `TestWatchPublishesASubmoduleEdit`: a file written in lib during a watch arrives in the next event with `root: lib`.
+  - `TestSubmodulePassTwenty` (logs, as `TestSubmodulesTwenty`): one tick's duration and git count for 20 submodules, one dirty, trusted and untrusted, both gits; quoted in the evidence.
+  - `go test -race ./internal/domain/git`.
+- Schema: no change.
+- Needs: step 1.
+- Not here: no parallel gits inside a tick; no cache across ticks (Q3's alternatives); `git.submodules` unchanged.
+- Rests on: every git in a submodule is started by the runner in that submodule's own directory after the containment checks, its drivers switched off there on an untrusted root: level 3, the fence and containment tests seen failing reversed.
+- Review: the Opus verifier on steps 1 and 2, effort `high`.
+- [ ] Done. Evidence:
+
+### 3. The web: groups by submodule, the Tree view, Review from the submodule's HEAD
+
+- Builds: load `svelte-core-bestpractices` and `svelte-code-writer` first.
+  - `history.ts`: the "Uncommitted Changes (N)" row, the workspace root's, counts the entries with no `root` (a gitlink's own entry included, as the project's change), not `entries.length`.
+  - `changes.ts`: `groupedRows` and `flatRows` keep their output (`files.ts` reuses them; `files.test.ts` unchanged); `changeGroups(entries)` wraps them: the project's group (entries with no `root`, gitlink entries excluded), then one group per gitlink entry with `submodule`, by path (a nested one is its own group after its parent), each with its entries (`root` equal to its path); `groupWords(entry)`: "new submodule", "removed", "conflicted", "new commits", "modified content", "untracked content", or "not read: <cause>". Grouped and flat rows per group, folders relative to the submodule, keys the workspace path.
+  - `GitTree.svelte`, Changes: a header row per group (path, words, short `checkedOut`) and its files; a group with no files is its header alone; the project's header only when a submodule group exists; `submodulesUnread` as a note; the truncated note's text widened. Names stay text nodes.
+  - `tree.ts`: an entry with `submodule` marks its folder changed and is never a file row.
+  - `base.ts`: `BaseInput` gains `root` and `rootOid`; `git.read` gets `root` when it is set; both are in the key, so the submodule's HEAD moving reads again.
+  - `rootOf(path, entries, initialised)` (pure, beside `base.ts`): the entry's `root` when the status lists the path; else the longest of the gitlink entries' and `initialisedRoots(SubmodulesModel's list)` paths that the path lies below; `rootOid` is that gitlink's `checkedOut`. `DiffPanel.svelte` takes the submodules model from `Project.svelte` and follows with it; Classic's label reads `HEAD of <root>` for a submodule.
+- Implements: owner's items 3 and 4; ADR-0067 §2, §5 with Q2's shape; ADR-0071 §7.
+- Check: Vitest. `history.test.ts`: a status with project, gitlink and submodule entries counts the project's and the gitlinks' only (seen failing with `entries.length`). `changes.test.ts`: a status with project files, lib (modified and untracked), lib/nested (new commits only), extra (`unread`): the groups' order, words and files, no gitlink among the files (seen failing with gitlinks rendered as files). `tree.test.ts`: a gitlink entry is a changed folder, no phantom file row beside it. `base.test.ts`: `root` reaches `git.read`; a new `rootOid` reads again (seen failing without `root`: the superproject is read). `rootOf`: the entry wins; a clean file in an initialised submodule gets it; nested is the longest; `libx/a` is not under `lib`. `pnpm -C web run verify`; the autofixer gate.
+- Schema: no change.
+- Needs: step 1 (the generated types). Runs beside step 2.
+- Not here: the look (`review`); actions on a group (open its history, update it); collapse of groups.
+- Rests on: —
+- Review: the main session's diff and Svelte review.
+- [ ] Done. Evidence:
+
+### 4. Level 5, the documents, the close
+
+- Builds: no product code.
+  - (a) **Level 5** (main session): an isolated daemon by `verify-daemon` (state under a fresh `/tmp/dy3b.*`), a synthetic superproject made there with `git -c protocol.file.allow=always submodule add` from local paths (lib with a nested submodule, extra); headless Chrome with its own profile over CDP. Changes: the project group, lib's group with its files, extra "new commits"; a file edited in lib appears within one tick plus the pass; Review of it shows only the edit; the Diff tab of a clean lib file shows no change; `git config diff.ignoreSubmodules all` changes nothing. An untrusted copy with a filter in lib's own config: no marker, lib's changes listed. The daemon's log for one tick: its gits.
+  - (b) **Documents**: the package comment (step 2); the register: the `3b` row closed, new rows for what step 2 leaves (the per-tick cost, untrusted measured, and the project's own entries waiting behind the pass; the 32 and 5 s bounds; a submodule near the deadline flickering between listed and `unread` under load; a gitlink `.gitmodules` does not name being unread; a submodule's rename as recorded at step 1); ADR-0066's `Superseded in part by` line; `docs/README.md` §Where the work stands; the index row; the API minor re-checked against main.
+- Implements: A1–A5 at level 5.
+- Check: each run's decisive output under the lane's evidence directory, quoted in the evidence line.
+- Schema: no change.
+- Needs: steps 1–3.
+- Not here: the owner's repositories (synthetic only), devices.
+- Rests on: —
+- Review: the Opus verifier at the close.
+- [ ] Done. Evidence:
+
+## Not in this milestone
+
+- An unstaged rename shown as deleted plus untracked, and a repository created after the watch started: the split row, Work `git` (owner's scope).
+- `git.submodules`' fail-whole and its states: unchanged; its row stays open.
+- Writes in a submodule, group actions, the look: Scope.
+
+## Design questions
+
+Each is Delegated by the owner's brief ("decide, and say why"): the main session applies the recommendation and writes one ADR for the three before step 1. The steps follow the drafts; if one goes otherwise, the steps it touches are redrafted first.
+
+- **Q1. The superproject's flag, and who looks inside a submodule.** The documents say: ADR-0066 §Consequences "submodules are ignored"; §3's fence reads the drivers of the root git runs in; `submodules.go` says a submodule's own drivers must be read in that submodule. Recommended: an explicit `--ignore-submodules=dirty` on the project's status and on every submodule's, which overrides `diff.ignoreSubmodules` and `submodule.<name>.ignore` (git-status(1)) and reports a gitlink only when its commit differs; the contents are read by the daemon's own status in each initialised submodule (step 2), so every git that runs in a submodule is one the daemon starts there, under its fence. Rejected: **`none`**, git's own recursion: it starts a `git status` in every populated submodule each tick with that submodule's own configuration, so a filter driver only the submodule configures runs on an untrusted root outside the daemon's driver read (step 1 shows it); by reading git's `prepare_other_repo_env`, those children also lose `GIT_NO_REPLACE_OBJECTS` and `GIT_GRAFT_FILE` (unverified); a nested `ignore` setting decides what they report. It is cheaper: one child status per populated submodule, which inherits the parent's `-c` overrides and needs no driver read, where the daemon's pass runs 2 gits per submodule and 2 per level, doubled on an untrusted root, so about 2× git's processes trusted and 4× untrusted. The fence is the reason, paid at that price; **no flag**: the repository's configuration, `.gitmodules` included, decides what is shown; **`untracked`**: the same recursion; **`all`**: today. What would reopen it: a git option that runs a submodule's status under the caller's overrides, with a test that shows it.
+- **Q2. The entry.** Recommended: the six marks unchanged; `root` on every entry of a submodule (its path, as `git.read` takes it, the path staying the workspace's); on a gitlink's own entry a `submodule` object `{commits, modified, untracked, checkedOut?, unread?}`, created for a content-only change (mark `modified`), so the bits read as git's `S<c><m><u>`; a gitlink marked `unread` and created by the pass is `modified` too, though it may be clean, since unread is shown rather than hidden (it counts in the History tab's row and marks the Tree's folder); `submodulesUnread` on the status for what no gitlink can carry. Rejected: **a seventh mark `submodule`**: loses added, removed and conflicted, and the Tree view and letters would special-case it anyway; **a separate `submodules` list in the status**: a gitlink with new commits would be in both lists, kept in step by hand; **paths relative to the submodule**: `git.read`, the editor and the file tree all speak workspace paths.
+- **Q3. Bounds, nesting and failure.** Recommended: nested to eight levels as `git.submodules`; at most 32 submodules read per tick and a 5 s deadline for the pass (beside each git's own 10 s), so a tick is at most the project's status plus 5 s; 5000 entries and each status's 4 MiB cap shared with the project, under `truncated`; a failure in one submodule marks it `unread` and the rest is published; a failure to list the project's submodules is `submodulesUnread`, never a stopped watch. Cost per tick (the package comment): 2 gits as today, 2 per level with a `.gitmodules`, 2 per initialised submodule, doubled when untrusted, which is the default (`policy.go:128-134`: only `trust.roots` are trusted); m2n's 19–40 ms per git puts 20 submodules near 0.8–1.8 s trusted and 1.7–3.5 s untrusted (step 2 measures), so with that many the 1 s poller runs gits back to back while the Git tab watches, and the project's own changes, published once per tick after the pass, reach the UI up to 5 s later than today. **A departure from the owner's wording**, "a second status in submodules with changes": every initialised submodule (up to 32) is read every tick, because with `dirty` nothing flags a submodule by its content, any flagging means a git in each submodule, and `file.watch` cannot stand in, since it excludes `.git/modules/<x>`, where a submodule's index changes. Rejected: **fail the tick**: one malformed `.gitmodules` or unreadable submodule would blank the Git tab that today ignores them; **no count cap**: `git.submodules`' 1000 at 2–4 gits each per tick; **only the submodules the first status flags** (the brief's direction): above; with `none` the flagging is Q1's rejected recursion; **publishing the project's status before the pass** (two events a tick): a second partial status the UI would merge; **a slower clock for the pass, or a cache across ticks**: a second freshness for one view; reopen if step 2 measures 20 **untrusted** submodules over 2 s a tick on either git. The estimate says it probably will; if so, step 2 records it under Changes, step 4 adds the register row and an owner question (a slower clock or a cache, as a later milestone), and the milestone stays closable on this design.
+
+## Unverified
+
+| Assumption | Steps resting on it | What settles it |
+| --- | --- | --- |
+| `--ignore-submodules=dirty` starts no git in a submodule; `none` does, with the submodule's own config | 1, 2 | step 1's fence test, both gits |
+| `none`'s child status in a submodule keeps ADR-0066 §2's `-c` overrides, the optional-locks and protocol variables (git's `prepare_other_repo_env` keeps `GIT_CONFIG_PARAMETERS`; `GIT_NO_LAZY_FETCH` may be cleared, the protocol guard then holding) | 1, 2 | `TestTrustedSubmoduleChildGuarded`, both gits |
+| The explicit flag overrides `.gitmodules` and config `ignore` settings | 1 | step 1's override test |
+| git's `S<c><m><u>` rule for a nested submodule (a nested `U` gives `U`, a nested record other than exactly `S..U` gives `M`, both possible), by reading `is_submodule_modified` | 2 | step 2's oracle test, with the mixed case |
+| The project's own status with the flag does not fail on a malformed `.gitmodules` | 2 | `TestSubmodulesUnreadWhenTheListFails`, both gits |
+| What `git mv` of a submodule yields in the status | 1 | step 1 records it; a register row if odd |
+| The per-tick cost with 20 submodules | 2 | step 2's timing, both gits |
+| Headless Chrome stands for the owner's browser | 3, 4 | the owner's use |
+
+## Review
+
+| Round | Verdict | Finding | Resolution |
+| --- | --- | --- | --- |
+| 1 | revise | B1 (blocking): the History tab's "Uncommitted Changes (N)" (`history.ts:724`) counts every entry, submodules' files included | Step 3: it counts the entries with no `root`, gitlinks included; `history.test.ts` seen failing with `entries.length`; A5 |
+| 1 | revise | B2 (blocking): a nested `SC.U`/`S.MU` gives git's parent both M and U; the plan's rule gave M only, and the oracle fixture could not catch it | Step 2's rule restated (both bits possible); the fixture gains a nested submodule with new commits and an untracked file, seen failing with the old rule; Unverified row |
+| 1 | revise | B3 (blocking): Q1's "saves no process" is false (the daemon runs about 2× git's processes trusted, 4× untrusted); untrusted is the default; the project's own entries wait behind the pass | Q1's reason is the fence, at that price; Q3 states the delay and the default and reopens on the untrusted measurement; A4; step 2's package comment; step 4's register rows |
+| 1 | revise | N1 `.gitmodules` sought below the workspace; N2 the 5 s deadline under test load, flicker in production; N3 `files.ts` reuses the row builders; N4 the project's status and a malformed `.gitmodules`; N5 step 1 is no stopping point; N6 the departure from "submodules with changes" | Found at the repository's top, a subfolder case; a `testtime.Bound` deadline in pass tests, a flicker row at step 4; `changeGroups` wraps them, `files.test.ts` unchanged; an Unverified row settled by that test; said in step 1's Not here; Q3 states it for the ADR |
+| 2 | revise | B1, B3 resolved. B2 in part: the rule is right, but the oracle put each nested case under a parent already `M`+`U`, so neither stated mutation could fail | Step 2's fixture: each nested case under a parent with no change of its own (lib clean over an untracked-only child: exactly `U`; extra with new commits over an `SC.U` child: `C`, `M`, `U`). Answered in the plan without a third round (`milestone-plan` §Writing one, 7) |
+| 2 | revise | Q3's reopen criterion will probably fire at step 2 (1.5–3.2 s estimated), and nothing said what follows | Q3: recorded under Changes, a register row and an owner question at step 4, the milestone closable on this design |
+| 1 | revise | nits: `origPath` made workspace-relative; an `unread` gitlink is `modified`; `git.updateSubmodules` also lists through the walk; `SubscriptionID`'s description; containment rerun each tick | Step 2; Q2; step 2 names `update_test.go`; step 1; step 2 |
+
+## Changes
+
+Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-23, at approval (Delegated, main session): Q1 and Q3 split by trust. A trusted root's status uses `--ignore-submodules=none`, so git flags the submodules with content changes and the pass reads only those (the owner's "a second status only in the submodules with changes"); an untrusted root keeps the draft (`dirty`, every initialised submodule read), the fence being the reason. Steps 1 and 2 gain `TestSubmoduleRecordsTrusted`, `TestTrustedSubmoduleChildGuarded` and `TestSubmodulePassOnlyFlaggedWhenTrusted`; Q3's reopen criterion now concerns untrusted roots only. ADR-0125.
