@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { capError, settle } from '../build/testing';
-import { BINARY_TEXT, HeadBase, TOO_LARGE_TEXT, type BaseClient } from './base';
+import { BINARY_TEXT, HeadBase, rootOf, TOO_LARGE_TEXT, type BaseClient } from './base';
+import type { Entry } from './changes';
+import type { Submodule } from './submodules';
 
 function setup(answer: (path: string) => unknown) {
-	const calls: { path: string; workspace?: string }[] = [];
+	const calls: { path: string; workspace?: string; root?: string }[] = [];
 	const client = {
-		call: async (_n: string, p: { path: string }, o?: { workspace?: string }) => {
-			calls.push({ path: p.path, workspace: o?.workspace });
+		call: async (_n: string, p: { path: string; root?: string }, o?: { workspace?: string }) => {
+			calls.push({ path: p.path, workspace: o?.workspace, ...(p.root !== undefined ? { root: p.root } : {}) });
 			const r = answer(p.path);
 			if (r instanceof Error) throw r;
 			return r;
@@ -114,5 +116,52 @@ describe('HeadBase', () => {
 		expect(base.view).toEqual({ kind: 'text', text: 'B', exists: true });
 		base.follow(null);
 		expect(base.view.kind).toBe('idle');
+	});
+});
+
+describe('HeadBase in a submodule', () => {
+	// Decision (ADR-0125 section 5; ADR-0071 section 7): a file of a submodule is read at that submodule's HEAD, so git.read gets its root.
+	it('passes root to git.read, and reads again for a new rootOid', async () => {
+		const t = setup(() => read('x'));
+		const input = { path: 'lib/a.kt', mark: 'modified' as const, oid: 'c1', root: 'lib', rootOid: 's1' };
+		t.base.follow(input);
+		await settle();
+		expect(t.calls).toEqual([{ path: 'lib/a.kt', workspace: '/proj', root: 'lib' }]);
+		t.base.follow({ ...input });
+		expect(t.calls).toHaveLength(1);
+		t.base.follow({ ...input, rootOid: 's2' });
+		await settle();
+		expect(t.calls).toHaveLength(2);
+		t.base.follow({ path: 'a.kt', oid: 'c1' });
+		await settle();
+		expect(t.calls[2]).toEqual({ path: 'a.kt', workspace: '/proj' });
+	});
+});
+
+describe('rootOf', () => {
+	const bits = { commits: false, modified: false, untracked: false };
+	const sub = (path: string, state: Submodule['state'] = 'clean', checkedOut?: string): Submodule =>
+		({ path, state, ...(checkedOut !== undefined ? { checkedOut } : {}) }) as unknown as Submodule;
+	// Decision: the status entry's root wins over any path rule.
+	it('takes the entry root when the status lists the path', () => {
+		const entries: Entry[] = [
+			{ path: 'lib', mark: 'modified', submodule: { ...bits, modified: true, checkedOut: 's1' } },
+			{ path: 'lib/a.kt', mark: 'modified', root: 'lib' },
+			{ path: 'top.kt', mark: 'modified' },
+		];
+		expect(rootOf('lib/a.kt', entries, [sub('other')])).toEqual({ root: 'lib', rootOid: 's1' });
+		expect(rootOf('top.kt', entries, [sub('top.kt')])).toBeNull();
+	});
+	// Decision: a clean file in an initialised submodule is still read there; an uninitialised one is the project's.
+	it('puts a clean file of an initialised submodule in it', () => {
+		expect(rootOf('lib/a.kt', [], [sub('lib', 'clean', 's9')])).toEqual({ root: 'lib', rootOid: 's9' });
+		expect(rootOf('lib/a.kt', [], [sub('lib', 'uninitialised')])).toBeNull();
+	});
+	// Decision: the longest submodule above the path, and a sibling that shares a prefix is not above it.
+	it('takes the longest root and does not take libx/a for lib', () => {
+		const list = [sub('lib'), sub('lib/nested')];
+		expect(rootOf('lib/nested/x.kt', [], list)?.root).toBe('lib/nested');
+		expect(rootOf('lib/y.kt', [], list)?.root).toBe('lib');
+		expect(rootOf('libx/a', [], list)).toBeNull();
 	});
 });

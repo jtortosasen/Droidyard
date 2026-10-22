@@ -66,6 +66,8 @@ export interface GitView {
 	/** The paths that differ from HEAD, sorted by path. */
 	entries: readonly Entry[];
 	truncated: boolean;
+	/** Some submodule could not be read and no entry says which (ADR-0125 §4); absent otherwise. */
+	submodulesUnread?: boolean;
 }
 
 const EMPTY: GitView = { state: 'idle', problem: null, head: null, entries: [], truncated: false };
@@ -191,7 +193,7 @@ export class GitWatch {
 				}
 				this.#sub = sub;
 				const r = sub.result;
-				this.#view = { state: 'watching', problem: null, head: r.head, entries: r.entries, truncated: r.truncated };
+				this.#view = { state: 'watching', problem: null, head: r.head, entries: r.entries, truncated: r.truncated, ...(r.submodulesUnread ? { submodulesUnread: true } : {}) };
 				this.#changed();
 				const early = this.#early;
 				this.#early = [];
@@ -221,7 +223,7 @@ export class GitWatch {
 		const ev = frame.event;
 		if (ev.type === 'status') {
 			const p = ev.payload as EventPayload<'git.watch', 'status'>;
-			this.#view = { state: 'watching', problem: null, head: p.head, entries: p.entries, truncated: p.truncated };
+			this.#view = { state: 'watching', problem: null, head: p.head, entries: p.entries, truncated: p.truncated, ...(p.submodulesUnread ? { submodulesUnread: true } : {}) };
 			this.#changed();
 		} else if (ev.type === 'stopped') {
 			const reason = (ev.payload as EventPayload<'git.watch', 'stopped'>).reason;

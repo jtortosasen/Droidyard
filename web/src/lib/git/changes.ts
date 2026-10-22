@@ -66,6 +66,14 @@ const order = (a: string, b: string): number => collator.compare(a, b) || (a < b
 const nameOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 const dirOf = (path: string): string => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
 
+/** How a group's rows sit: `base` is the submodule's path (folders are relative to it), `depth` the first row's. */
+export interface RowOptions {
+	base?: string;
+	depth?: number;
+}
+
+const below = (path: string, base: string): string => (base === '' ? path : path.slice(base.length + 1));
+
 function fileRow(e: Entry, depth: number, dir: string): FileRow {
 	return {
 		kind: 'file',
@@ -87,11 +95,11 @@ interface Node {
 }
 
 /** The rows of the changes grouped by folder, every folder open. */
-export function groupedRows(entries: readonly Entry[]): ChangeRow[] {
-	const root: Node = { dirs: new Map(), files: [] };
+export function groupedRows(entries: readonly Entry[], { base: root = '', depth: first = 1 }: RowOptions = {}): ChangeRow[] {
+	const top: Node = { dirs: new Map(), files: [] };
 	for (const e of entries) {
-		let at = root;
-		const parts = e.path.split('/');
+		let at = top;
+		const parts = below(e.path, root).split('/');
 		for (const part of parts.slice(0, -1)) {
 			let next = at.dirs.get(part);
 			if (next === undefined) {
@@ -120,18 +128,90 @@ export function groupedRows(entries: readonly Entry[]): ChangeRow[] {
 		}
 		for (const e of [...node.files].sort((a, b) => order(nameOf(a.path), nameOf(b.path)))) out.push(fileRow(e, depth, ''));
 	};
-	visit(root, '', 1);
+	visit(top, root, first);
 	return out;
 }
 
 /** The rows of the changes as one list: the name, then the directory as greyed text. */
-export function flatRows(entries: readonly Entry[]): FileRow[] {
+export function flatRows(entries: readonly Entry[], { base = '', depth = 1 }: RowOptions = {}): FileRow[] {
 	return entries
-		.map((e) => fileRow(e, 1, dirOf(e.path)))
+		.map((e) => fileRow(e, depth, dirOf(below(e.path, base))))
 		.sort((a, b) => order(a.label, b.label) || order(a.dir, b.dir));
 }
 
-/** The note under a truncated list, or null: the daemon left paths out. */
+/** The note under a truncated list, or null: the daemon left paths out (past 5000, or a git's output past its cap). */
 export function truncatedNote(truncated: boolean, listed: number): string | null {
-	return truncated ? `More than ${listed} paths differ; only the first ${listed} are listed.` : null;
+	return truncated ? `More paths differ than are listed (the count or a git's output passed its cap); only the first ${listed} are shown.` : null;
+}
+
+/** The note when some submodule could not be read and no entry says which, or null. */
+export function submodulesUnreadNote(unread: boolean | undefined): string | null {
+	return unread ? 'Some submodules could not be read; their changes may be missing.' : null;
+}
+
+/** A submodule's change in words (ADR-0125 §3): the gitlink's own mark, else the bits git reported, then why it was not read. */
+export function groupWords(e: Entry): string {
+	const sub = e.submodule;
+	const out: string[] = [];
+	if (e.mark === 'added') out.push('new submodule');
+	else if (e.mark === 'deleted') out.push('removed');
+	else if (e.mark === 'conflicted') out.push('conflicted');
+	else if (sub !== undefined) {
+		if (sub.commits) out.push('new commits');
+		if (sub.modified) out.push('modified content');
+		if (sub.untracked) out.push('untracked content');
+	}
+	if (sub?.unread !== undefined) out.push(`not read: ${sub.unread}`);
+	return out.join(', ');
+}
+
+/** One part of the changes list: the project's own, or a submodule's (its gitlink entry and the files inside it). */
+export interface ChangeGroup {
+	key: string;
+	/** The submodule's path; '' for the project's own group. */
+	path: string;
+	/** The submodule's change in words; '' for the project. */
+	words: string;
+	/** The submodule's checked-out commit, when read. */
+	checkedOut?: string;
+	/** The group's files (gitlink entries excluded). */
+	entries: Entry[];
+	/** The group's rows, folders relative to the submodule, indented under its header when there are headers. */
+	rows: ChangeRow[];
+}
+
+const byPath = (a: string, b: string): number => {
+	const x = a.split('/');
+	const y = b.split('/');
+	for (let i = 0; i < Math.min(x.length, y.length); i++) {
+		const c = order(x[i]!, y[i]!);
+		if (c !== 0) return c;
+	}
+	return x.length - y.length;
+};
+
+/**
+ * The changes by repository: the project's group (entries with no `root`, gitlinks left out), then one
+ * group per entry that carries `submodule`, by path (a nested one after its parent), each with the
+ * entries whose `root` is its path. `headers` says whether the groups' headers are drawn: only when a
+ * submodule group exists.
+ */
+export function changeGroups(entries: readonly Entry[], mode: 'grouped' | 'flat' = 'grouped'): { groups: ChangeGroup[]; headers: boolean } {
+	const links = entries.filter((e) => e.submodule !== undefined).sort((a, b) => byPath(a.path, b.path));
+	const headers = links.length > 0;
+	const depth = headers ? 2 : 1;
+	const make = (key: string, path: string, words: string, own: Entry[], checkedOut?: string): ChangeGroup => ({
+		key,
+		path,
+		words,
+		...(checkedOut !== undefined ? { checkedOut } : {}),
+		entries: own,
+		rows: mode === 'flat' ? flatRows(own, { base: path, depth }) : groupedRows(own, { base: path, depth }),
+	});
+	const groups = [make('project', '', '', entries.filter((e) => e.root === undefined && e.submodule === undefined))];
+	for (const link of links) {
+		const own = entries.filter((e) => e.root === link.path && e.submodule === undefined);
+		groups.push(make(`s:${link.path}`, link.path, groupWords(link), own, link.submodule?.checkedOut));
+	}
+	return { groups, headers };
 }

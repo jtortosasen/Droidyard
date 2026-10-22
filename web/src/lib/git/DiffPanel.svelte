@@ -4,7 +4,8 @@
 	import { LazyEditor, loadEditor, type CompareOptions, type EditorOptions, type ReviewOptions } from '../editor/surface';
 	import type { TabsModel } from '../editor/tabs';
 	import type { EditorModel, ViewerSet, ViewerView } from '../editor/viewer';
-	import type { HeadBase, BaseView } from './base';
+	import { rootOf, type HeadBase, type BaseView } from './base';
+	import type { SubmodulesModel, SubmodulesView } from './submodules';
 	import { LETTERS, MARK_WORDS } from './changes';
 	import { loadDiffMode, saveDiffMode, type DiffMode } from './diffmode';
 	import { commitHeader, NO_PARENT, shortOid, type CommitFile, type CommitText, type CommitTextView, type DiffSource, type SourceView } from './diffsource';
@@ -30,8 +31,10 @@
 		base: HeadBase;
 		source: DiffSource;
 		commitText: CommitText;
+		/** The project's submodules: a file in a clean initialised one is still read from that submodule's HEAD (ADR-0125 §5). */
+		submodules?: SubmodulesModel | null;
 	}
-	let { tabs, viewers, git, base, source, commitText }: Props = $props();
+	let { tabs, viewers, git, base, source, commitText, submodules = null }: Props = $props();
 
 	let active = $state<string | null>(untrack(() => tabs.view.active));
 	let gview = $state.raw<GitView>(untrack(() => git.view));
@@ -75,6 +78,14 @@
 			cview = c.view;
 		});
 	});
+	let subList = $state.raw<SubmodulesView['list']>(untrack(() => submodules?.view.list ?? []));
+	$effect(() => {
+		const m = submodules;
+		subList = m?.view.list ?? [];
+		return m?.subscribe(() => {
+			subList = m.view.list;
+		});
+	});
 	$effect(() => {
 		const b = base;
 		bview = b.view;
@@ -99,6 +110,9 @@
 
 	const entry = $derived(active === null ? undefined : gview.entries.find((e) => e.path === active));
 	const oid = $derived(gview.head?.oid);
+	// The submodule the file lives in, if any: HEAD is then that submodule's.
+	const fileRoot = $derived(active === null ? null : rootOf(active, gview.entries, subList));
+	const headName = $derived(fileRoot === null ? 'HEAD' : `HEAD of ${fileRoot.root}`);
 	const buffer = $derived(vview?.buffer ?? null);
 	// Gone from the working tree, by the status or by the file's own read.
 	const deleted = $derived(entry?.mark === 'deleted' || vview?.state === 'deleted');
@@ -125,10 +139,11 @@
 		const mark = entry?.mark;
 		const origPath = entry?.origPath;
 		const id = oid;
+		const at = fileRoot;
 		const stop = blocked !== null || commitFile !== null;
 		untrack(() => {
 			if (stop || path === null) base.follow(null);
-			else base.follow({ path, mark, origPath, oid: id });
+			else base.follow({ path, mark, origPath, oid: id, ...(at !== null ? { root: at.root, rootOid: at.rootOid } : {}) });
 		});
 	});
 	$effect(() => {
@@ -136,7 +151,7 @@
 		untrack(() => commitText.follow(file));
 	});
 
-	const worktreeShown = $derived(blocked ?? (bview.kind === 'message' ? bview.text : bview.kind === 'text' ? null : 'Reading HEAD…'));
+	const worktreeShown = $derived(blocked ?? (bview.kind === 'message' ? bview.text : bview.kind === 'text' ? null : `Reading ${headName}…`));
 	const commitShown = $derived(cview.kind === 'message' ? cview.text : cview.kind === 'text' ? null : 'Reading the file at the commit…');
 	const shown = $derived(commitFile !== null ? commitShown : worktreeShown);
 	// The right pane alone: a file gone from the working tree, or deleted by the commit.
@@ -204,7 +219,7 @@
 		}
 		if (m.kind === 'classic') {
 			const ed = new LazyEditor<EditorOptions>(host, { buffer: m.buffer, onSave: () => void m.viewer.save() }, onError, loadEditor, (mod, h, o) =>
-				mod.mountCompare(h, { ...o, disk: m.text, labels: { a: 'HEAD', b: 'Working tree' }, sideLabel: 'File contents at HEAD' }),
+				mod.mountCompare(h, { ...o, disk: m.text, labels: { a: untrack(() => headName), b: 'Working tree' }, sideLabel: `File contents at ${untrack(() => headName)}` }),
 			);
 			return () => ed.destroy();
 		}
@@ -243,7 +258,7 @@
 				<span class="mark {entry.mark}" title={MARK_WORDS[entry.mark]}>{LETTERS[entry.mark]}</span>
 				<span class="word">{MARK_WORDS[entry.mark]}</span>
 			{/if}
-			<span class="vs">vs HEAD</span>
+			<span class="vs">vs {headName}</span>
 			{@render modes()}
 		</div>
 	{/if}

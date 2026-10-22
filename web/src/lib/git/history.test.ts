@@ -127,6 +127,21 @@ describe('HistoryStore', () => {
 		expect(t.store.view.uncommitted).toBe(0);
 	});
 
+	// Decision (plan m3b step 3): the row counts the project's own changes, a gitlink's entry included, and not the files inside submodules.
+	it('counts the project paths and the gitlinks, not the submodule files', async () => {
+		const t = setup();
+		await settle();
+		t.watch.set({
+			entries: [
+				{ path: 'a', mark: 'modified' },
+				{ path: 'lib', mark: 'modified', submodule: { commits: false, modified: true, untracked: false } },
+				{ path: 'lib/x', mark: 'modified', root: 'lib' },
+				{ path: 'lib/y', mark: 'untracked', root: 'lib' },
+			],
+		});
+		expect(t.store.view.uncommitted).toBe(2);
+	});
+
 	// Decision: a failure is text, the Retry reads again; a failed later page keeps the rows.
 	it('shows a failed first read as text and retries; a failed page keeps the rows', async () => {
 		const t = setup();
