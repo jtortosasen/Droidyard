@@ -192,4 +192,11 @@ func TestLaunchQueuesBehindAnActionOnTheDevice(t *testing.T) {
 	}
 	f.ops.Cancel(first)
 	f.ops.Cancel(second)
+	// A running operation ends when its handler returns: wait for both, so quickAct's cleanup
+	// does not restore the bounds under a handler that still reads them.
+	for _, id := range []string{first, second} {
+		if out, err := f.ops.Wait(context.Background(), id, time.Now().Add(10*time.Second)); err != nil || !out.State.Terminal() {
+			t.Fatalf("%s did not end after its cancel: %+v %v", id, out.State, err)
+		}
+	}
 }
