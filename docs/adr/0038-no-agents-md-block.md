@@ -1,6 +1,7 @@
 # ADR-0038: `droidyard init` writes no `AGENTS.md` or `CLAUDE.md` block
 
 - Status: Accepted
+- Superseded in part by: ADR-0124 (§Decision)
 - Date: 2026-10-09
 - Supersedes: ADR-0037 §Decision (in part: item 2's marked block in `AGENTS.md`, `CLAUDE.md` for Claude Code)
 - Relates to: ADR-0036 §Decision 1, `mcp.md` §Server instructions, plan m1o step 2
