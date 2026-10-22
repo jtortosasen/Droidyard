@@ -149,7 +149,7 @@
 - Not here: device tools outside a project (Q2); a real client (step 7).
 - Rests on: outside a project the shim never connects. Level 4 (the fake's count).
 - Review: the main session's diff review; effort `high` (process lifetime).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `mcpShim` binds `projectOf(--from or cwd)` without `--root`; `--from` empty or holding `${` is ignored, relative is joined to the cwd, refused beside `--root` (exit 2); with no project `serveNoTools` answers through mcp-go (tools capability, empty list, `system.Version`), dials and writes nothing. `startShimEnv` defaults to a fresh project; case (c) of `TestMCPSessionBindsAndOpensItsRoot` is the no-tools check; `TestNoAutostartStartsNothing` runs from a project. New `mcp_noproject_test.go`: `TestMCPOutsideAProjectIsASessionWithNoTools`, `TestMCPOutsideAProjectNeverDials`, `TestMCPFrom`, `TestMCPServerDiscoverFallsBack` (`server/discover` gets -32601, then `initialize`), `TestMCPInALinkedWorktreeBindsTheWorktree` (a pin, not seen failing). Reversals: the old cwd binding fails the no-tools, never-dials, discover and case (c) tests; `--from` as `--root` fails six `TestMCPFrom` subtests; an unresolved relative `--from` fails its subtest. Built in an isolated worktree and applied as a patch.
 
 ### 3. `droidyard hook` without `--root`: the client's project, or nothing
 

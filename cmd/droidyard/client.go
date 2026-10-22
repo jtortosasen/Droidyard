@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -24,6 +26,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/system"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/workspace"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // stopTimeout bounds how long `stop` waits for the daemon to release its lock.
@@ -222,11 +225,16 @@ func runCapability(who string, c cli.Call) int {
 // session, then exits 0. If the socket closes first, it exits 1 with a message on
 // stderr (ADR-0019 §Lifetime). It starts a daemon if none answers, unless
 // --no-autostart.
+//
+// The session's project is --root, else the project of --from or the cwd (projectOf,
+// the rule `ui` and `init` use). With none, the shim dials and starts nothing: it
+// serves a session with no tools itself (ADR-0124 §2).
 func mcpShim(args []string) int {
-	const usage = "usage: droidyard mcp [--root <path>] [--wait <duration>] [--tools core|all] [--no-autostart]"
+	const usage = "usage: droidyard mcp [--root <path>] [--from <dir>] [--wait <duration>] [--tools core|all] [--no-autostart]"
 	hello := daemon.Hello{Client: capability.ClientMCP}
 	autostart := true
 	explicitRoot := ""
+	from, fromGiven := "", false
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--no-autostart":
@@ -242,6 +250,16 @@ func mcpShim(args []string) int {
 				return 2
 			}
 			explicitRoot = v
+		case a == "--from" || strings.HasPrefix(a, "--from="):
+			v, ok := strings.CutPrefix(a, "--from=")
+			if !ok && i+1 < len(args) {
+				i++
+				v = args[i]
+			}
+			// An empty value is what a client expands a window with no folder to, and
+			// one that still holds ${ is a client variable it did not expand: neither
+			// names a folder, so both leave the cwd to name it (ADR-0124 §2).
+			from, fromGiven = v, true
 		case a == "--wait" || strings.HasPrefix(a, "--wait="):
 			v, ok := strings.CutPrefix(a, "--wait=")
 			if !ok && i+1 < len(args) {
@@ -283,12 +301,37 @@ func mcpShim(args []string) int {
 	if v := os.Getenv(chatEnv); daemon.ChatPattern.MatchString(v) {
 		hello.Chat = v
 	}
-	// The session's binding (ADR-0019 §Sessions): --root, made absolute against the
-	// cwd, else the cwd's project root. The daemon opens it and canonicalises it.
-	if cwd, err := os.Getwd(); err == nil {
+	if fromGiven && explicitRoot != "" {
+		fmt.Fprintf(os.Stderr, "droidyard mcp: --from and --root exclude each other\n%s\n", usage)
+		return 2
+	}
+	// The session's binding (ADR-0019 §Sessions, as ADR-0124 §2 changes it): --root,
+	// made absolute against the cwd; else the project of --from or the cwd. The daemon
+	// opens it and canonicalises it.
+	cwd, cwdErr := os.Getwd()
+	switch {
+	case explicitRoot != "" && cwdErr == nil:
 		hello.Root = resolveRoot(explicitRoot, cwd)
-	} else if filepath.IsAbs(explicitRoot) {
-		hello.Root = filepath.Clean(explicitRoot)
+	case explicitRoot != "":
+		if filepath.IsAbs(explicitRoot) {
+			hello.Root = filepath.Clean(explicitRoot)
+		}
+	default:
+		dir := cwd
+		if from != "" && !strings.Contains(from, "${") {
+			dir = from
+			if !filepath.IsAbs(dir) {
+				dir = filepath.Join(cwd, dir)
+			}
+		}
+		root, ok := "", false
+		if dir != "" {
+			root, ok = projectOf(filepath.Clean(dir))
+		}
+		if !ok {
+			return serveNoTools(dir)
+		}
+		hello.Root = root
 	}
 	conn, r, socket, err := connectOrStart(hello, autostart, nil)
 	if err != nil {
@@ -328,6 +371,28 @@ func mcpShim(args []string) int {
 		fmt.Fprintf(os.Stderr, "droidyard mcp: the daemon closed the session (%v); it may have stopped or crashed\n", err)
 		return 1
 	}
+}
+
+// noToolsInstructions is the one line a session with no project gives its client.
+func noToolsInstructions(dir string) string {
+	return "No Android project at " + dir + ": droidyard has no tools in this session. " +
+		"Start the assistant in the project's folder or one of its worktrees."
+}
+
+// serveNoTools is the session `mcp` serves when it finds no project (ADR-0124 §2): the
+// tools capability declared and an empty list, answered by mcp-go itself, so the session
+// is the same whether or not a daemon runs. It dials nothing, starts nothing and writes
+// nothing, on stderr or on disk; it exits 0 when stdin ends.
+func serveNoTools(dir string) int {
+	srv := server.NewMCPServer("droidyard", system.Version,
+		server.WithToolCapabilities(false),
+		server.WithInstructions(noToolsInstructions(dir)),
+	)
+	stdio := server.NewStdioServer(srv)
+	// mcp-go logs to stderr by default; this session writes nothing there.
+	stdio.SetErrorLogger(log.New(io.Discard, "", 0))
+	_ = stdio.Listen(context.Background(), os.Stdin, os.Stdout)
+	return 0
 }
 
 // status names the lock holder and says whether the socket answers. It exits 0 iff a

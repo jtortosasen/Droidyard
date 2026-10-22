@@ -54,11 +54,16 @@ const stopHelp = `droidyard stop
 Stop the running daemon.
 `
 
-const mcpHelp = `droidyard mcp [--root <path>] [--wait <duration>] [--tools core|all] [--no-autostart]
+const mcpHelp = `droidyard mcp [--root <path>] [--from <dir>] [--wait <duration>] [--tools core|all] [--no-autostart]
 
 Attach an MCP stdio session to the daemon.
-The session is bound to --root, else to the project root of the current directory, and
-opens it when it starts.
+The session is bound to --root, else to the project of --from or of the current directory
+(a settings.gradle or settings.gradle.kts above it, or the top of a repository whose Gradle
+build is one or two folders below), and opens it when it starts.
+--from names the folder the project is found from, in place of the current directory; a
+value that is empty or still holds a client variable (${workspaceFolder}) is ignored.
+--from and --root exclude each other.
+With no project, the session has no tools: mcp starts no daemon and connects to none.
 --wait bounds how long a long-running tool waits (default 20s).
 --tools core lists the golden path's tools only (default all).
 mcp starts a daemon when none answers, unless --no-autostart.
