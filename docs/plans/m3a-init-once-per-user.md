@@ -241,7 +241,7 @@
 - Not here: the flags (step 6); any ignore at user level.
 - Rests on: —
 - Review: the main session's diff review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `git.Tracked` (`internal/domain/git/tracked.go`, through the runner, untrusted) and `assistant.Ignore` (`internal/assistant/ignore.go`, one call per target file, `IgnoreCandidates` for the paths to ask git). `TestIgnoreExcludeReachesEveryWorktree` seen failing with the block in `<commondir>/worktrees/<name>/info/exclude`; `TestIgnoreRootBelowTheTop` seen failing with `.gitignore` lines prefixed; `TestTrackedRunsThroughTheRunner` seen failing with `trusted=true`; `TestIgnoreLeavesTrackedPathsOut`, `TestIgnoreRerunAddsAndKeepsTheUsersLines`, `TestIgnoreUninstallRemovesOnlyTheBlock` pass (no reversal run). `go test ./...` passed but for the doccheck rows the plan commit fixed. A user file with no final newline gains one that an uninstall keeps.
 
 ### 6. `droidyard init --user`, `--exclude`, `--gitignore`
 
