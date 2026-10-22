@@ -226,7 +226,14 @@
 		const opts: ReviewOptions =
 			m.kind === 'deleted'
 				? { buffer: null, base: m.text, path: m.path, onSave: () => {}, ...(m.caption !== undefined ? { labels: { left: '', right: m.caption } } : {}) }
-				: { buffer: m.buffer, base: m.text, path: untrack(() => active) ?? undefined, onSave: () => void m.viewer.save() };
+				: {
+						buffer: m.buffer,
+						base: m.text,
+						path: untrack(() => active) ?? undefined,
+						onSave: () => void m.viewer.save(),
+						// A submodule's file is compared with that submodule's HEAD: the caption says so.
+						...(untrack(() => fileRoot) !== null ? { labels: { left: 'Working tree', right: `Against ${untrack(() => headName)}` } } : {}),
+					};
 		const ed = new LazyEditor<ReviewOptions>(host, opts, onError, loadEditor, (mod, h, o) => mod.mountReview(h, o));
 		return () => ed.destroy();
 	};
