@@ -141,6 +141,10 @@ func (o Options) runner() (*runner, *capability.Error) {
 	if o.readTimeout > 0 {
 		r.timeout = o.readTimeout
 	}
+	r.noneTimeout = o.passTimeout
+	if r.noneTimeout <= 0 {
+		r.noneTimeout = passTimeout
+	}
 	return r, nil
 }
 

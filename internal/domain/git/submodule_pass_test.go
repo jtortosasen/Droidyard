@@ -759,6 +759,11 @@ func TestSubmodulePassBounds(t *testing.T) {
 						t.Errorf("level 9 (%s) was read: %v", rel, got)
 					}
 				}
+				// What the pass does not read says so where its contents are in question: on a
+				// trusted root git flagged level 9, on an untrusted one nothing says it changed.
+				if e, ok := entryOf(st, rels[8]); trusted && (!ok || e.Submodule == nil || e.Submodule.Unread != "nested deeper than eight levels") {
+					t.Errorf("trusted: level 9 = %+v (present %v); want unread, nested deeper than eight levels", e, ok)
+				}
 			})
 		}
 	})
@@ -783,11 +788,8 @@ func TestSubmodulePassBounds(t *testing.T) {
 			if got := filesOf(st, "lib"); len(got) != 0 {
 				t.Errorf("trusted %v: lib's files %v after the deadline", trusted, got)
 			}
-			if trusted {
-				if e, ok := entryOf(st, "lib"); !ok || e.Submodule == nil || e.Submodule.Unread == "" {
-					t.Errorf("trusted: lib = %+v (present %v); want unread", e, ok)
-				}
-			}
+			// The trusted tick is a fallen-back one: the `none` status has the same bound, which is
+			// gone, so git flagged nothing and lib has no entry to carry `unread`.
 		}
 	})
 }

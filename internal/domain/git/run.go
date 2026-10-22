@@ -58,7 +58,11 @@
 // a `.gitmodules`, 2 gits to list it, and per initialised submodule 2 more, every one
 // preceded by its driver read: about 4 gits for each initialised submodule. With tens of
 // submodules a tick takes seconds, bounded at 32 submodules and 5 s for the pass, and the
-// project's own entries are published after the pass, so they wait up to that long.
+// project's own entries are published after the pass, so they wait up to that long. A
+// trusted status asked with `none` has the pass's 5 s as its own bound, and when it fails or
+// runs out of it the status is asked again with `dirty` under the runner's 10 s; the pass
+// then reads every submodule with `dirty` too, computing the bits as on an untrusted root.
+// So a tick takes at most 5 s, plus the `dirty` status, plus the pass's 5 s.
 //
 // A git started here is in a process group of its own (the Starter) and the whole
 // group is killed when the context ends or after the timeout, because a filter's child
@@ -122,6 +126,9 @@ type runner struct {
 	git     string
 	env     []string
 	timeout time.Duration
+	// noneTimeout, when > 0 and shorter than timeout, is the bound of a trusted watch status
+	// asked with `--ignore-submodules=none` (statusIn); the retry with `dirty` has timeout.
+	noneTimeout time.Duration
 }
 
 // newRunner builds a runner for the git executable at gitPath (empty means none), with

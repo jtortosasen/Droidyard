@@ -57,7 +57,7 @@ type WatchResult struct {
 	Entries        []Entry `json:"entries" jsonschema:"required" jsonschema_description:"The paths that differ from HEAD, sorted by path; at most 5000. Empty in a result returned again after delivery."`
 	Truncated      bool    `json:"truncated" jsonschema:"required" jsonschema_description:"True when more than 5000 paths differ, or a git's output (the project's or a submodule's) passed its 4 MiB cap, and the rest are left out."`
 
-	SubmodulesUnread bool `json:"submodulesUnread,omitempty" jsonschema_description:"True when some submodule could not be read and no entry says which: the project's submodules could not be listed, or the per-tick count or time bound was reached. Absent otherwise."`
+	SubmodulesUnread bool `json:"submodulesUnread,omitempty" jsonschema_description:"True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."`
 }
 
 // StoppedPayload is the git.changes event's payload for type stopped.
@@ -163,12 +163,19 @@ func (w *watcher) tickOnce() bool {
 		w.bus.PublishTo(w.sub, TopicGitChanges, TypeStopped, w.workspace, w.operation, StoppedPayload{Reason: ReasonFailed})
 		return false
 	}
-	if reflect.DeepEqual(st, w.last) {
+	if sameOnTheWire(st, w.last) {
 		return true
 	}
 	w.last = st
 	w.bus.PublishTo(w.sub, TopicGitChanges, TypeStatus, w.workspace, w.operation, st)
 	return true
+}
+
+// sameOnTheWire: the two statuses publish the same event. fellBack is not published, so a
+// status that fell back is not a change.
+func sameOnTheWire(a, b Status) bool {
+	a.fellBack, b.fellBack = false, false
+	return reflect.DeepEqual(a, b)
 }
 
 // read is one status of the watch's root with everything looked up afresh.

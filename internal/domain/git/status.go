@@ -52,7 +52,7 @@ type Entry struct {
 // SubmoduleChange is what differs in a submodule, on its gitlink's entry (ADR-0125 §3). The
 // three bits are git's own S<c><m><u> field of a porcelain v2 record.
 type SubmoduleChange struct {
-	Commits    bool   `json:"commits" jsonschema:"required" jsonschema_description:"The submodule's checked-out commit differs from the one HEAD records, staged or not (git's C, or a new commit that is staged)."`
+	Commits    bool   `json:"commits" jsonschema:"required" jsonschema_description:"The submodule's commit differs from the one HEAD records: staged in the index, or checked out (git's C)."`
 	Modified   bool   `json:"modified" jsonschema:"required" jsonschema_description:"A tracked file in the submodule differs from its HEAD, or a nested submodule of it changed (git's M)."`
 	Untracked  bool   `json:"untracked" jsonschema:"required" jsonschema_description:"The submodule holds untracked files (git's U)."`
 	CheckedOut string `json:"checkedOut,omitempty" jsonschema_description:"The submodule's HEAD commit, when its contents were read."`
@@ -64,7 +64,7 @@ type Status struct {
 	Head             Head    `json:"head" jsonschema:"required" jsonschema_description:"What HEAD points at."`
 	Entries          []Entry `json:"entries" jsonschema:"required" jsonschema_description:"The paths that differ from HEAD, sorted by path; at most 5000."`
 	Truncated        bool    `json:"truncated" jsonschema:"required" jsonschema_description:"True when more than 5000 paths differ, or a git's output (the project's or a submodule's) passed its 4 MiB cap, and the rest are left out."`
-	SubmodulesUnread bool    `json:"submodulesUnread,omitempty" jsonschema_description:"True when some submodule could not be read and no entry says which: the project's submodules could not be listed, or the per-tick count or time bound was reached. Absent otherwise."`
+	SubmodulesUnread bool    `json:"submodulesUnread,omitempty" jsonschema_description:"True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."`
 
 	// fellBack: a trusted root's `none` status failed and this is its `dirty` retry, so
 	// git flagged no submodule's contents (see runner.status). Not published.
@@ -85,16 +85,33 @@ func (r *runner) statusWithPrefix(ctx context.Context, root string, trusted bool
 	if err != nil {
 		return Status{}, "", err
 	}
-	st, err := r.statusIn(ctx, root, trusted, prefix)
+	st, err := r.statusIn(ctx, root, trusted, prefix, false)
 	return st, prefix, err
 }
 
 // statusIn is the watch's status of the repository holding root, whose prefix is known: the
 // project's (after prefix) and each submodule's (which is its own top, so ""; the pass has
-// checked that with the same rev-parse).
-func (r *runner) statusIn(ctx context.Context, root string, trusted bool, prefix string) (Status, error) {
-	res, err := r.run(ctx, root, trusted, nil, statusArgs(trusted)...)
+// checked that with the same rev-parse). dirtyOnly asks a trusted root for `dirty` straight
+// away, marked fellBack as a fallen-back status is: the pass reads the submodules of a
+// repository git did not flag that way, with no `none` in it.
+func (r *runner) statusIn(ctx context.Context, root string, trusted bool, prefix string, dirtyOnly bool) (Status, error) {
+	var res result
+	var err error
 	fellBack := false
+	if trusted && dirtyOnly {
+		res, err = r.run(ctx, root, trusted, nil, statusArgsIgnoring("dirty")...)
+		fellBack = true
+	} else {
+		// A trusted `none` status has a bound of its own, noneTimeout (the pass's), shorter than
+		// the runner's, so that the retry below does not come after a full runner timeout.
+		none := r
+		if trusted && r.noneTimeout > 0 && r.noneTimeout < r.timeout {
+			c := *r
+			c.timeout = r.noneTimeout
+			none = &c
+		}
+		res, err = none.run(ctx, root, trusted, nil, statusArgs(trusted)...)
+	}
 	// The trusted fallback (ADR-0125 §4). With `none` git runs a child status in each
 	// populated submodule and, when one of them fails (a corrupt index, a blob it may not
 	// fetch), fails the whole status: exit 128 and no output, the project's own entries
@@ -104,7 +121,7 @@ func (r *runner) statusIn(ctx context.Context, root string, trusted bool, prefix
 	// as on an untrusted root and the failing one comes out unread. The cancel of ctx is
 	// not a git failure and is not retried; neither is a git that did not start. If the
 	// `dirty` status fails too, its error is the project's own.
-	if trusted && (errors.Is(err, ErrTimeout) || (err == nil && res.ExitCode != 0)) {
+	if trusted && !fellBack && (errors.Is(err, ErrTimeout) || (err == nil && res.ExitCode != 0)) {
 		res, err = r.run(ctx, root, trusted, nil, statusArgsIgnoring("dirty")...)
 		fellBack = true
 	}

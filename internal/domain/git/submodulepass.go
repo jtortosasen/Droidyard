@@ -13,7 +13,15 @@ package git
 // submodule is read and the bits of its gitlink are computed from what its status holds; a
 // trusted status that fell back to `dirty` (runner.status) is read the same way, which is
 // how the submodule that made git fail comes out unread. The mode is per status: each
-// submodule's own status decides how its nested submodules are read.
+// submodule's own status decides how its nested submodules are read, except that the
+// submodules of a computed repository are read with `dirty` (statusIn's dirtyOnly), so that a
+// pass after a fallback has no `none` in it.
+//
+// What is not read says so. A gitlink entry the pass does not read, whose contents are in
+// question (trusted: git flagged M or U; computed: any entry), is marked unread with a cause:
+// not listed in .gitmodules (also when there is none), nested deeper than eight levels, not
+// contained in the project, its .git is a symbolic link. One with no directory of its own is
+// not in question. A nested gitlink that is unread is no change of its parent's content.
 //
 // How. Each read is one status with the watch's arguments (statusArgs, so its own nesting
 // follows the same rule) through the runner in the submodule's own directory, with the
@@ -76,9 +84,6 @@ func (o Options) submodulePass(ctx context.Context, r *runner, root string, trus
 	for range strings.Count(prefix, "/") {
 		top = filepath.Dir(top)
 	}
-	if !hasGitmodules(top) {
-		return st, nil
-	}
 	timeout, limit := o.passTimeout, o.passCap
 	if timeout <= 0 {
 		timeout = passTimeout
@@ -129,7 +134,18 @@ func hasGitmodules(top string) bool {
 // says git did not flag them (see the file comment). It returns the entries of the
 // submodules below. A non-nil error is the failure of the listing, or the cancel of the tick.
 func (p *subPass) level(cwd, top, below, rel string, depth int, ents *[]Entry, computed bool) ([]Entry, error) {
-	if depth > maxSubmoduleDepth || (!computed && !anyFlagged(*ents)) || !hasGitmodules(top) {
+	if !computed && !anyFlagged(*ents) {
+		return nil, nil // git flagged no submodule: nothing to read, nothing to list
+	}
+	// A gitlink the pass does not read says so when its contents are in question: on a trusted
+	// root git flagged it, on a computed one any entry of it is. One with no directory of its
+	// own is not in question.
+	if depth > maxSubmoduleDepth {
+		p.unreadRest(ents, nil, computed, "nested deeper than eight levels", false)
+		return nil, nil
+	}
+	if !hasGitmodules(top) {
+		p.unreadRest(ents, nil, computed, "not listed in .gitmodules", true)
 		return nil, nil
 	}
 	if p.stopped || p.ctx.Err() != nil {
@@ -155,8 +171,10 @@ func (p *subPass) level(cwd, top, below, rel string, depth int, ents *[]Entry, c
 		p.unread = true
 	}
 	var out []Entry
+	listed := map[string]bool{}
 	for _, l := range links {
 		sub := path.Join(rel, l.path)
+		listed[sub] = true
 		if !computed {
 			if i := find(*ents, sub); i < 0 || !flagged((*ents)[i]) {
 				continue
@@ -168,7 +186,37 @@ func (p *subPass) level(cwd, top, below, rel string, depth int, ents *[]Entry, c
 		}
 		out = append(out, got...)
 	}
+	p.unreadRest(ents, listed, computed, "not listed in .gitmodules", true)
 	return out, nil
+}
+
+// unreadRest marks unread the gitlink entries of ents that the pass did not look at, because
+// they are not among listed (the submodules .gitmodules names that the index records as
+// gitlinks) or the level is too deep, when their contents are in question (trusted: git
+// flagged M or U; computed: any entry). A gitlink with no directory of its own is not in
+// question. A directory the containment checks refuse is named so instead of why when
+// refusalFirst. The cause is a sentence.
+func (p *subPass) unreadRest(ents *[]Entry, listed map[string]bool, computed bool, why string, refusalFirst bool) {
+	for i := range *ents {
+		e := &(*ents)[i]
+		if listed[e.Path] || e.Submodule == nil || e.Submodule.Unread != "" || (!computed && !flagged(*e)) {
+			continue
+		}
+		cause := why
+		switch _, k := p.w.stat(e.Path); k {
+		case placedUninitialised:
+			continue
+		case placedOut:
+			if refusalFirst {
+				cause = "not contained in the project"
+			}
+		case placedLinked:
+			if refusalFirst {
+				cause = "its .git is a symbolic link"
+			}
+		}
+		e.Submodule.Unread = cause
+	}
 }
 
 // one reads the submodule at sub, of the repository at rel whose entries are ents. Its files
@@ -185,11 +233,24 @@ func (p *subPass) one(sub string, depth int, rel string, ents *[]Entry, computed
 	if err != nil {
 		return p.failed(ents, sub, rel, err, "")
 	}
-	if placed != placedInitialised {
+	switch {
+	case placed.refused():
+		// No git runs there; the gitlink says why, if the status has an entry for it.
+		if i := find(*ents, sub); i >= 0 && gitlinkOf(&(*ents)[i]).Unread == "" {
+			gitlinkOf(&(*ents)[i]).Unread = "not contained in the project"
+			if placed == placedLinked {
+				gitlinkOf(&(*ents)[i]).Unread = "its .git is a symbolic link"
+			}
+		}
+		return nil, nil
+	case placed != placedInitialised:
 		return nil, nil
 	}
 	p.left--
-	st, err := p.w.r.statusIn(p.ctx, abs, p.trusted, "")
+	// The submodules of a repository git did not flag (computed) are read with `dirty`, as on
+	// an untrusted root: a trusted `none` there would be the call that just failed or ran out
+	// of time.
+	st, err := p.w.r.statusIn(p.ctx, abs, p.trusted, "", computed)
 	if err != nil {
 		return p.failed(ents, sub, rel, err, "")
 	}
@@ -321,6 +382,8 @@ func anyFlagged(ents []Entry) bool {
 func contentBits(own []Entry) (modified, untracked bool) {
 	for _, e := range own {
 		switch {
+		case e.Submodule != nil && e.Submodule.Unread != "":
+			// Not read: it says nothing of the parent's content.
 		case e.Submodule != nil:
 			s := e.Submodule
 			untracked = untracked || s.Untracked

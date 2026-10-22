@@ -441,8 +441,8 @@ func gitlinkRecords(res result, yield func(p, oid string, stage int)) {
 type placement int
 
 const (
-	// placedOut: the directory is, or sits behind, a symlink, cannot be resolved, or holds a
-	// .git that is a symlink: no git may run there.
+	// placedOut: the directory is, or sits behind, a symlink, or cannot be resolved: no git may
+	// run there.
 	placedOut placement = iota
 	// placedUninitialised: no directory, no .git, or a .git that is no repository of its own.
 	placedUninitialised
@@ -450,7 +450,12 @@ const (
 	placedInitialised
 	// placedWithGitFile is stat's answer only: a .git is there and no git has been asked.
 	placedWithGitFile
+	// placedLinked: the directory is the workspace's but its .git is a symlink: no git runs.
+	placedLinked
 )
+
+// refused: the containment checks forbid any git in the directory.
+func (p placement) refused() bool { return p == placedOut || p == placedLinked }
 
 // stat is the containment of a submodule's directory, checked without a git: the directory
 // at the workspace-relative path sub exists, file.ResolveDir resolves it to exactly its
@@ -459,8 +464,8 @@ const (
 // been initialised has a .git there: a file, or a directory. Git never makes a symlink of
 // it, and one would send git to a git directory the workspace does not hold (a .git file may
 // too, which is the superproject's own business; see the package comment), so without a
-// .git, or with a symlink for one, no git runs. It answers placedOut, placedUninitialised or
-// placedWithGitFile.
+// .git, or with a symlink for one, no git runs. It answers placedOut, placedLinked, placedUninitialised
+// or placedWithGitFile.
 func (w *walker) stat(sub string) (abs string, p placement) {
 	abs = filepath.Join(w.root, filepath.FromSlash(sub))
 	fi, err := os.Lstat(abs)
@@ -477,16 +482,19 @@ func (w *walker) stat(sub string) (abs string, p placement) {
 	if errors.Is(err, os.ErrNotExist) {
 		return abs, placedUninitialised
 	}
-	if err != nil || gi.Mode()&os.ModeSymlink != 0 {
+	if err != nil {
 		return abs, placedOut
+	}
+	if gi.Mode()&os.ModeSymlink != 0 {
+		return abs, placedLinked
 	}
 	return abs, placedWithGitFile
 }
 
 // place is stat and then, for a directory with a .git, the one git that says whether it is a
 // repository of its own: rev-parse in it (a submodule is its own top; an uninitialised one
-// is inside the superproject). It answers placedOut, placedUninitialised or placedInitialised;
-// the error is that git's.
+// is inside the superproject). It answers placedOut, placedLinked, placedUninitialised or
+// placedInitialised; the error is that git's.
 func (w *walker) place(sub string) (abs string, p placement, err error) {
 	abs, p = w.stat(sub)
 	if p != placedWithGitFile {
@@ -514,7 +522,7 @@ func (w *walker) read(sub string, l gitlink) (sm Submodule, ok bool, err error) 
 	switch {
 	case err != nil:
 		return sm, false, err
-	case p == placedOut:
+	case p.refused():
 		return sm, false, nil
 	case p == placedUninitialised:
 		return sm, true, nil

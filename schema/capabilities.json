@@ -10833,7 +10833,7 @@
                   "properties": {
                     "commits": {
                       "type": "boolean",
-                      "description": "The submodule's checked-out commit differs from the one HEAD records, staged or not (git's C, or a new commit that is staged)."
+                      "description": "The submodule's commit differs from the one HEAD records: staged in the index, or checked out (git's C)."
                     },
                     "modified": {
                       "type": "boolean",
@@ -10878,7 +10878,7 @@
           },
           "submodulesUnread": {
             "type": "boolean",
-            "description": "True when some submodule could not be read and no entry says which: the project's submodules could not be listed, or the per-tick count or time bound was reached. Absent otherwise."
+            "description": "True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."
           }
         },
         "additionalProperties": false,
@@ -10942,7 +10942,7 @@
                       "properties": {
                         "commits": {
                           "type": "boolean",
-                          "description": "The submodule's checked-out commit differs from the one HEAD records, staged or not (git's C, or a new commit that is staged)."
+                          "description": "The submodule's commit differs from the one HEAD records: staged in the index, or checked out (git's C)."
                         },
                         "modified": {
                           "type": "boolean",
@@ -10987,7 +10987,7 @@
               },
               "submodulesUnread": {
                 "type": "boolean",
-                "description": "True when some submodule could not be read and no entry says which: the project's submodules could not be listed, or the per-tick count or time bound was reached. Absent otherwise."
+                "description": "True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."
               }
             },
             "additionalProperties": false,
