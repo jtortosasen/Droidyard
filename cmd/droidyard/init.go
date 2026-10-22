@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -9,16 +12,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	mcpadapter "github.com/jtortosasen/droidyard/adapters/mcp"
 	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/git"
 	"github.com/jtortosasen/droidyard/internal/platform"
 	"github.com/jtortosasen/droidyard/internal/workspace"
 	"github.com/jtortosasen/droidyard/skills"
 )
 
-const initUsage = "usage: droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]"
+const initUsage = "usage: droidyard init --client cursor|claude|opencode|all [--user | [--root <path>] [--exclude | --gitignore]] [--dry-run] [--uninstall]"
 
 // mcpTool is one tool an MCP session lists, as `init` and the skill's tool map need it.
 type mcpTool struct {
@@ -97,8 +103,17 @@ func initCmd(args []string, out, errw io.Writer) int {
 	clientFlag := fs.String("client", "", "")
 	dryRun := fs.Bool("dry-run", false, "")
 	uninstall := fs.Bool("uninstall", false, "")
+	user := fs.Bool("user", false, "")
+	exclude := fs.Bool("exclude", false, "")
+	gitignore := fs.Bool("gitignore", false, "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		fmt.Fprintf(errw, "droidyard init: %v\n%s\n", firstErr(err, fmt.Errorf("unexpected argument %q", fs.Arg(0))), initUsage)
+		return 2
+	}
+	// The flags that cannot be combined are refused before anything is read or written
+	// (ADR-0124 §1, §4).
+	if clash := flagClash(*user, *rootFlag != "", *exclude, *gitignore); clash != "" {
+		fmt.Fprintf(errw, "droidyard init: %s\n%s\n", clash, initUsage)
 		return 2
 	}
 	if *clientFlag == "" {
@@ -114,6 +129,9 @@ func initCmd(args []string, out, errw io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(errw, "droidyard init:", err)
 		return 1
+	}
+	if *user {
+		return initUser(cwd, clients, *dryRun, *uninstall, out, errw)
 	}
 	// init writes into the user's project, so it does not guess one: without --root the
 	// project is the one `droidyard ui` opens (ADR-0075 §6): found by a settings.gradle
@@ -137,27 +155,10 @@ func initCmd(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "droidyard init: %s is your home directory, not a project: its .cursor and .claude hold your global configuration; name the project with --root\n", root)
 		return 2
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		fmt.Fprintln(errw, "droidyard init: cannot find this binary:", err)
-		return 1
+	command, stateDir, tools, code := initInputs(errw)
+	if code != 0 {
+		return code
 	}
-	command, err := binaryCommand(exe, exec.LookPath)
-	if err != nil {
-		fmt.Fprintln(errw, "droidyard init:", err)
-		return 1
-	}
-	// A client's hook environment lacks DROIDYARD_STATE_DIR, so a custom state root is
-	// written into the hook command (ADR-0061 §3).
-	stateDir := ""
-	if env := platform.Current(); env.Getenv("DROIDYARD_STATE_DIR") != "" {
-		if stateDir, err = env.StateDir(); err != nil {
-			fmt.Fprintln(errw, "droidyard init:", err)
-			return 1
-		}
-	}
-	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
-	tools := readOnlyTools(mcpTools(reg))
 
 	res, err := assistant.Run(assistant.Options{
 		Root: root, Command: command, StateDir: stateDir, Clients: clients, Tools: tools,
@@ -167,7 +168,34 @@ func initCmd(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "droidyard init:", err)
 		return 1
 	}
-	printInit(out, root, command, res, tools, *dryRun, *uninstall)
+	// The ignore block of the files git does not track (ADR-0124 §4): written by an
+	// install with --exclude or --gitignore, and removed by every uninstall.
+	var ignoreErr error
+	if *exclude || *gitignore || *uninstall {
+		var targets []assistant.IgnoreTarget
+		switch {
+		case *uninstall:
+			targets = []assistant.IgnoreTarget{assistant.ExcludeFile, assistant.GitignoreFile}
+		case *exclude:
+			targets = []assistant.IgnoreTarget{assistant.ExcludeFile}
+		default:
+			targets = []assistant.IgnoreTarget{assistant.GitignoreFile}
+		}
+		var changes []assistant.Change
+		changes, ignoreErr = ignoreStep(root, res.Changes, targets, *dryRun, *uninstall)
+		for _, c := range changes {
+			// An uninstall with no flag mentions the block only when it removed one.
+			if *uninstall && !*exclude && !*gitignore && c.Status == assistant.Unchanged {
+				continue
+			}
+			res.Changes = append(res.Changes, c)
+		}
+	}
+	printInit(out, "for "+root, command, res, tools, *dryRun, *uninstall)
+	if ignoreErr != nil {
+		fmt.Fprintln(errw, "droidyard init: the ignore block:", ignoreErr)
+		return 1
+	}
 	if g := workspace.ResolveGradleRoot(root, true); g.Err == nil {
 		fmt.Fprintf(out, "Gradle root: %s\n", g.Abs)
 	} else {
@@ -186,6 +214,187 @@ func initCmd(args []string, out, errw io.Writer) int {
 	return 0
 }
 
+// flagClash says which pair of flags cannot be combined, or "" when none: --user installs
+// for every project, so it names no root and no project file; --exclude and --gitignore
+// are two places for the same block.
+func flagClash(user, root, exclude, gitignore bool) string {
+	switch {
+	case user && root:
+		return "--user and --root exclude each other: --user installs for every project, --root names one"
+	case user && (exclude || gitignore):
+		return "--user and --exclude or --gitignore exclude each other: those keep a project's files out of version control, and --user writes none"
+	case exclude && gitignore:
+		return "--exclude and --gitignore exclude each other: choose where the block goes"
+	}
+	return ""
+}
+
+// initInputs are what every run of init writes: the binary entries run, the state root a
+// client's hook environment lacks, and the read-only tools. A non-zero code is the exit.
+func initInputs(errw io.Writer) (command, stateDir string, tools []string, code int) {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(errw, "droidyard init: cannot find this binary:", err)
+		return "", "", nil, 1
+	}
+	command, err = binaryCommand(exe, exec.LookPath)
+	if err != nil {
+		fmt.Fprintln(errw, "droidyard init:", err)
+		return "", "", nil, 1
+	}
+	// A client's hook environment lacks DROIDYARD_STATE_DIR, so a custom state root is
+	// written into the hook command (ADR-0061 §3).
+	if env := platform.Current(); env.Getenv("DROIDYARD_STATE_DIR") != "" {
+		if stateDir, err = env.StateDir(); err != nil {
+			fmt.Fprintln(errw, "droidyard init:", err)
+			return "", "", nil, 1
+		}
+	}
+	reg, _, _, _, _, _, _ := registry(platform.Current(), nil, nil, nil)
+	return command, stateDir, readOnlyTools(mcpTools(reg)), 0
+}
+
+// initUser is `init --user` (ADR-0124 §1): the integration written once into the user's
+// own configuration, with no project, no root in any entry and no daemon.
+func initUser(cwd string, clients []assistant.Client, dryRun, uninstall bool, out, errw io.Writer) int {
+	env := platform.Current()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(errw, "droidyard init: cannot find your home directory:", err)
+		return 1
+	}
+	dirs := assistant.UserDirs{
+		Claude:     filepath.Join(home, ".claude"),
+		ClaudeJSON: filepath.Join(home, ".claude.json"),
+		Cursor:     filepath.Join(home, ".cursor"),
+		OpenCode:   filepath.Join(home, ".config", "opencode"),
+		Agents:     filepath.Join(home, ".agents"),
+	}
+	if d := env.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		// Claude keeps .claude.json in its configuration directory when one is named.
+		dirs.Claude, dirs.ClaudeJSON = d, filepath.Join(d, ".claude.json")
+	}
+	if x := env.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(x) {
+		dirs.OpenCode = filepath.Join(x, "opencode")
+	}
+	command, stateDir, tools, code := initInputs(errw)
+	if code != 0 {
+		return code
+	}
+	opts := assistant.Options{
+		User: true, Dirs: dirs, Command: command, StateDir: stateDir, Clients: clients, Tools: tools,
+		Skill: skills.DroidyardAndroid(), DryRun: dryRun, Uninstall: uninstall,
+	}
+	// The runner stays a nil interface when there is no claude: the run then refuses the
+	// entry and prints the command (a typed nil would look like a runner).
+	if p, err := exec.LookPath("claude"); err == nil {
+		opts.ClaudeMCP = claudeCLI{path: p}
+	}
+	res, err := assistant.Run(opts)
+	if err != nil {
+		fmt.Fprintln(errw, "droidyard init:", err)
+		return 1
+	}
+	printInit(out, "--user", command, res, tools, dryRun, uninstall)
+	if !uninstall {
+		reportProjectEntries(out, cwd, clients)
+	}
+	if res.Refused() {
+		return 1
+	}
+	return 0
+}
+
+// reportProjectEntries says, per client, that the project cwd lies in has its own
+// droidyard entry, which takes precedence over the user's there (ADR-0124 §1), and the
+// command that removes it.
+func reportProjectEntries(w io.Writer, cwd string, clients []assistant.Client) {
+	root, ok := projectOf(cwd)
+	if !ok {
+		return
+	}
+	for _, c := range clients {
+		if f := assistant.ProjectEntry(root, c); f != "" {
+			fmt.Fprintf(w, "%s: %s holds a droidyard entry, and the project's entries take precedence over the user's here; remove them with: droidyard init --uninstall --client %s\n", c, filepath.Join(root, filepath.FromSlash(f)), c)
+		}
+	}
+}
+
+// claudeCLI is Claude's own command line, which changes the user-scope MCP entry
+// (ADR-0124 §1): .claude.json is Claude's live state and init never edits it.
+type claudeCLI struct{ path string }
+
+func (c claudeCLI) Add(entry json.RawMessage) error {
+	return c.run("mcp", "add-json", "--scope", "user", assistant.ServerName, string(entry))
+}
+
+func (c claudeCLI) Remove() error {
+	return c.run("mcp", "remove", "--scope", "user", assistant.ServerName)
+}
+
+func (c claudeCLI) run(args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, c.path, args...)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n"); line != "" {
+			return fmt.Errorf("%w: %s", err, line)
+		}
+		return err
+	}
+	return nil
+}
+
+// startInGroup is the repository reader's starter outside a daemon: the child in a
+// process group of its own, so the runner can end all of it on a timeout.
+func startInGroup(cmd *exec.Cmd) error {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd.Start()
+}
+
+// ignoreStep keeps (or on uninstall takes out) the block of the run's untracked files in
+// each target (ADR-0124 §4). The repository is read through the git package's runner,
+// untrusted. A root outside a repository, or no git, is not an error: an install is
+// refused by Ignore with its reason, an uninstall has no block to remove.
+func ignoreStep(root string, changes []assistant.Change, targets []assistant.IgnoreTarget, dry, uninstall bool) ([]assistant.Change, error) {
+	var paths []string
+	if !uninstall {
+		paths = assistant.IgnoreCandidates(changes)
+	}
+	gitPath, _ := exec.LookPath("git")
+	repo, err := git.Tracked(context.Background(), startInGroup, gitPath, os.Environ(), root, paths)
+	inRepo, noGit := err == nil, errors.Is(err, git.ErrNotFound)
+	if err != nil && !noGit && !errors.Is(err, git.ErrNotRepository) {
+		return nil, err
+	}
+	var out []assistant.Change
+	for _, target := range targets {
+		c, err := assistant.Ignore(assistant.IgnoreOptions{
+			Root: root, Target: target, Changes: changes, InRepo: inRepo,
+			Top: repo.Top, CommonDir: repo.CommonDir, Tracked: repo.Tracked, DryRun: dry, Uninstall: uninstall,
+		})
+		if err != nil {
+			return out, err
+		}
+		if noGit && c.Status == assistant.Refused {
+			c.Notes = append(c.Notes, "git was not found on PATH")
+		}
+		if !uninstall && !dry && c.Status != assistant.Refused {
+			file := c.Path
+			if !filepath.IsAbs(file) {
+				file = filepath.Join(root, filepath.FromSlash(file))
+			}
+			for _, l := range assistant.IgnoreBlock(file) {
+				c.Notes = append(c.Notes, "ignores "+l)
+			}
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
 func firstErr(errs ...error) error {
 	for _, e := range errs {
 		if e != nil {
@@ -201,15 +410,16 @@ var wouldVerb = map[assistant.Status]string{
 	assistant.Removed: "would remove", assistant.Deleted: "would delete",
 }
 
-func printInit(w io.Writer, root, command string, res assistant.Result, tools []string, dry, uninstall bool) {
+// printInit prints a run's changes. target is "for <root>" or "--user".
+func printInit(w io.Writer, target, command string, res assistant.Result, tools []string, dry, uninstall bool) {
 	verb := "init"
 	if uninstall {
 		verb = "uninstall"
 	}
 	if dry {
-		fmt.Fprintf(w, "droidyard %s for %s (dry run, nothing is written)\n", verb, root)
+		fmt.Fprintf(w, "droidyard %s %s (dry run, nothing is written)\n", verb, target)
 	} else {
-		fmt.Fprintf(w, "droidyard %s for %s\n", verb, root)
+		fmt.Fprintf(w, "droidyard %s %s\n", verb, target)
 	}
 	for _, c := range res.Changes {
 		status := string(c.Status)

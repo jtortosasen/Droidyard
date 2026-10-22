@@ -152,7 +152,7 @@ The code is the line the host's share printed. The device is listed at once as
 It asks the daemon, and starts one when none answers.
 `
 
-const initHelp = `droidyard init --client cursor|claude|opencode|all [--root <path>] [--dry-run] [--uninstall]
+const initHelp = `droidyard init --client cursor|claude|opencode|all [--user | [--root <path>] [--exclude | --gitignore]] [--dry-run] [--uninstall]
 
 Set a project up for coding assistants (optional; every tool works without it).
 Writes the droidyard-android skill and, per client, the MCP server entry and an allowlist
@@ -164,10 +164,20 @@ writes none.
 The root is --root, else the project ui would open from the current directory: the nearest
 folder at or above it with a settings.gradle(.kts), else the current folder when it is the
 top of a repository with one Gradle build below.
+--exclude or --gitignore keeps the files it wrote that git does not track out of git status:
+one marked block of lines, in the repository's info/exclude (shared by every worktree) or in
+the project's .gitignore. A file git tracks gets no line and is reported. --uninstall always
+removes the block.
+--user installs once for every project and worktree, in your own configuration (claude:
+CLAUDE_CONFIG_DIR or ~/.claude, its MCP entry through "claude mcp add-json --scope user";
+cursor: ~/.cursor; opencode: XDG_CONFIG_HOME or ~/.config; the skill for cursor and opencode
+in ~/.agents), with no root in any entry: the project is the folder the assistant starts in.
+It takes no --root, --exclude or --gitignore, and writes nothing in a project. A project's
+own entries take precedence there, and init --user run in such a project says so.
 No daemon is involved or started.
 `
 
-const hookHelp = `droidyard hook --client claude|cursor --root <absolute project root>
+const hookHelp = `droidyard hook --client claude|cursor [--root <absolute project root>]
 
 Answer one coding assistant's hook event (run by an assistant's hook entry).
 Before a shell command, a simple rm inside the root is denied with the command that moves
@@ -177,6 +187,8 @@ naming the droidyard tool that does the same, when there is one, and is recorded
 Activity if a daemon is running; nothing else is read or kept. It reads the event on
 stdin, answers within 2 s, never starts a daemon, deletes nothing, denies nothing after a
 command, and lets the command through whenever it cannot decide.
+Without --root (an entry init --user wrote) the project is the folder the assistant names
+as its own; outside a project, or where that folder has init's own hook, every event passes.
 `
 
 const trashHelp = `droidyard trash [--state-dir <dir>] [--root <abs>] [-r|-R|-f ...] [--] <path>...
