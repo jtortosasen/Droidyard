@@ -23,7 +23,7 @@ func TestEmptyDriverNameIsRefusedNotSkipped(t *testing.T) {
 	e.commit(dir)
 	e.appendConfig(dir, "[filter \"\"]\n\tclean = "+clean+"\n")
 	e.write(dir, "c.txt", "two\n")
-	_, err := e.r.run(context.Background(), dir, false, nil, statusArgs...)
+	_, err := e.r.run(context.Background(), dir, false, nil, statusArgs(false)...)
 	if !errors.Is(err, ErrUnsafeDriver) {
 		t.Errorf("err = %v, want ErrUnsafeDriver", err)
 	}
@@ -55,7 +55,7 @@ func TestTwoPartFilterKeyIsNoDriver(t *testing.T) {
 	if exists(mark) {
 		t.Fatalf("git runs a subsection-less filter key; the daemon would have to refuse it")
 	}
-	res, err := e.r.run(context.Background(), dir, false, nil, statusArgs...)
+	res, err := e.r.run(context.Background(), dir, false, nil, statusArgs(false)...)
 	if err != nil || res.ExitCode != 0 {
 		t.Errorf("untrusted status with a two-part filter key: %v exit %d", err, res.ExitCode)
 	}
@@ -77,7 +77,7 @@ func TestTruncatedDriverListIsRefused(t *testing.T) {
 	// misses the driver after them.
 	e.appendConfig(dir, "[filter \"j\"]\n"+strings.Repeat("\txxxxxx = 1\n", 300000)+"[filter \"evil\"]\n\tclean = "+clean+"\n")
 	e.write(dir, "c.txt", "two\n")
-	_, err := e.r.run(context.Background(), dir, false, nil, statusArgs...)
+	_, err := e.r.run(context.Background(), dir, false, nil, statusArgs(false)...)
 	if !errors.Is(err, ErrUnsafeDriver) {
 		t.Errorf("err = %v, want ErrUnsafeDriver", err)
 	}
@@ -131,7 +131,7 @@ func TestPartialCloneNeverFetches(t *testing.T) {
 			}
 			e.appendConfig(dir, "[core]\n\trepositoryformatversion = 1\n\tsshCommand = "+ssh+"\n[extensions]\n\tpartialClone = origin\n[remote \"origin\"]\n\turl = ssh://example.invalid/x\n\tpromisor = true\n[protocol \"ssh\"]\n\tallow = always\n")
 
-			if _, err := e.r.run(context.Background(), dir, trusted, nil, statusArgs...); err != nil {
+			if _, err := e.r.run(context.Background(), dir, trusted, nil, statusArgs(trusted)...); err != nil {
 				t.Fatalf("status: %v", err)
 			}
 			if exists(mark) {

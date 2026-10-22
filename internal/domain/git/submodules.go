@@ -466,7 +466,7 @@ func (w *walker) read(sub string, l gitlink) (sm Submodule, ok bool, err error) 
 		return sm, false, err
 	}
 	sm.CheckedOut = head
-	res, err := w.r.run(w.ctx, abs, w.trusted, nil, statusArgs...)
+	res, err := w.r.run(w.ctx, abs, w.trusted, nil, submoduleStateArgs...)
 	if err != nil {
 		return sm, false, err
 	}
