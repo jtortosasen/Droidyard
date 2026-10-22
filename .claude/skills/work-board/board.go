@@ -225,11 +225,27 @@ func readPlans() ([]plan, error) {
 	return plans, nil
 }
 
-// nextMilestone is the id after the highest one in the plans index and the lanes.
+// nextMilestone is the id after the highest one in the plans index and the lanes: the
+// highest phase number first, then within it the longest letters, then the last of them
+// (2z, 2za, 2zb; 3a above all of phase 2).
 func nextMilestone(plans []plan, lanes []lane) string {
 	best := ""
+	split := func(id string) (int, string) {
+		i := strings.IndexFunc(id, func(r rune) bool { return r < '0' || r > '9' })
+		n, _ := strconv.Atoi(id[:i])
+		return n, id[i:]
+	}
 	consider := func(id string) {
-		if milestoneRE.MatchString(id) && (len(id) > len(best) || (len(id) == len(best) && id > best)) {
+		if !milestoneRE.MatchString(id) {
+			return
+		}
+		if best == "" {
+			best = id
+			return
+		}
+		n, s := split(id)
+		bn, bs := split(best)
+		if n > bn || (n == bn && (len(s) > len(bs) || (len(s) == len(bs) && s > bs))) {
 			best = id
 		}
 	}

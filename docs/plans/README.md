@@ -56,3 +56,4 @@ the output.
 | [m2y-live-view-that-responds.md](m2y-live-view-that-responds.md) | 2y — A live view that responds: input over the open stream, live drag, a remote view that keeps up | Done |
 | [m2z-cli-for-people.md](m2z-cli-for-people.md) | 2z — A CLI for people: commands per domain from the descriptors, help in levels, output to read | Done |
 | [m2za-view-quality-from-the-client.md](m2za-view-quality-from-the-client.md) | 2za — The live view's quality from the client: a toggle, and a view that comes back by itself | Done |
+| [m3a-init-once-per-user.md](m3a-init-once-per-user.md) | 3a — `init` once per user: every project and worktree, with no `init` per project | Done |

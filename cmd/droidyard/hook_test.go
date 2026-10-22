@@ -650,7 +650,8 @@ func TestHookPassesWhenOpenIsHeldPastTheDeadline(t *testing.T) {
 
 // TestHookNeverExitsTwoAndPrintsNothingElse holds ADR-0061 §4: exit 2 is Claude Code's
 // deny, so a misuse exits 1 with a note on stderr and nothing on stdout, and a panic
-// is recovered into the client's pass-through with exit 0.
+// is recovered into the client's pass-through with exit 0. --root is optional since
+// ADR-0124: `--client claude` alone is a rootless hook, not a misuse (hook_rootless_test.go).
 func TestHookNeverExitsTwoAndPrintsNothingElse(t *testing.T) {
 	t.Parallel()
 	state := shortDir(t)
@@ -660,8 +661,9 @@ func TestHookNeverExitsTwoAndPrintsNothingElse(t *testing.T) {
 		nil,
 		{"--client", "opencode", "--root", root},
 		{"--client", "all", "--root", root},
-		{"--client", "claude"},
 		{"--client", "claude", "--root", "relative/dir"},
+		{"--client", "claude", "--root", ""},
+		{"--client", "claude", "--root"},
 		{"--client", "cursor", "--root", root, "extra"},
 		{"--client", "cursor", "--root", root, "--bogus"},
 	} {

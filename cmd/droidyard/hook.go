@@ -20,7 +20,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
-const hookUsage = "usage: droidyard hook --client claude|cursor --root <absolute project root>"
+const hookUsage = "usage: droidyard hook --client claude|cursor [--root <absolute project root>]"
 
 // hookDeadline is how long the hook may take to answer, from its start: a client waits
 // on it before running the command, so past this it lets the command through
@@ -44,7 +44,10 @@ var hookSeam func()
 // answer, or 1 with a note on stderr and nothing on stdout when it is misused. Anything
 // that goes wrong after the arguments are read (no daemon, an error, the deadline,
 // malformed input, a panic) is the client's pass-through, or after a command the hint
-// once it is computed (fail open).
+// once it is computed (fail open). Without --root (a user-level entry, ADR-0124 §Decision
+// 3) the root is the project of the directory the client names as its own, never the
+// event's cwd alone; with no project, or where that directory holds init's own hook for
+// the client, every event passes with nothing dialled.
 func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	client, root, err := parseHookArgs(args)
 	if err != nil {
@@ -56,6 +59,8 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// parseHookArgs reads the arguments; root is "" when --root is not given, which is the
+// rootless hook of a user-level entry (ADR-0124).
 func parseHookArgs(args []string) (client assistant.Client, root string, err error) {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -71,6 +76,11 @@ func parseHookArgs(args []string) (client assistant.Client, root string, err err
 	case assistant.Claude, assistant.Cursor:
 	default:
 		return "", "", fmt.Errorf("--client needs claude or cursor, not %q", *c)
+	}
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "root" })
+	if !given {
+		return client, "", nil
 	}
 	if !filepath.IsAbs(*r) {
 		return "", "", fmt.Errorf("--root needs an absolute project root, not %q", *r)
@@ -124,13 +134,30 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 	if err != nil || len(raw) > hookMaxStdin {
 		return pass
 	}
+	// Without --root the project is the client's (ADR-0124 §Decision 3). root stays ""
+	// when there is none, and then nothing below dials or routes anything.
+	rootless := root == ""
+	if rootless {
+		var yield bool
+		if root, yield = clientRoot(client, raw); yield {
+			return pass
+		}
+	}
 	if edit, ok := assistant.DecodeEditEvent(client, raw); ok {
+		if rootless && root == "" {
+			return pass
+		}
 		if edit.After {
 			return hookRecordEdit(client, root, edit, deadline)
 		}
 		return hookCheckEdit(client, edit, deadline)
 	}
 	if after, ok := assistant.DecodeAfterEvent(client, raw); ok {
+		// A rootless hook with no project serves a session with no tools (ADR-0124 §2), so
+		// a hint naming one would point the agent at a tool it does not have.
+		if rootless && root == "" {
+			return pass
+		}
 		return hookObserve(client, root, after, deadline, fallback)
 	}
 	ev, ok := assistant.DecodeHookEvent(client, raw)
@@ -139,6 +166,9 @@ func hookDecide(client assistant.Client, root string, stdin io.Reader, deadline 
 	}
 	// The route resolves against the root the command's directory gives (ADR-0085 §3);
 	// with none, --root's rules stand.
+	if root == "" {
+		return pass
+	}
 	if r, ok := hookRoot(root, ev.Cwd); ok {
 		root = r
 	}
@@ -213,11 +243,33 @@ func hookObserve(client assistant.Client, root string, ev assistant.AfterEvent, 
 	}
 	out := assistant.AfterOutput(client, ev.Name, assistant.Hint(obs))
 	fallback.Store(&out)
-	// A command run outside the project and its worktrees is not recorded (ADR-0085 §1).
+	// A command run outside the project and its worktrees is not recorded (ADR-0085 §1),
+	// and with no project to compare against (a rootless hook outside one) none is.
+	if root == "" {
+		return out
+	}
 	if r, ok := hookRoot(root, commandCwd(root, ev.Command, ev.Cwd)); ok {
 		recordCommands(client, ev.Chat, r, obs, deadline)
 	}
 	return out
+}
+
+// clientRoot is the root of a hook run without --root (ADR-0124 §Decision 3): the project
+// of the directory the client names as its own, reading the event and the environment
+// (assistant.ClientProjectDir). yield is true where that directory holds init's own hook
+// for the client, which runs as well and answers, so the user-level one passes. root is ""
+// when the directory is no project (projectOf: file reads only), and the hook then dials
+// nothing.
+func clientRoot(client assistant.Client, event []byte) (root string, yield bool) {
+	dir := assistant.ClientProjectDir(client, event, platform.Current().Getenv)
+	if dir == "" {
+		return "", false
+	}
+	if assistant.HasProjectHook(client, dir) {
+		return "", true
+	}
+	root, _ = projectOf(dir)
+	return root, false
 }
 
 // hookRoot is the root a hook event belongs to (ADR-0085 §1): file reads only, no git.

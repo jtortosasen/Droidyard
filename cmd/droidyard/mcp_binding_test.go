@@ -91,8 +91,8 @@ func boundReady(t *testing.T, what string, c boundCall, root string) {
 }
 
 // TestMCPSessionBindsAndOpensItsRoot: an MCP session is bound to --root, else to the
-// nearest ancestor of the shim's cwd holding settings.gradle(.kts), else to the cwd;
-// it opens that root before it answers anything; workspace tools take no workspace
+// project of the shim's cwd (the nearest ancestor holding settings.gradle(.kts)), else it
+// has no workspace and no tools (ADR-0124 §2); it opens that root before it answers anything; workspace tools take no workspace
 // argument; the binding grants no trust
 // (ADR-0019 §Sessions; ADR-0020 §Adapter projections; ADR-0015 §5).
 // Real shims over the real socket, under -race.
@@ -145,11 +145,15 @@ func TestMCPSessionBindsAndOpensItsRoot(t *testing.T) {
 	b.initialize("binding")
 	boundReady(t, "(b) --root over the cwd", b.workspaceTool(1, "workspace_describe"), kts)
 
-	// (c) No ancestor holds a settings file: the cwd is the root.
+	// (c) No ancestor holds a settings file: the cwd is no project, so the session has no
+	// tools and the shim opens no workspace (ADR-0124 §2).
 	bare := platform.Current().Canonical(t.TempDir())
 	c := startShimIn(t, p.state, bare, "c", []string{"mcp", "--no-autostart"})
 	c.initialize("binding")
-	boundReady(t, "(c) the cwd", c.workspaceTool(1, "workspace_describe"), bare)
+	c.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if got := c.recv(); !strings.Contains(string(got), `"tools":[]`) {
+		t.Errorf("(c) tools/list outside a project = %s; want no tools", got)
+	}
 
 	// (e) A second session bound to the same root shares the workspace: its open changes
 	// no state but the recency (ADR-0045 §3 refreshes lastOpenedAt on every open), so

@@ -10,6 +10,7 @@
 - Superseded in part by: ADR-0061 (§Processes)
 - Superseded in part by: ADR-0062 (§Processes)
 - Superseded in part by: ADR-0098 (§Processes)
+- Superseded in part by: ADR-0124 (§Processes, §Sessions)
 - Superseded in part by: ADR-0101 (§Sessions)
 - Superseded in part by: ADR-0122 (§Sessions)
 - Amended: 2026-09-29. What changed: the complete subcommand list (`ui`, `trust`); the

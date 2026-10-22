@@ -152,6 +152,8 @@ edits made before this rule and are not added to.
 | [0121](0121-lag-bound-from-the-first-read.md) | Lag counts from the first read, not on a relayed Hub | Accepted |
 | [0122](0122-a-cli-for-people.md) | A CLI for people: commands per domain from the descriptors, and CLI connections that carry streams | Accepted |
 | [0123](0123-a-fast-change-renews-the-view.md) | A fast change travels in the open session and renews the view | Accepted |
+| [0124](0124-init-once-per-user.md) | `init` once per user, a session with no tools outside a project, and init's files kept out of git | Accepted |
+| [0126](0126-ignore-block-shared-by-runs.md) | The ignore block is shared by every run in a repository | Accepted |
 
 ## Open decisions (not yet ADRs)
 
