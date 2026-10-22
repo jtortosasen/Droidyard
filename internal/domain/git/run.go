@@ -49,6 +49,17 @@
 //     git dies on a required filter that produced nothing, and `git lfs install` sets
 //     it globally.
 //
+// The cost of a git.watch tick (ADR-0125; submodulepass.go says which submodules are read).
+// The project's own status is 2 gits (rev-parse and status), each preceded by a driver read
+// on an untrusted root. On a trusted root git itself starts a child status in each populated
+// submodule, and the daemon adds, per level with a `.gitmodules` that holds a submodule git
+// flagged, 2 gits to list it, and per flagged submodule 2 (rev-parse and status). On an
+// untrusted root (the default: only trust.roots are trusted) the daemon adds, per level with
+// a `.gitmodules`, 2 gits to list it, and per initialised submodule 2 more, every one
+// preceded by its driver read: about 4 gits for each initialised submodule. With tens of
+// submodules a tick takes seconds, bounded at 32 submodules and 5 s for the pass, and the
+// project's own entries are published after the pass, so they wait up to that long.
+//
 // A git started here is in a process group of its own (the Starter) and the whole
 // group is killed when the context ends or after the timeout, because a filter's child
 // (git-lfs filter-process) must not outlive it. Stdout is capped as it is read.

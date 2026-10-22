@@ -184,7 +184,13 @@ func (o Options) statusOf(ctx context.Context, root string) (Status, error) {
 	if cerr != nil {
 		return Status{}, ErrNotFound
 	}
-	return r.status(ctx, root, o.trusted(root))
+	trusted := o.trusted(root)
+	st, prefix, err := r.statusWithPrefix(ctx, root, trusted)
+	if err != nil {
+		return Status{}, err
+	}
+	// The project's own entries are published after the submodule pass, so they wait for it.
+	return o.submodulePass(ctx, r, root, trusted, prefix, st)
 }
 
 // Watchers is every live git.watch poller, by workspace. Its Stop is joined into

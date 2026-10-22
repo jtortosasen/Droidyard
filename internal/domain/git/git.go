@@ -84,6 +84,11 @@ type Options struct {
 	// not git's speed (the 4 MiB cap of an output git must write first) lengthens it as a
 	// hang guard. The shipped binary cannot set it.
 	readTimeout time.Duration
+	// passTimeout and passCap, when > 0, replace the deadline (passTimeout) and the count
+	// (maxPassSubmodules) of the watch's submodule pass: a test shortens them, or lengthens the
+	// deadline as a hang guard. The shipped binary cannot set them.
+	passTimeout time.Duration
+	passCap     int
 }
 
 // Register adds git.read, git.watch, git.log, git.refs, git.show, git.fetch, git.pull,

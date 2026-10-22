@@ -238,29 +238,12 @@ func (w *walker) level(cwd, top, below, rel string, depth int) error {
 }
 
 func (w *walker) listLevel(cwd, top, below, rel string, depth int) error {
-	gm := filepath.Join(top, ".gitmodules")
-	if fi, err := os.Lstat(gm); err != nil || !fi.Mode().IsRegular() {
-		return nil // no submodules; a symlinked .gitmodules is not read
-	}
-	res, err := w.r.run(w.ctx, cwd, w.trusted, nil,
-		"config", "--file", gm, "--no-includes", "-z", "--get-regexp", `^submodule\..*\.path$`)
+	links, cut, err := w.children(cwd, top, below)
 	if err != nil {
 		return err
 	}
-	switch res.ExitCode {
-	case 0:
-	case 1: // no such key
-		return nil
-	default:
-		return gitError(res)
-	}
-	cands, cut := candidates(res.Stdout, res.Truncated, below)
 	if cut {
 		w.truncated = true
-	}
-	links, err := w.gitlinks(cwd, cands)
-	if err != nil {
-		return err
 	}
 	for _, l := range links {
 		sub := path.Join(rel, l.path)
@@ -282,6 +265,36 @@ func (w *walker) listLevel(cwd, top, below, rel string, depth int) error {
 		}
 	}
 	return nil
+}
+
+// children lists the gitlinks the repository whose work tree is top names in its
+// `.gitmodules` under below, sorted by path, relative to below: the listing that
+// git.submodules and the watch's submodule pass (submodulepass.go) both walk. No
+// `.gitmodules` there, or one that is not a regular file, is no submodules and starts no git.
+// cut says the list of paths passed the runner's cap, so it may be incomplete.
+func (w *walker) children(cwd, top, below string) (links []gitlink, cut bool, err error) {
+	gm := filepath.Join(top, ".gitmodules")
+	if fi, err := os.Lstat(gm); err != nil || !fi.Mode().IsRegular() {
+		return nil, false, nil // no submodules; a symlinked .gitmodules is not read
+	}
+	res, err := w.r.run(w.ctx, cwd, w.trusted, nil,
+		"config", "--file", gm, "--no-includes", "-z", "--get-regexp", `^submodule\..*\.path$`)
+	if err != nil {
+		return nil, false, err
+	}
+	switch res.ExitCode {
+	case 0:
+	case 1: // no such key
+		return nil, false, nil
+	default:
+		return nil, false, gitError(res)
+	}
+	cands, cut := candidates(res.Stdout, res.Truncated, below)
+	links, err = w.gitlinks(cwd, cands)
+	if err != nil {
+		return nil, false, err
+	}
+	return links, cut, nil
 }
 
 // candidates are the sorted, distinct paths `.gitmodules` names under below, relative to
@@ -424,41 +437,86 @@ func gitlinkRecords(res result, yield func(p, oid string, stage int)) {
 	}
 }
 
+// placement is where a gitlink's directory stands as to running a git in it.
+type placement int
+
+const (
+	// placedOut: the directory is, or sits behind, a symlink, cannot be resolved, or holds a
+	// .git that is a symlink: no git may run there.
+	placedOut placement = iota
+	// placedUninitialised: no directory, no .git, or a .git that is no repository of its own.
+	placedUninitialised
+	// placedInitialised: a repository of its own.
+	placedInitialised
+	// placedWithGitFile is stat's answer only: a .git is there and no git has been asked.
+	placedWithGitFile
+)
+
+// stat is the containment of a submodule's directory, checked without a git: the directory
+// at the workspace-relative path sub exists, file.ResolveDir resolves it to exactly its
+// lexical join with the workspace root (so no symlink on the way, out of the root or out of
+// a subdirectory workspace), and it holds a .git that is not a symlink. A submodule that has
+// been initialised has a .git there: a file, or a directory. Git never makes a symlink of
+// it, and one would send git to a git directory the workspace does not hold (a .git file may
+// too, which is the superproject's own business; see the package comment), so without a
+// .git, or with a symlink for one, no git runs. It answers placedOut, placedUninitialised or
+// placedWithGitFile.
+func (w *walker) stat(sub string) (abs string, p placement) {
+	abs = filepath.Join(w.root, filepath.FromSlash(sub))
+	fi, err := os.Lstat(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return abs, placedUninitialised // a gitlink whose directory was never made
+	}
+	if err != nil || !fi.IsDir() {
+		return abs, placedOut
+	}
+	if got, rerr := file.ResolveDir(w.env, w.root, sub); rerr != nil || got != abs {
+		return abs, placedOut
+	}
+	gi, err := os.Lstat(filepath.Join(abs, ".git"))
+	if errors.Is(err, os.ErrNotExist) {
+		return abs, placedUninitialised
+	}
+	if err != nil || gi.Mode()&os.ModeSymlink != 0 {
+		return abs, placedOut
+	}
+	return abs, placedWithGitFile
+}
+
+// place is stat and then, for a directory with a .git, the one git that says whether it is a
+// repository of its own: rev-parse in it (a submodule is its own top; an uninitialised one
+// is inside the superproject). It answers placedOut, placedUninitialised or placedInitialised;
+// the error is that git's.
+func (w *walker) place(sub string) (abs string, p placement, err error) {
+	abs, p = w.stat(sub)
+	if p != placedWithGitFile {
+		return abs, p, nil
+	}
+	prefix, err := w.r.prefix(w.ctx, abs, w.trusted)
+	if errors.Is(err, ErrNotARepository) {
+		return abs, placedUninitialised, nil
+	}
+	if err != nil {
+		return abs, placedOut, err
+	}
+	if prefix != "" { // inside the superproject, not a repository of its own
+		return abs, placedUninitialised, nil
+	}
+	return abs, placedInitialised, nil
+}
+
 // read describes one gitlink at the workspace-relative path sub. ok is false when the
 // submodule is left out: its directory is, or sits behind, a symlink (or cannot be
 // resolved), so no git may run there.
 func (w *walker) read(sub string, l gitlink) (sm Submodule, ok bool, err error) {
 	sm = Submodule{Path: sub, Recorded: l.oid, State: StateUninitialised}
-	abs := filepath.Join(w.root, filepath.FromSlash(sub))
-	fi, err := os.Lstat(abs)
-	if errors.Is(err, os.ErrNotExist) {
-		return sm, true, nil // a gitlink whose directory was never made
-	}
-	if err != nil || !fi.IsDir() {
-		return sm, false, nil
-	}
-	if got, rerr := file.ResolveDir(w.env, w.root, sub); rerr != nil || got != abs {
-		return sm, false, nil
-	}
-	// A submodule that has been initialised has a .git there: a file, or a directory. Git never
-	// makes a symlink of it, and one would send git to a git directory the workspace does
-	// not hold (a .git file may too, which is the superproject's own business; see the package
-	// comment), so without a .git, or with a symlink for one, no git runs.
-	gi, err := os.Lstat(filepath.Join(abs, ".git"))
-	if errors.Is(err, os.ErrNotExist) {
-		return sm, true, nil
-	}
-	if err != nil || gi.Mode()&os.ModeSymlink != 0 {
-		return sm, false, nil
-	}
-	prefix, err := w.r.prefix(w.ctx, abs, w.trusted)
-	if errors.Is(err, ErrNotARepository) {
-		return sm, true, nil
-	}
-	if err != nil {
+	abs, p, err := w.place(sub)
+	switch {
+	case err != nil:
 		return sm, false, err
-	}
-	if prefix != "" { // inside the superproject, not a repository of its own
+	case p == placedOut:
+		return sm, false, nil
+	case p == placedUninitialised:
 		return sm, true, nil
 	}
 	head, err := headOid(w.ctx, w.r, abs, w.trusted)

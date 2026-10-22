@@ -74,10 +74,25 @@ type Status struct {
 // status reads the status of the repository holding root: the workspace's own paths,
 // relative to root. trusted is policy.Trusted's answer for root.
 func (r *runner) status(ctx context.Context, root string, trusted bool) (Status, error) {
+	st, _, err := r.statusWithPrefix(ctx, root, trusted)
+	return st, err
+}
+
+// statusWithPrefix is status, and the workspace's path from the repository's top that it
+// read, for the submodule pass, which finds the top's `.gitmodules` from it.
+func (r *runner) statusWithPrefix(ctx context.Context, root string, trusted bool) (Status, string, error) {
 	prefix, err := r.prefix(ctx, root, trusted)
 	if err != nil {
-		return Status{}, err
+		return Status{}, "", err
 	}
+	st, err := r.statusIn(ctx, root, trusted, prefix)
+	return st, prefix, err
+}
+
+// statusIn is the watch's status of the repository holding root, whose prefix is known: the
+// project's (after prefix) and each submodule's (which is its own top, so ""; the pass has
+// checked that with the same rev-parse).
+func (r *runner) statusIn(ctx context.Context, root string, trusted bool, prefix string) (Status, error) {
 	res, err := r.run(ctx, root, trusted, nil, statusArgs(trusted)...)
 	fellBack := false
 	// The trusted fallback (ADR-0125 §4). With `none` git runs a child status in each

@@ -45,6 +45,13 @@ type watchFx struct {
 // is trusted until a test says otherwise.
 func newWatchFx(t *testing.T, tick time.Duration) *watchFx {
 	t.Helper()
+	return newWatchFxWith(t, tick, nil)
+}
+
+// newWatchFxWith is newWatchFx with the options changed by mod (the unexported limits of the
+// submodule pass, which a test sets).
+func newWatchFxWith(t *testing.T, tick time.Duration, mod func(*Options)) *watchFx {
+	t.Helper()
 	e := needGit(t)
 	f := &watchFx{env: e}
 	f.root = platform.Current().Canonical(e.repo())
@@ -53,7 +60,7 @@ func newWatchFx(t *testing.T, tick time.Duration) *watchFx {
 	f.ws = NewWatchers()
 	f.sess = event.NewSession(f.bus, "ses-git")
 	f.reg = capability.NewRegistry()
-	Register(f.reg, Options{
+	opts := Options{
 		Root:    func(string) (string, bool) { return f.root, f.root != "" },
 		Env:     platform.Current(),
 		Environ: f.osEnviron,
@@ -85,7 +92,11 @@ func newWatchFx(t *testing.T, tick time.Duration) *watchFx {
 			return exec.LookPath(name)
 		},
 		Bus: f.bus, Watchers: f.ws, Tick: tick,
-	})
+	}
+	if mod != nil {
+		mod(&opts)
+	}
+	Register(f.reg, opts)
 	t.Cleanup(func() {
 		f.sess.Close()
 		f.ws.Stop("ws")
