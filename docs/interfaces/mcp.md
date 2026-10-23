@@ -14,8 +14,10 @@ projection and the verdict on every MCP feature beyond tool calls.
   JSON-RPC over the daemon's socket
   ([ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)); one shim connection is
   one MCP session.
-- **A session is bound to one project root** at attach: `--root`, else the nearest
-  ancestor of the cwd that contains `settings.gradle(.kts)`, else the cwd. The adapter
+- **A session is bound to one project root** at attach: `--root`, else the project of
+  `--from` or the cwd (the nearest ancestor holding `settings.gradle(.kts)`). With no
+  project the shim serves a session with no tools itself and starts nothing
+  ([ADR-0124](../adr/0124-init-once-per-user.md)). The adapter
   fills the envelope's `workspace` from this binding, so no tool takes a workspace
   argument. An agent that needs two projects configures two servers. Binding does not
   grant trust ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5).
@@ -299,7 +301,7 @@ doing for a client we care about that supports prompts but not skills.
 **Logging** complements `stderr`, which stays the transport-safe default. **Roots** are an
 optional input that can only narrow: a root the client does not declare may be refused, but
 a declared root is never trusted because of it, and it is never the session's binding
-source, which comes from `--root` or the cwd so it is deterministic and visible in the
+source, which comes from `--root`, `--from` or the cwd so it is deterministic and visible in the
 server config ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5,
 [ADR-0019](../adr/0019-process-topology-daemon-and-shims.md)).
 
@@ -313,7 +315,7 @@ do with its model and context.
 are not part of MCP. They are per-assistant, which is the coupling ADR-0004 forbids as a
 dependency, and largely redundant: "device data is not instructions" lives in
 `instructions`, "open the workspace" is a call the agent makes, and "build after editing"
-should not be automatic. `init` writes optional ones for Claude Code and Cursor:
+should not be automatic. `init` writes optional ones for Claude Code and Cursor, per project or once per user ([ADR-0124](../adr/0124-init-once-per-user.md)):
 a simple `rm` in the project is denied with `droidyard trash` and the same operands, which moves them to the trash from the agent's own shell ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0062](../adr/0062-agent-rm-handed-droidyard-trash.md)); and after a shell command, an Android one (`gradlew`, `adb` and four more) is hinted with the droidyard tool that does the same and recorded in Activity, never blocked ([ADR-0063](../adr/0063-hook-observes-android-commands.md)).
 
 ## Transports

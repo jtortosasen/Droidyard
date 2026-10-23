@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-15
 - Superseded in part by: ADR-0092 (§Decision)
+- Superseded in part by: ADR-0124 (§Decision)
 - Supersedes: ADR-0045 §1 (in part: `ui` also finds a project at its cwd when the Gradle build is below it); ADR-0046 §1 (in part: the shape gains `gradleRoot`), §2 (in part: the daemon reads `gradleRoot`, and the UI reads the file again before each write), §3 (in part: `gradleRoot` decides where Gradle runs, inside the trusted root)
 - Relates to: ADR-0015 §5, ADR-0019 §Sessions (unchanged), ADR-0022, ADR-0026, ADR-0027, ADR-0037 §2, ADR-0045 §4, ADR-0058; plan m2o
 - Decided by the owner (the design: "Sí porfa", 2026-10-15) and, for its details, by the main session under the owner's standing instruction (apply the recommended option), Delegated. The owner's repository keeps its git root, its Cursor configuration and loose files at the top and the Gradle build in `dev/`; opening the top gave no tasks, and opening `dev/` cut the files, git and the assistants' configuration down to `dev/`.

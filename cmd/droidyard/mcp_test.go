@@ -45,8 +45,9 @@ func startShimArgs(t *testing.T, state, name string, args []string) *shim {
 	return startShimIn(t, state, "", name, args)
 }
 
-// startShimIn starts `droidyard <args>` as an MCP shim with dir as its cwd; "" keeps
-// the test's.
+// startShimIn starts `droidyard <args>` as an MCP shim with dir as its cwd; "" is a fresh
+// project root (settings.gradle), since the test's own cwd, cmd/droidyard, is no project
+// and a shim there serves a session with no tools (ADR-0124 §2).
 func startShimIn(t *testing.T, state, dir, name string, args []string) *shim {
 	t.Helper()
 	return startShimEnv(t, state, dir, name, nil, args)
@@ -57,6 +58,9 @@ func startShimIn(t *testing.T, state, dir, name string, args []string) *shim {
 // never inherited: a shim names a chat only when env says so (ADR-0088 §1).
 func startShimEnv(t *testing.T, state, dir, name string, env, args []string) *shim {
 	t.Helper()
+	if dir == "" {
+		dir, _ = projectWith(t, "settings.gradle")
+	}
 	full := []string{reexec + "=1", "DROIDYARD_STATE_DIR=" + state}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, chatEnv+"=") {

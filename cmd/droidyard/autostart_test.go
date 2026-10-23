@@ -195,8 +195,11 @@ func TestRacingAutoStarts(t *testing.T) {
 // and starts none (ADR-0019 §4).
 func TestNoAutostartStartsNothing(t *testing.T) {
 	state := shortDir(t)
+	// From a project: outside one, `mcp` serves a session with no tools and exits 0
+	// without dialling (ADR-0124 §2).
+	project, _ := projectWith(t, "settings.gradle")
 	for _, args := range [][]string{{"call", "--no-autostart", "system.health"}, {"mcp", "--no-autostart"}} {
-		p := droidyard(t, state, args...)
+		p := droidyardIn(t, state, project, args...)
 		if code := p.wait(t); code == 0 {
 			t.Errorf("droidyard %s exited 0 with no daemon", strings.Join(args, " "))
 		}

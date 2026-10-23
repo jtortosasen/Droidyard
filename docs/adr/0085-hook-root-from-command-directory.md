@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0095 (§Decision)
+- Superseded in part by: ADR-0124 (§Decision)
 - Date: 2026-10-18
 - Supersedes: ADR-0063 §3 (in part: which workspace opens and records); ADR-0062 §Decision (in part: the root the `rm` route resolves against)
 - Relates to: ADR-0061, ADR-0063 §4, ADR-0075, ADR-0081, ADR-0082; plan m2q Q5
