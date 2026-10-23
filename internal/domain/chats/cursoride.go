@@ -1,7 +1,6 @@
 package chats
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,8 +19,8 @@ import (
 // isSubagent and lastUpdatedAt, and a JSON `value` holding the title (`name`), `isDraft`,
 // and the folder it was opened on (`workspaceIdentifier.uri.fsPath`) (plan m3c step 1 (c)).
 // The folder is in the row, so the candidate paths filter in SQL and workspaceStorage is
-// not read. [Assumed, not recorded by step 1: the composer's id is `composerId` in `value`;
-// a row without one is left out.]
+// not read. The composer's id is `composerId` in `value`, equal to the column in every row
+// observed; a row without one is left out.
 
 // IDEGlobalStorage is the directory the Cursor IDE keeps state.vscdb in, for a home
 // directory: ~/Library/Application Support/Cursor/User/globalStorage on macOS,
@@ -70,23 +69,26 @@ type ideCache struct {
 	chats []rawChat
 }
 
-// readIDE reads the Cursor IDE's store: its chats and how the read went. The error is the
-// call's context's, when it ended.
-func (s *service) readIDE(ctx context.Context) ([]rawChat, Source, error) {
+// readIDE reads the Cursor IDE's store within the call's deadline and reads: its chats, how
+// the read went, and whether the call's deadline or reads stopped it. A query that has not
+// answered by then is a failed source with that cause (a query gives nothing in part) and
+// the call is truncated; the caller's own cancellation is the caller's to check.
+func (s *service) readIDE(c callBudget) ([]rawChat, Source, bool) {
+	ctx := c.ctx
 	src := func(state, cause string) Source { return Source{Store: StoreCursorIDE, State: state, Cause: cause} }
 	if !filepath.IsAbs(s.o.CursorIDE) {
-		return nil, src(StateFailed, "the Cursor IDE's directory cannot be located (no home directory)"), nil
+		return nil, src(StateFailed, "the Cursor IDE's directory cannot be located (no home directory)"), false
 	}
 	db := filepath.Join(s.o.CursorIDE, "state.vscdb")
 	fi, err := os.Lstat(db)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, src(StateAbsent, ""), nil
+			return nil, src(StateAbsent, ""), false
 		}
-		return nil, src(StateFailed, "cannot read the Cursor IDE's store: "+osCause(err)), nil
+		return nil, src(StateFailed, "cannot read the Cursor IDE's store: "+osCause(err)), false
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, src(StateFailed, "the Cursor IDE's store is not a regular file"), nil
+		return nil, src(StateFailed, "the Cursor IDE's store is not a regular file"), false
 	}
 	byPath := map[string]candidate{}
 	var paths []string
@@ -100,11 +102,11 @@ func (s *service) readIDE(ctx context.Context) ([]rawChat, Source, error) {
 			paths = append(paths, p)
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, Source{}, err
+	if ctx.Err() != nil {
+		return nil, src(StateFailed, ideStopped), true
 	}
 	if len(paths) == 0 {
-		return nil, src(StateRead, ""), nil
+		return nil, src(StateRead, ""), false
 	}
 	sort.Strings(paths)
 	key := strings.Join(paths, "\x00") + "\x01" + statSig(db) + "\x01" + statSig(db+"-wal")
@@ -112,23 +114,27 @@ func (s *service) readIDE(ctx context.Context) ([]rawChat, Source, error) {
 	cached := s.ide
 	s.mu.Unlock()
 	if cached.key == key {
-		return cached.chats, src(StateRead, ""), nil
+		return cached.chats, src(StateRead, ""), false
 	}
 
+	// The query is one read of the call's budget.
+	if !c.reads.take() {
+		return nil, src(StateFailed, ideStopped), true
+	}
 	out, err := s.sql.query(ctx, db, ideQuery(paths))
 	if err != nil {
-		if cerr := ctx.Err(); cerr != nil {
-			return nil, Source{}, cerr
+		if ctx.Err() != nil {
+			return nil, src(StateFailed, ideStopped), true
 		}
 		if errors.Is(err, errNoSQLite) {
-			return nil, src(StateFailed, err.Error()), nil
+			return nil, src(StateFailed, err.Error()), false
 		}
-		return nil, src(StateFailed, "cannot read the Cursor IDE's store: "+osCause(err)), nil
+		return nil, src(StateFailed, "cannot read the Cursor IDE's store: "+osCause(err)), false
 	}
 	var rows []ideRow
 	if len(strings.TrimSpace(string(out))) > 0 {
 		if err := json.Unmarshal(out, &rows); err != nil {
-			return nil, src(StateFailed, "the Cursor IDE's store answered in a form this reader does not know"), nil
+			return nil, src(StateFailed, "the Cursor IDE's store answered in a form this reader does not know"), false
 		}
 	}
 	var chats []rawChat
@@ -161,8 +167,11 @@ func (s *service) readIDE(ctx context.Context) ([]rawChat, Source, error) {
 	s.mu.Lock()
 	s.ide = ideCache{key: key, chats: chats}
 	s.mu.Unlock()
-	return chats, src(StateRead, ""), nil
+	return chats, src(StateRead, ""), false
 }
+
+// ideStopped is the cause of an IDE source the call's deadline or reads cut short.
+const ideStopped = "the call's time or reads ran out before the query finished"
 
 // statSig is the size and modification time of a file, or "-" when it is not there.
 func statSig(path string) string {

@@ -173,11 +173,18 @@ func (s *service) agentFacts(ctx context.Context, acc *accum, ref agentRef, noSQ
 	}
 	f = agentFacts{sig: sig, updated: ref.mtime.Truncate(time.Millisecond)}
 	if hasMeta {
+		// A read of this file from an earlier call that has not returned: not started again.
+		if !s.begin(metaPath) {
+			acc.markTruncated()
+			return agentFacts{}, false
+		}
 		if !acc.tryRead() {
+			s.end(metaPath)
 			return agentFacts{}, false
 		}
 		var m agentMeta
 		data, err := s.readAt(metaPath, 0, maxMeta+1)
+		s.end(metaPath)
 		if err != nil || len(data) > maxMeta || json.Unmarshal(data, &m) != nil {
 			hasMeta = false
 		} else {

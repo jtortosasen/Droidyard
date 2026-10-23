@@ -13327,7 +13327,7 @@
       "statefulness": "stateless",
       "audience": "human",
       "since": "0.38.0",
-      "description": "Lists the chats of Claude Code, cursor-agent and the Cursor IDE for the projects droidyard knows and their live linked worktrees, read from the clients' own local stores: per chat its client, id, project, worktree, title, last change and, for a Claude Code chat connected now, its live session. Reads only ids, titles, places and times and writes nothing; for the web UI, never an MCP tool.",
+      "description": "Lists the chats of Claude Code, cursor-agent and the Cursor IDE for the known projects and their live worktrees, from the clients' own local stores: per chat its client, id, project, worktree, title, last change and, for a connected Claude Code chat, its live session. Reads only ids, titles, places and times and never writes a store's database or log; for the web UI, never an MCP tool.",
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -13363,8 +13363,8 @@
                 },
                 "id": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9-]{1,64}$",
-                  "description": "The chat's id as its client names it (the id its resume command takes): a file or directory name in the client's store."
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$",
+                  "description": "The chat's id as its client names it (the id its resume command takes): a file or directory name in the client's store, never starting with a dash."
                 },
                 "project": {
                   "type": "string",
@@ -13441,7 +13441,7 @@
           },
           "truncated": {
             "type": "boolean",
-            "description": "True when the call stopped at its budget (200 files read or 2 seconds) and chats may be missing; the next call, which finds what was read in its cache, goes further."
+            "description": "True when the call stopped at its budget and chats may be missing: 200 reads in all (a file, or one sqlite3 run) across the three stores, or 2 seconds for the whole call. The next call, which finds what was read in its cache, goes further."
           }
         },
         "additionalProperties": false,

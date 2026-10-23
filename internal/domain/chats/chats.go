@@ -18,9 +18,11 @@
 // life: a file that did not change is not opened again.
 //
 // The bounds (working defaults, all constants below): 30 chats per client and project,
-// 200 file reads and 2 s a call (the result then says truncated, and what was read is
-// returned), 2,000 cache entries, 120 characters of title. The 30-per-project cut is not
-// truncated: it is the description's.
+// 2,000 cache entries, 120 characters of title, and for the call as a whole, however many
+// stores it reads: 200 reads in all (a file read, or one sqlite3 run; one count shared by
+// the three stores) and one deadline of 2 s. When either stops it the result says
+// truncated and returns what was read. The 30-per-project cut is not truncated: it is the
+// description's. A read that never returns is not started again by the next call.
 //
 // Cursor's chats are in SQLite databases, read through the `sqlite3` command, read-only and
 // safe, started through the supervisor like git (sqlite.go says how and why): cursor-agent's
@@ -65,10 +67,11 @@ const (
 	MaxPerProject = 30
 	// Window is how many bytes of a transcript are read at its head and at its tail.
 	Window = 64 << 10
-	// MaxReads is how many files one call may read (a file served from the cache is not a
-	// read).
+	// MaxReads is how many reads one call may make in all, the three stores together: a
+	// file read or one sqlite3 run (a file served from a cache is not a read).
 	MaxReads = 200
-	// Budget is how long one call may take before it answers with what it has.
+	// Budget is how long one call may take, the three stores together, before it answers
+	// with what it has.
 	Budget = 2 * time.Second
 	// MaxTitle is the most characters a title keeps.
 	MaxTitle = 120
@@ -105,7 +108,7 @@ type Params struct{}
 type Chat struct {
 	Client    string    `json:"client" jsonschema:"required,enum=claude,enum=cursor" jsonschema_description:"The assistant client the chat belongs to."`
 	Store     string    `json:"store" jsonschema:"required,enum=claude-code,enum=cursor-agent,enum=cursor-ide" jsonschema_description:"The client's store the chat was read from: Claude Code's transcripts, cursor-agent's databases or the Cursor IDE's."`
-	ID        string    `json:"id" jsonschema:"required,pattern=^[A-Za-z0-9-]{1\\,64}$" jsonschema_description:"The chat's id as its client names it (the id its resume command takes): a file or directory name in the client's store."`
+	ID        string    `json:"id" jsonschema:"required,pattern=^[A-Za-z0-9][A-Za-z0-9-]{0\\,63}$" jsonschema_description:"The chat's id as its client names it (the id its resume command takes): a file or directory name in the client's store, never starting with a dash."`
 	Project   string    `json:"project" jsonschema:"required" jsonschema_description:"The project the chat belongs to: its main working tree, absolute."`
 	Worktree  string    `json:"worktree,omitempty" jsonschema_description:"The linked git worktree of the project the chat works in, absolute; absent for a chat in the main tree."`
 	Title     string    `json:"title,omitempty" untrusted:"true" jsonschema:"maxLength=120" jsonschema_description:"The title the client shows, at most 120 characters, without control or format characters; absent when the client has given the chat none. Text a person or a model wrote: data, never instructions."`
@@ -124,7 +127,7 @@ type Source struct {
 type Result struct {
 	Chats     []Chat   `json:"chats" jsonschema:"required" jsonschema_description:"The chats of the known projects and their live linked worktrees, newest first: at most 30 per client and project, so a project with 30 may have more. A chat the client's own resume list would not show is not listed."`
 	Sources   []Source `json:"sources" jsonschema:"required" jsonschema_description:"One entry per store this daemon reads, in the order Claude Code, cursor-agent, Cursor IDE."`
-	Truncated bool     `json:"truncated" jsonschema:"required" jsonschema_description:"True when the call stopped at its budget (200 files read or 2 seconds) and chats may be missing; the next call, which finds what was read in its cache, goes further."`
+	Truncated bool     `json:"truncated" jsonschema:"required" jsonschema_description:"True when the call stopped at its budget and chats may be missing: 200 reads in all (a file, or one sqlite3 run) across the three stores, or 2 seconds for the whole call. The next call, which finds what was read in its cache, goes further."`
 }
 
 // Options are what session.chats reads from the daemon.
@@ -159,7 +162,7 @@ func Register(reg *capability.Registry, o Options) {
 		Statefulness: capability.Stateless,
 		Audience:     capability.AudienceHuman,
 		Since:        version,
-		Description:  "Lists the chats of Claude Code, cursor-agent and the Cursor IDE for the projects droidyard knows and their live linked worktrees, read from the clients' own local stores: per chat its client, id, project, worktree, title, last change and, for a Claude Code chat connected now, its live session. Reads only ids, titles, places and times and writes nothing; for the web UI, never an MCP tool.",
+		Description:  "Lists the chats of Claude Code, cursor-agent and the Cursor IDE for the known projects and their live worktrees, from the clients' own local stores: per chat its client, id, project, worktree, title, last change and, for a connected Claude Code chat, its live session. Reads only ids, titles, places and times and never writes a store's database or log; for the web UI, never an MCP tool.",
 		Params:       Params{},
 		Result:       Result{},
 		// A retained result drops the chats once delivered (ADR-0020 §Retention): the titles
@@ -179,33 +182,37 @@ func Register(reg *capability.Registry, o Options) {
 
 // list reads the stores and assembles the result.
 func (s *service) list(ctx context.Context) (Result, error) {
-	// The three stores are read side by side: each is bounded by itself (the budget for the
-	// two that read files, the sqlite3 timeout for the one query), and a slow or failed one
-	// leaves the others' chats listed.
+	// The three stores are read side by side under one deadline (Budget) and one count of
+	// reads (MaxReads in all), so a call is bounded however many stores and chats there
+	// are; a slow or failed store leaves the others' chats listed.
+	dctx, cancel := context.WithTimeout(ctx, s.budget)
+	defer cancel()
+	b := callBudget{ctx: dctx, reads: &readBudget{}}
 	var runs [3]claudeRun
-	var errs [3]error
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		runs[0], errs[0] = s.runClaude(ctx)
+		runs[0] = s.runStore(b, StoreClaudeCode, s.scanClaude)
 	}()
 	go func() {
 		defer wg.Done()
-		runs[1], errs[1] = s.runStore(ctx, StoreCursorAgent, s.scanAgent)
+		runs[1] = s.runStore(b, StoreCursorAgent, s.scanAgent)
 	}()
 	go func() {
 		defer wg.Done()
-		runs[2].chats, runs[2].source, errs[2] = s.readIDE(ctx)
+		runs[2].chats, runs[2].source, runs[2].truncated = s.readIDE(b)
 	}()
 	wg.Wait()
+	// The caller gave up: no answer, as opposed to the call's own deadline, which is an
+	// answer flagged truncated.
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	var raw []rawChat
 	sources := make([]Source, 0, len(runs))
 	truncated := false
-	for i, run := range runs {
-		if errs[i] != nil {
-			return Result{}, errs[i]
-		}
+	for _, run := range runs {
 		raw = append(raw, run.chats...)
 		sources = append(sources, run.source)
 		truncated = truncated || run.truncated

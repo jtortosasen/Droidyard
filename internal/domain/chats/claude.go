@@ -27,8 +27,10 @@ import (
 // the directory that holds a file, not the lines inside it, says which tree the chat is
 // in: the lines only settle the encoding, which is lossy ('/' and '-' both become '-').
 
-// idPattern is a chat id: what the published schema says, and a safe file stem.
-var idPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
+// idPattern is a chat id: what the published schema says, and a safe file stem. It cannot
+// start with '-': the id is copied into a resume command (`claude --resume <id>`), where a
+// leading '-' would be read as an option.
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,63}$`)
 
 // maxCwd bounds the working directory kept from a line: no path is longer, and a longer
 // value would make a prefix test unsound.
@@ -121,11 +123,11 @@ type claudeRun struct {
 // answers: the scan appends under the lock, and the call takes a snapshot and closes it, so
 // a scan blocked in a read can never change a result already returned.
 type accum struct {
-	store     string // the store the findings come from, named in its source
+	store     string      // the store the findings come from, named in its source
+	budget    *readBudget // the call's reads, shared by the three stores
 	mu        sync.Mutex
 	closed    bool
 	chats     []rawChat
-	reads     int
 	truncated bool
 	absent    bool
 	cause     string
@@ -139,17 +141,38 @@ func (a *accum) add(c rawChat) {
 	}
 }
 
+// readBudget is the reads one call may make in all: MaxReads between the three stores. A
+// file read, or one sqlite3 run, is one read; a file served from a cache is none.
+type readBudget struct {
+	mu    sync.Mutex
+	reads int
+}
+
+func (b *readBudget) take() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.reads >= MaxReads {
+		return false
+	}
+	b.reads++
+	return true
+}
+
 // tryRead takes one read of the call's budget; false when it is spent, and then the result
 // is truncated.
 func (a *accum) tryRead() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.reads >= MaxReads {
-		a.truncated = true
+	if !a.budget.take() {
+		a.markTruncated()
 		return false
 	}
-	a.reads++
 	return true
+}
+
+// markTruncated says the store stopped short of everything it could have read.
+func (a *accum) markTruncated() {
+	a.mu.Lock()
+	a.truncated = true
+	a.mu.Unlock()
 }
 
 func (a *accum) fail(cause string) {
@@ -193,17 +216,18 @@ type service struct {
 	// sql starts the sqlite3 the Cursor stores are read through.
 	sql sqliteRunner
 
-	mu     sync.Mutex
-	cache  map[string]facts
-	agents map[string]agentFacts // cursor-agent chat directories, by path
-	ide    ideCache              // the Cursor IDE's last result
+	mu       sync.Mutex
+	inflight map[string]*reading // files a read of which has begun and not returned
+	cache    map[string]facts
+	agents   map[string]agentFacts // cursor-agent chat directories, by path
+	ide      ideCache              // the Cursor IDE's last result
 }
 
 func newService(o Options) *service {
 	return &service{
 		o: o, budget: Budget, readAt: readFileAt,
 		sql:   sqliteRunner{start: o.Starter, timeout: sqliteTimeout, maxOut: sqliteMaxOut},
-		cache: map[string]facts{}, agents: map[string]agentFacts{},
+		cache: map[string]facts{}, agents: map[string]agentFacts{}, inflight: map[string]*reading{},
 	}
 }
 
@@ -231,26 +255,63 @@ func readFileAt(path string, off int64, n int) ([]byte, error) {
 	return buf[:got], nil
 }
 
-// runClaude reads Claude Code's store within the call's budget.
-func (s *service) runClaude(parent context.Context) (claudeRun, error) {
-	return s.runStore(parent, StoreClaudeCode, s.scanClaude)
+// callBudget is what the three stores of one call share: its deadline (Budget) and its reads
+// (MaxReads in all).
+type callBudget struct {
+	ctx   context.Context // ends at the call's deadline, or when the caller gives up
+	reads *readBudget
 }
 
-// runStore runs the scan of one store within the call's budget. The scan runs in its own
-// goroutine so a read that blocks (a file on a stalled mount) cannot hold the call past
-// its deadline: the call then answers with what the scan had found and says truncated.
-func (s *service) runStore(parent context.Context, store string, scan func(context.Context, *accum)) (claudeRun, error) {
-	ctx, cancel := context.WithTimeout(parent, s.budget)
-	defer cancel()
-	acc := &accum{store: store}
+// reading is the reads of one path in flight: how many, and since when the oldest.
+type reading struct {
+	n     int
+	since time.Time
+}
+
+// begin marks path as being read and reports whether a read may start. A read that never
+// returns (a file on a stalled mount) is still in flight when its call has answered; a later
+// call must not start a second read of the same path behind it, or every call would leave
+// one more goroutine stuck. A read in flight for less than a call's budget is an ordinary
+// one of an overlapping call (two tabs refreshing on one event), and is no reason to skip.
+func (s *service) begin(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.inflight[path]
+	if r == nil {
+		s.inflight[path] = &reading{n: 1, since: time.Now()}
+		return true
+	}
+	if time.Since(r.since) > s.budget {
+		return false
+	}
+	r.n++
+	return true
+}
+
+func (s *service) end(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.inflight[path]; r != nil {
+		if r.n--; r.n == 0 {
+			delete(s.inflight, path)
+		}
+	}
+}
+
+// runStore runs the scan of one store within the call's deadline. The scan runs in its own
+// goroutine so a read that blocks cannot hold the call past it: the call then answers with
+// what the scan had found and says truncated. (The caller's own cancellation is the
+// caller's to check.)
+func (s *service) runStore(c callBudget, store string, scan func(context.Context, *accum)) claudeRun {
+	acc := &accum{store: store, budget: c.reads}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		scan(ctx, acc)
+		scan(c.ctx, acc)
 	}()
 	select {
 	case <-done:
-	case <-ctx.Done():
+	case <-c.ctx.Done():
 	}
 	finished := false
 	select {
@@ -260,12 +321,9 @@ func (s *service) runStore(parent context.Context, store string, scan func(conte
 	}
 	run := acc.snapshot()
 	if !finished {
-		if err := parent.Err(); err != nil {
-			return claudeRun{}, err
-		}
 		run.truncated = true
 	}
-	return run, nil
+	return run
 }
 
 // projects are the trees whose chats are looked for, a group per project the daemon knows:
@@ -396,6 +454,12 @@ func (s *service) factsOf(acc *accum, ref fileRef) (facts, bool) {
 	if ok && f.size == ref.size && f.mtime == mtime {
 		return f, true
 	}
+	// A read of this file from an earlier call that has not returned: not started again.
+	if !s.begin(key) {
+		acc.markTruncated()
+		return facts{}, false
+	}
+	defer s.end(key)
 	if !acc.tryRead() {
 		return facts{}, false
 	}

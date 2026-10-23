@@ -29,7 +29,12 @@ Code 2.1.309, cursor-agent with `--resume [chatId]`, `sqlite3` 3.51.0 (`/usr/bin
 ## (c) Cursor IDE
 
 - **Observed.** `globalStorage/state.vscdb` is WAL (its `-wal` was 0 bytes, `-shm` 32 KiB).
-  `composerHeaders` has 601 rows, 31 distinct `workspaceId`. Columns `isArchived` (109 set) and
+  `composerHeaders (composerId TEXT PRIMARY KEY, workspaceId, createdAt, lastUpdatedAt, isArchived,
+  isSubagent, recency, checkpointAt, value, subagentTypeName)` (`.schema`, before the lane's
+  claim) has 601 rows, 31 distinct `workspaceId`; the keys of one row's `value`, read in that
+  same first probe, include `composerId`, `lastUpdatedAt`, `createdAt`, `isArchived`, `isDraft`
+  and `workspaceIdentifier`; at the close, `value.composerId` equals the column in all 601 rows.
+  Columns `isArchived` (109 set) and
   `isSubagent` (214 set); in `value`: `name` (the title, in 438 rows; in 203 of the 270 rows
   neither archived, subagent nor draft), `isDraft`, `isWorktree` (never set here),
   `workspaceIdentifier {id, uri {fsPath, path, scheme, external, $mid}}`; `id` equals the

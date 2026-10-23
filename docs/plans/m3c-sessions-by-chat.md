@@ -208,3 +208,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-23, step 1: the Cursor IDE was never opened on this repository, so step 5 (b) reads its store and lists none.
 
 - 2026-10-23, at approval: ADR-0127 and the `Superseded in part by: ADR-0127` header lines of ADR-0083, ADR-0048 and ADR-0088 land in the plan's commit, before step 1 (`internal/doccheck` checks the pointer both ways).
+- 2026-10-23, close verifier: the UI does not say a project was cut at 30 (step 2's "the UI says so"): the cut is the description's and a register row's; not built.
+- 2026-10-23, close verifier B1: the IDE's `composerId` and `lastUpdatedAt` were read in the main session's first probe (before the claim) but not recorded; the spike note now records them, and at the close `value.composerId` equals the column in all 601 rows.
