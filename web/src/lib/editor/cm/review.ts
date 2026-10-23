@@ -250,7 +250,7 @@ const numbers = cmGutter({
 
 /** Review's own rules, in the tokens; no colour literal. */
 export const reviewTheme = EditorView.theme({
-	'.cm-review-same': { opacity: '0.55' },
+	'.cm-review-same': { color: 'var(--text-3)', '& span': { color: 'var(--text-3)' } },
 	'.cm-review-add': { backgroundColor: mix('--success', 12) },
 	'.cm-review-del': { backgroundColor: mix('--danger', 12) },
 	'.cm-review-gutter .cm-gutterElement': { padding: '0' },

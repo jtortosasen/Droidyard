@@ -288,7 +288,7 @@
 		inset: 0;
 		display: flex;
 		flex-direction: column;
-		background: var(--bg-panel);
+		background: var(--bg-window);
 	}
 	.head {
 		flex: none;

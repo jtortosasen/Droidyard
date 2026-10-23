@@ -127,7 +127,7 @@
 	.editor {
 		position: absolute;
 		inset: 0;
-		background: var(--bg-panel);
+		background: var(--bg-window);
 		display: flex;
 		flex-direction: column;
 	}
@@ -156,17 +156,17 @@
 		align-items: center;
 		height: var(--ftab-height);
 		border-right: 1px solid var(--border);
-		border-bottom: 2px solid transparent;
 		color: var(--text-2);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 	}
 	.file:hover {
 		background: var(--bg-hover);
 	}
 	.file.current {
-		background: var(--bg-panel);
+		background: var(--bg-window);
 		color: var(--text);
-		border-bottom-color: var(--accent);
+		box-shadow: inset 0 2px 0 var(--accent);
 	}
 	.file.preview .label span {
 		font-style: italic;
