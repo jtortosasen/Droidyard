@@ -721,7 +721,7 @@ export class HistoryStore {
 		if (this.#disposed) return;
 		const w = this.#watch.view;
 		const headOid = w.head === null ? this.#view.headOid : (w.head.oid ?? '');
-		this.#set({ uncommitted: w.head === null ? 0 : w.entries.filter((e) => e.root === undefined).length,uncommittedTruncated: w.truncated, headOid });
+		this.#set({ uncommitted: w.head === null ? 0 : w.entries.filter((e) => e.root === undefined).length, uncommittedTruncated: w.truncated, headOid });
 		if (w.head === null) return;
 		const moved = this.#seenOid !== undefined && this.#seenOid !== headOid;
 		this.#seenOid = headOid;

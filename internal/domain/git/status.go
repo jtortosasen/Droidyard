@@ -102,10 +102,12 @@ func (r *runner) statusIn(ctx context.Context, root string, trusted bool, prefix
 		res, err = r.run(ctx, root, trusted, nil, statusArgsIgnoring("dirty")...)
 		fellBack = true
 	} else {
-		// A trusted `none` status has a bound of its own, noneTimeout (the pass's), shorter than
-		// the runner's, so that the retry below does not come after a full runner timeout.
+		// A trusted `none` status of a repository with submodules has a bound of its own,
+		// noneTimeout (the pass's), shorter than the runner's, so that the retry below does not
+		// come after a full runner timeout. Without a `.gitmodules` the runner's bound stands: a
+		// slow status of a project with no submodules is not cut and asked twice.
 		none := r
-		if trusted && r.noneTimeout > 0 && r.noneTimeout < r.timeout {
+		if trusted && r.noneTimeout > 0 && r.noneTimeout < r.timeout && hasGitmodules(topOf(root, prefix)) {
 			c := *r
 			c.timeout = r.noneTimeout
 			none = &c

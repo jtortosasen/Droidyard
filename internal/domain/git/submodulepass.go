@@ -80,10 +80,7 @@ func (o Options) submodulePass(ctx context.Context, r *runner, root string, trus
 	if !computed && !anyFlagged(st.Entries) {
 		return st, nil // git flagged no submodule: nothing to read, nothing to list
 	}
-	top := root
-	for range strings.Count(prefix, "/") {
-		top = filepath.Dir(top)
-	}
+	top := topOf(root, prefix)
 	timeout, limit := o.passTimeout, o.passCap
 	if timeout <= 0 {
 		timeout = passTimeout
@@ -119,6 +116,16 @@ func (o Options) submodulePass(ctx context.Context, r *runner, root string, trus
 	st.Truncated = st.Truncated || p.truncated
 	st.SubmodulesUnread = p.unread
 	return st, nil
+}
+
+// topOf is the top of the repository holding root, whose workspace prefix ("" or "app/")
+// status read.
+func topOf(root, prefix string) string {
+	top := root
+	for range strings.Count(prefix, "/") {
+		top = filepath.Dir(top)
+	}
+	return top
 }
 
 // hasGitmodules: the repository whose top is top has a `.gitmodules` that is a regular file.

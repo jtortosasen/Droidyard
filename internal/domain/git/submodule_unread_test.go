@@ -7,6 +7,7 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +173,29 @@ func TestWatchDedupIgnoresTheFallback(t *testing.T) {
 	b.Entries[0].Mark = MarkAdded
 	if sameOnTheWire(a, b) {
 		t.Errorf("different entries are the same")
+	}
+}
+
+// TestNoneBoundOnlyWithSubmodules: a trusted project with no .gitmodules keeps the runner's
+// bound, so a status slower than the pass's bound is not cut and asked again with `dirty`.
+func TestNoneBoundOnlyWithSubmodules(t *testing.T) {
+	t.Parallel()
+	f := newPassFx(t)
+	bound := testtime.Bound(500 * time.Millisecond)
+	f.passTimeout = bound
+	f.readTimeout = 20 * bound
+	f.register()
+	f.write(f.root, "a.txt", "a\n")
+	f.commit(f.root)
+	slow := f.script("slow.sh", "sleep "+strconv.FormatFloat((2*bound).Seconds(), 'f', 2, 64)+"; cat")
+	f.appendConfig(f.root, "[filter \"slow\"]\n\tclean = "+slow+"\n")
+	f.write(f.root, ".git/info/attributes", "a.txt filter=slow\n")
+	f.touch(f.root, "a.txt")
+	st := f.tick()
+	if st.fellBack {
+		t.Errorf("a trusted status with no submodules fell back; want the runner's bound, one status")
+	}
+	if len(st.Entries) != 0 {
+		t.Errorf("entries %+v; want none (the filter passes the content through)", st.Entries)
 	}
 }
