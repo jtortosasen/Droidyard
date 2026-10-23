@@ -160,7 +160,12 @@
 - Needs: step 4. Runs beside steps 6–10.
 - Not here: the column's lists (step 6).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `3846220`. Level 5 on the merged tree (`$R=/private/tmp/dy.kUj4Q1`, `$E/step11`), in both themes and at both sizes:
+  - the centre tab's `box-shadow` is the 2 px accent underline;
+  - the status bar computes to Geist Mono;
+  - the column head holds no heading;
+  - Run and Build stay inside the viewport at 720 px.
+  All four failed at step 1. The 44 px toolbar landed at step 4.
 
 ### 6. Left column: projects, sessions, file tree, palette
 
@@ -171,7 +176,10 @@
 - Needs: step 4. Runs beside steps 5, 7–10.
 - Not here: Copy on a connected row (Scope); tree behaviour.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `7f5add8`.
+  - Level 5: no text on the page is dimmed by opacity, in both themes and at both sizes.
+  - The title clamp and Release staying on its row were not measured, because this fixture has no chats and no connected session. They rest on the CSS: `-webkit-line-clamp: 2` in a `minmax(0, 1fr)` column with `title` set to the text, and `flex: none` with the row's `align-items: flex-start`.
+  - `chats.test.ts`, `sessions.test.ts` and `verify` pass.
 
 ### 7. Editor and diff
 
@@ -182,7 +190,10 @@
 - Needs: step 4. Runs beside steps 5, 6, 8–10.
 - Not here: syntax roles, languages, behaviour.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `27e673e`. Level 5:
+  - the current file tab carries a 2 px top accent edge on `--bg-window`;
+  - inside the editor's shadow root, `.cm-activeLine` computes to `--bg-raised` and `.cm-gutters` to `--bg-window`.
+  All three failed at step 1. The functional pass rendered Review's diff (`f-diff.png`).
 
 ### 8. Git
 
@@ -193,7 +204,9 @@
 - Needs: step 4. Runs beside steps 5–7, 9, 10.
 - Not here: graph layout; the disabled filter buttons (row 516, closed: as they are).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `a1a4df2`.
+  - Level 5: History's `.head` computes to `--bg-raised`; it failed at step 1. History no longer dims text with opacity.
+  - Delete branch takes the destructive style and is set apart, but it is a disabled "later" item. The listed files have no other destructive button.
 
 ### 9. Bottom panels
 
@@ -204,7 +217,12 @@
 - Needs: step 4. Runs beside steps 5–8, 10.
 - Not here: Logcat's query or format options (row 497); Problems' scrolling header (row 480).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `d86113a`. The run used the lane's own emulator, `m3d31`, on adb port 5193 behind a guard whose log shows no refusal. Logcat streamed about 4,700 lines.
+  - Every visible error row has `--danger-soft` with `--danger` text.
+  - A `W` row computes to `--warning`.
+  - The level column is 16 px wide. It measured 0 only where Logcat was hidden behind the Git tab.
+  - The last row scrolls in whole.
+  - The main session's fix: the error row and Activity's error text used `--danger-text`, which is meant for text on a solid danger fill and is nearly black on the soft surface. Both now use `--danger`.
 
 ### 10. Device panel and live view
 
@@ -215,7 +233,11 @@
 - Needs: step 4. Runs beside steps 5–9.
 - Not here: live view behaviour.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `1686c67`.
+  - Level 5: the running emulator's Stop has `--danger-border` and is at least 8 px from its neighbours. The main session cut its margin to `--sp-2` so the name wraps less.
+  - Stopping from the UI ended the emulator: no `qemu-system` process was left.
+  - The Fast toggle shows only for a remote device, so it was checked in the CSS only.
+  - The secure notice's left edge was checked in the CSS only (`border: 0; border-left: 3px solid var(--warning)`), because nothing in this fixture sets `FLAG_SECURE`.
 
 ### 11. The merged tree, the finish and the register (main session)
 
@@ -278,3 +300,4 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 
 - 2026-10-23, step 2: dark `--text-2` moved from the sketch's #a1a1aa to #b1b1b9. The contrast floor pushed `--text-3` to #9a9aa4, which left the two text levels about 0.02 apart in luminance, so `--text-2` was lifted to keep the hierarchy. The change is lightness only. Delegated.
 - 2026-10-23, step 4: `h2` keeps the label type only (11.5 px, uppercase, tracked, `--text-2`), and only `.panel-head` is the raised bar. Applied to every `h2`, the bar boxed the headings inside padded sections (Projects, Devices, UI recording) as separate tiles. A region's head adopts `.panel-head` in its area step. Delegated.
+- 2026-10-23, steps 5–10: these ran in parallel in the session's own tree, not in separate worktrees. The Agent tool's isolated worktrees branch from `main`, not `m3d`, so they lacked steps 1–4. The six steps touch disjoint files.
