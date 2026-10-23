@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,14 +27,18 @@ type fixture struct {
 	home     string // canonical temporary directory
 	claude   string // <home>/.claude
 	projects string // <claude>/projects
+	cursor   string // <home>/.cursor
+	ide      string // <home>/ide, standing for the Cursor IDE's globalStorage
 	known    []string
 	clock    time.Time
+	starts   atomic.Int64 // how many sqlite3 the service started
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	home := platform.Current().Canonical(t.TempDir())
-	f := &fixture{t: t, home: home, claude: filepath.Join(home, ".claude")}
+	f := &fixture{t: t, home: home, claude: filepath.Join(home, ".claude"),
+		cursor: filepath.Join(home, ".cursor"), ide: filepath.Join(home, "ide")}
 	f.projects = filepath.Join(f.claude, "projects")
 	if err := os.MkdirAll(f.projects, 0o700); err != nil {
 		t.Fatal(err)
@@ -47,7 +52,13 @@ func (f *fixture) service() *service {
 	return newService(Options{
 		Known: func() []string { return append([]string(nil), f.known...) },
 		Env:   platform.Current(),
-		Dirs:  assistant.UserDirs{Claude: f.claude},
+		Dirs:  assistant.UserDirs{Claude: f.claude, Cursor: f.cursor},
+		// Neither Cursor store exists in the fixture unless a test makes one: absent.
+		CursorIDE: f.ide,
+		Starter: func(cmd *exec.Cmd) error {
+			f.starts.Add(1)
+			return startGroup(cmd)
+		},
 	})
 }
 

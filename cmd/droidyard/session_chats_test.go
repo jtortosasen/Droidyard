@@ -76,8 +76,12 @@ func TestSessionChatsEndToEnd(t *testing.T) {
 	if wt == nil || wt.Project != w.main || wt.Worktree != w.wt1 || wt.Session != "" {
 		t.Errorf("chat-w: %+v; want wt1's chat of the main project, joined to no session", wt)
 	}
-	if len(res.Sources) != 1 || res.Sources[0].State != chats.StateRead {
-		t.Errorf("sources %+v; want claude-code read", res.Sources)
+	// The fake HOME holds no Cursor store: both are absent, not failed, and no sqlite3 was
+	// needed to say so.
+	if len(res.Sources) != 3 || res.Sources[0] != (chats.Source{Store: chats.StoreClaudeCode, State: chats.StateRead}) ||
+		res.Sources[1] != (chats.Source{Store: chats.StoreCursorAgent, State: chats.StateAbsent}) ||
+		res.Sources[2] != (chats.Source{Store: chats.StoreCursorIDE, State: chats.StateAbsent}) {
+		t.Errorf("sources %+v; want claude-code read, cursor-agent and cursor-ide absent", res.Sources)
 	}
 }
 

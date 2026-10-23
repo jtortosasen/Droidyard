@@ -215,6 +215,16 @@ func clientDirs(env platform.Env) assistant.UserDirs {
 	return assistant.ResolveUserDirs(home, env.Getenv)
 }
 
+// cursorIDEDir is the Cursor IDE's globalStorage directory for the daemon's home, empty
+// (not locatable) without one.
+func cursorIDEDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return chats.IDEGlobalStorage(home)
+}
+
 // registry builds the shipped registry, the operation store that dispatches from it
 // and the daemon's event bus, over the state store st and the supervisor sup, logging
 // to log. internal/schema's test builds the same set for the golden file. caps and
@@ -550,8 +560,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// session.chats lists the clients' chats of the projects the index knows, read from the
 	// clients' own stores (ADR-0127): audience human, stateless, joined to the live sessions
 	// by chat id. The stores are those `init --user` writes in, resolved from the daemon's
-	// own environment.
-	chats.Register(reg, chats.Options{Sessions: ops.Sessions(), Known: ws.Known, Env: env, Dirs: clientDirs(env)})
+	// own environment. Cursor's databases are read through `sqlite3`, started through the
+	// supervisor's spawner as git is.
+	chats.Register(reg, chats.Options{
+		Sessions: ops.Sessions(), Known: ws.Known, Env: env, Dirs: clientDirs(env),
+		CursorIDE: cursorIDEDir(), Starter: spawn,
+	})
 	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
 	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
 	// hook the project-code capabilities share; its command is spawned through the

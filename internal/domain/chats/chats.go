@@ -22,6 +22,13 @@
 // returned), 2,000 cache entries, 120 characters of title. The 30-per-project cut is not
 // truncated: it is the description's.
 //
+// Cursor's chats are in SQLite databases, read through the `sqlite3` command, read-only and
+// safe, started through the supervisor like git (sqlite.go says how and why): cursor-agent's
+// per chat directory (cursoragent.go), the IDE's in one query on the candidate paths
+// (cursoride.go). A call's three stores are read side by side. Without `sqlite3` on PATH
+// those two stores are failed sources, and a cursor-agent chat that has a meta.json is still
+// listed, untitled.
+//
 // A store that is absent, unreadable or in a form this code does not know is a sources
 // entry with a cause, never an error: the clients' formats are undocumented and change with
 // their versions, so a changed format reads as an untitled or empty group (ADR-0127
@@ -40,10 +47,12 @@ package chats
 import (
 	"context"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
@@ -132,6 +141,12 @@ type Options struct {
 	// Dirs are the user's client directories (assistant.ResolveUserDirs): Claude's
 	// configuration directory and ~/.cursor.
 	Dirs assistant.UserDirs
+	// CursorIDE is the Cursor IDE's globalStorage directory (IDEGlobalStorage); not absolute
+	// means it cannot be located.
+	CursorIDE string
+	// Starter starts the sqlite3 the Cursor stores are read through, in a process group of
+	// its own (the supervisor's Spawn). Nil means no Cursor database can be read.
+	Starter device.Starter
 }
 
 // Register adds session.chats to the registry.
@@ -164,11 +179,38 @@ func Register(reg *capability.Registry, o Options) {
 
 // list reads the stores and assembles the result.
 func (s *service) list(ctx context.Context) (Result, error) {
-	run, err := s.runClaude(ctx)
-	if err != nil {
-		return Result{}, err
+	// The three stores are read side by side: each is bounded by itself (the budget for the
+	// two that read files, the sqlite3 timeout for the one query), and a slow or failed one
+	// leaves the others' chats listed.
+	var runs [3]claudeRun
+	var errs [3]error
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		runs[0], errs[0] = s.runClaude(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		runs[1], errs[1] = s.runStore(ctx, StoreCursorAgent, s.scanAgent)
+	}()
+	go func() {
+		defer wg.Done()
+		runs[2].chats, runs[2].source, errs[2] = s.readIDE(ctx)
+	}()
+	wg.Wait()
+	var raw []rawChat
+	sources := make([]Source, 0, len(runs))
+	truncated := false
+	for i, run := range runs {
+		if errs[i] != nil {
+			return Result{}, errs[i]
+		}
+		raw = append(raw, run.chats...)
+		sources = append(sources, run.source)
+		truncated = truncated || run.truncated
 	}
-	raw := dropContinued(run.chats)
+	raw = dropContinued(raw)
 	sort.Slice(raw, func(i, j int) bool {
 		if !raw[i].updated.Equal(raw[j].updated) {
 			return raw[i].updated.After(raw[j].updated)
@@ -178,17 +220,19 @@ func (s *service) list(ctx context.Context) (Result, error) {
 	out := make([]Chat, 0, len(raw))
 	for _, c := range raw {
 		chat := Chat{
-			Client: ClientClaude, Store: StoreClaudeCode, ID: c.id, Project: c.project, Worktree: c.worktree,
+			Client: ClientClaude, Store: c.store, ID: c.id, Project: c.project, Worktree: c.worktree,
 			Title: c.title, UpdatedAt: c.updated,
 		}
-		// Only a Claude Code chat can be joined: Cursor's connection carries no chat id
-		// (ADR-0095 §1).
-		if s.o.Sessions != nil {
+		if c.store != StoreClaudeCode {
+			chat.Client = ClientCursor
+		} else if s.o.Sessions != nil {
+			// Only a Claude Code chat can be joined: Cursor's connection carries no chat id
+			// (ADR-0095 §1).
 			if j, ok := s.o.Sessions.Joined(c.id); ok {
 				chat.Session = j.ID
 			}
 		}
 		out = append(out, chat)
 	}
-	return Result{Chats: out, Sources: []Source{run.source}, Truncated: run.truncated}, nil
+	return Result{Chats: out, Sources: sources, Truncated: truncated}, nil
 }

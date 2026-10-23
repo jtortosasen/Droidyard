@@ -40,8 +40,8 @@ func TestClaudeChatsOfAProjectAndItsWorktrees(t *testing.T) {
 	if w.Project != r.main || w.Worktree != wt {
 		t.Errorf("worktree chat %+v; want project %s and worktree %s", w, r.main, wt)
 	}
-	if len(res.Sources) != 1 || res.Sources[0] != (Source{Store: StoreClaudeCode, State: StateRead}) {
-		t.Errorf("sources %+v; want claude-code read", res.Sources)
+	if len(res.Sources) != 3 || res.Sources[0] != (Source{Store: StoreClaudeCode, State: StateRead}) {
+		t.Errorf("sources %+v; want claude-code read first (then the two Cursor stores)", res.Sources)
 	}
 }
 

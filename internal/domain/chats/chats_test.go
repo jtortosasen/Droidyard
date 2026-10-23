@@ -213,7 +213,7 @@ func TestChatsSources(t *testing.T) {
 			t.Fatal(err)
 		}
 		res := list(t, f.service())
-		if len(res.Sources) != 1 || res.Sources[0].State != StateAbsent || res.Sources[0].Cause != "" || len(res.Chats) != 0 {
+		if len(res.Sources) != 3 || res.Sources[0].State != StateAbsent || res.Sources[0].Cause != "" || len(res.Chats) != 0 {
 			t.Errorf("sources %+v, chats %d; want claude-code absent with no cause", res.Sources, len(res.Chats))
 		}
 		if res.Chats == nil || res.Sources == nil {
@@ -314,7 +314,7 @@ func TestRegisterDescribesTheCapability(t *testing.T) {
 		t.Errorf("result %+v; want chat-1 titled", res)
 	}
 	slim := d.Slim(res).(Result)
-	if len(slim.Chats) != 0 || len(slim.Sources) != 1 || slim.Chats == nil {
+	if len(slim.Chats) != 0 || len(slim.Sources) != 3 || slim.Chats == nil {
 		t.Errorf("slim result %+v; want no chats (an empty list), the sources kept", slim)
 	}
 }

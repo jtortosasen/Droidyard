@@ -105,11 +105,12 @@ type fileRef struct {
 
 // rawChat is a chat the reader kept, before the result is assembled.
 type rawChat struct {
+	store                                     string
 	id, project, worktree, title, continuedIn string
 	updated                                   time.Time
 }
 
-// claudeRun is what one call learned from Claude Code's store.
+// claudeRun is what one call learned from one store (named for the first, Claude Code's).
 type claudeRun struct {
 	chats     []rawChat
 	source    Source
@@ -120,6 +121,7 @@ type claudeRun struct {
 // answers: the scan appends under the lock, and the call takes a snapshot and closes it, so
 // a scan blocked in a read can never change a result already returned.
 type accum struct {
+	store     string // the store the findings come from, named in its source
 	mu        sync.Mutex
 	closed    bool
 	chats     []rawChat
@@ -171,11 +173,11 @@ func (a *accum) snapshot() claudeRun {
 	run := claudeRun{chats: append([]rawChat(nil), a.chats...), truncated: a.truncated}
 	switch {
 	case a.absent:
-		run.source = Source{Store: StoreClaudeCode, State: StateAbsent}
+		run.source = Source{Store: a.store, State: StateAbsent}
 	case a.cause != "":
-		run.source = Source{Store: StoreClaudeCode, State: StateFailed, Cause: a.cause}
+		run.source = Source{Store: a.store, State: StateFailed, Cause: a.cause}
 	default:
-		run.source = Source{Store: StoreClaudeCode, State: StateRead}
+		run.source = Source{Store: a.store, State: StateRead}
 	}
 	return run
 }
@@ -188,12 +190,21 @@ type service struct {
 	// opened; tests replace it to count what is read and to block it.
 	readAt func(path string, off int64, n int) ([]byte, error)
 
-	mu    sync.Mutex
-	cache map[string]facts
+	// sql starts the sqlite3 the Cursor stores are read through.
+	sql sqliteRunner
+
+	mu     sync.Mutex
+	cache  map[string]facts
+	agents map[string]agentFacts // cursor-agent chat directories, by path
+	ide    ideCache              // the Cursor IDE's last result
 }
 
 func newService(o Options) *service {
-	return &service{o: o, budget: Budget, readAt: readFileAt, cache: map[string]facts{}}
+	return &service{
+		o: o, budget: Budget, readAt: readFileAt,
+		sql:   sqliteRunner{start: o.Starter, timeout: sqliteTimeout, maxOut: sqliteMaxOut},
+		cache: map[string]facts{}, agents: map[string]agentFacts{},
+	}
 }
 
 // readFileAt opens a regular file and reads up to n bytes from off. The kind is checked on
@@ -220,17 +231,22 @@ func readFileAt(path string, off int64, n int) ([]byte, error) {
 	return buf[:got], nil
 }
 
-// runClaude reads Claude Code's store within the call's budget. The scan runs in its own
+// runClaude reads Claude Code's store within the call's budget.
+func (s *service) runClaude(parent context.Context) (claudeRun, error) {
+	return s.runStore(parent, StoreClaudeCode, s.scanClaude)
+}
+
+// runStore runs the scan of one store within the call's budget. The scan runs in its own
 // goroutine so a read that blocks (a file on a stalled mount) cannot hold the call past
 // its deadline: the call then answers with what the scan had found and says truncated.
-func (s *service) runClaude(parent context.Context) (claudeRun, error) {
+func (s *service) runStore(parent context.Context, store string, scan func(context.Context, *accum)) (claudeRun, error) {
 	ctx, cancel := context.WithTimeout(parent, s.budget)
 	defer cancel()
-	acc := &accum{}
+	acc := &accum{store: store}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.scanClaude(ctx, acc)
+		scan(ctx, acc)
 	}()
 	select {
 	case <-done:
@@ -252,6 +268,31 @@ func (s *service) runClaude(parent context.Context) (claudeRun, error) {
 	return run, nil
 }
 
+// projects are the trees whose chats are looked for, a group per project the daemon knows:
+// its main tree first, then its live linked worktrees (ADR-0089 §2, no git). It stops when
+// ctx ends.
+func (s *service) projects(ctx context.Context) [][]candidate {
+	var known []string
+	if s.o.Known != nil {
+		known = s.o.Known()
+	}
+	var out [][]candidate
+	for _, main := range known {
+		if ctx.Err() != nil {
+			break
+		}
+		if !filepath.IsAbs(main) {
+			continue
+		}
+		cands := []candidate{{project: main}}
+		for _, w := range platform.Worktrees(s.o.Env, main) {
+			cands = append(cands, candidate{project: main, worktree: w.Root})
+		}
+		out = append(out, cands)
+	}
+	return out
+}
+
 // scanClaude lists the candidates' transcripts and reads the ones the result needs.
 func (s *service) scanClaude(ctx context.Context, acc *accum) {
 	if !filepath.IsAbs(s.o.Dirs.Claude) {
@@ -267,21 +308,7 @@ func (s *service) scanClaude(ctx context.Context, acc *accum) {
 		}
 		return
 	}
-	var known []string
-	if s.o.Known != nil {
-		known = s.o.Known()
-	}
-	for _, main := range known {
-		if ctx.Err() != nil {
-			return
-		}
-		if !filepath.IsAbs(main) {
-			continue
-		}
-		cands := []candidate{{project: main}}
-		for _, w := range platform.Worktrees(s.o.Env, main) {
-			cands = append(cands, candidate{project: main, worktree: w.Root})
-		}
+	for _, cands := range s.projects(ctx) {
 		var refs []fileRef
 		for _, c := range cands {
 			dir := filepath.Join(base, encodePath(c.path()))
@@ -317,7 +344,7 @@ func (s *service) readProject(ctx context.Context, acc *accum, refs []fileRef) {
 		}
 		kept++
 		acc.add(rawChat{
-			id: ref.id, project: ref.cand.project, worktree: ref.cand.worktree,
+			store: StoreClaudeCode, id: ref.id, project: ref.cand.project, worktree: ref.cand.worktree,
 			title: f.title, continuedIn: f.continuedIn, updated: ref.mtime,
 		})
 	}

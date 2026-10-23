@@ -134,7 +134,7 @@
 - Not here: OpenCode (Scope); joining Cursor chats to live sessions (no chat id, ADR-0095 §1).
 - Rests on: `sqlite3` is started read-only and safe and no store file is written or created: level 3 on synthetic dbs, `TestSQLiteWritesNothing` and `TestSQLiteInvocation`; on Cursor's own live db, Unverified.
 - Review: the main session's diff review, effort `high` (a new external process, a new untrusted input).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `internal/domain/chats` `sqlite.go` (the one place `sqlite3` starts: `-init /dev/null -safe -readonly -json`, `mode=ro`, `immutable=1` only on a closed WAL db, through the supervisor's Starter, the group killed at 3 s, 4 MiB cap, environment `PATH`, `HOME`, `TMPDIR` only), `cursoragent.go`, `cursoride.go` (one query, filtered in SQL on `workspaceIdentifier.uri.fsPath`; `composerId` in `value`, as step 1's first probe of the keys showed), the three stores read concurrently; `process-lifecycle.md` names `sqlite3`; the schema unchanged; `go test ./...` and `-race` on `chats` pass. Seen failing reversed: `hasConversation`, `cwd`, a chat with neither meta nor name, the agent and IDE caches, the cut of 30 in both, the archived, subagent and draft clauses, the SQL filter (`TestCursorIDEFiltersInSQL`), the quote not doubled, a closed WAL db opened `mode=ro` (it fails, error 14, nothing created), `immutable` forced on a live WAL (its uncheckpointed row missed), each of `-init`, `-safe`, `-readonly`, the raw path in the URI, a linked db, the pid killed instead of the group, the cap. Not proven: that `sqlite3` ignores an rc file (it reads the home from the password database, not `HOME`; argv shows `-init /dev/null`); Cursor's own live db; Linux and CI.
 
 ### 5. Level 5, the documents, the close
 
