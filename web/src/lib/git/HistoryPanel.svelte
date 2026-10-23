@@ -799,7 +799,8 @@
 		flex: none;
 		height: var(--row);
 		font-size: var(--fs-small);
-		color: var(--text-3);
+		color: var(--text-2);
+		background: var(--bg-raised);
 		letter-spacing: var(--tracking-label);
 		border-bottom: 1px solid var(--border);
 		scrollbar-gutter: stable;
@@ -865,9 +866,14 @@
 	.cell:nth-child(n + 3) .text {
 		color: var(--text-2);
 	}
-	.merge .text,
-	.merge .node {
-		opacity: 0.55;
+	/* The commit time is a figure: mono, like the hash. */
+	.cell:nth-child(4) .text {
+		font-family: var(--font-mono);
+		font-size: var(--fs-mono);
+	}
+	/* A merge commit recedes by colour, not by opacity. */
+	.row.merge .cell .text {
+		color: var(--text-3);
 	}
 	.graph {
 		flex: none;
