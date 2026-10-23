@@ -84,6 +84,7 @@
 	}
 	pre {
 		font-size: var(--fs-log);
+		line-height: var(--lh-log);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}

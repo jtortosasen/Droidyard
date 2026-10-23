@@ -458,6 +458,7 @@
 		border-radius: 999px;
 		background: var(--bg-active);
 		color: var(--text-2);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 	}
 	.actor.you {
@@ -468,6 +469,7 @@
 	.time,
 	.elapsed {
 		color: var(--text-3);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		font-variant-numeric: tabular-nums;
 	}

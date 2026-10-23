@@ -11,7 +11,7 @@
 	import { QueryBar } from './bar';
 	import type { LogcatDevice } from './device';
 	import type { MineSet } from './mine';
-	import { formatLine, priorityClass } from './format';
+	import { lineParts, priorityClass } from './format';
 	import { LogcatSession } from './session';
 	import { rowWindow } from './virtual';
 
@@ -234,7 +234,8 @@
 						{#if isMarker(row.entry)}
 							<div class="row marker">{row.entry.text}</div>
 						{:else}
-							<div class={['row', priorityClass(row.entry.priority)]}>{formatLine(row.entry)}</div>
+							{@const p = lineParts(row.entry)}
+							<div class={['row', priorityClass(row.entry.priority)]}><span class="ts">{p.time}</span> <span class="pid">{p.pid}</span> {p.rest} <span class="lv">{p.level}</span> {p.text}</div>
 						{/if}
 					{/each}
 				</div>
@@ -267,8 +268,10 @@
 	.bar {
 		flex: none;
 		display: flex;
-		gap: var(--sp-2);
+		gap: var(--sp-4);
 		align-items: center;
+		padding: var(--sp-4) var(--sp-6);
+		border-bottom: 1px solid var(--border);
 	}
 	.query {
 		flex: 1;
@@ -304,15 +307,12 @@
 		min-height: 56px;
 		display: flex;
 		flex-direction: column;
-		margin-top: var(--sp-2);
 	}
 	.viewport {
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
 		background: var(--bg-window);
 	}
 	.spacer {
@@ -323,6 +323,19 @@
 		font-family: var(--font-mono);
 		font-size: var(--fs-log);
 		line-height: var(--log-row);
+		padding: 0 var(--sp-6);
+	}
+	.ts {
+		color: var(--text-2);
+	}
+	.pid {
+		color: var(--text-3);
+	}
+	.lv {
+		display: inline-block;
+		width: 16px;
+		text-align: center;
+		font-weight: 500;
 	}
 	.row {
 		height: var(--log-row);
@@ -336,6 +349,7 @@
 	.p-error,
 	.p-fatal {
 		color: var(--danger);
+		background: var(--danger-soft);
 	}
 	.p-verbose {
 		color: var(--text-3);

@@ -176,7 +176,7 @@
 		min-height: 56px;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		border: 1px solid var(--border);
+		background: var(--bg-window);
 	}
 	.spacer {
 		position: relative;
@@ -186,6 +186,7 @@
 		font-family: var(--font-mono);
 		font-size: var(--fs-log);
 		line-height: var(--log-row);
+		padding: 0 var(--sp-6);
 	}
 	.row {
 		height: var(--log-row);
