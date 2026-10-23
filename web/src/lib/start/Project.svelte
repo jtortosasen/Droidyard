@@ -596,7 +596,7 @@
 		{/if}
 	{:else if id === 'diff'}
 		{#if editorTabs && viewers && gitWatch && headBase && diffSource && commitText}
-			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} source={diffSource} {commitText} />
+			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} source={diffSource} {commitText} submodules={gitSubmodules} />
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}

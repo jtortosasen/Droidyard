@@ -31,6 +31,11 @@ type readFx struct {
 	platform platform.Env
 	// readTimeout, when > 0, replaces the 10 s limit of every read git (Options.readTimeout).
 	readTimeout time.Duration
+	// passTimeout and passCap, when set, replace the watch's submodule pass deadline and count.
+	passTimeout time.Duration
+	passCap     int
+	// opts are the options register built, so a test can call statusOf (the watch's tick).
+	opts Options
 }
 
 // newReadFx builds a repository (not yet holding a commit) and registers git.read on
@@ -61,13 +66,15 @@ func (f *readFx) at(dir string) {
 
 func (f *readFx) register() {
 	f.reg = capability.NewRegistry()
-	Register(f.reg, Options{
+	f.opts = Options{
 		Root:    func(string) (string, bool) { return f.root, true },
 		Env:     f.platform,
 		Environ: f.osEnviron,
 		Trusted: func(root string) (bool, *capability.Error) { return f.trusted(root) },
 
 		readTimeout: f.readTimeout,
+		passTimeout: f.passTimeout,
+		passCap:     f.passCap,
 		Starter: func(cmd *exec.Cmd) error {
 			f.starts.Add(1)
 			if f.onStart != nil {
@@ -81,7 +88,8 @@ func (f *readFx) register() {
 			}
 			return exec.LookPath(name)
 		},
-	})
+	}
+	Register(f.reg, f.opts)
 }
 
 func (f *readFx) read(p ReadParams) (ReadResult, *capability.Error) {

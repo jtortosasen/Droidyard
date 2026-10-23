@@ -114,6 +114,41 @@ func TestMarksFromPorcelain(t *testing.T) {
 	}; !reflect.DeepEqual(hand.Entries, want) {
 		t.Errorf("hand-written rows: got %+v, want %+v", hand.Entries, want)
 	}
+
+	// Gitlinks (ADR-0125 §3): a record whose <sub> begins `S` is marked by the same table
+	// and carries git's S<c><m><u> bits. The rows are as git printed them for a submodule
+	// `lib` of the fixture TestSubmoduleRecordsAgainstHEAD builds (with `--ignore-submodules`
+	// none or dirty; only `C` can be set under dirty), the conflict and the removal included.
+	// `git mv lib lib2` printed a `2` record, `2 RM S.MU ... R100 lib2` under none and
+	// `2 R. S... ... R100 lib2` under dirty: it is read as any rename, renamed with origPath,
+	// and carries no submodule object (recorded, not decided: ADR-0125 does not cover it).
+	const z = "160000 160000 160000 aa bb "
+	gl := parseStatus(rec(
+		"1 .M SC.. "+z+"commits",
+		"1 M. S... "+z+"staged",
+		"1 .M S.M. "+z+"modified",
+		"1 .M S..U "+z+"untracked",
+		"1 .M S.MU "+z+"content",
+		"1 A. S... 000000 160000 160000 0000 bb added",
+		"1 D. S... 160000 000000 000000 aa 0000 deleted",
+		"u UU S... 160000 160000 160000 160000 aa bb cc conflicted",
+		"1 .M N... 100644 100644 100644 aa bb plain.txt",
+		"2 RM S.MU "+z+"R100 lib2", "lib",
+	), "", 5000, false)
+	if want := []string{
+		"added added S...",
+		"commits modified SC..",
+		"conflicted conflicted S...",
+		"content modified S.MU",
+		"deleted deleted S...",
+		"lib2 renamed -",
+		"modified modified S.M.",
+		"plain.txt modified -",
+		"staged modified SC..", // `M.`: a new commit that is staged still reads "new commits"
+		"untracked modified S..U",
+	}; !reflect.DeepEqual(describeEntries(gl), want) {
+		t.Errorf("gitlink rows:\n got %v\nwant %v", describeEntries(gl), want)
+	}
 }
 
 // Decision: the head. An unborn branch has no oid, a detached HEAD has no branch.

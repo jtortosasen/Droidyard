@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flatRows, groupedRows, LETTERS, truncatedNote, type Entry, type FileRow } from './changes';
+import { changeGroups, flatRows, groupedRows, groupWords, LETTERS, submodulesUnreadNote, truncatedNote, type Entry, type FileRow } from './changes';
 
 const e = (path: string, mark: Entry['mark'] = 'modified', origPath?: string): Entry => ({ path, mark, ...(origPath !== undefined ? { origPath } : {}) });
 const shape = (rows: ReturnType<typeof groupedRows>) => rows.map((r) => `${r.depth}${r.kind === 'dir' ? ' dir ' : ' file '}${r.label}`);
@@ -72,6 +72,73 @@ describe('truncatedNote', () => {
 	// Decision: the daemon leaves paths out past 5000; the list says so, and says nothing otherwise.
 	it('says how many are listed only when the status is truncated', () => {
 		expect(truncatedNote(false, 12)).toBeNull();
-		expect(truncatedNote(true, 5000)).toBe('More than 5000 paths differ; only the first 5000 are listed.');
+		expect(truncatedNote(true, 5000)).toContain('only the first 5000 are shown');
+	});
+});
+
+const link = (path: string, submodule: NonNullable<Entry['submodule']>, extra: Partial<Entry> = {}): Entry => ({ path, mark: 'modified', submodule, ...extra });
+const inside = (root: string, path: string, mark: Entry['mark'] = 'modified'): Entry => ({ path, mark, root });
+const bits = { commits: false, modified: false, untracked: false };
+
+describe('changeGroups', () => {
+	const status: Entry[] = [
+		e('app/Main.kt'),
+		link('lib', { ...bits, modified: true, untracked: true, checkedOut: 'a'.repeat(40) }),
+		inside('lib', 'lib/src/A.kt'),
+		inside('lib', 'lib/new.txt', 'untracked'),
+		link('lib/nested', { ...bits, commits: true }, { root: 'lib' }),
+		link('extra', { ...bits, unread: 'git status failed' }),
+		inside('lib/nested', 'lib/nested/n.kt'),
+	];
+	// Decision (ADR-0125 section 3; plan m3b step 3): the project's group first, then one per gitlink by path, a nested one after
+	// its parent, each with its own files; a gitlink is a group's header, never one of the files.
+	it('orders the groups, words them and keeps gitlinks out of the files', () => {
+		const { groups, headers } = changeGroups(status);
+		expect(headers).toBe(true);
+		expect(groups.map((g) => [g.path, g.words, g.entries.map((x) => x.path)])).toEqual([
+			['', '', ['app/Main.kt']],
+			['extra', 'not read: git status failed', []],
+			['lib', 'modified content, untracked content', ['lib/src/A.kt', 'lib/new.txt']],
+			['lib/nested', 'new commits', ['lib/nested/n.kt']],
+		]);
+		expect(groups.flatMap((g) => g.rows).filter((r) => r.kind === 'file').map((r) => r.path)).not.toContain('lib');
+		expect(groups.find((g) => g.path === 'lib')?.checkedOut).toBe('a'.repeat(40));
+	});
+
+	// Decision: folders are relative to the submodule, while paths and keys stay the workspace's; rows sit under the header.
+	it('draws a submodule folders relative to it and keys them by workspace path', () => {
+		const lib = changeGroups(status).groups.find((g) => g.path === 'lib')!;
+		expect(shape(lib.rows)).toEqual(['2 dir src', '3 file A.kt', '2 file new.txt']);
+		expect(lib.rows.map((r) => r.key)).toEqual(['d:lib/src', 'f:lib/src/A.kt', 'f:lib/new.txt']);
+		const flat = changeGroups(status, 'flat').groups.find((g) => g.path === 'lib')!;
+		expect((flat.rows as FileRow[]).map((r) => [r.label, r.dir])).toEqual([['A.kt', 'src'], ['new.txt', '']]);
+	});
+
+	// Decision: no submodule, no headers and the rows keep their first depth, as before the milestone.
+	it('draws no headers without a submodule', () => {
+		const { groups, headers } = changeGroups([e('a/b.kt')]);
+		expect(headers).toBe(false);
+		expect(shape(groups[0]!.rows)).toEqual(['1 dir a', '2 file b.kt']);
+	});
+
+	// Decision: a segment-wise order, so "lib-a" does not come between "lib" and "lib/nested".
+	it('puts a nested submodule right after its parent', () => {
+		const { groups } = changeGroups([link('lib-a', bits), link('lib/nested', bits, { root: 'lib' }), link('lib', bits)]);
+		expect(groups.map((g) => g.path)).toEqual(['', 'lib', 'lib/nested', 'lib-a']);
+	});
+});
+
+describe('groupWords', () => {
+	// Decision (step 1 contract): added, removed and conflicted gitlinks keep their marks as words; the bits word the rest.
+	it('words the marks, the bits and the cause as text', () => {
+		expect(groupWords(link('s', bits, { mark: 'added' }))).toBe('new submodule');
+		expect(groupWords(link('s', { ...bits, commits: true }, { mark: 'deleted' }))).toBe('removed');
+		expect(groupWords(link('s', bits, { mark: 'conflicted' }))).toBe('conflicted');
+		expect(groupWords(link('s', { ...bits, commits: true }))).toBe('new commits');
+		expect(groupWords(link('s', { ...bits, unread: '<b>boom</b>' }))).toBe('not read: <b>boom</b>');
+	});
+	it('notes unread submodules only when the status says so', () => {
+		expect(submodulesUnreadNote(undefined)).toBeNull();
+		expect(submodulesUnreadNote(true)).not.toBeNull();
 	});
 });

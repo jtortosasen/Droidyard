@@ -186,3 +186,14 @@ describe('the remembered Git tree view', () => {
 		expect(() => savePrefs(null, 'a', DEFAULT_PREFS)).not.toThrow();
 	});
 });
+
+describe('the Git tree and submodules', () => {
+	// Decision (plan m3b step 3): a gitlink entry marks its folder changed and is never a file row beside it.
+	it('takes a gitlink entry as a changed folder, with no file row', () => {
+		const gitlink: Entry = { path: 'lib', mark: 'modified', submodule: { commits: true, modified: false, untracked: false } };
+		const m = setup([d('lib'), f('lib/a.kt'), f('README.md')], [gitlink]);
+		expect(m.rows.filter((r) => r.path === 'lib')).toEqual([expect.objectContaining({ kind: 'dir', changed: true })]);
+		const bare = setup([f('README.md')], [gitlink]); // the watch does not list it at all
+		expect(bare.rows.filter((r) => r.path === 'lib')).toEqual([expect.objectContaining({ kind: 'dir', changed: true })]);
+	});
+});

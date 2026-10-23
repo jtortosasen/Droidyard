@@ -1,5 +1,5 @@
 {
-  "version": "0.36.0",
+  "version": "0.37.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -10778,7 +10778,7 @@
         "properties": {
           "subscriptionId": {
             "type": "string",
-            "description": "The subscription the status arrives on, over the session that made the call. The events are the status (head, entries, truncated) on topic git.changes, at most one per second and only when it differs from the last one sent."
+            "description": "The subscription the status arrives on, over the session that made the call. The events carry the status, which is this result's fields besides subscriptionId and base, on topic git.changes, at most one per second and only when it differs from the last one sent."
           },
           "base": {
             "type": "string",
@@ -10824,6 +10824,42 @@
                 "origPath": {
                   "type": "string",
                   "description": "For a renamed path: where it was in HEAD, relative to the project root."
+                },
+                "root": {
+                  "type": "string",
+                  "description": "The submodule the path is in, relative to the project root, as git.read's root takes it; absent for the project's own repository."
+                },
+                "submodule": {
+                  "properties": {
+                    "commits": {
+                      "type": "boolean",
+                      "description": "The submodule's commit differs from the one HEAD records: staged in the index, or checked out (git's C)."
+                    },
+                    "modified": {
+                      "type": "boolean",
+                      "description": "A tracked file in the submodule differs from its HEAD, or a nested submodule of it changed (git's M)."
+                    },
+                    "untracked": {
+                      "type": "boolean",
+                      "description": "The submodule holds untracked files (git's U)."
+                    },
+                    "checkedOut": {
+                      "type": "string",
+                      "description": "The submodule's HEAD commit, when its contents were read."
+                    },
+                    "unread": {
+                      "type": "string",
+                      "description": "Why the submodule's contents could not be read; absent when they were. Its files are then not listed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "commits",
+                    "modified",
+                    "untracked"
+                  ],
+                  "description": "Present only on a submodule's own entry (the path of its gitlink): what changed in it."
                 }
               },
               "additionalProperties": false,
@@ -10838,7 +10874,11 @@
           },
           "truncated": {
             "type": "boolean",
-            "description": "True when more than 5000 paths differ and the rest are left out."
+            "description": "True when more than 5000 paths differ, or a git's output (the project's or a submodule's) passed its 4 MiB cap, and the rest are left out."
+          },
+          "submodulesUnread": {
+            "type": "boolean",
+            "description": "True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."
           }
         },
         "additionalProperties": false,
@@ -10893,6 +10933,42 @@
                     "origPath": {
                       "type": "string",
                       "description": "For a renamed path: where it was in HEAD, relative to the project root."
+                    },
+                    "root": {
+                      "type": "string",
+                      "description": "The submodule the path is in, relative to the project root, as git.read's root takes it; absent for the project's own repository."
+                    },
+                    "submodule": {
+                      "properties": {
+                        "commits": {
+                          "type": "boolean",
+                          "description": "The submodule's commit differs from the one HEAD records: staged in the index, or checked out (git's C)."
+                        },
+                        "modified": {
+                          "type": "boolean",
+                          "description": "A tracked file in the submodule differs from its HEAD, or a nested submodule of it changed (git's M)."
+                        },
+                        "untracked": {
+                          "type": "boolean",
+                          "description": "The submodule holds untracked files (git's U)."
+                        },
+                        "checkedOut": {
+                          "type": "string",
+                          "description": "The submodule's HEAD commit, when its contents were read."
+                        },
+                        "unread": {
+                          "type": "string",
+                          "description": "Why the submodule's contents could not be read; absent when they were. Its files are then not listed."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "commits",
+                        "modified",
+                        "untracked"
+                      ],
+                      "description": "Present only on a submodule's own entry (the path of its gitlink): what changed in it."
                     }
                   },
                   "additionalProperties": false,
@@ -10907,7 +10983,11 @@
               },
               "truncated": {
                 "type": "boolean",
-                "description": "True when more than 5000 paths differ and the rest are left out."
+                "description": "True when more than 5000 paths differ, or a git's output (the project's or a submodule's) passed its 4 MiB cap, and the rest are left out."
+              },
+              "submodulesUnread": {
+                "type": "boolean",
+                "description": "True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."
               }
             },
             "additionalProperties": false,

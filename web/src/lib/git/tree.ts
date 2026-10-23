@@ -139,7 +139,8 @@ export class GitTreeModel implements WatchListener {
 				if (kind === 'file' && dir.get(path) === 'dir') return;
 				dir.set(path, kind);
 			};
-			const all: [string, Kind][] = [...this.#watched, ...[...this.#status.keys()].map((p): [string, Kind] => [p, 'file'])];
+			// A gitlink entry is the submodule's folder, never a file row.
+			const all: [string, Kind][] = [...this.#watched, ...[...this.#status].map(([p, e]): [string, Kind] => [p, e.submodule !== undefined ? 'dir' : 'file'])];
 			for (const [path, kind] of all) {
 				put(path, kind);
 				for (const dir of ancestors(path)) put(dir, 'dir');
@@ -148,7 +149,10 @@ export class GitTreeModel implements WatchListener {
 		}
 		if (this.#changedDirs === null) {
 			this.#changedDirs = new Set();
-			for (const path of this.#status.keys()) for (const dir of ancestors(path)) this.#changedDirs.add(dir);
+			for (const [path, e] of this.#status) {
+				if (e.submodule !== undefined) this.#changedDirs.add(path);
+				for (const dir of ancestors(path)) this.#changedDirs.add(dir);
+			}
 		}
 		const kids = this.#kids;
 		const changedDirs = this.#changedDirs;

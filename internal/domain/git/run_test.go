@@ -200,7 +200,7 @@ func (e *env) appendConfig(dir, text string) {
 
 func (e *env) status(dir string, trusted bool) result {
 	e.t.Helper()
-	res, err := e.r.run(context.Background(), dir, trusted, nil, statusArgs...)
+	res, err := e.r.run(context.Background(), dir, trusted, nil, statusArgs(trusted)...)
 	if err != nil {
 		e.t.Fatalf("status: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestCancelKillsTheGroup(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := e.r.run(ctx, dir, true, nil, statusArgs...)
+		_, err := e.r.run(ctx, dir, true, nil, statusArgs(true)...)
 		done <- err
 	}()
 	var pid int
@@ -504,7 +504,7 @@ func TestTimeoutKillsTheGroup(t *testing.T) {
 	tried, ok := untilConclusive(3*time.Second, func(limit time.Duration) bool {
 		os.Remove(pidFile)
 		e.r.timeout = limit
-		_, err := e.r.run(context.Background(), dir, true, nil, statusArgs...)
+		_, err := e.r.run(context.Background(), dir, true, nil, statusArgs(true)...)
 		if !errors.Is(err, ErrTimeout) {
 			t.Fatalf("limit %s: err = %v, want ErrTimeout", limit, err)
 		}
@@ -545,7 +545,7 @@ func TestGitEnvironmentIgnored(t *testing.T) {
 	path, _ := exec.LookPath("git")
 	r := newRunner(groupStarter, path, e.osEnviron()) // the daemon's environment, GIT_* included
 	r.env = append(r.env, "GIT_CONFIG_NOSYSTEM=1")
-	res, err := r.run(context.Background(), dir, true, nil, statusArgs...)
+	res, err := r.run(context.Background(), dir, true, nil, statusArgs(true)...)
 	if err != nil || res.ExitCode != 0 {
 		t.Fatalf("status: %v exit %d: %s", err, res.ExitCode, res.Stderr)
 	}
@@ -561,7 +561,7 @@ func TestUnwritableDriverNameIsRefused(t *testing.T) {
 	e := needGit(t)
 	dir := e.repo()
 	e.appendConfig(dir, "[filter \"a=b\"]\n\tclean = cat\n")
-	_, err := e.r.run(context.Background(), dir, false, nil, statusArgs...)
+	_, err := e.r.run(context.Background(), dir, false, nil, statusArgs(false)...)
 	if !errors.Is(err, ErrUnsafeDriver) {
 		t.Fatalf("err = %v, want ErrUnsafeDriver", err)
 	}
@@ -762,7 +762,7 @@ func BenchmarkStatus(b *testing.B) {
 	e.g(dir, "status", "--porcelain") // refresh the index once, as a developer's own git does
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		res, err := e.r.run(context.Background(), dir, true, nil, statusArgs...)
+		res, err := e.r.run(context.Background(), dir, true, nil, statusArgs(true)...)
 		if err != nil || res.ExitCode != 0 {
 			b.Fatalf("status: %v exit %d", err, res.ExitCode)
 		}

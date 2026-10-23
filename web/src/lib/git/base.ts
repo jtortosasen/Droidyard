@@ -9,7 +9,8 @@
 import type { Params, Result } from '../api/capabilities.gen';
 import type { CallOptions } from '../api/client';
 import { failure, failureText } from '../build/failure';
-import type { Mark } from './changes';
+import type { Entry, Mark } from './changes';
+import type { Submodule } from './submodules';
 
 export interface BaseClient {
 	call(name: 'git.read', params: Params<'git.read'>, opts?: CallOptions): Promise<Result<'git.read'>>;
@@ -34,6 +35,38 @@ export interface BaseInput {
 	/** For a renamed path: the path HEAD holds it at, which is the one read. */
 	origPath?: string;
 	oid?: string;
+	/** The submodule the file is read in (`git.read`'s `root`); absent for the project's own repository. */
+	root?: string;
+	/** The commit that submodule has checked out: a new one reads again. */
+	rootOid?: string;
+}
+
+/** Where a file is read from: a submodule's path and the commit it has checked out. */
+export interface FileRoot {
+	root: string;
+	rootOid?: string;
+}
+
+/**
+ * The submodule a path is read in, or null for the project's own repository (ADR-0125 §5; ADR-0071 §7).
+ * The status entry wins when it lists the path (its `root`); otherwise the longest gitlink entry or
+ * initialised submodule the path lies below. `rootOid` is that submodule's checked-out commit: the
+ * gitlink entry's, else the submodule list's.
+ */
+export function rootOf(path: string, entries: readonly Entry[], submodules: readonly Submodule[]): FileRoot | null {
+	const listed = entries.find((e) => e.path === path);
+	const initialised = submodules.filter((s) => s.state !== 'uninitialised');
+	const oidOf = (root: string): string | undefined =>
+		entries.find((e) => e.path === root && e.submodule !== undefined)?.submodule?.checkedOut ?? initialised.find((s) => s.path === root)?.checkedOut;
+	const pick = (root: string): FileRoot => {
+		const oid = oidOf(root);
+		return { root, ...(oid !== undefined ? { rootOid: oid } : {}) };
+	};
+	if (listed !== undefined) return listed.root === undefined ? null : pick(listed.root);
+	let best: string | null = null;
+	const candidates = [...entries.filter((e) => e.submodule !== undefined).map((e) => e.path), ...initialised.map((s) => s.path)];
+	for (const c of candidates) if (path.startsWith(`${c}/`) && (best === null || c.length > best.length)) best = c;
+	return best === null ? null : pick(best);
 }
 
 export const TOO_LARGE_TEXT = 'The file at HEAD is over 512 KiB, which the editor does not compare.';
@@ -75,7 +108,7 @@ export class HeadBase {
 			this.#set(IDLE);
 			return;
 		}
-		const key = JSON.stringify([input.path, input.mark ?? null, input.origPath ?? null, input.oid ?? null]);
+		const key = JSON.stringify([input.path, input.mark ?? null, input.origPath ?? null, input.oid ?? null, input.root ?? null, input.rootOid ?? null]);
 		if (key === this.#key) return;
 		this.#key = key;
 		const ticket = ++this.#ticket;
@@ -84,7 +117,7 @@ export class HeadBase {
 		if (input.path !== this.#path || this.#view.kind !== 'text') this.#set({ kind: 'loading' });
 		this.#path = input.path;
 		const at = input.origPath ?? input.path;
-		this.#client.call('git.read', { path: at }, { workspace: this.#ws.root.trim() }).then(
+		this.#client.call('git.read', { path: at, ...(input.root !== undefined && input.root !== '' ? { root: input.root } : {}) }, { workspace: this.#ws.root.trim() }).then(
 			(r) => {
 				if (ticket !== this.#ticket) return;
 				if (r.binary) this.#set({ kind: 'message', text: BINARY_TEXT });

@@ -51,11 +51,13 @@ type WatchParams struct {
 // WatchResult is git.watch's result: the subscription, and the baseline status the
 // first event is compared with, so a client builds its view from one call and the events.
 type WatchResult struct {
-	SubscriptionID string  `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the status arrives on, over the session that made the call. The events are the status (head, entries, truncated) on topic git.changes, at most one per second and only when it differs from the last one sent."`
+	SubscriptionID string  `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the status arrives on, over the session that made the call. The events carry the status, which is this result's fields besides subscriptionId and base, on topic git.changes, at most one per second and only when it differs from the last one sent."`
 	Base           string  `json:"base" jsonschema:"required,enum=HEAD" jsonschema_description:"What the status is against."`
 	Head           Head    `json:"head" jsonschema:"required" jsonschema_description:"What HEAD points at."`
 	Entries        []Entry `json:"entries" jsonschema:"required" jsonschema_description:"The paths that differ from HEAD, sorted by path; at most 5000. Empty in a result returned again after delivery."`
-	Truncated      bool    `json:"truncated" jsonschema:"required" jsonschema_description:"True when more than 5000 paths differ and the rest are left out."`
+	Truncated      bool    `json:"truncated" jsonschema:"required" jsonschema_description:"True when more than 5000 paths differ, or a git's output (the project's or a submodule's) passed its 4 MiB cap, and the rest are left out."`
+
+	SubmodulesUnread bool `json:"submodulesUnread,omitempty" jsonschema_description:"True when some submodules may be missing: the project's submodules could not be listed, or the per-tick count or time bound was reached (the gitlinks it left with an entry are also marked unread). Absent otherwise."`
 }
 
 // StoppedPayload is the git.changes event's payload for type stopped.
@@ -161,12 +163,19 @@ func (w *watcher) tickOnce() bool {
 		w.bus.PublishTo(w.sub, TopicGitChanges, TypeStopped, w.workspace, w.operation, StoppedPayload{Reason: ReasonFailed})
 		return false
 	}
-	if reflect.DeepEqual(st, w.last) {
+	if sameOnTheWire(st, w.last) {
 		return true
 	}
 	w.last = st
 	w.bus.PublishTo(w.sub, TopicGitChanges, TypeStatus, w.workspace, w.operation, st)
 	return true
+}
+
+// sameOnTheWire: the two statuses publish the same event. fellBack is not published, so a
+// status that fell back is not a change.
+func sameOnTheWire(a, b Status) bool {
+	a.fellBack, b.fellBack = false, false
+	return reflect.DeepEqual(a, b)
 }
 
 // read is one status of the watch's root with everything looked up afresh.
@@ -182,7 +191,13 @@ func (o Options) statusOf(ctx context.Context, root string) (Status, error) {
 	if cerr != nil {
 		return Status{}, ErrNotFound
 	}
-	return r.status(ctx, root, o.trusted(root))
+	trusted := o.trusted(root)
+	st, prefix, err := r.statusWithPrefix(ctx, root, trusted)
+	if err != nil {
+		return Status{}, err
+	}
+	// The project's own entries are published after the submodule pass, so they wait for it.
+	return o.submodulePass(ctx, r, root, trusted, prefix, st)
 }
 
 // Watchers is every live git.watch poller, by workspace. Its Stop is joined into
@@ -356,5 +371,7 @@ func (o Options) watch(ctx context.Context, call *capability.Call) (any, error) 
 		Head:           st.Head,
 		Entries:        st.Entries,
 		Truncated:      st.Truncated,
+
+		SubmodulesUnread: st.SubmodulesUnread,
 	}, nil
 }

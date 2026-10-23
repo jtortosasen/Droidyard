@@ -4,7 +4,8 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import { browserStorage } from '../ui/layout';
-	import { flatRows, groupedRows, MARK_WORDS, truncatedNote, type ChangeRow } from './changes';
+	import { changeGroups, MARK_WORDS, submodulesUnreadNote, truncatedNote } from './changes';
+	import { shortOid } from './submodules';
 	import { loadPrefs, savePrefs, type GitGroup, type GitTreeModel, type GitTreeView, type TreeRow } from './tree';
 	import type { GitView, GitWatch } from './watch';
 
@@ -63,8 +64,9 @@
 		tree.setStatus(view.entries);
 	});
 
-	const rows = $derived<readonly ChangeRow[]>(group === 'flat' ? flatRows(view.entries) : groupedRows(view.entries));
+	const parts = $derived(changeGroups(view.entries, group));
 	const note = $derived(truncatedNote(view.truncated, view.entries.length));
+	const unreadNote = $derived(submodulesUnreadNote(view.submodulesUnread));
 	const refused = $derived(view.state === 'error' || view.state === 'ended');
 	const branch = $derived(view.head === null ? '' : (view.head.branch ?? (view.head.oid ? `detached at ${view.head.oid.slice(0, 7)}` : 'no commit yet')));
 
@@ -152,40 +154,50 @@
 					{/if}
 				{/each}
 			</div>
-		{:else if rows.length === 0}
+		{:else if view.entries.length === 0}
 			<p class="note" role="status">No changes against HEAD.</p>
 		{:else}
 			<div class="rows" role="list" aria-label="Changed files" data-git-rows={group}>
-				{#each rows as r (r.key)}
-					{#if r.kind === 'dir'}
-						<div class="dir" role="listitem" data-row="dir" data-path={r.path} style:padding-left="calc(var(--sp-4) + {r.depth - 1} * var(--sp-5))" title={r.path}>
-							<span class="label">{r.label}</span>
-						</div>
-					{:else}
-						<div role="listitem">
-							<button
-								type="button"
-								class="file"
-								class:selected={selected === r.path}
-								class:deleted={r.deleted}
-								data-row="file"
-								data-path={r.path}
-								style:padding-left="calc(var(--sp-4) + {r.depth - 1} * var(--sp-5))"
-								title={r.origPath === undefined ? r.path : `${r.origPath} → ${r.path}`}
-								aria-label="{r.label}, {MARK_WORDS[r.mark]}"
-								onclick={() => choose(r.path)}
-							>
-								<span class="label">{r.label}</span>
-								{#if r.dir !== ''}<span class="orig">{r.dir}</span>{/if}
-								{#if r.origPath !== undefined}<span class="orig">{r.origPath}</span>{/if}
-								<span class="letter {r.mark}" aria-hidden="true">{r.letter}</span>
-							</button>
+				{#each parts.groups as g (g.key)}
+					{#if parts.headers}
+						<div class="dir group" role="listitem" data-row="group" data-path={g.path} title={g.path === '' ? 'The project' : g.path}>
+							<span class="label">{g.path === '' ? 'Project' : g.path}</span>
+							{#if g.words !== ''}<span class="orig">{g.words}</span>{/if}
+							{#if g.checkedOut !== undefined}<span class="oid">{shortOid(g.checkedOut)}</span>{/if}
 						</div>
 					{/if}
+					{#each g.rows as r (r.key)}
+						{#if r.kind === 'dir'}
+							<div class="dir" role="listitem" data-row="dir" data-path={r.path} style:padding-left="calc(var(--sp-4) + {r.depth - 1} * var(--sp-5))" title={r.path}>
+								<span class="label">{r.label}</span>
+							</div>
+						{:else}
+							<div role="listitem">
+								<button
+									type="button"
+									class="file"
+									class:selected={selected === r.path}
+									class:deleted={r.deleted}
+									data-row="file"
+									data-path={r.path}
+									style:padding-left="calc(var(--sp-4) + {r.depth - 1} * var(--sp-5))"
+									title={r.origPath === undefined ? r.path : `${r.origPath} → ${r.path}`}
+									aria-label="{r.label}, {MARK_WORDS[r.mark]}"
+									onclick={() => choose(r.path)}
+								>
+									<span class="label">{r.label}</span>
+									{#if r.dir !== ''}<span class="orig">{r.dir}</span>{/if}
+									{#if r.origPath !== undefined}<span class="orig">{r.origPath}</span>{/if}
+									<span class="letter {r.mark}" aria-hidden="true">{r.letter}</span>
+								</button>
+							</div>
+						{/if}
+					{/each}
 				{/each}
 			</div>
 		{/if}
 		{#if note}<p class="note">{note}</p>{/if}
+		{#if unreadNote}<p class="note" role="status">{unreadNote}</p>{/if}
 	{/if}
 </div>
 
@@ -325,6 +337,17 @@
 		white-space: nowrap;
 		color: var(--text-3);
 		font-size: var(--fs-small);
+	}
+	.group {
+		padding-left: var(--sp-4);
+		color: var(--text);
+	}
+	.oid {
+		flex: none;
+		margin-left: auto;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
+		color: var(--text-3);
 	}
 	.letter {
 		flex: none;
