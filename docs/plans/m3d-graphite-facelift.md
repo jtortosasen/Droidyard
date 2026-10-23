@@ -86,7 +86,18 @@
 - Needs: step 1.
 - Not here: fonts, sizes, spacing (steps 3, 4); area restyles; control boundaries at 3:1 (WCAG 1.4.11): buttons carry text and inputs sit on a contrasting surface; a register row at step 11.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `5933661`.
+  - `contrast.test.ts` failed on `main`'s tokens: 5 of 10 tests. Dark `--text-3` measured 3.02 on the panel and 2.75 on raised. Light `--accent` measured 3.69 on the window. Light `--text-3` measured 2.36–2.57, and lanes 1, 2, 4 and 6 were under 3:1.
+  - `literals.test.ts` failed with the plan's counts: 9 hex, 5 scrims, 1 shadow, 3 `hsl`, 2 `var(--bg)` and 1 colourless border.
+  - Both tests now pass, and both were seen failing again: on `base.css` given `color: #fff`, and on dark `--text-3` #6e6e76 with light `--accent` #007aff.
+  - `verify` passed: 117 files, 1346 tests. `go test ./...` passed.
+  - Level 5 (`$R=/private/tmp/dy.ulwJii`, `$E/step2`): screenshots in both themes and at both sizes. The probe's sizes and families are unchanged from step 1, as expected.
+  - Values that moved:
+    - dark `--text-3` #9a9aa4: the sketch's #8a8a94 fails on the tinted rows;
+    - dark `--text-2` #b1b1b9 (Changes);
+    - light `--danger` #b82a48: the plan's #c0304f fails on the tinted rows;
+    - light `--avatar-l` 30%.
+  - The Logcat `W` colour is checked in the CSS only: `.p-warn` is `var(--warning)`. No device ran, so there were no log lines to read in the page; step 9 checks it there.
 
 ### 3. The faces, served
 
@@ -242,3 +253,5 @@ The main session may apply the recommendation under the owner's standing instruc
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-23, step 2: dark `--text-2` moved from the sketch's #a1a1aa to #b1b1b9. The contrast floor pushed `--text-3` to #9a9aa4, which left the two text levels about 0.02 apart in luminance, so `--text-2` was lifted to keep the hierarchy. The change is lightness only. Delegated.
