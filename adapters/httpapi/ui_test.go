@@ -56,10 +56,11 @@ func get(h http.Handler, method, target string, hdr map[string]string) *httptest
 
 // Decision (plan m2a D6; ADR-0006): the built app is served behind the unchanged fence.
 // `/` is index.html with the CSP, nosniff and no-cache and needs no token; a hashed
-// script or style under /assets/ is cached as immutable with its type; anything else
-// (an unknown path, a source map, an svg, a nested file, a raw dot-dot path) is 404, so
-// nothing in the tree but the app's scripts and styles is reachable; a method other
-// than GET and HEAD is 405; and a wrong Host or Origin is 403 before any file is read.
+// script, style or woff2 font under /assets/ is cached as immutable with its type; anything
+// else (an unknown path, a source map, an svg, another font format, a nested file, a raw
+// dot-dot path) is 404, so nothing in the tree but the app's scripts, styles and fonts is
+// reachable; a method other than GET and HEAD is 405; and a wrong Host or Origin is 403
+// before any file is read.
 func TestUIIsServedBehindTheFence(t *testing.T) {
 	ui := uiFS()
 	h := New(nil, nil, nil, "tok", ui)

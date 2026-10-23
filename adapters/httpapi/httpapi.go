@@ -221,7 +221,7 @@ var assetTypes = map[string]string{
 	".woff2": "font/woff2",
 }
 
-// assets is GET and HEAD /assets/<name>: one hashed script or style directly under the
+// assets is GET and HEAD /assets/<name>: one hashed script, style or font directly under the
 // app's assets directory, cached for a year because its name changes with its content
 // (plan m2a D6). No subdirectory, no other extension: any other path is 404.
 type assets struct{ ui fs.FS }

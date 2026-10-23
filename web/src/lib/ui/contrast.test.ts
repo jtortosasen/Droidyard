@@ -162,9 +162,11 @@ function pairs(): Array<{ fg: string; bg: Bg; min: number }> {
 		for (const fg of fgs) for (const bg of bgs) out.push({ fg, bg, min });
 	};
 	// Text roles on every surface they sit on, and on the tinted ones.
-	add(ROLES, [...SURFACES.map(tok), soft('--accent-soft', '--bg-panel')], 4.5);
-	add(ROLES, SOFTS.flatMap((s) => [soft(s, '--bg-window'), soft(s, '--bg-panel')]), 4.5);
-	add(['--text', '--text-2'], [tok('--bg-active')], 4.5);
+	// The selection tint sits over every surface a list lives on (the device tree on the window,
+	// the palette and toolbar chips on raised); badges sit on --bg-active.
+	const BASES = ['--bg-window', '--bg-panel', '--bg-raised'];
+	add(ROLES, [...SURFACES.map(tok), tok('--bg-active'), ...BASES.map((b) => soft('--accent-soft', b))], 4.5);
+	add(ROLES, SOFTS.flatMap((s) => BASES.map((b) => soft(s, b))), 4.5);
 	add(['--accent-text'], [tok('--accent')], 4.5);
 	add(['--danger-text'], [tok('--danger')], 4.5);
 	add(SYN, [tok('--bg-window'), tok('--bg-panel'), tok('--bg-raised'), tint('--success'), tint('--danger')], 4.5);

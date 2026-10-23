@@ -74,7 +74,7 @@
 		border-bottom: 1px solid var(--border);
 	}
 	.warn {
-		background: var(--accent-soft);
+		background: var(--warning-soft);
 	}
 	.bad {
 		color: var(--danger);

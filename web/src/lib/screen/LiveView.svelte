@@ -280,7 +280,8 @@
 		right: 0.5rem;
 		margin: 0;
 		padding: var(--sp-3) var(--sp-5);
-		background: var(--warning-soft);
+		/* The tint over an opaque panel: the notice floats on the frame, which is black when it shows. */
+		background: linear-gradient(var(--warning-soft), var(--warning-soft)), var(--bg-panel);
 		color: var(--text);
 		font-size: var(--fs-base);
 		border: 0;

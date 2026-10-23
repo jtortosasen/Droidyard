@@ -57,9 +57,11 @@ export function scanCSS(css: string): string[] {
 	for (const m of text.matchAll(/([\w-]+)\s*:\s*([^;{}]+)/g)) {
 		const prop = m[1].toLowerCase();
 		const value = m[2].trim();
-		if (!COLOUR_PROPS.test(prop) && !/--/.test(prop)) continue;
+		// A hex or a colour function is a literal in any declaration (border-color, a gradient);
+		// a named colour is only read as one in a colour property, where the word cannot mean anything else.
 		if (HEX.test(value)) out.push(`${prop}: ${value} has a hex colour`);
 		functions(value, out);
+		if (!COLOUR_PROPS.test(prop) && !/--/.test(prop)) continue;
 		const words = value.replace(/var\([^)]*\)|url\([^)]*\)/g, ' ').toLowerCase().split(/[^a-z-]+/);
 		for (const w of words) if (NAMED.has(w) && !KEEP.has(w)) out.push(`${prop}: ${value} has the named colour ${w}`);
 		if (BORDER_PROPS.test(prop) && BORDER_STYLE.test(value)) {
@@ -195,6 +197,9 @@ describe('the literal scanner', () => {
 		'background: red',
 		'border: 1px solid;',
 		'border-left: 3px dashed',
+		'border-color: #f00;',
+		'background-image: linear-gradient(#000, #fff);',
+		'scrollbar-color: rgb(1 2 3) transparent;',
 	];
 	const good = [
 		'color: var(--text);',
