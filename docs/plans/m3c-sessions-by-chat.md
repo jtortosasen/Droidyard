@@ -43,7 +43,7 @@
 
 - [ ] A1. **Claude Code chats**: for a project the daemon knows, `session.chats` lists every Claude Code chat whose transcript sits in the store directory of its main tree or of a live linked worktree and whose last `cwd` is that tree or below it, a conversation line present, at most 30 per client and project, newest first, each with `id`, `project`, `worktree` (absent for the main tree), `title` by `custom-title` > `ai-title` (last) > `agent-name`, absent otherwise, and `updatedAt`; subagent transcripts, malformed ids and chats of other projects are not listed. Source: owner; Q2. Proven by: steps 2, 5.
 - [ ] A2. **Cursor chats**: Cursor IDE and cursor-agent chats of the same projects are listed the same way, read through `sqlite3` opened read-only; archived, subagent and draft composers are not. Source: owner ("all the Cursor sessions"); Q2, Q3. Proven by: steps 1, 4, 5.
-- [ ] A3. **Only what the panel needs, bounded**: no field leaves the reader but those of A1; a transcript is read at most 64 KiB from its head and 64 KiB from its tail; a call reads at most 200 files and stops at 2 s with `truncated`; a second call rereads no file whose size and mtime are unchanged; no store file is written. Source: the owner's condition; Q2, Q3. Proven by: steps 2, 4.
+- [ ] A3. **Only what the panel needs, bounded**: no field leaves the reader but those of A1; a transcript is read at most 64 KiB from its head and 64 KiB from its tail; a call reads at most 200 files and stops at 2 s with `truncated`; a second call rereads no file whose size and mtime are unchanged; no store file is written or created, but the `-shm` index every reader of a WAL database updates (§Changes, step 1). Source: the owner's condition; Q2, Q3. Proven by: steps 2, 4.
 - [ ] A4. **Untrusted and degrading**: `title` is marked `x-droidyard-untrusted`, at most 120 characters with control and format characters removed, and rendered as text; a store absent, unreadable or without `sqlite3` is a `sources` entry with a cause, and the other stores are still listed. Source: ADR-0015 §1; brief. Proven by: steps 2, 3, 4.
 - [ ] A5. **Connected**: a Claude Code chat whose id is a live MCP session's chat carries that session's id, and its row shows the session's running operations, holds, idleness and Release; a live session no chat matches (Cursor, a new chat) is its own row under its client and project. Source: ADR-0094, ADR-0095 §1; Q1, Q4. Proven by: steps 2, 3, 5.
 - [ ] A6. **The panel**: Projects keeps its project and worktree rows (no agent rows); Sessions shows Client → Project → chat, newest first, 8 per project and "N more"; no "You" row; a live session's panel label is numbered among the rows listed now, and Activity never shows two agents under one name; Copy puts `cd '<path>' && claude --resume <id>` (or `cursor-agent --resume <id>`) on the clipboard; the user's own operations stay in Activity. Source: owner; rows 336, 501; Q4. Proven by: steps 3, 5.
@@ -66,7 +66,7 @@
 - Needs: the owner's machine; `sqlite3`; no daemon.
 - Not here: no other repository's chats; no writes to any store; no product code.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: [`docs/research/spike-chat-stores-2026-10.md`](../research/spike-chat-stores-2026-10.md), 2026-10-23: (a) observed, the session's `CLAUDE_CODE_SESSION_ID` is its transcript's stem, the file moved to the m3c directory; (b) cursor-agent's title is `name` in `store.db`'s `meta` row `0` (hex JSON), `meta.json` (69 of 81) has `cwd`, `updatedAtMs`, `hasConversation`, no title, `--resume [chatId]`; (c) the IDE's title is `value.name`, its place `value.workspaceIdentifier.uri.fsPath`, in the row; (d) cursor-agent's `clientInfo.name` is `Cursor`, the IDE's not observed; (e) `sqlite3` 3.51.0, a `mode=ro` read moved `-shm`'s mtime, CI not observed; (f) 49 `sdk-cli` transcripts, none titled, 25 `cli`, 6 without `cwd`; the last `ai-title` within 44.1 KiB of the end. What step 4 reads: §Changes.
 
 ### 2. `session.chats`: the contract, Claude Code's chats, the join
 
@@ -198,5 +198,13 @@ Delegated by the owner's brief ("decide; refine with reasons"): the main session
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-23, step 1, **what step 4 reads** (inside ADR-0127 §2–§3):
+  - cursor-agent: the title is `name` in the JSON that `store.db`'s `meta` row `0` holds hex-encoded (one constant query, decoded into a struct with `name` only); `meta.json`, when present, gives `cwd` (must equal the candidate), `updatedAtMs` and `hasConversation` (false left out); without `meta.json` (older chats, this repository's one) the md5 directory places the chat and `updatedAt` is the newest mtime of `store.db` and its `-wal`; a chat with neither a `name` nor `meta.json` is left out.
+  - Cursor IDE: one query on `composerHeaders` with `isArchived = 0 AND isSubagent = 0`, `isDraft` not true, and `json_extract(value, '$.workspaceIdentifier.uri.fsPath')` among the candidate paths (literals, `'` doubled); title `json_extract(value, '$.name')`, `updatedAt` the `lastUpdatedAt` column; `workspaceStorage` is not read.
+  - A3: a `mode=ro` read of a WAL database updates its `-shm` (observed), as every reader does, and `immutable=1` would miss the rows in `-wal`; so A3 allows the `-shm` and `TestSQLiteWritesNothing` checks that the database and `-wal` are unchanged and that no file is created.
+- 2026-10-23, step 1, Delegated: **`sdk-cli` transcripts are left out** (Q2's "unless step 1 (f) shows"): 49 of this repository's 74 transcripts with a conversation are headless `claude -p` runs of tools and probes, none titled; whether `claude --resume` lists them is not observed (a register row at step 5).
+- 2026-10-23, step 1: cursor-agent's `clientInfo.name` is `Cursor`: step 3's `clientOf` matches `cursor` case-insensitively.
+- 2026-10-23, step 1: the Cursor IDE was never opened on this repository, so step 5 (b) reads its store and lists none.
 
 - 2026-10-23, at approval: ADR-0127 and the `Superseded in part by: ADR-0127` header lines of ADR-0083, ADR-0048 and ADR-0088 land in the plan's commit, before step 1 (`internal/doccheck` checks the pointer both ways).
