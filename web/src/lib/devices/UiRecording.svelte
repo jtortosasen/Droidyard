@@ -85,16 +85,16 @@
 		{/if}
 	</div>
 	{#if view.device === ''}
-		<p class="muted small">Select a device first.</p>
+		<p class="muted">Select a device first.</p>
 	{/if}
 	{#if view.state === 'failed'}
-		<p class="small" role="status">
+		<p role="status">
 			The recordings could not be watched: {inert(view.cause)}
 			<button type="button" class="btn-icon" onclick={() => model.restart()}>Retry</button>
 		</p>
 	{/if}
 	{#if view.error !== ''}
-		<p class="small err" role="alert">{inert(view.error)}</p>
+		<p class="err" role="alert">{inert(view.error)}</p>
 	{/if}
 	{#if view.recordings.length > 0}
 		<details>
@@ -114,7 +114,7 @@
 							{/if}
 							{#if r.state === 'ended'}
 								{#if view.confirming === r.id}
-									<span class="small">Delete this recording?</span>
+									<span>Delete this recording?</span>
 									<button type="button" class="btn-icon" disabled={view.busy} onclick={() => void model.confirmDelete()}>Delete</button>
 									<button type="button" class="btn-icon" onclick={() => model.cancelDelete()}>Keep</button>
 								{:else}

@@ -292,7 +292,7 @@
 	.hint {
 		flex: none;
 		margin: var(--sp-2) 0 0;
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.error {
 		color: var(--danger);
@@ -370,5 +370,8 @@
 	footer {
 		flex: none;
 		margin: var(--sp-2) 0 0;
+		color: var(--text-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
 	}
 </style>

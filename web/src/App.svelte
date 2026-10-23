@@ -262,7 +262,7 @@
 		background: var(--bg-raised);
 		color: var(--danger);
 		border-bottom: 1px solid var(--danger);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.solo {
 		height: 100%;

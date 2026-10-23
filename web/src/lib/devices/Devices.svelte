@@ -111,12 +111,12 @@
 			</button>
 		</div>
 		{#if dv.error}
-			<p class="err small">device.list failed: {failureText(dv.error)}</p>
+			<p class="err">device.list failed: {failureText(dv.error)}</p>
 		{:else if dv.devices.length === 0}
-			<p class="muted small">No device is connected.</p>
+			<p class="muted">No device is connected.</p>
 		{/if}
 		{#each dv.warnings as w (w)}
-			<p class="warn small" role="status">{w}</p>
+			<p class="warn" role="status">{w}</p>
 		{/each}
 		<!-- A device another Droidyard lends: its host, and who holds it there (ADR-0104). -->
 		{#if remote.length > 0}
@@ -124,7 +124,7 @@
 				{#each remote as d (d.device)}
 					{@const holder = remoteHolderText(d)}
 					<li class="line remote" data-device={d.device}>
-						<span class="grow small" title={d.device}>{deviceText(d)}</span>
+						<span class="grow" title={d.device}>{deviceText(d)}</span>
 						{#if holder !== ''}<span class="holder small">{holder}</span>{/if}
 					</li>
 				{/each}
@@ -133,7 +133,7 @@
 		<!-- Another chat holds these (ADR-0094): the owner's Release frees one and moves no session. -->
 		{#each otherHolds as h (h.serial)}
 			<div class="line held">
-				<span class="grow small" title={h.serial}><span class="mono">{h.serial}</span>: {inUseText(h)}</span>
+				<span class="grow" title={h.serial}><span class="mono">{h.serial}</span>: {inUseText(h)}</span>
 				<button type="button" class="btn-icon" disabled={!connected} onclick={() => void release(h.serial)}>Release</button>
 			</div>
 		{/each}
@@ -141,7 +141,7 @@
 			Stop lending removes the entry and the peer's open views stop within 2 s (ADR-0104 §4). -->
 		{#each lent as l (l.serial)}
 			<div class="line lent" data-serial={l.serial}>
-				<span class="grow small" title={l.serial}>
+				<span class="grow" title={l.serial}>
 					<span class="mono">{l.serial}</span>: {l.text}{#if l.holder}, <span class="holder">{inUseText(l.holder)}</span>{/if}
 				</span>
 				{#if l.holder}
@@ -153,10 +153,10 @@
 			</div>
 		{/each}
 		{#if releaseError}
-			<p class="err small">Release refused: {releaseError}</p>
+			<p class="err">Release refused: {releaseError}</p>
 		{/if}
 		{#if lv?.error}
-			<p class="err small">Stop lending refused: {failureText(lv.error)}</p>
+			<p class="err">Stop lending refused: {failureText(lv.error)}</p>
 		{/if}
 
 		<div class="head">
@@ -167,19 +167,19 @@
 			</label>
 		</div>
 		{#if ev.loadError}
-			<p class="err small">emulator.list failed: {failureText(ev.loadError)}</p>
+			<p class="err">emulator.list failed: {failureText(ev.loadError)}</p>
 		{/if}
 		{#if ev.avds.length === 0}
-			<p class="muted small">No AVD listed.</p>
+			<p class="muted">No AVD listed.</p>
 		{/if}
 		<ul class="avds">
 			{#each ev.avds as avd (avd.name)}
 				<li class="avd">
 					<span class="dot" class:on={!!avd.running} aria-hidden="true"></span>
 					<span class="name">
-						<span class="mono">{avd.name}</span>
+						<span class="mono line1" title={avd.name}>{avd.name}</span>
 						{#if avd.config?.displayName}<span class="muted">{avd.config.displayName}</span>{/if}
-						<span class="state small" class:on={!!avd.running}>{avd.running ? `running as ${avd.running.device}` : 'not running'}</span>
+						<span class="state small line1" class:on={!!avd.running} title={avd.running ? `running as ${avd.running.device}` : 'not running'}>{avd.running ? `running as ${avd.running.device}` : 'not running'}</span>
 						{#if ev.preselected === avd.name}
 							<span class="tag">this project's AVD</span>
 						{/if}
@@ -206,21 +206,21 @@
 			{/each}
 		</ul>
 		{#if ev.startError}
-			<p class="err small">Start refused: {failureText(ev.startError)}</p>
+			<p class="err">Start refused: {failureText(ev.startError)}</p>
 		{/if}
 		{#if ev.stopError}
-			<p class="err small">Stop refused: {failureText(ev.stopError)}</p>
+			<p class="err">Stop refused: {failureText(ev.stopError)}</p>
 		{/if}
 		{#if ev.mirror.booting}
 			{@const op = ev.mirror.booting}
-			<p class="op small">
+			<p class="op">
 				{opText('Booting', op)}
 				<button type="button" onclick={() => void emulators.mirror.cancel(op.operationId)}>Cancel</button>
 			</p>
 		{/if}
 		{#if ev.mirror.stopping}
 			{@const op = ev.mirror.stopping}
-			<p class="op small">
+			<p class="op">
 				{opText('Stopping', op)}
 				<button type="button" onclick={() => void emulators.mirror.cancel(op.operationId)}>Cancel</button>
 			</p>
@@ -237,7 +237,7 @@
 				Install
 			</button>
 		</div>
-		<p class="muted small">
+		<p class="muted">
 			{#if iv.build}
 				Build selection: {iv.build.module} {iv.build.variant}.
 			{:else}
@@ -246,16 +246,16 @@
 		</p>
 		{#if iv.mirror.installing}
 			{@const op = iv.mirror.installing}
-			<p class="op small">
+			<p class="op">
 				{opText('Installing', op)}
 				<button type="button" onclick={() => void install.mirror.cancel(op.operationId)}>Cancel</button>
 			</p>
 		{/if}
 		{#if iv.installError}
-			<p class="err small">Install refused: {failureText(iv.installError)}</p>
+			<p class="err">Install refused: {failureText(iv.installError)}</p>
 		{/if}
 		{#if iv.installed}
-			<p class="small">
+			<p>
 				Installed {iv.installed.applicationId}, {iv.installed.apk}
 				{iv.installed.versionCode === undefined ? '' : `versionCode ${iv.installed.versionCode}`}
 			</p>
@@ -278,10 +278,10 @@
 			</button>
 		</div>
 		{#if iv.launchError}
-			<p class="err small">Launch refused: {failureText(iv.launchError)}</p>
+			<p class="err">Launch refused: {failureText(iv.launchError)}</p>
 		{/if}
 		{#if iv.launched}
-			<p class="small">
+			<p>
 				{#if iv.launched.pid === null}
 					Launched {iv.launched.applicationId}: no process observed. {iv.launched.reason ?? ''}
 				{:else}
@@ -290,7 +290,7 @@
 			</p>
 		{/if}
 		{#if iv.mirror.cancelError}
-			<p class="err small">Cancel failed: {iv.mirror.cancelError}</p>
+			<p class="err">Cancel failed: {iv.mirror.cancelError}</p>
 		{/if}
 	{:else}
 		<p class="muted">Loading...</p>
@@ -366,7 +366,13 @@
 	.name {
 		flex: 1;
 		min-width: 0;
-		overflow-wrap: anywhere;
+	}
+	/* The AVD name and the state word each keep one line and ellipsize; no token is cut in the middle. */
+	.line1 {
+		display: block;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.dot {
 		flex: none;

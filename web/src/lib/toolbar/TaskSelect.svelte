@@ -135,7 +135,7 @@
 	.note {
 		margin: 0;
 		color: var(--text-3);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.bad {
 		margin: 0;

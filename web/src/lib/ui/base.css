@@ -125,6 +125,19 @@ td {
 	padding: var(--sp-1) var(--sp-4);
 	border-bottom: 1px solid var(--border);
 }
+/* Browser surfaces: the selection and caret use the accent; the scrollbar thumb is the active fill (Firefox and current Chrome). */
+:root {
+	scrollbar-color: var(--bg-active) transparent;
+}
+::selection {
+	background: var(--accent-soft);
+	color: var(--text);
+}
+input,
+textarea,
+[contenteditable] {
+	caret-color: var(--accent);
+}
 ::-webkit-scrollbar {
 	width: 10px;
 	height: 10px;

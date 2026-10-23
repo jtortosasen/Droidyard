@@ -180,7 +180,7 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 		font-family: var(--font-mono);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.actions {
 		display: flex;

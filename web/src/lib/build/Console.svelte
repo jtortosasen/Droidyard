@@ -197,5 +197,8 @@
 	footer {
 		flex: none;
 		margin-top: 0.5rem;
+		color: var(--text-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
 	}
 </style>

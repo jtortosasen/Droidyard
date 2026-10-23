@@ -376,7 +376,7 @@
 		flex: none;
 		margin: 0;
 		padding: var(--sp-3) var(--sp-5);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--danger);
 		background: var(--bg-raised);
 	}

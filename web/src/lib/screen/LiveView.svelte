@@ -282,7 +282,7 @@
 		padding: var(--sp-3) var(--sp-5);
 		background: var(--warning-soft);
 		color: var(--text);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		border: 0;
 		border-left: 3px solid var(--warning);
 		border-radius: 0;

@@ -212,7 +212,7 @@
 		flex: none;
 		margin: 0;
 		padding: var(--sp-3) var(--sp-5);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--warning);
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--border);
@@ -244,7 +244,7 @@
 	}
 	.note {
 		margin: 0;
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--text-3);
 	}
 	.pad {

@@ -94,8 +94,11 @@
 		align-items: center;
 		gap: var(--sp-3);
 		white-space: nowrap;
+		min-width: 0;
+		overflow: hidden;
 	}
 	.name {
+		flex: 0 1 auto;
 		border-color: transparent;
 		background: transparent;
 		font-size: var(--fs-title);
@@ -124,11 +127,17 @@
 		background: var(--warning);
 	}
 	.state {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--text-2);
 		font-size: var(--fs-small);
 		font-weight: 500;
 	}
 	.bad {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--danger);
 		font-size: var(--fs-small);
 	}

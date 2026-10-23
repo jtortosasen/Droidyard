@@ -702,7 +702,7 @@
 		flex: none;
 		margin: 0;
 		padding: var(--sp-2) var(--sp-4);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--warning);
 		border-bottom: 1px solid var(--border);
 	}
@@ -747,7 +747,7 @@
 		gap: var(--sp-3);
 		padding: var(--sp-2) var(--sp-4);
 		border-bottom: 1px solid var(--border);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.fetch-failed .what {
 		flex: 1;
@@ -831,6 +831,7 @@
 	}
 	.row.selected {
 		background: var(--accent-soft);
+		box-shadow: var(--sel-edge);
 	}
 	.cell {
 		display: flex;

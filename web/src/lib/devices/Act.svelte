@@ -59,12 +59,12 @@
 			{#if target !== ''}
 				<span class="chip">{target}</span>
 			{:else}
-				<span class="muted small">No target: select a node in the tree, or open the selector below.</span>
+				<span class="muted">No target: select a node in the tree, or open the selector below.</span>
 			{/if}
 			<button type="button" class="btn-primary" disabled={!idle} onclick={() => void model.tap()}>Tap</button>
 		</div>
 		{#if view.picked}
-			<p class="muted small">Typing in a selector field replaces the picked node.</p>
+			<p class="muted">Typing in a selector field replaces the picked node.</p>
 		{/if}
 
 		<details>
@@ -140,16 +140,16 @@
 		</div>
 
 		{#if view.device === ''}
-			<p class="muted small">Select a device first.</p>
+			<p class="muted">Select a device first.</p>
 		{/if}
 		{#if view.running}
-			<p class="muted small">Running {view.running === 'tap' ? 'the tap' : 'the typing'}...</p>
+			<p class="muted">Running {view.running === 'tap' ? 'the tap' : 'the typing'}...</p>
 		{/if}
 		{#if view.invalid}
-			<p class="err small">Not sent: {view.invalid}</p>
+			<p class="err">Not sent: {view.invalid}</p>
 		{/if}
 		{#if view.error}
-			<p class="err small">Refused: {failureText(view.error)}</p>
+			<p class="err">Refused: {failureText(view.error)}</p>
 			{#if view.error.details}
 				<pre>{view.error.details}</pre>
 			{/if}

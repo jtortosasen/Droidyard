@@ -391,7 +391,7 @@
 	.note {
 		margin: 0;
 		padding: 0 var(--sp-4);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--text-2);
 	}
 	.note.bad {

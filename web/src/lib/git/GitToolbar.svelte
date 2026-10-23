@@ -269,7 +269,7 @@
 		gap: var(--sp-3);
 		padding: var(--sp-2) var(--sp-4);
 		border-bottom: 1px solid var(--border);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.pull-note .what {
 		flex: 1;

@@ -713,7 +713,7 @@
 	.note {
 		margin: 0;
 		padding: var(--sp-2) var(--sp-4);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--text-2);
 	}
 	.note.error {
@@ -862,7 +862,7 @@
 	.name-error {
 		margin: 0 var(--sp-2);
 		padding: 0 var(--sp-3) 0 calc(var(--sp-3) + 28px + (var(--depth) - 1) * 12px);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--danger);
 		white-space: normal;
 	}

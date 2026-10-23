@@ -425,6 +425,10 @@
 		overflow: hidden;
 		clip-path: inset(50%);
 	}
+	/* The workspace name and state clip inside their own box; nothing paints over the next tool. */
+	.tool[data-tool='workspace'] {
+		overflow: hidden;
+	}
 	.tool[data-tool='run'],
 	.tool[data-tool='build'] {
 		flex: none;

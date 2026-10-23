@@ -144,7 +144,7 @@
 	.note {
 		margin: var(--sp-3);
 		color: var(--text-3);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.item {
 		justify-content: flex-start;

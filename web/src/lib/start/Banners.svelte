@@ -70,7 +70,7 @@
 		flex-wrap: wrap;
 		gap: var(--sp-4);
 		padding: var(--sp-2) var(--sp-5);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		border-bottom: 1px solid var(--border);
 	}
 	.warn {
