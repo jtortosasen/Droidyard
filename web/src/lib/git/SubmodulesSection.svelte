@@ -271,7 +271,7 @@
 		color: var(--text-2);
 		font-size: var(--fs-small);
 		font-weight: 600;
-		letter-spacing: 0.04em;
+		letter-spacing: var(--tracking-label);
 		text-align: left;
 	}
 	.title {

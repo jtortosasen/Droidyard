@@ -83,7 +83,7 @@
 		overscroll-behavior: contain;
 	}
 	pre {
-		font-size: 0.85rem;
+		font-size: var(--fs-log);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}

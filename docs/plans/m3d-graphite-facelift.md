@@ -138,7 +138,18 @@
 - Needs: step 3.
 - Not here: area restyles (steps 5–10).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23.
+  - Seen failing on step 3's tree, then passing:
+    - `scale.test.ts` failed 4 of 4, the floor test with `--fs-small is 11px`.
+    - `literals.test.ts` named 17 type literals, among them 9 px in `Shell` and `SessionsToggle`, 8 px in `HistoryPanel`, `cm/theme.ts` `lineHeight: 1.5`, and `base.css` `/ 1.4`.
+  - `verify` passed: 118 files, 1369 tests. `go test ./...` passed.
+  - Level 5 (`$R=/private/tmp/dy.vkzAkR`, `$E/step4`):
+    - The probe's smallest text is 11.5 px in both themes and at both sizes; it was 9 px and 8 px at step 1.
+    - The centre tab bar is 36 px plus its 1 px seam.
+    - The selected tree row has `inset 2px` accent on `--accent-soft`, not `--accent`.
+    - Comfortable density gives 28 px tree rows and a 40 px tab bar after a reload; compact gives 24 px and 36 px.
+    - Two area assertions were already true on this tree: the 44 px toolbar (step 5) and the sha in Geist Mono (step 8, from step 3). Their steps keep only the others.
+  - The last-log-row check waits for log lines (step 9).
 
 ### 5. Shell, toolbar and start
 
@@ -266,3 +277,4 @@ The main session may apply the recommendation under the owner's standing instruc
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-23, step 2: dark `--text-2` moved from the sketch's #a1a1aa to #b1b1b9. The contrast floor pushed `--text-3` to #9a9aa4, which left the two text levels about 0.02 apart in luminance, so `--text-2` was lifted to keep the hierarchy. The change is lightness only. Delegated.
+- 2026-10-23, step 4: `h2` keeps the label type only (11.5 px, uppercase, tracked, `--text-2`), and only `.panel-head` is the raised bar. Applied to every `h2`, the bar boxed the headings inside padded sections (Projects, Devices, UI recording) as separate tiles. A region's head adopts `.panel-head` in its area step. Delegated.

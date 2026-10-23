@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { rowWindow } from '../logcat/virtual';
+	import { LOG_ROW_PX } from '../ui/metrics';
 	import { failureText } from './failure';
 	import type { ConsoleModel, ConsoleView } from './console';
 
@@ -12,8 +13,7 @@
 	}
 	let { model }: Props = $props();
 
-	/** Fixed row height in px, so the window is arithmetic (as Logcat's). */
-	const ROW_HEIGHT = 18;
+	// Fixed row height, so the window is arithmetic (as Logcat); LOG_ROW_PX is its one source.
 	const OVERSCAN = 10;
 
 	let view = $state.raw<ConsoleView | null>(null);
@@ -32,7 +32,7 @@
 		rowWindow({
 			scrollTop,
 			viewportHeight,
-			rowHeight: ROW_HEIGHT,
+			rowHeight: LOG_ROW_PX,
 			overscan: OVERSCAN,
 			count: view?.count ?? 0,
 			following,
@@ -52,12 +52,12 @@
 		// Lines forgotten from the front, or earlier ones added before it: keep the line being read in place.
 		const shift = v.startSeq - startSeq;
 		startSeq = v.startSeq;
-		if (!following && shift !== 0) scrollTop = Math.max(0, scrollTop - shift * ROW_HEIGHT);
+		if (!following && shift !== 0) scrollTop = Math.max(0, scrollTop - shift * LOG_ROW_PX);
 		view = v;
 		await tick();
 		if (!scroller) return;
 		if (following) {
-			pinned = Math.max(0, v.count * ROW_HEIGHT - viewportHeight);
+			pinned = Math.max(0, v.count * LOG_ROW_PX - viewportHeight);
 			scroller.scrollTop = pinned;
 		} else if (shift !== 0) {
 			scroller.scrollTop = scrollTop;
@@ -72,7 +72,7 @@
 		untrack(() => {
 			if (!el) return;
 			if (following) {
-				pinned = Math.max(0, (view?.count ?? 0) * ROW_HEIGHT - el.clientHeight);
+				pinned = Math.max(0, (view?.count ?? 0) * LOG_ROW_PX - el.clientHeight);
 				el.scrollTop = pinned;
 			} else {
 				el.scrollTop = scrollTop;
@@ -91,7 +91,7 @@
 		const top = scroller.scrollTop;
 		scrollTop = top;
 		if (Math.abs(top - pinned) < 1) return; // our own scroll to the bottom
-		following = scroller.scrollHeight - top - scroller.clientHeight <= ROW_HEIGHT * 2;
+		following = scroller.scrollHeight - top - scroller.clientHeight <= LOG_ROW_PX * 2;
 	}
 
 	function watchText(w: ConsoleView['watch']): string {
@@ -144,7 +144,7 @@
 				bind:clientHeight={viewportHeight}
 				{onscroll}
 			>
-				<div class="spacer" style:height="{win.totalHeight}px">
+				<div class="spacer" style:height="{win.totalHeight}px" style:--log-row="{LOG_ROW_PX}px">
 					<div class="rows" id="console-rows" style:transform="translateY({win.offset}px)">
 						{#each rows as row (row.seq)}
 							<div class="row">{row.text}</div>
@@ -183,10 +183,12 @@
 		overflow: hidden;
 	}
 	.rows {
-		font: 12px/18px ui-monospace, monospace;
+		font-family: var(--font-mono);
+		font-size: var(--fs-log);
+		line-height: var(--log-row);
 	}
 	.row {
-		height: 18px;
+		height: var(--log-row);
 		white-space: pre;
 		overflow: hidden;
 		text-overflow: ellipsis;

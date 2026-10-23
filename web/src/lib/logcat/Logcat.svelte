@@ -6,6 +6,7 @@
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
 	import type { Client, ConnectionState } from '../api/client';
 	import { browserStorage } from '../ui/layout';
+	import { LOG_ROW_PX } from '../ui/metrics';
 	import { isMarker } from './entry';
 	import { QueryBar } from './bar';
 	import type { LogcatDevice } from './device';
@@ -31,8 +32,7 @@
 	}
 	let { client, connection, devices, mine, workspaceId }: Props = $props();
 
-	/** Fixed row height in px, so the window is arithmetic (plan m2a step 5). */
-	const ROW_HEIGHT = 18;
+	// Fixed row height, so the window is arithmetic (plan m2a step 5); LOG_ROW_PX is its one source.
 	const OVERSCAN = 10;
 
 	const session = new LogcatSession({
@@ -74,7 +74,7 @@
 		rowWindow({
 			scrollTop,
 			viewportHeight,
-			rowHeight: ROW_HEIGHT,
+			rowHeight: LOG_ROW_PX,
 			overscan: OVERSCAN,
 			count: snap.count,
 			following: snap.following,
@@ -87,12 +87,12 @@
 	async function changed() {
 		const shift = session.takeShift();
 		// Rows the ring forgot from the front: keep the lines the user is reading in place.
-		if (!session.following && shift > 0) scrollTop = Math.max(0, scrollTop - shift * ROW_HEIGHT);
+		if (!session.following && shift > 0) scrollTop = Math.max(0, scrollTop - shift * LOG_ROW_PX);
 		snap = snapshot();
 		await tick();
 		if (!scroller) return;
 		if (snap.following) {
-			pinned = Math.max(0, snap.count * ROW_HEIGHT - viewportHeight);
+			pinned = Math.max(0, snap.count * LOG_ROW_PX - viewportHeight);
 			scroller.scrollTop = pinned;
 		} else if (shift > 0) {
 			scroller.scrollTop = scrollTop;
@@ -107,7 +107,7 @@
 		untrack(() => {
 			if (!el) return;
 			if (snap.following) {
-				pinned = Math.max(0, snap.count * ROW_HEIGHT - el.clientHeight);
+				pinned = Math.max(0, snap.count * LOG_ROW_PX - el.clientHeight);
 				el.scrollTop = pinned;
 			} else {
 				el.scrollTop = scrollTop;
@@ -155,7 +155,7 @@
 		const top = scroller.scrollTop;
 		scrollTop = top;
 		if (Math.abs(top - pinned) < 1) return; // our own scroll to the bottom
-		session.setFollowing(scroller.scrollHeight - top - scroller.clientHeight <= ROW_HEIGHT * 2);
+		session.setFollowing(scroller.scrollHeight - top - scroller.clientHeight <= LOG_ROW_PX * 2);
 	}
 
 	function oninput(e: Event & { currentTarget: HTMLInputElement }) {
@@ -228,7 +228,7 @@
 			bind:clientHeight={viewportHeight}
 			{onscroll}
 		>
-			<div class="spacer" style:height="{win.totalHeight}px">
+			<div class="spacer" style:height="{win.totalHeight}px" style:--log-row="{LOG_ROW_PX}px">
 				<div class="rows" id="logcat-rows" style:transform="translateY({win.offset}px)">
 					{#each rows as row (row.seq)}
 						{#if isMarker(row.entry)}
@@ -320,10 +320,12 @@
 		overflow: hidden;
 	}
 	.rows {
-		font: 12px/18px ui-monospace, monospace;
+		font-family: var(--font-mono);
+		font-size: var(--fs-log);
+		line-height: var(--log-row);
 	}
 	.row {
-		height: 18px;
+		height: var(--log-row);
 		white-space: pre;
 		overflow: hidden;
 		text-overflow: ellipsis;

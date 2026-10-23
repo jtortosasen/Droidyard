@@ -10,7 +10,7 @@ body {
 	overflow: hidden;
 	background: var(--bg-window);
 	color: var(--text);
-	font: var(--fs-base) / 1.4 var(--font-ui);
+	font: var(--fs-base) / var(--lh-base) var(--font-ui);
 	font-variant-numeric: tabular-nums;
 	-webkit-font-smoothing: antialiased;
 }
@@ -33,13 +33,31 @@ samp {
 p {
 	margin: var(--sp-2) 0;
 }
-h2 {
-	margin: 0 0 var(--sp-3);
-	font-size: var(--fs-small);
+/* A section label: small tracked capitals. A region's head is the raised bar, .panel-head
+   (ADR-0128); an h2 inside a panel is a label within it, not another bar. */
+h2,
+.panel-head {
+	margin: 0;
+	font-size: var(--fs-label);
 	font-weight: 600;
-	letter-spacing: 0.04em;
+	letter-spacing: var(--tracking-label);
 	text-transform: uppercase;
 	color: var(--text-2);
+}
+.panel-head {
+	display: flex;
+	align-items: center;
+	min-height: var(--head);
+	padding: 0 var(--sp-6);
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-raised);
+}
+.mono {
+	font-family: var(--font-mono);
+}
+.selected {
+	background: var(--accent-soft);
+	box-shadow: var(--sel-edge);
 }
 h3 {
 	margin: var(--sp-3) 0;
@@ -56,8 +74,9 @@ textarea {
 	color: inherit;
 }
 button {
-	min-height: calc(var(--row) - 2px);
-	padding: 0 var(--sp-4);
+	min-height: 28px;
+	padding: 0 11px;
+	font-weight: 500;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-control);
 	background: var(--bg-raised);
@@ -77,8 +96,9 @@ input:disabled {
 select,
 input:not([type='checkbox'], [type='radio']),
 textarea {
-	min-height: calc(var(--row) - 2px);
-	padding: 0 var(--sp-3);
+	min-height: 28px;
+	padding: 0 var(--sp-4);
+	font-weight: 500;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-control);
 	background: var(--bg-window);
@@ -142,6 +162,14 @@ td {
 .btn-primary:active:not(:disabled) {
 	background: var(--accent);
 	filter: brightness(0.92);
+}
+.btn-danger {
+	background: transparent;
+	border-color: var(--danger-border);
+	color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+	background: var(--danger-soft);
 }
 .err {
 	color: var(--danger);

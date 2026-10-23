@@ -367,7 +367,7 @@
 		margin: 0;
 		font-size: var(--fs-small);
 		font-weight: 600;
-		letter-spacing: 0.04em;
+		letter-spacing: var(--tracking-label);
 		text-transform: uppercase;
 		color: var(--text-2);
 	}

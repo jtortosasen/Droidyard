@@ -276,6 +276,6 @@
 		align-items: center;
 		gap: var(--sp-5);
 		margin: 0 0 var(--sp-5);
-		font-size: 18px;
+		font-size: var(--fs-display);
 	}
 </style>

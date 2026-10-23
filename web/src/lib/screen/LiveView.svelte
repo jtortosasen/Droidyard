@@ -308,7 +308,7 @@
 	}
 	.fast {
 		margin-left: auto;
-		font-size: 0.8em;
+		font-size: var(--fs-small);
 		opacity: 0.75;
 	}
 	.fast[aria-pressed='true'] {

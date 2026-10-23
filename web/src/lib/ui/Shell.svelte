@@ -396,7 +396,7 @@
 		align-items: center;
 		gap: var(--sp-3);
 		padding: var(--sp-2) var(--sp-4);
-		height: 38px;
+		height: var(--toolbar);
 		flex-wrap: nowrap;
 		overflow: hidden;
 		background: var(--bg-raised);
@@ -636,7 +636,7 @@
 		color: var(--text-3);
 	}
 	.soon {
-		font-size: 9px;
+		font-size: var(--fs-label);
 		padding: 0 var(--sp-2);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);

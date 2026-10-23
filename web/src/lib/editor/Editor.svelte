@@ -154,7 +154,7 @@
 		flex: none;
 		display: inline-flex;
 		align-items: center;
-		height: var(--tab-height);
+		height: var(--ftab-height);
 		border-right: 1px solid var(--border);
 		border-bottom: 2px solid transparent;
 		color: var(--text-2);

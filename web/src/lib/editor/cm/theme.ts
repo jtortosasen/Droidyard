@@ -20,7 +20,7 @@ export const theme = EditorView.theme({
 	},
 	'.cm-scroller': {
 		fontFamily: 'var(--font-mono)',
-		lineHeight: '1.5',
+		lineHeight: 'var(--lh-code)',
 	},
 	'.cm-content': {
 		caretColor: 'var(--text)',

@@ -196,7 +196,7 @@
 		flex: 1;
 		min-width: 0;
 		font: inherit;
-		font-size: 16px;
+		font-size: var(--fs-large);
 		color: var(--text);
 		background: transparent;
 		border: 0;

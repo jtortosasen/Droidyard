@@ -673,7 +673,7 @@
 		gap: var(--sp-2);
 		max-width: 26ch;
 		padding: 0 var(--sp-3);
-		line-height: 18px;
+		line-height: var(--lh-base);
 		color: var(--text-2);
 		background: transparent;
 	}
@@ -715,7 +715,7 @@
 		padding: 0 var(--sp-3);
 		border-radius: var(--radius-control);
 		font-size: var(--fs-small);
-		line-height: 16px;
+		line-height: var(--lh-base);
 		background: var(--bg-active);
 		color: var(--text-2);
 		border: 1px solid var(--border);
@@ -800,7 +800,7 @@
 		height: var(--row);
 		font-size: var(--fs-small);
 		color: var(--text-3);
-		letter-spacing: 0.04em;
+		letter-spacing: var(--tracking-label);
 		border-bottom: 1px solid var(--border);
 		scrollbar-gutter: stable;
 		overflow: hidden;
@@ -898,13 +898,13 @@
 	}
 	.avatar {
 		flex: none;
-		width: 16px;
-		height: 16px;
+		width: 20px;
+		height: 20px;
 		border-radius: 50%;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 8px;
+		font-size: var(--fs-label);
 		font-weight: 600;
 		color: var(--avatar-text);
 		background: hsl(var(--hue) var(--avatar-s) var(--avatar-l));

@@ -62,11 +62,20 @@
 
 	--font-ui: 'Geist Variable', system-ui, sans-serif;
 	--font-mono: 'Geist Mono Variable', ui-monospace, Menlo, monospace;
-	--fs-base: 13px;
-	--fs-small: 11px;
-	--fs-mono: 12px;
+	--fs-label: 11.5px;
+	--fs-small: 12px;
+	--fs-base: 13.5px;
+	--fs-title: 14.5px;
+	--fs-large: 16px;
+	--fs-display: 18px;
+	--fs-mono: 13.5px;
+	--fs-log: 12.5px;
+	--lh-base: 1.45;
+	--lh-code: 22px;
+	--lh-log: 19px;
+	--tracking-label: 0.09em;
 
-	--radius-control: 6px;
+	--radius-control: 5px;
 	--radius-panel: 8px;
 
 	--sp-1: 2px;
@@ -76,8 +85,11 @@
 	--sp-5: 12px;
 	--sp-6: 16px;
 
-	--row: 22px;
-	--tab-height: 28px;
+	--row: 24px;
+	--tab-height: 36px;
+	--ftab-height: 34px;
+	--toolbar: 44px;
+	--head: 34px;
 	--splitter: 5px;
 	--icon: 14px;
 }
@@ -138,10 +150,12 @@
 
 /* Density: the height of a row (the tree, lists, controls). */
 [data-density='compact'] {
-	--row: 22px;
-	--tab-height: 26px;
+	--row: 24px;
+	--tab-height: 36px;
+	--ftab-height: 34px;
 }
 [data-density='comfortable'] {
 	--row: 28px;
-	--tab-height: 32px;
+	--tab-height: 40px;
+	--ftab-height: 38px;
 }

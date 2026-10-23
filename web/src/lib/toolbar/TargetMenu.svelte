@@ -119,7 +119,7 @@
 		font-weight: 600;
 		color: var(--text-2);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		letter-spacing: var(--tracking-label);
 	}
 	.item {
 		display: block;

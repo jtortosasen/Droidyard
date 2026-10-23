@@ -83,6 +83,45 @@ export function scanSource(path: string, text: string): string[] {
 	return out.map((v) => `${path}: ${v}`);
 }
 
+const FACES = /^(var\(--font-ui\)|var\(--font-mono\)|inherit)$/;
+
+/** The type violations of a CSS text: a size or line height that is not a token, a face that is not one of the two. */
+export function scanType(css: string): string[] {
+	const out: string[] = [];
+	// An @font-face block declares a face; it is the one place a family name is a literal (fonts.css).
+	const text = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/@font-face\s*\{[^}]*\}/g, '');
+	for (const m of text.matchAll(/(?<![\w-])(font-size|line-height|font-family|font)\s*:\s*([^;{}]+)/g)) {
+		const prop = m[1];
+		const value = m[2].trim();
+		if (/^(inherit|initial|unset|revert)$/.test(value) && prop !== 'font-family') continue;
+		if (prop === 'font-family') {
+			if (!FACES.test(value)) out.push(`font-family: ${value} is not var(--font-ui), var(--font-mono) or inherit`);
+		} else if (prop === 'font') {
+			// The shorthand carries a size, a line height and a face; whatever var() does not cover is a literal.
+			if (/\d|\b(monospace|sans-serif|serif|system-ui|ui-monospace)\b|['"]/.test(value.replace(/var\([^)]*\)/g, ''))) {
+				out.push(`font: ${value} has a literal`);
+			}
+		} else if (!/var\(/.test(value) && value !== 'normal') {
+			out.push(`${prop}: ${value} is a literal, not a token`);
+		}
+	}
+	return out;
+}
+
+/** The type violations of a .ts or .svelte file: <style> blocks, CSS in strings and camelCase style objects. */
+export function scanTypeSource(path: string, text: string): string[] {
+	const out: string[] = [];
+	for (const s of text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)) out.push(...scanType(s[1]));
+	const rest = text.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
+	for (const s of codeStrings(rest)) out.push(...scanType(s));
+	for (const m of rest.matchAll(/\b(fontSize|lineHeight|fontFamily)\s*:\s*([^,}\n]+)/g)) {
+		const v = m[2].trim().replace(/^['"`]|['"`],?$/g, '');
+		const ok = m[1] === 'fontFamily' ? FACES.test(v) : /var\(/.test(v) || v === 'inherit' || v === 'normal';
+		if (!ok) out.push(`${m[1]}: ${v} is a literal`);
+	}
+	return out.map((v) => `${path}: ${v}`);
+}
+
 function definitions(text: string, into: Set<string>): void {
 	for (const m of text.matchAll(/(?<![\w-])(--[\w-]+)\s*:/g)) into.add(m[1]); // `--x:` in CSS and style="--x: …"
 	for (const m of text.matchAll(/\bstyle:(--[\w-]+)/g)) into.add(m[1]); // `style:--x={…}`
@@ -119,6 +158,16 @@ describe('colour literals', () => {
 		const violations = [
 			...SOURCES.flatMap(([k, t]) => scanSource(k, t)),
 			...STYLESHEETS.flatMap(([k, t]) => scanCSS(t).map((v) => `${k}: ${v}`)),
+		];
+		expect(violations, violations.join('\n')).toEqual([]);
+	});
+
+	// Decision (ADR-0128): sizes, line heights and faces are tokens, so the type scale has one home
+	// and the 11.5px floor (scale.test.ts) covers every size the UI draws.
+	it('has no font-size, line-height or font-family literal outside tokens.css', () => {
+		const violations = [
+			...SOURCES.flatMap(([k, t]) => scanTypeSource(k, t)),
+			...STYLESHEETS.flatMap(([k, t]) => scanType(t).map((v) => `${k}: ${v}`)),
 		];
 		expect(violations, violations.join('\n')).toEqual([]);
 	});
@@ -166,6 +215,36 @@ describe('the literal scanner', () => {
 	});
 	it.each(good)('passes %s', (line) => {
 		expect(scanCSS(`.x { ${line} }`), line).toEqual([]);
+	});
+
+	it.each([
+		'font-size: 12px;',
+		'font-size: 0.85rem;',
+		'font-size: 0.8em;',
+		'line-height: 18px;',
+		'line-height: 1.5;',
+		'font: 12px/18px ui-monospace, monospace;',
+		'font: var(--fs-base) / 1.4 var(--font-ui);',
+		"font-family: 'Geist Variable', sans-serif;",
+		'font-family: ui-monospace, monospace;',
+	])('flags the type literal %s', (line) => {
+		expect(scanType(`.x { ${line} }`), line).not.toEqual([]);
+	});
+	it.each([
+		'font-size: var(--fs-small);',
+		'font-size: inherit;',
+		'line-height: var(--log-row);',
+		'font: inherit;',
+		'font: var(--fs-base) / var(--lh-base) var(--font-ui);',
+		'font-family: var(--font-mono);',
+		'font-family: inherit;',
+	])('passes the type value %s', (line) => {
+		expect(scanType(`.x { ${line} }`), line).toEqual([]);
+	});
+	it('scans camelCase style objects in TypeScript', () => {
+		expect(scanTypeSource('f.ts', "const t = { fontSize: '12px' };")).not.toEqual([]);
+		expect(scanTypeSource('f.ts', "const t = { lineHeight: '1.5' };")).not.toEqual([]);
+		expect(scanTypeSource('f.ts', "const t = { fontSize: 'var(--fs-mono)', lineHeight: 'var(--lh-code)' };")).toEqual([]);
 	});
 
 	it('flags a hex in a quoted string and not a private field', () => {
