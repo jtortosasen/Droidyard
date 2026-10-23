@@ -50,7 +50,7 @@ export interface Block {
 }
 
 export interface BlockContext {
-	/** session id -> the label the projects panel shows (D30: duplicate names numbered). */
+	/** session id -> the actor label (SessionsModel.actorLabels: duplicate names numbered in first-seen order, never renumbered). */
 	labels: ReadonlyMap<string, string>;
 	/** The build the console model holds, if any. */
 	heldBuild: string | null;

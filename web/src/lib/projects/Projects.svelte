@@ -4,19 +4,23 @@
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
+	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import X from '@lucide/svelte/icons/x';
 	import { failureText } from '../build/failure';
+	import { agoText, chatTree, cut, sourceNotes, type ChatRow, type ChatsModel, type ChatsView } from './chats';
 	import { groupProjects, type ProjectsModel, type ProjectsView, type ProjectRow } from './projects';
 	import { duration, heldByText, holderOf, occupiesText, type AgentRow, type SessionsModel, type SessionsView } from './sessions';
 	import Spinner from './Spinner.svelte';
 
-	// The projects and agents panel (plan m2d step 7, ADR-0047, D30): the projects this
-	// installation has known, newest first, with the agent rows under the project each
-	// belongs to and, under a running agent, its operations with a live duration. Every
-	// field is a text node.
+	// The projects panel (plan m2d step 7, ADR-0047) and, below it, the Sessions (ADR-0127):
+	// the projects this installation has known, newest first, with their worktrees; then every
+	// chat by client, project and the title its client shows, a live session on its chat's row
+	// and, under a running one, its operations with a live duration. Every field, a chat's
+	// title above all (untrusted text, ADR-0015 section 1), is a text node.
 	interface Props {
 		projects: ProjectsModel;
 		sessions: SessionsModel;
+		chats: ChatsModel;
 		/** The workspace the tab shows; null where none is. */
 		selected: string | null;
 		/** A project or an agent row was chosen (the overlay closes). */
@@ -24,11 +28,16 @@
 		/** The connection is open: Release needs it. */
 		connected?: boolean;
 	}
-	let { projects, sessions, selected, onchosen, connected = true }: Props = $props();
+	let { projects, sessions, chats, selected, onchosen, connected = true }: Props = $props();
 
 	let view = $state.raw<ProjectsView | null>(null);
 	let agents = $state.raw<SessionsView>({ rows: [], runningAgents: 0 });
+	let chatsView = $state.raw<ChatsView>({ chats: [], sources: [], truncated: false, error: null, loaded: false });
 	let now = $state(Date.now());
+	// "N more" opened, per client and project; in memory only.
+	let opened = $state.raw<ReadonlySet<string>>(new Set());
+	let copied = $state<string | null>(null);
+	let shownCommand = $state<{ key: string; text: string } | null>(null);
 	let typed = $state('');
 
 	$effect(() => {
@@ -41,6 +50,9 @@
 		read();
 		const offP = p.subscribe(read);
 		const offS = s.subscribe(read);
+		const readChats = () => (chatsView = chats.view);
+		readChats();
+		const offC = chats.subscribe(readChats);
 		// Durations tick, and a row ages out of the panel without any event.
 		const timer = setInterval(() => {
 			now = Date.now();
@@ -49,6 +61,7 @@
 		return () => {
 			offP();
 			offS();
+			offC();
 			clearInterval(timer);
 		};
 	});
@@ -57,7 +70,8 @@
 	// The panel by project (ADR-0083 §2): a worktree is never a top-level row.
 	const grouping = $derived(groupProjects(rows, agents.rows));
 	const groups = $derived(grouping.groups);
-	const loose = $derived(grouping.loose);
+	const tree = $derived(chatTree(chatsView.chats, agents.rows, rows));
+	const notes = $derived(sourceNotes(chatsView.sources));
 
 	// A project or worktree row: a selection that stays where it is, whatever the sessions do.
 	function chooseProject(p: ProjectRow) {
@@ -68,12 +82,33 @@
 	// A session row: the selection follows that session's moves (ADR-0083 §3).
 	function chooseAgent(a: AgentRow, workspace: string | null) {
 		sessions.select(a.key);
-		if (a.you) sessions.unfollow();
-		else sessions.follow(a.key);
+		sessions.follow(a.key);
 		if (workspace !== null) {
 			void projects.select(workspace);
 			onchosen?.();
 		}
+	}
+	// A chat that is not live: select its worktree's workspace, else its project's, when the list
+	// holds it open; it opens none (the row then does nothing).
+	function chooseChat(r: ChatRow) {
+		if (r.workspace === null) return;
+		sessions.unfollow();
+		void projects.select(r.workspace);
+		onchosen?.();
+	}
+	async function copy(r: ChatRow) {
+		if (r.resume === undefined) return;
+		try {
+			await navigator.clipboard.writeText(r.resume);
+			copied = r.key;
+			shownCommand = null;
+		} catch {
+			// Refused or unavailable: show the command, selectable, to copy by hand.
+			shownCommand = { key: r.key, text: r.resume };
+		}
+	}
+	function open(key: string) {
+		opened = new Set([...opened, key]);
 	}
 	function openGroup(root: string) {
 		void projects.openRoot(root);
@@ -93,7 +128,7 @@
 	const dotLabel = (p: ProjectRow) => `${p.state}${p.trusted ? '' : ', not trusted'}`;
 </script>
 
-{#snippet agentRow(a: AgentRow, workspace: string | null, where: string | null)}
+{#snippet agentRow(a: AgentRow, workspace: string | null, where: string | null, title: string)}
 	<li>
 		<button type="button" class="agent" onclick={() => chooseAgent(a, workspace)}>
 			<span class="status">
@@ -107,8 +142,8 @@
 					<span class="idle" title="Idle"></span>
 				{/if}
 			</span>
-			{#if !a.you}<Bot size={12} />{/if}
-			<span class="label">{a.label}</span>
+			<Bot size={12} />
+			<span class="label" title={a.label}>{title}</span>
 			{#if where !== null}<span class="where" title="Worktree">{where}</span>{/if}
 			{#if occupiesText(a, worktreeName) !== ''}
 				<span class="holds" title="Holds this worktree or device, so that no other chat writes or acts there">holds {occupiesText(a, worktreeName)}</span>
@@ -181,13 +216,13 @@
 		<p class="note bad">Release refused: {releaseError}</p>
 	{/if}
 
-	{#if view && rows.length === 0 && loose.length === 0}
+	{#if view && rows.length === 0}
 		<p class="note">No projects yet.</p>
 	{/if}
 
 	<ul class="list">
 		{#each groups as g (g.key)}
-			{@const agentsHere = g.sessions.filter((s) => !s.session.you)}
+			{@const agentsHere = g.sessions}
 			{@const working = agentsHere.filter((s) => s.session.running).length}
 			<li data-project={g.root}>
 				{#if g.project}
@@ -222,13 +257,6 @@
 						<button type="button" class="open" disabled={view?.opening} onclick={() => openGroup(g.root)}>Open</button>
 					</div>
 				{/if}
-				{#if g.sessions.length > 0}
-					<ul class="agents">
-						{#each g.sessions as s (s.session.key)}
-							{@render agentRow(s.session, s.workspace, s.session.you ? null : s.where)}
-						{/each}
-					</ul>
-				{/if}
 				{#if g.worktrees.length > 0}
 					<ul class="agents worktrees">
 						{#each g.worktrees as w (w.id)}
@@ -258,20 +286,65 @@
 				{/if}
 			</li>
 		{/each}
-		{#if loose.length > 0}
-			<li>
-				<div class="project group"><Folder size={14} /> <span class="name">No project</span></div>
-				<ul class="agents">
-					{#each loose as a (a.key)}
-						{@render agentRow(a, null, null)}
-					{/each}
-				</ul>
-			</li>
-		{/if}
 	</ul>
 	{#if view?.truncated}
 		<p class="note">Only the 50 most recent projects are listed.</p>
 	{/if}
+
+	<header>
+		<h2>Sessions</h2>
+	</header>
+	{#if chatsView.error}
+		<p class="note bad">Chats could not be read: {failureText(chatsView.error)}</p>
+	{/if}
+	{#each notes as n (n)}
+		<p class="note">{n}</p>
+	{/each}
+	{#if chatsView.truncated}
+		<p class="note">Still reading the chat stores; the list completes on the next refresh.</p>
+	{/if}
+	{#if chatsView.loaded && tree.length === 0}
+		<p class="note">No chats yet.</p>
+	{/if}
+	<ul class="list tree">
+		{#each tree as c (c.id)}
+			<li data-client={c.id}>
+				<div class="client">{c.name}</div>
+				{#each c.projects as p (p.root ?? '')}
+					{@const k = `${c.id}|${p.root ?? ''}`}
+					{@const part = cut(p.rows, opened.has(k))}
+					<div class="project group" title={p.root ?? undefined}><Folder size={14} /> <span class="name">{p.name}</span></div>
+					<ul class="agents">
+						{#each part.shown as r (r.key)}
+							{#if r.live}
+								{@render agentRow(r.live, r.live.workspace, r.worktree, r.title)}
+							{:else}
+								<li class="line">
+									<button type="button" class="agent" title={r.title} onclick={() => chooseChat(r)}>
+										<MessageSquare size={12} />
+										<span class="label">{r.title}</span>
+										{#if r.worktree !== null}<span class="where" title="Worktree">{r.worktree}</span>{/if}
+										{#if r.updatedAt !== null}<span class="when">{agoText(now - Date.parse(r.updatedAt))}</span>{/if}
+									</button>
+									{#if r.resume !== undefined}
+										<button type="button" class="release" title="Copy the command that resumes this chat" onclick={() => void copy(r)}>
+											{copied === r.key ? 'Copied' : 'Copy'}
+										</button>
+									{/if}
+								</li>
+								{#if shownCommand?.key === r.key}
+									<li><input class="cmd" readonly aria-label="Resume command" value={shownCommand.text} onfocus={(e) => e.currentTarget.select()} /></li>
+								{/if}
+							{/if}
+						{/each}
+						{#if part.more > 0}
+							<li><button type="button" class="agent more" onclick={() => open(k)}>{part.more} more</button></li>
+						{/if}
+					</ul>
+				{/each}
+			</li>
+		{/each}
+	</ul>
 </section>
 
 <style>
@@ -460,6 +533,25 @@
 	}
 	.unread {
 		background: var(--accent);
+	}
+	.client {
+		padding: var(--sp-2) var(--sp-4);
+		font-size: var(--fs-small);
+		font-weight: 600;
+		color: var(--text-2);
+	}
+	.when {
+		flex: none;
+		font-size: var(--fs-small);
+		color: var(--text-3);
+	}
+	.cmd {
+		width: 100%;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
+	}
+	.more {
+		color: var(--text-3);
 	}
 	.where {
 		flex: none;

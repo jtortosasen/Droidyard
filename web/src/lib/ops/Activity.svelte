@@ -11,12 +11,12 @@
 	import type { BuildModel } from '../build/build';
 	import type { ConsoleModel, ConsoleView } from '../build/console';
 	import { failureText } from '../build/failure';
-	import type { SessionsModel, SessionsView } from '../projects/sessions';
+	import type { SessionsModel } from '../projects/sessions';
 	import type { ActivityStore, Operation, WatchStatus } from './activity';
 	import { buildBlocks, elapsedText, type ActorFilter, type Block } from './blocks';
 	import { isRecord, type CommandRecord, type CommandRecordsModel } from './commands';
 	import { canRestore, EXPIRED_TEXT, itemText, type RestoreModel, type RestoreState } from './restore';
-	import { deletedBy, stateText, unaccounted, type TrashEntry, type TrashModel, type TrashRowState } from './trash';
+	import { deletedBy, deletedBySession, stateText, unaccounted, type TrashEntry, type TrashModel, type TrashRowState } from './trash';
 
 	// The activity stream (plan m2d step 8, direction C): a block per operation, newest at
 	// the bottom, following the stream unless the user scrolled up. Every field is a text
@@ -44,8 +44,11 @@
 
 	let operations = $state.raw<readonly Operation[]>([]);
 	let status = $state.raw<WatchStatus>({ state: 'idle', detail: '' });
-	let agents = $state.raw<SessionsView>({ rows: [], runningAgents: 0 });
 	let agentKey = $state<string | null>(null);
+	// Every session the tab has seen, numbered in first-seen order (not the panel's labels), and
+	// the selected session's own name, which is all a deleted entry's `by` carries.
+	let actors = $state.raw<ReadonlyMap<string, string>>(new Map());
+	let agentName = $state<string | undefined>(undefined);
 	let consoleView = $state.raw<ConsoleView | null>(null);
 	let startError = $state.raw<{ code?: string; message: string } | null>(null);
 	let actor = $state<ActorFilter>('all');
@@ -71,8 +74,9 @@
 	$effect(() => {
 		const m = sessions;
 		const read = () => {
-			agents = m.view;
 			agentKey = m.selectedKey;
+			actors = m.actorLabels();
+			agentName = agentKey === null ? undefined : m.rawName(agentKey);
 		};
 		read();
 		return m.subscribe(read);
@@ -140,8 +144,8 @@
 		return () => clearInterval(timer);
 	});
 
-	const labels = $derived(new Map(agents.rows.filter((r) => !r.you).map((r) => [r.key, r.label])));
-	const chip = $derived(agentKey === null ? null : (agents.rows.find((r) => r.key === agentKey)?.label ?? 'agent'));
+	const labels = $derived(actors);
+	const chip = $derived(agentKey === null ? null : (actors.get(agentKey) ?? 'agent'));
 	const blocks = $derived(
 		buildBlocks(
 			operations,
@@ -159,7 +163,7 @@
 				const who = deletedBy(e);
 				if (actor === 'you' && !who.you) return false;
 				if (actor === 'agents' && who.you) return false;
-				return agentKey === null || (!who.you && labels.get(agentKey) === who.label);
+				return agentKey === null || deletedBySession(e, agentName);
 			})
 			.reverse(),
 	);

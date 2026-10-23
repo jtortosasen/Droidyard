@@ -368,7 +368,6 @@ const baseName = (root: string): string => rootKey(root).split(/[\\/]/).pop() ||
 /** The part of a session row the grouping reads. */
 export interface GroupedSession {
 	key: string;
-	you: boolean;
 	workspace: string | null;
 }
 
@@ -381,7 +380,7 @@ export interface ProjectGroup<S extends GroupedSession> {
 	root: string;
 	/** Sessions in this project, in the main tree or in a worktree, each naming where. */
 	sessions: { session: S; where: string; workspace: string }[];
-	/** The worktrees with no session in them. */
+	/** Every linked worktree of the project: the panel's rows are projects and worktrees; sessions are listed apart (ADR-0127). */
 	worktrees: ProjectRow[];
 }
 
@@ -412,7 +411,6 @@ export function groupProjects<S extends GroupedSession>(rows: readonly ProjectRo
 	}
 	const byId = new Map(rows.map((r) => [r.id, r]));
 	const loose: S[] = [];
-	const inside = new Set<string>();
 	for (const s of sessions) {
 		const r = s.workspace === null ? undefined : byId.get(s.workspace);
 		if (r === undefined) {
@@ -420,9 +418,8 @@ export function groupProjects<S extends GroupedSession>(rows: readonly ProjectRo
 			continue;
 		}
 		groups.get(mainOf(r))!.sessions.push({ session: s, where: r.mainRoot === undefined ? 'main' : r.name, workspace: r.id });
-		inside.add(r.id);
 	}
-	for (const r of rows) if (r.mainRoot !== undefined && !inside.has(r.id)) groups.get(mainOf(r))!.worktrees.push(r);
+	for (const r of rows) if (r.mainRoot !== undefined) groups.get(mainOf(r))!.worktrees.push(r);
 	return { groups: [...groups.values()], loose };
 }
 
@@ -431,7 +428,7 @@ export function sessionsByRoot(rows: readonly ProjectRow[], sessions: readonly (
 	const byId = new Map(rows.map((r) => [r.id, r]));
 	const out = new Map<string, string[]>();
 	for (const s of sessions) {
-		if (s.you || s.workspace === null) continue;
+		if (s.workspace === null) continue;
 		const r = byId.get(s.workspace);
 		if (r === undefined) continue;
 		const key = rootKey(r.root);

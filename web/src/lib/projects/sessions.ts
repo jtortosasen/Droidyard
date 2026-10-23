@@ -1,20 +1,19 @@
-// The agent rows of the projects panel (plan m2d D30, ADR-0048, ADR-0083). A row exists
-// because its MCP session is connected (`session.watch`: an idle session is a row, and
-// several may sit in one worktree) or because it ran something the activity store saw; a
-// session the watch does not list leaves AGENT_ROW_TTL_MS after its last terminal event
-// (D26), and one the watch reports ended leaves at once when idle, else after its last
-// operation.
+// The session rows of the projects panel (ADR-0127 §Decision 4, ADR-0083, ADR-0048). A row is
+// a session `session.watch` lists now (an idle session is a row, and several may sit in one
+// worktree); it leaves when the watch reports it ended. A session known only by its
+// operations is not a row, and the user's own `ui` and `cli` commands are not one (the
+// "You" row went with ADR-0127; `keyOf` still gives them the key YOU, which Activity filters
+// by).
 //
-//   - MCP sessions are rows, labelled by `session.name` (a second session with the same
-//     name gets " 2", in the order seen; no name: "agent"). The user's `ui` and `cli`
-//     commands are one "You" row, without read-only calls (the tab's own reads, m2b D16).
-//   - A listed session's workspace is the one the watch says; one the watch does not list
-//     takes the one on its latest operation that carries one; a session without one sits in
-//     the "No project" group (workspace null). "You" follows the workspace of its latest
-//     operation, which has no session binding.
+//   - Two labels (ADR-0048 §Alternatives: two agents are never merged). A row's `label` is
+//     its session name, numbered " 2", " 3" among the rows listed now, so the panel reads
+//     `claude-code` while one such session lives. `actorLabel(id)` is kept for every session
+//     the tab has seen, numbered in first-seen order and never renumbered, so Activity,
+//     the build status and "in use by" never give an ended session's operations and a live
+//     one's the same name. No name: "agent".
+//   - A listed session's workspace is the one the watch says; none is the "No project" group.
 //   - A row runs while any of its operations is not terminal. Unread is a terminal event
 //     since the row was last selected, per tab, in memory only.
-//   - The rail's count and spinner follow agent rows only, never "You".
 //   - The UI follows a session and never moves it (ADR-0083 §3): `follow` names the session
 //     whose moves the selection takes; `unfollow` is a selection made from a project row.
 //   - A session may occupy a linked worktree and devices (ADR-0094): its row says which and
@@ -25,10 +24,7 @@ import { CapabilityError, ConnectionError, type ConnectionState, type EventFrame
 import { failure, failureText, type Failure } from '../build/failure';
 import { isTerminal, type Operation, type OperationState } from '../ops/activity';
 
-/** Working default (plan D26): an agent row leaves the panel this long after its last terminal event. */
-export const AGENT_ROW_TTL_MS = 30 * 60 * 1000;
-
-/** The row of the user's own commands. */
+/** The key of the user's own commands in Activity; there is no row for it. */
 export const YOU = 'you';
 
 export interface SessionsSource {
@@ -43,10 +39,12 @@ export interface RunningOperation {
 }
 
 export interface AgentRow {
-	/** The session id, or YOU. */
+	/** The session id. */
 	key: string;
+	/** The panel's label: the name, numbered among the rows listed now. */
 	label: string;
-	you: boolean;
+	/** The session's own name as it said it; null when it gave none. */
+	name: string | null;
 	/** The project the row belongs to; null is the "No project" group. */
 	workspace: string | null;
 	running: boolean;
@@ -66,13 +64,14 @@ export interface AgentRow {
 export interface SessionsView {
 	/** Running rows first; within each, the row with the newest activity first. */
 	rows: AgentRow[];
-	/** Agent rows (never "You") with an operation not terminal: the rail's count. */
+	/** Rows with an operation not terminal: the rail's count. */
 	runningAgents: number;
 }
 
 interface Track {
 	key: string;
 	order: number; // first seen: duplicate names are numbered in this order
+	name?: string; // the last name the session was seen with
 	lastEndAt: number; // the browser's time of the newest terminal event seen; 0 before any
 	lastResult: OperationState | null;
 	unread: boolean;
@@ -94,6 +93,8 @@ export interface SessionsOptions {
 	client?: SessionsClient;
 	/** The session the selection follows moved to this workspace (ADR-0083 §3). */
 	onFollow?: (workspace: string) => void;
+	/** A `session.state` event arrived: the chats are read again soon (ADR-0127 §Decision 4). */
+	onState?: () => void;
 }
 
 /** A connected MCP session, as `session.watch` last said. */
@@ -125,6 +126,7 @@ export class SessionsModel {
 	#now: () => number;
 	#client: SessionsClient | undefined;
 	#onFollow: ((workspace: string) => void) | undefined;
+	#onState: (() => void) | undefined;
 	#tracks = new Map<string, Track>();
 	#ended = new Set<string>(); // operations already counted as ended
 	#listed = new Map<string, Listed>(); // connected sessions, oldest first
@@ -143,6 +145,7 @@ export class SessionsModel {
 		this.#now = now;
 		this.#client = opts.client;
 		this.#onFollow = opts.onFollow;
+		this.#onState = opts.onState;
 	}
 
 	start(): void {
@@ -221,60 +224,70 @@ export class SessionsModel {
 		this.#changed();
 	}
 
-	/** Computed from the clock every time, so the 30-minute rule needs no timer of its own. */
+	/** The rows are the sessions the watch lists now; their operations come from the store. */
 	get view(): SessionsView {
-		const now = this.#now();
-		const ops = this.#source.operations; // newest first
 		const bySession = new Map<string, Operation[]>();
-		for (const op of ops) {
-			const key = forRows(op);
-			if (key === null) continue;
+		for (const op of this.#source.operations) {
+			const key = forRows(op); // newest first
+			if (key === null || key === YOU) continue;
 			let list = bySession.get(key);
 			if (!list) bySession.set(key, (list = []));
 			list.push(op);
 		}
-		const keys = new Set([...bySession.keys(), ...this.#listed.keys()]);
-		const seen = [...keys]
+		const seen = [...this.#listed.keys()]
 			.map((k) => this.#tracks.get(k))
 			.filter((t): t is Track => t !== undefined)
 			.sort((a, b) => a.order - b.order);
-		const nameOf = (k: string) => this.#listed.get(k)?.name ?? bySession.get(k)?.find((o) => o.session?.name)?.session?.name;
-		const labels = labelsFor(seen.map((t) => t.key), nameOf);
+		const labels = labelsFor(
+			seen.map((t) => t.key),
+			(k) => this.#listed.get(k)?.name,
+		);
 
 		const rows: AgentRow[] = [];
-		for (const key of keys) {
-			const track = this.#tracks.get(key);
-			if (!track) continue;
-			const list = bySession.get(key) ?? [];
-			const live = list.filter((o) => !isTerminal(o.state));
-			const listed = this.#listed.get(key);
-			// Ended: it leaves at once when idle, else after its last operation. Not listed by the
-			// watch: it ages out as before. Listed and connected: it stays, idle or not.
-			if (live.length === 0 && (this.#gone.has(key) || (listed === undefined && now - track.lastEndAt >= AGENT_ROW_TTL_MS))) continue;
+		for (const track of seen) {
+			const key = track.key;
+			const live = (bySession.get(key) ?? []).filter((o) => !isTerminal(o.state));
+			const listed = this.#listed.get(key)!;
 			rows.push({
 				key,
-				label: key === YOU ? 'You' : (labels.get(key) ?? 'agent'),
-				you: key === YOU,
-				workspace:
-					key === YOU
-						? (list.find((o) => o.workspace !== null)?.workspace ?? null)
-						: listed !== undefined
-							? (listed.workspace ?? null)
-							: (list.find((o) => o.session?.workspace !== undefined)?.session?.workspace ?? null),
+				label: labels.get(key) ?? 'agent',
+				name: listed.name ?? null,
+				workspace: listed.workspace ?? null,
 				running: live.length > 0,
 				result: track.lastResult,
 				unread: track.unread,
 				operations: live
 					.map((o) => ({ id: o.id, capability: o.capability, startedAt: o.startedAt }))
 					.reverse(),
-				occupies: listed?.occupies ?? null,
-				devices: listed?.devices ?? [],
-				idle: listed?.stale === true,
+				occupies: listed.occupies ?? null,
+				devices: listed.devices ?? [],
+				idle: listed.stale === true,
 			});
 		}
 		const activity = (r: AgentRow) => this.#tracks.get(r.key)?.lastEndAt ?? 0;
 		rows.sort((a, b) => Number(b.running) - Number(a.running) || activity(b) - activity(a) || a.label.localeCompare(b.label));
-		return { rows, runningAgents: rows.filter((r) => r.running && !r.you).length };
+		return { rows, runningAgents: rows.filter((r) => r.running).length };
+	}
+
+	/**
+	 * The name Activity, the build status and "in use by" give a session: kept for every
+	 * session this tab has seen, listed or not, in first-seen order, never renumbered.
+	 */
+	actorLabels(): ReadonlyMap<string, string> {
+		const order = [...this.#tracks.values()].sort((a, b) => a.order - b.order);
+		return labelsFor(
+			order.map((t) => t.key),
+			(k) => this.#tracks.get(k)?.name,
+		);
+	}
+
+	actorLabel(id: string): string {
+		return this.actorLabels().get(id) ?? 'agent';
+	}
+
+	/** The session's own name, as the activity records it in `by`; undefined when it gave none. */
+	rawName(id: string): string | undefined {
+		return this.#tracks.get(id)?.name;
 	}
 
 	#track(key: string): Track {
@@ -316,6 +329,7 @@ export class SessionsModel {
 				let moved: string | null = null;
 				for (const s of sub.result.sessions) {
 					next.set(s.id, listedFrom(s));
+					this.#named(s.id, s.name);
 					// Listed now, so not ended, whatever an earlier read concluded.
 					this.#gone.delete(s.id);
 					this.#track(s.id);
@@ -349,6 +363,7 @@ export class SessionsModel {
 		}
 		if (ev.topic !== TOPIC_STATE) return;
 		const p = ev.payload as StateEvent;
+		this.#onState?.();
 		if (this.#gone.has(p.id)) return;
 		if (p.ended) {
 			this.#listed.delete(p.id);
@@ -358,9 +373,15 @@ export class SessionsModel {
 			const prev = this.#listed.get(p.id);
 			this.#listed.set(p.id, listedFrom(p));
 			this.#track(p.id);
+			this.#named(p.id, p.name);
 			if (this.#following === p.id && p.workspace !== undefined && p.workspace !== prev?.workspace) this.#onFollow?.(p.workspace);
 		}
 		this.#changed();
+	}
+
+	#named(id: string, name: string | undefined): void {
+		const t = this.#track(id);
+		if (name) t.name = name;
 	}
 
 	#release(): void {
@@ -385,6 +406,7 @@ export class SessionsModel {
 			const key = forRows(op);
 			if (key === null) continue;
 			const t = this.#track(key);
+			if (op.session?.name) t.name = op.session.name;
 			if (!isTerminal(op.state) || this.#ended.has(op.id)) continue;
 			this.#ended.add(op.id);
 			t.lastEndAt = now;
@@ -453,7 +475,7 @@ function labelsFor(order: readonly string[], nameOf: (key: string) => string | u
 
 /** The agent row that holds the linked worktree with this workspace id, if one does. */
 export function holderOf(rows: readonly AgentRow[], workspace: string): AgentRow | undefined {
-	return rows.find((r) => !r.you && r.occupies === workspace);
+	return rows.find((r) => r.occupies === workspace);
 }
 
 /**
@@ -469,17 +491,16 @@ export function occupiesText(a: Pick<AgentRow, 'occupies' | 'devices'>, nameOf: 
 
 export interface DeviceHold {
 	serial: string;
-	/** The holding session's row label. */
+	/** The holding session's actor label. */
 	holder: string;
 	idle: boolean;
 }
 
-/** The devices the sessions hold now, by serial, from the live rows (never "You"). */
-export function deviceHolds(rows: readonly AgentRow[]): DeviceHold[] {
+/** The devices the sessions hold now, by serial, from the live rows; the holder reads as `actorLabel` says. */
+export function deviceHolds(rows: readonly AgentRow[], actorLabel: (id: string) => string): DeviceHold[] {
 	const out: DeviceHold[] = [];
 	for (const r of rows) {
-		if (r.you) continue;
-		for (const serial of r.devices) out.push({ serial, holder: r.label, idle: r.idle });
+		for (const serial of r.devices) out.push({ serial, holder: actorLabel(r.key), idle: r.idle });
 	}
 	return out.sort((a, b) => a.serial.localeCompare(b.serial));
 }

@@ -34,7 +34,7 @@
 	$effect(() => {
 		const s = sessions;
 		const read = () => {
-			holds = deviceHolds(s.view.rows);
+			holds = deviceHolds(s.view.rows, (id) => s.actorLabel(id));
 		};
 		read();
 		return s.subscribe(read);

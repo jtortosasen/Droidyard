@@ -49,7 +49,7 @@ async function setup(rows: ReturnType<typeof row>[] = [], chooser: boolean | 'fa
 
 describe('groupProjects', () => {
 	const r = (id: string, root: string, over: Record<string, unknown> = {}): ProjectRow => ({ ...row(id, { state: 'ready', root, name: id }), open: true, ...over }) as ProjectRow;
-	const ses = (key: string, workspace: string | null) => ({ key, you: false, workspace });
+	const ses = (key: string, workspace: string | null) => ({ key, workspace });
 
 	// Decision (ADR-0083 §2): worktrees nest under their main, a main whose tree is not listed
 	// gets a group row, and a worktree is never a top-level row. Rows in one flat list would
@@ -68,9 +68,10 @@ describe('groupProjects', () => {
 		]);
 	});
 
-	// Decision (ADR-0083 §2): sessions name their worktree or "main", and a worktree with a
-	// session is listed through it, not again among the worktrees without one.
-	it('puts each session under its project naming its worktree, and lists only worktrees without one', () => {
+	// Decision (ADR-0083 §2, ADR-0127): sessions name their worktree or "main" and count under
+	// their project; every worktree is listed, as the panel no longer draws a session under
+	// its worktree. Dropping a worktree that has a session would hide it from the panel.
+	it('puts each session under its project naming its worktree, and lists every worktree', () => {
 		const rows = [r('app', '/p/app'), r('wt1', '/p/wt1', { mainRoot: '/p/app' }), r('wt2', '/p/wt2', { mainRoot: '/p/app' })];
 		const { groups, loose } = groupProjects(rows, [ses('a', 'wt1'), ses('b', 'app'), ses('c', 'wt1'), ses('d', 'gone'), ses('e', null)]);
 		expect(groups[0]!.sessions.map((s) => [s.session.key, s.where])).toEqual([
@@ -78,18 +79,17 @@ describe('groupProjects', () => {
 			['b', 'main'],
 			['c', 'wt1'],
 		]);
-		expect(groups[0]!.worktrees.map((w) => w.id)).toEqual(['wt2']);
+		expect(groups[0]!.worktrees.map((w) => w.id)).toEqual(['wt1', 'wt2']);
 		expect(loose.map((s) => s.key)).toEqual(['d', 'e']);
 	});
 
 	// Decision (ADR-0083 §4): the Git panel names the sessions of a worktree by the root of their workspace.
-	it('lists the sessions at each root for the Git panel, never You', () => {
+	it('lists the sessions at each root for the Git panel', () => {
 		const rows = [r('app', '/p/app'), r('wt1', '/p/wt1', { mainRoot: '/p/app' })];
 		const m = sessionsByRoot(rows, [
 			{ ...ses('a', 'wt1'), label: 'claude' },
 			{ ...ses('b', 'wt1'), label: 'codex' },
 			{ ...ses('c', 'app'), label: 'main-one' },
-			{ ...ses('y', 'wt1'), label: 'You', you: true },
 		]);
 		expect(m.get('/p/wt1')).toEqual(['claude', 'codex']);
 		expect(m.get('/p/app')).toEqual(['main-one']);

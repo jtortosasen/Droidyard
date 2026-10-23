@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Operation, OperationState } from '../ops/activity';
+import { buildBlocks } from '../ops/blocks';
 import { FakeStream, settle } from '../build/testing';
-import { AGENT_ROW_TTL_MS, deviceHolds, duration, heldByText, inUseText, holderOf, occupiesText, SessionsModel, YOU, type AgentRow, type SessionsClient, type SessionsSource } from './sessions';
+import { deviceHolds, duration, heldByText, inUseText, holderOf, keyOf, occupiesText, SessionsModel, YOU, type AgentRow, type SessionsClient, type SessionsSource } from './sessions';
 
 // A source the test drives: the store's operations, newest first, and its listeners.
 class Source implements SessionsSource {
@@ -30,25 +31,37 @@ function op(over: Partial<Operation> & { state: OperationState }): Operation {
 }
 const mcp = (id: string, name: string | undefined, workspace?: string) => ({ id, name, workspace });
 
-function setup() {
+async function watched() {
 	const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
 	const src = new Source();
-	const model = new SessionsModel(src, () => clock.t);
+	const stream = new FakeStream('sw');
+	const moves: string[] = [];
+	const client = {
+		call: (n: string, p: unknown) => stream.call(n as 'events.unsubscribe', p as { subscriptionId: string }),
+		subscribe: (n: string, p: unknown, h: never) => stream.subscribe(n, p, h),
+	} as unknown as SessionsClient;
+	let states = 0;
+	const model = new SessionsModel(src, () => clock.t, { client, onFollow: (w) => moves.push(w), onState: () => states++ });
 	model.start();
-	return { src, model, clock };
+	const snapshot = (sessions: unknown[]) => {
+		stream.answer(0, { subscriptionId: 'sw1', sessions });
+		return settle();
+	};
+	const ev = (id: string, p: { name?: string; workspace?: string; occupies?: string; devices?: string[]; stale?: boolean; ended?: boolean }) =>
+		stream.emit(0, { topic: 'session.state', type: 'state', payload: { id, ended: false, ...p } });
+	return { src, model, stream, moves, snapshot, ev, clock, states: () => states };
 }
+const at = '2026-10-10T10:00:00Z';
+const listed = (id: string, name: string | undefined, workspace?: string) => ({ id, ...(name ? { name } : {}), ...(workspace ? { workspace } : {}), connectedAt: at });
 
-describe('SessionsModel', () => {
-	// Decision (D30): MCP sessions are rows, labelled by name; the same name gets " 2" in the
-	// order seen. Keyed by name alone, two sessions would merge into one row.
-	it('shows two MCP sessions as two rows, a repeated name numbered in the order seen', () => {
-		const t = setup();
-		t.src.set(op({ id: 'a', state: 'running', session: mcp('s1', 'claude') }));
-		t.src.set(op({ id: 'b', state: 'running', session: mcp('s2', 'claude') }));
-		t.src.set(op({ id: 'c', state: 'running', session: mcp('s3', undefined) }));
-		const rows = t.model.view.rows;
-		expect(rows).toHaveLength(3);
-		expect(new Map(rows.map((r) => [r.key, r.label]))).toEqual(
+describe('SessionsModel: rows are the listed sessions', () => {
+	// Decision (ADR-0127 §4, superseding ADR-0048 §3 in part): a row is a session the watch
+	// lists, labelled by its name, a repeated name numbered in the order seen. The panel labels
+	// among the rows listed now.
+	it('shows two listed sessions as two rows, a repeated name numbered in the order seen', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'claude'), listed('s2', 'claude'), listed('s3', undefined)]);
+		expect(new Map(t.model.view.rows.map((r) => [r.key, r.label]))).toEqual(
 			new Map([
 				['s1', 'claude'],
 				['s2', 'claude 2'],
@@ -57,68 +70,51 @@ describe('SessionsModel', () => {
 		);
 	});
 
-	// Decision (ADR-0063 §6, kept by ADR-0095 §2): the hook's record is shown in Activity under
-	// its session, but it makes no row and marks none unread, joined or not.
-	it("counts a hook's record for no row and no unread mark", () => {
-		const t = setup();
-		t.src.set(op({ id: 'r1', state: 'completed', client: 'cli', capability: 'agent.recordCommand', session: mcp('s9', 'claude') }));
-		expect(t.model.view.rows).toEqual([]);
-	});
-
-	// Decision (D30): `ui` and `cli` commands are one "You" row, and the tab's own reads are
-	// not in it. A read-only capability from the UI would otherwise keep "You" running.
-	it('folds ui and cli commands into one You row, without reads', () => {
-		const t = setup();
+	// Decision (ADR-0127 §4): the "You" row goes. A `ui` or `cli` operation makes no row, and a
+	// session known only by its operations (not listed) makes none either; the user's write
+	// keeps the key YOU for Activity, and a read or watch of the tab has none.
+	it('makes no row for the user or for a session the watch does not list', async () => {
+		const t = await watched();
+		await t.snapshot([]);
 		t.src.set(op({ id: 'a', state: 'running', client: 'ui', capability: 'build.assemble' }));
 		t.src.set(op({ id: 'b', state: 'running', client: 'cli', capability: 'device.install' }));
-		t.src.set(op({ id: 'r', state: 'running', client: 'ui', capability: 'device.list' }));
-		const rows = t.model.view.rows;
-		expect(rows.map((r) => [r.key, r.label, r.you])).toEqual([[YOU, 'You', true]]);
-		expect(rows[0]!.operations.map((o) => o.id).sort()).toEqual(['a', 'b']);
-	});
-
-	// Decision (D30): a global operation sits under its session.workspace, and a session
-	// without one in "No project" (workspace null).
-	it('places a row under its session workspace, else under no project', () => {
-		const t = setup();
-		t.src.set(op({ id: 'a', state: 'running', workspace: null, session: mcp('s1', 'a', 'wA') }));
-		t.src.set(op({ id: 'b', state: 'running', workspace: null, session: mcp('s2', 'b') }));
-		const by = Object.fromEntries(t.model.view.rows.map((r) => [r.key, r.workspace]));
-		expect(by).toEqual({ s1: 'wA', s2: null });
-	});
-
-	// Rests on (plan 7): a session's workspace is the latest event that carries one.
-	it('takes the workspace from the latest operation that carries one', () => {
-		const t = setup();
-		t.src.set(op({ id: 'old', state: 'completed', session: mcp('s1', 'a', 'wOld') }));
-		t.src.set(op({ id: 'mid', state: 'completed', session: mcp('s1', 'a', 'wNew') }));
-		t.src.set(op({ id: 'new', state: 'running', session: mcp('s1', 'a') }));
-		expect(t.model.view.rows[0]!.workspace).toBe('wNew');
-	});
-
-	// The bound workspace.open runs before its workspace is open, so it carries no
-	// session.workspace (and the capability is global): it is connecting, not work, and a
-	// session that has only opened its project is not a row rather than one in "No project".
-	it('lists no row for a session whose only call is opening its project', () => {
-		const t = setup();
-		t.src.set(op({ id: 'o', state: 'completed', capability: 'workspace.open', workspace: null, session: mcp('s1', undefined) }));
-		t.src.set(op({ id: 'u', state: 'completed', capability: 'workspace.open', workspace: null, client: 'ui' }));
+		t.src.set(op({ id: 'c', state: 'running', session: mcp('ghost', 'claude-code') }));
 		expect(t.model.view.rows).toEqual([]);
-		t.src.set(op({ id: 'b', state: 'running', session: mcp('s1', 'agent-b', 'wB') }));
-		expect(t.model.view.rows.map((r) => [r.label, r.workspace, r.unread, r.result])).toEqual([['agent-b', 'wB', false, null]]);
+		expect(t.model.view.runningAgents).toBe(0);
+		expect(keyOf(t.src.operations.find((o) => o.id === 'a')!)).toBe(YOU);
+		// The tab's own reads and watches are not activity (m2b D16).
+		expect(keyOf(op({ state: 'completed', client: 'ui', capability: 'device.list' }))).toBeNull();
+		expect(keyOf(op({ state: 'completed', client: 'ui', capability: 'file.watch' }))).toBeNull();
+		// The Sessions tab's own poll is such a read: it is no operation of Activity and no row.
+		expect(keyOf(op({ state: 'completed', client: 'ui', capability: 'session.chats' }))).toBeNull();
+		const blocks = buildBlocks(
+			[op({ id: 'p', state: 'completed', client: 'ui', capability: 'session.chats', session: undefined })],
+			{ actor: 'all', agentKey: null },
+			{ labels: new Map(), heldBuild: null, ownFailure: null },
+		);
+		expect(blocks).toEqual([]);
 	});
 
-	// The tab's own subscriptions (streaming watches) are not activity, as reads are not.
-	it('leaves the tab own watches out of You', () => {
-		const t = setup();
-		t.src.set(op({ id: 'w', state: 'completed', client: 'ui', capability: 'file.watch' }));
-		t.src.set(op({ id: 'x', state: 'completed', client: 'ui', capability: 'operation.watch' }));
-		expect(t.model.view.rows).toEqual([]);
+	// Decision (ADR-0083 §1): the watch's workspace is the session's; none is "No project".
+	it('places a row under its listed workspace, else under no project', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'a', 'wA'), listed('s2', 'b')]);
+		expect(Object.fromEntries(t.model.view.rows.map((r) => [r.key, r.workspace]))).toEqual({ s1: 'wA', s2: null });
 	});
 
-	// Decision (D30): running rows first; a row runs while any of its operations is not terminal.
-	it('lists running rows first and keeps a row running while any operation is live', () => {
-		const t = setup();
+	// Decision (ADR-0063 §6, kept by ADR-0095 §2): the hook's record is shown in Activity under
+	// its session, but it makes a row neither running nor unread.
+	it("counts a hook's record for no unread mark", async () => {
+		const t = await watched();
+		await t.snapshot([listed('s9', 'claude')]);
+		t.src.set(op({ id: 'r1', state: 'completed', client: 'cli', capability: 'agent.recordCommand', session: mcp('s9', 'claude') }));
+		expect(t.model.view.rows[0]).toMatchObject({ unread: false, running: false, result: null });
+	});
+
+	// Decision (D30): running rows first; a row runs while any of its operations is live.
+	it('lists running rows first and keeps a row running while any operation is live', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'idle-now'), listed('s2', 'busy')]);
 		t.src.set(op({ id: 'a1', state: 'running', session: mcp('s1', 'idle-now') }));
 		t.src.set(op({ id: 'a1', state: 'completed', session: mcp('s1', 'idle-now') }));
 		t.src.set(op({ id: 'b1', state: 'running', session: mcp('s2', 'busy') }));
@@ -133,8 +129,9 @@ describe('SessionsModel', () => {
 
 	// Decision (D30): unread is a terminal event since the row was last selected; selecting
 	// clears it; a terminal event on the selected row is not unread.
-	it('marks unread on an unselected row and clears it on select', () => {
-		const t = setup();
+	it('marks unread on an unselected row and clears it on select', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'a')]);
 		t.src.set(op({ id: 'a', state: 'running', session: mcp('s1', 'a') }));
 		t.src.set(op({ id: 'a', state: 'failed', session: mcp('s1', 'a') }));
 		expect(t.model.view.rows[0]).toMatchObject({ unread: true, result: 'failed' });
@@ -147,23 +144,9 @@ describe('SessionsModel', () => {
 		expect(t.model.view.rows[0]!.unread).toBe(true);
 	});
 
-	// Decision (D26): a row leaves 30 minutes after its last terminal event, not before, and
-	// never while an operation runs.
-	it('drops a row 30 minutes after its last terminal event', () => {
-		const t = setup();
-		t.src.set(op({ id: 'a', state: 'running', session: mcp('s1', 'a') }));
-		t.clock.t += 40 * 60_000;
-		expect(t.model.view.rows).toHaveLength(1); // running for 40 minutes: still there
-		t.src.set(op({ id: 'a', state: 'completed', session: mcp('s1', 'a') }));
-		t.clock.t += AGENT_ROW_TTL_MS - 1;
-		expect(t.model.view.rows).toHaveLength(1);
-		t.clock.t += 1;
-		expect(t.model.view.rows).toHaveLength(0);
-	});
-
-	// Decision (D30): the rail's count and spinner follow agent rows only.
-	it('counts running agents without You', () => {
-		const t = setup();
+	it('counts running sessions', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'a'), listed('s2', 'b'), listed('s3', 'c')]);
 		t.src.set(op({ id: 'u', state: 'running', client: 'ui' }));
 		expect(t.model.view.runningAgents).toBe(0);
 		t.src.set(op({ id: 'a', state: 'running', session: mcp('s1', 'a') }));
@@ -171,36 +154,76 @@ describe('SessionsModel', () => {
 		expect(t.model.view.runningAgents).toBe(2);
 	});
 
-	it('lists a running operation with its capability, oldest first', () => {
-		const t = setup();
+	it('lists a running operation with its capability, oldest first', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'a')]);
 		t.src.set(op({ id: 'a', state: 'running', capability: 'build.assemble', startedAt: '2026-10-10T10:00:00Z', session: mcp('s1', 'a') }));
 		t.src.set(op({ id: 'b', state: 'running', capability: 'device.install', startedAt: '2026-10-10T10:00:05Z', session: mcp('s1', 'a') }));
 		expect(t.model.view.rows[0]!.operations.map((o) => o.capability)).toEqual(['build.assemble', 'device.install']);
 	});
+
+	// Decision (ADR-0127 §4): the chats are read again after a `session.state` event; the model
+	// says so through onState, once per event.
+	it('tells its owner of each session.state event', async () => {
+		const t = await watched();
+		await t.snapshot([listed('s1', 'a')]);
+		t.ev('s1', { name: 'a', workspace: 'w' });
+		t.ev('s1', { name: 'a', workspace: 'w2' });
+		expect(t.states()).toBe(2);
+	});
 });
 
-// --- session.watch (ADR-0083) ---------------------------------------------------------
+describe('SessionsModel: two labels (ADR-0127 §4, ADR-0048 §Alternatives)', () => {
+	// Decision: the panel numbers among the rows listed now, so a lone `claude-code` reads
+	// `claude-code` after two earlier ones ended. A numbering kept over every session ever seen
+	// would read `claude-code 3`.
+	it('labels the panel row among the rows listed now', async () => {
+		const t = await watched();
+		await t.snapshot([listed('a', 'claude-code'), listed('b', 'claude-code')]);
+		t.ev('a', { ended: true });
+		t.ev('b', { ended: true });
+		t.ev('c', { name: 'claude-code' });
+		expect(t.model.view.rows.map((r) => r.label)).toEqual(['claude-code']);
+	});
 
-async function watched() {
-	const clock = { t: Date.parse('2026-10-10T10:00:00Z') };
-	const src = new Source();
-	const stream = new FakeStream('sw');
-	const moves: string[] = [];
-	const client = {
-		call: (n: string, p: unknown) => stream.call(n as 'events.unsubscribe', p as { subscriptionId: string }),
-		subscribe: (n: string, p: unknown, h: never) => stream.subscribe(n, p, h),
-	} as unknown as SessionsClient;
-	const model = new SessionsModel(src, () => clock.t, { client, onFollow: (w) => moves.push(w) });
-	model.start();
-	const snapshot = (sessions: unknown[]) => {
-		stream.answer(0, { subscriptionId: 'sw1', sessions });
-		return settle();
-	};
-	const ev = (id: string, p: { name?: string; workspace?: string; occupies?: string; devices?: string[]; stale?: boolean; ended?: boolean }) =>
-		stream.emit(0, { topic: 'session.state', type: 'state', payload: { id, ended: false, ...p } });
-	return { src, model, stream, moves, snapshot, ev, clock };
-}
-const at = '2026-10-10T10:00:00Z';
+	// Decision: Activity, the build status and "in use by" read actorLabel, numbered in
+	// first-seen order and never renumbered, so an ended session's operations and a live one's
+	// are told apart. Reading the panel's label there would give both the name `claude-code`.
+	it('keeps an actor label per session ever seen, so two sessions of one name differ', async () => {
+		const t = await watched();
+		await t.snapshot([listed('a', 'claude-code'), listed('b', 'claude-code')]);
+		t.ev('a', { ended: true });
+		expect(t.model.view.rows.map((r) => [r.key, r.label])).toEqual([['b', 'claude-code']]);
+		expect(t.model.actorLabel('a')).toBe('claude-code');
+		expect(t.model.actorLabel('b')).toBe('claude-code 2');
+		expect(t.model.actorLabel('unknown')).toBe('agent');
+		// A third session never renumbers the first two.
+		t.ev('c', { name: 'claude-code' });
+		expect([t.model.actorLabel('a'), t.model.actorLabel('b'), t.model.actorLabel('c')]).toEqual(['claude-code', 'claude-code 2', 'claude-code 3']);
+
+		// Activity's actor for each one's operation, with the model's actor labels as the tab passes them.
+		const a = op({ id: 'oa', state: 'completed', session: mcp('a', 'claude-code') });
+		const b = op({ id: 'ob', state: 'completed', session: mcp('b', 'claude-code') });
+		const ctx = { labels: t.model.actorLabels(), heldBuild: null, ownFailure: null };
+		const blocks = buildBlocks([a, b], { actor: 'all', agentKey: null }, ctx);
+		expect(blocks.map((x) => [x.id, x.actor])).toEqual([
+			['ob', 'claude-code 2'],
+			['oa', 'claude-code'],
+		]);
+		// B's filter excludes A's operations (keyed by the session, not by a label).
+		expect(buildBlocks([a, b], { actor: 'all', agentKey: 'b' }, ctx).map((x) => x.id)).toEqual(['ob']);
+	});
+
+	// Decision: the name comes from the operations too, for a session the tab met through its
+	// calls before the watch listed it, and "in use by" reads the actor label.
+	it('words a held device by the actor label', async () => {
+		const t = await watched();
+		await t.snapshot([listed('a', 'claude-code'), { ...listed('b', 'claude-code'), devices: ['emulator-5554'] }]);
+		t.ev('a', { ended: true });
+		const lines = deviceHolds(t.model.view.rows, (id) => t.model.actorLabel(id)).map((h) => inUseText(h));
+		expect(lines).toEqual(['in use by claude-code 2']);
+	});
+});
 
 describe('SessionsModel with session.watch', () => {
 	// Decision (ADR-0083 §1): a connected session is a row before it runs anything, and
@@ -246,8 +269,10 @@ describe('SessionsModel with session.watch', () => {
 		expect(t.moves).toEqual(['wt2']);
 	});
 
-	// Decision (ADR-0083 §1, plan step 8): an ended idle session leaves at once, a running one after its last operation.
-	it('drops an ended idle session at once and a running one when it finishes', async () => {
+	// Decision (ADR-0127 §4): a session the watch reports ended leaves at once, running or not;
+	// its operations stay in Activity, under its actor label. Keeping a running one until its
+	// last operation ended would leave a row the watch no longer lists.
+	it('drops an ended session at once, idle or running', async () => {
 		const t = await watched();
 		await t.snapshot([
 			{ id: 'idle', name: 'i', workspace: 'w', connectedAt: at },
@@ -256,8 +281,6 @@ describe('SessionsModel with session.watch', () => {
 		t.src.set(op({ id: 'r', state: 'running', session: mcp('busy', 'b', 'w') }));
 		t.ev('idle', { ended: true });
 		t.ev('busy', { ended: true });
-		expect(t.model.view.rows.map((r) => r.key)).toEqual(['busy']);
-		t.src.set(op({ id: 'r', state: 'completed', session: mcp('busy', 'b', 'w') }));
 		expect(t.model.view.rows).toEqual([]);
 	});
 
@@ -352,7 +375,7 @@ describe('a session that occupies', () => {
 			{ id: 's1', name: 'claude', workspace: 'wt1', devices: ['emulator-5556', 'emulator-5554'], connectedAt: at },
 			{ id: 's2', name: 'cursor', workspace: 'main', connectedAt: at },
 		]);
-		const lines = () => deviceHolds(t.model.view.rows).map((h) => `${h.serial}: ${inUseText(h)}`);
+		const lines = () => deviceHolds(t.model.view.rows, (id) => t.model.actorLabel(id)).map((h) => `${h.serial}: ${inUseText(h)}`);
 		expect(lines()).toEqual(['emulator-5554: in use by claude', 'emulator-5556: in use by claude']);
 		t.ev('s1', { name: 'claude', workspace: 'wt1', devices: ['emulator-5556', 'emulator-5554'], stale: true });
 		expect(lines()).toEqual(['emulator-5554: in use by claude (idle)', 'emulator-5556: in use by claude (idle)']);
@@ -366,14 +389,13 @@ describe('a session that occupies', () => {
 	// and the session row names the worktree (by the panel's name for it) and the devices.
 	it('words the holder of a worktree and what a session holds', () => {
 		const row = (over: Partial<AgentRow>): AgentRow => ({
-			key: 'k', label: 'claude', you: false, workspace: null, running: false, result: null, unread: false, operations: [],
+			key: 'k', label: 'claude', name: 'claude', workspace: null, running: false, result: null, unread: false, operations: [],
 			occupies: null, devices: [], idle: false, ...over,
 		});
-		const rows = [row({ key: 'a', label: 'claude', occupies: 'wt1' }), row({ key: 'b', label: 'claude 2', occupies: 'wt2', idle: true }), row({ key: 'y', you: true, occupies: 'wt3' })];
+		const rows = [row({ key: 'a', label: 'claude', occupies: 'wt1' }), row({ key: 'b', label: 'claude 2', occupies: 'wt2', idle: true })];
 		expect(holderOf(rows, 'wt1')?.key).toBe('a');
 		expect(heldByText('claude', false)).toBe('held by claude');
 		expect(heldByText('claude 2', true)).toBe('held by claude 2 (idle)');
-		expect(holderOf(rows, 'wt3')).toBeUndefined(); // "You" holds nothing
 		expect(holderOf(rows, 'wt9')).toBeUndefined();
 		const names = new Map([['wt1', 'task-one']]);
 		expect(occupiesText(row({ occupies: 'wt1', devices: ['emulator-5554', 'emulator-5556'] }), (id) => names.get(id))).toBe('task-one, emulator-5554, emulator-5556');

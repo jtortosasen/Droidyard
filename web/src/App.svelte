@@ -10,6 +10,7 @@
 	import { Navigation } from './lib/start/navigate';
 	import { StaleSession } from './lib/start/stale';
 	import { landing, ProjectsModel } from './lib/projects/projects';
+	import { ChatsModel } from './lib/projects/chats';
 	import { SessionsModel } from './lib/projects/sessions';
 	import Projects from './lib/projects/Projects.svelte';
 	import SessionsToggle from './lib/projects/SessionsToggle.svelte';
@@ -69,6 +70,7 @@
 	let hub = $state.raw<EventsHub | null>(null);
 	let projects = $state.raw<ProjectsModel | null>(null);
 	let sessions = $state.raw<SessionsModel | null>(null);
+	let chats = $state.raw<ChatsModel | null>(null);
 	let projectsView = $state.raw<ProjectsView | null>(null);
 	// `refused` (above): a `w` the daemon refused; the panel stays up with the reason until a project is chosen.
 
@@ -102,7 +104,10 @@
 			},
 			// The selection made from a session's row follows its moves (ADR-0083 §3).
 			onFollow: (id) => void list.select(id),
+			// The chats are read again a second after a session changes (ADR-0127 §Decision 4).
+			onState: () => lists.changed(),
 		});
+		const lists = new ChatsModel({ call: (name, params) => c.call(name, params) });
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -113,6 +118,7 @@
 				events.onConnection(s);
 				list.onConnection(s);
 				agents.onConnection(s);
+				lists.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
@@ -134,6 +140,7 @@
 		hub = events;
 		projects = list;
 		sessions = agents;
+		chats = lists;
 		const offList = list.subscribe(() => (projectsView = list.view));
 		projectsView = list.view;
 		// Connect first: a call made on a client never connected is refused as closed,
@@ -143,8 +150,10 @@
 		events.start();
 		list.start();
 		agents.start();
+		lists.start();
 		return () => {
 			offList();
+			lists.stop();
 			agents.stop();
 			list.stop();
 			events.stop();
@@ -155,6 +164,7 @@
 			hub = null;
 			projects = null;
 			sessions = null;
+			chats = null;
 			projectsView = null;
 		};
 	});
@@ -185,8 +195,8 @@
 {/snippet}
 
 {#snippet sessionsPanel()}
-	{#if projects && sessions}
-		<Projects {projects} {sessions} connected={connection === 'open'} selected={route.view === 'project' ? route.workspace : null} />
+	{#if projects && sessions && chats}
+		<Projects {projects} {sessions} {chats} connected={connection === 'open'} selected={route.view === 'project' ? route.workspace : null} />
 	{/if}
 {/snippet}
 
@@ -206,7 +216,7 @@
 		<h1>Droidyard</h1>
 		<p>The daemon restarted: run <code>droidyard ui</code>.</p>
 	</main>
-{:else if client && activity && hub && projects && sessions}
+{:else if client && activity && hub && projects && sessions && chats}
 	{#if staleMode === 'banner'}
 		<p class="stale" role="alert">
 			The daemon restarted, so this tab can no longer save: run <code>droidyard ui</code>. Your unsaved text is still here; copy it out first.
@@ -234,7 +244,7 @@
 		<!-- No project to show: the panel itself, with recents, "Open folder..." and any reason. -->
 		<main class="solo">
 			<h1>Droidyard {@render status()}</h1>
-			<Projects {projects} {sessions} connected={connection === 'open'} selected={null} />
+			<Projects {projects} {sessions} {chats} connected={connection === 'open'} selected={null} />
 		</main>
 	{/if}
 {/if}
