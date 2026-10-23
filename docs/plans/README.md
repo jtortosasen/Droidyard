@@ -59,3 +59,4 @@ the output.
 | [m3a-init-once-per-user.md](m3a-init-once-per-user.md) | 3a — `init` once per user: every project and worktree, with no `init` per project | Done |
 | [m3b-submodule-changes.md](m3b-submodule-changes.md) | 3b — Uncommitted changes inside submodules, in the Git tab and Review | Done |
 | [m3c-sessions-by-chat.md](m3c-sessions-by-chat.md) | 3c — Sessions by client, project and chat title | Done |
+| [m3d-graphite-facelift.md](m3d-graphite-facelift.md) | 3d — Graphite Console: a type scale, two faces and a palette that reads | Approved |
