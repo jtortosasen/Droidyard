@@ -217,7 +217,8 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 41 (to 30,122) at milestone 3a: README.md's install section adds the one `init --user`
 // line and its line names 3a; mcp.md binds a session without --root to the folder's project or a
 // session with no tools, and init writes per project or once per user (ADR-0124).
-const liveBudget = 30122
+// Raised by 2 (to 30,124) at milestone 3d's close: README.md's status line names 3d.
+const liveBudget = 30124
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -1,6 +1,6 @@
 # Plan: Milestone 3d — Graphite Console: a type scale, two faces and a palette that reads
 
-- Status: Approved
+- Status: Done
 - Date: 2026-10-23
 - Milestone: "Improve the UX and legibility of the UI: fonts are far too small, every text uses the same typeface, the colours are ugly. A facelift, in short." (the owner, 2026-10-23, translated). Scope "visual + contrast": a type scale, distinct faces for UI and for code, logs and figures, a palette for dark and light with spacing to match, and the audit's colour P1s; keyboard and ARIA deferred. The owner chose the direction "Graphite Console" from nine sketches. `docs/README.md` §Where the work stands says "next, the owner's choice".
 - Phase: none. Phase 3 is use and polish; the Scope table is the boundary.
@@ -38,13 +38,13 @@
 
 ## Acceptance
 
-- [ ] A1. **Contrast**: in dark and in light, every text token on every surface it is used on reaches 4.5:1 and every mark (state dots, focus ring, selection edge, graph lanes) 3:1, computed by a Vitest from `tokens.css`, which fails on today's tokens; and no text in the running UI is dimmed by opacity outside a disabled control. Source: owner (colour P1s, WCAG 2.2 AA); Q1. Proven by: steps 2, 11.
-- [ ] A2. **No literal**: no colour, font size, line height or font family outside `tokens.css` in `web/src` (tests excepted), and every `--fs-*` token ≥ 11.5 px, asserted by Vitests; `var(--bg)` and the colourless border gone. Source: audit P1s; D24. Proven by: steps 2, 4.
-- [ ] A3. **Two faces, bundled**: the UI in Geist; code, logs, paths and figures in Geist Mono, tabular; from the two pinned packages; served as `font/woff2`; no request off the page's origin and no CSP violation; the built CSS carries the OFL text. Source: owner; Q1. Proven by: step 3.
-- [ ] A4. **The scale**: body 13.5 px, code 13.5/22, logs 12.5/19, headers 11.5 px uppercase .09em on raised bars, no visible text under 11.5 px, at 1440×900 and 720×450 at scale 2 (200 % zoom). Source: owner; contract. Proven by: steps 4, 11.
-- [ ] A5. **The look per area**: each area's own assertions (steps 5–10) hold on the merged tree in both themes, and screenshots of each beside the sketch go to the owner. Source: owner; contract. Proven by: steps 5, 6, 7, 8, 9, 10, 11.
-- [ ] A6. **Row 515's visual clauses**: no heading titles both lists; a chat title wraps to two lines before it is cut and shows whole on hover; Release stays on its row's line at the column's 220 px minimum. Source: row 515. Proven by: steps 5, 6.
-- [ ] A7. **Nothing else changes**: both densities switch; `pnpm -C web run verify` and `go test ./...` pass; the main session's functional pass works as on `main`; no schema change. Source: ADR-0039 §3; owner. Proven by: steps 4, 11.
+- [x] A1. **Contrast**: in dark and in light, every text token on every surface it is used on reaches 4.5:1 and every mark (state dots, focus ring, selection edge, graph lanes) 3:1, computed by a Vitest from `tokens.css`, which fails on today's tokens; and no text in the running UI is dimmed by opacity outside a disabled control. Source: owner (colour P1s, WCAG 2.2 AA); Q1. Proven by: steps 2, 11.
+- [x] A2. **No literal**: no colour, font size, line height or font family outside `tokens.css` in `web/src` (tests excepted), and every `--fs-*` token ≥ 11.5 px, asserted by Vitests; `var(--bg)` and the colourless border gone. Source: audit P1s; D24. Proven by: steps 2, 4.
+- [x] A3. **Two faces, bundled**: the UI in Geist; code, logs, paths and figures in Geist Mono, tabular; from the two pinned packages; served as `font/woff2`; no request off the page's origin and no CSP violation; the built CSS carries the OFL text. Source: owner; Q1. Proven by: step 3.
+- [x] A4. **The scale**: body 13.5 px, code 13.5/22, logs 12.5/19, headers 11.5 px uppercase .09em on raised bars, no visible text under 11.5 px, at 1440×900 and 720×450 at scale 2 (200 % zoom). Source: owner; contract. Proven by: steps 4, 11.
+- [x] A5. **The look per area**: each area's own assertions (steps 5–10) hold on the merged tree in both themes, and screenshots of each beside the sketch go to the owner. Source: owner; contract. Proven by: steps 5, 6, 7, 8, 9, 10, 11.
+- [ ] A6. **Row 515's visual clauses** (in part: the heading probed; the clamp and Release by CSS only, the fixture has no chats): no heading titles both lists; a chat title wraps to two lines before it is cut and shows whole on hover; Release stays on its row's line at the column's 220 px minimum. Source: row 515. Proven by: steps 5, 6.
+- [x] A7. **Nothing else changes**: both densities switch; `pnpm -C web run verify` and `go test ./...` pass; the main session's functional pass works as on `main`; no schema change. Source: ADR-0039 §3; owner. Proven by: steps 4, 11.
 
 ## Steps
 
@@ -248,7 +248,31 @@
 - Needs: steps 1–10.
 - Not here: the aesthetic verdict, which is the owner's.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23.
+  - (a, b) Final probe and screenshots: `$R=/private/tmp/dy.xZSsBO`, `$E/close/summary.txt`.
+  - (c) Functional pass: `$E/../func` of `/private/tmp/dy.kUj4Q1`. No build ran: the fixture is untrusted, and 3d changes no behaviour.
+  - (d) Detector: the two kept status edges, plus a Geist string in a test fixture. Nothing new in product code.
+  - (e) Finish reviewer, run as a general subagent because no shipped agent exists:
+    - First round: `fix`, 8 material fixes. Six were applied: toolbar collisions, reading text moved to the base size, History's selection edge, the stream line, browser surfaces, emulator rows.
+    - Fix 4 (branch chip) and fix 5 (status edges) were answered by amending the contract.
+    - Fix 2 (the bottom panel at narrow and zoomed sizes) is deferred to a register row.
+    - Fix 6 (the toolbar's raw error code) stays: the owner accepted it on 2026-10-17.
+    - Verdict pass: `fix`, with fixes 2 and 6 open as above and one regression (the project name cut to one letter at 720 px), fixed after it (`bb6dc4b`).
+    - The documenter wrote the local `DESIGN.md` and `.impeccable/design.json`.
+  - (f) Register:
+    - Row 515's visual clauses are closed. Its Copy clause stays `review`.
+    - Five rows are added: the bottom panel at narrow and zoomed sizes, the tree's `--row` after a density switch, no italic face, the runtime-unverified clamp, secure strip and Fast toggle, and the audit's keyboard and ARIA findings.
+    - Control boundaries at 3:1 have a row as well.
+  - (g) `go test ./...` and `verify` pass, with 1372 tests.
+  - Cleanup:
+    - The emulator was stopped through the daemon, and the lane's adb server on port 5193 was ended.
+    - No scratch daemon is left.
+    - The owner's daemon (pid 70217) and adb server (pid 72901) are unchanged since step 1.
+  - Close verifier: `fix first`, with 3 blocking findings, all fixed (`f3722f3`):
+    - B1 [doc]: the word budget.
+    - B2 [bug]: the secure notice on a bare tint over a black frame.
+    - B3 [bug]/[test]: two used pairs under 4.5:1 and unpaired by the test.
+    - Non-blocking: N1 [test], the colour gate's property filter, fixed. N2 [test], `style:` directives, and N3, Review's 20 % deleted-text mix, both predate 3d and stay open. Five nits: the stale fence comments were fixed and the duplicate browser row dropped.
 
 ## Not in this milestone
 
@@ -293,6 +317,8 @@ The main session may apply the recommendation under the owner's standing instruc
 | 1 | | N7 Q1: ADR for §2 and the Style C record; the package is the plan's | Q1 narrowed, the direction's rules in §1; the package rationale in Starting point |
 | 1 | | Nits: tab heights; `.p-debug`; the ADR-0095 paraphrase; missing literals; the `name`-table row; size | One token per bar (`--tab-height`, `--ftab-height`); D → `--text-2`; reworded; `theme.ts:23`, `base.css:13`, camelCase and `border-*` covered; row removed; trimmed |
 | 2 | approve | B1, B2, B3 resolved. Non-blocking: five sub-assertions of steps 5, 6, 8, 9, 10 were already true on step 4's tree (36 px bar, status 24 px, the tree's edge, the side panel's headers, the `W` colour) | Re-homed: the bar and the tree's edge to step 4's level 5, the `W` colour to step 2's, the side panel dropped (History's `.head` kept), the status bar asserted by its font; step 2 recolours `.secure`'s border only; step 4 records each area assertion failing |
+| close | fix first | B1 [doc] the live-docs word budget; B2 [bug] the secure notice on a bare 12 % tint over a black frame; B3 [bug]/[test] light `--warning` on `--bg-active` 4.18 and light `--text-3` on the selection tint 4.495, pairs the test lacked | budget raised by 2; an opaque panel under the tint; pairs widened, six tokens moved in lightness |
+| close | | N1 [test] colour literals outside a colour property passed; N2 [test] `style:` directives escape the type gate; N3 Review's 20 % deleted-text mix; 5 [nit] | N1 fixed; N2, N3 open (no current use; predates 3d); nits: fence comments fixed, duplicate row dropped |
 
 ## Changes
 
@@ -301,3 +327,5 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
 - 2026-10-23, step 2: dark `--text-2` moved from the sketch's #a1a1aa to #b1b1b9. The contrast floor pushed `--text-3` to #9a9aa4, which left the two text levels about 0.02 apart in luminance, so `--text-2` was lifted to keep the hierarchy. The change is lightness only. Delegated.
 - 2026-10-23, step 4: `h2` keeps the label type only (11.5 px, uppercase, tracked, `--text-2`), and only `.panel-head` is the raised bar. Applied to every `h2`, the bar boxed the headings inside padded sections (Projects, Devices, UI recording) as separate tiles. A region's head adopts `.panel-head` in its area step. Delegated.
 - 2026-10-23, steps 5–10: these ran in parallel in the session's own tree, not in separate worktrees. The Agent tool's isolated worktrees branch from `main`, not `m3d`, so they lacked steps 1–4. The six steps touch disjoint files.
+- 2026-10-23, step 9: the build console's viewport is on `--bg-window` with no border. The plan had said `Console.svelte:179` would become `var(--border)`; the surface replaces the edge.
+- 2026-10-23, close: six tokens moved in lightness after the close verifier widened `contrast.test.ts`. Light: `--text-3` #5e5e66, `--accent` #2a56be, `--success` #346b1a, `--warning` #825500, `--danger` #b12845. Dark: `--text-3` #9e9ea8. The trust banner takes `--warning-soft`, since a warning is amber by the contract. Delegated.
