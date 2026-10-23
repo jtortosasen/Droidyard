@@ -67,8 +67,8 @@
 	td {
 		text-align: left;
 		padding: 0 0.75rem 0 0;
-		font-family: ui-monospace, monospace;
-		font-size: 0.85rem;
+		font-family: var(--font-mono);
+		font-size: var(--fs-mono);
 	}
 	.where {
 		min-height: 0;
@@ -81,7 +81,7 @@
 		cursor: pointer;
 	}
 	pre {
-		font-size: 0.85rem;
+		font-size: var(--fs-mono);
 		overflow: auto;
 	}
 </style>

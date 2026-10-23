@@ -77,6 +77,10 @@
 
 <style>
 	.label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-family: var(--font-mono);
 		display: inline-flex;
 		align-items: center;
 		gap: var(--sp-2);

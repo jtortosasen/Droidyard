@@ -55,7 +55,7 @@
 		box-shadow: var(--shadow);
 	}
 	.unsaved::backdrop {
-		background: rgb(0 0 0 / 0.4);
+		background: var(--scrim);
 	}
 	h2 {
 		margin: 0 0 var(--sp-3);

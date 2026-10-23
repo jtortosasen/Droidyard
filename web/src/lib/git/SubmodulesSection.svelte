@@ -225,7 +225,7 @@
 		gap: var(--sp-3);
 		padding: var(--sp-2) var(--sp-4);
 		border-bottom: 1px solid var(--border);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.banner .what {
 		flex: 1;
@@ -271,7 +271,7 @@
 		color: var(--text-2);
 		font-size: var(--fs-small);
 		font-weight: 600;
-		letter-spacing: 0.04em;
+		letter-spacing: var(--tracking-label);
 		text-align: left;
 	}
 	.title {
@@ -365,7 +365,7 @@
 	.note {
 		margin: 0;
 		padding: var(--sp-2) var(--sp-4);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--text-3);
 	}
 	.problem {

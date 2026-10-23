@@ -67,11 +67,17 @@
 		padding: 0 var(--sp-5);
 		height: calc(var(--row) + 2px);
 		border-radius: var(--radius-control);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		white-space: nowrap;
 		justify-content: flex-end;
+		min-width: 0;
+		overflow: hidden;
 	}
 	.text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--text);
 		font-variant-numeric: tabular-nums;
 	}

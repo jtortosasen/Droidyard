@@ -66,9 +66,9 @@
 		</button>
 	</div>
 	{#if view.state === 'idle'}
-		<p class="muted small">Select a device first.</p>
+		<p class="muted">Select a device first.</p>
 	{:else if view.state === 'stopped'}
-		<p class="small" role="status">
+		<p role="status">
 			{view.reason ? WHY[view.reason] : ''}
 			{inert(view.cause)}
 			<button type="button" class="btn-icon" onclick={() => model.restart()}>
@@ -76,7 +76,7 @@
 			</button>
 		</p>
 	{:else if view.rows.length === 0}
-		<p class="muted small">Waiting for events from {inert(view.device)}...</p>
+		<p class="muted">Waiting for events from {inert(view.device)}...</p>
 	{/if}
 	{#if view.rows.length > 0}
 		<ol class="list" aria-label="UI events, newest first">

@@ -32,6 +32,7 @@
 	<section class="compact">
 		{#if view?.info}
 			<button type="button" class="name" title="{view.info.name} ({view.info.id}), {view.root}: show the sessions" onclick={onprojects}>{view.info.name}</button>
+			<span class="dot" class:ready={view.info.state === 'ready'} class:degraded={view.info.state === 'degraded'} aria-hidden="true"></span>
 			<span class="state" title={view.info.state}>{view.info.state}</span>
 			{#if view.info.degradedBy}
 				<span class="bad" title={failureText(view.info.degradedBy)}>degraded</span>
@@ -93,18 +94,50 @@
 		align-items: center;
 		gap: var(--sp-3);
 		white-space: nowrap;
+		min-width: 0;
+		overflow: hidden;
 	}
 	.name {
+		flex: 0 1 auto;
 		border-color: transparent;
 		background: transparent;
+		font-size: var(--fs-title);
 		font-weight: 600;
 		padding: 0 var(--sp-3);
+		min-width: 0;
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	/* A state dot: colour means state (green ready, amber degraded, hollow otherwise). */
+	.dot {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		box-sizing: border-box;
+		border-radius: 50%;
+		border: 1.5px solid var(--text-3);
+	}
+	.dot.ready {
+		border: 0;
+		background: var(--success);
+	}
+	.dot.degraded {
+		border: 0;
+		background: var(--warning);
 	}
 	.state {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--text-2);
 		font-size: var(--fs-small);
+		font-weight: 500;
 	}
 	.bad {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--danger);
 		font-size: var(--fs-small);
 	}

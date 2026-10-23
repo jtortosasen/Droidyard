@@ -73,15 +73,15 @@
 		<p class="muted">Loading...</p>
 	{:else}
 		{#if view.device === ''}
-			<p class="muted small">Select a device first.</p>
+			<p class="muted">Select a device first.</p>
 		{:else if view.loading}
-			<p class="muted small">Reading...</p>
+			<p class="muted">Reading...</p>
 		{/if}
 		{#if view.error}
-			<p class="err small">device.uiTree failed: {failureText(view.error)}</p>
+			<p class="err">device.uiTree failed: {failureText(view.error)}</p>
 		{/if}
 		{#each view.notes as note, i (i)}
-			<p class="muted small note">{note}</p>
+			<p class="muted note">{note}</p>
 		{/each}
 		{#if view.rows.length > 0}
 			<div class="list" role="group" aria-label="UI tree nodes">
@@ -114,7 +114,7 @@
 							{/if}
 						</button>
 					</div>
-					<p class="status small" role="status">
+					<p class="status" role="status">
 						{#if copied === 'copied'}
 							Copied to the clipboard.
 						{:else if copied === 'failed'}
@@ -128,14 +128,14 @@
 						{/each}
 					</dl>
 					{#if detail.omitted > 0}
-						<p class="muted small">{detail.omitted} more attributes not shown.</p>
+						<p class="muted">{detail.omitted} more attributes not shown.</p>
 					{/if}
 				{:else}
-					<p class="muted small">Select a node to inspect it. Tap and type below act on it.</p>
+					<p class="muted">Select a node to inspect it. Tap and type below act on it.</p>
 				{/if}
 			</div>
 		{:else if view.loaded && !view.error}
-			<p class="muted small">The tree is empty.</p>
+			<p class="muted">The tree is empty.</p>
 		{/if}
 	{/if}
 </section>
@@ -185,7 +185,7 @@
 	}
 	.row.selected {
 		background: var(--accent-soft);
-		box-shadow: inset 2px 0 0 var(--accent);
+		box-shadow: var(--sel-edge);
 	}
 	.indent {
 		flex: none;

@@ -279,11 +279,14 @@
 		left: 0.5rem;
 		right: 0.5rem;
 		margin: 0;
-		padding: 0.4rem 0.6rem;
-		background: #fff3cd;
-		color: #664d03;
-		border: 1px solid #ffda6a;
-		border-radius: 4px;
+		padding: var(--sp-3) var(--sp-5);
+		/* The tint over an opaque panel: the notice floats on the frame, which is black when it shows. */
+		background: linear-gradient(var(--warning-soft), var(--warning-soft)), var(--bg-panel);
+		color: var(--text);
+		font-size: var(--fs-base);
+		border: 0;
+		border-left: 3px solid var(--warning);
+		border-radius: 0;
 		pointer-events: none;
 	}
 	canvas {
@@ -308,11 +311,12 @@
 	}
 	.fast {
 		margin-left: auto;
-		font-size: 0.8em;
-		opacity: 0.75;
+		min-height: 24px;
+		font-size: var(--fs-small);
+		color: var(--text-2);
 	}
 	.fast[aria-pressed='true'] {
-		opacity: 1;
+		color: var(--text);
 		font-weight: 600;
 	}
 	canvas[hidden] {

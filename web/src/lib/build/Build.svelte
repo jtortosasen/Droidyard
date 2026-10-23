@@ -129,14 +129,19 @@
 		align-items: center;
 		gap: var(--sp-3);
 		white-space: nowrap;
+		min-width: 0;
 	}
 	.hammer {
+		flex: none;
 		display: grid;
 		place-items: center;
 		width: 28px;
 		padding: 0;
 	}
 	.bad {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--danger);
 		font-size: var(--fs-small);
 	}

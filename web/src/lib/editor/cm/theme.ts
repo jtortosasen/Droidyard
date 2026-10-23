@@ -11,7 +11,7 @@ export const theme = EditorView.theme({
 		minHeight: '0',
 		minWidth: '0',
 		color: 'var(--text)',
-		backgroundColor: 'var(--bg-panel)',
+		backgroundColor: 'var(--bg-window)',
 		fontSize: 'var(--fs-mono)',
 	},
 	'&.cm-focused': {
@@ -20,7 +20,7 @@ export const theme = EditorView.theme({
 	},
 	'.cm-scroller': {
 		fontFamily: 'var(--font-mono)',
-		lineHeight: '1.5',
+		lineHeight: 'var(--lh-code)',
 	},
 	'.cm-content': {
 		caretColor: 'var(--text)',
@@ -39,20 +39,21 @@ export const theme = EditorView.theme({
 		background: 'var(--accent-soft)',
 	},
 	'.cm-activeLine': {
-		backgroundColor: 'var(--bg-hover)',
+		backgroundColor: 'var(--bg-raised)',
 	},
 	'.cm-gutters': {
 		color: 'var(--text-3)',
-		backgroundColor: 'var(--bg-panel)',
+		backgroundColor: 'var(--bg-window)',
 		border: 'none',
 		borderRight: '1px solid var(--border)',
 	},
 	'.cm-lineNumbers .cm-gutterElement': {
 		padding: '0 var(--sp-4) 0 var(--sp-5)',
+		textAlign: 'right',
 	},
 	'.cm-activeLineGutter': {
-		color: 'var(--text-2)',
-		backgroundColor: 'var(--bg-hover)',
+		color: 'var(--text)',
+		backgroundColor: 'var(--bg-raised)',
 	},
 	'.cm-foldGutter .cm-gutterElement': {
 		color: 'var(--text-3)',

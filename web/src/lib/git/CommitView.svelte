@@ -170,7 +170,7 @@
 		overflow: hidden;
 		/* A wheel or touch scroll that reaches the panel's end does not carry on into the log behind it (plan m2n R1). */
 		overscroll-behavior: contain;
-		background: var(--bg);
+		background: var(--bg-window);
 		border-top: 1px solid var(--border);
 		border-bottom: 1px solid var(--border);
 		font-size: var(--fs-small);

@@ -25,13 +25,16 @@ func (c *countFS) Open(name string) (fs.File, error) {
 
 func uiFS() *countFS {
 	return &countFS{FS: fstest.MapFS{
-		"index.html":               {Data: []byte("<!doctype html><title>app</title>")},
-		"assets/app-abc123.js":     {Data: []byte("console.log(1)")},
-		"assets/app-abc123.css":    {Data: []byte("body{}")},
-		"assets/app-abc123.js.map": {Data: []byte("{}")},
-		"assets/logo.svg":          {Data: []byte("<svg/>")},
-		"assets/sub/x.js":          {Data: []byte("x")},
-		"secret.txt":               {Data: []byte("s")},
+		"index.html":                                  {Data: []byte("<!doctype html><title>app</title>")},
+		"assets/app-abc123.js":                        {Data: []byte("console.log(1)")},
+		"assets/app-abc123.css":                       {Data: []byte("body{}")},
+		"assets/app-abc123.js.map":                    {Data: []byte("{}")},
+		"assets/logo.svg":                             {Data: []byte("<svg/>")},
+		"assets/geist-latin-wght-normal-abc123.woff2": {Data: []byte("wOF2")},
+		"assets/geist-latin-wght-normal-abc123.woff":  {Data: []byte("wOFF")},
+		"assets/geist-latin-wght-normal-abc123.ttf":   {Data: []byte("ttf")},
+		"assets/sub/x.js":                             {Data: []byte("x")},
+		"secret.txt":                                  {Data: []byte("s")},
 	}}
 }
 
@@ -53,10 +56,11 @@ func get(h http.Handler, method, target string, hdr map[string]string) *httptest
 
 // Decision (plan m2a D6; ADR-0006): the built app is served behind the unchanged fence.
 // `/` is index.html with the CSP, nosniff and no-cache and needs no token; a hashed
-// script or style under /assets/ is cached as immutable with its type; anything else
-// (an unknown path, a source map, an svg, a nested file, a raw dot-dot path) is 404, so
-// nothing in the tree but the app's scripts and styles is reachable; a method other
-// than GET and HEAD is 405; and a wrong Host or Origin is 403 before any file is read.
+// script, style or woff2 font under /assets/ is cached as immutable with its type; anything
+// else (an unknown path, a source map, an svg, another font format, a nested file, a raw
+// dot-dot path) is 404, so nothing in the tree but the app's scripts, styles and fonts is
+// reachable; a method other than GET and HEAD is 405; and a wrong Host or Origin is 403
+// before any file is read.
 func TestUIIsServedBehindTheFence(t *testing.T) {
 	ui := uiFS()
 	h := New(nil, nil, nil, "tok", ui)
@@ -83,6 +87,8 @@ func TestUIIsServedBehindTheFence(t *testing.T) {
 	for path, typ := range map[string]string{
 		"/assets/app-abc123.js":  "text/javascript; charset=utf-8",
 		"/assets/app-abc123.css": "text/css; charset=utf-8",
+		// ADR-0128 §2: the app's two typefaces, as woff2 only.
+		"/assets/geist-latin-wght-normal-abc123.woff2": "font/woff2",
 	} {
 		rec := get(h, "GET", path, nil)
 		if rec.Code != 200 || rec.Header().Get("Content-Type") != typ ||
@@ -97,6 +103,8 @@ func TestUIIsServedBehindTheFence(t *testing.T) {
 
 	for _, path := range []string{
 		"/x", "/index.html", "/secret.txt", "/assets/", "/assets/missing.js",
+		// ADR-0128 §2: no font format but woff2 is served, even when the file exists.
+		"/assets/geist-latin-wght-normal-abc123.woff", "/assets/geist-latin-wght-normal-abc123.ttf",
 		"/assets/app-abc123.js.map", "/assets/logo.svg", "/assets/sub/x.js", "/assets/sub%2fx.js", "/v1/nothing",
 	} {
 		if rec := get(h, "GET", path, map[string]string{"Authorization": "Bearer tok"}); rec.Code != 404 {
@@ -135,6 +143,7 @@ func TestUIIsServedBehindTheFence(t *testing.T) {
 	}{
 		{"/", map[string]string{"Host": "evil.example:7317"}},
 		{"/assets/app-abc123.js", map[string]string{"Host": "evil.example:7317"}},
+		{"/assets/geist-latin-wght-normal-abc123.woff2", map[string]string{"Host": "evil.example:7317"}},
 		{"/", map[string]string{"Host": "127.0.0.1:9999"}},
 		{"/", map[string]string{"Origin": "http://evil.example:7317"}},
 		{"/assets/app-abc123.js", map[string]string{"Origin": "http://evil.example"}},

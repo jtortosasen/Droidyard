@@ -1,59 +1,81 @@
-/* The design tokens (plan m2d D24): dark by default, light under prefers-color-scheme.
-   The accent is a fixed blue: step 1's probe showed Chrome resolves `AccentColor` to its
-   own blue, not the system's. The monospace stack is the probe's: SF Mono in Safari,
-   Menlo in Chrome. Nothing else in the UI hard-codes a colour, a size or a font. */
+/* The design tokens (plan m2d D24, ADR-0128): dark by default, light under prefers-color-scheme.
+   The palette is cool graphite with one blue accent: the colour budget is spent on state
+   (running, failed, selected), not on chrome. Every colour that carries text or a mark is
+   held to WCAG 2.2 by contrast.test.ts (4.5:1 for text, 3:1 for marks), and literals.test.ts
+   keeps colour literals out of every other file, so this file is the only place a value is
+   decided. The monospace stack is the probe's: SF Mono in Safari, Menlo in Chrome. */
 :root {
 	color-scheme: light dark;
 
-	--bg-window: #1e1e20;
-	--bg-panel: #252528;
-	--bg-raised: #2c2c30;
-	--bg-hover: #323237;
-	--bg-active: #3a3a40;
-	--border: #3a3a3f;
-	--text: #e6e6e9;
-	--text-2: #a0a0a8;
-	--text-3: #6e6e76;
-	--accent: #0a84ff;
-	--accent-text: #ffffff;
-	--accent-soft: rgb(10 132 255 / 0.18);
-	--success: #32d74b;
-	--warning: #ffd60a;
-	--danger: #ff453a;
-	--overlay-solid: #2c2c30;
-	--overlay-glass: rgb(44 44 48 / 0.72);
+	--bg-window: #1a1b1e;
+	--bg-panel: #1f2024;
+	--bg-raised: #23252a;
+	--bg-hover: #2a2c32;
+	--bg-active: #32353c;
+	--border: #2e3036;
+	--text: #e4e4e7;
+	--text-2: #b1b1b9;
+	--text-3: #9e9ea8;
+	--accent: #7aa2f7;
+	--accent-text: #14161b;
+	--accent-soft: rgb(122 162 247 / 0.14);
+	--success: #9ece6a;
+	--warning: #e0af68;
+	--warning-soft: rgb(224 175 104 / 0.12);
+	--danger: #f7768e;
+	--danger-text: #14161b;
+	--danger-soft: rgb(247 118 142 / 0.12);
+	--danger-border: #5a3540;
+	--overlay-solid: #23252a;
+	--overlay-glass: rgb(35 37 42 / 0.78);
+	--scrim: rgb(0 0 0 / 0.55);
 	--shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+	--sel-edge: inset 2px 0 0 var(--accent);
 
-	--syn-keyword: #ff7ab2;
-	--syn-string: #ff8170;
-	--syn-comment: #7f8c98;
-	--syn-number: #d9c97c;
-	--syn-type: #6bdfff;
-	--syn-function: #4eb0cc;
-	--syn-property: #b98eff;
-	--syn-tag: #fc6a5d;
-	--syn-attribute: #d9c97c;
-	--syn-heading: #6bdfff;
-	--syn-link: #4eb0cc;
-	--syn-meta: #ffa14f;
+	/* An author's initials: the hue is the author's, saturation and lightness are the theme's. */
+	--avatar-s: 40%;
+	--avatar-l: 30%;
+	--avatar-text: #f4f4f5;
 
-	/* The commit graph's lane colours (plan m2n step 4): mid tones that read on both themes. */
-	--lane-0: #0a84ff;
-	--lane-1: #30b0c7;
-	--lane-2: #32ade6;
-	--lane-3: #bf5af2;
-	--lane-4: #ff9f0a;
-	--lane-5: #ff375f;
-	--lane-6: #30d158;
-	--lane-7: #ac8e68;
+	--syn-keyword: #c3a6f2;
+	--syn-string: #b8c99a;
+	--syn-comment: #9a9ea8;
+	--syn-number: #e0af68;
+	--syn-type: #8fd3dc;
+	--syn-function: #e4e4e7;
+	--syn-property: #8fb4f5;
+	--syn-tag: #f7768e;
+	--syn-attribute: #e0af68;
+	--syn-heading: #8fd3dc;
+	--syn-link: #7aa2f7;
+	--syn-meta: #ff9e64;
 
-	--font-ui: system-ui, sans-serif;
-	--font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
-	--fs-base: 13px;
-	--fs-small: 11px;
-	--fs-mono: 12px;
+	/* The commit graph's lane colours (plan m2n step 4): mid tones, 3:1 on the raised surfaces. */
+	--lane-0: #6e96ee;
+	--lane-1: #3fb5c4;
+	--lane-2: #4aa3df;
+	--lane-3: #b07de8;
+	--lane-4: #e0953a;
+	--lane-5: #e8587a;
+	--lane-6: #5fbf6a;
+	--lane-7: #a58c6c;
 
-	--radius-control: 6px;
+	--font-ui: 'Geist Variable', system-ui, sans-serif;
+	--font-mono: 'Geist Mono Variable', ui-monospace, Menlo, monospace;
+	--fs-label: 11.5px;
+	--fs-small: 12px;
+	--fs-base: 13.5px;
+	--fs-title: 14.5px;
+	--fs-large: 16px;
+	--fs-display: 18px;
+	--fs-mono: 13.5px;
+	--fs-log: 12.5px;
+	--lh-base: 1.45;
+	--lh-code: 22px;
+	--lh-log: 19px;
+	--tracking-label: 0.09em;
+
+	--radius-control: 5px;
 	--radius-panel: 8px;
 
 	--sp-1: 2px;
@@ -63,53 +85,77 @@
 	--sp-5: 12px;
 	--sp-6: 16px;
 
-	--row: 22px;
-	--tab-height: 28px;
+	--row: 24px;
+	--tab-height: 36px;
+	--ftab-height: 34px;
+	--toolbar: 44px;
+	--head: 34px;
 	--splitter: 5px;
 	--icon: 14px;
 }
 
 @media (prefers-color-scheme: light) {
 	:root {
-		--bg-window: #f5f5f7;
-		--bg-panel: #ffffff;
-		--bg-raised: #fbfbfd;
-		--bg-hover: #ececf0;
-		--bg-active: #e1e1e8;
-		--border: #d2d2d7;
-		--text: #1d1d1f;
-		--text-2: #6e6e73;
-		--text-3: #a1a1a6;
-		--accent: #007aff;
-		--accent-soft: rgb(0 122 255 / 0.12);
-		--success: #248a3d;
-		--warning: #b25000;
-		--danger: #d70015;
-		--overlay-solid: #ffffff;
-		--overlay-glass: rgb(255 255 255 / 0.72);
+		--bg-window: #f4f4f5;
+		--bg-panel: #fafafa;
+		--bg-raised: #ececee;
+		--bg-hover: #e4e4e8;
+		--bg-active: #d8d8de;
+		--border: #d4d4d8;
+		--text: #18181b;
+		--text-2: #52525b;
+		--text-3: #5e5e66;
+		--accent: #2a56be;
+		--accent-text: #ffffff;
+		--accent-soft: rgb(43 89 195 / 0.12);
+		--success: #346b1a;
+		--warning: #825500;
+		--warning-soft: rgb(138 90 0 / 0.12);
+		--danger: #b12845;
+		--danger-text: #ffffff;
+		--danger-soft: rgb(192 48 79 / 0.1);
+		--danger-border: #e3b3bd;
+		--overlay-solid: #fafafa;
+		--overlay-glass: rgb(250 250 250 / 0.8);
+		--scrim: rgb(24 24 27 / 0.4);
 		--shadow: 0 8px 24px rgb(0 0 0 / 0.16);
 
-		--syn-keyword: #ad3da4;
-		--syn-string: #d12f1b;
-		--syn-comment: #707f8c;
-		--syn-number: #272ad8;
-		--syn-type: #1f6f78;
-		--syn-function: #326d74;
-		--syn-property: #804fb8;
-		--syn-tag: #ad3da4;
-		--syn-attribute: #836c28;
-		--syn-heading: #0e0e82;
-		--syn-link: #0b4f99;
-		--syn-meta: #78492a;
+		--avatar-s: 45%;
+		--avatar-l: 30%;
+		--avatar-text: #ffffff;
+
+		--syn-keyword: #6d3fc4;
+		--syn-string: #4a6a1a;
+		--syn-comment: #565d66;
+		--syn-number: #825400;
+		--syn-type: #0c6670;
+		--syn-function: #2a4fa8;
+		--syn-property: #5a47b8;
+		--syn-tag: #b02a4a;
+		--syn-attribute: #7a5a14;
+		--syn-heading: #1f4aa8;
+		--syn-link: #2b59c3;
+		--syn-meta: #a04a14;
+
+		--lane-0: #3a68d0;
+		--lane-1: #17808f;
+		--lane-2: #1f7fb5;
+		--lane-3: #8f4fc9;
+		--lane-4: #b3650a;
+		--lane-5: #d03a5e;
+		--lane-6: #2f8a3c;
+		--lane-7: #8a6d45;
 	}
 }
 
 /* Density: the height of a row (the tree, lists, controls). */
 [data-density='compact'] {
-	--row: 22px;
-	--tab-height: 26px;
+	--row: 24px;
+	--tab-height: 36px;
+	--ftab-height: 34px;
 }
 [data-density='comfortable'] {
 	--row: 28px;
-	--tab-height: 32px;
+	--tab-height: 40px;
+	--ftab-height: 38px;
 }

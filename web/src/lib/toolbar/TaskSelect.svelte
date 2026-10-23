@@ -109,6 +109,7 @@
 <style>
 	.select {
 		display: inline-flex;
+		min-width: 0;
 		align-items: center;
 		gap: var(--sp-2);
 	}
@@ -118,6 +119,7 @@
 		gap: var(--sp-2);
 	}
 	.count {
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		color: var(--accent);
 	}
@@ -133,7 +135,7 @@
 	.note {
 		margin: 0;
 		color: var(--text-3);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.bad {
 		margin: 0;

@@ -262,7 +262,7 @@
 		background: var(--bg-raised);
 		color: var(--danger);
 		border-bottom: 1px solid var(--danger);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.solo {
 		height: 100%;
@@ -276,6 +276,6 @@
 		align-items: center;
 		gap: var(--sp-5);
 		margin: 0 0 var(--sp-5);
-		font-size: 18px;
+		font-size: var(--fs-display);
 	}
 </style>

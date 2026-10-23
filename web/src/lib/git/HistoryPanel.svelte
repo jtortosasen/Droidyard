@@ -450,7 +450,7 @@
 				<button type="button" class="root-option" class:on={view.filter === null} aria-pressed={view.filter === null} data-root-option-all onclick={() => store.setFilter(null)}>All</button>
 				{#each view.roots as root, k (root)}
 					{@const on = view.filter === null || view.filter.includes(root)}
-					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} data-root-option={root} title={rootHint(root)} onclick={() => store.toggleRoot(root)}>
+					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} style:--root-color={laneColor(k)} data-root-option={root} title={rootHint(root)} onclick={() => store.toggleRoot(root)}>
 						<span class="swatch" aria-hidden="true"></span><span class="text">{rootLabel(root)}</span>
 					</button>
 				{/each}
@@ -522,7 +522,7 @@
 							>
 								{#if multi}
 									<!-- The root's colour, down the row's left edge: the position of the root in the log. -->
-									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} data-root-stripe={view.roots.indexOf(r.root)} title={rootHint(r.root)} aria-hidden="true"></span>
+									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} style:--root-color={laneColor(Math.max(0, view.roots.indexOf(r.root)))} data-root-stripe={view.roots.indexOf(r.root)} title={rootHint(r.root)} aria-hidden="true"></span>
 								{/if}
 								<div class="cell main" role="gridcell">
 									<span class="graph" style:width="{gw}px">
@@ -673,7 +673,7 @@
 		gap: var(--sp-2);
 		max-width: 26ch;
 		padding: 0 var(--sp-3);
-		line-height: 18px;
+		line-height: var(--lh-base);
 		color: var(--text-2);
 		background: transparent;
 	}
@@ -683,7 +683,7 @@
 	}
 	.swatch,
 	.stripe {
-		background: hsl(calc(var(--ri) * 137.5) 55% 50%);
+		background: var(--root-color);
 	}
 	.swatch {
 		flex: none;
@@ -702,7 +702,7 @@
 		flex: none;
 		margin: 0;
 		padding: var(--sp-2) var(--sp-4);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		color: var(--warning);
 		border-bottom: 1px solid var(--border);
 	}
@@ -715,7 +715,7 @@
 		padding: 0 var(--sp-3);
 		border-radius: var(--radius-control);
 		font-size: var(--fs-small);
-		line-height: 16px;
+		line-height: var(--lh-base);
 		background: var(--bg-active);
 		color: var(--text-2);
 		border: 1px solid var(--border);
@@ -747,7 +747,7 @@
 		gap: var(--sp-3);
 		padding: var(--sp-2) var(--sp-4);
 		border-bottom: 1px solid var(--border);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.fetch-failed .what {
 		flex: 1;
@@ -799,8 +799,9 @@
 		flex: none;
 		height: var(--row);
 		font-size: var(--fs-small);
-		color: var(--text-3);
-		letter-spacing: 0.04em;
+		color: var(--text-2);
+		background: var(--bg-raised);
+		letter-spacing: var(--tracking-label);
 		border-bottom: 1px solid var(--border);
 		scrollbar-gutter: stable;
 		overflow: hidden;
@@ -830,6 +831,7 @@
 	}
 	.row.selected {
 		background: var(--accent-soft);
+		box-shadow: var(--sel-edge);
 	}
 	.cell {
 		display: flex;
@@ -865,9 +867,14 @@
 	.cell:nth-child(n + 3) .text {
 		color: var(--text-2);
 	}
-	.merge .text,
-	.merge .node {
-		opacity: 0.55;
+	/* The commit time is a figure: mono, like the hash. */
+	.cell:nth-child(4) .text {
+		font-family: var(--font-mono);
+		font-size: var(--fs-mono);
+	}
+	/* A merge commit recedes by colour, not by opacity. */
+	.row.merge .cell .text {
+		color: var(--text-3);
 	}
 	.graph {
 		flex: none;
@@ -898,16 +905,16 @@
 	}
 	.avatar {
 		flex: none;
-		width: 16px;
-		height: 16px;
+		width: 20px;
+		height: 20px;
 		border-radius: 50%;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 8px;
+		font-size: var(--fs-label);
 		font-weight: 600;
-		color: #fff;
-		background: hsl(var(--hue) 45% 42%);
+		color: var(--avatar-text);
+		background: hsl(var(--hue) var(--avatar-s) var(--avatar-l));
 		user-select: none;
 	}
 	footer {

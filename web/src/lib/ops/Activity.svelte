@@ -397,7 +397,7 @@
 	.note {
 		margin: 0;
 		color: var(--text-3);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.stream {
 		flex: 1;
@@ -458,6 +458,7 @@
 		border-radius: 999px;
 		background: var(--bg-active);
 		color: var(--text-2);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 	}
 	.actor.you {
@@ -468,6 +469,7 @@
 	.time,
 	.elapsed {
 		color: var(--text-3);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		font-variant-numeric: tabular-nums;
 	}
@@ -490,7 +492,7 @@
 	.why {
 		margin: var(--sp-2) 0 0;
 		color: var(--text-2);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.restore {
 		margin-top: var(--sp-2);

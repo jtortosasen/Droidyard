@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Bot from '@lucide/svelte/icons/bot';
 	import Check from '@lucide/svelte/icons/check';
 	import Folder from '@lucide/svelte/icons/folder';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
@@ -129,7 +128,7 @@
 </script>
 
 {#snippet agentRow(a: AgentRow, workspace: string | null, where: string | null, title: string)}
-	<li>
+	<li class="agentli">
 		<button type="button" class="agent" onclick={() => chooseAgent(a, workspace)}>
 			<span class="status">
 				{#if a.running}
@@ -142,14 +141,17 @@
 					<span class="idle" title="Idle"></span>
 				{/if}
 			</span>
-			<Bot size={12} />
 			<span class="label" title={a.label}>{title}</span>
-			{#if where !== null}<span class="where" title="Worktree">{where}</span>{/if}
-			{#if occupiesText(a, worktreeName) !== ''}
-				<span class="holds" title="Holds this worktree or device, so that no other chat writes or acts there">holds {occupiesText(a, worktreeName)}</span>
+			<span class="state">{#if a.unread}<span class="unread" title="Finished since you last looked"></span>{/if}</span>
+			{#if where !== null || occupiesText(a, worktreeName) !== ''}
+				<span class="meta">
+					{#if where !== null}<span class="where" title="Worktree">{where}</span>{/if}
+					{#if occupiesText(a, worktreeName) !== ''}
+						<span class="holds" title="Holds this worktree or device, so that no other chat writes or acts there">holds {occupiesText(a, worktreeName)}</span>
+					{/if}
+					{#if a.idle && occupiesText(a, worktreeName) !== ''}<span class="stale" title="No request for a while: another chat may take over what it holds">idle holder</span>{/if}
+				</span>
 			{/if}
-			{#if a.idle && occupiesText(a, worktreeName) !== ''}<span class="stale" title="No request for a while: another chat may take over what it holds">idle holder</span>{/if}
-			{#if a.unread}<span class="unread" title="Finished since you last looked"></span>{/if}
 		</button>
 		<!-- A held worktree always has its holder in it, so its Release is on the holder's row. -->
 		{#if a.occupies}
@@ -179,7 +181,7 @@
 {/snippet}
 
 <section class="projects" aria-label="Projects">
-	<header>
+	<header class="panel-head">
 		<h2>Projects</h2>
 		{#if view?.chooser === 'available'}
 			<button type="button" class="open" disabled={view.choosing || view.opening} onclick={() => void projects.chooseFolder()}>
@@ -273,8 +275,8 @@
 								>
 									<GitBranch size={12} />
 									<span class="label" class:closed={!w.open}>{w.name}</span>
-									{#if holder}<span class="where" title="Another chat may not enter or write here">{heldByText(holder.label, holder.idle)}</span>{/if}
-									<span class="dot" data-state={w.open ? (w.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(w)}></span>
+									<span class="state"><span class="dot" data-state={w.open ? (w.state === 'ready' ? 'ready' : 'busy') : 'closed'} title={dotLabel(w)}></span></span>
+									{#if holder}<span class="meta"><span class="where" title="Another chat may not enter or write here">{heldByText(holder.label, holder.idle)}</span></span>{/if}
 								</button>
 								{#if holder}
 									<button type="button" class="release" title="End the occupation; the session stays where it is" disabled={!connected} onclick={() => void release(w.id)}>Release</button>
@@ -291,7 +293,7 @@
 		<p class="note">Only the 50 most recent projects are listed.</p>
 	{/if}
 
-	<header>
+	<header class="panel-head">
 		<h2>Sessions</h2>
 	</header>
 	{#if chatsView.error}
@@ -322,9 +324,9 @@
 								<li class="line">
 									<button type="button" class="agent" title={r.title} onclick={() => chooseChat(r)}>
 										<MessageSquare size={12} />
-										<span class="label">{r.title}</span>
-										{#if r.worktree !== null}<span class="where" title="Worktree">{r.worktree}</span>{/if}
-										{#if r.updatedAt !== null}<span class="when">{agoText(now - Date.parse(r.updatedAt))}</span>{/if}
+										<span class="label" title={r.title}>{r.title}</span>
+										<span class="state">{#if r.updatedAt !== null}<span class="when">{agoText(now - Date.parse(r.updatedAt))}</span>{/if}</span>
+										{#if r.worktree !== null}<span class="meta"><span class="where" title="Worktree">{r.worktree}</span></span>{/if}
 									</button>
 									{#if r.resume !== undefined}
 										<button type="button" class="release" title="Copy the command that resumes this chat" onclick={() => void copy(r)}>
@@ -353,23 +355,12 @@
 		flex-direction: column;
 		gap: var(--sp-3);
 		min-height: 0;
-		padding: var(--sp-4);
+		padding: 0 0 var(--sp-4);
 		font-size: var(--fs-base);
 	}
 	header {
-		display: flex;
-		align-items: center;
 		justify-content: space-between;
 		gap: var(--sp-4);
-		padding: var(--sp-2) var(--sp-3);
-	}
-	h2 {
-		margin: 0;
-		font-size: var(--fs-small);
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--text-2);
 	}
 	.open {
 		display: inline-flex;
@@ -384,7 +375,7 @@
 		display: flex;
 		align-items: flex-end;
 		gap: var(--sp-3);
-		padding: 0 var(--sp-3);
+		padding: 0 var(--sp-4);
 	}
 	.typed label {
 		flex: 1;
@@ -399,8 +390,8 @@
 	}
 	.note {
 		margin: 0;
-		padding: 0 var(--sp-3);
-		font-size: var(--fs-small);
+		padding: 0 var(--sp-4);
+		font-size: var(--fs-base);
 		color: var(--text-2);
 	}
 	.note.bad {
@@ -417,14 +408,21 @@
 		flex-direction: column;
 		gap: var(--sp-2);
 		overflow: auto;
+		padding: 0 var(--sp-3);
 	}
-	.line {
+	/* A row and its action: the action is the last column and never drops below the row. */
+	.line,
+	.agentli {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--sp-2);
 	}
-	.line > :first-child {
-		flex: 1;
+	.agentli {
+		flex-wrap: wrap;
+	}
+	.line > :first-child,
+	.agentli > .agent {
+		flex: 1 1 0;
 		min-width: 0;
 	}
 	.remove {
@@ -440,14 +438,12 @@
 		background: transparent;
 		color: var(--text-3);
 	}
-	.project,
-	.agent {
+	.project {
 		display: flex;
 		align-items: center;
 		gap: var(--sp-3);
 		width: 100%;
-		min-height: 0;
-		height: var(--row);
+		min-height: var(--row);
 		padding: 0 var(--sp-4);
 		border: 0;
 		border-radius: var(--radius-control);
@@ -455,24 +451,46 @@
 		color: var(--text);
 		text-align: left;
 	}
-	.project:hover:not(:disabled),
-	.agent:hover {
-		background: var(--bg-hover);
+	/* A session row on the sketch's grid: dot or icon, title, state at the right; a second
+	   line in mono for worktree, holds and age. */
+	.agent {
+		display: grid;
+		grid-template-columns: 14px minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 2px var(--sp-4);
+		width: 100%;
+		min-height: var(--row);
+		padding: var(--sp-2) var(--sp-4);
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-2);
+		text-align: left;
 	}
-	.project.selected {
-		background: var(--accent-soft);
+	.project:hover:not(:disabled, .selected),
+	.agent:hover:not(.selected) {
+		background: var(--bg-hover);
 	}
 	.project.group {
 		color: var(--text-2);
 		font-size: var(--fs-small);
 	}
-	.name,
-	.label {
+	.name {
 		flex: 1;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* A chat title is untrusted and long: two lines, then clamped. */
+	.label {
+		min-width: 0;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+		overflow-wrap: anywhere;
 	}
 	.name.closed {
 		color: var(--text-2);
@@ -511,9 +529,6 @@
 	.agents {
 		margin: 0 0 var(--sp-2) var(--sp-6);
 	}
-	.agent {
-		color: var(--text-2);
-	}
 	.status {
 		display: inline-grid;
 		place-items: center;
@@ -534,6 +549,21 @@
 	.unread {
 		background: var(--accent);
 	}
+	.state {
+		display: inline-flex;
+		align-items: center;
+		justify-self: end;
+		gap: var(--sp-3);
+	}
+	.meta {
+		grid-column: 2 / -1;
+		display: flex;
+		gap: var(--sp-4);
+		min-width: 0;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
+		color: var(--text-2);
+	}
 	.client {
 		padding: var(--sp-2) var(--sp-4);
 		font-size: var(--fs-small);
@@ -542,8 +572,9 @@
 	}
 	.when {
 		flex: none;
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
-		color: var(--text-3);
+		color: var(--text-2);
 	}
 	.cmd {
 		width: 100%;
@@ -551,29 +582,22 @@
 		font-size: var(--fs-small);
 	}
 	.more {
-		color: var(--text-3);
+		display: block;
+		color: var(--text-2);
 	}
-	.where {
-		flex: none;
-		max-width: 40%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-family: var(--font-mono);
-		font-size: var(--fs-small);
-		color: var(--text-3);
-	}
+	.where,
 	.holds,
 	.stale {
-		flex: none;
-		max-width: 40%;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: var(--fs-small);
-		color: var(--text-3);
+	}
+	.where {
+		flex: 0 1 auto;
 	}
 	.stale {
+		flex: none;
 		color: var(--warning);
 	}
 	.release {
@@ -583,18 +607,15 @@
 		padding: 0 var(--sp-4);
 		font-size: var(--fs-small);
 	}
-	.agent.selected {
-		background: var(--accent-soft);
-	}
 	.label.closed {
 		color: var(--text-3);
 	}
 	.op {
-		margin-left: calc(var(--sp-4) + 14px + var(--sp-3));
-		padding: 0 var(--sp-4);
+		flex: 0 0 100%;
+		padding: 0 var(--sp-4) 0 calc(var(--sp-4) + 14px + var(--sp-4));
 		font-family: var(--font-mono);
 		font-size: var(--fs-small);
-		color: var(--text-3);
+		color: var(--text-2);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

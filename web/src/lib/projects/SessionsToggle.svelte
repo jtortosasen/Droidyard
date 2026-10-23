@@ -75,14 +75,15 @@
 		position: absolute;
 		top: -3px;
 		right: -5px;
-		min-width: 14px;
-		height: 14px;
+		min-width: 16px;
+		height: 16px;
 		padding: 0 var(--sp-2);
-		border-radius: 7px;
+		border-radius: 8px;
 		background: var(--accent);
 		color: var(--accent-text);
-		font-size: 9px;
-		line-height: 14px;
+		font-size: var(--fs-label);
+		display: grid;
+		place-items: center;
 		text-align: center;
 	}
 	.spin {

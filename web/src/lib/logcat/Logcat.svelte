@@ -6,11 +6,12 @@
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
 	import type { Client, ConnectionState } from '../api/client';
 	import { browserStorage } from '../ui/layout';
+	import { LOG_ROW_PX } from '../ui/metrics';
 	import { isMarker } from './entry';
 	import { QueryBar } from './bar';
 	import type { LogcatDevice } from './device';
 	import type { MineSet } from './mine';
-	import { formatLine, priorityClass } from './format';
+	import { lineParts, priorityClass } from './format';
 	import { LogcatSession } from './session';
 	import { rowWindow } from './virtual';
 
@@ -31,8 +32,7 @@
 	}
 	let { client, connection, devices, mine, workspaceId }: Props = $props();
 
-	/** Fixed row height in px, so the window is arithmetic (plan m2a step 5). */
-	const ROW_HEIGHT = 18;
+	// Fixed row height, so the window is arithmetic (plan m2a step 5); LOG_ROW_PX is its one source.
 	const OVERSCAN = 10;
 
 	const session = new LogcatSession({
@@ -74,7 +74,7 @@
 		rowWindow({
 			scrollTop,
 			viewportHeight,
-			rowHeight: ROW_HEIGHT,
+			rowHeight: LOG_ROW_PX,
 			overscan: OVERSCAN,
 			count: snap.count,
 			following: snap.following,
@@ -87,12 +87,12 @@
 	async function changed() {
 		const shift = session.takeShift();
 		// Rows the ring forgot from the front: keep the lines the user is reading in place.
-		if (!session.following && shift > 0) scrollTop = Math.max(0, scrollTop - shift * ROW_HEIGHT);
+		if (!session.following && shift > 0) scrollTop = Math.max(0, scrollTop - shift * LOG_ROW_PX);
 		snap = snapshot();
 		await tick();
 		if (!scroller) return;
 		if (snap.following) {
-			pinned = Math.max(0, snap.count * ROW_HEIGHT - viewportHeight);
+			pinned = Math.max(0, snap.count * LOG_ROW_PX - viewportHeight);
 			scroller.scrollTop = pinned;
 		} else if (shift > 0) {
 			scroller.scrollTop = scrollTop;
@@ -107,7 +107,7 @@
 		untrack(() => {
 			if (!el) return;
 			if (snap.following) {
-				pinned = Math.max(0, snap.count * ROW_HEIGHT - el.clientHeight);
+				pinned = Math.max(0, snap.count * LOG_ROW_PX - el.clientHeight);
 				el.scrollTop = pinned;
 			} else {
 				el.scrollTop = scrollTop;
@@ -155,7 +155,7 @@
 		const top = scroller.scrollTop;
 		scrollTop = top;
 		if (Math.abs(top - pinned) < 1) return; // our own scroll to the bottom
-		session.setFollowing(scroller.scrollHeight - top - scroller.clientHeight <= ROW_HEIGHT * 2);
+		session.setFollowing(scroller.scrollHeight - top - scroller.clientHeight <= LOG_ROW_PX * 2);
 	}
 
 	function oninput(e: Event & { currentTarget: HTMLInputElement }) {
@@ -228,13 +228,14 @@
 			bind:clientHeight={viewportHeight}
 			{onscroll}
 		>
-			<div class="spacer" style:height="{win.totalHeight}px">
+			<div class="spacer" style:height="{win.totalHeight}px" style:--log-row="{LOG_ROW_PX}px">
 				<div class="rows" id="logcat-rows" style:transform="translateY({win.offset}px)">
 					{#each rows as row (row.seq)}
 						{#if isMarker(row.entry)}
 							<div class="row marker">{row.entry.text}</div>
 						{:else}
-							<div class={['row', priorityClass(row.entry.priority)]}>{formatLine(row.entry)}</div>
+							{@const p = lineParts(row.entry)}
+							<div class={['row', priorityClass(row.entry.priority)]}><span class="ts">{p.time}</span> <span class="pid">{p.pid}</span> {p.rest} <span class="lv">{p.level}</span> {p.text}</div>
 						{/if}
 					{/each}
 				</div>
@@ -267,8 +268,10 @@
 	.bar {
 		flex: none;
 		display: flex;
-		gap: var(--sp-2);
+		gap: var(--sp-4);
 		align-items: center;
+		padding: var(--sp-4) var(--sp-6);
+		border-bottom: 1px solid var(--border);
 	}
 	.query {
 		flex: 1;
@@ -289,7 +292,7 @@
 	.hint {
 		flex: none;
 		margin: var(--sp-2) 0 0;
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.error {
 		color: var(--danger);
@@ -304,15 +307,12 @@
 		min-height: 56px;
 		display: flex;
 		flex-direction: column;
-		margin-top: var(--sp-2);
 	}
 	.viewport {
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
 		background: var(--bg-window);
 	}
 	.spacer {
@@ -320,29 +320,47 @@
 		overflow: hidden;
 	}
 	.rows {
-		font: 12px/18px ui-monospace, monospace;
+		font-family: var(--font-mono);
+		font-size: var(--fs-log);
+		line-height: var(--log-row);
+		padding: 0 var(--sp-6);
+	}
+	.ts {
+		color: var(--text-2);
+	}
+	.pid {
+		color: var(--text-3);
+	}
+	.lv {
+		display: inline-block;
+		width: 16px;
+		text-align: center;
+		font-weight: 500;
 	}
 	.row {
-		height: 18px;
+		height: var(--log-row);
 		white-space: pre;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.p-warn {
-		color: #8a5a00;
+		color: var(--warning);
 	}
 	.p-error,
 	.p-fatal {
-		color: #b00020;
+		color: var(--danger);
+		background: var(--danger-soft);
 	}
-	.p-verbose,
+	.p-verbose {
+		color: var(--text-3);
+	}
 	.p-debug {
-		color: #555;
+		color: var(--text-2);
 	}
 	.marker {
 		font-style: italic;
-		background: #eee;
-		color: #333;
+		background: var(--bg-raised);
+		color: var(--text-2);
 	}
 	.pill {
 		position: absolute;
@@ -352,5 +370,8 @@
 	footer {
 		flex: none;
 		margin: var(--sp-2) 0 0;
+		color: var(--text-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
 	}
 </style>

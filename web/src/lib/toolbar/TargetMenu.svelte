@@ -70,9 +70,14 @@
 <style>
 	.select {
 		display: inline-flex;
+		min-width: 0;
 	}
 	.trigger {
 		display: inline-flex;
+		min-width: 0;
+		overflow: hidden;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
 		align-items: center;
 		gap: var(--sp-3);
 		max-width: 220px;
@@ -119,7 +124,7 @@
 		font-weight: 600;
 		color: var(--text-2);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		letter-spacing: var(--tracking-label);
 	}
 	.item {
 		display: block;

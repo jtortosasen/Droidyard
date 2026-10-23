@@ -121,7 +121,7 @@
 		box-shadow: var(--shadow);
 	}
 	.create-branch::backdrop {
-		background: rgb(0 0 0 / 0.4);
+		background: var(--scrim);
 	}
 	/* The dialog sits inside a pane whose own h2 is visually hidden (Shell.svelte); this one is
 	   the dialog's visible title (the id outweighs that rule). */
@@ -180,7 +180,7 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 		font-family: var(--font-mono);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 	}
 	.actions {
 		display: flex;

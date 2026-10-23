@@ -20,7 +20,7 @@
 
 <p class="menu-title" data-menu-branch>{name}</p>
 {#each BRANCH_MENU as c (c.id)}
-	<button type="button" class="item" role="menuitem" data-menu-item={c.id} disabled={!c.enabled || (c.id === 'compare' && !canCompare)} title={c.id === 'compare' && !canCompare ? (compareNote ?? 'Compare with current: not available for this branch') : c.title} onclick={() => activate(c, () => onchoose(c.id))}>
+	<button type="button" class="item" class:btn-danger={c.id === 'delete'} role="menuitem" data-menu-item={c.id} disabled={!c.enabled || (c.id === 'compare' && !canCompare)} title={c.id === 'compare' && !canCompare ? (compareNote ?? 'Compare with current: not available for this branch') : c.title} onclick={() => activate(c, () => onchoose(c.id))}>
 		{c.label}
 	</button>
 {/each}
@@ -42,5 +42,10 @@
 		text-align: left;
 		border-color: transparent;
 		background: transparent;
+	}
+	/* The destructive entry sits apart from the others, with the danger border. */
+	.item.btn-danger {
+		margin-top: var(--sp-3);
+		border-color: var(--danger-border);
 	}
 </style>
