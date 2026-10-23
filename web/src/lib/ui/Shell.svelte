@@ -425,13 +425,20 @@
 		overflow: hidden;
 		clip-path: inset(50%);
 	}
-	/* The workspace name and state clip inside their own box; nothing paints over the next tool. */
+	/* The project and its state stay readable: the workspace keeps its width and clips inside its
+	   own box. Run never leaves the bar; Build keeps its button while its failure text gives way. */
 	.tool[data-tool='workspace'] {
+		flex: none;
+		max-width: 40%;
 		overflow: hidden;
 	}
-	.tool[data-tool='run'],
-	.tool[data-tool='build'] {
+	.tool[data-tool='run'] {
 		flex: none;
+	}
+	.tool[data-tool='build'] {
+		flex: 0 1 auto;
+		min-width: 28px;
+		overflow: hidden;
 	}
 	.spacer {
 		flex: 1;
