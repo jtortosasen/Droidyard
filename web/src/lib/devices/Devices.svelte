@@ -133,7 +133,7 @@
 		<!-- Another chat holds these (ADR-0094): the owner's Release frees one and moves no session. -->
 		{#each otherHolds as h (h.serial)}
 			<div class="line held">
-				<span class="grow small" title={h.serial}>{h.serial}: {inUseText(h)}</span>
+				<span class="grow small" title={h.serial}><span class="mono">{h.serial}</span>: {inUseText(h)}</span>
 				<button type="button" class="btn-icon" disabled={!connected} onclick={() => void release(h.serial)}>Release</button>
 			</div>
 		{/each}
@@ -142,7 +142,7 @@
 		{#each lent as l (l.serial)}
 			<div class="line lent" data-serial={l.serial}>
 				<span class="grow small" title={l.serial}>
-					{l.serial}: {l.text}{#if l.holder}, <span class="holder">{inUseText(l.holder)}</span>{/if}
+					<span class="mono">{l.serial}</span>: {l.text}{#if l.holder}, <span class="holder">{inUseText(l.holder)}</span>{/if}
 				</span>
 				{#if l.holder}
 					<button type="button" class="btn-icon" aria-label="Release {l.serial}" disabled={!connected} onclick={() => void release(l.serial)}>Release</button>
@@ -177,9 +177,9 @@
 				<li class="avd">
 					<span class="dot" class:on={!!avd.running} aria-hidden="true"></span>
 					<span class="name">
-						{avd.name}
+						<span class="mono">{avd.name}</span>
 						{#if avd.config?.displayName}<span class="muted">{avd.config.displayName}</span>{/if}
-						<span class="muted small">{avd.running ? `running as ${avd.running.device}` : 'not running'}</span>
+						<span class="state small" class:on={!!avd.running}>{avd.running ? `running as ${avd.running.device}` : 'not running'}</span>
 						{#if ev.preselected === avd.name}
 							<span class="tag">this project's AVD</span>
 						{/if}
@@ -187,7 +187,7 @@
 					{#if avd.running}
 						<button
 							type="button"
-							class="btn-icon"
+							class="btn-icon btn-danger stop"
 							disabled={ev.mirror.stopping !== null}
 							onclick={() => avd.running && void emulators.stop(avd.running.device)}
 						>
@@ -335,7 +335,7 @@
 	}
 	.head h3 {
 		margin: 0;
-		font-size: var(--fs-small);
+		font-size: var(--fs-label);
 		font-weight: 600;
 		color: var(--text-2);
 		text-transform: uppercase;
@@ -377,6 +377,22 @@
 	}
 	.dot.on {
 		background: var(--success);
+	}
+	.state {
+		color: var(--text-2);
+	}
+	.state.on {
+		color: var(--success);
+	}
+	.avd button,
+	.line button,
+	.head button {
+		min-height: 24px;
+		font-size: var(--fs-small);
+	}
+	/* Stop is destructive: set apart from Start and from the name (contract). */
+	.stop {
+		margin: 0 var(--sp-2);
 	}
 	.tag {
 		padding: 0 var(--sp-3);

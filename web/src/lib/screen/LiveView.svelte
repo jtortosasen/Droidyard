@@ -279,11 +279,13 @@
 		left: 0.5rem;
 		right: 0.5rem;
 		margin: 0;
-		padding: 0.4rem 0.6rem;
+		padding: var(--sp-3) var(--sp-5);
 		background: var(--warning-soft);
 		color: var(--text);
-		border: 1px solid var(--warning);
-		border-radius: 4px;
+		font-size: var(--fs-small);
+		border: 0;
+		border-left: 3px solid var(--warning);
+		border-radius: 0;
 		pointer-events: none;
 	}
 	canvas {
@@ -308,11 +310,12 @@
 	}
 	.fast {
 		margin-left: auto;
+		min-height: 24px;
 		font-size: var(--fs-small);
-		opacity: 0.75;
+		color: var(--text-2);
 	}
 	.fast[aria-pressed='true'] {
-		opacity: 1;
+		color: var(--text);
 		font-weight: 600;
 	}
 	canvas[hidden] {

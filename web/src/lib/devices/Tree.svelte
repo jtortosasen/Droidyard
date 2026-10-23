@@ -185,7 +185,7 @@
 	}
 	.row.selected {
 		background: var(--accent-soft);
-		box-shadow: inset 2px 0 0 var(--accent);
+		box-shadow: var(--sel-edge);
 	}
 	.indent {
 		flex: none;
