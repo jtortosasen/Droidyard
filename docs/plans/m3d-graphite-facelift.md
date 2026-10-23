@@ -57,7 +57,21 @@
 - Needs: nothing.
 - Not here: no product change.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `$R=/private/tmp/dy.6UYdEk`, at `3f2376c`:
+  - `verify` was green. The owner's daemon was pid 70217 and the adb server pid 72901, recorded as the baseline.
+  - The probe is `$E/probe/` (`cdp.mjs` drives Chrome over CDP and `probe.js`/`areas.js` run in the page, shadow roots included because the editor lives in one). It ran on the golden sample with a five-commit history, `$E/step1/summary.txt`.
+  - Results:
+    - The smallest text was 9 px (`.soon`), or 8 px once History shows (the avatar initials).
+    - Text dimmed by opacity: History's subject, author, sha and time at .55.
+    - Families in use were `system-ui` and `ui-monospace`.
+  - Area assertions failing:
+    - step 5: toolbar 38 px, no tab underline, status bar not mono, the column head has a heading;
+    - step 7: file-tab edge, active line, gutters;
+    - step 8: History head, sha not in Geist Mono.
+  - Area assertions not run:
+    - Step 5's "Run and Build reachable at 720 px" already holds; it stays as a regression guard.
+    - Steps 9 and 10 need log lines and a running emulator, which this launch has not set up; they are set up at those steps.
+  - Detector: 2 findings, the two kept 3 px status edges (`Act.svelte:243`, `Activity.svelte:414`).
 
 ### 2. The palette and the contrast floor
 
