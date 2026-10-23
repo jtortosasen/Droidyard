@@ -172,7 +172,7 @@
 		max-height: 70vh;
 		flex-direction: column;
 		color: var(--text);
-		background: var(--overlay-solid);
+		background: var(--bg-raised);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-panel);
 		box-shadow: var(--shadow);
@@ -225,6 +225,7 @@
 	}
 	li.current {
 		background: var(--accent-soft);
+		box-shadow: var(--sel-edge);
 	}
 	li.disabled .name {
 		color: var(--text-3);
@@ -254,6 +255,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		color: var(--text-2);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 	}
 	footer {

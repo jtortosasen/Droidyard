@@ -595,7 +595,7 @@
 								onblur={() => void commit(true)}
 							/>
 						{:else}
-							<span class="label">{row.label}</span>
+							<span class="label" class:folder={row.dir}>{row.label}</span>
 						{/if}
 					</div>
 					{#if edit && edit.mode === 'rename' && edit.path === row.path && edit.error !== ''}
@@ -663,6 +663,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--sp-2);
+		min-height: var(--head);
 		padding: var(--sp-2) var(--sp-3);
 		border-bottom: 1px solid var(--border);
 	}
@@ -749,14 +750,14 @@
 		user-select: none;
 		white-space: nowrap;
 	}
-	.row:hover {
+	.row:hover:not(.selected) {
 		background: var(--bg-hover);
 	}
-	.row.selected {
-		background: var(--accent-soft);
-	}
-	.row.cut {
-		opacity: 0.5;
+	/* Cut rows are muted by colour, not by opacity. */
+	.row.cut,
+	.row.cut .icon,
+	.row.cut .chevron {
+		color: var(--text-3);
 	}
 	.row.drop {
 		background: var(--accent-soft);
@@ -810,6 +811,7 @@
 		width: 12px;
 		display: inline-flex;
 		color: var(--text-3);
+		font-family: var(--font-mono);
 		transition: transform 0.1s;
 	}
 	.chevron.open {
@@ -822,7 +824,7 @@
 	}
 	.icon.folder,
 	.icon.folder-open {
-		color: var(--accent);
+		color: var(--text-2);
 	}
 	.icon.module {
 		color: var(--success);
@@ -839,6 +841,9 @@
 	.label {
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.label.folder {
+		color: var(--text-2);
 	}
 	.name {
 		flex: 1;
