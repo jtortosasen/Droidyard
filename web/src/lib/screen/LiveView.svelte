@@ -280,9 +280,9 @@
 		right: 0.5rem;
 		margin: 0;
 		padding: 0.4rem 0.6rem;
-		background: #fff3cd;
-		color: #664d03;
-		border: 1px solid #ffda6a;
+		background: var(--warning-soft);
+		color: var(--text);
+		border: 1px solid var(--warning);
 		border-radius: 4px;
 		pointer-events: none;
 	}

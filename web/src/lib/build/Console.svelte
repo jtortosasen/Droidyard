@@ -176,7 +176,7 @@
 		min-height: 56px;
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		border: 1px solid;
+		border: 1px solid var(--border);
 	}
 	.spacer {
 		position: relative;

@@ -459,7 +459,7 @@
 	}
 	/* Shown, from the feint or straight from a hover, it slides in (D44: 160 ms ease-out). */
 	.sessions.overlay.shown {
-		box-shadow: 0 0 16px rgb(0 0 0 / 0.35);
+		box-shadow: var(--shadow);
 		animation: slide-in 160ms ease-out;
 	}
 	@keyframes slide-in {

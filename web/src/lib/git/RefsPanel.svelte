@@ -18,6 +18,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import Spinner from '../projects/Spinner.svelte';
 	import type { FetchModel, FetchView } from './fetch';
+	import { laneColor } from './graph';
 	import type { HistoryStore, HistoryView } from './history';
 	import {
 		NO_FOLDER_CHOICE,
@@ -278,7 +279,7 @@
 										{#if row.holders}
 											<span class="roots" data-root-marks>
 												{#each row.holders as h (h.root)}
-													<span class="rm" class:cur={h.current} style:--ri={view.roots.indexOf(h.root)} title={markTitle(h)} data-root-mark={h.root} data-root-current={h.current ? '' : undefined}></span>
+													<span class="rm" class:cur={h.current} style:--ri={view.roots.indexOf(h.root)} style:--root-color={laneColor(Math.max(0, view.roots.indexOf(h.root)))} title={markTitle(h)} data-root-mark={h.root} data-root-current={h.current ? '' : undefined}></span>
 												{/each}
 											</span>
 										{/if}
@@ -536,10 +537,10 @@
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
-		background: hsl(calc(var(--ri) * 137.5) 55% 50%);
+		background: var(--root-color);
 	}
 	.rm.cur {
-		box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 2.5px var(--text-2);
+		box-shadow: 0 0 0 1.5px var(--bg-panel), 0 0 0 2.5px var(--text-2);
 	}
 	/* After the star the ⋯ follows it; alone (a remote-tracking branch) it is pushed to the end. */
 	.icon.star + .icon.more {

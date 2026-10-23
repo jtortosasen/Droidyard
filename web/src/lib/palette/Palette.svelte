@@ -182,7 +182,7 @@
 		display: flex;
 	}
 	dialog::backdrop {
-		background: rgb(0 0 0 / 0.35);
+		background: var(--scrim);
 	}
 	.search {
 		display: flex;

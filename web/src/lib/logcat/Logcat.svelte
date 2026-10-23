@@ -329,20 +329,22 @@
 		text-overflow: ellipsis;
 	}
 	.p-warn {
-		color: #8a5a00;
+		color: var(--warning);
 	}
 	.p-error,
 	.p-fatal {
-		color: #b00020;
+		color: var(--danger);
 	}
-	.p-verbose,
+	.p-verbose {
+		color: var(--text-3);
+	}
 	.p-debug {
-		color: #555;
+		color: var(--text-2);
 	}
 	.marker {
 		font-style: italic;
-		background: #eee;
-		color: #333;
+		background: var(--bg-raised);
+		color: var(--text-2);
 	}
 	.pill {
 		position: absolute;

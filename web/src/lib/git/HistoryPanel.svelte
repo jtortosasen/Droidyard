@@ -450,7 +450,7 @@
 				<button type="button" class="root-option" class:on={view.filter === null} aria-pressed={view.filter === null} data-root-option-all onclick={() => store.setFilter(null)}>All</button>
 				{#each view.roots as root, k (root)}
 					{@const on = view.filter === null || view.filter.includes(root)}
-					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} data-root-option={root} title={rootHint(root)} onclick={() => store.toggleRoot(root)}>
+					<button type="button" class="root-option" class:on aria-pressed={on} style:--ri={k} style:--root-color={laneColor(k)} data-root-option={root} title={rootHint(root)} onclick={() => store.toggleRoot(root)}>
 						<span class="swatch" aria-hidden="true"></span><span class="text">{rootLabel(root)}</span>
 					</button>
 				{/each}
@@ -522,7 +522,7 @@
 							>
 								{#if multi}
 									<!-- The root's colour, down the row's left edge: the position of the root in the log. -->
-									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} data-root-stripe={view.roots.indexOf(r.root)} title={rootHint(r.root)} aria-hidden="true"></span>
+									<span class="stripe" style:--ri={view.roots.indexOf(r.root)} style:--root-color={laneColor(Math.max(0, view.roots.indexOf(r.root)))} data-root-stripe={view.roots.indexOf(r.root)} title={rootHint(r.root)} aria-hidden="true"></span>
 								{/if}
 								<div class="cell main" role="gridcell">
 									<span class="graph" style:width="{gw}px">
@@ -683,7 +683,7 @@
 	}
 	.swatch,
 	.stripe {
-		background: hsl(calc(var(--ri) * 137.5) 55% 50%);
+		background: var(--root-color);
 	}
 	.swatch {
 		flex: none;
@@ -906,8 +906,8 @@
 		justify-content: center;
 		font-size: 8px;
 		font-weight: 600;
-		color: #fff;
-		background: hsl(var(--hue) 45% 42%);
+		color: var(--avatar-text);
+		background: hsl(var(--hue) var(--avatar-s) var(--avatar-l));
 		user-select: none;
 	}
 	footer {
