@@ -46,7 +46,7 @@
 {:else}
 	<button
 		type="button"
-		class="go"
+		class="go btn-primary"
 		disabled={view === null || view.disabled !== null}
 		title={view?.disabled ?? 'Run: start the device if needed, build, install and launch'}
 		aria-label="Run"
@@ -64,12 +64,7 @@
 		place-items: center;
 		width: 28px;
 		padding: 0;
-	}
-	.go {
-		color: var(--success);
-	}
-	.go:disabled {
-		color: var(--text-3);
+		flex: none;
 	}
 	.stop {
 		color: var(--danger);

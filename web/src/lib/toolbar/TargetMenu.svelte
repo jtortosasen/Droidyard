@@ -70,9 +70,14 @@
 <style>
 	.select {
 		display: inline-flex;
+		min-width: 0;
 	}
 	.trigger {
 		display: inline-flex;
+		min-width: 0;
+		overflow: hidden;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
 		align-items: center;
 		gap: var(--sp-3);
 		max-width: 220px;

@@ -224,16 +224,13 @@
 
 {#snippet column(overlay: boolean)}
 	<div class="column-head">
-		<div class="title-row">
-			<h2>Sessions</h2>
-			{#if overlay}
-				<button type="button" class="icon-button" title="Dock the sessions column" aria-label="Dock the sessions column" onclick={toggleSessions}><Pin size={14} /></button>
-			{/if}
-		</div>
 		<div class="segmented" role="group" aria-label="Density">
 			<button type="button" class="pill" class:current={layout.density === 'compact'} aria-pressed={layout.density === 'compact'} onclick={() => (layout.density = 'compact')}>Compact</button>
 			<button type="button" class="pill" class:current={layout.density === 'comfortable'} aria-pressed={layout.density === 'comfortable'} onclick={() => (layout.density = 'comfortable')}>Comfortable</button>
 		</div>
+		{#if overlay}
+			<button type="button" class="icon-button" title="Dock the sessions column" aria-label="Dock the sessions column" onclick={toggleSessions}><Pin size={14} /></button>
+		{/if}
 	</div>
 	<div class="body scroll">{@render sessions()}</div>
 {/snippet}
@@ -250,12 +247,12 @@
 	<header class="toolbar" bind:this={toolbarEl}>
 		{@render sessionsToggle({ open: layout.sessions.open, toggle: toggleSessions, attract: view.attract, register: registerToggle })}
 		{#each panelsIn('toolbar').filter((p) => !p.end) as p (p.id)}
-			<div class="tool">{@render content(p.id, api)}</div>
+			<div class="tool" data-tool={p.id}>{@render content(p.id, api)}</div>
 		{/each}
 		<span class="spacer"></span>
 		{#if centre}{@render centre()}{/if}
 		{#each panelsIn('toolbar').filter((p) => p.end) as p (p.id)}
-			<div class="tool">{@render content(p.id, api)}</div>
+			<div class="tool" data-tool={p.id}>{@render content(p.id, api)}</div>
 		{/each}
 	</header>
 	{#if banners}{@render banners()}{/if}
@@ -289,7 +286,7 @@
 			</div>
 		{/if}
 		<aside class="left" class:collapsed={!layout.open.left} style:width="{layout.size.left}px" aria-label="Left panel">
-			<div class="head">
+			<div class="head panel-head">
 				<div class="segmented" role="tablist" aria-label="Left panel">
 					{#each panelsIn('left') as p (p.id)}
 						<button
@@ -323,8 +320,8 @@
 			<Splitter axis="x" sign={-1} value={layout.size.right} clamp={(n) => clampSize('right', n)} onchange={(n) => resize('right', n)} label="Resize the right panel" />
 		{/if}
 		<aside class="right" class:collapsed={!layout.open.right} style:width="{layout.size.right}px" aria-label="Device panel">
-			<div class="head right-head">
-				<span class="caption">Device</span>
+			<div class="head panel-head right-head">
+				<span>Device</span>
 				<button type="button" class="icon-button" title="Minimize the right panel" aria-label="Minimize the right panel" onclick={() => region('right', false)}><PanelRightClose size={14} /></button>
 			</div>
 			<div class="body scroll">
@@ -365,7 +362,7 @@
 		</div>
 	{/if}
 	<section class="bottom" class:collapsed={!layout.open.bottom} style:height="{layout.size.bottom}px" aria-label="Bottom panel">
-		<div class="head">
+		<div class="head tabbar">
 			{@render tabs('bottom', 'Bottom panel')}
 			<button type="button" class="icon-button" title="Minimize the bottom panel" aria-label="Minimize the bottom panel" onclick={() => region('bottom', false)}><PanelBottomClose size={14} /></button>
 		</div>
@@ -394,16 +391,17 @@
 		flex: none;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-2) var(--sp-4);
+		gap: var(--sp-5);
+		padding: 0 var(--sp-5);
 		height: var(--toolbar);
 		flex-wrap: nowrap;
 		overflow: hidden;
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--border);
 	}
+	/* Run and Build never leave the bar; whatever else is wide gives way first (ellipsis). */
 	.tool {
-		flex: none;
+		flex: 0 1 auto;
 		display: flex;
 		align-items: center;
 		gap: var(--sp-3);
@@ -427,6 +425,10 @@
 		overflow: hidden;
 		clip-path: inset(50%);
 	}
+	.tool[data-tool='run'],
+	.tool[data-tool='build'] {
+		flex: none;
+	}
 	.spacer {
 		flex: 1;
 	}
@@ -443,7 +445,6 @@
 		min-width: 0;
 		min-height: 0;
 		background: var(--bg-panel);
-		border-right: 1px solid var(--border);
 	}
 	/* The overlay floats over the tree and splitters without moving any box (D43); in the
 	   feint it is inert and takes no pointer. */
@@ -453,6 +454,7 @@
 		bottom: 0;
 		left: 0;
 		z-index: 20;
+		border-right: 1px solid var(--border);
 	}
 	.sessions.overlay:not(.shown) {
 		pointer-events: none;
@@ -475,34 +477,28 @@
 			animation: none;
 		}
 	}
-	.title-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: var(--sp-3);
-	}
-	.title-row h2 {
-		margin: 0;
-	}
 	.column-head {
 		flex: none;
-		padding: var(--sp-4);
+		display: flex;
+		align-items: center;
+		gap: var(--sp-3);
+		min-height: var(--head);
+		padding: 0 var(--sp-4);
+		background: var(--bg-raised);
 		border-bottom: 1px solid var(--border);
 	}
-	.column-head h2 {
-		margin: 0 0 var(--sp-3);
-		font-size: var(--fs-small);
-		color: var(--text-2);
-		font-weight: 600;
-	}
 	.column-head .segmented {
+		flex: 1;
 		margin: 0;
 	}
 	.head {
 		flex: none;
+		padding: 0 var(--sp-3) 0 0;
+	}
+	/* The bottom strip shares the centre's tab-bar look: a raised bar, the current tab underlined. */
+	.tabbar {
 		display: flex;
 		align-items: center;
-		padding-right: var(--sp-3);
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--border);
 	}
@@ -517,12 +513,7 @@
 	}
 	.right-head {
 		justify-content: space-between;
-		padding-left: var(--sp-4);
-		min-height: var(--tab-height);
-	}
-	.caption {
-		font-size: var(--fs-small);
-		color: var(--text-2);
+		padding-left: var(--sp-6);
 	}
 	.strip {
 		flex: none;
@@ -559,6 +550,7 @@
 		overflow: hidden;
 		background: var(--bg-raised);
 		border-top: 1px solid var(--border);
+		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		color: var(--text-2);
 		white-space: nowrap;
@@ -616,11 +608,10 @@
 		min-height: 0;
 		padding: 0 var(--sp-4);
 		border: 0;
-		border-bottom: 2px solid transparent;
 		border-radius: 0;
 		background: transparent;
 		color: var(--text-2);
-		font-size: var(--fs-small);
+		font-size: var(--fs-base);
 		white-space: nowrap;
 	}
 	.tab:hover:not(:disabled) {
@@ -629,7 +620,7 @@
 	}
 	.tab.current {
 		color: var(--text);
-		border-bottom-color: var(--accent);
+		box-shadow: inset 0 -2px 0 var(--accent);
 	}
 	.tab:disabled {
 		opacity: 1;
@@ -660,6 +651,8 @@
 		background: transparent;
 		color: var(--text-2);
 		font-size: var(--fs-small);
+		text-transform: none;
+		letter-spacing: 0;
 	}
 	.pill.current {
 		background: var(--bg-active);
