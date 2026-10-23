@@ -130,7 +130,8 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 // truncated, hint and emptyReason are the daemon's), device.screenshot (its reference
 // field, R9), device.uiDump (its foreground package and its artifact's reference),
 // device.uiEvents (each event's package, class and toast text), device.recordUi and
-// device.stopUiRecording, device.uiRecordings and device.watchUiRecordings (the timeline's reference, which every artifact reference tags: the
+// device.stopUiRecording, session.chats (each chat's title: text a person or a model wrote into a client's file),
+// device.uiRecordings and device.watchUiRecordings (the timeline's reference, which every artifact reference tags: the
 // summary carries no device text, the file it names is all device text),
 // device.logs (each line's tag and message and each crash's exception and
 // message), artifact.read (its data) and shell.exec (its stdout and stderr, which a
@@ -143,7 +144,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "session.chats": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}

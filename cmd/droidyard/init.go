@@ -263,20 +263,7 @@ func initUser(cwd string, clients []assistant.Client, dryRun, uninstall bool, ou
 		fmt.Fprintln(errw, "droidyard init: cannot find your home directory:", err)
 		return 1
 	}
-	dirs := assistant.UserDirs{
-		Claude:     filepath.Join(home, ".claude"),
-		ClaudeJSON: filepath.Join(home, ".claude.json"),
-		Cursor:     filepath.Join(home, ".cursor"),
-		OpenCode:   filepath.Join(home, ".config", "opencode"),
-		Agents:     filepath.Join(home, ".agents"),
-	}
-	if d := env.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
-		// Claude keeps .claude.json in its configuration directory when one is named.
-		dirs.Claude, dirs.ClaudeJSON = d, filepath.Join(d, ".claude.json")
-	}
-	if x := env.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(x) {
-		dirs.OpenCode = filepath.Join(x, "opencode")
-	}
+	dirs := assistant.ResolveUserDirs(home, env.Getenv)
 	command, stateDir, tools, code := initInputs(errw)
 	if code != 0 {
 		return code

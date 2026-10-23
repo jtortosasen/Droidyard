@@ -96,7 +96,7 @@
 - Not here: Cursor (step 4); the web (step 3); no `custom-title` seen on this machine (Unverified).
 - Rests on: no store byte outside the named keys reaches the result, and each transcript read is bounded: level 3, `TestClaudeNoContentLeaves` and `TestClaudeReadsOnlyTheWindows` seen failing reversed.
 - Review: the main session's diff review (untrusted text is its first trust surface: effort `high`); the Opus verifier at the close covers it.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23, `internal/domain/chats` (`chats.go`, `claude.go`), `Registry.Known`, `assistant.ResolveUserDirs`, `capability.StripInvisible`, API 0.38.0; the schema diff is the version and `session.chats` alone, `x-droidyard-untrusted` on `title` only; `go test ./...` and `-race` on `chats` and `workspace` pass. Seen failing reversed: title precedence (first ai-title), the windows (10,487,713 bytes read against 131,072), no content (a first-prompt fallback), the place (equality, no cwd, a prefix without separator), left out (`sdk-cli`, continued, a later entrypoint, the id, links, a FIFO), the cut of 30, the cache and its mtime and bound, the read budget, the deadline (the scan inline), the title cleaning, the join, the sources, and `TestSessionChatsEndToEnd` (a real `serve`, fake `HOME`) without `Known` or `Sessions`. Deviations: `Options.Env` added (`platform.Worktrees` needs it), `Options.Now` not built (`updatedAt` is the mtime), `Known` bounded by `listed()`'s 50; `docs/roadmap/mvp.md` and `docs/interfaces/mcp.md` name `session.chats` (`TestCapabilityNamesAgree`). The key of `custom-title`, `customTitle`, is Orca's reading, not observed (Unverified).
 
 ### 3. The web: Projects, then Sessions by client, project and chat
 

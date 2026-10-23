@@ -23,11 +23,13 @@ import (
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
+	"github.com/jtortosasen/droidyard/internal/assistant"
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/agent"
 	artifactcap "github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	builddomain "github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
+	"github.com/jtortosasen/droidyard/internal/domain/chats"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/device/screen/scrcpyserver"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
@@ -201,6 +203,17 @@ var (
 	// (capability.SweepInterval). The shipped binary never sets it.
 	sessionSweep time.Duration
 )
+
+// clientDirs are the user's client directories as the daemon's own environment resolves
+// them (assistant.ResolveUserDirs, the same as `init --user`'s). Without a home directory
+// only CLAUDE_CONFIG_DIR can name one, and the Cursor directory is then empty.
+func clientDirs(env platform.Env) assistant.UserDirs {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return assistant.UserDirs{Claude: env.Getenv("CLAUDE_CONFIG_DIR")}
+	}
+	return assistant.ResolveUserDirs(home, env.Getenv)
+}
 
 // registry builds the shipped registry, the operation store that dispatches from it
 // and the daemon's event bus, over the state store st and the supervisor sup, logging
@@ -534,6 +547,11 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// result. The check reads who holds a worktree from the session registry, and a
 	// recorded edit makes the file watches walk at once.
 	agent.Register(reg, agent.Options{Sessions: ops.Sessions(), Canonical: env.Canonical, Nudge: watchers.Nudge})
+	// session.chats lists the clients' chats of the projects the index knows, read from the
+	// clients' own stores (ADR-0127): audience human, stateless, joined to the live sessions
+	// by chat id. The stores are those `init --user` writes in, resolved from the daemon's
+	// own environment.
+	chats.Register(reg, chats.Options{Sessions: ops.Sessions(), Known: ws.Known, Env: env, Dirs: clientDirs(env)})
 	// shell.exec runs one command with `/bin/sh -c` in a trusted root the shell policy
 	// admits (plan m1k D4–D6). Its gate is the shell policy first, then the same trust
 	// hook the project-code capabilities share; its command is spawned through the

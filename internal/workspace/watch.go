@@ -74,6 +74,32 @@ func (r *Registry) watch(ctx context.Context, call *capability.Call) (any, error
 	return WatchResult{SubscriptionID: id, Workspaces: list, Truncated: truncated}, nil
 }
 
+// Known is the main trees of the projects this state root has known, newest first, each once
+// and at most MaxListed, the bound of the list it is made from: the index's listed entries,
+// a linked worktree giving its main tree
+// (session.chats reads the chats of these and of their live worktrees, ADR-0127 §2). An
+// index that cannot be read knows none.
+func (r *Registry) Known() []string {
+	list, _, err := r.listed()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range list {
+		root := l.Root
+		if l.MainRoot != "" {
+			root = l.MainRoot
+		}
+		if seen[root] {
+			continue
+		}
+		seen[root] = true
+		out = append(out, root)
+	}
+	return out
+}
+
 // listed is the index merged with the live states, newest first and at most MaxListed.
 // A state the index cannot be read for is reported by the error; a newer index lists
 // what this daemon opened.

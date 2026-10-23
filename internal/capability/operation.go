@@ -119,9 +119,9 @@ type Origin struct {
 // SessionNameMax is the most runes a SessionRef's name keeps (ADR-0048 §1).
 const SessionNameMax = 64
 
-// stripInvisible removes invalid UTF-8 and the control (Cc) and format (Cf) characters,
+// StripInvisible removes invalid UTF-8 and the control (Cc) and format (Cf) characters,
 // which include the bidirectional overrides, from a string a client chose.
-func stripInvisible(s string) string {
+func StripInvisible(s string) string {
 	s = strings.ToValidUTF8(s, "")
 	return strings.Map(func(r rune) rune {
 		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
@@ -135,7 +135,7 @@ func stripInvisible(s string) string {
 // and format (Cf) characters are removed, surrounding white space is trimmed, and at
 // most SessionNameMax runes are kept.
 func SessionName(name string) string {
-	name = stripInvisible(name)
+	name = StripInvisible(name)
 	name = strings.TrimSpace(name)
 	if r := []rune(name); len(r) > SessionNameMax {
 		name = strings.TrimSpace(string(r[:SessionNameMax]))
