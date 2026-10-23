@@ -212,11 +212,13 @@ func (p *page) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // assetTypes are the files the app's /assets/ serves, by extension: the built app is
-// scripts and styles (assetsInlineLimit 0 and no source maps, plan m2a D1), so
-// anything else in the tree (a .map, an .svg, a stray file) is not reachable.
+// scripts and styles (assetsInlineLimit 0 and no source maps, plan m2a D1) and the app's
+// two typefaces, Geist and Geist Mono, as woff2 (ADR-0128 §2), so anything else in the
+// tree (a .map, an .svg, another font format, a stray file) is not reachable.
 var assetTypes = map[string]string{
-	".js":  "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
+	".js":    "text/javascript; charset=utf-8",
+	".css":   "text/css; charset=utf-8",
+	".woff2": "font/woff2",
 }
 
 // assets is GET and HEAD /assets/<name>: one hashed script or style directly under the

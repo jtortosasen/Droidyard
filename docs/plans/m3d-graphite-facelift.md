@@ -112,7 +112,18 @@
 - Not here: sizes (step 4); italics; `font-display: swap` kept (a cold load may flash the fallback; the files are local).
 - Rests on: the browser accepts the font as served under `nosniff` and the CSP: level 5, the Network log (the `MapFS` test shows the header only).
 - Review: the main session's diff review (one map entry; the fence's tests unchanged and first); the close verifier covers it.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-23.
+  - `TestUIIsServedBehindTheFence` failed on the `.woff2` (404) before the `assetTypes` entry. The `.woff` and `.ttf` 404s and the wrong-`Host` 403 already held, and are now pinned. It passes now.
+  - `verify` passed: pins, 1346 tests and the build. `go test ./...` passed.
+  - The two packages are exact in `package.json`. The lockfile gained 16 lines and nothing else changed.
+  - The build has 11 `.woff2` files, latin 29.4 kB and 23.1 kB. The built CSS keeps the `/*!` OFL text, so Q1 §4 holds as written.
+  - Level 5 (`$R=/private/tmp/dy.YZRVBd`, `$E/step3`):
+    - Network: `200 font/woff2` for the two latin subsets, from `127.0.0.1` only, and every request on the page's origin.
+    - The console has no CSP violation; its one 404 is `/favicon.ico`, as at step 1.
+    - `document.fonts.check` is true for both families.
+    - Under `tabular-nums`, `111111` and `000000` both measure 46.81 px, against 27.36 px for proportional figures, so the subsets keep `tnum`.
+    - The probe's families are `Geist Variable` and `Geist Mono Variable` (system fonts at step 1).
+  - Italic text, a preview tab's name and code comments, is synthesised by the browser: no italic face ships (Not here).
 
 ### 4. The scale and the shared styles
 

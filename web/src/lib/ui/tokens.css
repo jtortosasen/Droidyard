@@ -60,8 +60,8 @@
 	--lane-6: #5fbf6a;
 	--lane-7: #a58c6c;
 
-	--font-ui: system-ui, sans-serif;
-	--font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+	--font-ui: 'Geist Variable', system-ui, sans-serif;
+	--font-mono: 'Geist Mono Variable', ui-monospace, Menlo, monospace;
 	--fs-base: 13px;
 	--fs-small: 11px;
 	--fs-mono: 12px;

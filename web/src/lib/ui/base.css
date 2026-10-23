@@ -11,6 +11,7 @@ body {
 	background: var(--bg-window);
 	color: var(--text);
 	font: var(--fs-base) / 1.4 var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	-webkit-font-smoothing: antialiased;
 }
 *,

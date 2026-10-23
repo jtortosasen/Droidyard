@@ -99,7 +99,7 @@ const CSS_LISTED = Object.keys(import.meta.glob('/src/**/*.css'));
 const read = (key: string): string => new TextDecoder().decode(readFileSync(new URL('../../..' + key, import.meta.url)));
 
 const TOKENS_CSS = '/src/lib/ui/tokens.css';
-const CSS_SCANNED = ['/src/lib/ui/base.css'];
+const CSS_SCANNED = ['/src/lib/ui/base.css', '/src/lib/ui/fonts.css'];
 
 const isTest = (key: string): boolean => /\.test\.ts$/.test(key);
 const SOURCES = Object.entries(TS_SVELTE).filter(([k]) => !isTest(k));
