@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Result } from '../api/capabilities.gen';
 import { CapabilityError } from '../api/client';
 import type { Operation } from './activity';
-import { deletedBy, GONE_TEXT, TrashModel, unaccounted, type TrashClient, type TrashEntry } from './trash';
+import { deletedBy, deletedBySession, GONE_TEXT, TrashModel, unaccounted, type TrashClient, type TrashEntry } from './trash';
 
 const T0 = Date.parse('2026-10-18T10:00:00Z');
 const at = (ms: number) => new Date(T0 + ms).toISOString();
@@ -67,6 +67,21 @@ describe('deletedBy', () => {
 		expect(deletedBy({})).toEqual({ label: 'You', you: true });
 		expect(deletedBy({ by: { client: 'ui' } })).toEqual({ label: 'You', you: true });
 		expect(deletedBy({ by: { client: 'cli' } })).toEqual({ label: 'You', you: true });
+	});
+});
+
+describe('deletedBySession', () => {
+	// Decision (ADR-0127 §4): `by` carries only the session's own name, so the selected session
+	// is matched by that raw name. Comparing the numbered label ("claude-code 2") would match no
+	// entry of its own; matching on anything looser would show a Cursor session's deletions.
+	it('matches the selected session by its own name, not its numbered label', () => {
+		const byClaude = { by: { client: 'mcp' as const, name: 'claude-code' } };
+		const byCursor = { by: { client: 'mcp' as const, name: 'cursor-vscode' } };
+		expect(deletedBySession(byClaude, 'claude-code')).toBe(true);
+		expect(deletedBySession(byCursor, 'claude-code')).toBe(false);
+		expect(deletedBySession(byClaude, 'claude-code 2')).toBe(false);
+		expect(deletedBySession({}, 'claude-code')).toBe(false); // the user's
+		expect(deletedBySession({ by: { client: 'mcp' as const } }, undefined)).toBe(true); // nameless agent
 	});
 });
 

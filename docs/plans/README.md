@@ -58,3 +58,4 @@ the output.
 | [m2za-view-quality-from-the-client.md](m2za-view-quality-from-the-client.md) | 2za — The live view's quality from the client: a toggle, and a view that comes back by itself | Done |
 | [m3a-init-once-per-user.md](m3a-init-once-per-user.md) | 3a — `init` once per user: every project and worktree, with no `init` per project | Done |
 | [m3b-submodule-changes.md](m3b-submodule-changes.md) | 3b — Uncommitted changes inside submodules, in the Git tab and Review | Done |
+| [m3c-sessions-by-chat.md](m3c-sessions-by-chat.md) | 3c — Sessions by client, project and chat title | Done |

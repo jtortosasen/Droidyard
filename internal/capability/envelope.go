@@ -154,7 +154,7 @@ func boundTarget(t *OpTarget) *OpTarget {
 	if t == nil {
 		return nil
 	}
-	clean := func(s string) string { return cutBytes(stripInvisible(s), OpTargetMax) }
+	clean := func(s string) string { return cutBytes(StripInvisible(s), OpTargetMax) }
 	b := OpTarget{Device: clean(t.Device), AVD: clean(t.AVD), Module: clean(t.Module), Variant: clean(t.Variant)}
 	if b == (OpTarget{}) {
 		return nil

@@ -19,6 +19,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/domain/artifacts"
 	"github.com/jtortosasen/droidyard/internal/domain/build"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
+	"github.com/jtortosasen/droidyard/internal/domain/chats"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
 	"github.com/jtortosasen/droidyard/internal/domain/emulator"
 	"github.com/jtortosasen/droidyard/internal/domain/file"
@@ -90,6 +91,7 @@ func registry() *capability.Registry {
 	file.Register(reg, file.Options{})
 	git.Register(reg, git.Options{})
 	agent.Register(reg, agent.Options{})
+	chats.Register(reg, chats.Options{})
 	// The shell descriptors only: no handler of the golden registry is ever run, so the
 	// policy, trust, starter and store are left nil.
 	shell.Register(reg, shell.Options{})

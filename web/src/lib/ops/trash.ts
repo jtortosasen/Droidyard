@@ -67,6 +67,16 @@ export function deletedBy(e: Pick<TrashEntry, 'by'>): { label: string; you: bool
 	return { label: 'You', you: true };
 }
 
+/**
+ * Whether the session whose own name is `name` (undefined: it gave none) deleted this entry.
+ * `by` carries only the session's name, so the match is by that raw name, never by a numbered
+ * label such as "claude-code 2", which no entry carries.
+ */
+export function deletedBySession(e: Pick<TrashEntry, 'by'>, name: string | undefined): boolean {
+	const who = deletedBy(e);
+	return !who.you && who.label === (name || 'agent');
+}
+
 /** The text of one row's outcome. */
 export function stateText(s: TrashRowState): string {
 	switch (s.kind) {

@@ -46,6 +46,29 @@ type UserDirs struct {
 	Agents string
 }
 
+// ResolveUserDirs is UserDirs for a home directory and an environment: the places `init
+// --user` writes in (ADR-0124) and the places the daemon reads the clients' chat stores
+// from (ADR-0127 §2), so the two can never disagree. CLAUDE_CONFIG_DIR, when set, replaces
+// ~/.claude, and Claude keeps .claude.json in it; XDG_CONFIG_HOME, when it is an absolute
+// path, holds OpenCode's directory.
+func ResolveUserDirs(home string, getenv func(string) string) UserDirs {
+	dirs := UserDirs{
+		Claude:     filepath.Join(home, ".claude"),
+		ClaudeJSON: filepath.Join(home, ".claude.json"),
+		Cursor:     filepath.Join(home, ".cursor"),
+		OpenCode:   filepath.Join(home, ".config", "opencode"),
+		Agents:     filepath.Join(home, ".agents"),
+	}
+	if d := getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		// Claude keeps .claude.json in its configuration directory when one is named.
+		dirs.Claude, dirs.ClaudeJSON = d, filepath.Join(d, ".claude.json")
+	}
+	if x := getenv("XDG_CONFIG_HOME"); filepath.IsAbs(x) {
+		dirs.OpenCode = filepath.Join(x, "opencode")
+	}
+	return dirs
+}
+
 // ClaudeMCP changes Claude Code's user-scope MCP entry by running Claude's own CLI.
 type ClaudeMCP interface {
 	// Add runs `claude mcp add-json --scope user droidyard <entry>`.

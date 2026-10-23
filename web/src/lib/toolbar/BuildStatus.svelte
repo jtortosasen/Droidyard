@@ -30,7 +30,7 @@
 	$effect(() => {
 		const s = sessions;
 		const read = () => {
-			labels = new Map(s.view.rows.filter((r) => !r.you).map((r) => [r.key, r.label]));
+			labels = s.actorLabels();
 		};
 		read();
 		return s.subscribe(read);

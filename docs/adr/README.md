@@ -155,6 +155,7 @@ edits made before this rule and are not added to.
 | [0124](0124-init-once-per-user.md) | `init` once per user, a session with no tools outside a project, and init's files kept out of git | Accepted |
 | [0125](0125-submodule-changes-in-the-git-watch.md) | The Git watch reads inside submodules: git flags them on a trusted root, the daemon reads them on an untrusted one | Accepted |
 | [0126](0126-ignore-block-shared-by-runs.md) | The ignore block is shared by every run in a repository | Accepted |
+| [0127](0127-chats-from-the-client-stores.md) | The sessions panel lists chats read from the clients' own stores | Accepted |
 
 ## Open decisions (not yet ADRs)
 
