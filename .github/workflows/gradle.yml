@@ -58,7 +58,7 @@ jobs:
           curl -fsSL --retry 3 -o "$cache/gradle-$version-bin.zip" \
             "https://services.gradle.org/distributions/gradle-$version-bin.zip"
           echo "$sha  $cache/gradle-$version-bin.zip" | sha256sum -c -
-          echo "BUILD_CACHE=$RUNNER_TEMP/nowhere" >> "$GITHUB_ENV"
+          echo "BUILD_CACHE=$cache" >> "$GITHUB_ENV"
       - name: Probe canary
         run: |
           set -o pipefail
