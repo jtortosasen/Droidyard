@@ -308,6 +308,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	gradleOpts := gradle.Options{
 		OnCrash:    func(root string, e *capability.Error) { ws.Degrade(root, e) },
 		OnRecover:  func() { ws.Recover(capability.ErrBuildSidecarCrashed) },
+		InUse:      func(root string) bool { return ws.GradleRootInUse(root) },
 		Supervisor: sup, Log: log, Env: gradleEnviron(), Launch: gradleLaunch, JavaHome: startup.JavaHomeKey(), AllowBelowFloor: startup.BelowFloorKey()}
 	if sup != nil {
 		if cache, err := env.CacheDir(); err == nil {

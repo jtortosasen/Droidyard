@@ -246,7 +246,7 @@ class Session(private val proto: Protocol) {
             val connection = try {
                 connector.connect()
             } catch (e: GradleConnectionException) {
-                throw RpcException.application("Gradle connection failed", e.message)
+                throw connectionFailed("Gradle connection failed", e)
             }
             val cts = GradleConnector.newCancellationTokenSource()
             cancels.add(cts)
@@ -271,7 +271,7 @@ class Session(private val proto: Protocol) {
                 )
             } catch (e: Throwable) {
                 try { connection.close() } catch (ignored: Exception) {}
-                throw RpcException.application("BuildEnvironment failed", e.message)
+                throw connectionFailed("BuildEnvironment failed", e)
             } finally {
                 cancels.remove(cts)
                 cts.cancel()
@@ -563,6 +563,17 @@ class Session(private val proto: Protocol) {
             "project.model failed",
             cause.ifEmpty { e.message ?: e.javaClass.simpleName },
         )
+    }
+
+    /**
+     * A failed connection.open (m3e step 1): the failure chain's messages as the cause,
+     * bounded as modelFailed's are, so a failed distribution install carries Gradle's
+     * inner text (the stalled download, the lock wait), not only "Could not install
+     * Gradle distribution". The message string stays.
+     */
+    private fun connectionFailed(message: String, e: Throwable): RpcException {
+        val cause = failureMessages(e).joinToString("\n")
+        return RpcException.application(message, cause.ifEmpty { e.message ?: e.javaClass.simpleName })
     }
 
     /** Whether a failure is the probe's: a frame in its package, or a message naming it. */

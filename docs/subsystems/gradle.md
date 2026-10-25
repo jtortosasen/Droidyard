@@ -152,9 +152,10 @@ emission order, then warnings, capped at 200 errors and 50 warnings with a `trun
 `project.model` is one TAPI `BuildAction`: one configuration pass returns everything the
 `project.*`, `build.tasks` and build-side `sdk.requirements` capabilities need (ADR-0023 §Decision
 1). A field the probe could not read is omitted, never `unknown`; `sdkDir` is published by
-`sdk.requirements` only (1h D6, D7). The model is cached per `(root, fingerprint)` (the
-fingerprint is `gradle/fingerprint.go`'s; a module's `buildDir` is core-internal and never leaves the core); a configuration pass is
-real cost. Composite builds: the root build only in the MVP.
+`sdk.requirements` only (1h D6, D7). The model is cached per `(root, fingerprint)`
+(`gradle/fingerprint.go`, the root and the Gradle user home's scripts and properties; a module's
+`buildDir` never leaves the core); a configuration pass is real cost. Composite builds: the root
+build only.
 
 ### The probe
 
@@ -210,16 +211,17 @@ instead of queueing behind it. Contention between builds is reported as `queued`
 Every Gradle-touching call requires a **trusted** project root; an untrusted one fails with
 `WORKSPACE_UNTRUSTED` before anything is spawned
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). The sidecar then
-connects to the **Gradle root** inside it; published paths stay relative to the project root
+connects to the **Gradle root** inside it
 ([ADR-0075](../adr/0075-project-root-and-gradle-root.md)).
 
 - **Lazy start** on the first `build.*`, `project.*` or `sdk.requirements` call that needs it.
-  **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no open operation on any root,
-  never while a build is running. **Health**: the handshake covers startup, `ping` liveness.
-- **Crash**: a sidecar crash mid-build fails that operation with a clear error and leaves the
-  workspace `degraded`; the registry keeps the history; the next call restarts it. (1g D20: the mark
+  **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no lease; a build still
+  running after its cancel's `cancelWait` is **drained**: it holds no lease, and keeps its root's
+  lock until it ends or the sidecar exits. **Health**: the handshake covers startup, `ping` liveness.
+- **Crash**: a sidecar crash mid-build fails that operation and leaves the workspace `degraded`;
+  one during a drain degrades nothing (its operation ended); the next call restarts it. (1g D20: the mark
   stays inside the Gradle client, a register row.)
-- **Never kill the Gradle daemon.** It belongs to Gradle and is reused across builds by design; an
+- **Never kill the Gradle daemon.** It is reused across builds; an
   explicit stop is available but never implicit. **No orphans**: stdin EOF ends the sidecar; the
   core also stops it on shutdown.
 
@@ -234,8 +236,8 @@ The first candidate that is a runnable JVM **>= 17** wins; each is validated (it
 or `java -version`), never assumed. In order:
 
 1. The configured path (`gradle.sidecarJavaHome`, [ADR-0032](../adr/0032-configuration-file-v1.md)
-   §3), read once at daemon start; a home that is not a JVM >= 17 is rejected naming the key, and
-   the next candidate is tried. An invalid configuration file at start is a rejected entry naming
+   §3), read once at daemon start; a home that is not a JVM >= 17 is rejected naming the key and
+   skipped. An invalid configuration file at start is a rejected entry naming
    the file.
 2. `JAVA_HOME` from the effective environment.
 3. `java` on the effective `PATH`, resolved through symlinks; the macOS `/usr/bin/java` stub
@@ -245,9 +247,9 @@ or `java -version`), never assumed. In order:
 
 Nothing found: `build.*` and `project.*` report `degraded`, listing each candidate and why it was
 rejected; the next step is `JAVA_HOME` or the config key. The chosen JVM and its source are in
-`system.health`. Bundling a runtime (`jlink`) is deferred. Steps 2-3 come first because they are
-what `./gradlew` does and the sidecar's JVM becomes the daemon's by default, which maximises
-daemon reuse with the user's terminal.
+`system.health`. Bundling a runtime (`jlink`) is deferred. Steps 2-3 come first: they are
+what `./gradlew` does, and the sidecar's JVM becomes the daemon's by default, so the user's
+terminal reuses the daemon.
 
 ### Daemon JVM
 
@@ -255,10 +257,10 @@ daemon reuse with the user's terminal.
   or `org.gradle.java.home` win; otherwise TAPI uses the sidecar's JVM. We never select a daemon
   JVM; `javaHome` is an explicit override only; we **report** the daemon JVM in every result.
 - **Consequence.** A daemon is reused only by clients with a compatible Java home and JVM args:
-  Android Studio defaults to its JBR, the terminal to `JAVA_HOME`, and when they differ each runs its
-  own daemon of hundreds of megabytes. A project with daemon JVM criteria removes the problem.
+  Android Studio defaults to its JBR, the terminal to `JAVA_HOME`; when they differ each runs its
+  own daemon of hundreds of megabytes. Project daemon JVM criteria remove it.
 - A JVM too new for the project's Gradle (e.g. JDK 21 with Gradle 8.0-8.4) fails with Gradle's own
-  message plus the `javaHome` override as the next step. No silent switching.
+  message plus the `javaHome` override as the next step.
 
 ## Version detection and toolchain profile
 
@@ -268,14 +270,14 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
    then the authoritative version from `BuildEnvironment`.
 2. **`GradleCapabilities`** per connection, each flag from the documented `@since`
    (`sidecar/src/Session.kt`); subscription-time decisions are gated on them, and call-time optional
-   methods stay wrapped in `UnsupportedMethodException` catches, so an unknown shape degrades a
-   field, never the build.
+   methods stay wrapped in `UnsupportedMethodException` catches: an unknown shape degrades a field,
+   never the build.
 3. **Plugin facts** (`agp`, `kgp`, later `kotlinBuiltIn`) come from the probe; `unknown` if it did
    not read them; never parsed from build scripts or catalogs.
 4. **Expected error source per tool**: Kotlin (JVM) is structured when `problemLocations` and
    KGP >= 2.4; javac when `problemLocations` (javac reports since Gradle 8.9); AAPT2, the manifest
-   merger, KSP and kapt are not assumed. These choose which source is primary and what the result
-   reports as `expectedSources` (1h D10); they never switch the extractor off.
+   merger, KSP and kapt are not assumed. These choose the primary source and the result's
+   `expectedSources`; they never switch the extractor off.
 5. **Report it** in every build result: Gradle version and source, AGP, KGP, `profile` and
    `validation` (ADR-0018).
 
@@ -288,16 +290,20 @@ Codes and causes are in `internal/capability/error.go` and the descriptors; the 
   [ADR-0032](../adr/0032-configuration-file-v1.md), ADR-0018 rule 3 as amended) Gradle 7.3-7.x runs
   under the conservative profile, `validation: unsupported`; below 7.3 is refused even with it;
   without the key the next step names the key and the file (1k; observed with Gradle 7.6.4 on
-  zulu-17). A version newer than validated proceeds with the newest capability set, `untested`.
+  zulu-17). A version newer than validated
+  proceeds with the newest capability set, `untested`.
 - No usable sidecar JVM, a sidecar that fails to start or speaks another protocol version: the
   `[gradle]` capabilities are unavailable in `system.capabilities`; other capabilities are unaffected.
-  A crash mid-call or a broken protocol leaves no record for the build it was running; the registry
-  keeps history; restart on next use.
+  A crash mid-call or a broken protocol leaves no record for the build it was running; restart on
+  next use.
 - The project's own configuration failure is `PROJECT_MODEL_FAILED` with Gradle's failure chain as
   the cause. Daemon OOM: surface the daemon's own error and the memory flags it suggests; do not
   retry blindly. Task not found: a failed build with Gradle's own message; `build.tasks` is the
-  discovery path (no near-matches yet, 1g D19). No wrapper in the project: report it, since TAPI
-  would otherwise silently use its own Gradle version (`gradle.source: connector`).
+  discovery path. No wrapper in the project: report it, since TAPI would otherwise silently use its
+  own Gradle version (`gradle.source: connector`).
+- A failed distribution install gets a next step: run `./gradlew --version` once (with no
+  wrapper, check the network), or retry when another process holds Gradle's install lock. No
+  retry: it would hold the sidecar's one dispatcher thread.
 
 ## Persistence
 
@@ -311,7 +317,7 @@ days, oldest first (working default, `registry.go`).
 
 The version matrix (a KGP axis and an AGP axis) and the probe canary are ADR-0018's; the canary ran
 in 1h with `DROIDYARD_GRADLE_TESTS=1 go test ./sidecar` (AGP 8.0.2 on Gradle 8.0.2, 8.13.2 on 8.13,
-9.4.1 on 9.6.0; a broken field is omitted, never fails the fetch) and is not yet in CI. Fixtures pin
+9.4.1 on 9.6.0; a broken field is omitted, never fails the fetch) and runs in CI (`gradle.yml`). Fixtures pin
 versions by rewriting the wrapper's `distributionUrl` and the plugin versions. Extractor golden tests
 run over recorded real consoles, pure Go, no JVM; a form without a recording needs one before its
 test is final. Daemon hygiene: pinned `GRADLE_USER_HOME` and `javaHome`, short daemon idle timeout,

@@ -71,6 +71,9 @@ type procOpts struct {
 	// probeInit becomes -Ddroidyard.sidecar.testProbeInit: another init script than the
 	// embedded one, so a broken one can be exercised.
 	probeInit string
+	// env is extra environment for the sidecar process (m3e step 1: GRADLE_USER_HOME, so a
+	// test installs the distribution into a user home of its own).
+	env []string
 }
 
 // startProc launches the embedded jars on the embedded classpath, in a process group of
@@ -101,6 +104,9 @@ func startProcOpts(t *testing.T, o procOpts) *proc {
 	args = append(args, "-cp", writeJars(t), Class)
 	cmd := exec.Command(java, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if len(o.env) > 0 {
+		cmd.Env = append(os.Environ(), o.env...)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

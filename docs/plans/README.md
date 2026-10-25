@@ -60,3 +60,4 @@ the output.
 | [m3b-submodule-changes.md](m3b-submodule-changes.md) | 3b — Uncommitted changes inside submodules, in the Git tab and Review | Done |
 | [m3c-sessions-by-chat.md](m3c-sessions-by-chat.md) | 3c — Sessions by client, project and chat title | Done |
 | [m3d-graphite-facelift.md](m3d-graphite-facelift.md) | 3d — Graphite Console: a type scale, two faces and a palette that reads | Done |
+| [m3e-gradle-sidecar-robustness.md](m3e-gradle-sidecar-robustness.md) | 3e — The Gradle sidecar's robustness: a distribution that installs, a root that stays coherent, the unmeasured costs measured | Done |

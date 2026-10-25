@@ -77,6 +77,16 @@ type Config struct {
 	// DieOn names a method the fake receives and exits on, without answering.
 	DieOn string `json:"dieOn"`
 
+	// OpenFailure, when set, fails every connection.open as the real sidecar does
+	// (m3e step 1): the message "BuildEnvironment failed" and this text as the error's
+	// data, which is the cause the client reads. The root stays closed.
+	OpenFailure string `json:"openFailure,omitempty"`
+	// OpenGate, when set, holds every connection.open until the file exists (a minute
+	// at most), before it answers or fails. Like the real sidecar's one dispatcher
+	// thread, the fake serves nothing else meanwhile, so a request sent after the open
+	// is handled after it (m3e step 3).
+	OpenGate string `json:"openGate,omitempty"`
+
 	// Events, when set, is a file the fake appends its lifecycle to: "started <pid>",
 	// "served <method>", "opened <root>" and "closed <root>" for each connection,
 	// "eof". A test reads it to see that stdin was closed.
@@ -161,6 +171,15 @@ type Build struct {
 	// WaitForCancel holds the build open after its steps until build.cancel arrives, so
 	// a test can cancel a build mid-flight; the fake then finishes it cancelled.
 	WaitForCancel bool `json:"waitForCancel,omitempty"`
+	// IgnoreCancelUntil holds the build open after its steps until the file exists (a
+	// minute at most) and ignores build.cancel meanwhile, like a task that ignores
+	// interruption. The cancel is answered at once; once the file exists the build
+	// sends LateSteps and its terminal event, cancelled if a cancel arrived and Outcome
+	// otherwise (m3e step 4).
+	IgnoreCancelUntil string `json:"ignoreCancelUntil,omitempty"`
+	// LateSteps are sent after IgnoreCancelUntil's file exists and before the terminal
+	// event: the notifications a cancelled build still sends.
+	LateSteps []Step `json:"lateSteps,omitempty"`
 	// AcceptDelayMs answers build.run {accepted} only after that delay, while further
 	// requests are still read: the build.run queued behind a model fetch in the real
 	// sidecar, which a cancel can overtake (step 7 review B1).
@@ -346,6 +365,14 @@ func (s *sidecar) serve(line string, held *int) {
 	case "ping":
 		s.writeResult(req.ID, map[string]any{})
 	case "connection.open":
+		if s.cfg.OpenGate != "" {
+			waitForFile(s.cfg.OpenGate)
+		}
+		if s.cfg.OpenFailure != "" {
+			s.write(map[string]any{"jsonrpc": "2.0", "id": idOrNull(req.ID),
+				"error": map[string]any{"code": -32000, "message": "BuildEnvironment failed", "data": s.cfg.OpenFailure}})
+			return
+		}
 		// The real sidecar refuses a root it already holds open (Session.kt
 		// openConnection); a fake that did not hid a close that never reached it.
 		if s.isOpen(rp.Root) {
@@ -479,11 +506,13 @@ func (s *sidecar) build(id json.RawMessage, params json.RawMessage) {
 	if d := s.cfg.Build.AcceptDelayMs; d > 0 {
 		go func() {
 			time.Sleep(time.Duration(d) * time.Millisecond)
+			event(s.cfg, "accepted %s", p.BuildID)
 			s.writeResult(id, map[string]any{"accepted": true})
 			s.play(p.BuildID, cancel)
 		}()
 		return
 	}
+	event(s.cfg, "accepted %s", p.BuildID)
 	s.writeResult(id, map[string]any{"accepted": true})
 	go s.play(p.BuildID, cancel)
 }
@@ -512,6 +541,23 @@ func (s *sidecar) play(buildID string, cancel chan struct{}) {
 		if b.DieAfterSteps > 0 && i+1 >= b.DieAfterSteps {
 			os.Exit(1)
 		}
+	}
+	if b.IgnoreCancelUntil != "" {
+		waitForFile(b.IgnoreCancelUntil)
+		for _, step := range b.LateSteps {
+			s.notify(buildID, step)
+		}
+		outcome := b.Outcome
+		if outcome == "" {
+			outcome = "success"
+		}
+		select {
+		case <-cancel:
+			outcome = "cancelled"
+		default:
+		}
+		s.finished(buildID, outcome, b)
+		return
 	}
 	if b.WaitForCancel {
 		<-cancel
@@ -568,6 +614,7 @@ func (s *sidecar) notify(buildID string, step Step) {
 }
 
 func (s *sidecar) finished(buildID, outcome string, b *Build) {
+	event(s.cfg, "finished %s", buildID)
 	s.write(map[string]any{
 		"jsonrpc": "2.0", "method": "event.build.finished",
 		"params": map[string]any{

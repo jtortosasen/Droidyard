@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,13 +19,19 @@ import (
 // are skipped, and the walk stops after MaxFingerprintEntries so a pathological tree
 // cannot hang a call.
 //
-// It is a cheap heuristic, not a Gradle-accurate one: init scripts in
-// ~/.gradle/init.d, environment variables and remotely-resolved plugin versions are
-// not covered (the plan's Unverified row for step 5).
-func Fingerprint(root string) string {
+// It also hashes, by size and mtime, the Gradle user home's scripts and properties
+// (plan m3e step 2): gradle.properties, init.gradle, init.gradle.kts and every file
+// directly under init.d/, and nothing else there (not caches, daemons or wrapper
+// dists). userHome is UserHome's; "" leaves it out.
+//
+// It is a cheap heuristic, not a Gradle-accurate one: environment variables (fixed at
+// the daemon's start, ADR-0019 §8) and remotely-resolved plugin versions are not
+// covered.
+func Fingerprint(root, userHome string) string {
 	included := includedBuildDirs(root)
 	h := sha256.New()
 	n := 0
+	hashUserHome(h, userHome)
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -55,6 +62,45 @@ func Fingerprint(root string) string {
 	})
 	sum := hex.EncodeToString(h.Sum(nil))
 	return sum[:16]
+}
+
+// UserHome is the Gradle user home as the sidecar will see it: GRADLE_USER_HOME from
+// env (KEY=value; nil is the daemon's own environment, as process.Descriptor.Env), else
+// $HOME/.gradle. It is "" when neither is known.
+func UserHome(env []string) string {
+	if env == nil {
+		env = os.Environ()
+	}
+	vars := envMap(env)
+	if h := vars["GRADLE_USER_HOME"]; h != "" {
+		return h
+	}
+	if h := vars["HOME"]; h != "" {
+		return filepath.Join(h, ".gradle")
+	}
+	return ""
+}
+
+// hashUserHome adds the user home's script and property files to h.
+func hashUserHome(h io.Writer, userHome string) {
+	if userHome == "" {
+		return
+	}
+	files := []string{"gradle.properties", "init.gradle", "init.gradle.kts"}
+	if entries, err := os.ReadDir(filepath.Join(userHome, "init.d")); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				files = append(files, "init.d/"+e.Name())
+			}
+		}
+	}
+	for _, rel := range files {
+		fi, err := os.Stat(filepath.Join(userHome, filepath.FromSlash(rel)))
+		if err != nil || fi.IsDir() {
+			continue
+		}
+		fmt.Fprintf(h, "~\x00%s\x00%d\x00%d\n", rel, fi.Size(), fi.ModTime().UnixNano())
+	}
 }
 
 // MaxFingerprintEntries bounds the fingerprint walk (plan m1g D8).

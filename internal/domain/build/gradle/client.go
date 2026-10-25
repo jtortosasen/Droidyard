@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -105,6 +106,13 @@ type Options struct {
 	// OnRecover is told when a sidecar start succeeds after an OnCrash, so the
 	// workspaces it degraded can return to ready. Outside the client's locks.
 	OnRecover func()
+	// InUse reports whether an open workspace holds root as its Gradle root (ADR-0092 §2).
+	// A release of a root's lock that leaves its connection open asks it, and closes the
+	// connection once no operation holds the root when it says false: the connection a
+	// call on a forgotten root reopened (m3e step 5). It runs outside the client's
+	// locks, and again with the root's lock held, so it must not wait for a root's lock.
+	// Nil never closes (tests, the schema-only client).
+	InUse func(root string) bool
 }
 
 // Client is the daemon's sidecar client: it starts the one shared sidecar on demand,
@@ -159,7 +167,12 @@ type root struct {
 	// openPid is the sidecar process the connection was opened on: a restarted sidecar
 	// (a crash or the idle stop) has no connection for the root, so the next call opens
 	// it again (step 5 review B1).
-	openPid     int
+	openPid int
+	// openUnknown is the sidecar process whose connection.open for this root was sent and
+	// whose caller went away before the reply: the sidecar may hold the root open though
+	// the client never saw it (m3e step 3). It counts as open for the guards that ask,
+	// and the next open on that process closes first. 0 means none.
+	openUnknown int
 	model       *Model
 	fingerprint string
 	degraded    *capability.Error
@@ -244,13 +257,28 @@ func (c *Client) LockRoot(ctx context.Context, canonical string) (func(), error)
 	r := c.root(canonical)
 	select {
 	case r.tapi <- struct{}{}:
-		return r.unlock, nil
+		return func() { c.release(r) }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
 func (r *root) unlock() { <-r.tapi }
+
+// release frees r's lock for an operation that is done with the root (a model fetch,
+// a build's run, a drain's end) and then lets go of the connection it may have reopened
+// (ADR-0092 §2, m3e step 5): a root that no open workspace holds any more has its
+// connection closed once no operation holds the root. Every release of the lock by an
+// operation passes through here; CloseWhenFree and Close take and free the lock
+// themselves, since their close leaves the root not open. A drain's ReleaseLease frees
+// only the lease, never the lock, so it does not come through here.
+func (c *Client) release(r *root) {
+	r.unlock()
+	if c.opts.InUse == nil || !r.holdsConn() || c.opts.InUse(r.canonical) {
+		return
+	}
+	go c.CloseWhenFree(r.canonical, func() bool { return c.opts.InUse(r.canonical) })
+}
 
 // Model returns root's project model and whether it is stale.
 //
@@ -261,14 +289,14 @@ func (r *root) unlock() { <-r.tapi }
 // cached model it waits for the build, context-aware.
 func (c *Client) Model(ctx context.Context, canonical string) (Model, bool, error) {
 	r := c.root(canonical)
-	fp := Fingerprint(canonical)
+	fp := Fingerprint(canonical, UserHome(c.opts.Env))
 	// One configuration pass per (root, fingerprint) (D8; A3): an unchanged build answers
 	// from the cache whether or not a build holds the root.
 	if m, cachedFP, ok := r.cached(); ok && cachedFP == fp {
 		return m, false, nil
 	}
 	if r.tryLock() {
-		defer r.unlock()
+		defer c.release(r)
 		m, err := c.fetch(ctx, r)
 		if err != nil {
 			return Model{}, false, err
@@ -282,7 +310,7 @@ func (c *Client) Model(ctx context.Context, canonical string) (Model, bool, erro
 	if err := r.lock(ctx); err != nil {
 		return Model{}, false, err
 	}
-	defer r.unlock()
+	defer c.release(r)
 	m, err := c.fetch(ctx, r)
 	if err != nil {
 		return Model{}, false, err
@@ -399,23 +427,58 @@ func (r *root) connection() Connection {
 	return r.conn
 }
 
-// isOpen reports whether the root has a connection on the sidecar process pid.
+// isOpen reports whether the root has, or may have, a connection on the sidecar process
+// pid: an open whose caller went away counts (m3e step 3), so a close still reaches it.
 func (r *root) isOpen(pid int) bool {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	return (r.opened && r.openPid == pid) || (r.openUnknown != 0 && r.openUnknown == pid)
+}
+
+// holdsConn reports whether the root has, or may have, a connection on any sidecar
+// process: the release hook's test for a release that leaves the root open.
+func (r *root) holdsConn() bool {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	return r.opened || r.openUnknown != 0
+}
+
+// usable reports whether the client holds a connection it saw opened on process pid.
+func (r *root) usable(pid int) bool {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
 	return r.opened && r.openPid == pid
 }
 
+// unknownOn reports whether an abandoned open may be holding the root on process pid.
+func (r *root) unknownOn(pid int) bool {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	return r.openUnknown != 0 && r.openUnknown == pid
+}
+
+func (r *root) markUnknown(pid int) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	r.openUnknown = pid
+}
+
+func (r *root) clearUnknown() {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	r.openUnknown = 0
+}
+
 func (r *root) setConn(conn Connection, pid int) {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.conn, r.opened, r.openPid = conn, true, pid
+	r.conn, r.opened, r.openPid, r.openUnknown = conn, true, pid, 0
 }
 
 func (r *root) clearConn() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.conn, r.opened, r.openPid, r.model, r.fingerprint = Connection{}, false, 0, nil, ""
+	r.conn, r.opened, r.openPid, r.openUnknown, r.model, r.fingerprint = Connection{}, false, 0, 0, nil, ""
 }
 
 func (r *root) setModel(m Model, fp string) {
@@ -442,13 +505,9 @@ func (c *Client) fetch(ctx context.Context, r *root) (Model, error) {
 		return Model{}, err
 	}
 	defer lease.Release()
-	if !r.isOpen(lease.Pid()) {
-		conn, err := c.open(ctx, lease, r.canonical)
-		if err != nil {
-			c.fail(r, err)
-			return Model{}, err
-		}
-		r.setConn(conn, lease.Pid())
+	if err := c.ensureOpen(ctx, lease, r); err != nil {
+		c.fail(r, err)
+		return Model{}, err
 	}
 	// The probe is always asked for: it is the only source of Android facts, and the
 	// sidecar degrades to the generic model itself when it cannot run (plan m1h D5).
@@ -473,10 +532,79 @@ func (c *Client) fetch(ctx context.Context, r *root) (Model, error) {
 	return m, nil
 }
 
+// ensureOpen leaves r's connection open on lease's process. Its caller holds the root's
+// TAPI lock. A root whose earlier open lost its caller is closed first (m3e step 3): the
+// sidecar may have finished that open, and it refuses a second one. A close is harmless
+// on a root that is not open.
+func (c *Client) ensureOpen(ctx context.Context, lease *process.Lease, r *root) error {
+	if r.usable(lease.Pid()) {
+		return nil
+	}
+	if r.unknownOn(lease.Pid()) {
+		if _, err := c.call(ctx, lease, "connection.close", map[string]any{"root": r.canonical}); err != nil {
+			return err
+		}
+		r.clearUnknown()
+	}
+	conn, err := c.open(ctx, lease, r)
+	if err != nil {
+		return err
+	}
+	r.setConn(conn, lease.Pid())
+	return nil
+}
+
+// Gradle's words, as the pinned Tooling API (9.8.0) sends them in a failed
+// connection.open's chain (m3e step 1's evidence): every distribution install failure
+// carries the first, and the install lock held by another process adds the second
+// ("Timeout of 120000 reached waiting for exclusive access to file: …").
+const (
+	installFailureText = "Could not install Gradle distribution"
+	installLockText    = "waiting for exclusive access to file"
+)
+
+// openFailureNextStep names the way out of a distribution install that failed, from the
+// chain the sidecar sent; empty when the failure is not one (m3e step 3). No path is
+// named: the client does not know the project root's published form (ADR-0075). No
+// retry is made: the open already waited Gradle's own lock wait, and a retry would hold
+// the sidecar's one dispatcher thread for every root. A root with no wrapper (the
+// `connector` source) has no ./gradlew to run (m3e verifier finding 1).
+func openFailureNextStep(e *capability.Error, wrapper bool) string {
+	if e.Code != capability.ErrProjectModelFailed || !strings.Contains(e.Cause, installFailureText) {
+		return ""
+	}
+	if strings.Contains(e.Cause, installLockText) {
+		return "another Gradle process (Android Studio, a terminal) is installing this project's Gradle distribution; retry when it finishes"
+	}
+	if !wrapper {
+		return "the project has no Gradle wrapper and the Tooling API could not download its own Gradle: check the network or proxy, or add a wrapper, then retry"
+	}
+	return "run `./gradlew --version` once in a terminal in the project's Gradle root (it downloads the distribution), then retry"
+}
+
+// hasWrapper reports whether root holds the wrapper's properties, the file the sidecar
+// reads to use the build's own distribution (sidecar/src/Session.kt openConnection).
+func hasWrapper(root string) bool {
+	fi, err := os.Stat(filepath.Join(root, "gradle", "wrapper", "gradle-wrapper.properties"))
+	return err == nil && fi.Mode().IsRegular()
+}
+
 // open opens root's connection and refuses a Gradle below the floor (ADR-0018 rule 3).
-func (c *Client) open(ctx context.Context, lease *process.Lease, canonical string) (Connection, error) {
+// When ctx ends before the reply, the sidecar may still complete the open: the root is
+// marked so the next open on this process closes it first (m3e step 3).
+func (c *Client) open(ctx context.Context, lease *process.Lease, r *root) (Connection, error) {
+	canonical := r.canonical
 	raw, err := c.call(ctx, lease, "connection.open", map[string]any{"root": canonical})
 	if err != nil {
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			r.markUnknown(lease.Pid())
+		}
+		var ce *capability.Error
+		if errors.As(err, &ce) {
+			if next := openFailureNextStep(ce, hasWrapper(canonical)); next != "" {
+				err = ce.WithNextStep(next)
+			}
+		}
 		return Connection{}, err
 	}
 	var conn Connection
@@ -492,7 +620,10 @@ func (c *Client) open(ctx context.Context, lease *process.Lease, canonical strin
 		}
 		// The connection is open on the sidecar but unusable here: close it, then fail
 		// naming floor and version (ADR-0018 rule 3; plan m1g D9, m1k D9).
-		_, _ = c.call(ctx, lease, "connection.close", map[string]any{"root": canonical})
+		if _, cerr := c.call(ctx, lease, "connection.close", map[string]any{"root": canonical}); cerr != nil &&
+			ctx.Err() != nil && errors.Is(cerr, ctx.Err()) {
+			r.markUnknown(lease.Pid())
+		}
 		return Connection{}, c.belowFloorError(conn.GradleVersion)
 	}
 	return conn, nil
@@ -858,7 +989,7 @@ func (c *Client) fail(_ *root, err error) {
 	c.mu.Unlock()
 	for _, r := range roots {
 		r.cmu.Lock()
-		if r.opened {
+		if r.opened || r.openUnknown != 0 {
 			r.degraded = capability.AsError(err)
 		}
 		// The cached models go with the sidecar that produced them, so the next call

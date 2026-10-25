@@ -35,6 +35,10 @@ const (
 	otherWS = "dc-fedcba987654"
 )
 
+// fixtureIdleTimeout is the sidecar's idle timeout in the fixture; a test that needs the
+// idle stop to fire sets a short one for its duration.
+var fixtureIdleTimeout = time.Minute
+
 type testLog struct{ t *testing.T }
 
 func (l testLog) Write(p []byte) (int, error) {
@@ -67,6 +71,7 @@ func (l *captureLog) String() string {
 type recorder struct {
 	mu     sync.Mutex
 	events []capability.Progress
+	perOp  map[string]int
 }
 
 func (r *recorder) Publish(topic, typ, workspace, operation string, payload any) {
@@ -76,8 +81,19 @@ func (r *recorder) Publish(topic, typ, workspace, operation string, payload any)
 	if p, ok := payload.(capability.Progress); ok {
 		r.mu.Lock()
 		r.events = append(r.events, p)
+		if r.perOp == nil {
+			r.perOp = map[string]int{}
+		}
+		r.perOp[operation]++
 		r.mu.Unlock()
 	}
+}
+
+// count is how many progress events the operation published.
+func (r *recorder) count(operation string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.perOp[operation]
 }
 
 func (r *recorder) all() []capability.Progress {
@@ -114,6 +130,10 @@ func (admitWS) Admit(target string, record func(id string)) bool {
 	record(target)
 	return true
 }
+
+// fixtureInUse is the fixtures' Options.InUse (m3e step 5): nil, as for a client with no
+// workspace registry, unless a test sets it before building its fixture.
+var fixtureInUse func(root string) bool
 
 func newFixture(t *testing.T, cfg gradletest.Config) *buildFixture {
 	t.Helper()
@@ -181,7 +201,8 @@ func newFixtureTop(t *testing.T, state string, cfg gradletest.Config, floor poli
 	cfgPath := gradletest.WriteConfig(t, cfg)
 	client := gradle.New(gradle.Options{
 		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: state,
-		Launch: gradletest.Launch(cfgPath), IdleTimeout: time.Minute, AllowBelowFloor: floor,
+		Launch: gradletest.Launch(cfgPath), IdleTimeout: fixtureIdleTimeout, AllowBelowFloor: floor,
+		InUse: fixtureInUse,
 	})
 
 	reg := capability.NewRegistry()

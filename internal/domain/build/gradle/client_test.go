@@ -101,6 +101,19 @@ func newClient(t *testing.T, cfg gradletest.Config, idle time.Duration) (*gradle
 // test can admit a Gradle below the floor (plan m1k step 7, D9).
 func newClientFloor(t *testing.T, cfg gradletest.Config, idle time.Duration, floor policy.BelowFloor) (*gradle.Client, *process.Supervisor, string) {
 	t.Helper()
+	return newClientEnv(t, cfg, idle, floor, nil)
+}
+
+// newClientEnv is newClientFloor with the client's environment (nil: the daemon's).
+func newClientEnv(t *testing.T, cfg gradletest.Config, idle time.Duration, floor policy.BelowFloor, env []string) (*gradle.Client, *process.Supervisor, string) {
+	t.Helper()
+	return newClientWith(t, cfg, idle, floor, env, nil)
+}
+
+// newClientWith is newClientEnv with a last say on the client's options (m3e step 5's
+// InUse).
+func newClientWith(t *testing.T, cfg gradletest.Config, idle time.Duration, floor policy.BelowFloor, env []string, tweak func(*gradle.Options)) (*gradle.Client, *process.Supervisor, string) {
+	t.Helper()
 	dir := t.TempDir()
 	cfg.Events = filepath.Join(dir, "events")
 	cfgPath := gradletest.WriteConfig(t, cfg)
@@ -114,10 +127,14 @@ func newClientFloor(t *testing.T, cfg gradletest.Config, idle time.Duration, flo
 	}
 	t.Cleanup(sup.Shutdown)
 	jvm := gradle.JVM{Found: true, Home: "/fake/jdk17", Version: "17.0.11", Source: gradle.SourceJavaHome}
-	c := gradle.New(gradle.Options{
+	opts := gradle.Options{
 		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: dir,
-		Launch: gradletest.Launch(cfgPath), IdleTimeout: idle, AllowBelowFloor: floor,
-	})
+		Launch: gradletest.Launch(cfgPath), IdleTimeout: idle, AllowBelowFloor: floor, Env: env,
+	}
+	if tweak != nil {
+		tweak(&opts)
+	}
+	c := gradle.New(opts)
 	return c, sup, cfg.Events
 }
 
@@ -564,7 +581,7 @@ func TestFingerprintCoversIncludedBuildLogicAndIgnoresNoise(t *testing.T) {
 	write("app/build/generated.txt", "output\n")
 	write("app/src/main/App.kt", "class App\n")
 
-	base := gradle.Fingerprint(root)
+	base := gradle.Fingerprint(root, "")
 	if base == "" {
 		t.Fatal("the fingerprint is empty")
 	}
@@ -572,18 +589,18 @@ func TestFingerprintCoversIncludedBuildLogicAndIgnoresNoise(t *testing.T) {
 	// Noise: neither build output nor source is part of the model's inputs.
 	write("app/build/generated.txt", "other output, longer\n")
 	write("app/src/main/App.kt", "class App2\n")
-	if got := gradle.Fingerprint(root); got != base {
+	if got := gradle.Fingerprint(root, ""); got != base {
 		t.Errorf("a build-output or source edit changed the fingerprint: %s -> %s", base, got)
 	}
 
 	// An included build's own script is part of it.
 	write("build-logic/convention.gradle.kts", "// v2, a longer body\n")
-	if got := gradle.Fingerprint(root); got == base {
+	if got := gradle.Fingerprint(root, ""); got == base {
 		t.Errorf("a build-logic edit did not change the fingerprint (%s)", got)
 	}
-	next := gradle.Fingerprint(root)
+	next := gradle.Fingerprint(root, "")
 	write("gradle/libs.versions.toml", "[versions]\napp = \"1\"\n")
-	if gradle.Fingerprint(root) == next {
+	if gradle.Fingerprint(root, "") == next {
 		t.Error("a version-catalog edit did not change the fingerprint")
 	}
 }
@@ -652,5 +669,99 @@ func TestUnchangedRootAnswersFromTheCache(t *testing.T) {
 	}
 	if n := count(events(t, ev), "served project.model"); n != 2 {
 		t.Fatalf("after a settings edit the sidecar served %d fetches, want 2", n)
+	}
+}
+
+// TestFingerprintSeesTheUserHome pins the widened D8 (plan m3e step 2): the Gradle user
+// home's gradle.properties, init.gradle(.kts) and init.d/ files are model inputs, so
+// editing one changes the fingerprint; its caches and wrapper distributions are not,
+// and an unset GRADLE_USER_HOME means $HOME/.gradle. Seen failing with the user home
+// left out of the hash.
+func TestFingerprintSeesTheUserHome(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		path := filepath.Join(home, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := gradle.Fingerprint(root, home)
+	step := func(what string, change func()) {
+		t.Helper()
+		change()
+		got := gradle.Fingerprint(root, home)
+		if got == base {
+			t.Errorf("%s did not change the fingerprint", what)
+		}
+		base = got
+	}
+	step("adding init.d/a.gradle", func() { write("init.d/a.gradle", "// a\n") })
+	step("editing init.d/a.gradle", func() { write("init.d/a.gradle", "// a, edited and longer\n") })
+	step("adding gradle.properties", func() { write("gradle.properties", "org.gradle.jvmargs=-Xmx1g\n") })
+	step("editing gradle.properties", func() { write("gradle.properties", "org.gradle.jvmargs=-Xmx22g\n") })
+	step("adding init.gradle.kts", func() { write("init.gradle.kts", "// k\n") })
+	step("adding init.gradle", func() { write("init.gradle", "// g\n") })
+
+	write("caches/modules-2/x.bin", "cache")
+	write("wrapper/dists/gradle-8.7/x.bin", "dist")
+	write("daemon/8.7/daemon.log", "log")
+	if got := gradle.Fingerprint(root, home); got != base {
+		t.Errorf("a file under caches/, wrapper/dists/ or daemon/ changed the fingerprint")
+	}
+
+	// UserHome: GRADLE_USER_HOME wins, else $HOME/.gradle.
+	if got := gradle.UserHome([]string{"GRADLE_USER_HOME=" + home, "HOME=/elsewhere"}); got != home {
+		t.Errorf("GRADLE_USER_HOME set: user home %q, want %q", got, home)
+	}
+	fakeHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(fakeHome, ".gradle", "init.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	uh := gradle.UserHome([]string{"HOME=" + fakeHome})
+	if uh != filepath.Join(fakeHome, ".gradle") {
+		t.Fatalf("GRADLE_USER_HOME unset: user home %q, want $HOME/.gradle", uh)
+	}
+	before := gradle.Fingerprint(root, uh)
+	if err := os.WriteFile(filepath.Join(uh, "init.d", "b.gradle"), []byte("// b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if gradle.Fingerprint(root, uh) == before {
+		t.Error("an init.d file under $HOME/.gradle did not change the fingerprint")
+	}
+}
+
+// TestUserHomeEditRefetchesTheModel pins the same decision at the client: a cached model
+// is served again only while the user home is unchanged; an init.d edit makes the next
+// Model reach the sidecar.
+func TestUserHomeEditRefetchesTheModel(t *testing.T) {
+	home := t.TempDir()
+	c, _, ev := newClientEnv(t, gradletest.Config{Model: gradletest.MustModel(model(t))}, time.Minute, policy.BelowFloor{},
+		append(os.Environ(), "GRADLE_USER_HOME="+home))
+	ctx := context.Background()
+	a := rootDir(t)
+	for range 2 {
+		if _, _, err := c.Model(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := count(events(t, ev), "served project.model"); n != 1 {
+		t.Fatalf("two calls on an unchanged root reached the sidecar %d times, want 1", n)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "init.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "init.d", "x.gradle"), []byte("// x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Model(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(events(t, ev), "served project.model"); n != 2 {
+		t.Fatalf("after an init.d edit the sidecar served %d fetches, want 2", n)
 	}
 }

@@ -1,0 +1,71 @@
+# ADR-0018 §Consequences: the probe canary, on a real Gradle and Android Gradle Plugin per
+# cell (Gradle 8.0.2, 8.13, 9.6.0). A workflow of its own so release.yml, which calls
+# ci.yml, does not grow. A skipped cell is a failure: a canary that skips proves nothing.
+name: gradle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sidecar/**"
+      - "internal/domain/build/**"
+      - ".github/workflows/gradle.yml"
+  pull_request:
+    paths:
+      - "sidecar/**"
+      - "internal/domain/build/**"
+      - ".github/workflows/gradle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Toolchains
+        run: |
+          set -eu
+          if [ -z "${JAVA_HOME_17_X64:-}" ] || [ ! -x "$JAVA_HOME_17_X64/bin/java" ]; then
+            echo "the runner has no JDK 17 (JAVA_HOME_17_X64)" >&2; exit 1
+          fi
+          if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
+            echo "the runner has no Android SDK (ANDROID_HOME)" >&2; exit 1
+          fi
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          go version
+          "$JAVA_HOME_17_X64/bin/java" -version
+      # Cell C4 (the floor, Gradle 8.0.2) reads the zip from the build cache, as build.sh
+      # fetches it; the digest is build.sh's own, so the two cannot drift.
+      - name: Gradle 8.0.2 distribution
+        run: |
+          set -eu
+          version=$(sed -n 's/^GRADLE_VERSION=//p' sidecar/build.sh)
+          sha=$(sed -n 's/^GRADLE_SHA=//p' sidecar/build.sh)
+          if [ "$version" != 8.0.2 ] || [ -z "$sha" ]; then
+            echo "build.sh: unexpected GRADLE_VERSION=$version" >&2; exit 1
+          fi
+          cache="$RUNNER_TEMP/build-cache"
+          mkdir -p "$cache"
+          curl -fsSL --retry 3 -o "$cache/gradle-$version-bin.zip" \
+            "https://services.gradle.org/distributions/gradle-$version-bin.zip"
+          echo "$sha  $cache/gradle-$version-bin.zip" | sha256sum -c -
+          echo "BUILD_CACHE=$cache" >> "$GITHUB_ENV"
+      - name: Probe canary
+        run: |
+          set -o pipefail
+          DROIDYARD_GRADLE_TESTS=1 go test -v -timeout 25m -run 'TestGradleProbe' ./sidecar | tee "$RUNNER_TEMP/canary.log"
+      - name: No cell skipped
+        run: |
+          if grep -n -e '--- SKIP' "$RUNNER_TEMP/canary.log"; then
+            echo "a canary test skipped; the cells did not all run" >&2
+            exit 1
+          fi
