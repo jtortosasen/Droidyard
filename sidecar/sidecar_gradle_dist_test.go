@@ -247,8 +247,10 @@ func TestGradleDistributionLockedByAnotherProcess(t *testing.T) {
 	if took < 100*time.Second || took > 150*time.Second {
 		t.Errorf("failed after %s, want about 120 s (Gradle's lock wait)", took)
 	}
-	if !strings.Contains(strings.ToLower(data), "lock") {
-		t.Errorf("the chain does not name a lock:\n%s", data)
+	// Gradle's own words for its install lock, which the client matches (client.go
+	// installLockText); "lock" alone would match this test's temporary directory.
+	if !strings.Contains(data, "waiting for exclusive access to file") {
+		t.Errorf("the chain does not name Gradle's install lock wait:\n%s", data)
 	}
 }
 

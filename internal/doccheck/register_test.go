@@ -218,7 +218,10 @@ func checkRegister(fsys fs.FS) []string {
 // line and its line names 3a; mcp.md binds a session without --root to the folder's project or a
 // session with no tools, and init writes per project or once per user (ADR-0124).
 // Raised by 2 (to 30,124) at milestone 3d's close: README.md's status line names 3d.
-const liveBudget = 30124
+// Raised by 21 (to 30,145) at milestone 3e's close: README.md's status line names 3e and 3f;
+// gradle.md keeps why the sidecar's JVM comes first (the daemon's default, so the terminal
+// reuses it) and names the wrapperless next step (the close verifier's findings).
+const liveBudget = 30145
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

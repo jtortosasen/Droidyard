@@ -248,7 +248,8 @@ or `java -version`), never assumed. In order:
 Nothing found: `build.*` and `project.*` report `degraded`, listing each candidate and why it was
 rejected; the next step is `JAVA_HOME` or the config key. The chosen JVM and its source are in
 `system.health`. Bundling a runtime (`jlink`) is deferred. Steps 2-3 come first: they are
-what `./gradlew` does, which maximises daemon reuse with the user's terminal.
+what `./gradlew` does, and the sidecar's JVM becomes the daemon's by default, so the user's
+terminal reuses the daemon.
 
 ### Daemon JVM
 
@@ -300,9 +301,9 @@ Codes and causes are in `internal/capability/error.go` and the descriptors; the 
   retry blindly. Task not found: a failed build with Gradle's own message; `build.tasks` is the
   discovery path. No wrapper in the project: report it, since TAPI would otherwise silently use its
   own Gradle version (`gradle.source: connector`).
-- A failed distribution install gets a next step: run `./gradlew --version` once, or retry when
-  another process holds Gradle's install lock. The client does not retry: it would hold the
-  sidecar's one dispatcher thread.
+- A failed distribution install gets a next step: run `./gradlew --version` once (with no
+  wrapper, check the network), or retry when another process holds Gradle's install lock. No
+  retry: it would hold the sidecar's one dispatcher thread.
 
 ## Persistence
 
