@@ -235,8 +235,8 @@ The first candidate that is a runnable JVM **>= 17** wins; each is validated (it
 or `java -version`), never assumed. In order:
 
 1. The configured path (`gradle.sidecarJavaHome`, [ADR-0032](../adr/0032-configuration-file-v1.md)
-   §3), read once at daemon start; a home that is not a JVM >= 17 is rejected naming the key, and
-   the next candidate is tried. An invalid configuration file at start is a rejected entry naming
+   §3), read once at daemon start; a home that is not a JVM >= 17 is rejected naming the key and
+   skipped. An invalid configuration file at start is a rejected entry naming
    the file.
 2. `JAVA_HOME` from the effective environment.
 3. `java` on the effective `PATH`, resolved through symlinks; the macOS `/usr/bin/java` stub
@@ -246,9 +246,8 @@ or `java -version`), never assumed. In order:
 
 Nothing found: `build.*` and `project.*` report `degraded`, listing each candidate and why it was
 rejected; the next step is `JAVA_HOME` or the config key. The chosen JVM and its source are in
-`system.health`. Bundling a runtime (`jlink`) is deferred. Steps 2-3 come first because they are
-what `./gradlew` does and the sidecar's JVM becomes the daemon's by default, which maximises
-daemon reuse with the user's terminal.
+`system.health`. Bundling a runtime (`jlink`) is deferred. Steps 2-3 come first: they are
+what `./gradlew` does, which maximises daemon reuse with the user's terminal.
 
 ### Daemon JVM
 
@@ -256,10 +255,10 @@ daemon reuse with the user's terminal.
   or `org.gradle.java.home` win; otherwise TAPI uses the sidecar's JVM. We never select a daemon
   JVM; `javaHome` is an explicit override only; we **report** the daemon JVM in every result.
 - **Consequence.** A daemon is reused only by clients with a compatible Java home and JVM args:
-  Android Studio defaults to its JBR, the terminal to `JAVA_HOME`, and when they differ each runs its
-  own daemon of hundreds of megabytes. A project with daemon JVM criteria removes the problem.
+  Android Studio defaults to its JBR, the terminal to `JAVA_HOME`; when they differ each runs its
+  own daemon of hundreds of megabytes. Project daemon JVM criteria remove it.
 - A JVM too new for the project's Gradle (e.g. JDK 21 with Gradle 8.0-8.4) fails with Gradle's own
-  message plus the `javaHome` override as the next step. No silent switching.
+  message plus the `javaHome` override as the next step.
 
 ## Version detection and toolchain profile
 
@@ -269,14 +268,14 @@ Implements [ADR-0018](../adr/0018-gradle-version-support-policy.md).
    then the authoritative version from `BuildEnvironment`.
 2. **`GradleCapabilities`** per connection, each flag from the documented `@since`
    (`sidecar/src/Session.kt`); subscription-time decisions are gated on them, and call-time optional
-   methods stay wrapped in `UnsupportedMethodException` catches, so an unknown shape degrades a
-   field, never the build.
+   methods stay wrapped in `UnsupportedMethodException` catches: an unknown shape degrades a field,
+   never the build.
 3. **Plugin facts** (`agp`, `kgp`, later `kotlinBuiltIn`) come from the probe; `unknown` if it did
    not read them; never parsed from build scripts or catalogs.
 4. **Expected error source per tool**: Kotlin (JVM) is structured when `problemLocations` and
    KGP >= 2.4; javac when `problemLocations` (javac reports since Gradle 8.9); AAPT2, the manifest
-   merger, KSP and kapt are not assumed. These choose which source is primary and what the result
-   reports as `expectedSources` (1h D10); they never switch the extractor off.
+   merger, KSP and kapt are not assumed. These choose the primary source and the result's
+   `expectedSources`; they never switch the extractor off.
 5. **Report it** in every build result: Gradle version and source, AGP, KGP, `profile` and
    `validation` (ADR-0018).
 
@@ -289,16 +288,20 @@ Codes and causes are in `internal/capability/error.go` and the descriptors; the 
   [ADR-0032](../adr/0032-configuration-file-v1.md), ADR-0018 rule 3 as amended) Gradle 7.3-7.x runs
   under the conservative profile, `validation: unsupported`; below 7.3 is refused even with it;
   without the key the next step names the key and the file (1k; observed with Gradle 7.6.4 on
-  zulu-17). A version newer than validated proceeds with the newest capability set, `untested`.
+  zulu-17). A version newer than validated
+  proceeds with the newest capability set, `untested`.
 - No usable sidecar JVM, a sidecar that fails to start or speaks another protocol version: the
   `[gradle]` capabilities are unavailable in `system.capabilities`; other capabilities are unaffected.
-  A crash mid-call or a broken protocol leaves no record for the build it was running; the registry
-  keeps history; restart on next use.
+  A crash mid-call or a broken protocol leaves no record for the build it was running; restart on
+  next use.
 - The project's own configuration failure is `PROJECT_MODEL_FAILED` with Gradle's failure chain as
   the cause. Daemon OOM: surface the daemon's own error and the memory flags it suggests; do not
   retry blindly. Task not found: a failed build with Gradle's own message; `build.tasks` is the
-  discovery path (no near-matches yet, 1g D19). No wrapper in the project: report it, since TAPI
-  would otherwise silently use its own Gradle version (`gradle.source: connector`).
+  discovery path. No wrapper in the project: report it, since TAPI would otherwise silently use its
+  own Gradle version (`gradle.source: connector`).
+- A failed distribution install gets a next step: run `./gradlew --version` once, or retry when
+  another process holds Gradle's install lock. The client does not retry: it would hold the
+  sidecar's one dispatcher thread.
 
 ## Persistence
 

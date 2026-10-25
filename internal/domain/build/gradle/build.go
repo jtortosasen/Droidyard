@@ -133,15 +133,11 @@ func (c *Client) BeginBuild(ctx context.Context, canonical string) (*BuildRun, e
 		return nil, err
 	}
 	r := c.root(canonical)
-	if !r.isOpen(lease.Pid()) {
-		conn, err := c.open(ctx, lease, canonical)
-		if err != nil {
-			lease.Release()
-			release()
-			c.fail(r, err)
-			return nil, err
-		}
-		r.setConn(conn, lease.Pid())
+	if err := c.ensureOpen(ctx, lease, r); err != nil {
+		lease.Release()
+		release()
+		c.fail(r, err)
+		return nil, err
 	}
 	return &BuildRun{c: c, root: canonical, lease: lease, release: release, conn: r.connection()}, nil
 }

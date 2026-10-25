@@ -77,6 +77,16 @@ type Config struct {
 	// DieOn names a method the fake receives and exits on, without answering.
 	DieOn string `json:"dieOn"`
 
+	// OpenFailure, when set, fails every connection.open as the real sidecar does
+	// (m3e step 1): the message "BuildEnvironment failed" and this text as the error's
+	// data, which is the cause the client reads. The root stays closed.
+	OpenFailure string `json:"openFailure,omitempty"`
+	// OpenGate, when set, holds every connection.open until the file exists (a minute
+	// at most), before it answers or fails. Like the real sidecar's one dispatcher
+	// thread, the fake serves nothing else meanwhile, so a request sent after the open
+	// is handled after it (m3e step 3).
+	OpenGate string `json:"openGate,omitempty"`
+
 	// Events, when set, is a file the fake appends its lifecycle to: "started <pid>",
 	// "served <method>", "opened <root>" and "closed <root>" for each connection,
 	// "eof". A test reads it to see that stdin was closed.
@@ -346,6 +356,14 @@ func (s *sidecar) serve(line string, held *int) {
 	case "ping":
 		s.writeResult(req.ID, map[string]any{})
 	case "connection.open":
+		if s.cfg.OpenGate != "" {
+			waitForFile(s.cfg.OpenGate)
+		}
+		if s.cfg.OpenFailure != "" {
+			s.write(map[string]any{"jsonrpc": "2.0", "id": idOrNull(req.ID),
+				"error": map[string]any{"code": -32000, "message": "BuildEnvironment failed", "data": s.cfg.OpenFailure}})
+			return
+		}
 		// The real sidecar refuses a root it already holds open (Session.kt
 		// openConnection); a fake that did not hid a close that never reached it.
 		if s.isOpen(rp.Root) {
