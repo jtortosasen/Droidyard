@@ -107,6 +107,13 @@ func newClientFloor(t *testing.T, cfg gradletest.Config, idle time.Duration, flo
 // newClientEnv is newClientFloor with the client's environment (nil: the daemon's).
 func newClientEnv(t *testing.T, cfg gradletest.Config, idle time.Duration, floor policy.BelowFloor, env []string) (*gradle.Client, *process.Supervisor, string) {
 	t.Helper()
+	return newClientWith(t, cfg, idle, floor, env, nil)
+}
+
+// newClientWith is newClientEnv with a last say on the client's options (m3e step 5's
+// InUse).
+func newClientWith(t *testing.T, cfg gradletest.Config, idle time.Duration, floor policy.BelowFloor, env []string, tweak func(*gradle.Options)) (*gradle.Client, *process.Supervisor, string) {
+	t.Helper()
 	dir := t.TempDir()
 	cfg.Events = filepath.Join(dir, "events")
 	cfgPath := gradletest.WriteConfig(t, cfg)
@@ -120,10 +127,14 @@ func newClientEnv(t *testing.T, cfg gradletest.Config, idle time.Duration, floor
 	}
 	t.Cleanup(sup.Shutdown)
 	jvm := gradle.JVM{Found: true, Home: "/fake/jdk17", Version: "17.0.11", Source: gradle.SourceJavaHome}
-	c := gradle.New(gradle.Options{
+	opts := gradle.Options{
 		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: dir,
 		Launch: gradletest.Launch(cfgPath), IdleTimeout: idle, AllowBelowFloor: floor, Env: env,
-	})
+	}
+	if tweak != nil {
+		tweak(&opts)
+	}
+	c := gradle.New(opts)
 	return c, sup, cfg.Events
 }
 

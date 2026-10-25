@@ -105,6 +105,13 @@ type Options struct {
 	// OnRecover is told when a sidecar start succeeds after an OnCrash, so the
 	// workspaces it degraded can return to ready. Outside the client's locks.
 	OnRecover func()
+	// InUse reports whether an open workspace holds root as its Gradle root (ADR-0092 §2).
+	// A release of a root's lock that leaves its connection open asks it, and closes the
+	// connection once no operation holds the root when it says false: the connection a
+	// call on a forgotten root reopened (m3e step 5). It runs outside the client's
+	// locks, and again with the root's lock held, so it must not wait for a root's lock.
+	// Nil never closes (tests, the schema-only client).
+	InUse func(root string) bool
 }
 
 // Client is the daemon's sidecar client: it starts the one shared sidecar on demand,
@@ -249,13 +256,28 @@ func (c *Client) LockRoot(ctx context.Context, canonical string) (func(), error)
 	r := c.root(canonical)
 	select {
 	case r.tapi <- struct{}{}:
-		return r.unlock, nil
+		return func() { c.release(r) }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
 func (r *root) unlock() { <-r.tapi }
+
+// release frees r's lock for an operation that is done with the root (a model fetch,
+// a build's run, a drain's end) and then lets go of the connection it may have reopened
+// (ADR-0092 §2, m3e step 5): a root that no open workspace holds any more has its
+// connection closed once no operation holds the root. Every release of the lock by an
+// operation passes through here; CloseWhenFree and Close take and free the lock
+// themselves, since their close leaves the root not open. A drain's ReleaseLease frees
+// only the lease, never the lock, so it does not come through here.
+func (c *Client) release(r *root) {
+	r.unlock()
+	if c.opts.InUse == nil || !r.holdsConn() || c.opts.InUse(r.canonical) {
+		return
+	}
+	go c.CloseWhenFree(r.canonical, func() bool { return c.opts.InUse(r.canonical) })
+}
 
 // Model returns root's project model and whether it is stale.
 //
@@ -273,7 +295,7 @@ func (c *Client) Model(ctx context.Context, canonical string) (Model, bool, erro
 		return m, false, nil
 	}
 	if r.tryLock() {
-		defer r.unlock()
+		defer c.release(r)
 		m, err := c.fetch(ctx, r)
 		if err != nil {
 			return Model{}, false, err
@@ -287,7 +309,7 @@ func (c *Client) Model(ctx context.Context, canonical string) (Model, bool, erro
 	if err := r.lock(ctx); err != nil {
 		return Model{}, false, err
 	}
-	defer r.unlock()
+	defer c.release(r)
 	m, err := c.fetch(ctx, r)
 	if err != nil {
 		return Model{}, false, err
@@ -410,6 +432,14 @@ func (r *root) isOpen(pid int) bool {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
 	return (r.opened && r.openPid == pid) || (r.openUnknown != 0 && r.openUnknown == pid)
+}
+
+// holdsConn reports whether the root has, or may have, a connection on any sidecar
+// process: the release hook's test for a release that leaves the root open.
+func (r *root) holdsConn() bool {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	return r.opened || r.openUnknown != 0
 }
 
 // usable reports whether the client holds a connection it saw opened on process pid.

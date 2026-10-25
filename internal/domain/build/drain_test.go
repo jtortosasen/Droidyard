@@ -282,3 +282,59 @@ func TestDrainHoldsNoLease(t *testing.T) {
 	})
 	f.waitLog(t, 10*time.Second, "drain ended, the sidecar exited")
 }
+
+// Decision (ADR-0092 §2 with m3e steps 4 and 5): a drained build keeps its root locked,
+// so a forgotten root is not closed under it; it closes when the drain ends, after the
+// build's terminal event. A root a workspace holds is never closed. The fake logs
+// "closed <root>" for each connection.close it serves. Seen failing with the release
+// hook removed (the forgotten root never closed) and with the close not waiting for the
+// drain (a close logged before "finished").
+func TestDrainedBuildOnAForgottenRootClosesAtTheDrainsEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		inUse bool
+	}{{"a forgotten root", false}, {"a root a workspace holds", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			shortCancelWait(t, 300*time.Millisecond)
+			fixtureInUse = func(string) bool { return tc.inUse }
+			t.Cleanup(func() { fixtureInUse = nil })
+			gate := filepath.Join(t.TempDir(), "gate")
+			evPath := filepath.Join(t.TempDir(), "events")
+			f := newFixture(t, gradletest.Config{Events: evPath, Build: ignoringBuild(gate)})
+
+			b1 := f.start(t, "build.run", `{"tasks":[":app:busy"]}`)
+			waitForProgress(t, f)
+			if err := f.ops.Cancel(b1); err != nil {
+				t.Fatal(err)
+			}
+			if out := f.wait(t, b1); out.State != capability.StateCancelled {
+				t.Fatalf("operation ended %s, want cancelled", out.State)
+			}
+			f.waitLog(t, 5*time.Second, "drain began")
+			// The model fetch that precedes a build on a forgotten root closes it once, and
+			// the build reopens it: closes are counted from the drain's start.
+			before := strings.Count(readFile(evPath), "closed ")
+			time.Sleep(500 * time.Millisecond)
+			if n := strings.Count(readFile(evPath), "closed "); n != before {
+				t.Fatalf("the root was closed while the drained build still ran:\n%s", readFile(evPath))
+			}
+
+			createGate(t, gate)
+			f.waitLog(t, 5*time.Second, "drain ended, the build finished")
+			if tc.inUse {
+				time.Sleep(500 * time.Millisecond)
+				if strings.Count(readFile(evPath), "closed ") != before {
+					t.Fatalf("a root a workspace holds was closed at the drain's end:\n%s", readFile(evPath))
+				}
+				return
+			}
+			waitFor(t, 5*time.Second, "the forgotten root to close at the drain's end", func() bool {
+				return strings.Count(readFile(evPath), "closed ") == before+1
+			})
+			events := readFile(evPath)
+			if fin, closed := strings.Index(events, "finished "+b1), strings.LastIndex(events, "closed "); fin < 0 || closed < fin {
+				t.Errorf("the sidecar's log orders finished at %d and closed at %d, want the build's end first:\n%s", fin, closed, events)
+			}
+		})
+	}
+}

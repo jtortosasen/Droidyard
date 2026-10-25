@@ -140,7 +140,7 @@ Cut, with G3 closed by step 1's measurement, only if step 1 shows `finished` bef
 - Needs: step 4 (the drain's release is one of the paths).
 - Not here: the crash clause of G5 (Scope); closing at once (ADR-0092 §Alternatives: never cancel what runs).
 - Rests on: every release of a root's lock passes through the hook (level 3: the test drives each path; the verifier reads that no other path releases the lock).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `Options.InUse` (wired in `cmd/droidyard/main.go` to `ws.GradleRootInUse`); `Client.release` unlocks the root and, when it holds a connection (`holdsConn`: opened or an abandoned open's mark) and no workspace uses it, runs `CloseWhenFree`, which asks `InUse` again under the lock. `Model` and `LockRoot`'s release (so `BeginBuild`'s errors, `BuildRun.Close`, the drain's end) go through it; `ReleaseLease` does not. `release_test.go`: `TestStaleCallReopenedRootCloses` (four cases), `TestStaleReopenCloseAsksAgainUnderTheLock`, `TestDrainedBuildClosesItsForgottenRootAtTheEnd`, `TestAbandonedOpenOnAForgottenRootCloses`; `drain_test.go` `TestDrainedBuildOnAForgottenRootClosesAtTheDrainsEnd`; five reversals each seen failing; `-race` clean on `internal/domain/build/...` (implementer). `GradleRootInUse` takes the workspace registry's lock, and the workspace package calls no Gradle client (main session read). Four commands clean but `TestRemoteRecordingAfterClientRestart`, passing alone (row 421's family). Level 3; no daemon-level stale reopen.
 
 ### 6. One level-5 pass: the slow distribution, the lock, the ignored cancel, the caps, the costs
 

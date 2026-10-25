@@ -131,6 +131,10 @@ func (admitWS) Admit(target string, record func(id string)) bool {
 	return true
 }
 
+// fixtureInUse is the fixtures' Options.InUse (m3e step 5): nil, as for a client with no
+// workspace registry, unless a test sets it before building its fixture.
+var fixtureInUse func(root string) bool
+
 func newFixture(t *testing.T, cfg gradletest.Config) *buildFixture {
 	t.Helper()
 	return newFixtureAt(t, t.TempDir(), cfg)
@@ -198,6 +202,7 @@ func newFixtureTop(t *testing.T, state string, cfg gradletest.Config, floor poli
 	client := gradle.New(gradle.Options{
 		Supervisor: sup, Log: testLog{t}, JVM: &jvm, CacheDir: state,
 		Launch: gradletest.Launch(cfgPath), IdleTimeout: fixtureIdleTimeout, AllowBelowFloor: floor,
+		InUse: fixtureInUse,
 	})
 
 	reg := capability.NewRegistry()
