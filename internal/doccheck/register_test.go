@@ -21,7 +21,7 @@ var (
 
 	// registerWork is the work that would close an open row, as the register's intro
 	// lists it; a milestone such as 2p is also allowed.
-	registerWork = []string{"C1", "C2", "C3", "C4", "C5", "C6", "git", "v1-code", "v1-test", "v1-device", "v1-sdk", "distribution", "platforms", "quick", "review", "trial"}
+	registerWork = []string{"C1", "C2", "C3", "C4", "C5", "C6", "git", "v1-code", "v1-test", "v1-device", "v1-sdk", "distribution", "platforms", "gradle", "api", "agents", "files", "logcat", "policy", "device-check", "tests", "quick", "review", "trial"}
 
 	milestoneRE = regexp.MustCompile(`^\d+[a-z]+$`)
 	closedByRE  = regexp.MustCompile(`^\d+[a-z]+\b`)
