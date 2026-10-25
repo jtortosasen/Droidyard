@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"sync"
 	"time"
@@ -21,7 +22,10 @@ import (
 // cancelWait bounds how long the core waits for the sidecar to acknowledge a cancelled
 // build before it stops waiting and records the build cancelled (ADR-0020: a cancelled
 // operation ends cancelled whatever the handler returns).
-const cancelWait = 10 * time.Second
+//
+// It is a variable so a test can shorten it. A build still running when it ends is
+// drained (Registry.drain).
+var cancelWait = 10 * time.Second
 
 // The phases a build cancel lands in, logged once per cancel so a level-5 run can tell
 // which path it took (plan m1p D3): the build had not begun (no build record and nothing
@@ -294,7 +298,14 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		}
 		return Result{}, err
 	}
-	defer br.Close()
+	// A build the cancel could not stop within cancelWait is drained instead: the root's
+	// lock then stays held, by the drain, until the build ends (m3e step 4).
+	drained := false
+	defer func() {
+		if !drained {
+			br.Close()
+		}
+	}()
 
 	// D19: a project with no wrapper is built on the Tooling API's own Gradle
 	// distribution (about 150 MB, downloaded on first use). The result's gradle.source
@@ -343,6 +354,12 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		case <-br.Done():
 			return Result{}, br.Crash()
 		case <-time.After(cancelWait):
+			// The sidecar has not reported the build finished: Gradle may still be
+			// running it (a task that ignores interruption). The operation ends
+			// cancelled all the same, but the build keeps the root's TAPI lock until it
+			// ends, so no second build or model fetch reaches Gradle while it runs.
+			drained = true
+			r.drain(br, sink, buildID)
 		}
 	}
 
@@ -412,6 +429,39 @@ func (r *Registry) run(ctx context.Context, call *capability.Call, client BuildC
 		return Result{}, ctx.Err()
 	}
 	return rec.result(), nil
+}
+
+// drain takes over a cancelled build that is still running on the sidecar, after the
+// operation has given up waiting for it (m3e step 4; gradle.md §Lifecycle). The build
+// keeps the root's TAPI lock until the sidecar reports it finished or the sidecar exits,
+// because Gradle is still running it and a second build or a model fetch on the root
+// would start a second Gradle daemon. It holds no lease from now on, so the idle stop can
+// still end a sidecar whose build never finishes, and that exit ends the drain too. The
+// sink stays registered, to hear the terminal event, but reports nothing: its console is
+// ended and its operation is over.
+func (r *Registry) drain(br *gradle.BuildRun, sink *buildSink, buildID string) {
+	sink.detach()
+	done := br.Done()
+	br.ReleaseLease()
+	r.logDrain(buildID, "began")
+	go func() {
+		defer br.Close()
+		select {
+		case <-sink.done:
+			r.logDrain(buildID, "ended, the build finished")
+		case <-done:
+			r.logDrain(buildID, "ended, the sidecar exited")
+		}
+	}()
+}
+
+// logDrain writes the line that says a build drain began or ended. Nil-safe, like
+// logCancel.
+func (r *Registry) logDrain(buildID, what string) {
+	if r == nil || r.log == nil {
+		return
+	}
+	fmt.Fprintf(r.log, "droidyard: build %s: drain %s\n", buildID, what)
 }
 
 // errorsFor is build.errors: one build's merged problems, from the record (gradle.md
@@ -503,6 +553,11 @@ type buildSink struct {
 	progress func(done int, total int, message string)
 	buildID  string
 
+	// pmu is held while progress runs and while detached is set, so detach waits for a
+	// report in flight.
+	pmu      sync.Mutex
+	detached bool
+
 	mu       sync.Mutex
 	lines    []extract.Line
 	summary  gradle.TaskSummary
@@ -542,9 +597,7 @@ func (s *buildSink) TaskFinished(t gradle.TaskFinished) {
 	done := len(s.tasks)
 	active := s.active
 	s.mu.Unlock()
-	if s.progress != nil {
-		s.progress(done, 0, active)
-	}
+	s.report(done, active)
 }
 
 // Progress records the counts and the task running, and reports progress (D21).
@@ -554,9 +607,7 @@ func (s *buildSink) Progress(p gradle.Progress) {
 	s.active = p.ActiveTask
 	done := len(s.tasks)
 	s.mu.Unlock()
-	if s.progress != nil {
-		s.progress(done, 0, p.ActiveTask)
-	}
+	s.report(done, p.ActiveTask)
 }
 
 // Problem records one Problems API event: the only source of warnings
@@ -581,9 +632,27 @@ func (s *buildSink) Finished(f gradle.Finished) {
 	default:
 		close(s.done)
 	}
-	if s.progress != nil {
-		s.progress(len(s.tasks), 0, "")
+	s.report(len(s.tasks), "")
+}
+
+// report forwards progress to the operation, unless the sink was detached.
+func (s *buildSink) report(done int, message string) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	if s.detached || s.progress == nil {
+		return
 	}
+	s.progress(done, 0, message)
+}
+
+// detach stops the sink reporting progress. A drained build's sink outlives its
+// operation, and a late notification must not move the progress of an operation that has
+// ended, nor publish an event for it (m3e step 4). When detach returns, no report is in
+// flight and none will start.
+func (s *buildSink) detach() {
+	s.pmu.Lock()
+	s.detached = true
+	s.pmu.Unlock()
 }
 
 // finish returns the terminal event's facts.

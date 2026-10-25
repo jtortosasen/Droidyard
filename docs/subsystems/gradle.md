@@ -211,16 +211,18 @@ instead of queueing behind it. Contention between builds is reported as `queued`
 Every Gradle-touching call requires a **trusted** project root; an untrusted one fails with
 `WORKSPACE_UNTRUSTED` before anything is spawned
 ([ADR-0015](../adr/0015-untrusted-data-authorization.md) §5). The sidecar then
-connects to the **Gradle root** inside it; published paths stay relative to the project root
+connects to the **Gradle root** inside it
 ([ADR-0075](../adr/0075-project-root-and-gradle-root.md)).
 
 - **Lazy start** on the first `build.*`, `project.*` or `sdk.requirements` call that needs it.
-  **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no open operation on any root,
-  never while a build is running. **Health**: the handshake covers startup, `ping` liveness.
-- **Crash**: a sidecar crash mid-build fails that operation with a clear error and leaves the
-  workspace `degraded`; the registry keeps the history; the next call restarts it. (1g D20: the mark
+  **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no lease held (a call, or a build
+  not cancelled); a build still running after its cancel's `cancelWait` is **drained**, keeping its
+  root's lock until it ends or the sidecar exits, with no lease. **Health**: the handshake covers
+  startup, `ping` liveness.
+- **Crash**: a sidecar crash mid-build fails that operation and leaves the
+  workspace `degraded`; the next call restarts it. (1g D20: the mark
   stays inside the Gradle client, a register row.)
-- **Never kill the Gradle daemon.** It belongs to Gradle and is reused across builds by design; an
+- **Never kill the Gradle daemon.** It is reused across builds; an
   explicit stop is available but never implicit. **No orphans**: stdin EOF ends the sidecar; the
   core also stops it on shutdown.
 

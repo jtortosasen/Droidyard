@@ -129,7 +129,7 @@ Cut, with G3 closed by step 1's measurement, only if step 1 shows `finished` bef
 - Needs: step 1 (the measurement that keeps or cuts this step), step 3 (same package).
 - Not here: a second build waiting on the lock shows `running`, not `queued` with `blockedBy` (the operation's scheduler key ended with the cancelled build; it waited invisibly inside the sidecar before, so this is no regression, and a `blockedBy` on a drain would be a contract field); killing the Gradle build (`gradle.md` §Lifecycle: never kill the Gradle daemon).
 - Rests on: a build that ignores a cancel outlives `cancelWait` on real Gradle, so there is a window to close (level 4, step 1's `TestGradleIgnoredCancelTiming`; Gradle's 10 s grace, read in master source only, may close it, and then this step is cut). Also: the sidecar sends exactly one `finished` per accepted build, also after a cancel, or exits (m1g step 1 fix round; level 3 here, level 5 in step 6).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: not cut (step 1: `finished` 10.02 s after a cancel in one run). A build still running when its cancel's `cancelWait` ends is drained (`Registry.drain`): the lease released at once, the sink detached (a late progress event no longer moves the ended operation), the root's lock kept until `finished` or the sidecar's exit. `drain_test.go`: `TestIgnoredCancelKeepsTheRootLocked` (model from the cache, then stale after an edit, one `served project.model`; a waiting build cancellable in 2 s; `finished b1` before `accepted b2`; no late progress or console line), `TestDrainEndsWhenTheSidecarExits`, `TestDrainHoldsNoLease` (the idle stop still closes stdin); five reversals each seen failing, the console-line assertion not independently reversible (two layers stop it); `-race` clean on the drain and cancel tests, count 3 (implementer). Four commands clean. Level 3; level 5 in step 6. A sidecar exit during a drain degrades no workspace (the operation is over; the exit may be the idle stop): for the verifier.
 
 ### 5. A connection reopened on a forgotten root closes when its call ends
 
@@ -178,7 +178,7 @@ The owner's call (Actions minutes on a private repository); dropping it leaves G
 - Needs: none (parallel with steps 1–6).
 - Not here: the version matrix (Scope G12); caching Gradle's downloads in CI (`actions/cache`, a later saving); macOS runners (ten times the minutes).
 - Rests on: the runner's SDK has what the cells need (platform 36, build-tools 35.0.0, 36.0.0 and 30.0.3, or AGP may fetch them) (level 5, the first run; unverified until then).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: draft PR #6 from `m3e`. Run 40232634935 (`pull_request`, at `bc454ca`): green in 3m08s, `TestGradleProbeReadsTheFixturePerCell` C1 49.0 s, C2 33.2 s, C4 31.7 s and the other eight `TestGradleProbe*` pass, no skip; the runner's `JAVA_HOME_17_X64` and `ANDROID_HOME` exist and its SDK served the cells (so the Rests on holds). Seen failing: run 40234312537 at the temporary `72f7a18` (`BUILD_CACHE` pointing nowhere): C4 `--- SKIP`, the "No cell skipped" step failed the job; reverted in `721db9b`.
 
 ## Not in this milestone
 

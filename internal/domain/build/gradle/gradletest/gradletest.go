@@ -171,6 +171,15 @@ type Build struct {
 	// WaitForCancel holds the build open after its steps until build.cancel arrives, so
 	// a test can cancel a build mid-flight; the fake then finishes it cancelled.
 	WaitForCancel bool `json:"waitForCancel,omitempty"`
+	// IgnoreCancelUntil holds the build open after its steps until the file exists (a
+	// minute at most) and ignores build.cancel meanwhile, like a task that ignores
+	// interruption. The cancel is answered at once; once the file exists the build
+	// sends LateSteps and its terminal event, cancelled if a cancel arrived and Outcome
+	// otherwise (m3e step 4).
+	IgnoreCancelUntil string `json:"ignoreCancelUntil,omitempty"`
+	// LateSteps are sent after IgnoreCancelUntil's file exists and before the terminal
+	// event: the notifications a cancelled build still sends.
+	LateSteps []Step `json:"lateSteps,omitempty"`
 	// AcceptDelayMs answers build.run {accepted} only after that delay, while further
 	// requests are still read: the build.run queued behind a model fetch in the real
 	// sidecar, which a cancel can overtake (step 7 review B1).
@@ -497,11 +506,13 @@ func (s *sidecar) build(id json.RawMessage, params json.RawMessage) {
 	if d := s.cfg.Build.AcceptDelayMs; d > 0 {
 		go func() {
 			time.Sleep(time.Duration(d) * time.Millisecond)
+			event(s.cfg, "accepted %s", p.BuildID)
 			s.writeResult(id, map[string]any{"accepted": true})
 			s.play(p.BuildID, cancel)
 		}()
 		return
 	}
+	event(s.cfg, "accepted %s", p.BuildID)
 	s.writeResult(id, map[string]any{"accepted": true})
 	go s.play(p.BuildID, cancel)
 }
@@ -530,6 +541,23 @@ func (s *sidecar) play(buildID string, cancel chan struct{}) {
 		if b.DieAfterSteps > 0 && i+1 >= b.DieAfterSteps {
 			os.Exit(1)
 		}
+	}
+	if b.IgnoreCancelUntil != "" {
+		waitForFile(b.IgnoreCancelUntil)
+		for _, step := range b.LateSteps {
+			s.notify(buildID, step)
+		}
+		outcome := b.Outcome
+		if outcome == "" {
+			outcome = "success"
+		}
+		select {
+		case <-cancel:
+			outcome = "cancelled"
+		default:
+		}
+		s.finished(buildID, outcome, b)
+		return
 	}
 	if b.WaitForCancel {
 		<-cancel
@@ -586,6 +614,7 @@ func (s *sidecar) notify(buildID string, step Step) {
 }
 
 func (s *sidecar) finished(buildID, outcome string, b *Build) {
+	event(s.cfg, "finished %s", buildID)
 	s.write(map[string]any{
 		"jsonrpc": "2.0", "method": "event.build.finished",
 		"params": map[string]any{

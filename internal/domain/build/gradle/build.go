@@ -203,6 +203,13 @@ func (b *BuildRun) Cancel(ctx context.Context, buildID string) error {
 	return err
 }
 
+// ReleaseLease releases the sidecar lease and nothing else: the root's lock and the
+// build's sink stay held. It is the first half of a drain (m3e step 4): a build that
+// outlived its cancel keeps the root locked, because Gradle is still running it, but
+// holds no lease, so the idle stop can end a sidecar whose build never finishes. Done
+// still reports that sidecar's exit. Close, called later, releases the rest.
+func (b *BuildRun) ReleaseLease() { b.lease.Release() }
+
 // Close releases the root's lock, the lease and every sink it still holds.
 func (b *BuildRun) Close() {
 	b.mu.Lock()
