@@ -215,12 +215,11 @@ connects to the **Gradle root** inside it
 ([ADR-0075](../adr/0075-project-root-and-gradle-root.md)).
 
 - **Lazy start** on the first `build.*`, `project.*` or `sdk.requirements` call that needs it.
-  **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no lease held (a call, or a build
-  not cancelled); a build still running after its cancel's `cancelWait` is **drained**, keeping its
-  root's lock until it ends or the sidecar exits, with no lease. **Health**: the handshake covers
-  startup, `ping` liveness.
-- **Crash**: a sidecar crash mid-build fails that operation and leaves the
-  workspace `degraded`; the next call restarts it. (1g D20: the mark
+  **Idle shutdown** after 10 minutes (`gradle.IdleTimeout`) with no lease; a build still
+  running after its cancel's `cancelWait` is **drained**: it holds no lease, and keeps its root's
+  lock until it ends or the sidecar exits. **Health**: the handshake covers startup, `ping` liveness.
+- **Crash**: a sidecar crash mid-build fails that operation and leaves the workspace `degraded`;
+  one during a drain degrades nothing (its operation ended); the next call restarts it. (1g D20: the mark
   stays inside the Gradle client, a register row.)
 - **Never kill the Gradle daemon.** It is reused across builds; an
   explicit stop is available but never implicit. **No orphans**: stdin EOF ends the sidecar; the

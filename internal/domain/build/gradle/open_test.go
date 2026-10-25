@@ -27,13 +27,23 @@ const (
 		"Timeout of 120000 reached waiting for exclusive access to file: /home/u/.gradle/wrapper/dists/gradle-8.0.2-bin/x/gradle-8.0.2-bin.zip"
 )
 
-// openFailure runs a Model call against a fake whose connection.open fails with chain,
-// and returns the client's error.
-func openFailure(t *testing.T, chain string) *capability.Error {
+// openFailure runs a Model call against a fake whose connection.open fails with chain, on
+// a root with or without the wrapper's properties, and returns the client's error.
+func openFailure(t *testing.T, chain string, wrapper bool) *capability.Error {
 	t.Helper()
 	cfg := gradletest.Config{Model: gradletest.MustModel(model(t)), OpenFailure: chain}
 	c, _, _ := newClient(t, cfg, time.Minute)
-	_, _, err := c.Model(context.Background(), rootDir(t))
+	root := rootDir(t)
+	if wrapper {
+		props := filepath.Join(root, "gradle", "wrapper", "gradle-wrapper.properties")
+		if err := os.MkdirAll(filepath.Dir(props), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(props, []byte("distributionUrl=https\\://services.gradle.org/distributions/gradle-8.0.2-bin.zip\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := c.Model(context.Background(), root)
 	if err == nil {
 		t.Fatal("a failed connection.open succeeded")
 	}
@@ -47,23 +57,27 @@ func openFailure(t *testing.T, chain string) *capability.Error {
 // out. A stalled or refused download says to run `./gradlew --version` once; Gradle's
 // install lock held by another process says so and to retry when it finishes; any other
 // open failure gets neither, and neither names a path (ADR-0075). The lock text alone,
-// without the install failure around it, is not an install failure. Seen failing with
-// the mapping removed (no nextStep).
+// without the install failure around it, is not an install failure. A root with no
+// wrapper has no ./gradlew: its step names the network instead (verifier finding 1).
+// Seen failing with the mapping removed (no nextStep), and the wrapperless case with
+// the wrapper check removed.
 func TestDistributionFailureNamesTheWayOut(t *testing.T) {
 	cases := []struct {
-		name  string
-		chain string
-		want  string // a substring of the nextStep; "" means no nextStep at all
-		not   string // a substring the nextStep must not hold
+		name    string
+		chain   string
+		wrapper bool
+		want    string // a substring of the nextStep; "" means no nextStep at all
+		not     string // a substring the nextStep must not hold
 	}{
-		{"a stalled download", stallChain, "./gradlew --version", "another Gradle process"},
-		{"the install lock held by another process", lockChain, "another Gradle process", "./gradlew"},
-		{"an unrelated open failure", "Could not read the settings of the project", "", ""},
-		{"the lock text outside an install failure", "Timeout of 120000 reached waiting for exclusive access to file: /x.lck", "", ""},
+		{"a stalled download", stallChain, true, "./gradlew --version", "another Gradle process"},
+		{"a stalled download, no wrapper", stallChain, false, "no Gradle wrapper", "./gradlew"},
+		{"the install lock held by another process", lockChain, true, "another Gradle process", "./gradlew"},
+		{"an unrelated open failure", "Could not read the settings of the project", true, "", ""},
+		{"the lock text outside an install failure", "Timeout of 120000 reached waiting for exclusive access to file: /x.lck", true, "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := openFailure(t, tc.chain)
+			e := openFailure(t, tc.chain, tc.wrapper)
 			if tc.want == "" {
 				if e.NextStep != "" {
 					t.Fatalf("nextStep = %q, want none", e.NextStep)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -566,15 +567,26 @@ const (
 // chain the sidecar sent; empty when the failure is not one (m3e step 3). No path is
 // named: the client does not know the project root's published form (ADR-0075). No
 // retry is made: the open already waited Gradle's own lock wait, and a retry would hold
-// the sidecar's one dispatcher thread for every root.
-func openFailureNextStep(e *capability.Error) string {
+// the sidecar's one dispatcher thread for every root. A root with no wrapper (the
+// `connector` source) has no ./gradlew to run (m3e verifier finding 1).
+func openFailureNextStep(e *capability.Error, wrapper bool) string {
 	if e.Code != capability.ErrProjectModelFailed || !strings.Contains(e.Cause, installFailureText) {
 		return ""
 	}
 	if strings.Contains(e.Cause, installLockText) {
 		return "another Gradle process (Android Studio, a terminal) is installing this project's Gradle distribution; retry when it finishes"
 	}
+	if !wrapper {
+		return "the project has no Gradle wrapper and the Tooling API could not download its own Gradle: check the network or proxy, or add a wrapper, then retry"
+	}
 	return "run `./gradlew --version` once in a terminal in the project's Gradle root (it downloads the distribution), then retry"
+}
+
+// hasWrapper reports whether root holds the wrapper's properties, the file the sidecar
+// reads to use the build's own distribution (sidecar/src/Session.kt openConnection).
+func hasWrapper(root string) bool {
+	fi, err := os.Stat(filepath.Join(root, "gradle", "wrapper", "gradle-wrapper.properties"))
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // open opens root's connection and refuses a Gradle below the floor (ADR-0018 rule 3).
@@ -589,7 +601,7 @@ func (c *Client) open(ctx context.Context, lease *process.Lease, r *root) (Conne
 		}
 		var ce *capability.Error
 		if errors.As(err, &ce) {
-			if next := openFailureNextStep(ce); next != "" {
+			if next := openFailureNextStep(ce, hasWrapper(canonical)); next != "" {
 				err = ce.WithNextStep(next)
 			}
 		}
