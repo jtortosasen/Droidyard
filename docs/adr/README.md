@@ -157,6 +157,7 @@ edits made before this rule and are not added to.
 | [0126](0126-ignore-block-shared-by-runs.md) | The ignore block is shared by every run in a repository | Accepted |
 | [0127](0127-chats-from-the-client-stores.md) | The sessions panel lists chats read from the clients' own stores | Accepted |
 | [0128](0128-ui-own-faces-and-contrast-floor.md) | The UI ships its own faces and holds every text pair to WCAG AA | Accepted |
+| [0129](0129-sdk-provisioning-by-droidyard.md) | Droidyard provisions the SDK and AVDs, with consent kept human and nothing in use replaced | Accepted |
 
 ## Open decisions (not yet ADRs)
 
