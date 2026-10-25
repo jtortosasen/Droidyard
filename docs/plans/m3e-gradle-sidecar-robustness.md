@@ -81,7 +81,7 @@ Rows are named by their first words in the register (all Area `build`).
 - Needs: none. Real: a JDK 17 (Gradle 8.0.2 runs on 17–19), the cached zip, no internet (the plain fixture has no plugins). Cost: each test installs Gradle 8.0.2 into its own temporary user home (the 124 MB zip while it downloads, about 130 MB unpacked) and starts one Gradle daemon; `t.TempDir` removes the files, the fixture's idle timeout ends the daemon.
 - Not here: the remedies (step 3); a daemon (step 6); progress (Scope: cut); the owner's own cause (Unverified).
 - Rests on: the Tooling API 9.8.0 installs a wrapper distribution from an `http://127.0.0.1` URL (level 4, the first test). If it refuses plain HTTP, the server goes to HTTPS with a self-signed certificate and the test's sidecar JVM gets `-Djavax.net.ssl.trustStore`, recorded under Changes. Also: Java's `FileChannel` lock and Go's `fcntl` lock exclude each other on macOS (level 4, the lock test fails visibly if not).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `connectionFailed` sends `failureMessages(e)` for both `connection.open` failures; jar rebuilt (`SHA256` 8f34da56…), deps and probe jars unchanged. With `DROIDYARD_GRADLE_TESTS=1`, the implementer's run and the main session's rerun (2026-10-25) pass all four. Slow server: 16 MB/s in 17.1 s and 9.1 s; at the owner's 800000 B/s it **installs, in 157.2 s**, so the rate alone does not fail (the owner's cause is not the rate). Stall (15 s after 8 MB): fails at 10.7 s, chain "Could not install Gradle distribution from '…'." / "Downloading from … failed: timeout (10000ms)" / "Read timed out". Lock held through `fcntl`: fails at 120.3 s, chain "Could not install …" / "Timeout of 120000 reached waiting for exclusive access to file: …/gradle-8.0.2-bin.zip" (Java's lock and `fcntl` exclude each other on macOS). The chain test seen failing on the old jar (one message). Ignored cancel: the reply in 5.3 and 5.6 ms; `finished` after **227.8 ms** (implementer) and **10.02 s** (rerun), outcome `cancelled`, the Gradle daemon alive after both. Not before `cancelWait` in every run, so step 4 stays (A5's rule). TAPI 9.8.0 takes plain HTTP on loopback: no HTTPS fallback.
 
 ### 2. The fingerprint sees the Gradle user home's scripts and properties
 
@@ -92,7 +92,7 @@ Rows are named by their first words in the register (all Area `build`).
 - Needs: none (parallel with step 1).
 - Not here: remote dynamic plugin versions (Scope G2); the Gradle installation's own `init.d` (inside a distribution directory, which changes only with the version, and the version is in `gradle-wrapper.properties`, already hashed).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestFingerprintSeesTheUserHome` and `TestUserHomeEditRefetchesTheModel` pass (`served project.model` 1 to 2 after an `init.d` edit), both seen failing with `hashUserHome` left out (implementer). The daemon gives the client `gradleEnviron()` (`os.Environ`) as `Env` (`cmd/droidyard/main.go:311`), so `UserHome` reads its `GRADLE_USER_HOME` or `$HOME/.gradle` (main session).
 
 ### 3. A distribution install failure that names its way out, and an open that survives its caller
 

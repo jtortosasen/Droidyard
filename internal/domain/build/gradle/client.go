@@ -261,7 +261,7 @@ func (r *root) unlock() { <-r.tapi }
 // cached model it waits for the build, context-aware.
 func (c *Client) Model(ctx context.Context, canonical string) (Model, bool, error) {
 	r := c.root(canonical)
-	fp := Fingerprint(canonical)
+	fp := Fingerprint(canonical, UserHome(c.opts.Env))
 	// One configuration pass per (root, fingerprint) (D8; A3): an unchanged build answers
 	// from the cache whether or not a build holds the root.
 	if m, cachedFP, ok := r.cached(); ok && cachedFP == fp {

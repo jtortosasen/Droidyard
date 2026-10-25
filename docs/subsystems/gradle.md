@@ -152,9 +152,10 @@ emission order, then warnings, capped at 200 errors and 50 warnings with a `trun
 `project.model` is one TAPI `BuildAction`: one configuration pass returns everything the
 `project.*`, `build.tasks` and build-side `sdk.requirements` capabilities need (ADR-0023 §Decision
 1). A field the probe could not read is omitted, never `unknown`; `sdkDir` is published by
-`sdk.requirements` only (1h D6, D7). The model is cached per `(root, fingerprint)` (the
-fingerprint is `gradle/fingerprint.go`'s; a module's `buildDir` is core-internal and never leaves the core); a configuration pass is
-real cost. Composite builds: the root build only in the MVP.
+`sdk.requirements` only (1h D6, D7). The model is cached per `(root, fingerprint)`
+(`gradle/fingerprint.go`, the root and the Gradle user home's scripts and properties; a module's
+`buildDir` never leaves the core); a configuration pass is real cost. Composite builds: the root
+build only.
 
 ### The probe
 
@@ -311,7 +312,7 @@ days, oldest first (working default, `registry.go`).
 
 The version matrix (a KGP axis and an AGP axis) and the probe canary are ADR-0018's; the canary ran
 in 1h with `DROIDYARD_GRADLE_TESTS=1 go test ./sidecar` (AGP 8.0.2 on Gradle 8.0.2, 8.13.2 on 8.13,
-9.4.1 on 9.6.0; a broken field is omitted, never fails the fetch) and is not yet in CI. Fixtures pin
+9.4.1 on 9.6.0; a broken field is omitted, never fails the fetch) and runs in CI (`gradle.yml`). Fixtures pin
 versions by rewriting the wrapper's `distributionUrl` and the plugin versions. Extractor golden tests
 run over recorded real consoles, pure Go, no JVM; a form without a recording needs one before its
 test is final. Daemon hygiene: pinned `GRADLE_USER_HOME` and `javaHome`, short daemon idle timeout,
