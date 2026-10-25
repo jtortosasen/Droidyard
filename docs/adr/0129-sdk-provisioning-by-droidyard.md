@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-25
+- Superseded in part by: ADR-0130 (§Decision)
 - Relates to: ADR-0005, ADR-0015 §1, §6, ADR-0020, ADR-0021 §Pid records, ADR-0036, ADR-0060 §2, §4, ADR-0099 §1, ADR-0108 §1; [plan m3f](../plans/m3f-sdk-provisioning.md) Q1–Q9
 - Decided by the owner, 2026-10-25: SDK provisioning done by Droidyard itself (the SDK set up, packages and licences, system images, AVD creation), package updates and AVD hardware settings included ("metelo en 3f"); updates allowed to agents at the planner's call. The shape below is the main session's under the owner's standing instruction to apply the recommended option, Delegated.
 
