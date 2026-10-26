@@ -261,6 +261,23 @@ func revision(major, minor, micro, preview string) string {
 	return strings.Join(out, ".")
 }
 
+// packageDirs are the directories an id's package may be installed in: its layout
+// directory, and for cmdline-tools;latest also the latest-N a self-update may leave. It
+// reports false for a string that is not a package id.
+func packageDirs(root, id string) ([]string, bool) {
+	if len(id) > maxPackageIDLen || !packageIDPattern.MatchString(id) {
+		return nil, false
+	}
+	if id == "cmdline-tools;latest" {
+		dirs := []string{filepath.Join(root, "cmdline-tools", "latest")}
+		if more, err := filepath.Glob(filepath.Join(root, "cmdline-tools", "latest-*")); err == nil {
+			dirs = append(dirs, more...)
+		}
+		return dirs, true
+	}
+	return []string{filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(id, ";", "/")))}, true
+}
+
 // installedOf reads, for every id the repository lists, the package at its layout
 // directory <root>/<id with ";" as "/"> (an SDK's package path is its id): package.xml,
 // else source.properties. It finds what the six fixed locations do not (ndk;27.0.1,
@@ -271,17 +288,9 @@ func installedOf(root string, ids []string) (map[string]located, []string) {
 	out := map[string]located{}
 	var warnings []string
 	for _, id := range ids {
-		if len(id) > maxPackageIDLen || !packageIDPattern.MatchString(id) {
+		dirs, ok := packageDirs(root, id)
+		if !ok {
 			continue
-		}
-		var dirs []string
-		if id == "cmdline-tools;latest" {
-			dirs = append(dirs, filepath.Join(root, "cmdline-tools", "latest"))
-			if more, err := filepath.Glob(filepath.Join(root, "cmdline-tools", "latest-*")); err == nil {
-				dirs = append(dirs, more...)
-			}
-		} else {
-			dirs = []string{filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(id, ";", "/")))}
 		}
 		for _, d := range dirs {
 			if fi, err := os.Stat(d); err != nil || !fi.IsDir() {

@@ -507,7 +507,10 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// missing SDK is answered with found: false (plan m1h, D11, D13). sdk.requirements
 	// fetches the project model through the same client and carries the trust hook, so
 	// only a trusted root is answered (D12).
-	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorizeGradle, Log: log})
+	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorizeGradle, Log: log,
+		// Before an update or an uninstall replaces a package: A10's rule over this host's
+		// processes, lsof and the operations in flight (plan m3f step 5).
+		InUse: sdk.SystemInUse(ops.Active)})
 	project.Register(reg, gradleClient, authorizeGradle)
 	builddomain.Register(reg, builddomain.Options{Client: gradleClient, History: history, Authorize: authorize, AuthorizeGradle: authorizeGradle})
 	// file.* runs on trusted and untrusted roots alike and needs no trust hook: its

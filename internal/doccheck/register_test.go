@@ -228,7 +228,10 @@ func checkRegister(fsys fs.FS) []string {
 // them with the one clause that says why they are human-only (the doccheck needs both).
 // Raised by 9 (to 30,174) at milestone 3f step 4: mvp.md's capability surface names
 // sdk.install and sdk.uninstall, and mcp.md lists uninstall beside the other human-only sdk calls.
-const liveBudget = 30174
+//
+// Raised by 5 (to 30,179) at milestone 3f step 5: process-lifecycle.md's per-operation row
+// names lsof, which the SDK in-use check runs (ADR-0129 §8).
+const liveBudget = 30179
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change
