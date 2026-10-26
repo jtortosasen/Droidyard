@@ -108,7 +108,10 @@ export interface SdkView {
 	warnings: readonly string[];
 	repository: Packages['repository'] | undefined;
 	truncated: boolean;
+	/** The groups shown: all of them, or the one `category` names. */
 	groups: SdkGroup[];
+	/** Set when the list is narrowed to one category (New AVD opens it on system images). */
+	category: Category | null;
 	selected: readonly string[];
 	plan: InstallPlan;
 	/** The install confirm is open. */
@@ -138,6 +141,7 @@ export class SdkModel {
 	#pkgs: Packages | null = null;
 	#licences: Result<'sdk.licenses'> | null = null;
 	#selected: string[] = [];
+	#category: Category | null = null;
 	#confirming = false;
 	#uninstalling: SdkView['uninstalling'] = null;
 	#calling = false;
@@ -155,8 +159,9 @@ export class SdkModel {
 
 	get view(): SdkView {
 		if (this.#view === null) {
-			const groups = buildGroups(this.#pkgs);
-			const rows = groups.flatMap((g) => g.rows);
+			const all = buildGroups(this.#pkgs);
+			const rows = all.flatMap((g) => g.rows);
+			const groups = this.#category === null ? all : all.filter((g) => g.category === this.#category);
 			// A selection that no longer names a selectable row (installed meanwhile) is dropped from the plan.
 			const selected = this.#selected.filter((id) => rows.some((r) => r.id === id && r.selectable));
 			const plan = buildPlan(selected, this.#pkgs, this.#licences);
@@ -171,6 +176,7 @@ export class SdkModel {
 				repository: this.#pkgs?.repository,
 				truncated: this.#pkgs?.truncated ?? false,
 				groups,
+				category: this.#category,
 				selected,
 				plan,
 				confirming: this.#confirming,
@@ -218,6 +224,12 @@ export class SdkModel {
 		if (licences) this.#licences = licences;
 		this.#loaded = true;
 		this.#loadError = loadError;
+		this.#changed();
+	}
+
+	/** Narrows the list to one category; `null` shows every one. */
+	setCategory(category: Category | null): void {
+		this.#category = category;
 		this.#changed();
 	}
 

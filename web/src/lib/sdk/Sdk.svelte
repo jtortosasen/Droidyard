@@ -154,6 +154,12 @@
 			</div>
 		{/if}
 
+		{#if v.category !== null}
+			<p class="muted">
+				Showing only {v.groups[0]?.label ?? v.category}.
+				<button type="button" onclick={() => sdk.setCategory(null)}>Show all</button>
+			</p>
+		{/if}
 		<div class="line">
 			<button type="button" disabled={!connected || v.busy || v.plan.items.length === 0} onclick={() => sdk.openConfirm()}>
 				Install selected ({v.selected.length})

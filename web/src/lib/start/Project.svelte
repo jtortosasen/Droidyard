@@ -661,7 +661,18 @@
 		{/if}
 	{:else if id === 'devices'}
 		{#if devices && emulators && install && lending}
-			<Devices {devices} {emulators} {install} {sessions} {lending} connected={connection === 'open'} />
+			<Devices
+				{devices}
+				{emulators}
+				{install}
+				{sessions}
+				{lending}
+				connected={connection === 'open'}
+				onopensdk={() => {
+					sdk?.setCategory('systemImage');
+					shell.show('sdk');
+				}}
+			/>
 		{/if}
 	{:else if id === 'liveview'}
 		{#if liveView && remoteQuality}

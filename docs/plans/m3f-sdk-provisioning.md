@@ -284,7 +284,7 @@
 - Not here: the settings Scope leaves out; `device.uninstall` (split row).
 - Rests on: —
 - Review: the main session's diff and Svelte review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `web/src/lib/devices/avdform.ts` (the eleven settings as form text with their ranges), `emulators.ts` (`create`, `configure`, `wipe`, `remove`, `rowActions`), `mirror.ts` (create, configure and delete refresh the list), `Devices.svelte` (New AVD with an Advanced section, per-row Edit, Wipe and Delete), the SDK panel's category filter the New AVD link opens. Vitest, seen failing reversed: a listed name refused before the call, an out-of-range RAM and a storage below the current refused in the form with the range shown, Edit sending only the changed fields, Edit and Delete refused on a running row (`rowActions` and the model's guard), an agent's `emulator.create` refreshing the list. Not covered by a test (no DOM environment): the buttons' `disabled` attributes and the SDK link's render; step 10's headless Chrome run. Host-dependent bounds (half the memory, the CPUs) are left to the daemon and shown as text. `pnpm -C web run verify` green.
 
 ### 10. Level 5, the documents, the close
 

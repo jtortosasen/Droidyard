@@ -185,3 +185,17 @@ describe('refreshes and the no-SDK state', () => {
 		expect(PANELS.find((p) => p.id === 'sdk')).toMatchObject({ region: 'centre', label: 'SDK' });
 	});
 });
+
+describe('the category filter', () => {
+	// Decision (step 9): New AVD opens the panel on system images; Show all clears it.
+	it('narrows the groups to one category and clears', async () => {
+		const t = await setup({
+			available: [pkg('platform-tools', { category: 'platformTools' }), pkg('system-images;android-35;x;arm64-v8a', { category: 'systemImage' })],
+		});
+		t.sdk.setCategory('systemImage');
+		expect(t.sdk.view.groups.map((g) => g.category)).toEqual(['systemImage']);
+		expect(t.sdk.view.category).toBe('systemImage');
+		t.sdk.setCategory(null);
+		expect(t.sdk.view.groups.length).toBe(2);
+	});
+});
