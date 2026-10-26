@@ -66,7 +66,7 @@
 - Needs: the owner's SDK images and `emulator` binary, read only.
 - Not here: the reader's own injection (step 2's real test); a physical device.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: [`spike-agent-gestures-2026-10.md`](../research/spike-agent-gestures-2026-10.md) answers (a)–(f) on API 31 and 36 (2026-10-26); injection opens the shade unlocked on both, so the milestone goes on; what it redrafts is under Changes.
 
 ### 2. The reader injects paths and keys, and reports the screen (Q1)
 
@@ -251,3 +251,11 @@ No third round: R2-B1 is answered in the plan (`milestone-plan` §Writing one, i
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-26, step 1's evidence ([spike](../research/spike-agent-gestures-2026-10.md)), before steps 2 and 3 start:
+  - **Step 4: the stream encoder interpolates.** The bare version with one `MOVE` opened the shade 0 of 3 on API 36, and with a `MOVE` every 100 px 3 of 3. So `device.swipe` through a view also moves along straight segments at least every 16 ms, as the reader does (Q1 (3)'s "only if step 1 (a) needs it" is met); `TestAgentInputPrefersTheView` checks the moves.
+  - **Steps 3 and 6: the live payload is `P = https://x.example/a?b=';touch${IFS}/data/local/tmp/x;'`.** Step 1 (e)'s first payload was not live (naive quoting: `no closing quote`, nothing created). This one, naively quoted, created `/data/local/tmp/x` on both levels, and quoted with `'\''` it created nothing. `TestLaunchURLReachesTheShellLiterally` and step 6 (c) use it.
+  - **Step 3: `am start`'s refusal is its line, never its exit.** `Error: Activity not started, unable to resolve Intent` exits 0 on 31 and 1 on 36; both map to `DEVICE_LAUNCH_FAILED`. `cmd statusbar` exits 0 even when expansion is disabled and nothing opens, so `DEVICE_ACTION_FAILED` is for a non-zero exit or an error line only; `device.systemPanel`'s result claims nothing (Q3).
+  - **Step 3: `device.rotate`** writes as planned; an app that fixes its orientation (the launcher) keeps the display as it is, so the result reports `previous` only and the description says the foreground app may keep its orientation. Step 6 (c) rotates with Settings in front.
+  - **Step 4: the `input` fallback's size** is the on-device header `adb shell 'screencap | head -c 8 | od -An -tu4'`, which follows rotation (2400 1080 rotated); `wm size` does not.
+  - **Step 6 (a)'s nodes**: the shade unlocked, `com.android.systemui:id/quick_qs_panel`; quick settings, `quick_settings_panel`. Over a keyguard the shade has no node of its own (the keyguard is the shade window and holds `notification_panel` and `notification_stack_scroller`), so step 6 (a) over the keyguards swipes twice and expects `quick_settings_panel`, which two swipes opened on both levels.
