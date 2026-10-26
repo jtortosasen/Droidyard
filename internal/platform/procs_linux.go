@@ -42,6 +42,11 @@ func linuxList() ([]int, error) {
 func linuxRead(pid int) (string, []string, error) {
 	dir := "/proc/" + strconv.Itoa(pid)
 	exe, err := os.Readlink(dir + "/exe")
+	if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
+		// The kernel refuses ptrace read access: the process is not dumpable (it gained
+		// privileges or opted out) or lives in another user namespace (ADR-0132).
+		return "", nil, fmt.Errorf("%w: %v", errReadDenied, err)
+	}
 	if err != nil {
 		return "", nil, err
 	}

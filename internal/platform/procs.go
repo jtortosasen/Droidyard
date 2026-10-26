@@ -8,6 +8,10 @@ import (
 	"strconv"
 )
 
+// errReadDenied is a reader's answer when the kernel refuses to show a process's executable
+// to its own user (Linux: no ptrace read access to /proc/<pid>/exe).
+var errReadDenied = errors.New("the kernel does not show this process's executable")
+
 // Proc is one process of the daemon's own user, as the in-use check of the SDK (plan m3f
 // step 5) needs it: its executable's full path and its arguments, never the kernel's
 // 16-character command name, which misses a name such as qemu-system-aarch64-headless.
@@ -63,6 +67,9 @@ func userProcesses(uid int, src procSource) ([]Proc, error) {
 		if err == nil {
 			out = append(out, Proc{Pid: pid, Exe: exe, Args: args})
 			continue
+		}
+		if errors.Is(err, errReadDenied) {
+			continue // the kernel will not show it: not a process running the user's SDK (ADR-0132)
 		}
 		st, serr := src.state(pid)
 		switch {

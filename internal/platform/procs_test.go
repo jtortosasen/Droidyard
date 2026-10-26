@@ -3,6 +3,7 @@ package platform
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,6 +191,28 @@ func TestUserProcessesSkipsSetuid(t *testing.T) {
 	got, err = userProcesses(uid, src(uid))
 	if err != nil || len(got) != 1 || got[0].Pid != 9001 || got[0].Unreadable == "" {
 		t.Fatalf("a process of the user's own saved uid: got %+v, %v; want it kept as unreadable", got, err)
+	}
+}
+
+// TestUserProcessesSkipsADeniedRead (ADR-0132): a process of the user's own saved uid whose
+// executable the kernel will not show (Linux: not dumpable, or another user namespace; seen
+// on main's CI after m3f) is skipped, while any other read failure stays a doubt.
+func TestUserProcessesSkipsADeniedRead(t *testing.T) {
+	uid := os.Getuid()
+	src := func(readErr error) procSource {
+		return procSource{
+			list:  func() ([]int, error) { return []int{9003}, nil },
+			read:  func(int) (string, []string, error) { return "", nil, readErr },
+			state: func(int) (procState, error) { return procState{Present: true, SavedUID: uid}, nil },
+		}
+	}
+	got, err := userProcesses(uid, src(fmt.Errorf("%w: readlink /proc/9003/exe: permission denied", errReadDenied)))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("a denied read: got %+v, %v; want it skipped", got, err)
+	}
+	got, err = userProcesses(uid, src(syscall.EIO))
+	if err != nil || len(got) != 1 || got[0].Unreadable == "" {
+		t.Fatalf("another read failure: got %+v, %v; want it kept as unreadable", got, err)
 	}
 }
 
