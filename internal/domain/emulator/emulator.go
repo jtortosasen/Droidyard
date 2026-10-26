@@ -106,7 +106,9 @@ type Emulator struct {
 	// open, which an AVD's running check reads (running.go); the platform's, replaced by
 	// tests.
 	procs func() ([]platform.Proc, error)
-	open  func(ctx context.Context, pids []int, dirs []string) ([]platform.OpenFile, error)
+	// host reads the memory and CPUs the AVD settings' limits depend on (settings.go).
+	host func() hostLimits
+	open func(ctx context.Context, pids []int, dirs []string) ([]platform.OpenFile, error)
 }
 
 // New returns an Emulator over env, the environment the launcher inherits unchanged (so
@@ -116,7 +118,7 @@ type Emulator struct {
 func New(env []string, adb *device.ADB, starter device.Starter, stateRoot string) *Emulator {
 	return &Emulator{env: append([]string(nil), env...), adb: adb, starter: starter, state: stateRoot,
 		launches: map[string]*launch{}, tool: sdk.NewTool(sdk.ToolOptions{Env: env}),
-		procs: platform.UserProcesses, open: platform.DefaultLsof().OpenUnder}
+		procs: platform.UserProcesses, host: realHost, open: platform.DefaultLsof().OpenUnder}
 }
 
 // SetTool gives the Emulator the runner of avdmanager the daemon shares with sdk.profiles.
@@ -157,6 +159,7 @@ func Register(reg *capability.Registry, e *Emulator) {
 	registerWipe(reg, e)
 	registerCreate(reg, e)
 	registerDelete(reg, e)
+	registerConfigure(reg, e)
 }
 
 // boolPtr is a pointer to b, for a Descriptor's Annotations.

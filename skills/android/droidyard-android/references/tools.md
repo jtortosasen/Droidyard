@@ -25,7 +25,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_uiRecordings` |  | read-only | Lists the UI recordings kept, newest first and at most 50, a running one with its live counts and growing timeline (save a timeline with droidyard ... |
 | `device_uiTree` | core | read-only | Returns the current UI as a compact accessibility tree: snapshot id, foreground package, and a flat list of nodes with ref, class, id, text, desc and ... |
 | `device_uninstall` |  | changes state | Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. |
-| `emulator_create` |  | changes state | Creates one AVD from a device profile (sdk_profiles) and an installed system image (sdk_packages) with avdmanager, where the launcher lists it. |
+| `emulator_create` |  | changes state | Creates one AVD from a device profile (sdk_profiles) and an installed system image (sdk_packages) with avdmanager, where the launcher lists it, with ... |
 | `emulator_list` | core | read-only | Lists every AVD the emulator launcher knows, with its configuration and, when it is running, its device serial. |
 | `emulator_start` | core | changes state | Boots one AVD and returns {device, avd, adopted} once its device has finished booting. |
 | `emulator_stop` | core | changes state | Stops one running emulator with adb emu kill and returns once its serial leaves adb devices. |

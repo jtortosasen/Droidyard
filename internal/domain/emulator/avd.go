@@ -136,6 +136,9 @@ func configOf(entry []byte, discoveryDir string) (AVDConfig, error) {
 	if err != nil {
 		return cfg, nil
 	}
+	if st := settingsOf(ci); st != (Settings{}) {
+		cfg.Settings = &st
+	}
 	if cp, err := sdk.ParseProperties(bytes.NewReader(ci)); err == nil {
 		cfg.ABI = cp["abi.type"]
 		cfg.DeviceProfile = cp["hw.device.name"]

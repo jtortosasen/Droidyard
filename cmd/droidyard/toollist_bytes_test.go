@@ -15,9 +15,9 @@ import (
 // device_uiEvents (step 6: the same rule, 32,000 B), 32,690 B with device_recordUi and
 // device_stopUiRecording (plan m2x step 5: the same rule, 33,000 B), 33,372 B with device_uiRecordings
 // (step 6: the same rule, 34,000 B), 34,598 B with sdk_packages (plan m3f step 2: the same
-// rule, 35,000 B), 35,418 B with sdk_install (step 4: the same rule, 36,000 B), 36,748 B with sdk_profiles and emulator_create (step 6: the same rule, 37,000 B); outputSchema is left out because the two
+// rule, 35,000 B), 35,418 B with sdk_install (step 4: the same rule, 36,000 B), 36,748 B with sdk_profiles and emulator_create (step 6: the same rule, 37,000 B), 38,249 B with emulator_create's settings (step 7: the same rule, 39,000 B); outputSchema is left out because the two
 // clients measured (OpenCode, Cursor) do not show it to the model.
-const maxToolListBytes = 37000
+const maxToolListBytes = 39000
 
 // TestToolListModelFacingBytes sends initialize and tools/list through a real shim to
 // the shipped wiring and holds the compact JSON of the shipped tools, outputSchema

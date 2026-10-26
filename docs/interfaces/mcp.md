@@ -82,7 +82,7 @@ Every capability in the MVP surface is a tool, with these exceptions:
 | `device.installUpload` | Audience `human` ([ADR-0099](../adr/0099-what-a-host-lends.md) §3): a remote install's host half. |
 | `hosting.share`, `hosting.unshare`, `hosting.watchShare`, `hosting.join` | Audience `human` ([ADR-0108](../adr/0108-share-lifetime-and-consent.md) §1): sharing a device widens the physical policy; only its human consents. |
 | `agent.recordCommand`, `agent.recordEdit`, `agent.checkWrite` | Audience `human` ([ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md) §3): the hook's channel: records of commands and edits, check before a write. |
-| `sdk.licenses`, `sdk.acceptLicense`, `sdk.uninstall`, `emulator.delete` | Audience `human` ([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §1, §2): a person accepts a licence and removes packages and AVDs. |
+| `sdk.licenses`, `sdk.acceptLicense`, `sdk.uninstall`, `emulator.delete`, `emulator.configure` | Audience `human` ([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §1, §2): a person accepts a licence and removes packages and AVDs. |
 
 `operation_wait`, `operation_cancel` and `artifact_read` **are** exposed. Every exposed
 tool is stateless, so a client restart or a second window loses nothing. `--tools core` (`CoreTools`; ADR-0036 Decision 4) saves tokens and

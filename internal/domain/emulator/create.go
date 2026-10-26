@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -19,9 +20,10 @@ import (
 
 // CreateParams is emulator.create's parameters.
 type CreateParams struct {
-	Avd         string `json:"avd" jsonschema:"required,maxLength=100" jsonschema_description:"The new AVD's name: letters, digits, dot, dash, underscore. A name already in any AVD home is refused."`
-	Profile     string `json:"profile" jsonschema:"required,maxLength=100" jsonschema_description:"A device profile id from sdk.profiles, e.g. pixel_9a."`
-	SystemImage string `json:"systemImage" jsonschema:"required,maxLength=200" jsonschema_description:"An installed system image id from sdk.packages, e.g. system-images;android-35;google_apis;arm64-v8a."`
+	Avd         string    `json:"avd" jsonschema:"required,maxLength=100" jsonschema_description:"The new AVD's name: letters, digits, dot, dash, underscore. A name already in any AVD home is refused."`
+	Profile     string    `json:"profile" jsonschema:"required,maxLength=100" jsonschema_description:"A device profile id from sdk.profiles, e.g. pixel_9a."`
+	SystemImage string    `json:"systemImage" jsonschema:"required,maxLength=200" jsonschema_description:"An installed system image id from sdk.packages, e.g. system-images;android-35;google_apis;arm64-v8a."`
+	Settings    *Settings `json:"settings,omitempty" jsonschema_description:"Hardware settings for the new AVD; those left out keep the device profile's."`
 }
 
 // CreateResult is emulator.create's result.
@@ -38,12 +40,12 @@ func registerCreate(reg *capability.Registry, e *Emulator) {
 		Scope:       capability.Global,
 		LongRunning: true,
 		Since:       "0.39.0",
-		Description: "Creates one AVD from a device profile (sdk.profiles) and an installed system image (sdk.packages) with avdmanager, where the launcher lists it. A name used in any AVD home is refused and the image must be installed; boot it with emulator.start.",
+		Description: "Creates one AVD from a device profile (sdk.profiles) and an installed system image (sdk.packages) with avdmanager, where the launcher lists it, with optional hardware settings. A name used in any AVD home is refused and the image must be installed; boot it with emulator.start.",
 		Params:      CreateParams{},
 		Target:      func(p any) *capability.OpTarget { return &capability.OpTarget{AVD: p.(CreateParams).Avd} },
 		Result:      CreateResult{},
 		Errors: []capability.ErrorCode{capability.ErrInvalidParams, ErrAVDExists, ErrImageNotInstalled, ErrProfileNotFound,
-			sdk.ErrToolsNotFound, sdk.ErrJavaNotFound, sdk.ErrToolFailed, sdk.ErrNotWritable, ErrLaunchFailed},
+			sdk.ErrToolsNotFound, sdk.ErrJavaNotFound, sdk.ErrToolFailed, sdk.ErrNotWritable, ErrLaunchFailed, ErrConfigUnwritable},
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
@@ -62,6 +64,12 @@ var systemImageID = regexp.MustCompile(`^system-images;[A-Za-z0-9._-]+;[A-Za-z0-
 func (e *Emulator) create(ctx context.Context, p CreateParams) (CreateResult, error) {
 	if !avdName.MatchString(p.Avd) {
 		return CreateResult{}, invalidAVDName(p.Avd)
+	}
+	h := e.host()
+	if p.Settings != nil {
+		if err := p.Settings.validate(h); err != nil {
+			return CreateResult{}, err
+		}
 	}
 	home := launcherDir(e.env)
 	if home == "" {
@@ -95,6 +103,9 @@ func (e *Emulator) create(ctx context.Context, p CreateParams) (CreateResult, er
 			WithNextStep("make the directory ANDROID_AVD_HOME (or ~/.android/avd) names writable")
 	}
 	args := []string{"create", "avd", "--name", p.Avd, "--package", p.SystemImage, "--device", p.Profile}
+	if p.Settings != nil && p.Settings.SDCardMB != nil && *p.Settings.SDCardMB > 0 {
+		args = append(args, "--sdcard", strconv.Itoa(*p.Settings.SDCardMB)+"M")
+	}
 	// avdmanager asks whether to make a custom hardware profile; the answer is a fixed no,
 	// never the caller's and never the daemon's stdin.
 	if _, err := e.tool.Run(ctx, sdk.ToolRun{Args: args, Stdin: "no\n", Env: []string{"ANDROID_AVD_HOME=" + home}}); err != nil {
@@ -103,7 +114,35 @@ func (e *Emulator) create(ctx context.Context, p CreateParams) (CreateResult, er
 	if _, err := os.Stat(filepath.Join(home, p.Avd+".ini")); err != nil {
 		return CreateResult{}, sdk.ToolFailed(args, "exited 0 and wrote no AVD the launcher lists ("+p.Avd+".ini is not in the AVD directory)")
 	}
+	// The rest of the settings are written by Droidyard after avdmanager returns; if that
+	// fails the AVD is deleted again, so the call made an AVD with its settings or none.
+	if p.Settings != nil && len(p.Settings.lines()) > 0 {
+		dir := avdHome{dir: avdDir{path: home}, ini: filepath.Join(home, p.Avd+".ini")}.dataDir(p.Avd)
+		if _, err := writeSettings(dir, *p.Settings, h, false); err != nil {
+			return CreateResult{}, e.undoCreate(ctx, p.Avd, home, err)
+		}
+	}
 	return CreateResult{Avd: p.Avd, Profile: p.Profile, SystemImage: p.SystemImage}, nil
+}
+
+// undoCreate deletes the AVD that was just made, after its settings could not be written,
+// and returns cause; when the delete fails too, the cause says an AVD was left behind. It
+// runs though the call was cancelled: a half-made AVD is not left for the cancel.
+func (e *Emulator) undoCreate(ctx context.Context, name, home string, cause error) error {
+	args := []string{"delete", "avd", "--name", name}
+	_, err := e.tool.Run(context.WithoutCancel(ctx), sdk.ToolRun{Args: args, Env: []string{"ANDROID_AVD_HOME=" + home}})
+	if err == nil {
+		if _, serr := os.Lstat(filepath.Join(home, name+".ini")); serr != nil {
+			return cause
+		}
+		err = errors.New("exited 0 and left " + name + ".ini")
+	}
+	var ce *capability.Error
+	if errors.As(cause, &ce) {
+		ce.Cause += "; the AVD " + name + " was made and could not be deleted again (" + describeFS(err) + ")"
+		ce.NextStep = "the user deletes the AVD " + name + " (emulator.delete) and creates it again"
+	}
+	return cause
 }
 
 // nameTaken is EMULATOR_AVD_EXISTS when name is an AVD in any AVD home: an <name>.ini in

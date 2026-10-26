@@ -252,7 +252,7 @@ Two practical notes:
 | `workspace` | `open`, `enter`, `describe`, `close`, `watch`, `chooseRoot`, `show`, `forget` (the last three human-only; never over MCP) | 0, 2 |
 | `project` | `modules`, `variants` | 1 |
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult`, `watchOutput` | 1–2 |
-| `emulator` | `list`, `start`, `stop`, `wipe`, `create`, `delete` (human-only) | 1, 3 |
+| `emulator` | `list`, `start`, `stop`, `wipe`, `create`, `delete`, `configure` (the last two human-only) | 1, 3 |
 | `sdk` | `status`, `requirements`, `packages`, `profiles`, `install`, `licenses`, `acceptLicense`, `uninstall` (the last three human-only) | 1, 3 |
 | `device` | `list`, `install`, `installUpload`, `launch`, `uninstall`, `logs`, `watchLogs`, `watchScreen`, `screenshot`, `uiTree`, `uiDump`, `uiEvents`, `watchUiEvents`, `recordUi`, `stopUiRecording`, `uiRecordings`, `watchUiRecordings`, `deleteUiRecording`, `tapElement`, `inputText`, `tap`, `swipe`, `pressKey`, `scroll` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore`, `trash` (human-only; never over MCP) | 1–2 |
