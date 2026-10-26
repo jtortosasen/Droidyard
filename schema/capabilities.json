@@ -1,5 +1,5 @@
 {
-  "version": "0.39.0",
+  "version": "0.40.0",
   "capabilities": [
     {
       "name": "agent.checkWrite",
@@ -2535,6 +2535,72 @@
       }
     },
     {
+      "name": "device.forceStop",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.40.0",
+      "description": "Force-stops an application, which ends its processes and loses its unsaved in-memory state, and reports whether it was running. Repeating it is harmless.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
+        "DEVICE_ACTION_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "applicationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$",
+            "description": "The applicationId to stop: a package name, unmatched ids are rejected before the device is touched."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "applicationId"
+        ]
+      },
+      "output": {
+        "properties": {
+          "applicationId": {
+            "type": "string"
+          },
+          "wasRunning": {
+            "type": "boolean",
+            "description": "True when a process of the app was running just before the stop."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "applicationId",
+          "wasRunning"
+        ]
+      }
+    },
+    {
       "name": "device.inputText",
       "kind": "command",
       "scope": "global",
@@ -3578,7 +3644,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.5.0",
-      "description": "Starts an application's launcher activity and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, typically a crash on start). A later device.logs of the same applicationId reads from this launch by default.",
+      "description": "Starts an application's launcher activity, or with url opens that link in the app, and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, typically a crash on start). A later device.logs of the same applicationId reads from this launch by default.",
       "availability": [
         "adb"
       ],
@@ -3610,6 +3676,13 @@
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$",
             "description": "The applicationId to launch: a package name, unmatched ids are rejected before the device is touched."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[\\x21-\\x7E]*$",
+            "description": "A link for the app to open instead of its launcher: 1 to 2048 printable ASCII characters, no space, scheme first."
           }
         },
         "additionalProperties": false,
@@ -4485,6 +4558,98 @@
       }
     },
     {
+      "name": "device.rotate",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.40.0",
+      "description": "Pins the screen to an angle with auto-rotate off, or turns auto-rotate back on, and returns the previous setting. An app that fixes its orientation keeps it, so read device.uiTree for the display.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
+        "DEVICE_ACTION_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "rotation": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "0",
+              "90",
+              "180",
+              "270"
+            ],
+            "description": "auto lets the sensor decide; 0, 90, 180 or 270 turns auto-rotate off and pins the screen to that angle."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "rotation"
+        ]
+      },
+      "output": {
+        "properties": {
+          "previous": {
+            "properties": {
+              "rotation": {
+                "type": "integer",
+                "maximum": 270,
+                "minimum": 0,
+                "description": "The pinned angle in degrees: 0, 90, 180 or 270. It applies when auto is false."
+              },
+              "auto": {
+                "type": "boolean",
+                "description": "True when auto-rotate was on."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "rotation",
+              "auto"
+            ],
+            "description": "The setting before this call, to restore it."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Set when a write failed after an earlier one had changed the device; it names what was written."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "previous"
+        ]
+      }
+    },
+    {
       "name": "device.screenshot",
       "kind": "query",
       "scope": "global",
@@ -4971,6 +5136,72 @@
         "type": "object",
         "required": [
           "delivered"
+        ]
+      }
+    },
+    {
+      "name": "device.systemPanel",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.40.0",
+      "description": "Opens the notification shade or quick settings, or closes the open panel, with the device's status-bar command. It does not say a panel opened (a device with the status bar disabled ignores it): read the screen with device.uiTree.",
+      "availability": [
+        "adb"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "DEVICE_ADB_NOT_FOUND",
+        "DEVICE_ADB_FAILED",
+        "DEVICE_NOT_FOUND",
+        "DEVICE_NOT_READY",
+        "DEVICE_NOT_ALLOWED",
+        "DEVICE_DISCONNECTED",
+        "DEVICE_OCCUPIED",
+        "DEVICE_ACTION_FAILED",
+        "REQUEST_INVALID_PARAMS",
+        "OPERATION_QUEUE_TIMEOUT"
+      ],
+      "input": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "The serial of the device, from device.list."
+          },
+          "panel": {
+            "type": "string",
+            "enum": [
+              "notifications",
+              "quickSettings",
+              "none"
+            ],
+            "description": "notifications opens the shade, quickSettings opens quick settings, none closes the open panel."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "panel"
+        ]
+      },
+      "output": {
+        "properties": {
+          "panel": {
+            "type": "string",
+            "description": "The panel asked for, as sent. Not proof that it opened: read the screen."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "panel"
         ]
       }
     },

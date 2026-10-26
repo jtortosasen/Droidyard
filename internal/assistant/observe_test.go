@@ -35,6 +35,16 @@ func TestObserveTable(t *testing.T) {
 		{"adb exec-out run-as com.example cat files/token", []rec{{"adb", []string{"exec-out", "run-as"}, ""}}},
 		{"adb shell echo hunter2", []rec{{"adb", []string{"shell", "echo"}, ""}}},
 		{"adb shell input text hunter2", []rec{{"adb", []string{"shell", "input"}, "device_inputText"}}},
+		// plan m3g step 3: the system verbs have tools; other cmd and settings commands, and
+		// another settings key, do not.
+		{"adb shell cmd statusbar expand-settings", []rec{{"adb", []string{"shell", "cmd"}, "device_systemPanel"}}},
+		{"adb -s emulator-5554 shell cmd statusbar collapse", []rec{{"adb", []string{"shell", "cmd"}, "device_systemPanel"}}},
+		{"adb shell cmd package list packages", []rec{{"adb", []string{"shell", "cmd"}, ""}}},
+		{"adb shell am force-stop com.example.app", []rec{{"adb", []string{"shell", "am"}, "device_forceStop"}}},
+		{"adb shell settings put system user_rotation 1", []rec{{"adb", []string{"shell", "settings"}, "device_rotate"}}},
+		{"adb shell settings put system accelerometer_rotation 0", []rec{{"adb", []string{"shell", "settings"}, "device_rotate"}}},
+		{"adb shell settings put system screen_brightness 10", []rec{{"adb", []string{"shell", "settings"}, ""}}},
+		{"adb shell settings put global user_rotation 1", []rec{{"adb", []string{"shell", "settings"}, ""}}},
 		{"emulator -avd Pixel -wipe-data", []rec{{"emulator", nil, "emulator_wipe"}}},
 		{"emulator -avd Pixel", []rec{{"emulator", nil, "emulator_start"}}},
 		{"ANDROID_SERIAL=x adb logcat -d", []rec{{"adb", []string{"logcat"}, "device_logs"}}},

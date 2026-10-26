@@ -152,6 +152,9 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostFiles[phone1+".date.out"] = "1696118400.0\n"
 	hostFiles[phone1+".monkey.out"] = ""
 	hostFiles[phone1+".apppidof.out"] = "4242\n"
+	// device.rotate reads the two rotation settings before it writes them.
+	hostFiles[phone1+".get_accelerometer_rotation.out"] = "1\n"
+	hostFiles[phone1+".get_user_rotation.out"] = "0\n"
 	hostFiles[phone1+".pmpath.out"] = "package:/data/app/x/base.apk\n"
 	hostFiles[phone1+".uninstall.out"] = "Success\n"
 	maps.Copy(hostFiles, o.hostFiles)
@@ -421,6 +424,20 @@ func TestRemoteDevices(t *testing.T) {
 					t.Errorf("uninstall result %s: %v", r, err)
 				}
 			}},
+			// The system verbs (plan m3g step 3, ADR-0133 §7) run on the host's adb for its
+			// serial, like the rest of the plain class.
+			{"device.systemPanel", `{` + dev(remotePhone) + `,"panel":"quickSettings"}`, "", func(t *testing.T, r json.RawMessage) {
+				var sp device.SystemPanelResult
+				if err := json.Unmarshal(r, &sp); err != nil || sp.Panel != "quickSettings" {
+					t.Errorf("systemPanel result %s: %v", r, err)
+				}
+			}},
+			{"device.rotate", `{` + dev(remotePhone) + `,"rotation":"90"}`, "", func(t *testing.T, r json.RawMessage) {
+				var rr device.RotateResult
+				if err := json.Unmarshal(r, &rr); err != nil || !rr.Previous.Auto || rr.Previous.Rotation != 0 {
+					t.Errorf("rotate result %s: %v", r, err)
+				}
+			}},
 			{"device.tapElement", `{` + dev(remotePhone) + `,"target":{"desc":"Navigate up"}}`, "", func(t *testing.T, r json.RawMessage) {
 				var tr device.TapResult
 				if err := json.Unmarshal(r, &tr); err != nil || tr.Tapped.MatchedBy == "" {
@@ -468,6 +485,11 @@ func TestRemoteDevices(t *testing.T) {
 		}
 		if !slices.ContainsFunc(host, func(c string) bool { return strings.HasPrefix(c, "-s "+phone1+" shell monkey ") }) {
 			t.Errorf("the host's commands %q hold no launch", host)
+		}
+		for _, want := range []string{"-s " + phone1 + " shell cmd statusbar expand-settings", "-s " + phone1 + " shell settings put system user_rotation 1"} {
+			if !slices.Contains(host, want) {
+				t.Errorf("the host's commands %q lack %q", host, want)
+			}
 		}
 		if client := lab.clientCalls(t)[clientBefore:]; len(client) != 0 {
 			t.Errorf("the client ran %q for the remote device; it runs no adb command for it", client)

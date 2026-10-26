@@ -43,6 +43,11 @@
 //	<serial>.date               `-s <serial> shell date +%s.%N`
 //	<serial>.monkey             `-s <serial> shell monkey --pct-syskeys 0 -p <id> -c android.intent.category.LAUNCHER 1`
 //	<serial>.apppidof           `-s <serial> shell pidof <applicationId>`
+//	<serial>.amstart            `-s <serial> shell am start -a android.intent.action.VIEW -d <url> -p <applicationId>` (device.launch's url)
+//	<serial>.statusbar          `-s <serial> shell cmd statusbar <word>` (device.systemPanel)
+//	<serial>.forcestop          `-s <serial> shell am force-stop <applicationId>` (device.forceStop)
+//	<serial>.get_<key>          `-s <serial> shell settings get system <key>` (device.rotate reads accelerometer_rotation and user_rotation)
+//	<serial>.put_<key>          `-s <serial> shell settings put system <key> <value>` (device.rotate writes them)
 //	<serial>.sdk                `-s <serial> shell getprop ro.build.version.sdk`
 //	<serial>.manufacturer       `-s <serial> shell getprop ro.product.manufacturer`
 //	<serial>.inputtext          `-s <serial> shell rm -f <pidfile>; echo "$$ <nonce>" > <pidfile>; exec input text <arg>`
@@ -503,6 +508,16 @@ func servedPrefix(args []string) string {
 		return args[1] + ".date"
 	case len(args) == 11 && args[2] == "shell" && args[3] == "monkey" && args[4] == "--pct-syskeys" && args[5] == "0" && args[6] == "-p" && args[8] == "-c" && args[9] == "android.intent.category.LAUNCHER" && args[10] == "1":
 		return args[1] + ".monkey"
+	case len(args) == 11 && args[2] == "shell" && args[3] == "am" && args[4] == "start" && args[5] == "-a" && args[7] == "-d" && args[9] == "-p":
+		return args[1] + ".amstart"
+	case len(args) == 6 && args[2] == "shell" && args[3] == "cmd" && args[4] == "statusbar":
+		return args[1] + ".statusbar"
+	case len(args) == 6 && args[2] == "shell" && args[3] == "am" && args[4] == "force-stop":
+		return args[1] + ".forcestop"
+	case len(args) == 7 && args[2] == "shell" && args[3] == "settings" && args[4] == "get" && args[5] == "system":
+		return args[1] + ".get_" + args[6]
+	case len(args) == 8 && args[2] == "shell" && args[3] == "settings" && args[4] == "put" && args[5] == "system":
+		return args[1] + ".put_" + args[6]
 	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.build.version.sdk":
 		return args[1] + ".sdk"
 	case len(args) == 5 && args[2] == "shell" && args[3] == "getprop" && args[4] == "ro.product.manufacturer":

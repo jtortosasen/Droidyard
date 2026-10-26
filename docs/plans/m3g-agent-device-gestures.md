@@ -91,7 +91,7 @@
 - Needs: step 1; JDK 17 and the owner's SDK for `build.sh` (read only).
 - Not here: no capability calls the verbs (step 4); no second pointer; no scroll axis.
 - Rests on: UiAutomation-injected paths reach SystemUI's top-edge gesture, level 5 on API 31 and 36; the mid-path cancel is level 3 (read, not provoked).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the four checks seen failing as asked (pixels sent; the base bound; `nosize` as another refusal; the screen assignment removed); the digest reproduced (`99d39598…37386`); `TestRealReaderGestures` passed on both AVDs (2026-10-26, main session): API 36 edge swipe 423 ms to `quick_qs_panel`, long press menu, `press 223` Dozing; API 31 341 ms, Gmail's menu, Asleep. The real test's forward directory resolves macOS's `/tmp` symlink and sits one level down (`platform.OwnDir`), a fix by the main session. `go test ./...` green.
 
 ### 3. System verbs: `device.systemPanel`, `device.forceStop`, `device.rotate`, `device.launch`'s `url` (Q3, Q4)
 
@@ -117,7 +117,7 @@
 - Needs: step 1 ((b), (d), (e)).
 - Not here: whether a panel opened (the agent reads; a disabled status bar ignores the command, Unverified); a URL without naming its app.
 - Rests on: the device shell receives the URL as one literal word: level 4 here; level 5 at step 6 (c) as "the live payload `P`, accepted by the call, runs nothing" (that `am` gets the URL whole is not observable: it prints `dat=` in its secure form; Unverified).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: the seven tests seen failing as asked (panels swapped; the writes reversed; validation removed; the url unquoted and naively quoted; the exit deciding; plain `authorize`); `TestDeviceLendableSet`, `TestRemoteDevices` (host argv, no client adb) and the hint tests pass; schema +233/-2, exactly this step's; 44 tools, 40,727 B, `maxToolListBytes` 41,000; `pnpm -C web run verify` green; `go test ./...` green. Main-session review: an unset rotation setting (`null`) reads as 0, WindowManager's default, instead of refusing (a test case); `liveBudget` +3 for `mvp.md`'s three names.
 
 ### 4. Agents' coordinate gestures and keys (Q1, Q2)
 

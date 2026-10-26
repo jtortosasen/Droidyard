@@ -170,7 +170,7 @@ func TestDeviceLendableSet(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	want := []string{"device.launch", "device.list", "device.pressKey", "device.scroll", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload", "device.screenshot", "device.logs", "device.watchLogs", "device.uiDump", "device.uiEvents", "device.watchUiEvents", "device.recordUi", "device.stopUiRecording", "device.uiRecordings", "device.watchUiRecordings", "device.deleteUiRecording"}
+	want := []string{"device.launch", "device.list", "device.pressKey", "device.scroll", "device.swipe", "device.tap", "device.tapElement", "device.uiTree", "device.uninstall", "device.inputText", "device.watchScreen", "device.installUpload", "device.screenshot", "device.logs", "device.watchLogs", "device.uiDump", "device.uiEvents", "device.watchUiEvents", "device.recordUi", "device.stopUiRecording", "device.uiRecordings", "device.watchUiRecordings", "device.deleteUiRecording", "device.systemPanel", "device.forceStop", "device.rotate"}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("lendable device capabilities = %v; want %v", got, want)
