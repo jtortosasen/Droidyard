@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0102 (§2)
+- Superseded in part by: ADR-0133 (§Decision 1)
 - Date: 2026-10-07
 - Relates to: ADR-0029, ADR-0030 (both amended), ADR-0015 §2, §4, ADR-0020 (its
   2026-10-06 line), ADR-0034, `ui-automation.md` (§Typing, §Input primitives, §Sequence

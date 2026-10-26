@@ -161,6 +161,7 @@ edits made before this rule and are not added to.
 | [0130](0130-droidyard-installs-sdk-packages.md) | Droidyard installs SDK packages itself; `avdmanager` stays for AVDs | Accepted |
 | [0131](0131-sdk-provisioning-narrowings.md) | Setuid processes, the emulator's lock and a licences-only root, as step 1 found them | Accepted |
 | [0132](0132-linux-processes-the-kernel-hides.md) | On Linux, a process whose executable the kernel hides is skipped by the in-use check | Accepted |
+| [0133](0133-agents-act-by-coordinates-keys-and-system-verbs.md) | Agents act on the device by coordinates, keys and system verbs | Accepted |
 
 ## Open decisions (not yet ADRs)
 

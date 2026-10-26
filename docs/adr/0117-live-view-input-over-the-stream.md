@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Superseded in part by: ADR-0118 (§3)
+- Superseded in part by: ADR-0133 (§Decision 7)
 - Date: 2026-10-21
 - Supersedes: ADR-0079 §Decision 3 (in part: the live view no longer delivers its input as calls; the three capabilities keep their contract); ADR-0078 §Decision 1 (in part: the result gains `control`), §Decision 4 (in part: binary client frames after `auth` are input)
 - Relates to: ADR-0015 §2, §4, ADR-0043 §2, ADR-0060 §2, ADR-0094 §5, ADR-0099 §2, ADR-0100 §3, ADR-0104 §2–§4, ADR-0109 §3; `ui-automation.md` §Input primitives; `http-websocket.md` §`GET /v1/screen`; plan m2y Q1–Q5; [`spike-live-input-2026-10.md`](../research/spike-live-input-2026-10.md)
