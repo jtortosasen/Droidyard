@@ -129,15 +129,20 @@ func (a *ADB) uiTree(ctx context.Context, t *target, within *AncestorSelector) (
 	if err != nil {
 		return Snapshot{}, err
 	}
-	rotation, roots, err := parseDump(doc)
+	attrs, roots, err := parseDumpAttrs(doc)
 	if err != nil {
 		return Snapshot{}, dumpFailed(err.Error())
 	}
-	s, err := snapshotOf(rotation, roots, NewSnapshotID(), DefaultUITreeBytes, within)
+	s, err := snapshotOf(attrs, roots, NewSnapshotID(), DefaultUITreeBytes, within)
 	if err != nil {
 		return Snapshot{}, dumpFailed(err.Error())
 	}
 	s.Warnings = append(slices.Clone(t.warnings), warnings...)
+	if slices.ContainsFunc(warnings, func(w string) bool { return strings.HasPrefix(w, fallbackWarning) }) {
+		// No reader could run, so the dump carries no screen size: ask the device
+		// (ADR-0133 §2).
+		a.fillScreen(ctx, t, &s)
+	}
 	// Computed on the raw parse, before compaction drops the childless WebView (ADR-0113).
 	if chromePageHidden(roots) {
 		s.Warnings = append(s.Warnings, chromePageHiddenWarning)

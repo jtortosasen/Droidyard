@@ -12,11 +12,13 @@ import (
 )
 
 // device.launch (adb-device.md §Launch; plan m1f step 8): start an app's launcher
-// activity with monkey, return the device clock read just before and the process id
-// observed after, or null with a reason when none is.
+// activity with monkey, or with a url open that link in the app with `am start`, return the
+// device clock read just before and the process id observed after, or null with a reason
+// when none is.
 
-// ErrLaunchFailed is monkey's "No activities found" or a non-zero exit
-// (plan m1f, R7).
+// ErrLaunchFailed is monkey's "No activities found", `am start`'s error line (whatever its
+// exit status: spike agent-gestures (e) saw 0 on API 31 and 1 on API 36) or a non-zero exit
+// (plan m1f, R7; plan m3g step 3).
 const ErrLaunchFailed capability.ErrorCode = "DEVICE_LAUNCH_FAILED"
 
 // The launch's bounds (plan m1f step 8): the device clock gets 3 s, the launch command
@@ -43,6 +45,10 @@ type LaunchParams struct {
 	// The pattern is published so a client rejects the id before the call (plan m1f step
 	// 8, item 6).
 	ApplicationID string `json:"applicationId" jsonschema:"required,pattern=^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$" jsonschema_description:"The applicationId to launch: a package name, unmatched ids are rejected before the device is touched."`
+	// URL is a link the app opens instead of its launcher activity (ADR-0133 §5). It is the
+	// one caller text besides the applicationId that reaches the device shell, so it is
+	// validated here and single-quoted by launch.
+	URL string `json:"url,omitempty" jsonschema:"minLength=1,maxLength=2048,pattern=^[A-Za-z][A-Za-z0-9+.-]*:[\\x21-\\x7E]*$" jsonschema_description:"A link for the app to open instead of its launcher: 1 to 2048 printable ASCII characters, no space, scheme first."`
 }
 
 // LaunchResult is device.launch's result. It carries no device text, so it is untagged
@@ -56,11 +62,23 @@ type LaunchResult struct {
 	Reason     string `json:"reason,omitempty" jsonschema_description:"Why pid is null: the process was not observed, typically a crash on start."`
 }
 
-// validate rejects an applicationId that is not a package name, before it can reach a
-// device shell (plan m1f step 8, R6).
+// launchURLRE is what a url must match before it reaches a device shell (ADR-0133 §5): a
+// scheme, a colon and printable ASCII with no space (0x21 to 0x7E). The shell metacharacters
+// that this admits are made literal by shellSingleQuote.
+var launchURLRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:[\x21-\x7E]*$`)
+
+// maxLaunchURL is the longest url, in bytes (all ASCII, so also characters).
+const maxLaunchURL = 2048
+
+// validate rejects an applicationId that is not a package name and a url that is not a
+// scheme-led run of printable ASCII, before either can reach a device shell (plan m1f step 8,
+// R6; plan m3g step 3).
 func (p LaunchParams) validate() error {
 	if !applicationIDRE.MatchString(p.ApplicationID) {
 		return capability.Errorf(capability.ErrInvalidParams, "applicationId %q is not a package name: use at least two dot-separated segments of letters, digits and underscores, starting with a letter", p.ApplicationID)
+	}
+	if p.URL != "" && (len(p.URL) > maxLaunchURL || !launchURLRE.MatchString(p.URL)) {
+		return capability.Errorf(capability.ErrInvalidParams, "url is not a link: use 1 to %d printable ASCII characters (0x21 to 0x7E, so no space) beginning with a scheme such as https:", maxLaunchURL)
 	}
 	return nil
 }
@@ -72,7 +90,7 @@ func registerLaunch(reg *capability.Registry, adb *ADB) {
 		Scope:        capability.Global,
 		Since:        "0.5.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Starts an application's launcher activity and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, typically a crash on start). A later device.logs of the same applicationId reads from this launch by default.",
+		Description:  "Starts an application's launcher activity, or with url opens that link in the app, and returns launchedAt and the process id observed afterwards (null with a reason when no process appeared, typically a crash on start). A later device.logs of the same applicationId reads from this launch by default.",
 		Params:       LaunchParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(LaunchParams).Device) },
 		Result:       LaunchResult{},
@@ -145,18 +163,28 @@ func (a *ADB) launch(ctx context.Context, t *target, p LaunchParams) (*LaunchRes
 
 	// monkey starts the launcher activity; no manifest activity is needed
 	// (adb-device.md §Launch).
-	mout, err := a.runShell(actx, t, launchMonkeyTimeout, 64<<10,
+	args := []string{
 		// --pct-syskeys 0: on an image with no physical keys (API 31 google_apis) monkey
 		// aborts with "SYS_KEYS has no physical keys" and exit 251 before launching
 		// anything (milestone 1i spike S9, G15).
-		"shell", "monkey", "--pct-syskeys", "0", "-p", p.ApplicationID, "-c", "android.intent.category.LAUNCHER", "1")
+		"shell", "monkey", "--pct-syskeys", "0", "-p", p.ApplicationID, "-c", "android.intent.category.LAUNCHER", "1"}
+	refusal := noActivitiesLine
+	if p.URL != "" {
+		// A link: the device shell parses the command line adb joins from these words, so the
+		// url goes as one single-quoted word and is a literal there (ADR-0133 §5; spike
+		// agent-gestures (e)'s live payload). `am start` refuses on its own line, "Error:
+		// Activity not started, unable to resolve Intent", with exit 0 on API 31 and 1 on 36.
+		args = []string{"shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", shellSingleQuote(p.URL), "-p", p.ApplicationID}
+		refusal = errorLine
+	}
+	mout, err := a.runShell(actx, t, launchMonkeyTimeout, 64<<10, args...)
 	if err != nil {
 		if errors.Is(err, ErrTimeout) {
 			return nil, launchFailed("the launch command did not answer in " + launchMonkeyTimeout.String())
 		}
 		return nil, err
 	}
-	if line := noActivitiesLine(mout); line != "" {
+	if line := refusal(mout); line != "" {
 		return nil, launchFailed(line)
 	}
 	if mout.ExitCode != 0 {

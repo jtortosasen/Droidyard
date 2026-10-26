@@ -155,8 +155,15 @@ func TestScreenInputCapabilitiesPassTheInput(t *testing.T) {
 			if out.State != capability.StateCompleted {
 				t.Fatalf("%s: %s, %+v", c.name, out.State, out.Error)
 			}
-			res, ok := out.Result.(ScreenInputResult)
-			if !ok || !res.Delivered || len(res.Warnings) != 0 {
+			var delivered bool
+			var warnings []string
+			switch res := out.Result.(type) {
+			case ScreenInputResult:
+				delivered, warnings = res.Delivered, res.Warnings
+			case ScrollResult: // the wheel's own result type
+				delivered, warnings = res.Delivered, res.Warnings
+			}
+			if !delivered || len(warnings) != 0 {
 				t.Errorf("result %#v, want delivered with no warnings", out.Result)
 			}
 			if got := f.fake.got(); len(got) != 1 || !reflect.DeepEqual(got[0], c.want) {
@@ -202,7 +209,8 @@ func TestScreenInputRefusesWhatTheBoundsRefuse(t *testing.T) {
 		{"t above 5000", "device.swipe", path(pt(0.5, 0.5, 0), pt(0.5, 0.6, 5001))},
 		{"first t not 0", "device.swipe", path(pt(0.5, 0.5, 10), pt(0.5, 0.6, 100))},
 		{"a point without y", "device.swipe", path(pt(0.5, 0.5, 0), `{"x":0.5,"t":100}`)},
-		{"an unknown key", "device.pressKey", `{` + dev + `,"key":"power"}`},
+		{"an unknown key", "device.pressKey", `{` + dev + `,"key":"reboot"}`},
+		{"a keycode, not a name", "device.pressKey", `{` + dev + `,"key":"26"}`},
 		// device.scroll's bounds (plan m2y step 3, S1): each axis within 16 notches, not both
 		// zero, every number present.
 		{"dy above 16", "device.scroll", `{` + dev + `,"x":0.5,"y":0.5,"dx":0,"dy":16.01}`},
@@ -231,16 +239,14 @@ func TestScreenInputRefusesWhatTheBoundsRefuse(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0079 §3): with no live view open the call is DEVICE_NO_STREAM with the
-// next step "open the device's live view", and nothing is sent. The capabilities never
-// start a source: the fake adb saw no push, no forward and no server start, and the source
-// set is empty. Seen failing with the handler acquiring the source (a.screens.acquire):
-// the server was pushed.
+// Decision (ADR-0079 §3; ADR-0133 §1): with no live view open device.scroll, which only the
+// view's stream carries, is DEVICE_NO_STREAM with the next step "open the device's live
+// view", and nothing is sent. The capabilities never start a source: the fake adb saw no
+// push, no forward and no server start, and the source set is empty. (The other three have
+// the reader and `input` to fall back on: TestAgentInputFallback.) Seen failing with the
+// handler acquiring the source (a.screens.acquire): the server was pushed.
 func TestScreenInputWithNoLiveViewSendsNothing(t *testing.T) {
 	for _, c := range []struct{ name, params string }{
-		{"device.tap", `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`},
-		{"device.swipe", `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`},
-		{"device.pressKey", `{"device":"` + uiSerial + `","key":"home"}`},
 		{"device.scroll", `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`},
 	} {
 		t.Run(c.name+" with the lookup finding none", func(t *testing.T) {
@@ -313,16 +319,14 @@ func TestScreenInputIsAuthorizedBeforeTheSourceIsLooked(t *testing.T) {
 	}
 }
 
-// Decision (ADR-0060 §2): the three are for humans, so the core refuses them from an MCP
-// session with REQUEST_NOT_ALLOWED_HERE before the call is an operation: no operation, no
-// listing, no lookup, no Inject. The UI and the CLI are let through. Seen failing with the
-// descriptors' Audience left at all: the MCP call completed.
+// Decision (ADR-0060 §2; ADR-0133 §1): device.scroll is for humans, so the core refuses it from
+// an MCP session with REQUEST_NOT_ALLOWED_HERE before the call is an operation: no operation,
+// no listing, no lookup, no Inject. The UI and the CLI are let through. Seen failing with the
+// descriptor's Audience left at all: the MCP call completed. (TestInputAudience is the other
+// half: the three are not refused.)
 func TestScreenInputIsRefusedFromMCP(t *testing.T) {
 	for name, p := range map[string]string{
-		"device.tap":      `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`,
-		"device.swipe":    `{"device":"` + uiSerial + `","path":[{"x":0.5,"y":0.5,"t":0},{"x":0.5,"y":0.1,"t":100}]}`,
-		"device.pressKey": `{"device":"` + uiSerial + `","key":"home"}`,
-		"device.scroll":   `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`,
+		"device.scroll": `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newSIFix(t, "", uiSerial)
@@ -478,6 +482,18 @@ func TestScreenInputFailureBeforeAndAfterTheFirstByte(t *testing.T) {
 			t.Fatalf("outcome %+v, %v; want cancelled", out, err)
 		}
 	})
+	// m3g verifier N1: the running bound passing after the first byte is a completed call with
+	// a warning, since part of the gesture is on the device; a cancel stays a cancel (above).
+	// Seen failing with the context check before the partial one: the call failed.
+	t.Run("the running bound after the first byte", func(t *testing.T) {
+		f := newSIFix(t, "", uiSerial)
+		f.fake.err = &screen.PartialError{Err: context.DeadlineExceeded}
+		out := f.call(t, capability.ClientUI, "device.tap", tap)
+		res, _ := out.Result.(ScreenInputResult)
+		if out.State != capability.StateCompleted || !res.Delivered || len(res.Warnings) != 1 {
+			t.Errorf("outcome %s %+v %+v, want completed with one warning", out.State, res, out.Error)
+		}
+	})
 }
 
 // Decision (ADR-0079 §3): the lookup finds a source that is started and not ending, and
@@ -571,7 +587,9 @@ func TestScreenInputReachesTheControlSocket(t *testing.T) {
 	}
 	release()
 	n := len(f.ln.controlBytes())
-	mustFail(t, runAs(t, f.ops, capability.ClientUI, "device.tap", `{"device":"`+uiSerial+`","x":0.5,"y":0.25}`), ErrNoStream)
+	// device.scroll has only the view to go through; the tap would now fall to the reader or
+	// `input` (TestAgentInputFallback).
+	mustFail(t, runAs(t, f.ops, capability.ClientUI, "device.scroll", `{"device":"`+uiSerial+`","x":0.5,"y":0.25,"dx":0,"dy":1}`), ErrNoStream)
 	if m := len(f.ln.controlBytes()); m != n {
 		t.Errorf("%d control bytes after the view closed, want %d", m, n)
 	}
@@ -661,7 +679,8 @@ func TestScreenSourceInjectSaysWhetherAnythingWasSent(t *testing.T) {
 // PartialError; with endOnWriteError removed, the source stayed running and the next tap
 // was written.
 func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
-	tap := `{"device":"` + uiSerial + `","x":0.5,"y":0.5}`
+	// device.scroll, since a tap now has the reader and `input` to fall back on.
+	scroll := `{"device":"` + uiSerial + `","x":0.5,"y":0.5,"dx":0,"dy":1}`
 	requireEndedFailed := func(t *testing.T, f *ssFix, src *screenSource) {
 		t.Helper()
 		select {
@@ -674,7 +693,7 @@ func TestScreenSourceControlWriteErrorEndsTheSource(t *testing.T) {
 			t.Errorf("reason %v, want failed because the control socket could not be written", src.Reason())
 		}
 		n := len(f.ln.controlBytes())
-		mustFail(t, runAs(t, f.ops, capability.ClientUI, "device.tap", tap), ErrNoStream)
+		mustFail(t, runAs(t, f.ops, capability.ClientUI, "device.scroll", scroll), ErrNoStream)
 		if m := len(f.ln.controlBytes()); m != n {
 			t.Errorf("%d control bytes after the failure, want %d: the next input was written", m, n)
 		}

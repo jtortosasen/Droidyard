@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -193,7 +194,15 @@ type readerClient struct {
 	// killedForeign remembers reader names of another digest this daemon has already
 	// killed, so a later reconciliation does not look them up again (plan m1f step 7).
 	killedForeign map[string]bool
+	// gestureRestartFailed is when a gesture's restart of the reader last failed: within
+	// gestureRestartBackoff a gesture goes to adb shell input without trying again, since a
+	// device whose UiAutomation another tool holds would make each one wait a full reader
+	// start first (m3g close verifier).
+	gestureRestartFailed time.Time
 }
+
+// gestureRestartBackoff is how long a failed gesture restart of the reader is not retried.
+const gestureRestartBackoff = 60 * time.Second
 
 // reader returns the reader client for a device, creating it on first use.
 func (a *ADB) reader(serial string) *readerClient {
@@ -435,11 +444,15 @@ const (
 	refusalTooLong
 	refusalNoFocus
 	refusalUnmappable
+	// refusalNoSize: a gesture's pixels need the screen's size and the reader could not read
+	// it, so nothing was injected (plan m3g step 2). A retry may succeed.
+	refusalNoSize
 )
 
 // readerRefusalToken maps the token the reader writes after `refused` to its kind
 // (DroidyardReader's refusal lines: `refused settext`, `refused malformed`,
-// `refused unterminated`, `refused too-long`, `refused no-focus`, `refused unmappable`; plan
+// `refused unterminated`, `refused too-long`, `refused no-focus`, `refused unmappable`,
+// `refused nosize`; plan
 // m1n step 4, fix round N3). An unrecognised token is refusalOther, which never enables
 // another method.
 func readerRefusalToken(token string) readerRefusal {
@@ -456,6 +469,8 @@ func readerRefusalToken(token string) readerRefusal {
 		return refusalNoFocus
 	case "unmappable":
 		return refusalUnmappable
+	case "nosize":
+		return refusalNoSize
 	}
 	return refusalOther
 }
@@ -478,6 +493,8 @@ func refusalPhrase(r readerRefusal) string {
 		return "no field had focus"
 	case refusalUnmappable:
 		return "a character has no key event on the virtual keyboard"
+	case refusalNoSize:
+		return "the reader could not read the screen's size"
 	}
 	return "it did not say which refusal this was"
 }
@@ -500,7 +517,14 @@ type readerAct struct {
 // base for a `tap` or a `settext`, the base plus a per-character allowance for `keys`,
 // capped. chars is the request's text length in characters.
 func readerActDeviceBound(chars int) time.Duration {
-	b := readerActBoundBase + time.Duration(chars)*readerActBoundPerChar
+	return readerActBound(chars, 0)
+}
+
+// readerActBound is the one formula behind every acting bound: the base, a per-character
+// allowance for `keys`, and a span for a request that holds the acting thread for a time (a
+// `gesture` for its last t; plan m3g step 2), capped. It is DroidyardReader.actBoundMs.
+func readerActBound(chars int, span time.Duration) time.Duration {
+	b := readerActBoundBase + time.Duration(chars)*readerActBoundPerChar + span
 	if b > readerActBoundCap {
 		b = readerActBoundCap
 	}
@@ -513,6 +537,13 @@ func readerActDeviceBound(chars int) time.Duration {
 // 4). chars is the request's text length in characters (0 for a `tap` or a `settext`).
 func readerActHostBound(chars int) time.Duration {
 	return readerActDeviceBound(chars) + readerActMargin
+}
+
+// readerGestureHostBound is the host's bound on a `gesture` whose path lasts span: the
+// device's bound for that span plus the margin, so a path longer than the base is not cut
+// off by the client while the reader is still injecting it (plan m3g step 2).
+func readerGestureHostBound(span time.Duration) time.Duration {
+	return readerActBound(0, span) + readerActMargin
 }
 
 // readerFenceError is the error an acting request answered `denied` returns (ADR-0035 §2):
@@ -663,6 +694,77 @@ func classifyAct(resp []byte) (readerAct, error) {
 // bound is the base: a tap carries no text.
 func (a *ADB) actTap(ctx context.Context, t *target, c *readerClient, x, y int) (readerAct, error) {
 	return a.actOnReader(ctx, t, c, fmt.Sprintf("tap %d %d", x, y), readerActHostBound(0))
+}
+
+// The wire of a touch path and a key press (plan m3g step 2; ADR-0133). A coordinate travels
+// as 0..gestureCoordMax, the fraction of the screen's size the view wire uses, so the daemon
+// needs no size: the reader reads the screen once when the path starts.
+const (
+	gestureCoordMax = 65535
+	// gestureMaxPoints and gestureMaxSpan are the reader's limits on one path
+	// (GESTURE_MAX_POINTS and GESTURE_MAX_MS); a request past them is refused as malformed.
+	gestureMaxPoints = 64
+	gestureMaxSpan   = 5 * time.Second
+)
+
+// pathPoint is one point of a path sent to the reader: X and Y are fractions of the screen, 0 at the left and
+// top edge and 1 at the right and bottom, and At is the time after the touch goes down.
+type pathPoint struct {
+	X, Y float64
+	At   time.Duration
+}
+
+// gestureCoord is a fraction as the wire's integer: clamped to 0..1 (a NaN is 0), then scaled
+// and rounded, so 0 is 0, 1 is 65535 and 0.5 is 32768.
+func gestureCoord(f float64) int {
+	if !(f > 0) {
+		return 0
+	}
+	if f > 1 {
+		f = 1
+	}
+	return int(math.Round(f * gestureCoordMax))
+}
+
+// gestureRequest is `gesture <n> <x1> <y1> <t1> ... <xn> <yn> <tn>`: n points, the
+// coordinates scaled by gestureCoord and the times in whole milliseconds. It validates
+// nothing: the reader refuses a path that is not 2 to gestureMaxPoints points, with the
+// first t 0 and the rest strictly increasing within gestureMaxSpan, before it injects
+// anything.
+func gestureRequest(points []pathPoint) string {
+	var b strings.Builder
+	b.WriteString("gesture ")
+	b.WriteString(strconv.Itoa(len(points)))
+	for _, p := range points {
+		fmt.Fprintf(&b, " %d %d %d", gestureCoord(p.X), gestureCoord(p.Y), p.At.Milliseconds())
+	}
+	return b.String()
+}
+
+// gestureSpan is a path's last time: how long the reader holds its acting thread, and what
+// the bounds on the request grow by.
+func gestureSpan(points []pathPoint) time.Duration {
+	if len(points) == 0 {
+		return 0
+	}
+	return points[len(points)-1].At
+}
+
+// pressRequest is `press <keycode>`: the reader injects the key down and up.
+func pressRequest(code int) string {
+	return "press " + strconv.Itoa(code)
+}
+
+// actGesture injects a touch path through the reader (plan m3g step 2): `gesture ...`. Its
+// bounds grow with the path, as the reader's do.
+func (a *ADB) actGesture(ctx context.Context, t *target, c *readerClient, points []pathPoint) (readerAct, error) {
+	return a.actOnReader(ctx, t, c, gestureRequest(points), readerGestureHostBound(gestureSpan(points)))
+}
+
+// actPress injects a key press through the reader (plan m3g step 2): `press <keycode>`. Its
+// host bound is the base: a press is two injections, not a path.
+func (a *ADB) actPress(ctx context.Context, t *target, c *readerClient, code int) (readerAct, error) {
+	return a.actOnReader(ctx, t, c, pressRequest(code), readerActHostBound(0))
 }
 
 // actKeys types text as key events through the reader (ADR-0035 §1): `keys <base64>`. The

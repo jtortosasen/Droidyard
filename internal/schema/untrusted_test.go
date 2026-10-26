@@ -146,7 +146,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "session.chats": true, "sdk.packages": true, "sdk.licenses": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.tap": true, "device.swipe": true, "device.pressKey": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "session.chats": true, "sdk.packages": true, "sdk.licenses": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}

@@ -152,6 +152,12 @@ func newRemoteLabWith(t *testing.T, o labOptions) *remoteLab {
 	hostFiles[phone1+".date.out"] = "1696118400.0\n"
 	hostFiles[phone1+".monkey.out"] = ""
 	hostFiles[phone1+".apppidof.out"] = "4242\n"
+	// device.rotate reads the two rotation settings before it writes them.
+	hostFiles[phone1+".get_accelerometer_rotation.out"] = "1\n"
+	hostFiles[phone1+".get_user_rotation.out"] = "0\n"
+	// The host's reader cannot run here, so its coordinate actions go by `input`, sized by this
+	// screencap header (plan m3g step 4).
+	hostFiles[phone1+".screenheader.out"] = "        1080        2400\n"
 	hostFiles[phone1+".pmpath.out"] = "package:/data/app/x/base.apk\n"
 	hostFiles[phone1+".uninstall.out"] = "Success\n"
 	maps.Copy(hostFiles, o.hostFiles)
@@ -262,6 +268,15 @@ func (l *remoteLab) rewriteClient(t *testing.T, allowPhysical bool, allowlist ..
 }
 
 func untrusted(env capability.ResponseEnvelope) bool { return env.Meta != nil && env.Meta.Untrusted }
+
+// checkDelivery holds a relayed coordinate action's result to the delivery the host chose.
+func checkDelivery(t *testing.T, result json.RawMessage, want string) {
+	t.Helper()
+	var r device.ScreenInputResult
+	if err := json.Unmarshal(result, &r); err != nil || !r.Delivered || r.Delivery != want {
+		t.Errorf("input result %s: %v; want delivered by %s", result, err, want)
+	}
+}
 
 func listedIDs(rows []device.Device) []string {
 	ids := make([]string, 0, len(rows))
@@ -393,8 +408,9 @@ func TestRemoteDevices(t *testing.T) {
 
 	// Each plain capability on the remote id runs on the host, for the serial, and on the
 	// client runs no adb command at all (ADR-0100 §6). Every answer, success or error, is
-	// marked untrusted, and a host error keeps its code. device.tap, swipe and pressKey
-	// need a live view the host has not opened: the host's DEVICE_NO_STREAM comes back.
+	// marked untrusted, and a host error keeps its code. device.tap, swipe and pressKey are
+	// delivered by the host's own reader or `input` (the host's call); device.scroll needs a
+	// live view the host has not opened: the host's DEVICE_NO_STREAM comes back.
 	t.Run("the plain class is relayed", func(t *testing.T) {
 		clientBefore, hostBefore := len(lab.clientCalls(t)), len(lab.hostCalls(t))
 		type step struct {
@@ -421,6 +437,20 @@ func TestRemoteDevices(t *testing.T) {
 					t.Errorf("uninstall result %s: %v", r, err)
 				}
 			}},
+			// The system verbs (plan m3g step 3, ADR-0133 §7) run on the host's adb for its
+			// serial, like the rest of the plain class.
+			{"device.systemPanel", `{` + dev(remotePhone) + `,"panel":"quickSettings"}`, "", func(t *testing.T, r json.RawMessage) {
+				var sp device.SystemPanelResult
+				if err := json.Unmarshal(r, &sp); err != nil || sp.Panel != "quickSettings" {
+					t.Errorf("systemPanel result %s: %v", r, err)
+				}
+			}},
+			{"device.rotate", `{` + dev(remotePhone) + `,"rotation":"90"}`, "", func(t *testing.T, r json.RawMessage) {
+				var rr device.RotateResult
+				if err := json.Unmarshal(r, &rr); err != nil || !rr.Previous.Auto || rr.Previous.Rotation != 0 {
+					t.Errorf("rotate result %s: %v", r, err)
+				}
+			}},
 			{"device.tapElement", `{` + dev(remotePhone) + `,"target":{"desc":"Navigate up"}}`, "", func(t *testing.T, r json.RawMessage) {
 				var tr device.TapResult
 				if err := json.Unmarshal(r, &tr); err != nil || tr.Tapped.MatchedBy == "" {
@@ -434,9 +464,12 @@ func TestRemoteDevices(t *testing.T) {
 					t.Errorf("inputText result %s: %v", r, err)
 				}
 			}},
-			{"device.tap", `{` + dev(remotePhone) + `,"x":0.5,"y":0.5}`, device.ErrNoStream, nil},
-			{"device.swipe", `{` + dev(remotePhone) + `,"path":[{"x":0.5,"y":0.8,"t":0},{"x":0.5,"y":0.2,"t":200}]}`, device.ErrNoStream, nil},
-			{"device.pressKey", `{` + dev(remotePhone) + `,"key":"home"}`, device.ErrNoStream, nil},
+			// The coordinate actions (plan m3g step 4, ADR-0133 §7) are the host's call: with no
+			// view open there it delivers by its own reader or `input`, and the client runs
+			// nothing. device.scroll still needs the host's view.
+			{"device.tap", `{` + dev(remotePhone) + `,"x":0.5,"y":0.5}`, "", func(t *testing.T, r json.RawMessage) { checkDelivery(t, r, device.DeliveryInput) }},
+			{"device.swipe", `{` + dev(remotePhone) + `,"path":[{"x":0.5,"y":0.8,"t":0},{"x":0.5,"y":0.2,"t":200}]}`, "", func(t *testing.T, r json.RawMessage) { checkDelivery(t, r, device.DeliveryInput) }},
+			{"device.pressKey", `{` + dev(remotePhone) + `,"key":"home"}`, "", func(t *testing.T, r json.RawMessage) { checkDelivery(t, r, device.DeliveryInput) }},
 			{"device.scroll", `{` + dev(remotePhone) + `,"x":0.5,"y":0.5,"dx":0,"dy":1}`, device.ErrNoStream, nil},
 		}
 		for _, s := range steps {
@@ -469,14 +502,23 @@ func TestRemoteDevices(t *testing.T) {
 		if !slices.ContainsFunc(host, func(c string) bool { return strings.HasPrefix(c, "-s "+phone1+" shell monkey ") }) {
 			t.Errorf("the host's commands %q hold no launch", host)
 		}
+		for _, want := range []string{"-s " + phone1 + " shell cmd statusbar expand-settings", "-s " + phone1 + " shell settings put system user_rotation 1",
+			// device.tap and device.swipe on the remote phone are the host's `input`, sized by the host's screen.
+			"-s " + phone1 + " shell input tap 540 1200", "-s " + phone1 + " shell input swipe 540 1920 540 480 200",
+			"-s " + phone1 + " shell input keyevent 3"} {
+			if !slices.Contains(host, want) {
+				t.Errorf("the host's commands %q lack %q", host, want)
+			}
+		}
 		if client := lab.clientCalls(t)[clientBefore:]; len(client) != 0 {
 			t.Errorf("the client ran %q for the remote device; it runs no adb command for it", client)
 		}
 	})
 
-	// An MCP session on the client uses the remote id through device_uiTree. device.tap is
-	// for humans: from MCP it is refused by the client's core, with no operation, and the
-	// host is asked nothing.
+	// An MCP session on the client uses the remote id through device_uiTree, and through
+	// device_swipe, which is the host's call (ADR-0133 §7): the host delivers by `input`, sized
+	// by its own screen. device.scroll is for humans: from MCP it is refused by the client's
+	// core, with no operation, and the host is asked nothing.
 	t.Run("an MCP session on the client", func(t *testing.T) {
 		s := startShimEnv(t, lab.client.state, "", "agent", nil, []string{"mcp", "--no-autostart", "--wait", "5s"})
 		s.initialize("agent")
@@ -488,12 +530,20 @@ func TestRemoteDevices(t *testing.T) {
 		if got := serialsOf(lab.hostCalls(t)[hostBefore:]); !slices.Equal(got, []string{phone1}) {
 			t.Errorf("the host's commands for the MCP call address %v", got)
 		}
+		hostBefore = len(lab.hostCalls(t))
+		sw := s.toolWith(2, "device_swipe", `{`+dev(remotePhone)+`,"path":[{"x":0.5,"y":0.1,"t":0},{"x":0.5,"y":0.6,"t":300}]}`)
+		if sw.isError {
+			t.Fatalf("device_swipe on %s: %s", remotePhone, sw.raw)
+		}
+		if host := lab.hostCalls(t)[hostBefore:]; !slices.Contains(host, "-s "+phone1+" shell input swipe 540 240 540 1440 300") {
+			t.Errorf("the host's commands %q lack the swipe: it is the host's call", host)
+		}
 		before := len(lab.hostCalls(t))
-		id, err := lab.client.ops.Start(context.Background(), capability.Request{Capability: "device.tap", Client: capability.ClientMCP,
-			Params: json.RawMessage(`{` + dev(remotePhone) + `,"x":0.5,"y":0.5}`), Origin: capability.Origin{ID: "mcp-1", Client: capability.ClientMCP}})
+		id, err := lab.client.ops.Start(context.Background(), capability.Request{Capability: "device.scroll", Client: capability.ClientMCP,
+			Params: json.RawMessage(`{` + dev(remotePhone) + `,"x":0.5,"y":0.5,"dx":0,"dy":1}`), Origin: capability.Origin{ID: "mcp-1", Client: capability.ClientMCP}})
 		var e *capability.Error
 		if id != "" || err == nil || !errors.As(err, &e) || e.Code != capability.ErrNotAllowedHere {
-			t.Errorf("device.tap as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
+			t.Errorf("device.scroll as client mcp: (%q, %v); want REQUEST_NOT_ALLOWED_HERE and no operation", id, err)
 		}
 		if after := len(lab.hostCalls(t)); after != before {
 			t.Errorf("the host recorded %d commands for a call the client refused", after-before)

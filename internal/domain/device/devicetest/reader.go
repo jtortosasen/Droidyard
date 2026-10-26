@@ -216,7 +216,7 @@ func (r *FakeReader) DumpStarts() []time.Time {
 	return append([]time.Time(nil), r.starts...)
 }
 
-// SetActAnswers scripts the answer to forthcoming acting requests (tap, keys, settext),
+// SetActAnswers scripts the answer to forthcoming acting requests (tap, keys, settext, gesture, press),
 // in order; the last one repeats, and an empty script answers `droidyard-reader: done` to
 // every acting request. The answers are the reader's own lines (ADR-0035 §1):
 // "droidyard-reader: denied <uid>", "... refused <reason>", "... busy", "... done
@@ -548,7 +548,7 @@ func (r *FakeReader) handleEvents(conn net.Conn, request string) {
 
 // isActingRequest reports whether a request is one of the acting verbs of ADR-0035 §1.
 func isActingRequest(request string) bool {
-	for _, verb := range []string{"tap", "keys", "settext"} {
+	for _, verb := range []string{"tap", "keys", "settext", "gesture", "press"} {
 		if request == verb || strings.HasPrefix(request, verb+" ") {
 			return true
 		}

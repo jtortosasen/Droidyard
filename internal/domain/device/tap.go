@@ -394,6 +394,8 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 		Warnings:     dedupWarnings(warnings),
 	}
 	if p.ReturnTree {
+		// Its screen is the reader's: a read after an action never falls to uiautomator dump
+		// (D17), so a tree here always came from a reader.
 		res.Tree = vr.Tree
 	}
 	if vr.Tree != nil {
@@ -496,6 +498,39 @@ func (a *ADB) newActor(parent context.Context, t *target) *actor {
 	return &actor{a: a, t: t, c: c, ok: a.readerReady(parent, t, c, end)}
 }
 
+// restartedActor starts the device's reader again, once, when newActor found it not
+// answering behind a forward (ADR-0030; restartReader kills the wedged one first), and
+// returns an actor on it; not ok when the reader still cannot run.
+func (a *ADB) restartedActor(parent context.Context, t *target) *actor {
+	end := time.Now().Add(dumpDeadline)
+	if d, ok := parent.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+	c := a.reader(t.serial)
+	if err := c.acquire(parent); err != nil {
+		return &actor{a: a, t: t, c: c}
+	}
+	ok := false
+	c.mu.Lock()
+	recent := !c.gestureRestartFailed.IsZero() && time.Since(c.gestureRestartFailed) < gestureRestartBackoff
+	c.mu.Unlock()
+	if !recent && (c.haveSock() || c.wasStarted()) {
+		ok, _ = a.restartReader(parent, t, c, end)
+		c.mu.Lock()
+		if ok {
+			c.gestureRestartFailed = time.Time{}
+		} else {
+			c.gestureRestartFailed = time.Now()
+		}
+		c.mu.Unlock()
+	}
+	c.release()
+	if !ok {
+		return &actor{a: a, t: t, c: c}
+	}
+	return a.newActor(parent, t)
+}
+
 // locked runs one acting request with the device's read lock held, which actOnReader
 // requires (ADR-0035 §1): the lock and the reader's own single acting thread are the two
 // layers that keep one device's acts from overlapping.
@@ -511,6 +546,21 @@ func (ac *actor) locked(ctx context.Context, fn func(ctx context.Context, c *rea
 func (ac *actor) tap(ctx context.Context, point [2]int) (readerAct, error) {
 	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
 		return ac.a.actTap(ctx, ac.t, c, point[0], point[1])
+	})
+}
+
+// gesture injects a touch path through the reader (plan m3g step 2: `gesture <n> <x> <y>
+// <t> ...`).
+func (ac *actor) gesture(ctx context.Context, points []pathPoint) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actGesture(ctx, ac.t, c, points)
+	})
+}
+
+// press injects a key down and up through the reader (plan m3g step 2: `press <keycode>`).
+func (ac *actor) press(ctx context.Context, code int) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actPress(ctx, ac.t, c, code)
 	})
 }
 
@@ -543,10 +593,15 @@ func actingBusyError(what string) *capability.Error {
 // actVerb is the infinitive of what ("typed"/"tapped") for a refusal's cause sentence:
 // "the reader refused to type: no field had focus" reads, where "the reader refused the
 // typed because no field had focus" did not (plan m1n step 8, main-session note). what is
-// always one of those two.
+// one of "typed", "tapped", "gestured" or "pressed" (the last two from plan m3g step 2).
 func actVerb(what string) string {
-	if what == "tapped" {
+	switch what {
+	case "tapped":
 		return "tap"
+	case "gestured":
+		return "gesture"
+	case "pressed":
+		return "press"
 	}
 	return "type"
 }

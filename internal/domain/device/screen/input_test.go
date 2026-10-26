@@ -78,17 +78,28 @@ func TestEncodeControl(t *testing.T) {
 			msg{0, touchHex("00", 360, 320, 720, 1280, "ffff")},
 			msg{800 * time.Millisecond, touchHex("01", 360, 320, 720, 1280, "0000")})
 	})
-	t.Run("a swipe follows its points' T", func(t *testing.T) {
+	t.Run("a swipe follows its points' T, with a move between two points 32 ms apart", func(t *testing.T) {
+		// The points the caller gave are kept at their T; each 32 ms segment gets one move
+		// halfway, so no gap is over 16 ms (plan m3g step 1 (a)).
 		in := Swipe{Points: []Point{
 			{X: 0.1, Y: 0.2, T: 0},
-			{X: 0.5, Y: 0.5, T: 120 * time.Millisecond},
-			{X: 0.9, Y: 0.8, T: 350 * time.Millisecond},
+			{X: 0.5, Y: 0.5, T: 32 * time.Millisecond},
+			{X: 0.9, Y: 0.8, T: 64 * time.Millisecond},
 		}}
 		check(t, in, Size{1000, 2000},
 			msg{0, touchHex("00", 100, 400, 1000, 2000, "ffff")},
-			msg{120 * time.Millisecond, touchHex("02", 500, 1000, 1000, 2000, "ffff")},
-			msg{350 * time.Millisecond, touchHex("02", 900, 1600, 1000, 2000, "ffff")},
-			msg{350 * time.Millisecond, touchHex("01", 900, 1600, 1000, 2000, "0000")})
+			msg{16 * time.Millisecond, touchHex("02", 300, 700, 1000, 2000, "ffff")},
+			msg{32 * time.Millisecond, touchHex("02", 500, 1000, 1000, 2000, "ffff")},
+			msg{48 * time.Millisecond, touchHex("02", 700, 1300, 1000, 2000, "ffff")},
+			msg{64 * time.Millisecond, touchHex("02", 900, 1600, 1000, 2000, "ffff")},
+			msg{64 * time.Millisecond, touchHex("01", 900, 1600, 1000, 2000, "0000")})
+	})
+	t.Run("two points within 16 ms get no move between them", func(t *testing.T) {
+		in := Swipe{Points: []Point{{X: 0.1, Y: 0.2, T: 0}, {X: 0.5, Y: 0.5, T: 16 * time.Millisecond}}}
+		check(t, in, Size{1000, 2000},
+			msg{0, touchHex("00", 100, 400, 1000, 2000, "ffff")},
+			msg{16 * time.Millisecond, touchHex("02", 500, 1000, 1000, 2000, "ffff")},
+			msg{16 * time.Millisecond, touchHex("01", 500, 1000, 1000, 2000, "0000")})
 	})
 	t.Run("a swipe may start late", func(t *testing.T) {
 		in := Swipe{Points: []Point{{X: 0, Y: 0, T: 40 * time.Millisecond}, {X: 1, Y: 1, T: 40 * time.Millisecond}}}
@@ -153,7 +164,7 @@ func TestEncodeControlRefuses(t *testing.T) {
 		{"negative T", Swipe{Points: []Point{{0.1, 0.1, -1}, {0.2, 0.2, 5}}}, sz},
 		{"T over the limit", Swipe{Points: []Point{{0.1, 0.1, 0}, {0.2, 0.2, MaxInputDuration + 1}}}, sz},
 		{"a bad coordinate in the middle", Swipe{Points: []Point{{0.1, 0.1, 0}, {2, 0.2, 5}, {0.3, 0.3, 6}}}, sz},
-		{"unknown key", Key{Name: "volumeUp"}, sz},
+		{"unknown key", Key{Name: "Back"}, sz},
 		{"empty key", Key{}, sz},
 		{"nil", nil, sz},
 		{"a pointer is not an Input value", &Tap{X: 0.5, Y: 0.5}, sz},
@@ -202,6 +213,73 @@ func TestEncodeControlScroll(t *testing.T) {
 	} {
 		if got, err := EncodeControl(in, size); !errors.Is(err, ErrBadInput) || got != nil {
 			t.Errorf("%s: %v, %v; want ErrBadInput and nothing", name, got, err)
+		}
+	}
+}
+
+// Decision (plan m3g step 1 (a), Changes): a swipe delivered through an open view moves along
+// straight segments with no gap over 16 ms, as the reader's gesture does, because a path of
+// a few moves left the shade closed on API 36. A 300 ms drag from the top edge down the
+// screen has a message at least every 16 ms from its first to its last, its times never go
+// back, its positions run from the first point to the last without leaving the line, and
+// the points given are among them at their times. Seen failing with the encoder writing one
+// move per given point: the longest gap was 300 ms.
+func TestEncodeControlSwipeMovesAtLeastEvery16ms(t *testing.T) {
+	size := Size{1080, 2400}
+	got, err := EncodeControl(Swipe{Points: []Point{{X: 0.5, Y: 0}, {X: 0.5, Y: 0.6, T: 300 * time.Millisecond}}}, size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prevAt time.Duration
+	var prevY int32 = -1
+	for i, c := range got {
+		if gap := c.At - prevAt; gap > 16*time.Millisecond || gap < 0 {
+			t.Fatalf("message %d at %v after one at %v: a gap of %v", i, c.At, prevAt, gap)
+		}
+		prevAt = c.At
+		y := int32(c.Data[14])<<24 | int32(c.Data[15])<<16 | int32(c.Data[16])<<8 | int32(c.Data[17])
+		x := int32(c.Data[10])<<24 | int32(c.Data[11])<<16 | int32(c.Data[12])<<8 | int32(c.Data[13])
+		if x != 540 || y < prevY {
+			t.Fatalf("message %d is at (%d, %d) after y %d: the finger left the straight line down the middle", i, x, y, prevY)
+		}
+		prevY = y
+	}
+	first, last := got[0], got[len(got)-1]
+	if first.At != 0 || first.Data[1] != actionDown || last.At != 300*time.Millisecond || last.Data[1] != actionUp || prevY != 1440 {
+		t.Errorf("first %v action %d, last %v action %d at y %d; want down at 0 and up at 300ms at y 1440", first.At, first.Data[1], last.At, last.Data[1], prevY)
+	}
+	// 300/16 rounds up to 19 gaps: the given points and 18 moves between them, and the up.
+	if len(got) != 2+18+1 {
+		t.Errorf("%d messages, want 21", len(got))
+	}
+}
+
+// Decision (plan m3g Q2, ADR-0133 §3): device.pressKey names twenty-two keys, each with
+// Android's code (the literals are KeyEvent's, not the table read back), and a name outside
+// the list is no key. The view's wire still carries five (control_test.go).
+func TestKeyCodes(t *testing.T) {
+	want := map[string]int{
+		"back": 4, "home": 3, "appSwitch": 187, "enter": 66, "delete": 67,
+		"power": 26, "wakeUp": 224, "sleep": 223, "volumeUp": 24, "volumeDown": 25, "volumeMute": 164,
+		"menu": 82, "search": 84, "tab": 61, "escape": 111,
+		"dpadUp": 19, "dpadDown": 20, "dpadLeft": 21, "dpadRight": 22, "dpadCenter": 23,
+		"notification": 83, "assist": 219,
+	}
+	if got := KeyNames(); len(got) != len(want) {
+		t.Errorf("%d key names %v, want %d", len(got), got, len(want))
+	}
+	for name, code := range want {
+		if got, ok := KeyCode(name); !ok || got != code {
+			t.Errorf("KeyCode(%q) = %d, %v; want %d", name, got, ok, code)
+		}
+		cs, err := EncodeControl(Key{Name: name}, Size{720, 1280})
+		if err != nil || len(cs) != 2 || cs[0].Data[5] != byte(code) {
+			t.Errorf("EncodeControl(Key{%q}) = %v, %v; want a down and an up of code %d", name, cs, err, code)
+		}
+	}
+	for _, name := range []string{"", "Back", "reboot", "26"} {
+		if _, ok := KeyCode(name); ok {
+			t.Errorf("KeyCode(%q) is a key", name)
 		}
 	}
 }

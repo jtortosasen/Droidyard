@@ -184,6 +184,11 @@ func quiet(t *testing.T, s *screenSock, what string, d time.Duration) {
 
 const tapParams = `{"device":"` + remotePhone + `","x":0.5,"y":0.5}`
 
+// scrollParams is device.scroll on the remote phone, which only a view carries: the call that
+// still answers DEVICE_NO_STREAM with none open (a tap has the reader and `input` to fall back
+// on since plan m3g step 4).
+const scrollParams = `{"device":"` + remotePhone + `","x":0.5,"y":0.5,"dx":0,"dy":1}`
+
 // TestRelayedScreen: the client's Live view of a remote device (ADR-0100 §3, §5).
 //
 //   - The bytes: a client /v1/screen viewer's payloads equal the fixture's packets, the
@@ -199,7 +204,8 @@ const tapParams = `{"device":"` + remotePhone + `","x":0.5,"y":0.5}`
 //     check has nothing to read here: this daemon's own adb knows nothing of the host's
 //     window): no state event ever arrived.
 //   - A client device.tap on the remote id reaches the host's control socket while a view is
-//     open; with none open it answers the host's DEVICE_NO_STREAM and sends nothing.
+//     open; device.scroll, which only a view carries, with none open answers the host's
+//     DEVICE_NO_STREAM and sends nothing.
 //   - Closing the client's last viewer releases the host's stream, server and forward. No
 //     document gives this a number (ADR-0078 §6: the source ends with its last viewer); the 2 s
 //     of plan m2t step 3's check was a level-4 reading of 66 ms, and the release runs through
@@ -213,12 +219,12 @@ func TestRelayedScreen(t *testing.T) {
 	w := wsConnect(t, lab.client)
 
 	// No view yet: the host answers DEVICE_NO_STREAM and nothing reaches its control socket.
-	env := lab.on(t, "device.tap", tapParams)
+	env := lab.on(t, "device.scroll", scrollParams)
 	if env.Error == nil || env.Error.Code != device.ErrNoStream {
-		t.Fatalf("device.tap with no view open: %+v; want DEVICE_NO_STREAM", env.Error)
+		t.Fatalf("device.scroll with no view open: %+v; want DEVICE_NO_STREAM", env.Error)
 	}
 	if lab.ln.controlBytes() != 0 {
-		t.Fatalf("a tap with no view open sent %d bytes to the control socket", lab.ln.controlBytes())
+		t.Fatalf("a scroll with no view open sent %d bytes to the control socket", lab.ln.controlBytes())
 	}
 
 	// 1. The bytes. The first viewer joins at the first key frame, the config in front.
@@ -314,9 +320,9 @@ func TestRelayedScreen(t *testing.T) {
 	}
 	t.Logf("the host's stream, server and forward were released %v after the last viewer closed", time.Since(start))
 	before := lab.ln.controlBytes()
-	env = lab.on(t, "device.tap", tapParams)
+	env = lab.on(t, "device.scroll", scrollParams)
 	if env.Error == nil || env.Error.Code != device.ErrNoStream || lab.ln.controlBytes() != before {
-		t.Errorf("device.tap after the view closed: %+v (control bytes %d, was %d); want DEVICE_NO_STREAM and nothing sent", env.Error, lab.ln.controlBytes(), before)
+		t.Errorf("device.scroll after the view closed: %+v (control bytes %d, was %d); want DEVICE_NO_STREAM and nothing sent", env.Error, lab.ln.controlBytes(), before)
 	}
 }
 

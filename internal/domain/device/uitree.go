@@ -46,6 +46,12 @@ type Snapshot struct {
 	SystemDialog *SystemDialog `json:"systemDialog,omitempty"`
 	// Warnings are adb's (client/server version mismatch), not the device's: untagged.
 	Warnings []string `json:"warnings,omitempty"`
+	// Screen is the real screen's size, rotation applied: what the reader wrote on
+	// <hierarchy> (plan m3g step 2), or, when no reader ran (a `uiautomator dump`), the
+	// on-device screencap header the `input` delivery reads too. It differs from Display,
+	// which is the root window's extent and a dialog's when one is on top. Nil when neither
+	// gave one. device.tap and device.swipe take their fractions of it (ADR-0133 §2).
+	Screen *UIScreen `json:"screen,omitempty" untrusted:"true"`
 }
 
 // UIDisplay is the root window's extent and the hierarchy's rotation.
@@ -53,6 +59,12 @@ type UIDisplay struct {
 	Width    int `json:"width" jsonschema:"required"`
 	Height   int `json:"height" jsonschema:"required"`
 	Rotation int `json:"rotation" jsonschema:"required"`
+}
+
+// UIScreen is the real screen's size in pixels, rotation applied.
+type UIScreen struct {
+	Width  int `json:"width" jsonschema:"required"`
+	Height int `json:"height" jsonschema:"required"`
 }
 
 // UINode is one kept node. Children are refs of nodes that exist in Snapshot.Nodes.
@@ -112,9 +124,40 @@ func (n *rawNode) meaningful() bool {
 	return n.id != "" || n.text != "" || n.desc != "" || len(n.flags) > 0
 }
 
+// hierarchyAttrs are what <hierarchy> itself says: the rotation, and the screen's size when
+// the reader wrote it (screenWidth and screenHeight, plan m3g step 2). A size is kept only
+// when both values are plain positive integers; anything else leaves it zero, "none".
+type hierarchyAttrs struct {
+	rotation int
+	screen   [2]int
+}
+
+// screenDimension reads one of the reader's screen attributes: plain decimal digits that
+// fit and are positive, else 0 (none). The reader writes nothing it could not read, but the
+// document is device text, so a value that is not a size is ignored rather than trusted.
+func screenDimension(s string) int {
+	if s == "" || len(s) > 9 {
+		return 0
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
+}
+
 // parseDump reads the hierarchy and stops at its end tag: adb appends a status line
 // ("UI hierchary dumped to: /dev/tty") after </hierarchy>, which is never read.
 func parseDump(dump []byte) (rotation int, roots []*rawNode, err error) {
+	attrs, roots, err := parseDumpAttrs(dump)
+	return attrs.rotation, roots, err
+}
+
+// parseDumpAttrs is parseDump with the rest of <hierarchy>'s attributes.
+func parseDumpAttrs(dump []byte) (attrs hierarchyAttrs, roots []*rawNode, err error) {
 	dec := xml.NewDecoder(bytes.NewReader(dump))
 	var stack []*rawNode
 	seenRoot := false
@@ -122,19 +165,28 @@ func parseDump(dump []byte) (rotation int, roots []*rawNode, err error) {
 		tok, terr := dec.Token()
 		if terr != nil {
 			if errors.Is(terr, io.EOF) {
-				return 0, nil, errors.New("ui dump: no complete <hierarchy> element")
+				return hierarchyAttrs{}, nil, errors.New("ui dump: no complete <hierarchy> element")
 			}
-			return 0, nil, fmt.Errorf("ui dump: %w", terr)
+			return hierarchyAttrs{}, nil, fmt.Errorf("ui dump: %w", terr)
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch {
 			case t.Name.Local == "hierarchy" && !seenRoot:
 				seenRoot = true
+				var w, h int
 				for _, a := range t.Attr {
-					if a.Name.Local == "rotation" {
-						rotation, _ = strconv.Atoi(a.Value)
+					switch a.Name.Local {
+					case "rotation":
+						attrs.rotation, _ = strconv.Atoi(a.Value)
+					case "screenWidth":
+						w = screenDimension(a.Value)
+					case "screenHeight":
+						h = screenDimension(a.Value)
 					}
+				}
+				if w > 0 && h > 0 {
+					attrs.screen = [2]int{w, h}
 				}
 			case t.Name.Local == "node" && seenRoot:
 				n := nodeFromAttrs(t.Attr)
@@ -148,14 +200,14 @@ func parseDump(dump []byte) (rotation int, roots []*rawNode, err error) {
 			case seenRoot:
 				// An element of a kind this parser does not know: skip its subtree.
 				if err := dec.Skip(); err != nil {
-					return 0, nil, fmt.Errorf("ui dump: %w", err)
+					return hierarchyAttrs{}, nil, fmt.Errorf("ui dump: %w", err)
 				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == "node" && len(stack) > 0 {
 				stack = stack[:len(stack)-1]
 			} else if t.Name.Local == "hierarchy" && seenRoot {
-				return rotation, roots, nil
+				return attrs, roots, nil
 			}
 		}
 	}
@@ -234,20 +286,23 @@ func BuildSnapshot(dump []byte, id string, maxBytes int) (Snapshot, error) {
 // the ancestor selector are returned, before the cap, and emptyReason is noMatch when
 // nothing matched (plan m1f D6; ui-automation.md §The tree).
 func buildSnapshot(dump []byte, id string, maxBytes int, within *AncestorSelector) (Snapshot, error) {
-	rotation, roots, err := parseDump(dump)
+	attrs, roots, err := parseDumpAttrs(dump)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return snapshotOf(rotation, roots, id, maxBytes, within)
+	return snapshotOf(attrs, roots, id, maxBytes, within)
 }
 
-// snapshotOf is buildSnapshot over a document parseDump already read, so a caller that
+// snapshotOf is buildSnapshot over a document parseDumpAttrs already read, so a caller that
 // needs the raw tree too (chromePageHidden) parses once.
-func snapshotOf(rotation int, roots []*rawNode, id string, maxBytes int, within *AncestorSelector) (Snapshot, error) {
+func snapshotOf(attrs hierarchyAttrs, roots []*rawNode, id string, maxBytes int, within *AncestorSelector) (Snapshot, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultUITreeBytes
 	}
-	s := Snapshot{ID: id, Nodes: []UINode{}, Display: UIDisplay{Rotation: rotation}}
+	s := Snapshot{ID: id, Nodes: []UINode{}, Display: UIDisplay{Rotation: attrs.rotation}}
+	if attrs.screen != ([2]int{}) {
+		s.Screen = &UIScreen{Width: attrs.screen[0], Height: attrs.screen[1]}
+	}
 	if len(roots) > 0 {
 		s.Foreground = roots[0].pkg
 		s.Display.Width, s.Display.Height = roots[0].bounds[2], roots[0].bounds[3]

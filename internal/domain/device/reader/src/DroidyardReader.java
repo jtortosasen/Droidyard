@@ -121,6 +121,17 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@link #REQUEST_CAP} bytes; a longer one is drained a bounded way and answered
  * {@code refused too-long} before it is parsed or executed, never cut and acted on, and a
  * line cut by EOF is answered {@code refused unterminated} rather than parsed.
+ *
+ * <p>Two more acting verbs (plan m3g step 2; ADR-0133). {@code gesture <n> <x1> <y1> <t1> ...
+ * <xn> <yn> <tn>} injects one touch path: n points (2 to {@link #GESTURE_MAX_POINTS}), x and y in
+ * 0..{@link #GESTURE_COORD_MAX} (the view wire's normalisation: the pixel is the fraction of
+ * the screen's real size, which the reader reads once when the path starts), t in
+ * milliseconds from the touch down (the first 0, strictly increasing, at most
+ * {@link #GESTURE_MAX_MS}). The reader moves along a straight segment between points at least
+ * every {@link #GESTURE_STEP_MS}: a sparse path does not open the notification shade on API 36
+ * (the m3g spike). {@code press <keycode>} injects a key down and up. Both are bounded as the
+ * other acting verbs, a {@code gesture} by the base plus its last t; {@code refused nosize}
+ * says the screen's size could not be read and nothing was injected.
  */
 public class DroidyardReader {
     // Exit status when getRootInActiveWindow stays null; the daemon maps it (dump.go, readerNoRoot).
@@ -175,7 +186,14 @@ public class DroidyardReader {
     // The most entries one `events` answer carries (ADR-0111 Decision 4).
     private static final int EVENTS_MAX = 200;
     // The acting verbs of ADR-0035 §1: the requests the uid fence applies to.
-    private static final String[] ACTING_VERBS = { "tap", "keys", "settext" };
+    private static final String[] ACTING_VERBS = { "tap", "keys", "settext", "gesture", "press" };
+    // A gesture's limits (plan m3g step 2): the points of one path, the coordinate range of
+    // the view wire's normalisation, the longest path, and the longest gap between two injected
+    // events along a segment (a sparse injected path does not open the shade on API 36).
+    private static final int GESTURE_MAX_POINTS = 64;
+    private static final int GESTURE_COORD_MAX = 65535;
+    private static final long GESTURE_MAX_MS = 5000L;
+    private static final long GESTURE_STEP_MS = 16L;
 
     public static void main(String[] args) {
         int status = 1;
@@ -576,6 +594,9 @@ public class DroidyardReader {
     // the emulator), everything else by the base. The same formula is computed on the host
     // (persistent.go readerActDeviceBound), which adds its margin above it.
     private static long actBoundMs(Acting act) {
+        // A gesture holds the acting thread for its whole path: the base plus its last t (the
+        // same formula as persistent.go readerActBound with a span).
+        if (act.verb.equals("gesture")) return Math.min(ACT_BOUND_BASE_MS + act.gt[act.gt.length - 1], ACT_BOUND_CAP_MS);
         if (!act.verb.equals("keys")) return ACT_BOUND_BASE_MS;
         long chars = act.text.codePointCount(0, act.text.length());
         return Math.min(ACT_BOUND_BASE_MS + ACT_BOUND_PER_KEY_MS * chars, ACT_BOUND_CAP_MS);
@@ -639,6 +660,10 @@ public class DroidyardReader {
         private int x, y;
         private String text;
         private boolean replace;
+        // A gesture: its points in 0..GESTURE_COORD_MAX and their times in ms. A press: its key code.
+        private int[] gx, gy;
+        private long[] gt;
+        private int keyCode;
 
         private Acting(String verb) {
             this.verb = verb;
@@ -650,6 +675,8 @@ public class DroidyardReader {
         // well formed, but `keys ` and `settext insert ` of nothing are refused (plan m1n
         // step 4, fix round).
         static Acting parse(String request) {
+            if (request.equals("gesture") || request.startsWith("gesture ")) return parseGesture(request);
+            if (request.equals("press") || request.startsWith("press ")) return parsePress(request);
             String[] parts = request.split(" ", 3);
             if (parts.length == 0) return null;
             if (parts[0].equals("tap")) {
@@ -686,7 +713,46 @@ public class DroidyardReader {
             return null;
         }
 
+        // `gesture <n> <x1> <y1> <t1> ... <xn> <yn> <tn>`: exactly 2 + 3n words, plain decimal
+        // digits, 2 <= n <= GESTURE_MAX_POINTS, coordinates in range, the first t 0 and the rest
+        // strictly increasing up to GESTURE_MAX_MS. Anything else is null (refused malformed).
+        private static Acting parseGesture(String request) {
+            String[] w = request.split(" ", -1);
+            if (w.length < 2 || !digits(w[1])) return null;
+            long n = Long.parseLong(w[1]);
+            if (n < 2 || n > GESTURE_MAX_POINTS || w.length != 2 + 3 * n) return null;
+            Acting act = new Acting("gesture");
+            int count = (int) n;
+            act.gx = new int[count];
+            act.gy = new int[count];
+            act.gt = new long[count];
+            for (int i = 0; i < count; i++) {
+                String sx = w[2 + 3 * i], sy = w[3 + 3 * i], st = w[4 + 3 * i];
+                if (!digits(sx) || !digits(sy) || !digits(st)) return null;
+                long vx = Long.parseLong(sx), vy = Long.parseLong(sy), vt = Long.parseLong(st);
+                if (vx > GESTURE_COORD_MAX || vy > GESTURE_COORD_MAX || vt > GESTURE_MAX_MS) return null;
+                if (i == 0 ? vt != 0 : vt <= act.gt[i - 1]) return null;
+                act.gx[i] = (int) vx;
+                act.gy[i] = (int) vy;
+                act.gt[i] = vt;
+            }
+            return act;
+        }
+
+        // `press <keycode>`: one plain decimal code, 1 <= code <= KeyEvent.getMaxKeyCode().
+        private static Acting parsePress(String request) {
+            String[] w = request.split(" ", -1);
+            if (w.length != 2 || !digits(w[1])) return null;
+            long code = Long.parseLong(w[1]);
+            if (code < 1 || code > KeyEvent.getMaxKeyCode()) return null;
+            Acting act = new Acting("press");
+            act.keyCode = (int) code;
+            return act;
+        }
+
         String run(UiAutomation ua, Answer answer) throws Exception {
+            if (verb.equals("gesture")) return gesture(ua, gx, gy, gt, answer);
+            if (verb.equals("press")) return press(ua, keyCode, answer);
             if (verb.equals("tap")) return tap(ua, x, y, answer);
             if (verb.equals("keys")) return keys(ua, text, answer);
             return setText(ua, replace, text, answer);
@@ -715,6 +781,93 @@ public class DroidyardReader {
             down.recycle();
             up.recycle();
         }
+        return PREFIX + " done";
+    }
+
+    // Injects one touch path (plan m3g step 2; ADR-0133): ACTION_DOWN at the first point,
+    // ACTION_MOVE along each straight segment at least every GESTURE_STEP_MS and at each
+    // point, ACTION_UP at the last point at the last t, paced by the clock so the path takes
+    // the time it was given. DOWN and MOVE are asynchronous and UP synchronous, as for a tap.
+    // The screen's size is read once (a failed read is `refused nosize`, nothing injected) and
+    // the pixel of a point is its fraction of that size, clamped to the last pixel. Once the
+    // bound has answered nothing is injected (N1); a bound passing mid-path, or any error
+    // after the DOWN, ends the touch with ACTION_CANCEL at the last point injected, so the
+    // screen is never left with a finger down (ADR-0117 §5's rule).
+    private static String gesture(UiAutomation ua, int[] gx, int[] gy, long[] gt, Answer answer) throws InterruptedException {
+        if (answer.answered()) return null;
+        Point size = new Point();
+        if (display(size) < 0 || size.x <= 0 || size.y <= 0) return PREFIX + " refused nosize";
+        int n = gx.length;
+        int[] px = new int[n], py = new int[n];
+        for (int i = 0; i < n; i++) {
+            px[i] = pixel(gx[i], size.x);
+            py[i] = pixel(gy[i], size.y);
+        }
+        if (answer.answered()) return null;
+        long start = SystemClock.uptimeMillis();
+        int lastX = px[0], lastY = py[0];
+        boolean down = false, finished = false;
+        try {
+            injectTouch(ua, start, start, MotionEvent.ACTION_DOWN, lastX, lastY, false);
+            down = true;
+            for (int i = 0; i + 1 < n; i++) {
+                long span = gt[i + 1] - gt[i];
+                long steps = (span + GESTURE_STEP_MS - 1) / GESTURE_STEP_MS;
+                for (long k = 1; k <= steps; k++) {
+                    long due = start + gt[i] + span * k / steps;
+                    long wait = due - SystemClock.uptimeMillis();
+                    if (wait > 0) Thread.sleep(wait);
+                    if (answer.answered()) return null; // the finally cancels the touch
+                    boolean last = i + 2 == n && k == steps;
+                    int x = k == steps ? px[i + 1] : px[i] + (int) ((long) (px[i + 1] - px[i]) * k / steps);
+                    int y = k == steps ? py[i + 1] : py[i] + (int) ((long) (py[i + 1] - py[i]) * k / steps);
+                    injectTouch(ua, start, SystemClock.uptimeMillis(), last ? MotionEvent.ACTION_UP : MotionEvent.ACTION_MOVE, x, y, last);
+                    lastX = x;
+                    lastY = y;
+                    if (last) finished = true;
+                }
+            }
+        } finally {
+            if (down && !finished) {
+                try {
+                    injectTouch(ua, start, SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, lastX, lastY, false);
+                } catch (Throwable ignored) {
+                    // The first error is the one reported.
+                }
+            }
+        }
+        return PREFIX + " done";
+    }
+
+    // The pixel of a point on an axis of size pixels: its fraction of the size, rounded, and
+    // never past the last pixel.
+    private static int pixel(int v, int size) {
+        long p = ((long) v * size + GESTURE_COORD_MAX / 2) / GESTURE_COORD_MAX;
+        return (int) Math.min(p, (long) size - 1);
+    }
+
+    private static void injectTouch(UiAutomation ua, long downTime, long eventTime, int action, int x, int y, boolean sync) {
+        MotionEvent e = MotionEvent.obtain(downTime, eventTime, action, x, y, 0);
+        try {
+            e.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            ua.injectInputEvent(e, sync);
+        } finally {
+            e.recycle();
+        }
+    }
+
+    // Injects a key down and up (plan m3g step 2), each synchronously, from the keyboard source.
+    // The code was range-checked by the parse. Nothing is injected once the bound has answered.
+    private static String press(UiAutomation ua, int code, Answer answer) {
+        if (answer.answered()) return null;
+        long t = SystemClock.uptimeMillis();
+        KeyEvent down = new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
+        ua.injectInputEvent(down, true);
+        long u = SystemClock.uptimeMillis();
+        KeyEvent up = new KeyEvent(t, u, KeyEvent.ACTION_UP, code, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
+        ua.injectInputEvent(up, true);
         return PREFIX + " done";
     }
 
@@ -1358,8 +1511,13 @@ public class DroidyardReader {
         }
         Point size = new Point();
         int rotation = display(size);
+        boolean sized = rotation >= 0 && size.x > 0 && size.y > 0;
         StringBuilder sb = new StringBuilder(16 << 10);
-        sb.append("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"").append(rotation).append("\">");
+        sb.append("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"").append(Math.max(rotation, 0)).append("\"");
+        // The real size, rotation applied, beside the rotation (plan m3g step 2): only when the
+        // display was read, so a consumer never takes the unbounded fallback rectangle for a size.
+        if (sized) sb.append(" screenWidth=\"").append(size.x).append("\" screenHeight=\"").append(size.y).append("\"");
+        sb.append(">");
         Bound bound = new Bound();
         if (args.full) {
             sb.append('\n');
@@ -1382,7 +1540,8 @@ public class DroidyardReader {
     }
 
     // The default display's rotation and real size, from DisplayManagerGlobal as uiautomator's
-    // UiDevice reads them; rotation 0 and an unbounded rectangle if the hidden call fails.
+    // UiDevice reads them; an unbounded rectangle and -1 if the hidden call fails (a caller that
+    // needs the size takes -1 as "not read"; a document writes rotation 0 then).
     private static int display(Point size) {
         size.set(Integer.MAX_VALUE, Integer.MAX_VALUE);
         try {
@@ -1391,7 +1550,8 @@ public class DroidyardReader {
             d.getRealSize(size);
             return d.getRotation();
         } catch (Throwable t) {
-            return 0;
+            size.set(Integer.MAX_VALUE, Integer.MAX_VALUE);
+            return -1;
         }
     }
 

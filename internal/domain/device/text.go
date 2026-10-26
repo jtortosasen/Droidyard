@@ -19,8 +19,10 @@ import (
 // The formats, one line per fact; a line's first word says what it is:
 //
 //	device.uiTree (and a tree inside an action result)
-//	  snapshot <id> "<foreground package>" <w>x<h> [rot <n>] [truncated]
+//	  snapshot <id> "<foreground package>" <w>x<h> [rot <n>] [screen <w>x<h>] [truncated]
 //	      [empty=<reason>] [hint="<text>"]
+//	  (<w>x<h> is the active window's extent; screen is the whole screen's size, the one
+//	  device.tap and device.swipe take fractions of)
 //	   <ref> "<Class>" [#"<id>"] ["<text>"] [desc="<text>"] [<flag>,...] [l,t,r,b]
 //	  one line per node, in document order, indented one space per ancestor shown. A
 //	  status or navigation bar background view with nothing in it, and an unnamed
@@ -79,6 +81,9 @@ func writeSnapshot(t *capability.Text, s Snapshot) {
 	t.W("snapshot", s.ID).Q(s.Foreground).W(strconv.Itoa(s.Display.Width) + "x" + strconv.Itoa(s.Display.Height))
 	if s.Display.Rotation != 0 {
 		t.W("rot", strconv.Itoa(s.Display.Rotation))
+	}
+	if s.Screen != nil {
+		t.W("screen", strconv.Itoa(s.Screen.Width)+"x"+strconv.Itoa(s.Screen.Height))
 	}
 	if s.Truncated {
 		t.W("truncated")
