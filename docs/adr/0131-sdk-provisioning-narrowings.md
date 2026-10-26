@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-26
+- Superseded in part by: ADR-0132 (§Decision)
 - Supersedes: ADR-0129 §5, §7, §8 (in part)
 - Relates to: ADR-0130; [spike m3f step 1](../research/spike-sdk-provisioning-2026-10.md) §(d), §(f); [plan m3f](../plans/m3f-sdk-provisioning.md) Q10
 - Decided by the main session under the owner's standing instruction to apply the recommended option, Delegated (2026-10-26), from the plan's Q10 draft and the redraft's review.

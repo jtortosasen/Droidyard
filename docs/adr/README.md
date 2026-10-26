@@ -160,6 +160,7 @@ edits made before this rule and are not added to.
 | [0129](0129-sdk-provisioning-by-droidyard.md) | Droidyard provisions the SDK and AVDs, with consent kept human and nothing in use replaced | Accepted |
 | [0130](0130-droidyard-installs-sdk-packages.md) | Droidyard installs SDK packages itself; `avdmanager` stays for AVDs | Accepted |
 | [0131](0131-sdk-provisioning-narrowings.md) | Setuid processes, the emulator's lock and a licences-only root, as step 1 found them | Accepted |
+| [0132](0132-linux-processes-the-kernel-hides.md) | On Linux, a process whose executable the kernel hides is skipped by the in-use check | Accepted |
 
 ## Open decisions (not yet ADRs)
 
