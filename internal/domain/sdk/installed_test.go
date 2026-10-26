@@ -29,7 +29,9 @@ func writePackage(t *testing.T, path, id string, parts ...string) {
 
 // TestReadInstalledListsTheFixedLocations pins D14: the walk reads the package.xml at
 // each of the fixed locations and reports each package's id and revision. A directory
-// with no package.xml contributes nothing and is not a note.
+// with neither package.xml nor source.properties contributes nothing and is a warning
+// (plan m3f step 2: an interrupted install is not silent; it replaces D14's "not a
+// note").
 func TestReadInstalledListsTheFixedLocations(t *testing.T) {
 	root := t.TempDir()
 	writePackage(t, filepath.Join(root, "platforms", "android-36", "package.xml"), "platforms;android-36", "2")
@@ -38,14 +40,14 @@ func TestReadInstalledListsTheFixedLocations(t *testing.T) {
 	writePackage(t, filepath.Join(root, "platform-tools", "package.xml"), "platform-tools", "36", "0", "0")
 	writePackage(t, filepath.Join(root, "emulator", "package.xml"), "emulator", "36", "6", "11")
 	writePackage(t, filepath.Join(root, "system-images", "android-35", "google_apis", "arm64-v8a", "package.xml"), "system-images;android-35;google_apis;arm64-v8a", "9")
-	// A directory in a walked location with no package.xml: nothing is reported for it.
+	// A directory in a walked location with neither file: no package, one warning.
 	if err := os.MkdirAll(filepath.Join(root, "platforms", "android-empty"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	inst, warnings := ReadInstalled(root)
-	if len(warnings) != 0 {
-		t.Errorf("warnings = %v, want none", warnings)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "incomplete package at platforms/android-empty") {
+		t.Errorf("warnings = %v, want one: incomplete package at platforms/android-empty", warnings)
 	}
 	if got := ids(inst.Platforms); !equal(got, []string{"platforms;android-36", "platforms;android-37.0"}) {
 		t.Errorf("platforms = %v, want android-36 and android-37.0", got)

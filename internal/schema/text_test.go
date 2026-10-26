@@ -23,6 +23,7 @@ import (
 var rendered = []string{
 	"build.assemble", "build.lastResult", "build.run",
 	"device.inputText", "device.logs", "device.recordUi", "device.stopUiRecording", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiRecordings", "device.uiTree",
+	"sdk.packages",
 	"system.capabilities",
 }
 

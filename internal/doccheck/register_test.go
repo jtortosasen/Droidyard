@@ -221,7 +221,9 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 21 (to 30,145) at milestone 3e's close: README.md's status line names 3e and 3f;
 // gradle.md keeps why the sidecar's JVM comes first (the daemon's default, so the terminal
 // reuses it) and names the wrapperless next step (the close verifier's findings).
-const liveBudget = 30145
+// Raised by 2 (to 30,147) at milestone 3f step 2: mvp.md's capability surface names
+// sdk.packages and the phase it came in.
+const liveBudget = 30147
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

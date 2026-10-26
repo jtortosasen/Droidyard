@@ -16,7 +16,7 @@ import (
 // Version is the API version reported by system.capabilities. It is the one semantic
 // version of the capability API, not a per-capability one
 // (docs/architecture/capability-api.md §Discovery and versioning).
-const Version = "0.38.0"
+const Version = "0.39.0"
 
 var started = time.Now()
 

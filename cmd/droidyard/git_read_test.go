@@ -215,7 +215,7 @@ func TestGitReadIsHumanOnlyAndNeedsGit(t *testing.T) {
 	}
 	// system.health reports the API version this step introduces.
 	henv, code := p.call(t, "system.health")
-	if code != 0 || health(t, henv).Version != "0.38.0" {
-		t.Errorf("system.health: exit %d, %+v; want API version 0.38.0", code, henv.Error)
+	if code != 0 || health(t, henv).Version != "0.39.0" {
+		t.Errorf("system.health: exit %d, %+v; want API version 0.39.0", code, henv.Error)
 	}
 }
