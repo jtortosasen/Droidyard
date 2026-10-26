@@ -272,7 +272,7 @@
 - Not here: the look (the owner's, at step 10).
 - Rests on: —
 - Review: the main session's diff and Svelte review.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `web/src/lib/sdk/` (`sdk.ts` `SdkModel`, `Sdk.svelte`, `sdk.test.ts`), panel `sdk` in `panels.ts`, mounted in `Project.svelte`. Vitest: every Check item has a test; seen failing reversed: the dependency's pending licence (dependencies ignored), Install disabled while a licence is pending (the check removed from `canRun`), the licence text as text (`{@html l.text}`), a refresh on another client's `sdk.install` (trigger removed). The text-node check scans the component's source: the repository has no DOM test environment. A dependency counts as satisfied when installed at all (the daemon decides `min-revision`). `pnpm -C web run verify` green; the autofixer gate reports no issues. Not run in a browser yet (step 10).
 
 ### 9. Web: New AVD with settings, Edit, Wipe and Delete
 

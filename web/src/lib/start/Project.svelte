@@ -49,6 +49,8 @@
 	import { EmulatorsModel } from '../devices/emulators';
 	import { InstallModel } from '../devices/install';
 	import Devices from '../devices/Devices.svelte';
+	import { SdkModel } from '../sdk/sdk';
+	import Sdk from '../sdk/Sdk.svelte';
 	import { LendingModel } from '../devices/lending';
 	import { UiTreeModel } from '../devices/uitree';
 	import Tree from '../devices/Tree.svelte';
@@ -138,6 +140,7 @@
 	let buildConsole = $state.raw<ConsoleModel | null>(null);
 	let devices = $state.raw<DevicesModel | null>(null);
 	let lending = $state.raw<LendingModel | null>(null);
+	let sdk = $state.raw<SdkModel | null>(null);
 	let emulators = $state.raw<EmulatorsModel | null>(null);
 	let install = $state.raw<InstallModel | null>(null);
 	let uiTree = $state.raw<UiTreeModel | null>(null);
@@ -360,6 +363,8 @@
 		buildConsole = console_;
 		devices = deviceList;
 		lending = lent;
+		const sdkModel = new SdkModel(callOn, store);
+		sdk = sdkModel;
 		emulators = emulatorList;
 		install = installer;
 		run = runner;
@@ -470,6 +475,8 @@
 			buildConsole = null;
 			devices = null;
 			lending = null;
+			sdkModel.dispose();
+			sdk = null;
 			emulators = null;
 			install = null;
 			run = null;
@@ -520,6 +527,9 @@
 		void devices.refresh();
 		void emulators.refresh();
 		void lending?.refresh();
+	});
+	$effect(() => {
+		if (connection === 'open') void sdk?.refresh();
 	});
 </script>
 
@@ -597,6 +607,10 @@
 	{:else if id === 'diff'}
 		{#if editorTabs && viewers && gitWatch && headBase && diffSource && commitText}
 			<DiffPanel tabs={editorTabs} {viewers} git={gitWatch} base={headBase} source={diffSource} {commitText} submodules={gitSubmodules} />
+		{/if}
+	{:else if id === 'sdk'}
+		{#if sdk}
+			<Sdk {sdk} connected={connection === 'open'} />
 		{/if}
 	{:else if id === 'editor'}
 		{#if editorTabs && viewers && fileTree}
