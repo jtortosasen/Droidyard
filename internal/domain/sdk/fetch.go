@@ -487,6 +487,7 @@ func (in *installer) place(root, work, top string, s step, keep *bool) error {
 	if err := in.rename(top, abs); err != nil {
 		if rerr := in.rename(aside, abs); rerr != nil {
 			*keep = true // the old package is only in the temporary directory now
+			_ = os.WriteFile(filepath.Join(work, keepMarker), []byte("the old package is in the replaced directory beside this file; move it back by hand\n"), 0o644)
 			return capability.NewError(ErrNotWritable, "an update failed and the old package could not be put back").
 				WithCause(fmt.Sprintf("%s: %s; the old package is in %s", capability.Quote(filepath.ToSlash(rel)), describeFS(rerr), capability.Quote(relTo(root, aside))))
 		}

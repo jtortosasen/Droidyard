@@ -62,6 +62,10 @@ const (
 	tempMaxAge = time.Hour
 	tempDir    = ".temp"
 	tempPrefix = "droidyard-"
+	// keepMarker is the file place writes beside "replaced" when the old package could not be
+	// put back: the sweep leaves a temporary holding it, since the user is told to recover
+	// the package from there.
+	keepMarker = "KEEP-the-old-package-is-in-replaced"
 )
 
 var (
@@ -573,7 +577,7 @@ func ensureTemp(root string) (string, error) {
 
 // sweep removes the droidyard-* entries of .temp that are over an hour old: what a killed
 // daemon left. Any other entry (the classic tool's) stays, and so does one holding
-// "replaced": the old package of an update whose rollback failed, which the call's error
+// keepMarker: the old package of an update whose rollback failed, which the call's error
 // told the user to recover from there.
 func (in *installer) sweep(dir string) {
 	entries, err := os.ReadDir(dir)
@@ -584,7 +588,7 @@ func (in *installer) sweep(dir string) {
 		if !strings.HasPrefix(e.Name(), tempPrefix) {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(dir, e.Name(), "replaced")); err == nil {
+		if _, err := os.Lstat(filepath.Join(dir, e.Name(), keepMarker)); err == nil {
 			continue
 		}
 		if fi, err := os.Lstat(filepath.Join(dir, e.Name())); err == nil && in.now().Sub(fi.ModTime()) > tempMaxAge {

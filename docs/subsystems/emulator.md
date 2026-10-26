@@ -66,7 +66,7 @@ an agent creates, a person edits and deletes (they rely on AVDs an agent did not
   emulator process naming it, or by a file a candidate process holds open in its `.avd` directory
   (the emulator holds `multiinstance.lock` there); any doubt counts as running
   ([ADR-0131](../adr/0131-sdk-provisioning-narrowings.md) §2).
-- **Settings are typed, not keys.** Eleven settings, one `config.ini` key each, are the only keys
+- **Settings are typed, not keys.** The eleven settings' fixed keys are the only ones
   Droidyard writes; every other line is kept byte for byte. `emulator.list` reports them, which
   makes "why is this emulator so slow" answerable. The emulator may raise storage at first boot
   (API 28: 4 GB to 6 GB, level 5).

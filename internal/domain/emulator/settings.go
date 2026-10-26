@@ -21,8 +21,8 @@ import (
 // AVD settings (plan m3f step 7; ADR-0129 §1, §9; emulator.md §Capabilities): the hardware
 // and behaviour an AVD's config.ini holds, set at creation or edited while the AVD is
 // stopped, and reported by emulator.list. The table below is the allowlist: it names every
-// key Droidyard ever writes, in the `key = value` form avdmanager writes (step 1 (g)), and
-// no other line of config.ini is touched.
+// key Droidyard ever writes, in the form the file already uses for it (avdmanager 23 writes
+// `key=value`), and no other line of config.ini is touched.
 
 // Settings are an AVD's settings. Every field is optional: in a request an absent one is
 // left as it is, in a listing an absent one is a key config.ini does not hold in the form
@@ -79,22 +79,31 @@ func badSetting(field, want string) *capability.Error {
 		WithNextStep("send " + field + " " + want + ", or leave it out")
 }
 
+// displayNameProblem says what is wrong with a display name, or "" when it is fine. The one
+// check both validate (a request) and settingsOf (a listing, which must not publish a name
+// its own output schema refuses) apply.
+func displayNameProblem(n string) string {
+	switch {
+	case n == "" || utf8.RuneCountInString(n) > maxDisplayNameChars:
+		return "1 to 64 characters"
+	case strings.TrimSpace(n) != n:
+		return "text without a space at either end (config.ini cannot keep it)"
+	}
+	for _, r := range n {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return "text without control or format characters (a newline, a bidirectional mark)"
+		}
+	}
+	return ""
+}
+
 // validate is the check of each field against its own range (and the host's), before any
 // file is read or any tool is run. A field that depends on another one in the AVD is
 // checked by validateAgainst.
 func (s Settings) validate(h hostLimits) error {
 	if s.DisplayName != nil {
-		n := *s.DisplayName
-		switch {
-		case n == "" || utf8.RuneCountInString(n) > maxDisplayNameChars:
-			return badSetting("displayName", "1 to 64 characters")
-		case strings.TrimSpace(n) != n:
-			return badSetting("displayName", "text without a space at either end (config.ini cannot keep it)")
-		}
-		for _, r := range n {
-			if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-				return badSetting("displayName", "text without control or format characters (a newline, a bidirectional mark)")
-			}
+		if why := displayNameProblem(*s.DisplayName); why != "" {
+			return badSetting("displayName", why)
 		}
 	}
 	if s.RAMMB != nil {
@@ -225,7 +234,7 @@ func splitLine(line string) (key, value string, ok bool) {
 }
 
 // settingsOf reads the settings out of a config.ini by the table. A key that is absent, or
-// is in a form the table does not read, is left out. The last occurrence of a key wins.
+// is in a form the table does not read (a display name validate would refuse), is left out. The last occurrence of a key wins.
 func settingsOf(data []byte) Settings {
 	m := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -234,7 +243,7 @@ func settingsOf(data []byte) Settings {
 		}
 	}
 	var s Settings
-	if v := m["avd.ini.displayname"]; v != "" {
+	if v := m["avd.ini.displayname"]; displayNameProblem(v) == "" {
 		s.DisplayName = &v
 	}
 	s.RAMMB = megabytes(m["hw.ramSize"])
@@ -562,6 +571,7 @@ func registerConfigure(reg *capability.Registry, e *Emulator) {
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(true),
+			OpenWorld:   boolPtr(false), // it reads no network
 			Reason:      "a hardware change makes the emulator discard the AVD's saved quick-boot snapshot; the values can be set back, but internal storage never shrinks",
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {

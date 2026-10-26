@@ -43,6 +43,7 @@ func registerDelete(reg *capability.Registry, e *Emulator) {
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(true),
+			OpenWorld:   boolPtr(false), // it reads no network
 			Reason:      "it deletes an AVD with its data and its snapshots, which other projects may boot and nothing restores",
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
@@ -112,7 +113,7 @@ func avdRunning(name string, st runState, verb string) error {
 	}
 	step := "stop it where it was started, then " + verb + " it again"
 	if st.Serial != "" {
-		step = `stop it with emulator.stop {"device": "` + st.Serial + `"}, then delete it again`
+		step = `stop it with emulator.stop {"device": "` + st.Serial + `"}, then ` + verb + ` it again`
 	}
 	return capability.NewError(ErrAVDRunning, msg).WithCause(st.Why).WithNextStep(step)
 }

@@ -49,7 +49,7 @@ func registerCreate(reg *capability.Registry, e *Emulator) {
 		Resource: func(*capability.Call) string { return bootKey },
 		Annotations: capability.Annotations{
 			Destructive: boolPtr(false),
-			OpenWorld:   boolPtr(true),
+			OpenWorld:   boolPtr(false), // it reads no network
 			Reason:      "it makes a new AVD in the user's AVD home and refuses a name that exists, so nothing is replaced",
 		},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {

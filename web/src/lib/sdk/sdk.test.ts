@@ -169,6 +169,18 @@ describe('refreshes and the no-SDK state', () => {
 		expect(t.sdk.view.plan.items.map((i) => i.id)).toEqual(['platform-tools']);
 	});
 
+	// Found at level 5 (plan m3f step 10): with no SDK, sdk.status and sdk.packages carry the
+	// same warning, and the panel keys its warnings by text: a duplicate key stopped the panel
+	// at "Loading". Each warning is listed once.
+	it('lists a warning both reads carry once', async () => {
+		const t = await setup({ found: false });
+		const w = 'no Android SDK was found';
+		t.calls.on('sdk.status', () => ({ found: false, rejected: [], warnings: [w], installed: { platforms: [], buildTools: [] } }));
+		t.calls.on('sdk.packages', () => ({ found: false, installed: [], available: [], truncated: false, licenses: [], repository: { state: 'read' }, warnings: [w] }));
+		await t.sdk.refresh();
+		expect(t.sdk.view.warnings).toEqual([w]);
+	});
+
 	// Decision (step 8): an install by another client shows as the running operation with its
 	// client kind, and blocks this tab's Install.
 	it('shows another client\'s install and blocks Install', async () => {

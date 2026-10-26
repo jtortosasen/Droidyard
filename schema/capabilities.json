@@ -7642,7 +7642,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "errors": [
         "REQUEST_INVALID_PARAMS",
@@ -7879,7 +7879,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": false,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "errors": [
         "REQUEST_INVALID_PARAMS",
@@ -8077,7 +8077,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "errors": [
         "REQUEST_INVALID_PARAMS",
@@ -13997,7 +13997,7 @@
                 },
                 "licenseAccepted": {
                   "type": "boolean",
-                  "description": "Whether the host SDK's licenses/ directory holds this licence's hash."
+                  "description": "Whether licenses/ in the SDK root (or where sdk.install would set one up) holds this licence's hash."
                 },
                 "dependencies": {
                   "items": {
@@ -14059,7 +14059,7 @@
                 },
                 "accepted": {
                   "type": "boolean",
-                  "description": "Whether the host SDK holds this hash for the id. Accepting is a person's step."
+                  "description": "Whether the SDK root (or where one would be set up) holds this hash for the id. Accepting is a person's step."
                 }
               },
               "additionalProperties": false,

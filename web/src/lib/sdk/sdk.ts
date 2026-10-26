@@ -172,7 +172,8 @@ export class SdkModel {
 				found: this.#status?.found ?? this.#pkgs?.found ?? false,
 				root: this.#status?.root ?? this.#pkgs?.root,
 				targetRoot: this.#licences?.root,
-				warnings: [...(this.#status?.warnings ?? []), ...(this.#pkgs?.warnings ?? [])],
+				// sdk.status and sdk.packages both warn when no SDK is found: one line each, once.
+				warnings: [...new Set([...(this.#status?.warnings ?? []), ...(this.#pkgs?.warnings ?? [])])],
 				repository: this.#pkgs?.repository,
 				truncated: this.#pkgs?.truncated ?? false,
 				groups,

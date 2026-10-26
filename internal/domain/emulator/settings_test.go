@@ -354,6 +354,38 @@ func TestConfigureRefusesRunning(t *testing.T) {
 	}
 }
 
+// TestConfigureRefusesRunningBySerial: the next step of an edit refused because adb lists the
+// AVD says to stop it and edit it again, not to delete it. Seen failing with "delete" fixed.
+func TestConfigureRefusesRunningBySerial(t *testing.T) {
+	avdName, _ := os.ReadFile(filepath.Join("testdata", "emu-avd-name.txt"))
+	name := strings.TrimSpace(strings.SplitN(string(avdName), "\n", 2)[0])
+	f := newAVD(t, map[string]string{"devices.out": listOf(emuLine), serial + ".avd": string(avdName)})
+	f.em.host = roomy
+	f.avdIn(t, filepath.Join(f.home, ".android", "avd"), name)
+	ce := mustFail(t, f.configure(t, capability.ClientUI, name, map[string]any{"ramMb": 2048}), ErrAVDRunning)
+	if !strings.Contains(ce.NextStep, `emulator.stop {"device": "`+serial+`"}`) || !strings.Contains(ce.NextStep, "change it again") || strings.Contains(ce.NextStep, "delete") {
+		t.Errorf("nextStep = %q", ce.NextStep)
+	}
+}
+
+// TestSettingsOfLeavesOutBadDisplayName pins that a listing never publishes a display name its
+// own output schema refuses (maxLength 64, no control characters): the name is absent and the
+// other settings are still read. Seen failing with the check removed from settingsOf.
+func TestSettingsOfLeavesOutBadDisplayName(t *testing.T) {
+	for name, dn := range map[string]string{"65 characters": strings.Repeat("a", 65), "a BEL": "Pixel\x07 9"} {
+		s := settingsOf([]byte("avd.ini.displayname=" + dn + "\nhw.cpu.ncore=4\n"))
+		if s.DisplayName != nil {
+			t.Errorf("%s: displayName = %q, want it left out", name, *s.DisplayName)
+		}
+		if s.CPUCores == nil || *s.CPUCores != 4 {
+			t.Errorf("%s: the other settings were lost: %+v", name, s)
+		}
+	}
+	if s := settingsOf([]byte("avd.ini.displayname=" + strings.Repeat("a", 64) + "\n")); s.DisplayName == nil {
+		t.Error("a 64-character name was left out")
+	}
+}
+
 // TestConfigureRefusesAmbiguous pins ADR-0129 §7 for an edit: a name with an ini in two homes
 // is not edited, since which copy is meant is a guess; both are as they were.
 func TestConfigureRefusesAmbiguous(t *testing.T) {

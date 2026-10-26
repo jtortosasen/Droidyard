@@ -96,6 +96,18 @@ describe('New AVD', () => {
 		await settle();
 		expect(t.emulators.view.avds.map((a) => a.name)).toContain('by-agent');
 	});
+
+	// Found at plan m3f's level 5: Set up installs platform-tools and the emulator, yet the
+	// panel kept "launcher not found" until a manual refresh. An SDK install or uninstall
+	// changes what the panel can show, so it reads again.
+	it('refreshes the list when an SDK install ends', async () => {
+		const t = await setup();
+		t.setList([{ name: 'a1' }, { name: 'after-install' }]);
+		stateEvent(t.watch, 'op-s', { capability: 'sdk.install', state: 'running' }, null);
+		stateEvent(t.watch, 'op-s', { capability: 'sdk.install', state: 'succeeded' }, null);
+		await settle();
+		expect(t.emulators.view.avds.map((a) => a.name)).toContain('after-install');
+	});
 });
 
 describe('Edit, Wipe and Delete', () => {

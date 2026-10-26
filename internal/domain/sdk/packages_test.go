@@ -215,6 +215,43 @@ func TestPackagesNoHostSDK(t *testing.T) {
 	}
 }
 
+// TestPackagesLicenceAcceptedBeforeTheFirstInstall: on a host with no SDK yet, a licence
+// accepted into the root sdk.install would set up (ADR-0131 §3) reads as accepted, as
+// sdk.licenses says; otherwise the SDK panel's Set up stayed pending after Accept (found at
+// plan m3f's level 5).
+func TestPackagesLicenceAcceptedBeforeTheFirstInstall(t *testing.T) {
+	srv := newFxServer(t, fxDefault())
+	root := filepath.Join(t.TempDir(), "sdk")
+	before := answerFor(t, srv, root, PackagesParams{})
+	if before.Found || len(before.Licenses) == 0 {
+		t.Fatalf("found=%v licences=%v", before.Found, before.Licenses)
+	}
+	l := before.Licenses[0]
+	if l.Accepted {
+		t.Fatalf("licence %+v accepted before anything was written", l)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "licenses"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "licenses", l.ID), []byte("\n"+l.SHA1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after := answerFor(t, srv, root, PackagesParams{})
+	if after.Found {
+		t.Fatal("a root holding only licenses/ is not an SDK")
+	}
+	for _, s := range after.Licenses {
+		if s.ID == l.ID && s.SHA1 == l.SHA1 && !s.Accepted {
+			t.Errorf("licence %s is pending after it was accepted into the target root", l.ID)
+		}
+	}
+	for _, a := range after.Available {
+		if a.License.ID == l.ID && a.License.SHA1 == l.SHA1 && !a.LicenseAccepted {
+			t.Errorf("%s shows its licence pending after it was accepted", a.ID)
+		}
+	}
+}
+
 // TestPackagesIsBounded pins the 300-package bound and truncated.
 func TestPackagesIsBounded(t *testing.T) {
 	var pkgs []fxPkg

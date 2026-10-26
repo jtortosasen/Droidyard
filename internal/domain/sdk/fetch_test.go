@@ -229,6 +229,30 @@ func TestInstallRenameRollback(t *testing.T) {
 	}
 }
 
+// TestInstallRollbackFailureMarksTemporary: when the old package cannot be put back either,
+// it stays in the temporary directory, the error says where, and a marker beside it is what
+// tells the sweep to keep it (ADR-0130 §1). Seen failing with the marker not written.
+func TestInstallRollbackFailureMarksTemporary(t *testing.T) {
+	f := updateFixture(t, func(in *installer) {
+		in.rename = func(oldpath, newpath string) error {
+			if strings.Contains(oldpath, "unpacked") || strings.HasSuffix(oldpath, "replaced") {
+				return errors.New("the disk said no")
+			}
+			return os.Rename(oldpath, newpath)
+		}
+	})
+	out := f.installAs("platform-tools")
+	wantCode(t, out, ErrNotWritable)
+	left := tempLeftovers(t, f.root)
+	if len(left) != 1 {
+		t.Fatalf("temporary entries = %v, want the one holding the old package", left)
+	}
+	dir := filepath.Join(f.root, ".temp", left[0])
+	if !present(t, filepath.Join(dir, "replaced", "old.txt")) || !present(t, filepath.Join(dir, keepMarker)) {
+		t.Error("the old package or the marker beside it is missing")
+	}
+}
+
 // TestInstallCrossDevice: a rename that crosses file systems (a parent on another volume, a
 // mount point inside the root) is SDK_NOT_WRITABLE naming the entry, with nothing moved.
 func TestInstallCrossDevice(t *testing.T) {
@@ -455,7 +479,8 @@ var errKilled = errors.New("the daemon was killed")
 
 // TestInstallKilledBetweenRenames: a kill after the old directory moved aside and before
 // the new one is in place leaves the package absent, never half-written (ADR-0130 §1): not
-// at its path, not listed; the old copy stays in the temporary directory for the sweep; and
+// at its path, not listed; the old copy stays in the temporary directory, unmarked, for the sweep (an hour later,
+// TestInstallSweepsOldTemporaries); and
 // the next install installs the package.
 func TestInstallKilledBetweenRenames(t *testing.T) {
 	f := updateFixture(t, func(in *installer) { in.afterAside = func() error { return errKilled } })
@@ -496,6 +521,7 @@ func TestInstallSweepsOldTemporaries(t *testing.T) {
 	}{
 		{"droidyard-old", old}, {"droidyard-new", time.Now().Add(-10 * time.Minute)}, {"foreign-old", old},
 		{"droidyard-rollback/replaced", old}, {"droidyard-rollback", old},
+		{"droidyard-killed/replaced", old}, {"droidyard-killed", old},
 	} {
 		dir := filepath.Join(tmp, c.name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -506,6 +532,11 @@ func TestInstallSweepsOldTemporaries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Only the marker a failed rollback writes keeps a temporary; a "replaced" without it is
+	// what a kill between place's renames left.
+	rb := filepath.Join(tmp, "droidyard-rollback")
+	os.WriteFile(filepath.Join(rb, keepMarker), []byte("x"), 0o644)
+	os.Chtimes(rb, old, old)
 	wantInstalled(t, f.installAs("platform-tools"))
 	if present(t, filepath.Join(tmp, "droidyard-old")) {
 		t.Error("an hour-old droidyard-* entry was kept")
@@ -516,6 +547,9 @@ func TestInstallSweepsOldTemporaries(t *testing.T) {
 	// The old package of a failed rollback stays where the error said it is.
 	if !present(t, filepath.Join(tmp, "droidyard-rollback", "replaced", "f")) {
 		t.Error("the old package an update could not put back was swept")
+	}
+	if present(t, filepath.Join(tmp, "droidyard-killed")) {
+		t.Error("the old revision a kill left in a temporary, unmarked, was kept past an hour")
 	}
 }
 
