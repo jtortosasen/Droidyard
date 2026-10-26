@@ -32,7 +32,7 @@ func registerStatus(reg *capability.Registry, env []string) {
 		Kind:        capability.Query,
 		Scope:       capability.Global,
 		Since:       "0.7.0",
-		Description: "Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, cmdline-tools, system images), read fresh from package.xml files without a JVM.",
+		Description: "Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, cmdline-tools, system images), read fresh from package.xml files (source.properties when a package has none) without a JVM.",
 		Params:      None{},
 		Result:      StatusResult{},
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {

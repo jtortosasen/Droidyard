@@ -25,6 +25,7 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_uiRecordings` |  | read-only | Lists the UI recordings kept, newest first and at most 50, a running one with its live counts and growing timeline (save a timeline with droidyard ... |
 | `device_uiTree` | core | read-only | Returns the current UI as a compact accessibility tree: snapshot id, foreground package, and a flat list of nodes with ref, class, id, text, desc and ... |
 | `device_uninstall` |  | changes state | Uninstalls an application and reports whether it removed one; an app that is not installed completes with uninstalled false. |
+| `emulator_create` |  | changes state | Creates one AVD from a device profile (sdk_profiles) and an installed system image (sdk_packages) with avdmanager, where the launcher lists it, with ... |
 | `emulator_list` | core | read-only | Lists every AVD the emulator launcher knows, with its configuration and, when it is running, its device serial. |
 | `emulator_start` | core | changes state | Boots one AVD and returns {device, avd, adopted} once its device has finished booting. |
 | `emulator_stop` | core | changes state | Stops one running emulator with adb emu kill and returns once its serial leaves adb devices. |
@@ -33,7 +34,10 @@ A session started with `--tools core` lists only the tools marked core.
 | `operation_wait` | core | read-only | Waits for an operation to finish, up to timeoutMs, and returns its state, progress and, once completed, its result. |
 | `project_modules` | core | read-only | Lists the Gradle projects of the workspace's Gradle root (the root and container projects included) with path, name and directory, from one cached ... |
 | `project_variants` | core | read-only | Reports the build variants of each module, or of one with module: source probe is exact, source task-names is inferred from the task names and exact ... |
-| `sdk_requirements` |  | read-only | Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and the ... |
+| `sdk_install` |  | changes state | Installs SDK packages and their dependencies from Google's repository, dependencies first, updates an installed one that has a newer revision, and ... |
+| `sdk_packages` |  | read-only | Lists SDK packages: those installed in the host SDK (size on disk, the newer revision available) and those Google's repository offers for this host ... |
+| `sdk_profiles` |  | read-only | Lists the device profiles AVDs are created from (id, name, maker, kind); use an id as emulator_create's profile. |
+| `sdk_requirements` |  | read-only | Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and, for each, ... |
 | `sdk_status` |  | read-only | Reports the host SDK: its root, where it was found, the candidates rejected before it and what is installed (platforms, build-tools, platform-tools, ... |
 | `shell_exec` |  | changes state | Runs a shell command as the user with `/bin/sh -c` in the project root, or in cwd inside it; stdout and stderr are each the last 16 KiB, and a longer ... |
 | `system_capabilities` |  | read-only | Lists every capability the core exposes, with its scope, statefulness, annotations and availability: the discovery entry point. |

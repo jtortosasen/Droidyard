@@ -9,11 +9,14 @@
 package emulator
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/device"
+	"github.com/jtortosasen/droidyard/internal/domain/sdk"
+	"github.com/jtortosasen/droidyard/internal/platform"
 )
 
 // The codes of emulator.md §Failure modes. Every one is EMULATOR_-prefixed and stable.
@@ -25,6 +28,12 @@ const (
 	ErrBootTimeout      capability.ErrorCode = "EMULATOR_BOOT_TIMEOUT"
 	ErrNotAnEmulator    capability.ErrorCode = "EMULATOR_NOT_AN_EMULATOR"
 	ErrStopTimeout      capability.ErrorCode = "EMULATOR_STOP_TIMEOUT"
+	// The codes of creating and deleting an AVD (plan m3f step 6; ADR-0129 §7).
+	ErrAVDExists         capability.ErrorCode = "EMULATOR_AVD_EXISTS"
+	ErrImageNotInstalled capability.ErrorCode = "EMULATOR_IMAGE_NOT_INSTALLED"
+	ErrProfileNotFound   capability.ErrorCode = "EMULATOR_PROFILE_NOT_FOUND"
+	ErrAVDRunning        capability.ErrorCode = "EMULATOR_AVD_RUNNING"
+	ErrAVDAmbiguous      capability.ErrorCode = "EMULATOR_AVD_AMBIGUOUS"
 )
 
 // clock is the stop's source of time: a test replaces it with a virtual one, so that a
@@ -89,6 +98,17 @@ type Emulator struct {
 	// recorder writes and removes the pid record of a launch until its serial is
 	// resolved (plan m1p Q1); the zero value records nothing.
 	recorder LaunchRecorder
+
+	// tool runs avdmanager for emulator.create and emulator.delete: the one runner of the
+	// sdk package (plan m3f step 6).
+	tool *sdk.Tool
+	// procs and open are the processes of the user and the files candidate processes hold
+	// open, which an AVD's running check reads (running.go); the platform's, replaced by
+	// tests.
+	procs func() ([]platform.Proc, error)
+	// host reads the memory and CPUs the AVD settings' limits depend on (settings.go).
+	host func() hostLimits
+	open func(ctx context.Context, pids []int, dirs []string) ([]platform.OpenFile, error)
 }
 
 // New returns an Emulator over env, the environment the launcher inherits unchanged (so
@@ -97,8 +117,13 @@ type Emulator struct {
 // stateRoot as the state root a boot's log lives under ("" when nothing is booted).
 func New(env []string, adb *device.ADB, starter device.Starter, stateRoot string) *Emulator {
 	return &Emulator{env: append([]string(nil), env...), adb: adb, starter: starter, state: stateRoot,
-		launches: map[string]*launch{}}
+		launches: map[string]*launch{}, tool: sdk.NewTool(sdk.ToolOptions{Env: env}),
+		procs: platform.UserProcesses, host: realHost, open: platform.DefaultLsof().OpenUnder}
 }
+
+// SetTool gives the Emulator the runner of avdmanager the daemon shares with sdk.profiles.
+// Called once, at wiring, before any call.
+func (e *Emulator) SetTool(t *sdk.Tool) { e.tool = t }
 
 // LaunchRecorder writes and removes the pid record that makes a launch without a serial
 // findable by the next daemon's crash recovery (plan m1p Q1; ADR-0021's 2026-10-08 line).
@@ -132,6 +157,9 @@ func Register(reg *capability.Registry, e *Emulator) {
 	registerStart(reg, e)
 	registerStop(reg, e)
 	registerWipe(reg, e)
+	registerCreate(reg, e)
+	registerDelete(reg, e)
+	registerConfigure(reg, e)
 }
 
 // boolPtr is a pointer to b, for a Descriptor's Annotations.

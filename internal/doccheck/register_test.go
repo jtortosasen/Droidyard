@@ -221,7 +221,30 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 21 (to 30,145) at milestone 3e's close: README.md's status line names 3e and 3f;
 // gradle.md keeps why the sidecar's JVM comes first (the daemon's default, so the terminal
 // reuses it) and names the wrapperless next step (the close verifier's findings).
-const liveBudget = 30145
+// Raised by 2 (to 30,147) at milestone 3f step 2: mvp.md's capability surface names
+// sdk.packages and the phase it came in.
+// Raised by 18 (to 30,165) at milestone 3f step 3: mvp.md's capability surface names
+// sdk.licenses and sdk.acceptLicense, and mcp.md §What is exposed, and what is not lists
+// them with the one clause that says why they are human-only (the doccheck needs both).
+// Raised by 9 (to 30,174) at milestone 3f step 4: mvp.md's capability surface names
+// sdk.install and sdk.uninstall, and mcp.md lists uninstall beside the other human-only sdk calls.
+//
+// Raised by 5 (to 30,179) at milestone 3f step 5: process-lifecycle.md's per-operation row
+// names lsof, which the SDK in-use check runs (ADR-0129 §8).
+//
+// Raised by 15 (to 30,194) at milestone 3f step 6: mvp.md's capability surface names
+// sdk.profiles, emulator.create and emulator.delete, mcp.md lists delete beside the other
+// human-only calls (the doccheck needs both), and process-lifecycle.md's per-operation row
+// names avdmanager and its kind sdk-tool (ADR-0130 §5).
+//
+// Raised by 5 (to 30,199) at milestone 3f step 7: mvp.md's capability surface names
+// emulator.configure, and mcp.md lists it beside the other human-only calls (the doccheck needs both).
+//
+// Raised by 163 (to 30,362) at milestone 3f's close: sdk.md's §Provisioning, from a
+// paragraph of intent to the design and its why (Droidyard's installer, consent, in use,
+// network and space); emulator.md's observed launcher directory and its create, edit and
+// delete with the running check; mcp.md's elicitation line; README.md's status line.
+const liveBudget = 30362
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -4,6 +4,7 @@
 - Date: 2026-09-27
 - Amended: 2026-09-29 — the Gradle execution path is settled: a Tooling API sidecar
   ([ADR-0017](0017-gradle-execution-strategy.md)), not the Gradle CLI.
+- Superseded in part by: ADR-0130 (§Decision)
 
 ## Context
 

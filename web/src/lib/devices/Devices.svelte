@@ -3,7 +3,7 @@
 	import { deviceHolds, inUseText, type DeviceHold, type SessionsModel } from '../projects/sessions';
 	import { deviceLine, deviceText, remoteHolderText } from '../toolbar/devicemenu';
 	import { lentRows, type LendingModel, type LendingView } from './lending';
-	import type { EmulatorsModel, EmulatorsView } from './emulators';
+	import { rowActions, type EmulatorsModel, type EmulatorsView } from './emulators';
 	import type { InstallModel, InstallView } from './install';
 	import { failureText } from '../build/failure';
 	import { targetText, type ActiveOp } from './mirror';
@@ -11,6 +11,7 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Smartphone from '@lucide/svelte/icons/smartphone';
 	import Square from '@lucide/svelte/icons/square';
+	import { NUMBER_FIELDS, draftOf, draftProblems, emptyDraft, nameProblem, type Draft } from './avdform';
 
 	// The devices panel (plan m2b step 5): the toolbar's device as text (the choice is the
 	// toolbar's, m2e D36), the AVDs with Start and Stop, install and launch. Booting,
@@ -26,8 +27,52 @@
 		sessions: SessionsModel;
 		/** What this machine lends (plan m2t): its entries in hosting.lend, and Stop lending. */
 		lending: LendingModel;
+		/** Opens the SDK panel on system images (New AVD with no image installed). */
+		onopensdk: () => void;
 	}
-	let { devices, emulators, install, connected, sessions, lending }: Props = $props();
+	let { devices, emulators, install, connected, sessions, lending, onopensdk }: Props = $props();
+
+	// New AVD, Edit, Wipe and Delete (plan m3f step 9). The forms hold text; the checks and
+	// what is sent are avdform.ts's. Names, profiles and image ids come from the host or the
+	// repository and are text nodes.
+	let creating = $state(false);
+	let newName = $state('');
+	let newProfile = $state('');
+	let newImage = $state('');
+	let newDraft = $state<Draft>(emptyDraft());
+	let editing = $state<string | null>(null);
+	let editDraft = $state<Draft>(emptyDraft());
+	let wiping = $state<string | null>(null);
+	let deleting = $state<string | null>(null);
+
+	function openNew() {
+		creating = true;
+		newName = '';
+		newDraft = emptyDraft();
+		void emulators.loadChoices();
+	}
+	async function submitNew() {
+		const problems = await emulators.create({ name: newName, profile: newProfile, image: newImage, draft: newDraft });
+		if (Object.keys(problems).length === 0 && emulators.view.createError === null) creating = false;
+	}
+	function openEdit(name: string) {
+		const row = ev?.avds.find((a) => a.name === name);
+		editing = name;
+		editDraft = draftOf(row?.config?.settings);
+		wiping = deleting = null;
+	}
+	async function submitEdit(name: string) {
+		const problems = await emulators.configure(name, editDraft);
+		if (Object.keys(problems).length === 0 && emulators.view.editError === null) editing = null;
+	}
+	async function confirmWipe(name: string) {
+		await emulators.wipe(name);
+		wiping = null;
+	}
+	async function confirmDelete(name: string) {
+		await emulators.remove(name);
+		if (emulators.view.deleteError === null) deleting = null;
+	}
 
 	let holds = $state.raw<DeviceHold[]>([]);
 	let releaseError = $state<string | null>(null);
@@ -97,8 +142,78 @@
 	const lent = $derived(lentRows(lv?.lent ?? [], holds));
 	const otherHolds = $derived(holds.filter((h) => !lent.some((l) => l.serial === h.serial)));
 	// A remote device's host and holder, from device.list: the holder is on the host's machine.
+	const newProblems = $derived({
+		...draftProblems(newDraft),
+		...(newName === '' ? {} : { avd: nameProblem(newName, ev?.avds.map((a) => a.name) ?? []) }),
+	});
+	const editCurrent = $derived(ev?.avds.find((a) => a.name === editing)?.config?.settings);
+	const editProblems = $derived(draftProblems(editDraft, editCurrent ?? {}));
+	const problemList = (p: Record<string, string | undefined>) => Object.values(p).filter((x): x is string => !!x);
 	const remote = $derived((dv?.devices ?? []).filter((d) => d.host !== undefined));
 </script>
+
+{#snippet settingsFields(draft: Draft, edit: boolean, problems: Record<string, string | undefined>, id: string)}
+	<div class="fields">
+		<label>
+			Display name
+			<input type="text" id="{id}-displayName" bind:value={draft.displayName} aria-invalid={!!problems.displayName} aria-describedby="{id}-displayName-r" />
+			<span class="small muted" id="{id}-displayName-r">1 to 64 characters</span>
+		</label>
+		{#each NUMBER_FIELDS as f (f.key)}
+			{#if !(f.createOnly && edit)}
+				<label>
+					{f.label}
+					<input type="text" inputmode="numeric" id="{id}-{f.key}" bind:value={draft[f.key]} aria-invalid={!!problems[f.key]} aria-describedby="{id}-{f.key}-r" />
+					<span class="small muted" id="{id}-{f.key}-r">{f.range}</span>
+				</label>
+			{/if}
+		{/each}
+		<label>
+			Graphics
+			<select bind:value={draft.graphics}>
+				<option value="">default</option>
+				<option value="automatic">automatic</option>
+				<option value="hardware">hardware</option>
+				<option value="software">software</option>
+			</select>
+		</label>
+		<label>
+			Orientation
+			<select bind:value={draft.orientation}>
+				<option value="">default</option>
+				<option value="portrait">portrait</option>
+				<option value="landscape">landscape</option>
+			</select>
+		</label>
+		<label>
+			Boot
+			<select bind:value={draft.boot}>
+				<option value="">default</option>
+				<option value="quick">quick</option>
+				<option value="cold">cold</option>
+			</select>
+		</label>
+		<label>
+			Device frame
+			<select bind:value={draft.deviceFrame}>
+				<option value="">default</option>
+				<option value="true">shown</option>
+				<option value="false">hidden</option>
+			</select>
+		</label>
+		<label>
+			Host keyboard
+			<select bind:value={draft.keyboard}>
+				<option value="">default</option>
+				<option value="true">on</option>
+				<option value="false">off</option>
+			</select>
+		</label>
+	</div>
+	{#each problemList(problems) as p (p)}
+		<p class="err" role="alert">{p}</p>
+	{/each}
+{/snippet}
 
 <section class="devices">
 	<h2>Devices</h2>
@@ -161,11 +276,73 @@
 
 		<div class="head">
 			<h3>Emulators</h3>
+			<button type="button" class="btn-icon" disabled={!connected || creating} onclick={openNew}>New AVD</button>
 			<label class="check small">
 				<input type="checkbox" checked={ev.headless} onchange={(e) => emulators.setHeadless(e.currentTarget.checked)} />
 				Headless
 			</label>
 		</div>
+		{#if creating}
+			<form
+				class="form"
+				aria-label="New AVD"
+				onsubmit={(e) => {
+					e.preventDefault();
+					void submitNew();
+				}}
+			>
+				<label>
+					Name
+					<input type="text" bind:value={newName} aria-invalid={!!newProblems.avd} autocomplete="off" />
+				</label>
+				<label>
+					Device profile
+					<select bind:value={newProfile}>
+						<option value="">choose...</option>
+						{#each ev.profiles as p (p.id)}
+							<option value={p.id}>{p.name}{p.oem ? ` (${p.oem})` : ''}</option>
+						{/each}
+					</select>
+				</label>
+				<label>
+					System image
+					<select bind:value={newImage}>
+						<option value="">choose...</option>
+						{#each ev.images as img (img)}
+							<option value={img}>{img}</option>
+						{/each}
+					</select>
+				</label>
+				{#if ev.choicesLoaded && ev.images.length === 0}
+					<p class="muted" data-testid="no-image">
+						No system image is installed.
+						<button type="button" onclick={onopensdk}>Install one in the SDK panel</button>
+					</p>
+				{/if}
+				{#if ev.choicesError}
+					<p class="err">{failureText(ev.choicesError)}</p>
+				{/if}
+				<details>
+					<summary>Advanced</summary>
+					<p class="muted small">Empty keeps the device profile's and the image's default.</p>
+					{@render settingsFields(newDraft, false, newProblems, 'new')}
+				</details>
+				{#if ev.createError}
+					<p class="err">
+						Create refused: {failureText(ev.createError)}
+						{#if ev.createError.code === 'EMULATOR_IMAGE_NOT_INSTALLED'}
+							<button type="button" onclick={onopensdk}>Install one in the SDK panel</button>
+						{/if}
+					</p>
+				{/if}
+				<div class="line">
+					<button type="submit" class="primary" disabled={!connected || ev.working || problemList(newProblems).length > 0 || newName === '' || newProfile === '' || newImage === ''}>
+						Create
+					</button>
+					<button type="button" onclick={() => (creating = false)}>Cancel</button>
+				</div>
+			</form>
+		{/if}
 		{#if ev.loadError}
 			<p class="err">emulator.list failed: {failureText(ev.loadError)}</p>
 		{/if}
@@ -174,6 +351,7 @@
 		{/if}
 		<ul class="avds">
 			{#each ev.avds as avd (avd.name)}
+				{@const act = rowActions(avd, ev.working)}
 				<li class="avd">
 					<span class="dot" class:on={!!avd.running} aria-hidden="true"></span>
 					<span class="name">
@@ -184,6 +362,7 @@
 							<span class="tag">this project's AVD</span>
 						{/if}
 					</span>
+					<span class="actions">
 					{#if avd.running}
 						<button
 							type="button"
@@ -202,11 +381,81 @@
 					>
 						<Play size={12} /> Start
 					</button>
+					<button
+						type="button"
+						class="btn-icon"
+						aria-label="Edit {avd.name}"
+						disabled={!connected || !act.edit}
+						title={avd.running ? 'Stop the AVD to edit it' : 'Edit its hardware settings'}
+						onclick={() => openEdit(avd.name)}
+					>
+						Edit
+					</button>
+					<button
+						type="button"
+						class="btn-icon btn-danger apart"
+						aria-label="Wipe {avd.name}"
+						disabled={!connected || ev.working || ev.mirror.booting !== null}
+						onclick={() => (wiping = avd.name)}
+					>
+						Wipe
+					</button>
+					<button
+						type="button"
+						class="btn-icon btn-danger"
+						aria-label="Delete {avd.name}"
+						disabled={!connected || !act.remove}
+						title={avd.running ? 'Stop the AVD to delete it' : 'Delete the AVD'}
+						onclick={() => (deleting = avd.name)}
+					>
+						Delete
+					</button>
+					</span>
 				</li>
+				{#if act.why}
+					<li class="note small muted" data-for={avd.name}>{act.why}</li>
+				{/if}
+				{#if editing === avd.name}
+					<li class="form" aria-label="Edit {avd.name}">
+						<p class="muted small">Prefilled with its current settings; only what you change is sent.</p>
+						{@render settingsFields(editDraft, true, editProblems, 'edit')}
+						{#if ev.editError}
+							<p class="err">Edit refused: {failureText(ev.editError)}</p>
+						{/if}
+						<div class="line">
+							<button type="button" class="primary" disabled={!connected || ev.working || problemList(editProblems).length > 0} onclick={() => void submitEdit(avd.name)}>Save</button>
+							<button type="button" onclick={() => (editing = null)}>Cancel</button>
+						</div>
+					</li>
+				{/if}
+				{#if wiping === avd.name}
+					<li class="form" role="group" aria-label="Confirm wipe">
+						<p>Wipe <span class="mono">{avd.name}</span>? This erases its data and boots it.</p>
+						<div class="line">
+							<button type="button" class="btn-danger" disabled={!connected || ev.working} onclick={() => void confirmWipe(avd.name)}>Wipe</button>
+							<button type="button" onclick={() => (wiping = null)}>Cancel</button>
+						</div>
+					</li>
+				{/if}
+				{#if deleting === avd.name}
+					<li class="form" role="group" aria-label="Confirm delete">
+						<p>Delete <span class="mono">{avd.name}</span>? The AVD and its data are removed.</p>
+						<div class="line">
+							<button type="button" class="btn-danger" disabled={!connected || ev.working || !!avd.running} onclick={() => void confirmDelete(avd.name)}>Delete</button>
+							<button type="button" onclick={() => (deleting = null)}>Cancel</button>
+						</div>
+					</li>
+				{/if}
 			{/each}
 		</ul>
 		{#if ev.startError}
 			<p class="err">Start refused: {failureText(ev.startError)}</p>
+		{/if}
+		{#if ev.wipeError}
+			<p class="err">Wipe refused: {failureText(ev.wipeError)}</p>
+		{/if}
+		{#if ev.deleteError}
+			<p class="err">Delete refused: {failureText(ev.deleteError)}</p>
 		{/if}
 		{#if ev.stopError}
 			<p class="err">Stop refused: {failureText(ev.stopError)}</p>
@@ -354,8 +603,9 @@
 	}
 	.avd {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--sp-1) var(--sp-3);
 		min-height: var(--row);
 		padding: var(--sp-1) var(--sp-3);
 		border-radius: var(--radius-control);
@@ -363,9 +613,17 @@
 	.avd:hover {
 		background: var(--bg-hover);
 	}
+	/* The name and state keep at least 9rem; when the actions do not fit beside them they wrap beneath. */
 	.name {
-		flex: 1;
+		flex: 1 1 9rem;
 		min-width: 0;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--sp-1);
+		margin-left: auto;
 	}
 	/* The AVD name and the state word each keep one line and ellipsize; no token is cut in the middle. */
 	.line1 {
@@ -399,6 +657,36 @@
 	/* Stop is destructive: set apart from Start and from the name (contract). */
 	.stop {
 		margin: 0 var(--sp-2);
+	}
+	/* Wipe and Delete are destructive: Wipe is set apart from Edit by a gap, Delete stands last. */
+	.apart {
+		margin-left: var(--sp-3);
+	}
+	.form {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-3);
+		margin: var(--sp-3) 0;
+		padding: var(--sp-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		list-style: none;
+	}
+	.form label,
+	.fields label {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-1);
+		color: var(--text-2);
+	}
+	.fields {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: var(--sp-3);
+	}
+	.note {
+		list-style: none;
+		padding: 0 var(--sp-3);
 	}
 	.tag {
 		padding: 0 var(--sp-3);

@@ -15,7 +15,7 @@ import "syscall"
 // leader cannot setpgid, so the kind is given Setsid alone (plan m2n P1, item 6).
 func sysProcAttr(kind Kind) *syscall.SysProcAttr {
 	attr := &syscall.SysProcAttr{Setpgid: true}
-	if kind == GitWrite {
+	if kind == GitWrite || kind == SDKTool {
 		attr = &syscall.SysProcAttr{Setsid: true}
 	}
 	if deathSignal(kind) {

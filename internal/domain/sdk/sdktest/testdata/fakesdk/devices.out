@@ -1,0 +1,32 @@
+Available devices definitions:
+id: 0 or "ai_glasses_displayless"
+    Name: Audio Glasses
+    OEM : Google
+    Tag : ai-glasses
+---------
+id: 1 or "automotive_1024p_landscape"
+    Name: Automotive (1024p landscape)
+    OEM : Google
+    Tag : android-automotive-playstore
+---------
+id: 10 or "desktop_api37"
+    Name: Desktop (Preview)
+    OEM : Google
+    Tag : android-desktop
+---------
+id: 12 or "Galaxy Nexus"
+    Name: Galaxy Nexus
+    OEM : Google
+---------
+id: 23 or "Nexus 7 2013"
+    Name: Nexus 7
+    OEM : Google
+---------
+id: 57 or "pixel_9a"
+    Name: Pixel 9a
+    OEM : Google
+---------
+id: 44 or "pixel_6"
+    Name: Pixel 6
+    OEM : Google
+---------

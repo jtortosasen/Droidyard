@@ -208,8 +208,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 37 {
-			t.Errorf("%v lists %d tools; want 37", args, len(names))
+		if len(names) != 41 {
+			t.Errorf("%v lists %d tools; want 41", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)
@@ -277,6 +277,9 @@ func TestCoreNextStepsNameCoreTools(t *testing.T) {
 		"device.recordUi":        "only device.recordUi's own DEVICE_UI_DUMP_FAILED retry (uirecord.go)",
 		"device.stopUiRecording": "only device.recordUi's own DEVICE_UI_RECORDING_ACTIVE (uirecord.go)",
 		"system.capabilities":    "the unknown-capability error, which an MCP session cannot send: an unknown tool name is refused by MCP first",
+		"sdk.install":            "only emulator.create's EMULATOR_IMAGE_NOT_INSTALLED (create.go), and emulator.create is not a core tool (ADR-0129 §1)",
+		"sdk.packages":           "only emulator.create's EMULATOR_IMAGE_NOT_INSTALLED (create.go), and emulator.create is not a core tool (ADR-0129 §1)",
+		"sdk.profiles":           "only emulator.create's EMULATOR_PROFILE_NOT_FOUND (create.go), and emulator.create is not a core tool (ADR-0129 §1)",
 	}
 
 	// Every published capability, exposed or not: a token naming one is a nextStep

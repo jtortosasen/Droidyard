@@ -5,11 +5,40 @@
 import type { Params, Result } from '../api/capabilities.gen';
 import { CapabilityError, type CallOptions } from '../api/client';
 import { failure, type Failure } from '../build/failure';
+import { changedSettings, draftProblems, nameProblem, settingsOf, type Draft, type Problems, type Settings } from './avdform';
 import { DEVICE_TRIGGERS, type DevicesActivity, type DevicesMirror, type DevicesMirrorView } from './mirror';
 
 export type AvdInfo = Result<'emulator.list'>['avds'][number];
 
-type Calls = 'emulator.list' | 'emulator.start' | 'emulator.stop';
+export type Profile = Result<'sdk.profiles'>['profiles'][number];
+
+type Calls =
+	| 'emulator.list'
+	| 'emulator.start'
+	| 'emulator.stop'
+	| 'emulator.create'
+	| 'emulator.configure'
+	| 'emulator.delete'
+	| 'emulator.wipe'
+	| 'sdk.profiles'
+	| 'sdk.status';
+
+/** Edit and Delete need the AVD stopped; the reason is shown beside the disabled buttons. */
+export function rowActions(avd: AvdInfo, working: boolean): { edit: boolean; remove: boolean; why: string | null } {
+	const running = !!avd.running;
+	return {
+		edit: !running && !working,
+		remove: !running && !working,
+		why: running ? `Edit and Delete need ${avd.name} stopped.` : null,
+	};
+}
+
+export interface NewAvd {
+	name: string;
+	profile: string;
+	image: string;
+	draft: Draft;
+}
 
 export interface EmulatorsClient {
 	call<N extends Calls>(name: N, params: Params<N>, opts?: CallOptions): Promise<Result<N>>;
@@ -27,6 +56,17 @@ export interface EmulatorsView {
 	loadError: Failure | null;
 	startError: Failure | null;
 	stopError: Failure | null;
+	/** Device profiles and installed system images, read when New AVD opens. */
+	profiles: readonly Profile[];
+	images: readonly string[];
+	choicesLoaded: boolean;
+	choicesError: Failure | null;
+	/** A create, edit, wipe or delete call is in flight. */
+	working: boolean;
+	createError: Failure | null;
+	editError: Failure | null;
+	wipeError: Failure | null;
+	deleteError: Failure | null;
 }
 
 export class EmulatorsModel {
@@ -41,6 +81,15 @@ export class EmulatorsModel {
 	#loadError: Failure | null = null;
 	#startError: Failure | null = null;
 	#stopError: Failure | null = null;
+	#profiles: Profile[] = [];
+	#images: string[] = [];
+	#choicesLoaded = false;
+	#choicesError: Failure | null = null;
+	#working = false;
+	#createError: Failure | null = null;
+	#editError: Failure | null = null;
+	#wipeError: Failure | null = null;
+	#deleteError: Failure | null = null;
 	#gen = 0;
 	// ADR-0046: the AVD the project file names, and the listeners told when the user starts one.
 	#pref = '';
@@ -63,6 +112,15 @@ export class EmulatorsModel {
 			loadError: this.#loadError,
 			startError: this.#startError,
 			stopError: this.#stopError,
+			profiles: this.#profiles,
+			images: this.#images,
+			choicesLoaded: this.#choicesLoaded,
+			choicesError: this.#choicesError,
+			working: this.#working,
+			createError: this.#createError,
+			editError: this.#editError,
+			wipeError: this.#wipeError,
+			deleteError: this.#deleteError,
 		};
 		return this.#view;
 	}
@@ -137,6 +195,100 @@ export class EmulatorsModel {
 			if (e instanceof CapabilityError) this.#stopError = failure(e);
 		}
 		this.#changed();
+	}
+
+	/** The profiles and the installed system images New AVD offers. */
+	async loadChoices(): Promise<void> {
+		this.#choicesError = null;
+		try {
+			const [p, s] = await Promise.all([this.#client.call('sdk.profiles', {}), this.#client.call('sdk.status', {})]);
+			this.#profiles = p.profiles;
+			this.#images = s.installed.systemImages.map((i) => i.id);
+			this.#choicesLoaded = true;
+		} catch (e) {
+			if (e instanceof CapabilityError) {
+				this.#choicesError = failure(e);
+				this.#choicesLoaded = true;
+			}
+		}
+		this.#changed();
+	}
+
+	/**
+	 * `emulator.create`. A form that does not pass `draftProblems`, a name already listed or a
+	 * missing profile or image is refused here, before the call; the problems come back by field.
+	 */
+	async create(input: NewAvd): Promise<Problems> {
+		const problems: Problems = draftProblems(input.draft);
+		const name = nameProblem(input.name, this.#avds.map((a) => a.name));
+		if (name) problems.avd = name;
+		if (input.profile === '') problems.profile = 'Choose a device profile.';
+		if (input.image === '') problems.systemImage = 'Choose a system image.';
+		if (Object.keys(problems).length > 0 || this.#working) return problems;
+		const settings = settingsOf(input.draft);
+		const params = { avd: input.name, profile: input.profile, systemImage: input.image };
+		return this.#run(
+			(f) => (this.#createError = f),
+			async () => {
+				await this.#client.call('emulator.create', Object.keys(settings).length > 0 ? { ...params, settings } : params);
+				await this.refresh();
+			},
+		);
+	}
+
+	/** `emulator.configure` of a stopped AVD: only the fields that differ from its stored settings. */
+	async configure(avd: string, draft: Draft): Promise<Problems> {
+		const row = this.#avds.find((a) => a.name === avd);
+		const current: Settings | undefined = row?.config?.settings;
+		const problems = draftProblems(draft, current ?? {});
+		if (Object.keys(problems).length > 0 || row === undefined || row.running || this.#working) return problems;
+		const settings = changedSettings(draft, current);
+		if (Object.keys(settings).length === 0) return problems;
+		return this.#run(
+			(f) => (this.#editError = f),
+			async () => {
+				await this.#client.call('emulator.configure', { avd, settings });
+				await this.refresh();
+			},
+		);
+	}
+
+	/** `emulator.wipe`: the factory reset boots the AVD; refused while anything boots. */
+	async wipe(avd: string): Promise<void> {
+		if (this.#working || this.mirror.view.booting !== null) return;
+		await this.#run(
+			(f) => (this.#wipeError = f),
+			async () => {
+				await this.#client.call('emulator.wipe', this.#headless ? { avd, headless: true } : { avd });
+			},
+		);
+	}
+
+	/** `emulator.delete`, never of a running AVD. */
+	async remove(avd: string): Promise<void> {
+		if (this.#working || this.#avds.some((a) => a.name === avd && a.running)) return;
+		await this.#run(
+			(f) => (this.#deleteError = f),
+			async () => {
+				await this.#client.call('emulator.delete', { avd });
+				await this.refresh();
+			},
+		);
+	}
+
+	async #run(setError: (f: Failure | null) => Failure | null, body: () => Promise<void>): Promise<Problems> {
+		this.#createError = this.#editError = this.#wipeError = this.#deleteError = null;
+		this.#working = true;
+		this.#changed();
+		try {
+			await body();
+		} catch (e) {
+			if (e instanceof CapabilityError) setError(failure(e));
+		} finally {
+			this.#working = false;
+			this.#changed();
+		}
+		return {};
 	}
 
 	dispose(): void {

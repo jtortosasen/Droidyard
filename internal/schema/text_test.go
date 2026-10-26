@@ -23,19 +23,22 @@ import (
 var rendered = []string{
 	"build.assemble", "build.lastResult", "build.run",
 	"device.inputText", "device.logs", "device.recordUi", "device.stopUiRecording", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiRecordings", "device.uiTree",
+	"sdk.licenses", "sdk.packages", "sdk.profiles",
 	"system.capabilities",
 }
 
 // TestTheRenderedCapabilitiesAreThePlansList: exactly these capabilities declare a Text,
-// and none of them is hidden from MCP by being human-only or stateful (a rendering no
-// adapter can reach would be dead weight).
+// and none of them is stateful (a rendering no adapter can reach would be dead weight). A
+// human-only capability may declare one: the CLI prints it (ADR-0122 §4), which is how
+// sdk.licenses shows a licence text and the command that accepts it (plan m3f step 3);
+// the MCP adapter never sends it, as it never reaches a human-only capability.
 func TestTheRenderedCapabilitiesAreThePlansList(t *testing.T) {
 	var got []string
 	for _, d := range registry().All() {
 		if d.Text != nil {
 			got = append(got, d.Name)
-			if d.Audience == capability.AudienceHuman || d.Statefulness != capability.Stateless {
-				t.Errorf("%s declares a rendering but is not exposed over MCP", d.Name)
+			if d.Statefulness != capability.Stateless {
+				t.Errorf("%s declares a rendering but is stateful, so no adapter prints it", d.Name)
 			}
 		}
 	}

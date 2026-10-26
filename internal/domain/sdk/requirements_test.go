@@ -123,28 +123,42 @@ func TestRequirementsEverythingInstalled(t *testing.T) {
 	}
 }
 
-// Decision (plan m1h D12, A6): a required platform the project SDK lacks is in missing,
-// and a note names the sdkmanager command that would install it into the project SDK's
-// root; the build-tools that are installed are not.
-func TestRequirementsNamesAMissingPlatform(t *testing.T) {
+// TestRequirementsNoteNamesInstall: decision (plan m1h D12, A6; plan m3f step 4): a required platform the project SDK lacks
+// is in missing, and a note names how to install it: the sdk.install call when the project
+// SDK is the host SDK (sdk.install writes there), the sdkmanager command into the project
+// SDK's root when it is another; the build-tools that are installed are not named.
+func TestRequirementsNoteNamesInstall(t *testing.T) {
 	sdkRoot := t.TempDir()
 	writePackage(t, filepath.Join(sdkRoot, "platforms", "android-36", "package.xml"), "platforms;android-36", "2")
 	writePackage(t, filepath.Join(sdkRoot, "build-tools", "35.0.0", "package.xml"), "build-tools;35.0.0", "35", "0", "0")
 
-	res := runRequirements(t, Options{Env: []string{"ANDROID_HOME=" + sdkRoot}}, androidModel("android-33", "35.0.0", sdkRoot), "/w")
-	if !res.Complete {
-		t.Errorf("complete is false; want true (both fields were read)")
+	check := func(t *testing.T, res RequirementsResult, wantNote, notWant string) {
+		if !res.Complete {
+			t.Errorf("complete is false; want true (both fields were read)")
+		}
+		if !missing(res.Missing, "platforms;android-33") {
+			t.Errorf("missing = %v, want platforms;android-33", res.Missing)
+		}
+		if missing(res.Missing, "build-tools;35.0.0") {
+			t.Errorf("missing = %v, want the installed build-tools left out", res.Missing)
+		}
+		if !anyNote(res.Notes, wantNote) {
+			t.Errorf("notes = %v, want one naming %q", res.Notes, wantNote)
+		}
+		if anyNote(res.Notes, notWant) {
+			t.Errorf("notes = %v, must not name %q", res.Notes, notWant)
+		}
 	}
-	if !missing(res.Missing, "platforms;android-33") {
-		t.Errorf("missing = %v, want platforms;android-33", res.Missing)
-	}
-	if missing(res.Missing, "build-tools;35.0.0") {
-		t.Errorf("missing = %v, want the installed build-tools left out", res.Missing)
-	}
-	wantNote := `sdkmanager --sdk_root=` + sdkRoot + ` "platforms;android-33"`
-	if !anyNote(res.Notes, wantNote) {
-		t.Errorf("notes = %v, want one naming %q", res.Notes, wantNote)
-	}
+	t.Run("the project SDK is the host SDK", func(t *testing.T) {
+		res := runRequirements(t, Options{Env: []string{"ANDROID_HOME=" + sdkRoot}}, androidModel("android-33", "35.0.0", sdkRoot), "/w")
+		check(t, res, `sdk.install: {"packages": ["platforms;android-33"]}`, "sdkmanager")
+	})
+	t.Run("another SDK", func(t *testing.T) {
+		hostRoot := t.TempDir()
+		writePackage(t, filepath.Join(hostRoot, "platforms", "android-36", "package.xml"), "platforms;android-36", "2")
+		res := runRequirements(t, Options{Env: []string{"ANDROID_HOME=" + hostRoot}}, androidModel("android-33", "35.0.0", sdkRoot), "/w")
+		check(t, res, `sdkmanager --sdk_root=`+sdkRoot+` "platforms;android-33"`, "sdk.install")
+	})
 }
 
 // Decision (plan m1h step 1 §Changes, D12; G4): the compile target android-37 is

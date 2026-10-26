@@ -12,6 +12,8 @@
 //	list-avds.exit         its exit status (default 0)
 //	list-avds.delay        milliseconds it sleeps before answering
 //	list-avds.hang         if present, it never answers
+//	list-avds.fromhome     if present, it first lists the <name>.ini files of the one
+//	                       directory the real launcher reads (listHome)
 //	launcher.calls.log     one line per invocation: its arguments
 //
 // A `-avd <name> …` invocation is a boot (plan m1i, D20): it prints a line naming the
@@ -180,6 +182,9 @@ func run(ctx context.Context, dir, table string, args []string, stdout, stderr *
 				return 0
 			}
 		}
+		if has("list-avds.fromhome") {
+			listHome(stdout)
+		}
 		cat("list-avds.out", stdout)
 		cat("list-avds.err", stderr)
 		if b, err := os.ReadFile(filepath.Join(dir, "list-avds.exit")); err == nil {
@@ -193,6 +198,36 @@ func run(ctx context.Context, dir, table string, args []string, stdout, stderr *
 	}
 	fmt.Fprintln(stderr, "fake emulator: unexpected arguments:", strings.Join(args, " "))
 	return 9
+}
+
+// listHome prints the AVD names the real launcher would list from the environment: the
+// <name>.ini files of the first of ANDROID_AVD_HOME, ANDROID_SDK_HOME/.android/avd and
+// HOME/.android/avd that exists, and of no other directory (plan m3f step 1 (d), observed
+// with launcher 36.6.11.0). ANDROID_EMULATOR_HOME/avd and ANDROID_USER_HOME/avd are never
+// read. It is how a test sees that an AVD made by emulator.create is listed.
+func listHome(stdout *os.File) {
+	var cands []string
+	if v := os.Getenv("ANDROID_AVD_HOME"); v != "" {
+		cands = append(cands, v)
+	}
+	if v := os.Getenv("ANDROID_SDK_HOME"); v != "" {
+		cands = append(cands, filepath.Join(v, ".android", "avd"))
+	}
+	if v := os.Getenv("HOME"); v != "" {
+		cands = append(cands, filepath.Join(v, ".android", "avd"))
+	}
+	for _, c := range cands {
+		entries, err := os.ReadDir(c)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if name, ok := strings.CutSuffix(e.Name(), ".ini"); ok && !e.IsDir() {
+				fmt.Fprintln(stdout, name)
+			}
+		}
+		return
+	}
 }
 
 // boot is a `-avd <name> …` invocation: the early exit a scenario scripts, or a detached

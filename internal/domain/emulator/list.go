@@ -22,6 +22,9 @@ type AVDConfig struct {
 	ABI           string `json:"abi,omitempty" jsonschema_description:"config.ini's abi.type, e.g. arm64-v8a."`
 	DeviceProfile string `json:"deviceProfile,omitempty" jsonschema_description:"config.ini's hw.device.name, e.g. pixel_9a."`
 	DisplayName   string `json:"displayName,omitempty" jsonschema_description:"config.ini's avd.ini.displayname, the human name."`
+	// Settings are the hardware settings config.ini holds in a form emulator.configure and
+	// emulator.create write (settings.go); a key it lacks or holds in another form is left out.
+	Settings *Settings `json:"settings,omitempty" jsonschema_description:"The AVD's hardware settings as config.ini holds them, the fields emulator.configure takes."`
 }
 
 // Running is the device running an AVD: its serial, the value of every device argument.

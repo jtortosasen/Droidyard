@@ -36,15 +36,15 @@ will appear in `device.list`).
 ## AVD discovery
 
 **Names come from the launcher**: `emulator -list-avds` (launcher `INFO` chatter filtered) is
-authoritative, because it applies its own search rules. **Directories**, to read an AVD's
-configuration: the emulator's documented order is `$ANDROID_AVD_HOME`, `$ANDROID_USER_HOME/avd`,
-`~/.android/avd`; two variables also relocate the default and are checked where they apply,
-`$ANDROID_EMULATOR_HOME/avd` (after `ANDROID_AVD_HOME`) and the legacy
-`$ANDROID_SDK_HOME/.android/avd` (before the home default). Each AVD is a `<name>.ini` whose `path=`
-(absolute) or `path.rel=` names the `<name>.avd/` directory, which may live elsewhere: read the
-entry, never assume it sits beside the `.ini`. The launcher inherits the daemon's environment
-unchanged, so it and our reader see the same directories; a name the launcher lists but we cannot
-locate is reported with its config unavailable, never dropped.
+authoritative, because it applies its own search rules. The launcher (36.6) lists **one directory**,
+the first that exists of `$ANDROID_AVD_HOME`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`;
+`$ANDROID_EMULATOR_HOME` and `$ANDROID_USER_HOME` were never listed
+([spike](../research/spike-sdk-provisioning-2026-10.md) §(d)). `emulator.create` writes there. To read
+an AVD's configuration, and to refuse a name in two places, all five directories are read. Each AVD
+is a `<name>.ini` whose `path=` (absolute) or `path.rel=` names the `<name>.avd/` directory, which may
+live elsewhere: read the entry, never assume it sits beside the `.ini`. The launcher inherits the
+daemon's environment unchanged, so it and our reader see the same directories; a name the launcher
+lists but we cannot locate is reported with its config unavailable, never dropped.
 
 ## Capabilities
 
@@ -56,13 +56,20 @@ confusion in agent tools. `emulator.stop` is `adb emu kill`, **emulators only**;
 stops the AVD first if running (§Wipe).
 
 **No SDK package management here.** `sdk` owns packages ([sdk](sdk.md)): when the system image an AVD
-needs is missing, `emulator.create` refuses, names the package, and points at `sdk.install`; it never
-calls `sdkmanager` itself. Creation (`emulator.create`, `emulator.delete`) is deliberately post-MVP
-([mvp](../roadmap/mvp.md) §Out of scope): an emulator that already exists is enough for the golden
-path. It belongs here, not in a separate "provisioning" subsystem, because an AVD *is* the emulator;
-its inputs would be a device profile, an installed system image and advanced settings exposed with
-sensible defaults, not hidden. Because an AVD is a `config.ini` file, the subsystem can also **read**
-one and report it, which is what makes "why is this emulator so slow" answerable.
+needs is missing, `emulator.create` refuses, names the package, and points at `sdk.install`.
+Creation lives here, not in a separate "provisioning" subsystem, because an AVD *is* the emulator
+([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §7, §9). `avdmanager`, through `sdk`'s one
+runner, writes a new AVD and removes a deleted one, so its files are the ones Android Studio reads;
+an agent creates, a person edits and deletes (they rely on AVDs an agent did not make).
+
+- **Running is decided widely.** Delete and edit refuse an AVD that runs under any adb server, as an
+  emulator process naming it, or by a file a candidate process holds open in its `.avd` directory
+  (the emulator holds `multiinstance.lock` there); any doubt counts as running
+  ([ADR-0131](../adr/0131-sdk-provisioning-narrowings.md) §2).
+- **Settings are typed, not keys.** The eleven settings' fixed keys are the only ones
+  Droidyard writes; every other line is kept byte for byte. `emulator.list` reports them, which
+  makes "why is this emulator so slow" answerable. The emulator may raise storage at first boot
+  (API 28: 4 GB to 6 GB, level 5).
 
 ## Boot sequence
 
@@ -131,8 +138,10 @@ has happened.
 Defaults favour fast, repeatable boots: `-no-boot-anim`, `-no-audio`, `-no-snapshot-save`. `coldBoot`
 adds `-no-snapshot-load`; `headless` adds `-no-window`, which makes emulator automation viable on a
 machine with no display (the remote/tablet scenario). Every launch ends with `-crash-report-mode
-never`: after a crash, a windowed boot otherwise waits on a consent dialog. We do not manage the
-emulator's own memory configuration: that is the AVD's business.
+never`: after a crash, a windowed boot otherwise waits on a consent dialog. Memory and cores are the
+AVD's business, not launch flags: they persist in `config.ini`, which `emulator.configure` edits and
+Android Studio reads. An AVD's `boot` setting is its own default; `coldBoot` wins over it, and since
+every launch here passes `-no-snapshot-save`, `quick` loads a snapshot only another launcher saved.
 
 ## Concurrency
 

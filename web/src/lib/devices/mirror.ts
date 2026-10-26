@@ -24,9 +24,15 @@ export const DEVICE_TRIGGERS = [
 	'emulator.start',
 	'emulator.stop',
 	'emulator.wipe',
+	'emulator.create',
+	'emulator.configure',
+	'emulator.delete',
 	'device.install',
 	'device.uninstall',
 	'device.launch',
+	// platform-tools and the emulator come and go with the SDK (plan m3f).
+	'sdk.install',
+	'sdk.uninstall',
 ] as const;
 
 export interface DevicesActivity {

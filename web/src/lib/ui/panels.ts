@@ -33,6 +33,7 @@ export const PANELS: readonly PanelDef[] = [
 	{ id: 'terminal', region: 'centre', label: 'Terminal', disabled: { milestone: 'agent sessions' } },
 	{ id: 'editor', region: 'centre', label: 'Editor' },
 	{ id: 'diff', region: 'centre', label: 'Diff' },
+	{ id: 'sdk', region: 'centre', label: 'SDK' },
 
 	{ id: 'logcat', region: 'bottom', label: 'Logcat' },
 	{ id: 'applogs', region: 'bottom', label: 'App logs' },
