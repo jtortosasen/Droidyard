@@ -45,6 +45,10 @@ func TestObserveTable(t *testing.T) {
 		{"adb shell settings put system accelerometer_rotation 0", []rec{{"adb", []string{"shell", "settings"}, "device_rotate"}}},
 		{"adb shell settings put system screen_brightness 10", []rec{{"adb", []string{"shell", "settings"}, ""}}},
 		{"adb shell settings put global user_rotation 1", []rec{{"adb", []string{"shell", "settings"}, ""}}},
+		// plan m3g step 4: a swipe and a key have tools; a tap still points to the element tool.
+		{"adb shell input swipe 540 0 540 1400 300", []rec{{"adb", []string{"shell", "input"}, "device_swipe"}}},
+		{"adb shell input keyevent 26", []rec{{"adb", []string{"shell", "input"}, "device_pressKey"}}},
+		{"adb shell input tap 540 1200", []rec{{"adb", []string{"shell", "input"}, "device_tapElement"}}},
 		{"emulator -avd Pixel -wipe-data", []rec{{"emulator", nil, "emulator_wipe"}}},
 		{"emulator -avd Pixel", []rec{{"emulator", nil, "emulator_start"}}},
 		{"ANDROID_SERIAL=x adb logcat -d", []rec{{"adb", []string{"logcat"}, "device_logs"}}},

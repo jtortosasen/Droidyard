@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -11,15 +12,19 @@ import (
 )
 
 // device.tap, device.swipe, device.pressKey and device.scroll (plan m2p step 6, ADR-0079;
-// device.scroll m2y step 3, ADR-0117): input to the device, sent down the control socket of
-// the device's running screen source. They are capabilities like any other, so each call
-// passes the device policy (authorize), the device's write key and the operation trace; they
-// are for humans (ADR-0060 §2), so an MCP session is refused by the core, not by omission.
-// The live view's own input does not call them: it travels its stream and is recorded as one
-// operation of the capability that replays it (inputrecord.go).
+// device.scroll m2y step 3, ADR-0117; the first three for agents at plan m3g step 4,
+// ADR-0133): input to the device. They are capabilities like any other, so each call passes
+// the device policy (authorize), the device's write key and the operation trace. The first
+// three are for agents and humans alike and occupy the device they act on; how they reach it
+// is inputdelivery.go (the open view's stream, else the reader, else the device's own
+// `input` command). device.scroll stays for humans (ADR-0060 §2) and stream-only, so an MCP
+// session is refused by the core, not by omission. The live view's own input does not call
+// them: it travels its stream and is recorded as one operation of the capability that
+// replays it (inputrecord.go).
 
 // ErrNoStream is an input with no live view open on the device: nothing was sent
-// (ADR-0079 §3). The input capabilities never start a source.
+// (ADR-0079 §3). Only device.scroll returns it now: the other three have the reader and the
+// device's `input` command to fall back on (ADR-0133 §1). No input capability starts a source.
 const ErrNoStream capability.ErrorCode = "DEVICE_NO_STREAM"
 
 // The bounds of one input (ADR-0079 §1); the screen package's own are looser.
@@ -36,37 +41,40 @@ const (
 // ScreenInputResult is the result of the four input capabilities.
 type ScreenInputResult struct {
 	Delivered bool `json:"delivered" jsonschema:"required" jsonschema_description:"True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."`
+	// Delivery is optional so that the result an older host relays still decodes.
+	Delivery string `json:"delivery,omitempty" jsonschema:"enum=stream,enum=reader,enum=input" jsonschema_description:"How it got there: stream (the open live view), reader (the UI reader) or input (adb shell input)."`
 	// Warnings are the daemon's own words, never device text.
-	Warnings []string `json:"warnings,omitempty" jsonschema_description:"Set when the live view failed after the input began, so the device may have received part of it."`
+	Warnings []string `json:"warnings,omitempty" jsonschema_description:"Set when the device may have received only part of the input, or no answer came: look at the screen first."`
 }
 
 // ScreenTapParams is device.tap's parameters.
 type ScreenTapParams struct {
-	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list. Its live view must be open."`
+	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
 	// X and Y are pointers so that a null is refused rather than read as 0.
-	X          *float64 `json:"x" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Where to touch, from the left edge of the frame (0) to the right edge (1)."`
-	Y          *float64 `json:"y" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Where to touch, from the top edge of the frame (0) to the bottom edge (1)."`
+	X          *float64 `json:"x" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Left edge (0) to right edge (1), as a fraction of the screen device.uiTree reports."`
+	Y          *float64 `json:"y" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Top edge (0) to bottom edge (1), as a fraction of the screen device.uiTree reports."`
 	DurationMs *int     `json:"durationMs,omitempty" jsonschema:"minimum=0,maximum=2000" jsonschema_description:"How long to hold the touch, in milliseconds (default 0, a tap; a longer one is a long press). At most 2000."`
 }
 
 // SwipePoint is one place on a swipe's path. The fields are pointers so that a missing
 // one is refused rather than read as 0.
 type SwipePoint struct {
-	X *float64 `json:"x" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"From the left edge of the frame (0) to the right edge (1)."`
-	Y *float64 `json:"y" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"From the top edge of the frame (0) to the bottom edge (1)."`
+	X *float64 `json:"x" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Left edge (0) to right edge (1), as a fraction of the screen device.uiTree reports."`
+	Y *float64 `json:"y" jsonschema:"required,minimum=0,maximum=1" jsonschema_description:"Top edge (0) to bottom edge (1), as a fraction of the screen device.uiTree reports."`
 	T *int     `json:"t" jsonschema:"required,minimum=0,maximum=5000" jsonschema_description:"Milliseconds from the first point (the first point's is 0); strictly greater than the point before, at most 5000."`
 }
 
 // ScreenSwipeParams is device.swipe's parameters.
 type ScreenSwipeParams struct {
-	Device string       `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list. Its live view must be open."`
+	Device string       `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
 	Path   []SwipePoint `json:"path" jsonschema:"required,minItems=2,maxItems=64" jsonschema_description:"The finger's path: down at the first point, through the others at their t, up at the last. 2 to 64 points."`
 }
 
 // ScreenKeyParams is device.pressKey's parameters.
 type ScreenKeyParams struct {
-	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list. Its live view must be open."`
-	Key    string `json:"key" jsonschema:"required,enum=back,enum=home,enum=appSwitch,enum=enter,enum=delete" jsonschema_description:"The system key to press and release."`
+	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
+	// Key's enum is screen.KeyNames, which a test holds it to.
+	Key string `json:"key" jsonschema:"required,enum=back,enum=home,enum=appSwitch,enum=enter,enum=delete,enum=power,enum=wakeUp,enum=sleep,enum=volumeUp,enum=volumeDown,enum=volumeMute,enum=menu,enum=search,enum=tab,enum=escape,enum=dpadUp,enum=dpadDown,enum=dpadLeft,enum=dpadRight,enum=dpadCenter,enum=notification,enum=assist" jsonschema_description:"The key to press and release; power toggles the screen, sleep turns it off and wakeUp on."`
 }
 
 // ScreenScrollParams is device.scroll's parameters.
@@ -145,22 +153,21 @@ func (p ScreenScrollParams) input() (screen.Input, error) {
 	return screen.Scroll{X: *p.X, Y: *p.Y, DX: *p.DX, DY: *p.DY}, nil
 }
 
-var pressKeys = []string{"back", "home", "appSwitch", "enter", "delete"}
-
 func (p ScreenKeyParams) input() (screen.Input, error) {
-	for _, k := range pressKeys {
-		if p.Key == k {
-			return screen.Key{Name: k}, nil
-		}
+	if _, ok := screen.KeyCode(p.Key); !ok {
+		return nil, capability.Errorf(capability.ErrInvalidParams, "key must be one of %s, got %q", strings.Join(screen.KeyNames(), ", "), p.Key)
 	}
-	return nil, capability.Errorf(capability.ErrInvalidParams, "key must be one of back, home, appSwitch, enter, delete, got %q", p.Key)
+	return screen.Key{Name: p.Key}, nil
 }
 
 // registerScreenInput registers the four. build turns a call's parameters into the Input
-// (validating them) and names the device.
+// (validating them) and names the device. The first three are for agents too (ADR-0133 §1):
+// they occupy the device and reach it by deliverInput; device.scroll stays for humans and
+// stream-only.
 func registerScreenInput(reg *capability.Registry, adb *ADB) {
 	type spec struct {
 		name, description, since string
+		agent                    bool
 		params                   any
 		device                   func(*capability.Call) string
 		build                    func(*capability.Call) (screen.Input, error)
@@ -169,7 +176,8 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		{
 			name:        "device.tap",
 			since:       screenInputSince,
-			description: "Touches the device's screen at a point of its open live view, normalised to the frame, and lifts after durationMs (a long press). With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+			agent:       true,
+			description: "Touches the screen at a point, as a fraction of the screen device.uiTree reports, and lifts after durationMs (a long press). To tap an element use device.tapElement, which finds it by identity.",
 			params:      ScreenTapParams{},
 			device:      func(c *capability.Call) string { return c.Params.(ScreenTapParams).Device },
 			build:       func(c *capability.Call) (screen.Input, error) { return c.Params.(ScreenTapParams).input() },
@@ -177,7 +185,8 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		{
 			name:        "device.swipe",
 			since:       screenInputSince,
-			description: "Drags a finger along a path of points of the open live view, normalised to the frame and replayed with the points' timing. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+			agent:       true,
+			description: "Drags a finger along a path of points, as fractions of the screen device.uiTree reports, replayed with the points' timing. A path of more than two points needs the UI reader or an open live view.",
 			params:      ScreenSwipeParams{},
 			device:      func(c *capability.Call) string { return c.Params.(ScreenSwipeParams).Device },
 			build:       func(c *capability.Call) (screen.Input, error) { return c.Params.(ScreenSwipeParams).input() },
@@ -185,7 +194,8 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		{
 			name:        "device.pressKey",
 			since:       screenInputSince,
-			description: "Presses and releases a system key on the device. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+			agent:       true,
+			description: "Presses and releases a system key on the device, such as back, home, power or a volume key.",
 			params:      ScreenKeyParams{},
 			device:      func(c *capability.Call) string { return c.Params.(ScreenKeyParams).Device },
 			build:       func(c *capability.Call) (screen.Input, error) { return c.Params.(ScreenKeyParams).input() },
@@ -200,7 +210,7 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 		},
 	}
 	for _, s := range specs {
-		reg.MustRegister(adb.plain(capability.Descriptor{
+		d := capability.Descriptor{
 			Name:         s.name,
 			Kind:         capability.Command,
 			Scope:        capability.Global,
@@ -239,7 +249,29 @@ func registerScreenInput(reg *capability.Registry, adb *ADB) {
 				}
 				return adb.injectScreen(ctx, call.Origin, call.Authorized.(*target).serial, in)
 			},
-		}))
+		}
+		if s.agent {
+			d.Audience = capability.AudienceAll
+			d.Occupies = capability.OccupiesAct
+			// The reader and the device's own `input` answer where no view is open, so
+			// DEVICE_NO_STREAM is device.scroll's alone (ADR-0133 §1).
+			d.Errors = append(append([]capability.ErrorCode{}, ActingErrors...),
+				ErrStreamFailed, capability.ErrInvalidParams, capability.ErrOperationQueueTimeout)
+			d.Authorize = func(ctx context.Context, call *capability.Call) (any, error) {
+				if _, err := s.build(call); err != nil {
+					return nil, err
+				}
+				return adb.authorizeActing(ctx, call, s.device(call), s.name)
+			}
+			d.Handler = func(ctx context.Context, call *capability.Call) (any, error) {
+				in, err := s.build(call)
+				if err != nil {
+					return nil, err
+				}
+				return adb.deliverInput(ctx, call, call.Authorized.(*target), in)
+			}
+		}
+		reg.MustRegister(adb.plain(d))
 	}
 }
 
@@ -265,12 +297,17 @@ func (a *ADB) injectScreen(ctx context.Context, who capability.Origin, serial st
 		return nil, capability.NewError(ErrNoStream, "the device has no live view open, so there is nothing to send the input through").
 			WithNextStep("Open the device's live view, then retry.")
 	}
+	return a.injectThrough(ctx, who, src, in)
+}
+
+// injectThrough is injectScreen's send, down a source already found.
+func (a *ADB) injectThrough(ctx context.Context, who capability.Origin, src screen.Source, in screen.Input) (any, error) {
 	// The call's origin classes its gesture (ADR-0117 §4): a peer's lent call holds the finger
 	// as a peer, which the host's own views take it from; any other call is a local holder.
 	err := src.Inject(ctx, screen.NewHolder(who.Client == capability.ClientPeer), in)
 	switch {
 	case err == nil:
-		return ScreenInputResult{Delivered: true}, nil
+		return ScreenInputResult{Delivered: true, Delivery: DeliveryStream}, nil
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return nil, err
 	}
@@ -280,7 +317,7 @@ func (a *ADB) injectScreen(ctx context.Context, who capability.Origin, serial st
 		if errors.Is(partial.Err, errFingerLost) {
 			what = "the live view took the finger after the input began"
 		}
-		return ScreenInputResult{Delivered: true, Warnings: []string{
+		return ScreenInputResult{Delivered: true, Delivery: DeliveryStream, Warnings: []string{
 			what + ": the device may have received only part of it; look at the screen before repeating it",
 		}}, nil
 	}

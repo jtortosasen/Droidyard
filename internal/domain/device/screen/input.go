@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 )
 
@@ -41,7 +42,8 @@ type Tap struct {
 // and lifts it at the last. T never decreases.
 type Swipe struct{ Points []Point }
 
-// Key presses and releases a named key: back, home, appSwitch, enter or delete.
+// Key presses and releases a named key (KeyNames lists them). The live view's own wire
+// carries five of them (wireKeys in control.go).
 type Key struct{ Name string }
 
 // Scroll turns the wheel at the point: DX and DY are in notches, each within
@@ -54,14 +56,55 @@ func (Swipe) isInput()  {}
 func (Key) isInput()    {}
 func (Scroll) isInput() {}
 
-// keycodes are Android's KeyEvent codes.
+// keycodes are Android's KeyEvent codes by the names device.pressKey takes (plan m3g Q2,
+// ADR-0133 §3): the live view's five, then agents' further seventeen.
 var keycodes = map[string]int32{
-	"back":      4,   // KEYCODE_BACK
-	"home":      3,   // KEYCODE_HOME
-	"appSwitch": 187, // KEYCODE_APP_SWITCH
-	"enter":     66,  // KEYCODE_ENTER
-	"delete":    67,  // KEYCODE_DEL
+	"back":         4,   // KEYCODE_BACK
+	"home":         3,   // KEYCODE_HOME
+	"appSwitch":    187, // KEYCODE_APP_SWITCH
+	"enter":        66,  // KEYCODE_ENTER
+	"delete":       67,  // KEYCODE_DEL
+	"power":        26,  // KEYCODE_POWER
+	"wakeUp":       224, // KEYCODE_WAKEUP
+	"sleep":        223, // KEYCODE_SLEEP
+	"volumeUp":     24,  // KEYCODE_VOLUME_UP
+	"volumeDown":   25,  // KEYCODE_VOLUME_DOWN
+	"volumeMute":   164, // KEYCODE_VOLUME_MUTE
+	"menu":         82,  // KEYCODE_MENU
+	"search":       84,  // KEYCODE_SEARCH
+	"tab":          61,  // KEYCODE_TAB
+	"escape":       111, // KEYCODE_ESCAPE
+	"dpadUp":       19,  // KEYCODE_DPAD_UP
+	"dpadDown":     20,  // KEYCODE_DPAD_DOWN
+	"dpadLeft":     21,  // KEYCODE_DPAD_LEFT
+	"dpadRight":    22,  // KEYCODE_DPAD_RIGHT
+	"dpadCenter":   23,  // KEYCODE_DPAD_CENTER
+	"notification": 83,  // KEYCODE_NOTIFICATION
+	"assist":       219, // KEYCODE_ASSIST
 }
+
+// KeyCode is Android's KeyEvent code of a key name device.pressKey takes; false for any other
+// name. The stream encoder, the reader's `press` and `input keyevent` all take their code
+// from here, so the three deliveries press the same key.
+func KeyCode(name string) (int, bool) {
+	code, ok := keycodes[name]
+	return int(code), ok
+}
+
+// KeyNames lists the names KeyCode knows, sorted.
+func KeyNames() []string {
+	names := make([]string, 0, len(keycodes))
+	for n := range keycodes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// moveInterval is the longest gap between two touch messages of a swipe that is moving: a
+// finger that jumps from one point to the next after a pause is not a drag to Android's
+// gesture detectors (a sparse path left the shade closed on API 36, plan m3g step 1 (a)).
+const moveInterval = 16 * time.Millisecond
 
 // Control is one message for the control socket and when to write it, as an offset
 // from the start of the input.
@@ -98,7 +141,9 @@ const fingerID = ^uint64(1)
 //
 //   - Tap: a touch down at 0 and a touch up at Hold;
 //   - Swipe: a touch down at the first point, a move at each later point, then a touch up
-//     at the last point, all at the points' T;
+//     at the last point, all at the points' T, and between two points further moves along
+//     the straight line so that no two touch messages are more than moveInterval apart
+//     (plan m3g step 1 (a));
 //   - Key: a key down and a key up, both at 0;
 //   - Scroll: one scroll message at 0, its notches rounded to the wire's 1/256.
 //
@@ -139,7 +184,6 @@ func EncodeControl(in Input, size Size) ([]Control, error) {
 			if p.T < last || p.T > MaxInputDuration { // the first point's T is at least 0
 				return nil, fmt.Errorf("%w: point %d at %v", ErrBadInput, i, p.T)
 			}
-			last = p.T
 			x, y, err := pixel(p.X, p.Y, size)
 			if err != nil {
 				return nil, err
@@ -147,8 +191,24 @@ func EncodeControl(in Input, size Size) ([]Control, error) {
 			action := byte(actionMove)
 			if i == 0 {
 				action = actionDown
+			} else {
+				// Straight segments, a move at least every moveInterval: the points the caller
+				// gave are kept, and between two of them the finger is carried along the line
+				// (plan m3g step 1 (a): a path of a few moves did not open the shade on API 36).
+				prev := in.Points[i-1]
+				gaps := int((p.T - last + moveInterval - 1) / moveInterval) // ceil: every gap <= moveInterval
+				for k := 1; k < gaps; k++ {
+					f := float64(k) / float64(gaps)
+					ix, iy, err := pixel(lerp(prev.X, p.X, f), lerp(prev.Y, p.Y, f), size)
+					if err != nil {
+						return nil, err
+					}
+					at := last + (p.T-last)*time.Duration(k)/time.Duration(gaps)
+					out = append(out, Control{at, touch(actionMove, ix, iy, size, pressureDown)})
+				}
 			}
 			out = append(out, Control{p.T, touch(action, x, y, size, pressureDown)})
+			last = p.T
 			lx, ly = x, y
 		}
 		out = append(out, Control{last, touch(actionUp, lx, ly, size, pressureUp)})
@@ -188,6 +248,9 @@ func scrollWire(notches float64) (int16, error) {
 	}
 	return int16(math.Round(notches * ScrollUnit)), nil
 }
+
+// lerp is the point f of the way from a to b, kept inside 0..1 against rounding.
+func lerp(a, b, f float64) float64 { return min(max(a+(b-a)*f, 0), 1) }
 
 // pixel maps a normalised point to the nearest pixel of the frame.
 func pixel(nx, ny float64, size Size) (x, y int32, err error) {

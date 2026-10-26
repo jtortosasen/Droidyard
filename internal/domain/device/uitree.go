@@ -46,13 +46,12 @@ type Snapshot struct {
 	SystemDialog *SystemDialog `json:"systemDialog,omitempty"`
 	// Warnings are adb's (client/server version mismatch), not the device's: untagged.
 	Warnings []string `json:"warnings,omitempty"`
-
-	// screen is the real screen's width and height, rotation applied, as the reader wrote
-	// them on <hierarchy> (plan m3g step 2): zero when the document carried none (a
-	// `uiautomator dump`, or a reader that could not read the display). It differs from
-	// Display, which is the root window's extent and is a dialog's when one is on top.
-	// Unexported on purpose: it is published at step 4, not before.
-	screen [2]int
+	// Screen is the real screen's size, rotation applied: what the reader wrote on
+	// <hierarchy> (plan m3g step 2), or, when no reader ran (a `uiautomator dump`), the
+	// on-device screencap header the `input` delivery reads too. It differs from Display,
+	// which is the root window's extent and a dialog's when one is on top. Nil when neither
+	// gave one. device.tap and device.swipe take their fractions of it (ADR-0133 §2).
+	Screen *UIScreen `json:"screen,omitempty" untrusted:"true"`
 }
 
 // UIDisplay is the root window's extent and the hierarchy's rotation.
@@ -60,6 +59,12 @@ type UIDisplay struct {
 	Width    int `json:"width" jsonschema:"required"`
 	Height   int `json:"height" jsonschema:"required"`
 	Rotation int `json:"rotation" jsonschema:"required"`
+}
+
+// UIScreen is the real screen's size in pixels, rotation applied.
+type UIScreen struct {
+	Width  int `json:"width" jsonschema:"required"`
+	Height int `json:"height" jsonschema:"required"`
 }
 
 // UINode is one kept node. Children are refs of nodes that exist in Snapshot.Nodes.
@@ -294,7 +299,10 @@ func snapshotOf(attrs hierarchyAttrs, roots []*rawNode, id string, maxBytes int,
 	if maxBytes <= 0 {
 		maxBytes = DefaultUITreeBytes
 	}
-	s := Snapshot{ID: id, Nodes: []UINode{}, Display: UIDisplay{Rotation: attrs.rotation}, screen: attrs.screen}
+	s := Snapshot{ID: id, Nodes: []UINode{}, Display: UIDisplay{Rotation: attrs.rotation}}
+	if attrs.screen != ([2]int{}) {
+		s.Screen = &UIScreen{Width: attrs.screen[0], Height: attrs.screen[1]}
+	}
 	if len(roots) > 0 {
 		s.Foreground = roots[0].pkg
 		s.Display.Width, s.Display.Height = roots[0].bounds[2], roots[0].bounds[3]

@@ -78,7 +78,7 @@ var hintTools = []string{
 	"build_assemble", "build_tasks", "build_run",
 	"device_install", "device_logs", "device_list", "device_launch", "device_uninstall",
 	"device_uiTree", "device_screenshot", "device_tapElement", "device_inputText",
-	"device_systemPanel", "device_forceStop", "device_rotate",
+	"device_systemPanel", "device_forceStop", "device_rotate", "device_swipe", "device_pressKey",
 	"emulator_list", "emulator_start", "emulator_wipe", "emulator_create",
 	"sdk_packages", "sdk_install", "sdk_profiles",
 }
@@ -235,6 +235,11 @@ func suggest(prog string, flags map[string]bool, raw, matching []string) string 
 					return "device_tapElement"
 				case "text":
 					return "device_inputText"
+				case "swipe":
+					// Coordinates and keys are agent tools now (plan m3g step 4, ADR-0133 §1).
+					return "device_swipe"
+				case "keyevent":
+					return "device_pressKey"
 				}
 			case "am":
 				switch at(raw, 2) {

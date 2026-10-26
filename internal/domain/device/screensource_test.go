@@ -645,13 +645,27 @@ func TestScreenSourceInject(t *testing.T) {
 	if err := src.Inject(cctx, screen.NewHolder(false), swipe); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a cut swipe returned %v, want the context's error", err)
 	}
-	wantCut := append(append([]byte(nil), cs[0].Data...), cs[len(cs)-1].Data...)
-	if got := waitControl(prev + len(wantCut))[prev:]; !bytes.Equal(got, wantCut) {
-		t.Errorf("a cut swipe wrote % x, want its down and its up % x", got, wantCut)
+	// The cut swipe wrote its down, the moves its 150 ms reached (a move every 16 ms or so,
+	// plan m3g step 1 (a)) and its up, the encoding's last message, so the finger is lifted.
+	up := cs[len(cs)-1].Data
+	testtime.Eventually(t, testtime.Bound(10*time.Second), "the cut swipe's lift", func() bool {
+		return bytes.HasSuffix(f.ln.controlBytes(), up) && len(f.ln.controlBytes()) >= prev+2*len(up)
+	})
+	cut := f.ln.controlBytes()[prev:]
+	if len(cut)%len(up) != 0 || !bytes.HasPrefix(cut, cs[0].Data) {
+		t.Fatalf("a cut swipe wrote % x, want whole messages starting with its down", cut)
+	}
+	for i := len(up); i < len(cut)-len(up); i += len(up) {
+		if cut[i+1] != 2 { // ACTION_MOVE
+			t.Errorf("message %d of the cut swipe has action %d, want a move between the down and the up", i/len(up), cut[i+1])
+		}
+	}
+	if n := len(cut) / len(up); n < 2 || n >= len(cs) {
+		t.Errorf("the cut swipe wrote %d messages of its %d: want its down and its up, and fewer than the whole path", n, len(cs))
 	}
 
 	// An input the encoding refuses writes nothing.
-	prev += len(wantCut)
+	prev += len(cut)
 	if err := src.Inject(ctx, screen.NewHolder(false), screen.Tap{X: 2}); !errors.Is(err, screen.ErrBadInput) {
 		t.Errorf("a tap outside the frame returned %v, want ErrBadInput", err)
 	}

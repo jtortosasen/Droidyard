@@ -142,7 +142,7 @@
 - Needs: steps 1 ((a), (d)), 2, 3.
 - Not here: `expect` (step 5); pinch; `device.scroll` for agents.
 - Rests on: an agent's request reaches the device at most once whatever path answers: level 4 (no `input` after a timeout); the reader path is step 2's level 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestAgentTapWithoutAView`, `TestAgentInputPrefersTheView`, `TestAgentSwipeThroughTheViewMoves` (with `TestEncodeControlSwipeMovesAtLeastEvery16ms`; 3 messages and a 300 ms gap with moves disabled), `TestAgentInputFallback`, `TestPressKeyEveryPath`, `TestUITreeReportsTheScreen`, `TestInputAudience`, `TestAgentInputOccupies` each seen failing as asked; `TestInputToolsOverMCP` and `TestRemoteDevices` (tap, swipe, pressKey run on the host's `input`) pass; schema +106/-22, exactly this step's; 47 tools, 43,792 B, `maxToolListBytes` 44,000; `pnpm -C web run verify` green; `go test ./...` green but the known `chats` load flake. A tap through the reader holds at least 50 ms (strictly increasing times). `Snapshot.Screen` is published as `*UIScreen`.
 
 ### 5. `expect` on the coordinate actions (Q5)
 

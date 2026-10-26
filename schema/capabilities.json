@@ -4272,9 +4272,9 @@
       "kind": "command",
       "scope": "global",
       "statefulness": "stateless",
-      "audience": "human",
+      "audience": "all",
       "since": "0.27.0",
-      "description": "Presses and releases a system key on the device. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "description": "Presses and releases a system key on the device, such as back, home, power or a volume key.",
       "availability": [
         "adb"
       ],
@@ -4292,7 +4292,6 @@
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
         "DEVICE_OCCUPIED",
-        "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -4301,7 +4300,7 @@
         "properties": {
           "device": {
             "type": "string",
-            "description": "The serial of the device, from device.list. Its live view must be open."
+            "description": "The serial of the device, from device.list."
           },
           "key": {
             "type": "string",
@@ -4310,9 +4309,26 @@
               "home",
               "appSwitch",
               "enter",
-              "delete"
+              "delete",
+              "power",
+              "wakeUp",
+              "sleep",
+              "volumeUp",
+              "volumeDown",
+              "volumeMute",
+              "menu",
+              "search",
+              "tab",
+              "escape",
+              "dpadUp",
+              "dpadDown",
+              "dpadLeft",
+              "dpadRight",
+              "dpadCenter",
+              "notification",
+              "assist"
             ],
-            "description": "The system key to press and release."
+            "description": "The key to press and release; power toggles the screen, sleep turns it off and wakeUp on."
           }
         },
         "additionalProperties": false,
@@ -4328,12 +4344,21 @@
             "type": "boolean",
             "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
           },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "stream",
+              "reader",
+              "input"
+            ],
+            "description": "How it got there: stream (the open live view), reader (the UI reader) or input (adb shell input)."
+          },
           "warnings": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+            "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
           }
         },
         "additionalProperties": false,
@@ -4813,12 +4838,21 @@
             "type": "boolean",
             "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
           },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "stream",
+              "reader",
+              "input"
+            ],
+            "description": "How it got there: stream (the open live view), reader (the UI reader) or input (adb shell input)."
+          },
           "warnings": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+            "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
           }
         },
         "additionalProperties": false,
@@ -5044,9 +5078,9 @@
       "kind": "command",
       "scope": "global",
       "statefulness": "stateless",
-      "audience": "human",
+      "audience": "all",
       "since": "0.27.0",
-      "description": "Drags a finger along a path of points of the open live view, normalised to the frame and replayed with the points' timing. With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "description": "Drags a finger along a path of points, as fractions of the screen device.uiTree reports, replayed with the points' timing. A path of more than two points needs the UI reader or an open live view.",
       "availability": [
         "adb"
       ],
@@ -5064,7 +5098,6 @@
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
         "DEVICE_OCCUPIED",
-        "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5073,7 +5106,7 @@
         "properties": {
           "device": {
             "type": "string",
-            "description": "The serial of the device, from device.list. Its live view must be open."
+            "description": "The serial of the device, from device.list."
           },
           "path": {
             "items": {
@@ -5082,13 +5115,13 @@
                   "type": "number",
                   "maximum": 1,
                   "minimum": 0,
-                  "description": "From the left edge of the frame (0) to the right edge (1)."
+                  "description": "Left edge (0) to right edge (1), as a fraction of the screen device.uiTree reports."
                 },
                 "y": {
                   "type": "number",
                   "maximum": 1,
                   "minimum": 0,
-                  "description": "From the top edge of the frame (0) to the bottom edge (1)."
+                  "description": "Top edge (0) to bottom edge (1), as a fraction of the screen device.uiTree reports."
                 },
                 "t": {
                   "type": "integer",
@@ -5124,12 +5157,21 @@
             "type": "boolean",
             "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
           },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "stream",
+              "reader",
+              "input"
+            ],
+            "description": "How it got there: stream (the open live view), reader (the UI reader) or input (adb shell input)."
+          },
           "warnings": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+            "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
           }
         },
         "additionalProperties": false,
@@ -5210,9 +5252,9 @@
       "kind": "command",
       "scope": "global",
       "statefulness": "stateless",
-      "audience": "human",
+      "audience": "all",
       "since": "0.27.0",
-      "description": "Touches the device's screen at a point of its open live view, normalised to the frame, and lifts after durationMs (a long press). With no live view open it fails DEVICE_NO_STREAM and sends nothing.",
+      "description": "Touches the screen at a point, as a fraction of the screen device.uiTree reports, and lifts after durationMs (a long press). To tap an element use device.tapElement, which finds it by identity.",
       "availability": [
         "adb"
       ],
@@ -5230,7 +5272,6 @@
         "DEVICE_NOT_ALLOWED",
         "DEVICE_DISCONNECTED",
         "DEVICE_OCCUPIED",
-        "DEVICE_NO_STREAM",
         "DEVICE_STREAM_FAILED",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
@@ -5239,19 +5280,19 @@
         "properties": {
           "device": {
             "type": "string",
-            "description": "The serial of the device, from device.list. Its live view must be open."
+            "description": "The serial of the device, from device.list."
           },
           "x": {
             "type": "number",
             "maximum": 1,
             "minimum": 0,
-            "description": "Where to touch, from the left edge of the frame (0) to the right edge (1)."
+            "description": "Left edge (0) to right edge (1), as a fraction of the screen device.uiTree reports."
           },
           "y": {
             "type": "number",
             "maximum": 1,
             "minimum": 0,
-            "description": "Where to touch, from the top edge of the frame (0) to the bottom edge (1)."
+            "description": "Top edge (0) to bottom edge (1), as a fraction of the screen device.uiTree reports."
           },
           "durationMs": {
             "type": "integer",
@@ -5274,12 +5315,21 @@
             "type": "boolean",
             "description": "True: the input reached the device, in full or, with a warning, in part. Not what the app did with it."
           },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "stream",
+              "reader",
+              "input"
+            ],
+            "description": "How it got there: stream (the open live view), reader (the UI reader) or input (adb shell input)."
+          },
           "warnings": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "description": "Set when the live view failed after the input began, so the device may have received part of it."
+            "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
           }
         },
         "additionalProperties": false,
@@ -6062,6 +6112,23 @@
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "screen": {
+                "properties": {
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "width",
+                  "height"
+                ],
+                "x-droidyard-untrusted": true
               }
             },
             "additionalProperties": false,
@@ -6868,6 +6935,23 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "screen": {
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "width",
+              "height"
+            ],
+            "x-droidyard-untrusted": true
           }
         },
         "additionalProperties": false,

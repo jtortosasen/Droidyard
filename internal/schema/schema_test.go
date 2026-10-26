@@ -383,15 +383,15 @@ func TestTargetsFollowTheParameters(t *testing.T) {
 
 // TestOccupiesFollowsTheDeviceOccupationRule is the decision of ADR-0094 §2 and ADR-0104 §2:
 // the capabilities that hold a device for the calling session are stated, not inferred, and
-// the schema says which of them can be refused. Ten acting capabilities list DEVICE_OCCUPIED
+// the schema says which of them can be refused. Thirteen acting capabilities list DEVICE_OCCUPIED
 // in their errors for an MCP session; emulator.start holds the serial it boots and is never
 // refused, so it does not. A paired peer's call of any kind leases a lent device, so every
 // other Lendable capability that names a device (device.list takes none) lists the code too,
 // and no other capability lists it. A new acting capability, a new lent one that forgets the
 // code, or a code listed on a read no peer can call, fails here.
 func TestOccupiesFollowsTheDeviceOccupationRule(t *testing.T) {
-	acting := []string{"device.forceStop", "device.inputText", "device.install", "device.launch", "device.rotate",
-		"device.systemPanel", "device.tapElement", "device.uninstall", "emulator.stop", "emulator.wipe"}
+	acting := []string{"device.forceStop", "device.inputText", "device.install", "device.launch", "device.pressKey", "device.rotate",
+		"device.swipe", "device.systemPanel", "device.tap", "device.tapElement", "device.uninstall", "emulator.stop", "emulator.wipe"}
 	var gotActing, gotBoot []string
 	for _, d := range registry().All() {
 		lists := slices.Contains(d.Errors, device.ErrOccupied)

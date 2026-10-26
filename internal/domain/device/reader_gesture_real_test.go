@@ -113,11 +113,11 @@ func TestRealReaderGestures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: read: %v", what, err)
 			}
-			if s.screen == [2]int{} {
+			if s.Screen == nil {
 				t.Fatalf("%s: the read carried no screen size: it did not come from the reader", what)
 			}
-			if s.screen != wm {
-				t.Fatalf("%s: screen %v, wm size %v", what, s.screen, wm)
+			if [2]int{s.Screen.Width, s.Screen.Height} != wm {
+				t.Fatalf("%s: screen %v, wm size %v", what, *s.Screen, wm)
 			}
 			if s.Display.Rotation != 0 {
 				t.Fatalf("%s: rotation %d: this check needs a portrait device", what, s.Display.Rotation)

@@ -240,8 +240,8 @@ func TestScreenSizeFromTheReader(t *testing.T) {
 	if s.Display != (UIDisplay{Width: 948, Height: 1600}) {
 		t.Errorf("display %+v, want the dialog's extent 948x1600", s.Display)
 	}
-	if s.screen != [2]int{1080, 2400} {
-		t.Errorf("screen %v, want 1080x2400", s.screen)
+	if s.Screen == nil || *s.Screen != (UIScreen{Width: 1080, Height: 2400}) {
+		t.Errorf("screen %v, want 1080x2400", s.Screen)
 	}
 
 	none := map[string]string{
@@ -261,8 +261,8 @@ func TestScreenSizeFromTheReader(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if s.screen != [2]int{} {
-			t.Errorf("%s: screen %v, want none", name, s.screen)
+		if s.Screen != nil {
+			t.Errorf("%s: screen %v, want none", name, *s.Screen)
 		}
 		if s.Display != (UIDisplay{Width: 948, Height: 1600}) {
 			t.Errorf("%s: display %+v changed", name, s.Display)

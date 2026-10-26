@@ -334,8 +334,8 @@ func TestMCPTranscript(t *testing.T) {
 			t.Errorf("tools/list has %s: events.* are not tools", name)
 		}
 	}
-	if shipped != 44 || stateless != 44 {
-		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 44 of each", shipped, stateless)
+	if shipped != 47 || stateless != 47 {
+		t.Errorf("tools/list has %d shipped tools and the golden file %d stateless capabilities; want 47 of each", shipped, stateless)
 	}
 	for name := range listed {
 		if _, ok := golden[strings.Replace(name, "_", ".", 1)]; !ok && name != "fixture_block" && name != "fixture_slow" {

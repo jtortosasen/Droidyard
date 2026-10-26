@@ -17,11 +17,14 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_launch` | core | changes state | Starts an application's launcher activity, or with url opens that link in the app, and returns launchedAt and the process id observed afterwards ... |
 | `device_list` | core | read-only | Lists the connected emulators and the physical devices the policy admits, with serial (the value of every device argument), state, kind and model ... |
 | `device_logs` | core | read-only | Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a ... |
+| `device_pressKey` |  | changes state | Presses and releases a system key on the device, such as back, home, power or a volume key. |
 | `device_recordUi` |  | changes state | Records the device's UI from now until device_stopUiRecording: the full dump (device_uiDump's document) each time the screen changes, with the events ... |
 | `device_rotate` |  | changes state | Pins the screen to an angle with auto-rotate off, or turns auto-rotate back on, and returns the previous setting. |
 | `device_screenshot` | core | read-only | Captures the device's screen as a PNG and returns an ephemeral artifact reference with its size, not the bytes. |
 | `device_stopUiRecording` |  | changes state | Ends the device's UI recording after a last dump and returns its summary; stopped is false when none runs or it was already ending, and recording is ... |
+| `device_swipe` |  | changes state | Drags a finger along a path of points, as fractions of the screen device_uiTree reports, replayed with the points' timing. |
 | `device_systemPanel` |  | changes state | Opens the notification shade or quick settings, or closes the open panel, with the device's status-bar command. |
+| `device_tap` |  | changes state | Touches the screen at a point, as a fraction of the screen device_uiTree reports, and lifts after durationMs (a long press). |
 | `device_tapElement` | core | changes state | Taps one UI element once and verifies the effect in the same call: it resolves target with the device_uiTree selector, taps it, then polls the ... |
 | `device_uiDump` |  | read-only | Returns the active window's full accessibility tree, uncut and without refs, as an XML artifact in uiautomator dump's format plus extra attributes, ... |
 | `device_uiEvents` |  | read-only | Returns what happened on the screen since a cursor, oldest first: windows, content, focus, scrolls, clicks, toasts with their text and notifications ... |

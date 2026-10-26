@@ -208,8 +208,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 44 {
-			t.Errorf("%v lists %d tools; want 44", args, len(names))
+		if len(names) != 47 {
+			t.Errorf("%v lists %d tools; want 47", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)

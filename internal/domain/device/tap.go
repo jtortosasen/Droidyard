@@ -394,6 +394,8 @@ func (a *ADB) tapElement(ctx context.Context, t *target, p TapParams) (*TapResul
 		Warnings:     dedupWarnings(warnings),
 	}
 	if p.ReturnTree {
+		// Its screen is the reader's: a read after an action never falls to uiautomator dump
+		// (D17), so a tree here always came from a reader.
 		res.Tree = vr.Tree
 	}
 	if vr.Tree != nil {

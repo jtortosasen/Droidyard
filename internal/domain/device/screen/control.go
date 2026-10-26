@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"sync/atomic"
 )
 
@@ -189,8 +190,10 @@ func EncodeEvent(ev Event, size Size) ([]byte, error) {
 		x, y := normPixel(ev.X, size.Width), normPixel(ev.Y, size.Height)
 		return touch(byte(ev.Action), x, y, size, pressure), nil
 	case EventKey:
+		// The view's wire carries five keys (ADR-0117 §3); device.pressKey's further names
+		// are keycodes too, but a view's event never names them.
 		code, ok := keycodes[ev.Key]
-		if !ok {
+		if !ok || !slices.Contains(wireKeys[1:], ev.Key) {
 			return nil, fmt.Errorf("%w: key %q", ErrBadControl, ev.Key)
 		}
 		return append(keycode(actionDown, code), keycode(actionUp, code)...), nil
