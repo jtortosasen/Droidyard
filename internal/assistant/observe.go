@@ -79,7 +79,7 @@ var hintTools = []string{
 	"device_install", "device_logs", "device_list", "device_launch", "device_uninstall",
 	"device_uiTree", "device_screenshot", "device_tapElement", "device_inputText",
 	"emulator_list", "emulator_start", "emulator_wipe",
-	"sdk_status",
+	"sdk_packages", "sdk_install",
 }
 
 // HintTools returns the MCP tool names the hint table can suggest.
@@ -260,8 +260,16 @@ func suggest(prog string, flags map[string]bool, raw, matching []string) string 
 			return "emulator_start"
 		}
 	case "sdkmanager":
-		if flags["--list"] || flags["--list_installed"] {
-			return "sdk_status"
+		// Listing and installing have tools (plan m3f step 4; ADR-0130 §5: Droidyard installs
+		// itself, so the tool is the better route, and it asks the user for the licence).
+		// Uninstalling, accepting licences and updating everything do not, and stay a person's.
+		switch {
+		case flags["--list"] || flags["--list_installed"]:
+			return "sdk_packages"
+		case flags["--uninstall"] || flags["--licenses"] || flags["--update"] || flags["--version"]:
+			return ""
+		case len(raw) > 0:
+			return "sdk_install"
 		}
 	case "avdmanager":
 		if at(raw, 0) == "list" {

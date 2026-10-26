@@ -87,7 +87,8 @@ type RequirementsResult struct {
 	Required []Required `json:"required" jsonschema:"required"`
 	// Missing is the package ids the project SDK does not have, in Required's order.
 	Missing []string `json:"missing" jsonschema:"required" jsonschema_description:"The required package ids the project SDK does not have, in required's order."`
-	// Notes name an sdkmanager command per missing package, the SDK-location failure when
+	// Notes name, per missing package, the sdk.install call when the project SDK is the
+	// host SDK and the sdkmanager command otherwise, the SDK-location failure when
 	// no project SDK resolves, a project SDK directory that does not exist, and why
 	// nothing could be checked when the probe read nothing.
 	Notes []string `json:"notes" jsonschema:"required"`
@@ -106,7 +107,7 @@ func registerRequirements(reg *capability.Registry, o Options) {
 		Params:       None{},
 		Result:       RequirementsResult{},
 		Errors:       requirementErrors,
-		Description:  "Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and the sdkmanager command for each, without changing anything. When source is failure-signatures nothing could be checked and complete is false.",
+		Description:  "Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and, for each, the sdk.install call when the project SDK is the host SDK, else the sdkmanager command, without changing anything. When source is failure-signatures nothing could be checked and complete is false.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			root := call.Authorized.(gradle.Roots).Gradle
 			model, stale, err := o.Client.Model(ctx, root)
@@ -210,7 +211,13 @@ func Requirements(o Options, root string, model gradle.Model) RequirementsResult
 		}
 		seen[r.Package] = true
 		out.Missing = append(out.Missing, r.Package)
-		if found {
+		switch {
+		case found && out.ProjectSDK.SameAsHost:
+			// The host SDK is where sdk.install writes (plan m3f step 4), so the call is
+			// the better route: it checks the licence and reports progress.
+			out.Notes = append(out.Notes, fmt.Sprintf("install %s with sdk.install: {\"packages\": [%q]}", r.Package, r.Package))
+		case found:
+			// Another SDK than the host's: sdk.install does not write there.
 			out.Notes = append(out.Notes, fmt.Sprintf("install %s with: sdkmanager --sdk_root=%s %q", r.Package, projectRoot, r.Package))
 		}
 	}

@@ -187,12 +187,14 @@ type fxServer struct {
 	status map[string]int
 	// redirect, when set for a path, answers a 302 to that Location.
 	redirect map[string]string
-	log      []string
+	// custom, when set for a path, answers with that handler (a slow body, a stall).
+	custom map[string]http.HandlerFunc
+	log    []string
 }
 
 func newFxServer(t *testing.T, files map[string]string) *fxServer {
 	t.Helper()
-	s := &fxServer{files: files, status: map[string]int{}, redirect: map[string]string{}}
+	s := &fxServer{files: files, status: map[string]int{}, redirect: map[string]string{}, custom: map[string]http.HandlerFunc{}}
 	s.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, "/android/repository/")
 		s.mu.Lock()
@@ -200,8 +202,11 @@ func newFxServer(t *testing.T, files map[string]string) *fxServer {
 		body, ok := s.files[rel]
 		code := s.status[rel]
 		loc := s.redirect[rel]
+		h := s.custom[rel]
 		s.mu.Unlock()
 		switch {
+		case h != nil:
+			h(w, r)
 		case loc != "":
 			http.Redirect(w, r, loc, http.StatusFound)
 		case code != 0:

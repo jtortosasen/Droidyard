@@ -12981,6 +12981,185 @@
       }
     },
     {
+      "name": "sdk.install",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.39.0",
+      "description": "Installs SDK packages and their dependencies from Google's repository, dependencies first, updates an installed one that has a newer revision, and sets up the SDK root when the host has none. Every licence must already be accepted by the user, a package in use is never replaced, and the call can be cancelled.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS",
+        "SDK_REPOSITORY_UNAVAILABLE",
+        "SDK_NOT_WRITABLE",
+        "SDK_PACKAGE_NOT_FOUND",
+        "SDK_LICENSE_NOT_ACCEPTED",
+        "SDK_NO_SPACE",
+        "SDK_DOWNLOAD_FAILED",
+        "SDK_PACKAGE_IN_USE"
+      ],
+      "input": {
+        "properties": {
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "Package ids from sdk.packages. Dependencies are installed with them; an older installed one is updated."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "packages"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "root": {
+                "type": "string",
+                "description": "The SDK root installed into: the host SDK, else the directory this call set up."
+              },
+              "created": {
+                "type": "boolean",
+                "description": "True when the root held no package before this call (it was absent, empty, or held only licenses/): the call set up an SDK."
+              },
+              "installed": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The package id."
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The revision installed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "version"
+                  ]
+                },
+                "type": "array",
+                "description": "Packages newly installed, dependencies first."
+              },
+              "updated": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The package id."
+                    },
+                    "from": {
+                      "type": "string",
+                      "description": "The revision that was replaced; it is not kept."
+                    },
+                    "to": {
+                      "type": "string",
+                      "description": "The revision now installed."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "from",
+                    "to"
+                  ]
+                },
+                "type": "array",
+                "description": "Packages replaced by a newer revision."
+              },
+              "downloaded": {
+                "type": "integer",
+                "description": "Bytes of the archives fetched. Zero when every package was already at the latest revision."
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Notes that do not stop the call."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "root",
+              "created",
+              "installed",
+              "updated",
+              "downloaded",
+              "warnings"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "sdk.licenses",
       "kind": "query",
       "scope": "global",
@@ -13341,7 +13520,7 @@
       "longRunning": true,
       "audience": "all",
       "since": "0.7.0",
-      "description": "Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and the sdkmanager command for each, without changing anything. When source is failure-signatures nothing could be checked and complete is false.",
+      "description": "Reports what the project's build requires of the SDK (platforms and build-tools) against the SDK it would use, listing what is missing and, for each, the sdk.install call when the project SDK is the host SDK, else the sdkmanager command, without changing anything. When source is failure-signatures nothing could be checked and complete is false.",
       "availability": [
         "gradle"
       ],
@@ -13742,6 +13921,128 @@
           "rejected",
           "warnings",
           "installed"
+        ]
+      }
+    },
+    {
+      "name": "sdk.uninstall",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.39.0",
+      "description": "Removes installed SDK packages from the SDK root and reports the bytes freed; a package in use is refused. A person's step, refused from agents.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS",
+        "SDK_NOT_WRITABLE",
+        "SDK_PACKAGE_NOT_FOUND",
+        "SDK_PACKAGE_IN_USE"
+      ],
+      "input": {
+        "properties": {
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "description": "Installed package ids, from sdk.packages."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "packages"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "removed": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The package ids removed."
+              },
+              "freed": {
+                "type": "integer",
+                "description": "Bytes the removed packages' files took, measured before removal with a bounded walk; a package past the bound counts nothing and the warnings say so."
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Notes that do not stop the call."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "removed",
+              "freed",
+              "warnings"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
         ]
       }
     },

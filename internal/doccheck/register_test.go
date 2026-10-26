@@ -226,7 +226,9 @@ func checkRegister(fsys fs.FS) []string {
 // Raised by 18 (to 30,165) at milestone 3f step 3: mvp.md's capability surface names
 // sdk.licenses and sdk.acceptLicense, and mcp.md §What is exposed, and what is not lists
 // them with the one clause that says why they are human-only (the doccheck needs both).
-const liveBudget = 30165
+// Raised by 9 (to 30,174) at milestone 3f step 4: mvp.md's capability surface names
+// sdk.install and sdk.uninstall, and mcp.md lists uninstall beside the other human-only sdk calls.
+const liveBudget = 30174
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -47,21 +47,33 @@ type Options struct {
 	HTTPClient     *http.Client
 	GOOS, GOARCH   string
 
-	// Log receives the licence acceptance lines (daemon.log); nil discards them.
+	// Log receives the licence acceptance lines and an install's notes (daemon.log); nil
+	// discards them.
 	Log io.Writer
+
+	// InUse answers whether a package that sdk.install would replace or sdk.uninstall
+	// would remove is in use (plan m3f step 5). Nil is the answer "in use: not checked
+	// yet" for every package, so until the detector is wired an update and an uninstall
+	// are refused and a fresh install, which replaces nothing, runs.
+	InUse InUseFunc
+
+	// tweak lets a test replace the installer's seams.
+	tweak func(*installer)
 }
 
-// Register adds sdk.status, sdk.requirements, sdk.packages, sdk.licenses and
-// sdk.acceptLicense to the registry. sdk.status
+// Register adds sdk.status, sdk.requirements, sdk.packages, sdk.licenses,
+// sdk.acceptLicense, sdk.install and sdk.uninstall to the registry. sdk.status
 // needs no external tool and answers found: false when there is no host SDK (D11);
 // sdk.requirements runs a configuration pass and answers only for a trusted root (D12);
 // sdk.packages reads Google's repository, one Repository shared by every capability that
 // needs it; sdk.licenses and sdk.acceptLicense are for people (audience human) and write
-// nothing but the licence file.
+// nothing but the licence file; sdk.install and sdk.uninstall write the SDK root itself,
+// in Go, with no tool spawned, and sdk.uninstall is for people too.
 func Register(reg *capability.Registry, o Options) {
 	repo := NewRepository(RepositoryOptions{Base: o.RepositoryBase, Client: o.HTTPClient, GOOS: o.GOOS, GOARCH: o.GOARCH})
 	registerStatus(reg, o.Env)
 	registerRequirements(reg, o)
 	registerPackages(reg, o.Env, repo)
 	registerConsent(reg, o.Env, repo, o.Log)
+	registerInstaller(reg, newInstaller(o, repo))
 }

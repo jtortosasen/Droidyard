@@ -38,7 +38,12 @@ func TestObserveTable(t *testing.T) {
 		{"emulator -avd Pixel -wipe-data", []rec{{"emulator", nil, "emulator_wipe"}}},
 		{"emulator -avd Pixel", []rec{{"emulator", nil, "emulator_start"}}},
 		{"ANDROID_SERIAL=x adb logcat -d", []rec{{"adb", []string{"logcat"}, "device_logs"}}},
-		{"sdkmanager --list", []rec{{"sdkmanager", nil, "sdk_status"}}},
+		{"sdkmanager --list", []rec{{"sdkmanager", nil, "sdk_packages"}}},
+		{"sdkmanager --list_installed --sdk_root=/sdk", []rec{{"sdkmanager", nil, "sdk_packages"}}},
+		{`sdkmanager "platform-tools" "platforms;android-36"`, []rec{{"sdkmanager", []string{"platform-tools"}, "sdk_install"}}},
+		{`sdkmanager --sdk_root /sdk --install platform-tools`, []rec{{"sdkmanager", []string{"platform-tools"}, "sdk_install"}}},
+		{"sdkmanager --uninstall platform-tools", []rec{{"sdkmanager", []string{"platform-tools"}, ""}}},
+		{"yes | sdkmanager --licenses", []rec{{"sdkmanager", nil, ""}}},
 		{"env FOO=1 nohup time avdmanager list avd", []rec{{"avdmanager", []string{"list", "avd"}, "emulator_list"}}},
 		{`"./gradlew" build`, []rec{{"gradlew", []string{"build"}, "build_run"}}},
 		{"./gradlew assembleDebug && adb install x.apk", []rec{
