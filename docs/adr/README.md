@@ -159,6 +159,7 @@ edits made before this rule and are not added to.
 | [0128](0128-ui-own-faces-and-contrast-floor.md) | The UI ships its own faces and holds every text pair to WCAG AA | Accepted |
 | [0129](0129-sdk-provisioning-by-droidyard.md) | Droidyard provisions the SDK and AVDs, with consent kept human and nothing in use replaced | Accepted |
 | [0130](0130-droidyard-installs-sdk-packages.md) | Droidyard installs SDK packages itself; `avdmanager` stays for AVDs | Accepted |
+| [0131](0131-sdk-provisioning-narrowings.md) | Setuid processes, the emulator's lock and a licences-only root, as step 1 found them | Accepted |
 
 ## Open decisions (not yet ADRs)
 
