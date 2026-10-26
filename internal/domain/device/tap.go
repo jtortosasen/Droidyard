@@ -511,8 +511,18 @@ func (a *ADB) restartedActor(parent context.Context, t *target) *actor {
 		return &actor{a: a, t: t, c: c}
 	}
 	ok := false
-	if c.haveSock() || c.wasStarted() {
+	c.mu.Lock()
+	recent := !c.gestureRestartFailed.IsZero() && time.Since(c.gestureRestartFailed) < gestureRestartBackoff
+	c.mu.Unlock()
+	if !recent && (c.haveSock() || c.wasStarted()) {
 		ok, _ = a.restartReader(parent, t, c, end)
+		c.mu.Lock()
+		if ok {
+			c.gestureRestartFailed = time.Time{}
+		} else {
+			c.gestureRestartFailed = time.Now()
+		}
+		c.mu.Unlock()
 	}
 	c.release()
 	if !ok {

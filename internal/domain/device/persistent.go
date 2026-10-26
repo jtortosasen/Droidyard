@@ -194,7 +194,15 @@ type readerClient struct {
 	// killedForeign remembers reader names of another digest this daemon has already
 	// killed, so a later reconciliation does not look them up again (plan m1f step 7).
 	killedForeign map[string]bool
+	// gestureRestartFailed is when a gesture's restart of the reader last failed: within
+	// gestureRestartBackoff a gesture goes to adb shell input without trying again, since a
+	// device whose UiAutomation another tool holds would make each one wait a full reader
+	// start first (m3g close verifier).
+	gestureRestartFailed time.Time
 }
+
+// gestureRestartBackoff is how long a failed gesture restart of the reader is not retried.
+const gestureRestartBackoff = 60 * time.Second
 
 // reader returns the reader client for a device, creating it on first use.
 func (a *ADB) reader(serial string) *readerClient {

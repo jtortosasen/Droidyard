@@ -227,6 +227,7 @@ coordinates by the on-device screencap header, not `wm size`, which reports the 
 in landscape. **Tree-derived actions work in display
 pixels**, because the tree's bounds are already in that space. Text and taps go through the persistent
 reader when it can run; `input tap`, `input text` and the ADBKeyboard IME are the fallback.
+
 ## Failure modes
 
 Codes and `details` are the descriptors' and `internal/capability/error.go`'s; the decisions are

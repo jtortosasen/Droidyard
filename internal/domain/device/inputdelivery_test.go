@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -545,7 +546,7 @@ func TestAgentInputOccupies(t *testing.T) {
 // not sent to adb shell input at once: the reader is started again, once, as a read would
 // (restartReader reuses it when it answers then, and kills a wedged one before a new start,
 // so no act reaches a wedged reader, m1n N8), and the gesture goes to it. Seen failing
-// without restartedActor: the second tap ran `input tap` with the reader alive.
+// without restartedActor: the second tap left the reader and failed on the `input` path.
 func TestAgentInputRestartsAReaderThatDidNotAnswer(t *testing.T) {
 	files, r := withPersistentReaderR(t, nil, pixelDoc(t), pixelDoc(t))
 	f := newUIFixture(t, files)
@@ -559,6 +560,38 @@ func TestAgentInputRestartsAReaderThatDidNotAnswer(t *testing.T) {
 	}
 	if got := r.Acts(); len(got) != 2 {
 		t.Errorf("the reader received %q, want both taps", got)
+	}
+	if got := f.inputCommands(t); len(got) != 0 {
+		t.Errorf("`input` ran: %q", got)
+	}
+
+	// Within the backoff, a reader whose restart failed is not restarted again: the next
+	// gesture goes to `input` at once (m3g close verifier: another tool holding UiAutomation
+	// would otherwise cost each gesture a full reader start).
+	f.adb.reader(uiSerial).mu.Lock()
+	f.adb.reader(uiSerial).gestureRestartFailed = time.Now()
+	f.adb.reader(uiSerial).mu.Unlock()
+	r.SetMutePings(1)
+	before := r.Pings()
+	f.agentCall(t, "device.tap", `{`+devParam+`,"x":0.5,"y":0.5}`)
+	// Pings counts answered pings: the actor's is muted, and a restart would ping again.
+	if got := r.Pings() - before; got != 0 {
+		t.Errorf("the reader answered %d pings after a recent failed restart; want none (no restart)", got)
+	}
+}
+
+// Decision (m3g close verifier N3): an `input` command that never started sent nothing, so it
+// is never reported delivered: under a call already cancelled it is the cancel, and no
+// `input` command runs. Seen failing with the context checked before the start failure: the
+// key was reported with a "may have reached the device" warning.
+func TestInputThatNeverStartedIsNotDelivered(t *testing.T) {
+	f := newUIFixture(t, nil)
+	tgt := &target{adb: f.adb.Resolve().Path, serial: uiSerial}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	res, err := f.adb.deliverByInput(ctx, tgt, screen.Key{Name: "back"})
+	if !errors.Is(err, context.Canceled) || res != nil {
+		t.Errorf("result %+v, error %v; want the cancel and no result", res, err)
 	}
 	if got := f.inputCommands(t); len(got) != 0 {
 		t.Errorf("`input` ran: %q", got)
