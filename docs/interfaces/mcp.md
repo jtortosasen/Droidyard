@@ -275,17 +275,15 @@ documented degradation path, or not advertised.
 | **Sampling** | Rejected |
 | **Assistant-side hooks** | Not part of MCP; three adopted ([ADR-0061](../adr/0061-agent-rm-to-trash-hook.md), [ADR-0063](../adr/0063-hook-observes-android-commands.md), [ADR-0095](../adr/0095-hooks-joined-and-agent-edits.md): the client's edit tools, checked before and recorded after, joined to the chat's session) |
 
-**Elicitation** closes problems we have written down: SDK licence consent
-([sdk](../subsystems/sdk.md); fallback: an explicit capability call and an error that
-names it), a real confirmation step for destructive operations (fallback: `destructiveHint`
+**Elicitation** closes problems we have written down: a real confirmation step for destructive operations (fallback: `destructiveHint`
 only, which clients may ignore), and resolving ambiguity such as "which of these two
 devices?" (fallback: an error naming the candidates that requires an explicit parameter).
 Rules: it is **always optional**, an improvement when available and never a requirement;
-support varies, so detect and degrade to the fallback; it is not in the MVP core loop and
-becomes worth building with SDK provisioning, where the licence question arises; and it is
-**never a policy channel**: it does not enable devices or `shell.exec` and does not trust
+support varies, so detect and degrade to the fallback; and it is **never a policy channel**: it does not enable devices or `shell.exec` and does not trust
 a root, since a client in auto-approve mode would let the agent grant itself access
-([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6).
+([ADR-0015](../adr/0015-untrusted-data-authorization.md) §6). For the same reason SDK
+licence consent does not use it: a person accepts through a human-only call, and an agent
+meets an error naming that step ([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md) §2).
 
 **Resources** fit our artifacts, which are opaque URI-shaped references
 (`droidyard://artifact/<id>`). A tool is needed either way, because many clients put

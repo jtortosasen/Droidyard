@@ -95,12 +95,10 @@ trips, fewer tokens, no image interpretation.
   ([ADR-0068](../adr/0068-release-builds-and-installer.md)), as are the skill and `init`
   ([ADR-0037](../adr/0037-assistant-integration-by-init.md)).
 - **Windows** ([ADR-0002](../adr/0002-unix-first.md)).
-- **SDK provisioning and AVD creation.** `sdk.packages`, `sdk.install`, `sdk.licenses`,
-  `emulator.create` and `emulator.delete` are post-MVP: the golden path needs only an
-  emulator that already exists, and a package manager with licence consent and
-  gigabyte downloads is a large block that does not validate the hypothesis.
-  `sdk.requirements` **is** in scope because it makes Gradle failures explainable from
-  day one.
+- **SDK provisioning and AVD creation** were post-MVP: the golden path needs only an
+  emulator that already exists. Milestone 3f built them
+  ([plan](../plans/m3f-sdk-provisioning.md)). `sdk.requirements` was in scope from day one
+  because it makes Gradle failures explainable.
 - **Split APKs, App Bundles, dynamic features and instant apps.** One unfiltered APK per
   variant ([ADR-0023](../adr/0023-android-project-facts-and-build-outputs.md)).
 - **Refactors, rename, call hierarchy.**
@@ -117,8 +115,8 @@ trips, fewer tokens, no image interpretation.
 
 - **v1 adds**: `code.*` (definition, references, symbols, diagnostics, through the
   Kotlin LSP) and a light editor with diagnostics in the UI; `build.test`; `device`
-  processes, app info, backtrace and wireless pairing; `emulator.create`/`delete`;
-  `sdk` package installation and licences.
+  processes, app info, backtrace and wireless pairing (`emulator.create`/`delete` and `sdk`
+  package installation and licences came in 3f).
 - **Later**, with no commitment: LAN and tablet access to the UI (TLS and
   authentication need their own ADR); UI automation at scale (the row abstraction for
   unlabelled lists, OCR); crash and ANR analysis beyond structured logs; deeper code

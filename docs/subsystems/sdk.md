@@ -1,7 +1,7 @@
 # Subsystem: sdk
 
-The Android SDK as a host resource: what is installed, what a project requires, and (later)
-installing what is missing. Also the source of system images and device profiles for
+The Android SDK as a host resource: what is installed, what a project requires, and installing
+what is missing. Also the source of system images and device profiles for
 [`emulator.md`](emulator.md). Parameters and results are the descriptors'
 (`internal/domain/sdk`).
 
@@ -14,14 +14,13 @@ is installed** is therefore one of the highest-value structured answers we can g
 needs no download, no licence and no side effect: `sdk.requirements` is the difference between
 "Gradle failed with a wall of text" and "platform android-35 is missing". Its build-side inputs
 (probe or failure signatures) are defined in [gradle](gradle.md) §SDK requirements; this
-subsystem compares them against the project SDK. Until `sdk.install` exists, the next step names
-the package and `sdkmanager` for the human.
+subsystem compares them against the project SDK. The next step names `sdk.install` when the project
+SDK is the host SDK, and the `sdkmanager` command for another SDK.
 
-**`sdk` owns all SDK package management.** No other subsystem calls `sdkmanager`:
-`emulator.create` refuses a missing system image and points at `sdk.install`
-([emulator](emulator.md)). Resolved: `sdk.install` is post-MVP ([mvp](../roadmap/mvp.md) §Out of
-scope); AVD creation lives in `emulator` ("`sdk` owns packages and profiles; `emulator` owns
-AVDs"); multiple SDK roots are handled by the host/project split below.
+**`sdk` owns all SDK package management** and the one runner of `avdmanager`: `emulator.create`
+refuses a missing system image and points at `sdk.install` ([emulator](emulator.md)). AVD creation
+lives in `emulator` ("`sdk` owns packages and profiles; `emulator` owns AVDs"); multiple SDK roots
+are handled by the host/project split below.
 
 ## Two SDK roots, two questions
 
@@ -75,23 +74,31 @@ named from the probe's compile target, since configuration does not fail on it (
 Every installed package directory carries a `package.xml` whose `path` attribute is the package
 id (`platforms;android-35`, `build-tools;35.0.0`,
 `system-images;android-35;google_apis;arm64-v8a`). Walking those files answers "what is
-installed" with **no JVM and no `sdkmanager` call**; `sdkmanager` is needed only for what is
-*available* (post-MVP). *Not on every host:* a package unpacked by hand may carry only
-`source.properties` (this host's cmdline-tools, 1h); such a package is not listed until a
-fallback is decided. Package ids are matched as strings: platform directories may carry a minor
-version (`platforms;android-37.0` on a current SDK), so a `compileSdk` is mapped through AGP's
+installed" with **no JVM and no `sdkmanager` call**. A package unpacked by hand may carry only
+`source.properties` (this host's cmdline-tools, 1h): it is read as the fallback, its id taken from
+its place in the layout. A package's path is its id with `;` as `/`, so every id the repository
+offers is looked for there, not only in the fixed locations; a directory holding neither file is
+an incomplete install and is said so. Package ids are matched as strings: platform directories may
+carry a minor version (`platforms;android-37.0`), so a `compileSdk` is mapped through AGP's
 compile-target string from the probe, not rebuilt from an integer. Spike S3
 ([findings](../research/spike-s3-android-facts.md)) observed that `sdk.dir` wins over `ANDROID_HOME`.
 
-## Provisioning (later phase)
+## Provisioning
 
-Installing SDK components is a **package-manager concern** with real consequences. **Licences must be
-accepted**, never on the user's behalf: the capability reports which are pending and accepts them only
-on an explicit call. **Downloads are large and slow** (system images are hundreds of megabytes to
-gigabytes): long-running operations with progress and cancellation
-([ADR-0020](../adr/0020-operation-contract.md)); sizes are reported before downloading, and what an
-uninstall would free; an interrupted download fails and leaves nothing half-installed silently. **The
-tools are JVM binaries** (`sdkmanager`, `avdmanager` in `cmdline-tools`) and need a JDK, which an
-Android developer already has: the same assumption the Gradle sidecar makes. `avdmanager` builds AVDs
-from device definitions shipped in the SDK; we expose them so an emulator can be created from a named
-profile (`pixel_7`, a tablet, a TV) rather than from raw numbers.
+Droidyard installs, updates and removes packages itself
+([ADR-0129](../adr/0129-sdk-provisioning-by-droidyard.md),
+[ADR-0130](../adr/0130-droidyard-installs-sdk-packages.md)): today's `sdkmanager` is Android CLI and
+accepts licences with nobody's answer ([spike](../research/spike-sdk-provisioning-2026-10.md)). Go
+reads Google's repository XML, checks each archive's sha1 while streaming, unpacks it under `.temp/`
+and renames it into place last with the `package.xml` sdklib, AGP and `avdmanager` read; a kill
+leaves nothing at a package's path.
+
+- **Consent is a person's.** Only a human call carrying sdklib's hash of a text the repository
+  serves now writes `licenses/<id>`; an agent meets an error naming that step.
+- **Nothing in use is replaced.** An update or uninstall is refused while a process runs from the
+  package, a process that runs SDK code holds a file there open (`lsof`), or a Droidyard boot or
+  build needs it; any doubt refuses ([ADR-0131](../adr/0131-sdk-provisioning-narrowings.md)).
+- **Network and space.** One fixed HTTPS host, every read bounded, kept an hour. An image unpacks to
+  about 6.6 times its archive, so space is checked again from each zip's unpacked total.
+
+Device profiles come from `avdmanager list device`, so an AVD is created from a named profile.

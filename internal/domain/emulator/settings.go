@@ -244,6 +244,9 @@ func settingsOf(data []byte) Settings {
 			mb := int(n >> 20)
 			s.InternalStorageMB = &mb
 		}
+	} else {
+		// avdmanager 23 writes a unit: disk.dataPartition.size=10G.
+		s.InternalStorageMB = megabytes(m["disk.dataPartition.size"])
 	}
 	switch strings.ToLower(m["hw.sdCard"]) {
 	case "no", "false":
@@ -295,18 +298,27 @@ func isDigits(v string) bool {
 	return true
 }
 
-// megabytes reads `<n>M`, `<n>MB` or `<n> MB`; anything else is not a form the table reads.
+// megabytes reads `<n>M`, `<n>MB`, `<n> MB` and the same with G (1G = 1024 MB, as avdmanager
+// 23 writes hw.ramSize=2G); anything else is not a form the table reads.
 func megabytes(v string) *int {
 	v = strings.ToLower(strings.TrimSpace(v))
+	mult := 1
 	num, ok := strings.CutSuffix(v, "mb")
 	if !ok {
 		num, ok = strings.CutSuffix(v, "m")
 	}
+	if !ok {
+		if num, ok = strings.CutSuffix(v, "gb"); !ok {
+			num, ok = strings.CutSuffix(v, "g")
+		}
+		mult = 1024
+	}
 	num = strings.TrimSpace(num)
-	if !ok || !isDigits(num) || len(num) > 9 {
+	if !ok || !isDigits(num) || len(num) > 6 {
 		return nil
 	}
 	n, _ := strconv.Atoi(num)
+	n *= mult
 	return &n
 }
 
@@ -389,6 +401,7 @@ func mergeLines(data []byte, set []kv) []byte {
 		want[l.key] = l.value
 	}
 	written := map[string]bool{}
+	appendSep := majoritySep(data)
 	var out bytes.Buffer
 	eol := "\n"
 	for rest := data; len(rest) > 0; {
@@ -416,7 +429,7 @@ func mergeLines(data []byte, set []kv) []byte {
 			continue
 		}
 		written[k] = true
-		out.WriteString(k + " = " + want[k] + ending)
+		out.WriteString(k + sepOf(string(body)) + want[k] + ending)
 	}
 	for _, l := range set {
 		if written[l.key] {
@@ -425,9 +438,43 @@ func mergeLines(data []byte, set []kv) []byte {
 		if out.Len() > 0 && !bytes.HasSuffix(out.Bytes(), []byte("\n")) {
 			out.WriteString(eol)
 		}
-		out.WriteString(l.key + " = " + l.value + eol)
+		out.WriteString(l.key + appendSep + l.value + eol)
 	}
 	return out.Bytes()
+}
+
+// sepOf is the separator style of one line: " = " when it has a space on both sides of
+// its first `=`, else "=".
+func sepOf(line string) string {
+	i := strings.IndexByte(line, '=')
+	if i > 0 && line[i-1] == ' ' && i+1 < len(line) && line[i+1] == ' ' {
+		return " = "
+	}
+	return "="
+}
+
+// majoritySep is the style most key lines of data use; a tie is "=", which is what
+// avdmanager 23 writes.
+func majoritySep(data []byte) string {
+	spaced, tight := 0, 0
+	for _, line := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || t[0] == '#' || t[0] == ';' {
+			continue
+		}
+		if k, _, ok := splitLine(line); !ok || k == "" {
+			continue
+		}
+		if sepOf(strings.TrimSuffix(line, "\r")) == " = " {
+			spaced++
+		} else {
+			tight++
+		}
+	}
+	if spaced > tight {
+		return " = "
+	}
+	return "="
 }
 
 // replaceFile writes data to config.ini.droidyard-<random> in dir with mode, syncs it,

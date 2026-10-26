@@ -239,7 +239,12 @@ func checkRegister(fsys fs.FS) []string {
 //
 // Raised by 5 (to 30,199) at milestone 3f step 7: mvp.md's capability surface names
 // emulator.configure, and mcp.md lists it beside the other human-only calls (the doccheck needs both).
-const liveBudget = 30199
+//
+// Raised by 163 (to 30,362) at milestone 3f's close: sdk.md's §Provisioning, from a
+// paragraph of intent to the design and its why (Droidyard's installer, consent, in use,
+// network and space); emulator.md's observed launcher directory and its create, edit and
+// delete with the running check; mcp.md's elicitation line; README.md's status line.
+const liveBudget = 30362
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

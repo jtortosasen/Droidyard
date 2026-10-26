@@ -362,6 +362,7 @@
 							<span class="tag">this project's AVD</span>
 						{/if}
 					</span>
+					<span class="actions">
 					{#if avd.running}
 						<button
 							type="button"
@@ -409,6 +410,7 @@
 					>
 						Delete
 					</button>
+					</span>
 				</li>
 				{#if act.why}
 					<li class="note small muted" data-for={avd.name}>{act.why}</li>
@@ -601,8 +603,9 @@
 	}
 	.avd {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--sp-1) var(--sp-3);
 		min-height: var(--row);
 		padding: var(--sp-1) var(--sp-3);
 		border-radius: var(--radius-control);
@@ -610,9 +613,17 @@
 	.avd:hover {
 		background: var(--bg-hover);
 	}
+	/* The name and state keep at least 9rem; when the actions do not fit beside them they wrap beneath. */
 	.name {
-		flex: 1;
+		flex: 1 1 9rem;
 		min-width: 0;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--sp-1);
+		margin-left: auto;
 	}
 	/* The AVD name and the state word each keep one line and ellipsize; no token is cut in the middle. */
 	.line1 {

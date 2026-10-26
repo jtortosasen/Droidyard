@@ -80,12 +80,12 @@ func TestSettingsWriteKeepsOtherLinesByteForByte(t *testing.T) {
 	}
 	want := "# comment hw.ramSize = 1\n" +
 		"hw.device.name=pixel_9a\r\n" +
-		"hw.ramSize = 2048M\r\n" +
+		"hw.ramSize=2048M\r\n" +
 		"\n" +
 		"a line without an equals sign\n" +
 		"tag.id = google_apis\n" +
 		"vm.heapSize=228M\n" +
-		"avd.ini.displayname = Pixel = test\n"
+		"avd.ini.displayname=Pixel = test\n"
 	if have := readFile(t, filepath.Join(dir, "config.ini")); have != want {
 		t.Errorf("config.ini =\n%q\nwant\n%q", have, want)
 	}
@@ -101,7 +101,7 @@ func TestSettingsWriteKeepsOtherLinesByteForByte(t *testing.T) {
 	if _, err := writeSettings(dir, Settings{CPUCores: ptr(2)}, roomy(), false); err != nil {
 		t.Fatal(err)
 	}
-	if have := readFile(t, filepath.Join(dir, "config.ini")); have != crlf+"hw.cpu.ncore = 2\r\n" {
+	if have := readFile(t, filepath.Join(dir, "config.ini")); have != crlf+"hw.cpu.ncore=2\r\n" {
 		t.Errorf("config.ini = %q", have)
 	}
 }
@@ -327,7 +327,7 @@ func TestSettingsAtomic(t *testing.T) {
 	if _, err := writeSettings(dir, Settings{RAMMB: ptr(2048)}, roomy(), false); err != nil {
 		t.Fatal(err)
 	}
-	if have := readFile(t, path); have != "hw.ramSize = 2048M\n" {
+	if have := readFile(t, path); have != "hw.ramSize=2048M\n" {
 		t.Errorf("config.ini = %q", have)
 	}
 	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
@@ -461,8 +461,8 @@ func TestCreateWithSettings(t *testing.T) {
 		t.Errorf("argv = %q, want %q", got, want)
 	}
 	cfg := readFile(t, filepath.Join(f.home, ".android", "avd", "dy_new.avd", "config.ini"))
-	for _, want := range []string{"hw.device.name=pixel_9a\n", "hw.ramSize = 2048M\n", "avd.ini.displayname = My phone\n",
-		"fastboot.forceColdBoot = yes\n", "fastboot.forceFastBoot = no\n", "disk.dataPartition.size = 4294967296\n"} {
+	for _, want := range []string{"hw.device.name=pixel_9a\n", "hw.ramSize=2048M\n", "avd.ini.displayname=My phone\n",
+		"fastboot.forceColdBoot=yes\n", "fastboot.forceFastBoot=no\n", "disk.dataPartition.size=4294967296\n"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config.ini lacks %q:\n%s", want, cfg)
 		}
@@ -483,8 +483,8 @@ func TestCreateWithSettings(t *testing.T) {
 	if c := f.creates(t)[1]; strings.Contains(strings.Join(c.Args, "|"), "--sdcard") {
 		t.Errorf("sdcardMb 0 passed a flag: %v", c.Args)
 	}
-	if cfg := readFile(t, filepath.Join(f.home, ".android", "avd", "nocard.avd", "config.ini")); !strings.Contains(cfg, "hw.sdCard = no\n") {
-		t.Errorf("config.ini = %q, want hw.sdCard = no", cfg)
+	if cfg := readFile(t, filepath.Join(f.home, ".android", "avd", "nocard.avd", "config.ini")); !strings.Contains(cfg, "hw.sdCard=no\n") {
+		t.Errorf("config.ini = %q, want hw.sdCard=no", cfg)
 	}
 
 	// An invalid setting is refused before avdmanager runs.
@@ -555,8 +555,11 @@ func TestListReportsSettings(t *testing.T) {
 	put("nocard", "hw.sdCard = no\nsdcard.size = 512 MB\nhw.gpu.enabled = yes\nhw.gpu.mode = swiftshader_indirect\n")
 	put("odd", "hw.cpu.ncore = 3\nhw.ramSize = 1.5G\ndisk.dataPartition.size = 1000\nhw.sdCard = yes\nhw.gpu.enabled = no\nhw.gpu.mode = host\n"+
 		"fastboot.forceColdBoot = no\nfastboot.forceFastBoot = no\n")
+	// avdmanager 23's exact lines: no spaces, a G unit.
+	put("avd23", "hw.ramSize=2G\ndisk.dataPartition.size=10G\nsdcard.size=64M\nvm.heapSize=228M\n")
+	put("gb", "hw.ramSize = 1 GB\nvm.heapSize = 1GB\nhw.sdCard = yes\nsdcard.size = 2 GB\n")
 	put("bare", "hw.device.name=pixel_9a\n")
-	f.launcher(t, "spaced\ntight\nnocard\nodd\nbare\n")
+	f.launcher(t, "spaced\ntight\nnocard\nodd\navd23\ngb\nbare\n")
 
 	by := map[string]*Settings{}
 	for _, a := range f.list(t).AVDs {
@@ -600,7 +603,45 @@ func TestListReportsSettings(t *testing.T) {
 	if od == nil || i(od.CPUCores) != 3 || od.RAMMB != nil || od.InternalStorageMB != nil || od.SDCardMB != nil || od.Graphics != nil || od.Boot != nil {
 		t.Errorf("odd = %+v, want only the cores, every other key left out", od)
 	}
+	a23 := by["avd23"]
+	if a23 == nil || i(a23.RAMMB) != 2048 || i(a23.InternalStorageMB) != 10240 || i(a23.VMHeapMB) != 228 {
+		t.Errorf("avd23 = %+v, want 2G -> 2048 and 10G -> 10240 MB", a23)
+	}
+	gb := by["gb"]
+	if gb == nil || i(gb.RAMMB) != 1024 || i(gb.VMHeapMB) != 1024 || i(gb.SDCardMB) != 2048 {
+		t.Errorf("gb = %+v, want GB and \"<n> GB\" read as 1024 MB each", gb)
+	}
 	if by["bare"] != nil {
 		t.Errorf("bare = %+v, want no settings", by["bare"])
+	}
+}
+
+// TestSettingsWriteKeepsSeparatorStyle pins that the writer follows the file: a replaced line
+// keeps its own separator, an appended key takes the style most lines use, and a tie is
+// "key=value" (avdmanager 23's). Seen failing when the writer always wrote "key = value":
+// every setting changed made the file mixed.
+func TestSettingsWriteKeepsSeparatorStyle(t *testing.T) {
+	run := func(orig string, s Settings) string {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "config.ini"), []byte(orig), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writeSettings(dir, s, roomy(), false); err != nil {
+			t.Fatal(err)
+		}
+		return readFile(t, filepath.Join(dir, "config.ini"))
+	}
+	set := Settings{RAMMB: ptr(2048), CPUCores: ptr(2)}
+	if got, want := run("a=b\nhw.ramSize=1024M\nc=d\n", set), "a=b\nhw.ramSize=2048M\nc=d\nhw.cpu.ncore=2\n"; got != want {
+		t.Errorf("tight file = %q, want %q", got, want)
+	}
+	if got, want := run("a = b\nhw.ramSize = 1024M\nc = d\n", set), "a = b\nhw.ramSize = 2048M\nc = d\nhw.cpu.ncore = 2\n"; got != want {
+		t.Errorf("spaced file = %q, want %q", got, want)
+	}
+	if got, want := run("a = b\nc = d\nhw.ramSize=1024M\n", set), "a = b\nc = d\nhw.ramSize=2048M\nhw.cpu.ncore = 2\n"; got != want {
+		t.Errorf("mixed file = %q, want %q", got, want)
+	}
+	if got, want := run("a = b\nc=d\n", Settings{CPUCores: ptr(2)}), "a = b\nc=d\nhw.cpu.ncore=2\n"; got != want {
+		t.Errorf("tie = %q, want %q", got, want)
 	}
 }
