@@ -4274,7 +4274,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.27.0",
-      "description": "Presses and releases a system key on the device, such as back, home, power or a volume key.",
+      "description": "Presses and releases a system key on the device, such as back, home, power or a volume key. With expect it polls the tree until every condition holds or timeoutMs elapses. Never repeat it: a repeat presses again; an expect already true before is reported vacuous, and gone needs two reads.",
       "availability": [
         "adb"
       ],
@@ -4293,6 +4293,8 @@
         "DEVICE_DISCONNECTED",
         "DEVICE_OCCUPIED",
         "DEVICE_STREAM_FAILED",
+        "DEVICE_UI_DUMP_FAILED",
+        "DEVICE_STALE_REF",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
       ],
@@ -4329,6 +4331,133 @@
               "assist"
             ],
             "description": "The key to press and release; power toggles the screen, sleep turns it off and wakeUp on."
+          },
+          "expect": {
+            "items": {
+              "properties": {
+                "appears": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "resource-id, without its package prefix; exact."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Text: exact first, then case-insensitive contains."
+                    },
+                    "desc": {
+                      "type": "string",
+                      "description": "Content description: exact first, then case-insensitive contains."
+                    },
+                    "class": {
+                      "type": "string",
+                      "description": "Short class name, e.g. Button; exact."
+                    },
+                    "within": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text, exact."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description, exact."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "0-based document-order position, to pick one of several matches."
+                    },
+                    "ref": {
+                      "type": "string",
+                      "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                    },
+                    "snapshot": {
+                      "type": "string",
+                      "description": "The snapshot the ref came from."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Holds when at least one on-screen node matches."
+                },
+                "gone": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "desc": {
+                      "type": "string"
+                    },
+                    "class": {
+                      "type": "string"
+                    },
+                    "within": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "desc": {
+                          "type": "string"
+                        },
+                        "class": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "ref": {
+                      "type": "string"
+                    },
+                    "snapshot": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Holds when no node matches."
+                },
+                "foreground": {
+                  "type": "string",
+                  "description": "Holds when the top window belongs to this applicationId."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "description": "Conditions that must all hold after the input; at most 5."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "maximum": 20000,
+            "minimum": 1,
+            "description": "How long to poll for the conditions, in milliseconds (default 5000, maximum 20000)."
           }
         },
         "additionalProperties": false,
@@ -4359,6 +4488,360 @@
             },
             "type": "array",
             "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
+          },
+          "expect": {
+            "properties": {
+              "matched": {
+                "type": "boolean",
+                "description": "True when every condition held; false is a completed call, not an error."
+              },
+              "afterMs": {
+                "type": "integer"
+              },
+              "polls": {
+                "type": "integer",
+                "description": "Reads attempted after the action, failed ones included."
+              },
+              "failedDumps": {
+                "type": "integer"
+              },
+              "reason": {
+                "type": "string",
+                "description": "noObservation when every read after the action failed; cancelled when the caller cancelled after the tap, so the tap is reported and must not be retried."
+              },
+              "vacuous": {
+                "items": {
+                  "properties": {
+                    "appears": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text: exact first, then case-insensitive contains."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description: exact first, then case-insensitive contains."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        },
+                        "within": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text, exact."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description, exact."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                        },
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "0-based document-order position, to pick one of several matches."
+                        },
+                        "ref": {
+                          "type": "string",
+                          "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                        },
+                        "snapshot": {
+                          "type": "string",
+                          "description": "The snapshot the ref came from."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Holds when at least one on-screen node matches."
+                    },
+                    "gone": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text: exact first, then case-insensitive contains."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description: exact first, then case-insensitive contains."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        },
+                        "within": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text, exact."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description, exact."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                        },
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "0-based document-order position, to pick one of several matches."
+                        },
+                        "ref": {
+                          "type": "string",
+                          "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                        },
+                        "snapshot": {
+                          "type": "string",
+                          "description": "The snapshot the ref came from."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Holds when no node matches."
+                    },
+                    "foreground": {
+                      "type": "string",
+                      "description": "Holds when the top window belongs to this applicationId."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array",
+                "description": "Conditions that already held before the action; they prove nothing."
+              },
+              "unmet": {
+                "items": {
+                  "properties": {
+                    "condition": {
+                      "properties": {
+                        "appears": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text: exact first, then case-insensitive contains."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description: exact first, then case-insensitive contains."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            },
+                            "within": {
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "resource-id, without its package prefix; exact."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Text, exact."
+                                },
+                                "desc": {
+                                  "type": "string",
+                                  "description": "Content description, exact."
+                                },
+                                "class": {
+                                  "type": "string",
+                                  "description": "Short class name, e.g. Button; exact."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "0-based document-order position, to pick one of several matches."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                            },
+                            "snapshot": {
+                              "type": "string",
+                              "description": "The snapshot the ref came from."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Holds when at least one on-screen node matches."
+                        },
+                        "gone": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text: exact first, then case-insensitive contains."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description: exact first, then case-insensitive contains."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            },
+                            "within": {
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "resource-id, without its package prefix; exact."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Text, exact."
+                                },
+                                "desc": {
+                                  "type": "string",
+                                  "description": "Content description, exact."
+                                },
+                                "class": {
+                                  "type": "string",
+                                  "description": "Short class name, e.g. Button; exact."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "0-based document-order position, to pick one of several matches."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                            },
+                            "snapshot": {
+                              "type": "string",
+                              "description": "The snapshot the ref came from."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Holds when no node matches."
+                        },
+                        "foreground": {
+                          "type": "string",
+                          "description": "Holds when the top window belongs to this applicationId."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "candidates": {
+                      "items": {
+                        "properties": {
+                          "ref": {
+                            "type": "string"
+                          },
+                          "class": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "bounds": {
+                            "items": {
+                              "type": "integer"
+                            },
+                            "type": "array",
+                            "maxItems": 4,
+                            "minItems": 4
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "description": "The still-present match for gone, or near candidates for appears; at most 5."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "condition"
+                  ]
+                },
+                "type": "array",
+                "x-droidyard-untrusted": true
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "matched",
+              "afterMs",
+              "polls",
+              "failedDumps"
+            ]
+          },
+          "foreground": {
+            "properties": {
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string",
+                "description": "The top window after the action; omitted when no read after the action observed the screen."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "before"
+            ],
+            "x-droidyard-untrusted": true
+          },
+          "snapshot": {
+            "type": "string",
+            "description": "The snapshot the last read returned; unmet candidates' refs belong to it."
           }
         },
         "additionalProperties": false,
@@ -5080,7 +5563,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.27.0",
-      "description": "Drags a finger along a path of points, as fractions of the screen device.uiTree reports, replayed with the points' timing. A path of more than two points needs the UI reader or an open live view.",
+      "description": "Drags a finger along a path of points, as fractions of the screen device.uiTree reports; more than two points need the UI reader or an open live view. With expect it polls the tree until every condition holds or timeoutMs elapses. Never repeat it: a repeat drags again; an expect already true before is reported vacuous, and gone needs two reads.",
       "availability": [
         "adb"
       ],
@@ -5099,6 +5582,8 @@
         "DEVICE_DISCONNECTED",
         "DEVICE_OCCUPIED",
         "DEVICE_STREAM_FAILED",
+        "DEVICE_UI_DUMP_FAILED",
+        "DEVICE_STALE_REF",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
       ],
@@ -5142,6 +5627,133 @@
             "maxItems": 64,
             "minItems": 2,
             "description": "The finger's path: down at the first point, through the others at their t, up at the last. 2 to 64 points."
+          },
+          "expect": {
+            "items": {
+              "properties": {
+                "appears": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "resource-id, without its package prefix; exact."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Text: exact first, then case-insensitive contains."
+                    },
+                    "desc": {
+                      "type": "string",
+                      "description": "Content description: exact first, then case-insensitive contains."
+                    },
+                    "class": {
+                      "type": "string",
+                      "description": "Short class name, e.g. Button; exact."
+                    },
+                    "within": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text, exact."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description, exact."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "0-based document-order position, to pick one of several matches."
+                    },
+                    "ref": {
+                      "type": "string",
+                      "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                    },
+                    "snapshot": {
+                      "type": "string",
+                      "description": "The snapshot the ref came from."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Holds when at least one on-screen node matches."
+                },
+                "gone": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "desc": {
+                      "type": "string"
+                    },
+                    "class": {
+                      "type": "string"
+                    },
+                    "within": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "desc": {
+                          "type": "string"
+                        },
+                        "class": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "ref": {
+                      "type": "string"
+                    },
+                    "snapshot": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Holds when no node matches."
+                },
+                "foreground": {
+                  "type": "string",
+                  "description": "Holds when the top window belongs to this applicationId."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "description": "Conditions that must all hold after the input; at most 5."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "maximum": 20000,
+            "minimum": 1,
+            "description": "How long to poll for the conditions, in milliseconds (default 5000, maximum 20000)."
           }
         },
         "additionalProperties": false,
@@ -5172,6 +5784,360 @@
             },
             "type": "array",
             "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
+          },
+          "expect": {
+            "properties": {
+              "matched": {
+                "type": "boolean",
+                "description": "True when every condition held; false is a completed call, not an error."
+              },
+              "afterMs": {
+                "type": "integer"
+              },
+              "polls": {
+                "type": "integer",
+                "description": "Reads attempted after the action, failed ones included."
+              },
+              "failedDumps": {
+                "type": "integer"
+              },
+              "reason": {
+                "type": "string",
+                "description": "noObservation when every read after the action failed; cancelled when the caller cancelled after the tap, so the tap is reported and must not be retried."
+              },
+              "vacuous": {
+                "items": {
+                  "properties": {
+                    "appears": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text: exact first, then case-insensitive contains."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description: exact first, then case-insensitive contains."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        },
+                        "within": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text, exact."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description, exact."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                        },
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "0-based document-order position, to pick one of several matches."
+                        },
+                        "ref": {
+                          "type": "string",
+                          "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                        },
+                        "snapshot": {
+                          "type": "string",
+                          "description": "The snapshot the ref came from."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Holds when at least one on-screen node matches."
+                    },
+                    "gone": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text: exact first, then case-insensitive contains."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description: exact first, then case-insensitive contains."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        },
+                        "within": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text, exact."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description, exact."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                        },
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "0-based document-order position, to pick one of several matches."
+                        },
+                        "ref": {
+                          "type": "string",
+                          "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                        },
+                        "snapshot": {
+                          "type": "string",
+                          "description": "The snapshot the ref came from."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Holds when no node matches."
+                    },
+                    "foreground": {
+                      "type": "string",
+                      "description": "Holds when the top window belongs to this applicationId."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array",
+                "description": "Conditions that already held before the action; they prove nothing."
+              },
+              "unmet": {
+                "items": {
+                  "properties": {
+                    "condition": {
+                      "properties": {
+                        "appears": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text: exact first, then case-insensitive contains."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description: exact first, then case-insensitive contains."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            },
+                            "within": {
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "resource-id, without its package prefix; exact."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Text, exact."
+                                },
+                                "desc": {
+                                  "type": "string",
+                                  "description": "Content description, exact."
+                                },
+                                "class": {
+                                  "type": "string",
+                                  "description": "Short class name, e.g. Button; exact."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "0-based document-order position, to pick one of several matches."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                            },
+                            "snapshot": {
+                              "type": "string",
+                              "description": "The snapshot the ref came from."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Holds when at least one on-screen node matches."
+                        },
+                        "gone": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text: exact first, then case-insensitive contains."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description: exact first, then case-insensitive contains."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            },
+                            "within": {
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "resource-id, without its package prefix; exact."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Text, exact."
+                                },
+                                "desc": {
+                                  "type": "string",
+                                  "description": "Content description, exact."
+                                },
+                                "class": {
+                                  "type": "string",
+                                  "description": "Short class name, e.g. Button; exact."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "0-based document-order position, to pick one of several matches."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                            },
+                            "snapshot": {
+                              "type": "string",
+                              "description": "The snapshot the ref came from."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Holds when no node matches."
+                        },
+                        "foreground": {
+                          "type": "string",
+                          "description": "Holds when the top window belongs to this applicationId."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "candidates": {
+                      "items": {
+                        "properties": {
+                          "ref": {
+                            "type": "string"
+                          },
+                          "class": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "bounds": {
+                            "items": {
+                              "type": "integer"
+                            },
+                            "type": "array",
+                            "maxItems": 4,
+                            "minItems": 4
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "description": "The still-present match for gone, or near candidates for appears; at most 5."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "condition"
+                  ]
+                },
+                "type": "array",
+                "x-droidyard-untrusted": true
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "matched",
+              "afterMs",
+              "polls",
+              "failedDumps"
+            ]
+          },
+          "foreground": {
+            "properties": {
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string",
+                "description": "The top window after the action; omitted when no read after the action observed the screen."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "before"
+            ],
+            "x-droidyard-untrusted": true
+          },
+          "snapshot": {
+            "type": "string",
+            "description": "The snapshot the last read returned; unmet candidates' refs belong to it."
           }
         },
         "additionalProperties": false,
@@ -5254,7 +6220,7 @@
       "statefulness": "stateless",
       "audience": "all",
       "since": "0.27.0",
-      "description": "Touches the screen at a point, as a fraction of the screen device.uiTree reports, and lifts after durationMs (a long press). To tap an element use device.tapElement, which finds it by identity.",
+      "description": "Touches the screen at a point, as a fraction of the screen device.uiTree reports, and lifts after durationMs (a long press); to tap an element use device.tapElement. With expect it polls the tree until every condition holds or timeoutMs elapses. Never repeat it: a repeat touches again; an expect already true before is reported vacuous, and gone needs two reads.",
       "availability": [
         "adb"
       ],
@@ -5273,6 +6239,8 @@
         "DEVICE_DISCONNECTED",
         "DEVICE_OCCUPIED",
         "DEVICE_STREAM_FAILED",
+        "DEVICE_UI_DUMP_FAILED",
+        "DEVICE_STALE_REF",
         "REQUEST_INVALID_PARAMS",
         "OPERATION_QUEUE_TIMEOUT"
       ],
@@ -5299,6 +6267,133 @@
             "maximum": 2000,
             "minimum": 0,
             "description": "How long to hold the touch, in milliseconds (default 0, a tap; a longer one is a long press). At most 2000."
+          },
+          "expect": {
+            "items": {
+              "properties": {
+                "appears": {
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "resource-id, without its package prefix; exact."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Text: exact first, then case-insensitive contains."
+                    },
+                    "desc": {
+                      "type": "string",
+                      "description": "Content description: exact first, then case-insensitive contains."
+                    },
+                    "class": {
+                      "type": "string",
+                      "description": "Short class name, e.g. Button; exact."
+                    },
+                    "within": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text, exact."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description, exact."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "0-based document-order position, to pick one of several matches."
+                    },
+                    "ref": {
+                      "type": "string",
+                      "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                    },
+                    "snapshot": {
+                      "type": "string",
+                      "description": "The snapshot the ref came from."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Holds when at least one on-screen node matches."
+                },
+                "gone": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "desc": {
+                      "type": "string"
+                    },
+                    "class": {
+                      "type": "string"
+                    },
+                    "within": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "desc": {
+                          "type": "string"
+                        },
+                        "class": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "ref": {
+                      "type": "string"
+                    },
+                    "snapshot": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Holds when no node matches."
+                },
+                "foreground": {
+                  "type": "string",
+                  "description": "Holds when the top window belongs to this applicationId."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "description": "Conditions that must all hold after the input; at most 5."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "maximum": 20000,
+            "minimum": 1,
+            "description": "How long to poll for the conditions, in milliseconds (default 5000, maximum 20000)."
           }
         },
         "additionalProperties": false,
@@ -5330,6 +6425,360 @@
             },
             "type": "array",
             "description": "Set when the device may have received only part of the input, or no answer came: look at the screen first."
+          },
+          "expect": {
+            "properties": {
+              "matched": {
+                "type": "boolean",
+                "description": "True when every condition held; false is a completed call, not an error."
+              },
+              "afterMs": {
+                "type": "integer"
+              },
+              "polls": {
+                "type": "integer",
+                "description": "Reads attempted after the action, failed ones included."
+              },
+              "failedDumps": {
+                "type": "integer"
+              },
+              "reason": {
+                "type": "string",
+                "description": "noObservation when every read after the action failed; cancelled when the caller cancelled after the tap, so the tap is reported and must not be retried."
+              },
+              "vacuous": {
+                "items": {
+                  "properties": {
+                    "appears": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text: exact first, then case-insensitive contains."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description: exact first, then case-insensitive contains."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        },
+                        "within": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text, exact."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description, exact."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                        },
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "0-based document-order position, to pick one of several matches."
+                        },
+                        "ref": {
+                          "type": "string",
+                          "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                        },
+                        "snapshot": {
+                          "type": "string",
+                          "description": "The snapshot the ref came from."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Holds when at least one on-screen node matches."
+                    },
+                    "gone": {
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "resource-id, without its package prefix; exact."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Text: exact first, then case-insensitive contains."
+                        },
+                        "desc": {
+                          "type": "string",
+                          "description": "Content description: exact first, then case-insensitive contains."
+                        },
+                        "class": {
+                          "type": "string",
+                          "description": "Short class name, e.g. Button; exact."
+                        },
+                        "within": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text, exact."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description, exact."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                        },
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "0-based document-order position, to pick one of several matches."
+                        },
+                        "ref": {
+                          "type": "string",
+                          "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                        },
+                        "snapshot": {
+                          "type": "string",
+                          "description": "The snapshot the ref came from."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Holds when no node matches."
+                    },
+                    "foreground": {
+                      "type": "string",
+                      "description": "Holds when the top window belongs to this applicationId."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array",
+                "description": "Conditions that already held before the action; they prove nothing."
+              },
+              "unmet": {
+                "items": {
+                  "properties": {
+                    "condition": {
+                      "properties": {
+                        "appears": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text: exact first, then case-insensitive contains."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description: exact first, then case-insensitive contains."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            },
+                            "within": {
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "resource-id, without its package prefix; exact."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Text, exact."
+                                },
+                                "desc": {
+                                  "type": "string",
+                                  "description": "Content description, exact."
+                                },
+                                "class": {
+                                  "type": "string",
+                                  "description": "Short class name, e.g. Button; exact."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "0-based document-order position, to pick one of several matches."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                            },
+                            "snapshot": {
+                              "type": "string",
+                              "description": "The snapshot the ref came from."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Holds when at least one on-screen node matches."
+                        },
+                        "gone": {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "resource-id, without its package prefix; exact."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "Text: exact first, then case-insensitive contains."
+                            },
+                            "desc": {
+                              "type": "string",
+                              "description": "Content description: exact first, then case-insensitive contains."
+                            },
+                            "class": {
+                              "type": "string",
+                              "description": "Short class name, e.g. Button; exact."
+                            },
+                            "within": {
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "resource-id, without its package prefix; exact."
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "description": "Text, exact."
+                                },
+                                "desc": {
+                                  "type": "string",
+                                  "description": "Content description, exact."
+                                },
+                                "class": {
+                                  "type": "string",
+                                  "description": "Short class name, e.g. Button; exact."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "description": "Only nodes inside a node matching these fields exactly; that node itself is excluded."
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "0-based document-order position, to pick one of several matches."
+                            },
+                            "ref": {
+                              "type": "string",
+                              "description": "A node ref from an earlier snapshot; needs snapshot, and cannot combine with other fields."
+                            },
+                            "snapshot": {
+                              "type": "string",
+                              "description": "The snapshot the ref came from."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "type": "object",
+                          "description": "Holds when no node matches."
+                        },
+                        "foreground": {
+                          "type": "string",
+                          "description": "Holds when the top window belongs to this applicationId."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "candidates": {
+                      "items": {
+                        "properties": {
+                          "ref": {
+                            "type": "string"
+                          },
+                          "class": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "bounds": {
+                            "items": {
+                              "type": "integer"
+                            },
+                            "type": "array",
+                            "maxItems": 4,
+                            "minItems": 4
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "description": "The still-present match for gone, or near candidates for appears; at most 5."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "condition"
+                  ]
+                },
+                "type": "array",
+                "x-droidyard-untrusted": true
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "matched",
+              "afterMs",
+              "polls",
+              "failedDumps"
+            ]
+          },
+          "foreground": {
+            "properties": {
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string",
+                "description": "The top window after the action; omitted when no read after the action observed the screen."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "before"
+            ],
+            "x-droidyard-untrusted": true
+          },
+          "snapshot": {
+            "type": "string",
+            "description": "The snapshot the last read returned; unmet candidates' refs belong to it."
           }
         },
         "additionalProperties": false,

@@ -22,9 +22,9 @@ A session started with `--tools core` lists only the tools marked core.
 | `device_rotate` |  | changes state | Pins the screen to an angle with auto-rotate off, or turns auto-rotate back on, and returns the previous setting. |
 | `device_screenshot` | core | read-only | Captures the device's screen as a PNG and returns an ephemeral artifact reference with its size, not the bytes. |
 | `device_stopUiRecording` |  | changes state | Ends the device's UI recording after a last dump and returns its summary; stopped is false when none runs or it was already ending, and recording is ... |
-| `device_swipe` |  | changes state | Drags a finger along a path of points, as fractions of the screen device_uiTree reports, replayed with the points' timing. |
+| `device_swipe` |  | changes state | Drags a finger along a path of points, as fractions of the screen device_uiTree reports; more than two points need the UI reader or an open live view. |
 | `device_systemPanel` |  | changes state | Opens the notification shade or quick settings, or closes the open panel, with the device's status-bar command. |
-| `device_tap` |  | changes state | Touches the screen at a point, as a fraction of the screen device_uiTree reports, and lifts after durationMs (a long press). |
+| `device_tap` |  | changes state | Touches the screen at a point, as a fraction of the screen device_uiTree reports, and lifts after durationMs (a long press); to tap an element use ... |
 | `device_tapElement` | core | changes state | Taps one UI element once and verifies the effect in the same call: it resolves target with the device_uiTree selector, taps it, then polls the ... |
 | `device_uiDump` |  | read-only | Returns the active window's full accessibility tree, uncut and without refs, as an XML artifact in uiautomator dump's format plus extra attributes, ... |
 | `device_uiEvents` |  | read-only | Returns what happened on the screen since a cursor, oldest first: windows, content, focus, scrolls, clicks, toasts with their text and notifications ... |

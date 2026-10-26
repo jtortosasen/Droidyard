@@ -47,6 +47,19 @@ var safetyExceptions = map[string]safetyException{
 		why:   "a repeat types again; an expect already true before typing is vacuous; gone needs two reads",
 		facts: []string{"repeat", "vacuous", "two reads"},
 	},
+	// The coordinate actions carry tapElement's expect (plan m3g step 5, ADR-0133 §6).
+	"device.tap": {
+		why:   "a repeat touches again; an expect already true before the input is vacuous; gone needs two reads",
+		facts: []string{"repeat", "vacuous", "two reads"},
+	},
+	"device.swipe": {
+		why:   "a repeat drags again; an expect already true before the input is vacuous; gone needs two reads",
+		facts: []string{"repeat", "vacuous", "two reads"},
+	},
+	"device.pressKey": {
+		why:   "a repeat presses again; an expect already true before the input is vacuous; gone needs two reads",
+		facts: []string{"repeat", "vacuous", "two reads"},
+	},
 	"emulator.start": {
 		why:   "cancelling after the serial is resolved leaves the emulator running (mcp.md §Long-running work)",
 		facts: []string{"Cancelling", "leaves the emulator running"},

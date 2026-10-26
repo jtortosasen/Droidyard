@@ -153,7 +153,7 @@
 - Needs: step 4.
 - Not here: `returnTree`; `appCrash`, `systemDialog`.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `TestCoordinateActionExpect` (appears met on each of the three, vacuous, unmet with candidates, `gone` with two reads, through a view, the before read failing with nothing sent, no `expect` with no dump, the bounds) seen failing with `expect` ignored, the before-read error ignored and the read always taken; the reader lock taken and released per step (no hold across the before read, the gesture and the after read); schema: the three gain `expect`, `timeoutMs`, `expect`/`foreground`/`snapshot`, `DEVICE_UI_DUMP_FAILED`, `DEVICE_STALE_REF`; `device.scroll` gets its own `ScrollResult`, unchanged; 47 tools, 50,950 B, `maxToolListBytes` 51,000 (Changes); `pnpm -C web run verify` green; `go test ./...` green but load timeouts that pass alone.
 
 ### 6. Level 5, the documents, the close
 
@@ -259,3 +259,4 @@ Changes after approval: date, what changed, why, and the ADR if the change touch
   - **Step 3: `device.rotate`** writes as planned; an app that fixes its orientation (the launcher) keeps the display as it is, so the result reports `previous` only and the description says the foreground app may keep its orientation. Step 6 (c) rotates with Settings in front.
   - **Step 4: the `input` fallback's size** is the on-device header `adb shell 'screencap | head -c 8 | od -An -tu4'`, which follows rotation (2400 1080 rotated); `wm size` does not.
   - **Step 6 (a)'s nodes**: the shade unlocked, `com.android.systemui:id/quick_qs_panel`; quick settings, `quick_settings_panel`. Over a keyguard the shade has no node of its own (the keyguard is the shade window and holds `notification_panel` and `notification_stack_scroller`), so step 6 (a) over the keyguards swipes twice and expects `quick_settings_panel`, which two swipes opened on both levels.
+- 2026-10-26, step 5's measure: `expect` costs about 2.4 KB a tool, not the 1.1 KB Q5 estimated, since the Condition selector is inlined in each tool's schema; `tools/list` ends at 50,950 B (+12.7 KB over 38,249 B, against the header's 8–9 KB). Kept on all three (Delegated: Q5's reason holds, a panel's swipe and a key need verifying too); `maxToolListBytes` 51,000 by ADR-0060 §4's rule. Sharing one selector definition across tools would need `$ref` support in clients, not checked; a register row.

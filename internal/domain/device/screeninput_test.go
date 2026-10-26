@@ -155,8 +155,15 @@ func TestScreenInputCapabilitiesPassTheInput(t *testing.T) {
 			if out.State != capability.StateCompleted {
 				t.Fatalf("%s: %s, %+v", c.name, out.State, out.Error)
 			}
-			res, ok := out.Result.(ScreenInputResult)
-			if !ok || !res.Delivered || len(res.Warnings) != 0 {
+			var delivered bool
+			var warnings []string
+			switch res := out.Result.(type) {
+			case ScreenInputResult:
+				delivered, warnings = res.Delivered, res.Warnings
+			case ScrollResult: // the wheel's own result type
+				delivered, warnings = res.Delivered, res.Warnings
+			}
+			if !delivered || len(warnings) != 0 {
 				t.Errorf("result %#v, want delivered with no warnings", out.Result)
 			}
 			if got := f.fake.got(); len(got) != 1 || !reflect.DeepEqual(got[0], c.want) {
