@@ -253,7 +253,7 @@ Two practical notes:
 | `project` | `modules`, `variants` | 1 |
 | `build` | `assemble`, `tasks`, `run`, `errors`, `lastResult`, `watchOutput` | 1–2 |
 | `emulator` | `list`, `start`, `stop`, `wipe` | 1 |
-| `sdk` | `status`, `requirements`, `packages` | 1, 3 |
+| `sdk` | `status`, `requirements`, `packages`, `licenses`, `acceptLicense` (human-only) | 1, 3 |
 | `device` | `list`, `install`, `installUpload`, `launch`, `uninstall`, `logs`, `watchLogs`, `watchScreen`, `screenshot`, `uiTree`, `uiDump`, `uiEvents`, `watchUiEvents`, `recordUi`, `stopUiRecording`, `uiRecordings`, `watchUiRecordings`, `deleteUiRecording`, `tapElement`, `inputText`, `tap`, `swipe`, `pressKey`, `scroll` | 1–2 |
 | `file` | `list`, `read`, `write`, `watch`, `create`, `move`, `copy`, `delete`, `restore`, `trash` (human-only; never over MCP) | 1–2 |
 | `git` | `watch`, `read`, `log`, `refs`, `show`, `fetch`, `pull`, `checkout`, `createBranch`, `submodules`, `updateSubmodules` (human-only; never over MCP) | last |

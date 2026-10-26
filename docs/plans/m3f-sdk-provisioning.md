@@ -136,7 +136,7 @@
 - Not here: revoking a licence (a person deletes the line); elicitation (Q2).
 - Rests on: the only writer of `licenses/` is a human call carrying a served text's hash: level 3, `TestAcceptLicenseRefusedOverMCP` and `…RefusesAnotherText` seen failing reversed.
 - Review: the main session's diff review, effort `high` (consent).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `target.go` (ADR-0131 §3: a root of only `licenses/` and `.temp/` is empty) and `consent.go`; every Check test passes and these were seen failing reversed: `TestAcceptLicenseWritesTheHash` (raw sha1), `…Idempotent` (early return removed), `…RefusesAnotherText` (model check removed), `…RefusedOverMCP` (audience `all`), `…RefusesLinks` (both symlink refusals removed), `…DuringInstall` (key `sdk:<root>`: the accept stayed queued), `…CreatesTheRoot` (a plain emptiness test). Schema: `sdk.licenses`, `sdk.acceptLicense`, the three codes; MCP lists neither (38 tools). Deviation: a pending text renders as one quoted string, not line by line, since `TestEveryTaggedStringIsQuoted` holds a value's rendering to a fixed number of lines (ADR-0015 §1); `TestTheRenderedCapabilitiesAreThePlansList` now admits a human-only `Text` (ADR-0122 §4). A copy kept past its hour after a failed refetch is not "now": `SDK_REPOSITORY_UNAVAILABLE`. `go test ./...` green.
 
 ### 4. The installer: `sdk.install` (with updates, from nothing) and `sdk.uninstall`, in Go
 

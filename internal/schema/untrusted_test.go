@@ -136,7 +136,8 @@ func TestUntrustedKeywordIsABooleanOnTheTaggedFieldsOnly(t *testing.T) {
 // device.logs (each line's tag and message and each crash's exception and
 // message), artifact.read (its data) and shell.exec (its stdout and stderr, which a
 // command fills with whatever it likes, device text included) and sdk.packages (each
-// available package's displayName, text from Google's repository); system.health and
+// available package's displayName, text from Google's repository) and sdk.licenses (each
+// licence's text, the same source); system.health and
 // device.list report the host's own state and the list of serials, not device text (R6).
 func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	doc, err := schema.Generate(registry(), "test")
@@ -145,7 +146,7 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 	for _, c := range doc.Capabilities {
 		has := bytes.Contains(c.Output, []byte(capability.UntrustedKeyword))
-		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "session.chats": true, "sdk.packages": true}
+		tagged := map[string]bool{"device.uiTree": true, "device.screenshot": true, "device.uiDump": true, "device.uiEvents": true, "device.tapElement": true, "device.inputText": true, "device.logs": true, "artifact.read": true, "shell.exec": true, "device.recordUi": true, "device.stopUiRecording": true, "device.uiRecordings": true, "device.watchUiRecordings": true, "session.chats": true, "sdk.packages": true, "sdk.licenses": true}
 		if want := tagged[c.Name]; has != want {
 			t.Errorf("%s: output carries %s = %v, want %v", c.Name, capability.UntrustedKeyword, has, want)
 		}
@@ -240,18 +241,16 @@ func TestOnlyTaggedFieldsPublishTheKeyword(t *testing.T) {
 	}
 }
 
-// TestSDKPackagesUntrustedIsDisplayNameOnly (plan m3f step 2; ADR-0129 Q3): of
-// sdk.packages' result, only an available package's displayName is the repository's free
-// text. Ids and versions are validated by pattern, the licence is an id and a hash, and
-// the daemon's own sentences (warnings, cause) are not marked. Seen failing with the tag
-// on any other field and with it removed from displayName.
-func TestSDKPackagesUntrustedIsDisplayNameOnly(t *testing.T) {
+// untrustedPaths lists where the published output schema of the named capability marks a
+// field untrusted.
+func untrustedPaths(t *testing.T, name string) []string {
+	t.Helper()
 	doc, err := schema.Generate(registry(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range doc.Capabilities {
-		if c.Name != "sdk.packages" {
+		if c.Name != name {
 			continue
 		}
 		var out map[string]any
@@ -278,12 +277,32 @@ func TestSDKPackagesUntrustedIsDisplayNameOnly(t *testing.T) {
 			}
 		}
 		walk(out, "")
-		if !slices.Equal(marked, []string{".available[].displayName"}) {
-			t.Errorf("sdk.packages marks %v as untrusted, want only .available[].displayName", marked)
-		}
-		return
+		slices.Sort(marked)
+		return marked
 	}
-	t.Fatal("sdk.packages is not published")
+	t.Fatalf("%s is not published", name)
+	return nil
+}
+
+// TestSDKPackagesUntrustedIsDisplayNameOnly (plan m3f step 2; ADR-0129 Q3): of
+// sdk.packages' result, only an available package's displayName is the repository's free
+// text. Ids and versions are validated by pattern, the licence is an id and a hash, and
+// the daemon's own sentences (warnings, cause) are not marked. Seen failing with the tag
+// on any other field and with it removed from displayName.
+func TestSDKPackagesUntrustedIsDisplayNameOnly(t *testing.T) {
+	if got := untrustedPaths(t, "sdk.packages"); !slices.Equal(got, []string{".available[].displayName"}) {
+		t.Errorf("sdk.packages marks %v as untrusted, want only .available[].displayName", got)
+	}
+}
+
+// TestSDKLicensesUntrustedIsTextOnly (plan m3f step 3; ADR-0129 §2): of sdk.licenses'
+// result, only a licence's text is the repository's free text; ids and hashes are
+// validated, the package ids are pattern-checked. The text is what a person reads before
+// consenting, so it must reach a client marked, whatever shows it.
+func TestSDKLicensesUntrustedIsTextOnly(t *testing.T) {
+	if got := untrustedPaths(t, "sdk.licenses"); !slices.Equal(got, []string{".licenses[].text"}) {
+		t.Errorf("sdk.licenses marks %v as untrusted, want only .licenses[].text", got)
+	}
 }
 
 // TestCrashFieldsAreUntrusted: the crash and dialog fields (ADR-0034 §2–4) carry the

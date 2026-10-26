@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"io"
 	"net/http"
 
 	"github.com/jtortosasen/droidyard/internal/capability"
@@ -45,16 +46,22 @@ type Options struct {
 	RepositoryBase string
 	HTTPClient     *http.Client
 	GOOS, GOARCH   string
+
+	// Log receives the licence acceptance lines (daemon.log); nil discards them.
+	Log io.Writer
 }
 
-// Register adds sdk.status, sdk.requirements and sdk.packages to the registry. sdk.status
+// Register adds sdk.status, sdk.requirements, sdk.packages, sdk.licenses and
+// sdk.acceptLicense to the registry. sdk.status
 // needs no external tool and answers found: false when there is no host SDK (D11);
 // sdk.requirements runs a configuration pass and answers only for a trusted root (D12);
 // sdk.packages reads Google's repository, one Repository shared by every capability that
-// needs it.
+// needs it; sdk.licenses and sdk.acceptLicense are for people (audience human) and write
+// nothing but the licence file.
 func Register(reg *capability.Registry, o Options) {
 	repo := NewRepository(RepositoryOptions{Base: o.RepositoryBase, Client: o.HTTPClient, GOOS: o.GOOS, GOARCH: o.GOARCH})
 	registerStatus(reg, o.Env)
 	registerRequirements(reg, o)
 	registerPackages(reg, o.Env, repo)
+	registerConsent(reg, o.Env, repo, o.Log)
 }
