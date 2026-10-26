@@ -354,10 +354,14 @@ func (a *ADB) injectThrough(ctx context.Context, who capability.Origin, src scre
 	// The call's origin classes its gesture (ADR-0117 §4): a peer's lent call holds the finger
 	// as a peer, which the host's own views take it from; any other call is a local holder.
 	err := src.Inject(ctx, screen.NewHolder(who.Client == capability.ClientPeer), in)
-	switch {
-	case err == nil:
+	if err == nil {
 		return ScreenInputResult{Delivered: true, Delivery: DeliveryStream}, nil
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+	}
+	// A cancelled call is that (ADR-0079 §3). The running bound passing after the first byte
+	// is not: part of the gesture is on the device (PartialError unwraps to the context's
+	// error), so it is a completed call with a warning below, never an error inviting a
+	// repeat (m3g verifier N1; deliverInput bounds the stream path since m3g).
+	if errors.Is(err, context.Canceled) {
 		return nil, err
 	}
 	var partial *screen.PartialError
@@ -369,6 +373,9 @@ func (a *ADB) injectThrough(ctx context.Context, who capability.Origin, src scre
 		return ScreenInputResult{Delivered: true, Delivery: DeliveryStream, Warnings: []string{
 			what + ": the device may have received only part of it; look at the screen before repeating it",
 		}}, nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, err
 	}
 	if errors.Is(err, screen.ErrBadInput) {
 		return nil, capability.Errorf(capability.ErrInvalidParams, "the input cannot be sent to the live view's frame").WithCause(err.Error())

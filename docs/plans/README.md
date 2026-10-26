@@ -62,4 +62,4 @@ the output.
 | [m3d-graphite-facelift.md](m3d-graphite-facelift.md) | 3d — Graphite Console: a type scale, two faces and a palette that reads | Done |
 | [m3e-gradle-sidecar-robustness.md](m3e-gradle-sidecar-robustness.md) | 3e — The Gradle sidecar's robustness: a distribution that installs, a root that stays coherent, the unmeasured costs measured | Done |
 | [m3f-sdk-provisioning.md](m3f-sdk-provisioning.md) | 3f — SDK provisioning: packages, licences, system images and AVDs, by Droidyard | Done |
-| [m3g-agent-device-gestures.md](m3g-agent-device-gestures.md) | 3g — Agents act on the device: gestures, keys, system panels and adb verbs | Approved |
+| [m3g-agent-device-gestures.md](m3g-agent-device-gestures.md) | 3g — Agents act on the device: gestures, keys, system panels and adb verbs | Done |

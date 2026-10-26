@@ -99,8 +99,9 @@ adb prints their paths raw in `forward --list`, spaces included
 The app is named **`applicationId`** in every device capability: the build output's name for it, and
 the package name on the device. `device.install` and `device.uninstall` moved from milestone 1f to
 the `build.*` milestone, since the install's only input is a build reference (plan m1f D1; D18).
-`device.forceStop` and the introspection capabilities (`processes`, `meminfo`, `appInfo`,
-`backtrace`; empty is a fact, not a failure) are post-MVP.
+`processes`, `meminfo`, `appInfo` and `backtrace` are post-MVP. `device.systemPanel` claims no
+panel opened: `cmd statusbar` exits 0 when a disabled bar ignores it
+([spike](../research/spike-agent-gestures-2026-10.md) §(b)).
 
 ### Install
 
@@ -124,7 +125,8 @@ reference, and the build subsystem resolves it from its registry, whose single s
 `monkey -p <applicationId> -c android.intent.category.LAUNCHER 1`: no manifest activity needed. The
 device clock is read just before and returned as `launchedAt`; then `pidof` is polled for the pid.
 `pid: null` with a reason means the process was not observed, typically a crash on start, or any
-failure once `monkey` ran, which is never an error (the app may have launched).
+failure once `monkey` ran, which is never an error (the app may have launched). With `url`, `am start
+-d` instead, the url one single-quoted word; `am`'s `Error:` line is the refusal, whatever its exit.
 
 ## Logs
 

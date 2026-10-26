@@ -482,6 +482,18 @@ func TestScreenInputFailureBeforeAndAfterTheFirstByte(t *testing.T) {
 			t.Fatalf("outcome %+v, %v; want cancelled", out, err)
 		}
 	})
+	// m3g verifier N1: the running bound passing after the first byte is a completed call with
+	// a warning, since part of the gesture is on the device; a cancel stays a cancel (above).
+	// Seen failing with the context check before the partial one: the call failed.
+	t.Run("the running bound after the first byte", func(t *testing.T) {
+		f := newSIFix(t, "", uiSerial)
+		f.fake.err = &screen.PartialError{Err: context.DeadlineExceeded}
+		out := f.call(t, capability.ClientUI, "device.tap", tap)
+		res, _ := out.Result.(ScreenInputResult)
+		if out.State != capability.StateCompleted || !res.Delivered || len(res.Warnings) != 1 {
+			t.Errorf("outcome %s %+v %+v, want completed with one warning", out.State, res, out.Error)
+		}
+	})
 }
 
 // Decision (ADR-0079 §3): the lookup finds a source that is started and not ending, and

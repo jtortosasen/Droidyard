@@ -540,3 +540,27 @@ func TestAgentInputOccupies(t *testing.T) {
 		t.Errorf("B's refused calls ran %d device commands: %v", after-before, f.calls(t))
 	}
 }
+
+// Decision (ADR-0030; m3g step 6): a gesture whose reader does not answer the actor's ping is
+// not sent to adb shell input at once: the reader is started again, once, as a read would
+// (restartReader reuses it when it answers then, and kills a wedged one before a new start,
+// so no act reaches a wedged reader, m1n N8), and the gesture goes to it. Seen failing
+// without restartedActor: the second tap ran `input tap` with the reader alive.
+func TestAgentInputRestartsAReaderThatDidNotAnswer(t *testing.T) {
+	files, r := withPersistentReaderR(t, nil, pixelDoc(t), pixelDoc(t))
+	f := newUIFixture(t, files)
+	if res := mustDeliver(t, f.agentCall(t, "device.tap", `{`+devParam+`,"x":0.5,"y":0.5}`)); res.Delivery != DeliveryReader {
+		t.Fatalf("first tap %+v, want the reader", res)
+	}
+	r.SetMutePings(1)
+	res := mustDeliver(t, f.agentCall(t, "device.tap", `{`+devParam+`,"x":0.5,"y":0.5}`))
+	if res.Delivery != DeliveryReader || len(res.Warnings) != 0 {
+		t.Errorf("second tap %+v, want the reader again with no warnings", res)
+	}
+	if got := r.Acts(); len(got) != 2 {
+		t.Errorf("the reader received %q, want both taps", got)
+	}
+	if got := f.inputCommands(t); len(got) != 0 {
+		t.Errorf("`input` ran: %q", got)
+	}
+}

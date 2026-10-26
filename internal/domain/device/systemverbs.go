@@ -19,7 +19,7 @@ import (
 
 // ErrActionFailed is a system verb the device refused: a non-zero exit, or the command's own
 // error line. The exit status is the cause and the command's output is in details, so the
-// call is marked untrusted. DEVICE_ADB_FAILED means adb itself could not run (ADR-0133 §5).
+// call is marked untrusted. DEVICE_ADB_FAILED means adb itself could not run (ADR-0133 §Alternatives considered).
 const ErrActionFailed capability.ErrorCode = "DEVICE_ACTION_FAILED"
 
 const systemVerbsSince = "0.40.0"

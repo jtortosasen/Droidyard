@@ -498,6 +498,29 @@ func (a *ADB) newActor(parent context.Context, t *target) *actor {
 	return &actor{a: a, t: t, c: c, ok: a.readerReady(parent, t, c, end)}
 }
 
+// restartedActor starts the device's reader again, once, when newActor found it not
+// answering behind a forward (ADR-0030; restartReader kills the wedged one first), and
+// returns an actor on it; not ok when the reader still cannot run.
+func (a *ADB) restartedActor(parent context.Context, t *target) *actor {
+	end := time.Now().Add(dumpDeadline)
+	if d, ok := parent.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+	c := a.reader(t.serial)
+	if err := c.acquire(parent); err != nil {
+		return &actor{a: a, t: t, c: c}
+	}
+	ok := false
+	if c.haveSock() || c.wasStarted() {
+		ok, _ = a.restartReader(parent, t, c, end)
+	}
+	c.release()
+	if !ok {
+		return &actor{a: a, t: t, c: c}
+	}
+	return a.newActor(parent, t)
+}
+
 // locked runs one acting request with the device's read lock held, which actOnReader
 // requires (ADR-0035 §1): the lock and the reader's own single acting thread are the two
 // layers that keep one device's acts from overlapping.

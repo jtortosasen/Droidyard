@@ -212,22 +212,21 @@ The delivery paths, the read-back, the partial-result and the timing bounds are
 
 ## Input primitives
 
-The adb verbs beneath UI actions. Agents get `tapElement` and `inputText`; scroll-to-find and
-coordinate actions for agents are later and use these rules and the same `expect` vocabulary. **The
-live view's input** ([ADR-0079](../adr/0079-screen-input-capabilities.md), people only) normalises
-coordinates against the **stream's frame size** and needs a live view. **The view's own input is not
+The adb verbs beneath UI actions. Agents get `tapElement`, `inputText` and, since 3g, `tap`,
+`swipe` and `pressKey` with `expect`
+([ADR-0133](../adr/0133-agents-act-by-coordinates-keys-and-system-verbs.md)). Paths move at least
+every 16 ms: a sparse one did not open the shade on API 36, nor did `input`'s swipe reliably, so the
+reader is restarted once before a gesture falls to `input`
+([spike](../research/spike-agent-gestures-2026-10.md)). **The live view's input** ([ADR-0079](../adr/0079-screen-input-capabilities.md))
+normalises coordinates against the **stream's frame size**. **The view's own input is not
 a call to `tap`, `swipe`, `pressKey` or `scroll`** ([ADR-0117](../adr/0117-live-view-input-over-the-stream.md)): authorized when the
 view opens, it travels its stream, recorded as one operation per gesture. On a device another
 Droidyard lends, each call's input is the host's own capability call
-([ADR-0100](../adr/0100-remote-devices-on-the-client.md) §3). **Coordinates for agents' coordinate actions are normalised 0..1** too, resolved to
-pixels using the **display size from a fresh screencap**, not `wm size`, which commonly reports the
-portrait panel size even in landscape; this removes rotation math entirely. **Tree-derived actions work in display
+([ADR-0100](../adr/0100-remote-devices-on-the-client.md) §3). `input` sizes an agent's
+coordinates by the on-device screencap header, not `wm size`, which reports the portrait panel size
+in landscape. **Tree-derived actions work in display
 pixels**, because the tree's bounds are already in that space. Text and taps go through the persistent
 reader when it can run; `input tap`, `input text` and the ADBKeyboard IME are the fallback.
-**Rotation** pins `accelerometer_rotation=0` before setting `user_rotation`, so auto-rotate cannot
-fight an explicit value. **Device actions** (notifications, quick settings, lock, wake, assistant) are
-plain adb verbs; `wm dismiss-keyguard` is best-effort and a locked device stays locked.
-
 ## Failure modes
 
 Codes and `details` are the descriptors' and `internal/capability/error.go`'s; the decisions are
@@ -242,6 +241,6 @@ ends `cancelled`).
 
 - **Row abstraction** for feeds whose controls are unlabelled: repeated isomorphic siblings (>= 3,
   same class, near-equal height) as rows, with counter parsing, and `count` assertions built on it.
-- Coordinate taps, swipes and scroll-to-find, sharing the `expect` vocabulary.
+- Scroll-to-find, sharing the `expect` vocabulary.
 - An OCR backend behind the same conditions, for trees with no accessibility information
   ([ADR-0013](../adr/0013-ocr-optional-pluggable.md)).

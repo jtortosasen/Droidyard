@@ -91,6 +91,15 @@ func (a *ADB) deliverInput(ctx context.Context, call *capability.Call, t *target
 	}
 
 	ac := a.newActor(ctx, t)
+	if !ac.ok {
+		// A reader that died behind a forward still listed does not answer ping. A read
+		// would start it again (ADR-0030); a gesture without expect reads nothing, so it
+		// does that here, once, and the wedged reader is killed before the new one starts,
+		// so no act reaches it (m1n N8). Without this the input fell to adb shell input,
+		// which opened the shade 1 time in 6 on API 36 where the reader opened it 6 of 6
+		// (m3g step 6).
+		ac = a.restartedActor(ctx, t)
+	}
 	if ac.ok {
 		res, done, err := a.deliverByReader(ctx, ac, in)
 		if done || err != nil {
@@ -216,6 +225,16 @@ func (a *ADB) issueInput(ctx context.Context, t *target, noun string, timeout ti
 	defer cancel()
 	full := append([]string{"-s", t.serial, "shell"}, args...)
 	out, err := a.Run(cctx, t.adb, timeout, 1<<10, full...)
+	// A command that never started sent nothing, whatever the call's context says since
+	// (m3g verifier N3).
+	if errors.Is(err, ErrNoStarter) || (err != nil && strings.HasPrefix(err.Error(), "starting adb")) {
+		if cerr := ctx.Err(); cerr != nil {
+			return "", cerr
+		}
+		return "", capability.NewError(ErrADBFailed, "adb could not be run").
+			WithCause("adb shell " + strings.Join(args[:2], " ") + ": " + err.Error()).
+			WithNextStep("Check that the adb binary is executable, then retry: nothing was sent.")
+	}
 	if cerr := ctx.Err(); cerr != nil {
 		// The command was issued, so it may have reached the device whether the call was
 		// cancelled or its running bound elapsed: a warning, never an error.
@@ -223,11 +242,6 @@ func (a *ADB) issueInput(ctx context.Context, t *target, noun string, timeout ti
 			return inputWarning(noun, "the call was cancelled while the command was running"), nil
 		}
 		return inputWarning(noun, "the call's running bound elapsed while the command was running"), nil
-	}
-	if errors.Is(err, ErrNoStarter) || (err != nil && strings.HasPrefix(err.Error(), "starting adb")) {
-		return "", capability.NewError(ErrADBFailed, "adb could not be run").
-			WithCause("adb shell " + strings.Join(args[:2], " ") + ": " + err.Error()).
-			WithNextStep("Check that the adb binary is executable, then retry: nothing was sent.")
 	}
 	if line := disconnectedLine(t.serial, out); line != "" {
 		return "", disconnected(t.serial, line)
