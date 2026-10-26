@@ -45,6 +45,11 @@ func TestObserveTable(t *testing.T) {
 		{"sdkmanager --uninstall platform-tools", []rec{{"sdkmanager", []string{"platform-tools"}, ""}}},
 		{"yes | sdkmanager --licenses", []rec{{"sdkmanager", nil, ""}}},
 		{"env FOO=1 nohup time avdmanager list avd", []rec{{"avdmanager", []string{"list", "avd"}, "emulator_list"}}},
+		// plan m3f step 6: creating an AVD and listing the device profiles have tools; deleting one does not.
+		{"avdmanager list device", []rec{{"avdmanager", []string{"list", "device"}, "sdk_profiles"}}},
+		{"avdmanager list device -c", []rec{{"avdmanager", []string{"list", "device"}, "sdk_profiles"}}},
+		{"avdmanager create avd -n pixel -k system-images;android-35;google_apis;arm64-v8a -d pixel_9a", []rec{{"avdmanager", []string{"create", "avd"}, "emulator_create"}}},
+		{"avdmanager delete avd -n pixel", []rec{{"avdmanager", []string{"delete", "avd"}, ""}}},
 		{`"./gradlew" build`, []rec{{"gradlew", []string{"build"}, "build_run"}}},
 		{"./gradlew assembleDebug && adb install x.apk", []rec{
 			{"gradlew", []string{"assembleDebug"}, "build_assemble"},

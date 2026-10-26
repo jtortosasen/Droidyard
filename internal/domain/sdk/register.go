@@ -57,18 +57,25 @@ type Options struct {
 	// are refused and a fresh install, which replaces nothing, runs.
 	InUse InUseFunc
 
+	// Tool runs avdmanager for sdk.profiles, and for emulator.create and emulator.delete
+	// when the daemon gives it to the emulator subsystem too (plan m3f step 6): one runner,
+	// one place avdmanager starts. Nil builds one that cannot start a process, so a
+	// schema-only registry registers the capability and no handler runs.
+	Tool *Tool
+
 	// tweak lets a test replace the installer's seams.
 	tweak func(*installer)
 }
 
 // Register adds sdk.status, sdk.requirements, sdk.packages, sdk.licenses,
-// sdk.acceptLicense, sdk.install and sdk.uninstall to the registry. sdk.status
+// sdk.acceptLicense, sdk.install, sdk.uninstall and sdk.profiles to the registry. sdk.status
 // needs no external tool and answers found: false when there is no host SDK (D11);
 // sdk.requirements runs a configuration pass and answers only for a trusted root (D12);
 // sdk.packages reads Google's repository, one Repository shared by every capability that
 // needs it; sdk.licenses and sdk.acceptLicense are for people (audience human) and write
 // nothing but the licence file; sdk.install and sdk.uninstall write the SDK root itself,
-// in Go, with no tool spawned, and sdk.uninstall is for people too.
+// in Go, with no tool spawned, and sdk.uninstall is for people too; sdk.profiles runs
+// avdmanager through the one Tool.
 func Register(reg *capability.Registry, o Options) {
 	repo := NewRepository(RepositoryOptions{Base: o.RepositoryBase, Client: o.HTTPClient, GOOS: o.GOOS, GOARCH: o.GOARCH})
 	registerStatus(reg, o.Env)
@@ -76,4 +83,9 @@ func Register(reg *capability.Registry, o Options) {
 	registerPackages(reg, o.Env, repo)
 	registerConsent(reg, o.Env, repo, o.Log)
 	registerInstaller(reg, newInstaller(o, repo))
+	tool := o.Tool
+	if tool == nil {
+		tool = NewTool(ToolOptions{Env: o.Env})
+	}
+	registerProfiles(reg, tool)
 }

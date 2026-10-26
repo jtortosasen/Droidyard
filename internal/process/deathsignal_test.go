@@ -23,9 +23,10 @@ import (
 // ssh or uploadpack a fetch started); a device-stream client or a sidecar keeps the signal,
 // as before (plan m1k D5, plan m2n P2; process-lifecycle.md §Shutdown, layer 2). The
 // choice is a portable bool so it is tested here on any OS, not only under the Linux build
-// tag. Seen failing with shell-command, and with git-write, given the death signal.
+// tag. An avdmanager run (sdk-tool, plan m3f step 6) is the third: its group holds the JVM.
+// Seen failing with shell-command, with git-write and with sdk-tool given the death signal.
 func TestDeathSignalPerKind(t *testing.T) {
-	for _, kind := range []Kind{ShellCommand, GitWrite} {
+	for _, kind := range []Kind{ShellCommand, GitWrite, SDKTool} {
 		if deathSignal(kind) {
 			t.Errorf("%s asks for the death signal; its leader must outlive the daemon", kind)
 		}
@@ -43,7 +44,7 @@ func TestDeathSignalPerKind(t *testing.T) {
 // record is left. The beforeRecord hook holds the write until the command has forked
 // and named its child, so the group-versus-pid decision is observed here.
 func TestSpawnRecordedKillsTheShellCommandsGroupWhenTheRecordWriteFails(t *testing.T) {
-	for _, kind := range []Kind{ShellCommand, GitWrite, FolderDialog} {
+	for _, kind := range []Kind{ShellCommand, GitWrite, SDKTool, FolderDialog} {
 		t.Run(string(kind), func(t *testing.T) { killsTheGroupWhenTheRecordWriteFails(t, kind) })
 	}
 }

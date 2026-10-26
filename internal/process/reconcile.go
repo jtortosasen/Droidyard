@@ -37,6 +37,12 @@ const (
 	// uploadpack a fetch started; the group is killed when the record cannot be written and at
 	// every end of the call. It is its own session leader (Setsid), so it has no terminal.
 	GitWrite Kind = "git-write"
+	// SDKTool is a recorded `avdmanager` run (plan m3f step 6; ADR-0130 §5, ADR-0129 §6):
+	// treated as GitWrite is. Its leader survives a killed daemon (no death signal), so
+	// Reconcile finds the pid record and kills the whole group, which holds the JVM the
+	// tool's script started; it is its own session leader (Setsid), and its group is
+	// killed when the record cannot be written and at every end of the call.
+	SDKTool Kind = "sdk-tool"
 	// FolderDialog is the osascript folder dialog of a workspace.chooseRoot call (plan m2r
 	// step 2; ADR-0021 §Pid records), recorded for as long as the dialog is up. It keeps
 	// the death signal and is reaped by Reconcile's default branch, group included, so a

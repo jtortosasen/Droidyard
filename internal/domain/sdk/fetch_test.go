@@ -495,6 +495,7 @@ func TestInstallSweepsOldTemporaries(t *testing.T) {
 		age  time.Time
 	}{
 		{"droidyard-old", old}, {"droidyard-new", time.Now().Add(-10 * time.Minute)}, {"foreign-old", old},
+		{"droidyard-rollback/replaced", old}, {"droidyard-rollback", old},
 	} {
 		dir := filepath.Join(tmp, c.name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -511,6 +512,10 @@ func TestInstallSweepsOldTemporaries(t *testing.T) {
 	}
 	if !present(t, filepath.Join(tmp, "droidyard-new")) || !present(t, filepath.Join(tmp, "foreign-old")) {
 		t.Error("a newer droidyard-* entry or a foreign one was removed")
+	}
+	// The old package of a failed rollback stays where the error said it is.
+	if !present(t, filepath.Join(tmp, "droidyard-rollback", "replaced", "f")) {
+		t.Error("the old package an update could not put back was swept")
 	}
 }
 

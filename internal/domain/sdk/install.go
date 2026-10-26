@@ -194,7 +194,7 @@ func registerInstaller(reg *capability.Registry, in *installer) {
 		},
 		Annotations: capability.Annotations{
 			Destructive: &yes,
-			OpenWorld:   &yes,
+			OpenWorld:   new(bool), // it reads no network
 			Reason:      "deletes SDK packages that other projects and AVDs may use",
 		},
 		Resource: resource,
@@ -359,7 +359,10 @@ func (in *installer) makePlan(ctx context.Context, call *capability.Call, ids []
 // the repository does not have for this host (or only below the revision needed), is
 // SDK_PACKAGE_NOT_FOUND naming it.
 func closure(m *Model, installed map[string]located, ids []string) ([]step, error) {
-	state := map[string]int{} // 1 on the way down, 2 settled
+	// 1 on the way down, 2 settled as a step or at the latest, 3 kept as installed. A kept
+	// id is judged again on every visit: a later request, or a higher min-revision, can
+	// still make it an update, whatever order the ids came in.
+	state := map[string]int{}
 	var steps []step
 	var visit func(id string, min *Revision, requested bool, via []string) error
 	visit = func(id string, min *Revision, requested bool, via []string) error {
@@ -388,7 +391,7 @@ func closure(m *Model, installed map[string]located, ids []string) ([]step, erro
 				state[id] = 2 // at the latest
 				return nil
 			case !requested && curOK && (min == nil || cur.Compare(*min) >= 0):
-				state[id] = 2 // a dependency that is enough as it is
+				state[id] = 3 // a dependency that is enough as it is, so far
 				return nil
 			}
 			from = &l
@@ -569,7 +572,9 @@ func ensureTemp(root string) (string, error) {
 }
 
 // sweep removes the droidyard-* entries of .temp that are over an hour old: what a killed
-// daemon left. Any other entry (the classic tool's) stays.
+// daemon left. Any other entry (the classic tool's) stays, and so does one holding
+// "replaced": the old package of an update whose rollback failed, which the call's error
+// told the user to recover from there.
 func (in *installer) sweep(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -577,6 +582,9 @@ func (in *installer) sweep(dir string) {
 	}
 	for _, e := range entries {
 		if !strings.HasPrefix(e.Name(), tempPrefix) {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(dir, e.Name(), "replaced")); err == nil {
 			continue
 		}
 		if fi, err := os.Lstat(filepath.Join(dir, e.Name())); err == nil && in.now().Sub(fi.ModTime()) > tempMaxAge {

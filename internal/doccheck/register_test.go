@@ -231,7 +231,12 @@ func checkRegister(fsys fs.FS) []string {
 //
 // Raised by 5 (to 30,179) at milestone 3f step 5: process-lifecycle.md's per-operation row
 // names lsof, which the SDK in-use check runs (ADR-0129 §8).
-const liveBudget = 30179
+//
+// Raised by 15 (to 30,194) at milestone 3f step 6: mvp.md's capability surface names
+// sdk.profiles, emulator.create and emulator.delete, mcp.md lists delete beside the other
+// human-only calls (the doccheck needs both), and process-lifecycle.md's per-operation row
+// names avdmanager and its kind sdk-tool (ADR-0130 §5).
+const liveBudget = 30194
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

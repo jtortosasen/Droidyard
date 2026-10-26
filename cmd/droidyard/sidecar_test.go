@@ -219,6 +219,9 @@ func installTestSeams() {
 		}
 		adbEnviron = func() []string { return env }
 	}
+	// A test may give the daemon an SDK holding the fake avdmanager and a JDK for it
+	// (plan m3f step 6; sdk_tool_test.go).
+	installSDKToolSeam()
 	// A test may move the session registry's clock (a file holding the seconds to add to
 	// the real time, read at each use) and shorten the idle sweep (ADR-0094 §4).
 	if path := os.Getenv(sessionClockEnv); path != "" {

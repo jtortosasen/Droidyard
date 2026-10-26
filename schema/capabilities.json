@@ -7627,6 +7627,244 @@
       }
     },
     {
+      "name": "emulator.create",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "all",
+      "since": "0.39.0",
+      "description": "Creates one AVD from a device profile (sdk.profiles) and an installed system image (sdk.packages) with avdmanager, where the launcher lists it. A name used in any AVD home is refused and the image must be installed; boot it with emulator.start.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS",
+        "EMULATOR_AVD_EXISTS",
+        "EMULATOR_IMAGE_NOT_INSTALLED",
+        "EMULATOR_PROFILE_NOT_FOUND",
+        "SDK_TOOLS_NOT_FOUND",
+        "SDK_JAVA_NOT_FOUND",
+        "SDK_TOOL_FAILED",
+        "SDK_NOT_WRITABLE",
+        "EMULATOR_LAUNCH_FAILED"
+      ],
+      "input": {
+        "properties": {
+          "avd": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "The new AVD's name: letters, digits, dot, dash, underscore. A name already in any AVD home is refused."
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "A device profile id from sdk.profiles, e.g. pixel_9a."
+          },
+          "systemImage": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "An installed system image id from sdk.packages, e.g. system-images;android-35;google_apis;arm64-v8a."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "avd",
+          "profile",
+          "systemImage"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "avd": {
+                "type": "string",
+                "description": "The AVD created; the name emulator.list and emulator.start take."
+              },
+              "profile": {
+                "type": "string",
+                "description": "The device profile it was made from."
+              },
+              "systemImage": {
+                "type": "string",
+                "description": "The system image it runs."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "avd",
+              "profile",
+              "systemImage"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "emulator.delete",
+      "kind": "command",
+      "scope": "global",
+      "statefulness": "stateless",
+      "longRunning": true,
+      "audience": "human",
+      "since": "0.39.0",
+      "description": "Deletes one AVD and its files with avdmanager; one that is running (under any adb server) or named in two AVD homes is refused. A person's step, refused from agents.",
+      "availability": [
+        "emulator"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "errors": [
+        "REQUEST_INVALID_PARAMS",
+        "EMULATOR_LAUNCHER_NOT_FOUND",
+        "EMULATOR_LAUNCH_FAILED",
+        "EMULATOR_AVD_NOT_FOUND",
+        "EMULATOR_AVD_AMBIGUOUS",
+        "EMULATOR_AVD_RUNNING",
+        "SDK_TOOLS_NOT_FOUND",
+        "SDK_JAVA_NOT_FOUND",
+        "SDK_TOOL_FAILED"
+      ],
+      "input": {
+        "properties": {
+          "avd": {
+            "type": "string",
+            "description": "The AVD to delete, as emulator.list names it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "avd"
+        ]
+      },
+      "output": {
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "progress": {
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "blockedBy": {
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "result": {
+            "properties": {
+              "avd": {
+                "type": "string",
+                "description": "The AVD that was deleted."
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "avd"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operationId",
+          "capability",
+          "state"
+        ]
+      }
+    },
+    {
       "name": "emulator.list",
       "kind": "query",
       "scope": "global",
@@ -13513,6 +13751,70 @@
       }
     },
     {
+      "name": "sdk.profiles",
+      "kind": "query",
+      "scope": "global",
+      "statefulness": "stateless",
+      "audience": "all",
+      "since": "0.39.0",
+      "description": "Lists the device profiles AVDs are created from (id, name, maker, kind); use an id as emulator.create's profile. Runs avdmanager from the SDK's cmdline-tools.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "errors": [
+        "SDK_TOOLS_NOT_FOUND",
+        "SDK_JAVA_NOT_FOUND",
+        "SDK_TOOL_FAILED"
+      ],
+      "input": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "profiles": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The profile id emulator.create takes as profile, e.g. \"pixel_9a\" or \"Nexus 5X\"."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The profile's display name, e.g. \"Pixel 9a\"."
+                },
+                "oem": {
+                  "type": "string",
+                  "description": "The maker, e.g. \"Google\" or \"Generic\"."
+                },
+                "tag": {
+                  "type": "string",
+                  "description": "The kind of device when the definition has one, e.g. \"android-automotive\" or \"android-desktop\"."
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "name"
+              ]
+            },
+            "type": "array",
+            "description": "The device profiles, in the order avdmanager lists them."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profiles"
+        ]
+      }
+    },
+    {
       "name": "sdk.requirements",
       "kind": "query",
       "scope": "workspace",
@@ -13937,7 +14239,7 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
-        "openWorldHint": true
+        "openWorldHint": false
       },
       "errors": [
         "REQUEST_INVALID_PARAMS",

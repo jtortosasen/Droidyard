@@ -29,6 +29,11 @@ type avdDir struct {
 // ANDROID_SDK_HOME/.android/avd (before the home default); then ~/.android/avd. Only
 // ANDROID_AVD_HOME was recorded; the rest are read from emulator.md and the Android
 // conventions it follows.
+//
+// It is the set of homes a name can be in, which the any-home and two-homes checks of
+// emulator.create and emulator.delete read; it is not the launcher's rule. The launcher
+// lists one directory only (plan m3f step 1 (d), observed with launcher 36.6.11.0), and
+// launcherDir is that rule.
 func avdDirs(env []string) []avdDir {
 	e := envMap(env)
 	var dirs []avdDir
@@ -59,6 +64,36 @@ func avdDirs(env []string) []avdDir {
 		add(filepath.Join(home, ".android", "avd"), "~/.android/avd")
 	}
 	return dirs
+}
+
+// launcherDir is the one directory the launcher's -list-avds lists, by the rule observed in
+// plan m3f step 1 (d) (ADR-0129 §7): the first that exists of ANDROID_AVD_HOME,
+// ANDROID_SDK_HOME/.android/avd and HOME/.android/avd; when none exists, HOME/.android/avd,
+// where the launcher would look once an AVD is made there. ANDROID_EMULATOR_HOME/avd and
+// ANDROID_USER_HOME/avd are never the launcher's, alone or beside the others, so an AVD
+// created there would never be listed. "" when none of the variables is set.
+func launcherDir(env []string) string {
+	e := envMap(env)
+	home := e["HOME"]
+	var cands []string
+	if v := e["ANDROID_AVD_HOME"]; v != "" {
+		cands = append(cands, v)
+	}
+	if v := e["ANDROID_SDK_HOME"]; v != "" {
+		cands = append(cands, filepath.Join(v, ".android", "avd"))
+	}
+	if home != "" {
+		cands = append(cands, filepath.Join(home, ".android", "avd"))
+	}
+	for _, c := range cands {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
+	}
+	if home != "" {
+		return filepath.Join(home, ".android", "avd")
+	}
+	return ""
 }
 
 // readConfig reads one AVD's configuration from the host: its `<name>.ini` entry in the

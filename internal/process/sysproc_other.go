@@ -14,7 +14,7 @@ import "syscall"
 // credential helper to prompt on. Setsid with Setpgid fails at fork, since a session
 // leader cannot setpgid, so the kind is given Setsid alone (plan m2n P1, item 6).
 func sysProcAttr(kind Kind) *syscall.SysProcAttr {
-	if kind == GitWrite {
+	if kind == GitWrite || kind == SDKTool {
 		return &syscall.SysProcAttr{Setsid: true}
 	}
 	return &syscall.SysProcAttr{Setpgid: true}

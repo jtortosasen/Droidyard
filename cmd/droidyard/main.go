@@ -339,6 +339,12 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// launcher derived from adb's location uses, both fixed at this start (ADR-0032 §3,
 	// §6; plan m1k D8).
 	emulatorClient.SetToolKeys(emulator.Keys{Launcher: startup.EmulatorKey(), ADB: startup.ADBKey()})
+	// avdmanager starts in one place (plan m3f step 6; ADR-0130 §5): the runner sdk.profiles,
+	// emulator.create and emulator.delete share. It runs on the sidecar's JVM and through the
+	// supervisor's recorded spawner, so a run is pid-recorded as kind sdk-tool and a daemon
+	// killed during one has its group ended by the next start's reconcile.
+	sdkTool := sdk.NewTool(sdk.ToolOptions{Env: adbEnviron(), JVM: gradleClient.JVM, Start: sdkToolStarter(sup)})
+	emulatorClient.SetTool(sdkTool)
 	if sup != nil {
 		// A launch is pid-recorded from its spawn until its serial resolves, and a daemon
 		// that dies in between has the record judged by its successor's reconcile: the
@@ -507,7 +513,7 @@ func registry(env platform.Env, st *store.Store, sup *proc.Supervisor, log io.Wr
 	// missing SDK is answered with found: false (plan m1h, D11, D13). sdk.requirements
 	// fetches the project model through the same client and carries the trust hook, so
 	// only a trusted root is answered (D12).
-	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorizeGradle, Log: log,
+	sdk.Register(reg, sdk.Options{Env: adbEnviron(), Canonical: env.Canonical, Client: gradleClient, Authorize: authorizeGradle, Log: log, Tool: sdkTool,
 		// Before an update or an uninstall replaces a package: A10's rule over this host's
 		// processes, lsof and the operations in flight (plan m3f step 5).
 		InUse: sdk.SystemInUse(ops.Active)})
@@ -625,6 +631,24 @@ func gitWriteStarter(sup *proc.Supervisor) gitdomain.RecordedStarter {
 		return nil
 	}
 	return func(cmd *exec.Cmd, kind string) (gitdomain.Recorded, error) {
+		r, err := sup.SpawnRecorded(cmd, proc.Kind(kind))
+		if err != nil {
+			return nil, err // a nil interface, not a typed nil
+		}
+		return r, nil
+	}
+}
+
+// sdkToolStarter adapts the supervisor's recorded spawner to the avdmanager runner's
+// starter: the run is recorded while it lasts, as its own session and group leader, and its
+// whole group is killed if the record cannot be written (process.SDKTool). Without a
+// supervisor (caps, schema) it is nil, and a run that somehow reached the handler would fail
+// SDK_TOOL_FAILED.
+func sdkToolStarter(sup *proc.Supervisor) sdk.RecordedStarter {
+	if sup == nil {
+		return nil
+	}
+	return func(cmd *exec.Cmd, kind string) (sdk.Recorded, error) {
 		r, err := sup.SpawnRecorded(cmd, proc.Kind(kind))
 		if err != nil {
 			return nil, err // a nil interface, not a typed nil

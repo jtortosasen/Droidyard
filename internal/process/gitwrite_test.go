@@ -28,6 +28,10 @@ func TestGitWriteSessionAttributes(t *testing.T) {
 	if !a.Setsid || a.Setpgid {
 		t.Errorf("git-write attributes Setsid=%v Setpgid=%v, want Setsid alone", a.Setsid, a.Setpgid)
 	}
+	// An avdmanager run (plan m3f step 6) is given the same: its own session and group.
+	if a := sysProcAttr(SDKTool); !a.Setsid || a.Setpgid {
+		t.Errorf("sdk-tool attributes Setsid=%v Setpgid=%v, want Setsid alone", a.Setsid, a.Setpgid)
+	}
 	if o := sysProcAttr(DeviceStream); o.Setsid || !o.Setpgid {
 		t.Errorf("device-stream attributes Setsid=%v Setpgid=%v, want Setpgid alone: the other kinds are unchanged", o.Setsid, o.Setpgid)
 	}

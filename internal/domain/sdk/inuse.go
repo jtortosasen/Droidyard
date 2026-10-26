@@ -265,6 +265,11 @@ func isCandidate(p platform.Proc, exes, roots []string) bool {
 	if strings.HasPrefix(base, "qemu-system-") {
 		return true
 	}
+	// kern.procargs2 gives the path as it was passed to execve: `./fastboot` run from inside
+	// platform-tools is not seen by (a), so lsof is asked, whose txt and cwd are absolute.
+	if p.Exe != "" && !filepath.IsAbs(p.Exe) {
+		return true
+	}
 	if anyWithin(exes, roots) {
 		return true
 	}

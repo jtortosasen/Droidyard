@@ -50,6 +50,23 @@ func TestInUseHelperProcess(t *testing.T) {
 // the helper's own.
 func helperAt(t *testing.T, path, mode string, argv ...string) *exec.Cmd {
 	t.Helper()
+	helperCopy(t, path)
+	return startHelper(t, exec.Command(path, append([]string{"-test.run=^TestInUseHelperProcess$"}, argv...)...), mode)
+}
+
+// helperRelAt is helperAt started as ./<base> from the helper's directory, as a person
+// runs a tool from inside platform-tools: the kernel then records a relative executable.
+func helperRelAt(t *testing.T, path, mode string) *exec.Cmd {
+	t.Helper()
+	helperCopy(t, path)
+	cmd := exec.Command("./"+filepath.Base(path), "-test.run=^TestInUseHelperProcess$")
+	cmd.Dir = filepath.Dir(path)
+	return startHelper(t, cmd, mode)
+}
+
+// helperCopy copies the test binary to path, executable.
+func helperCopy(t *testing.T, path string) {
+	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +89,11 @@ func helperAt(t *testing.T, path, mode string, argv ...string) *exec.Cmd {
 	if err := dst.Close(); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(path, append([]string{"-test.run=^TestInUseHelperProcess$"}, argv...)...)
+}
+
+func startHelper(t *testing.T, cmd *exec.Cmd, mode string) *exec.Cmd {
+	t.Helper()
+	path := cmd.Path
 	cmd.Env = append(os.Environ(), inUseHelperEnv+"="+mode)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
@@ -174,6 +195,22 @@ func TestInUseByOpenFile(t *testing.T) {
 	}
 	if _, ok := got["platforms;android-35"]; ok {
 		t.Errorf("platforms;android-35 is named as used: %q", got["platforms;android-35"])
+	}
+}
+
+// TestInUseByARelativeExecutable: kern.procargs2 records the path given to execve, so a
+// tool run as ./aapt2 from inside build-tools has a relative executable that (a) cannot
+// place. It is a candidate, and lsof's absolute txt entry names the package (the close's
+// verifier, B2).
+func TestInUseByARelativeExecutable(t *testing.T) {
+	if _, err := os.Stat(platform.DefaultLsof().Path); err != nil {
+		t.Skipf("no lsof on this system: %v", err)
+	}
+	root := t.TempDir()
+	cmd := helperRelAt(t, filepath.Join(root, "build-tools", "35.0.0", "aapt2x"), "sleep")
+	got := SystemInUse(nil)(context.Background(), root, []string{"build-tools;35.0.0"})
+	if by := got["build-tools;35.0.0"]; len(by) != 1 || by[0] != "process aapt2x "+pidOf(cmd) {
+		t.Fatalf("build-tools;35.0.0 is used by %q, want process aapt2x %s", by, pidOf(cmd))
 	}
 }
 

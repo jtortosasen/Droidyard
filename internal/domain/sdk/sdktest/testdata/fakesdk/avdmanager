@@ -1,0 +1,79 @@
+#!/bin/sh
+# A fake avdmanager (plan m3f step 6), standing in for cmdline-tools' bin/avdmanager so that
+# no test runs this machine's. Its scenario directory is $FAKESDK_DIR; it logs each call
+# there and does what the files in it ask:
+#
+#   call.<n>.<pid>   one per call: arg, env and stdin lines (sdktest.Calls reads them)
+#   devices.out      what `list device` prints (default: the sample beside this script)
+#   create.fail      `create avd` prints the file to stderr and exits 1
+#   create.noini     `create avd` exits 0 and writes nothing
+#   delete.noop      `delete avd` exits 0 and removes nothing
+#   child            a sleeping child in this group, its pid in child.pid
+#   hang             sleeps for two minutes and logs nothing (a hung JVM)
+#   ignoreterm       ignores SIGTERM, so only SIGKILL ends it
+#   leader.pid       written first: the pid of this script, the leader of its group
+#   started          written once the scenario above is in place
+# The tests give the daemon a PATH that holds one directory; the real script finds its tools
+# in the system's.
+PATH=$PATH:/usr/bin:/bin
+d=${FAKESDK_DIR:?FAKESDK_DIR is not set}
+
+# The scenario first, before any process is started, so that a test which cancels or times
+# out a hung call finds the pids at once, however loaded the host.
+[ -f "$d/ignoreterm" ] && trap '' TERM
+echo $$ >"$d/leader.pid"
+[ -f "$d/child" ] && { sleep 120 & echo $! >"$d/child.pid"; }
+: >"$d/started"
+[ -f "$d/hang" ] && { sleep 120 & wait; }
+
+stdin=$(cat)
+n=$(ls "$d" | grep -c '^call\.')
+f="$d/call.$n.$$"
+{
+	for a in "$@"; do printf 'arg\t%s\n' "$a"; done
+	printf 'env\tANDROID_HOME\t%s\n' "${ANDROID_HOME-<unset>}"
+	printf 'env\tANDROID_SDK_ROOT\t%s\n' "${ANDROID_SDK_ROOT-<unset>}"
+	printf 'env\tJAVA_HOME\t%s\n' "${JAVA_HOME-<unset>}"
+	printf 'env\tANDROID_AVD_HOME\t%s\n' "${ANDROID_AVD_HOME-<unset>}"
+	printf 'env\tFAKESDK_MARK\t%s\n' "${FAKESDK_MARK-<unset>}"
+	printf 'stdin\t%s\n' "$stdin"
+} >"$f.tmp"
+mv "$f.tmp" "$f"
+
+case "$1 $2" in
+"list device")
+	if [ -f "$d/devices.out" ]; then cat "$d/devices.out"; else echo "Available devices definitions:"; fi
+	;;
+"create avd")
+	[ -f "$d/create.fail" ] && { cat "$d/create.fail" >&2; exit 1; }
+	[ -f "$d/create.noini" ] && exit 0
+	name= pkg= dev=
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--name) name=$2; shift ;;
+		--package) pkg=$2; shift ;;
+		--device) dev=$2; shift ;;
+		esac
+		shift
+	done
+	[ -n "$ANDROID_AVD_HOME" ] || { echo "Error: ANDROID_AVD_HOME is not set" >&2; exit 2; }
+	[ -e "$ANDROID_AVD_HOME/$name.ini" ] && { echo "Error: Android Virtual Device '$name' already exists." >&2; exit 1; }
+	mkdir -p "$ANDROID_AVD_HOME/$name.avd" || exit 1
+	printf 'avd.ini.encoding=UTF-8\npath=%s\npath.rel=avd/%s.avd\ntarget=android-35\n' "$ANDROID_AVD_HOME/$name.avd" "$name" >"$ANDROID_AVD_HOME/$name.ini"
+	printf 'hw.device.name=%s\nabi.type=arm64-v8a\nimage.sysdir.1=%s/\n' "$dev" "$(echo "$pkg" | tr ';' '/')" >"$ANDROID_AVD_HOME/$name.avd/config.ini"
+	;;
+"delete avd")
+	[ -f "$d/delete.noop" ] && exit 0
+	name=
+	while [ $# -gt 0 ]; do
+		[ "$1" = "--name" ] && { name=$2; shift; }
+		shift
+	done
+	[ -e "$ANDROID_AVD_HOME/$name.ini" ] || { echo "Error: There is no Android Virtual Device named '$name'." >&2; exit 1; }
+	rm -rf "$ANDROID_AVD_HOME/$name.avd" "$ANDROID_AVD_HOME/$name.ini"
+	;;
+*)
+	echo "fake avdmanager: unexpected arguments: $*" >&2
+	exit 9
+	;;
+esac

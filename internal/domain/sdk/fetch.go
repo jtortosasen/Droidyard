@@ -30,7 +30,7 @@ const (
 	// platform-36, 2.81 GB for the largest image.
 	maxZipEntries      = 100_000
 	maxZipUncompressed = uint64(16) << 30
-	// unpackMargin is the headroom asked beyond the unpacked total, in tenths.
+	// unpackMarginTenths is the headroom asked beyond the unpacked total, in tenths.
 	unpackMarginTenths = 1
 	progressEvery      = 200 * time.Millisecond
 )
