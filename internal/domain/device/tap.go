@@ -514,6 +514,21 @@ func (ac *actor) tap(ctx context.Context, point [2]int) (readerAct, error) {
 	})
 }
 
+// gesture injects a touch path through the reader (plan m3g step 2: `gesture <n> <x> <y>
+// <t> ...`).
+func (ac *actor) gesture(ctx context.Context, points []pathPoint) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actGesture(ctx, ac.t, c, points)
+	})
+}
+
+// press injects a key down and up through the reader (plan m3g step 2: `press <keycode>`).
+func (ac *actor) press(ctx context.Context, code int) (readerAct, error) {
+	return ac.locked(ctx, func(ctx context.Context, c *readerClient) (readerAct, error) {
+		return ac.a.actPress(ctx, ac.t, c, code)
+	})
+}
+
 // keys types text as the reader's virtual keyboard's key events (ADR-0035 §1: `keys
 // <base64>`).
 func (ac *actor) keys(ctx context.Context, text string) (readerAct, error) {
@@ -543,10 +558,15 @@ func actingBusyError(what string) *capability.Error {
 // actVerb is the infinitive of what ("typed"/"tapped") for a refusal's cause sentence:
 // "the reader refused to type: no field had focus" reads, where "the reader refused the
 // typed because no field had focus" did not (plan m1n step 8, main-session note). what is
-// always one of those two.
+// one of "typed", "tapped", "gestured" or "pressed" (the last two from plan m3g step 2).
 func actVerb(what string) string {
-	if what == "tapped" {
+	switch what {
+	case "tapped":
 		return "tap"
+	case "gestured":
+		return "gesture"
+	case "pressed":
+		return "press"
 	}
 	return "type"
 }

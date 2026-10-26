@@ -129,11 +129,11 @@ func (a *ADB) uiTree(ctx context.Context, t *target, within *AncestorSelector) (
 	if err != nil {
 		return Snapshot{}, err
 	}
-	rotation, roots, err := parseDump(doc)
+	attrs, roots, err := parseDumpAttrs(doc)
 	if err != nil {
 		return Snapshot{}, dumpFailed(err.Error())
 	}
-	s, err := snapshotOf(rotation, roots, NewSnapshotID(), DefaultUITreeBytes, within)
+	s, err := snapshotOf(attrs, roots, NewSnapshotID(), DefaultUITreeBytes, within)
 	if err != nil {
 		return Snapshot{}, dumpFailed(err.Error())
 	}
