@@ -254,7 +254,9 @@ func checkRegister(fsys fs.FS) []string {
 // filters (why RE2 with a time budget, the `tag: message` subject, trusted Start proc lines,
 // an older host's refusal), cut from 284 words; mcp.md's and mvp.md's artifact.search lines
 // were cut to fit.
-const liveBudget = 30509
+//
+// Raised by 12 (to 30,521) at milestone 3i's close: README.md's status line names 3i.
+const liveBudget = 30521
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

@@ -322,6 +322,37 @@ func TestWatchLogsFilterConservesLines(t *testing.T) {
 // Decision (plan m3i step 5, ADR-0041 §5): a rejected line is never counted, even when the
 // full buffer evicts it, and a line the filter has not judged is counted when it is evicted.
 // The queue's verdicts are what take, push, setVerdict and discardUnjudged agree on.
+// TestEvictedRejectedLinesAreNotDropped: a line the cap evicts counts in dropped unless the
+// filter had rejected it (ADR-0135 §3; plan m3i close review: a mutant counting every
+// evicted line survived the stream tests).
+func TestEvictedRejectedLinesAreNotDropped(t *testing.T) {
+	for _, c := range []struct {
+		v       verdict
+		evicted bool
+		want    bool
+	}{
+		{verdictRejected, true, false},
+		{verdictKept, true, true},
+		{verdictNone, true, true},
+		{verdictKept, false, false},
+	} {
+		if got := lostOnEviction(queuedLine{verdict: c.v}, c.evicted); got != c.want {
+			t.Errorf("lostOnEviction(verdict %d, evicted %v) = %v; want %v", c.v, c.evicted, got, c.want)
+		}
+	}
+	// Through push: a full queue of rejected lines evicts without a loss.
+	var q lineQueue
+	lost := 0
+	for i := 1; i <= streamPendingCap+10; i++ {
+		if gone, evicted := q.push(queuedLine{seq: uint64(i), verdict: verdictRejected}); lostOnEviction(gone, evicted) {
+			lost++
+		}
+	}
+	if lost != 0 {
+		t.Errorf("%d rejected lines evicted counted as lost; want 0", lost)
+	}
+}
+
 func TestLineQueueVerdicts(t *testing.T) {
 	line := func(seq uint64, v verdict) queuedLine {
 		return queuedLine{line: StreamLine{Message: "m" + strconv.FormatUint(seq, 10)}, seq: seq, verdict: v}

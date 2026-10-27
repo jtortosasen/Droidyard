@@ -1435,7 +1435,6 @@
       },
       "errors": [
         "WORKSPACE_UNTRUSTED",
-        "REQUEST_INVALID_PARAMS",
         "BUILD_NOT_FOUND",
         "WORKSPACE_STATE_UNREADABLE"
       ],

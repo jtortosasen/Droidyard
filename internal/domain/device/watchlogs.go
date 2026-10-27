@@ -84,10 +84,12 @@ const (
 // at most half a core per stream, and the other half publishes and sleeps. What the
 // batcher cannot keep up with piles up pending and, past streamPendingCap, is dropped
 // oldest first and counted. A stopping stream's drain has streamDrainBudget for what is
-// left, then counts the rest. Variables so a test can make the budget zero.
+// left, then counts the rest: 1 s, well under the 5 s (streamListBound) a watchLogs that
+// replaces this stream waits for it to end (plan m3i close review). Variables so a test can
+// make the budget zero.
 var (
 	streamFilterBudget = streamInterval / 2
-	streamDrainBudget  = textfilter.FilterBudget
+	streamDrainBudget  = time.Second
 )
 
 // logcatStreamBuffers is the buffer set every stream reads (ADR-0041 §2).
@@ -607,8 +609,7 @@ func (s *logStream) onLine(line []byte) error {
 	}
 	s.mu.Lock()
 	s.seq++
-	if gone, evicted := s.pending.push(queuedLine{line: sl, appID: appID, seq: s.seq, verdict: verdict}); evicted && gone.verdict != verdictRejected {
-		// A line the filter rejected was never owed to the client; any other is lost.
+	if gone, evicted := s.pending.push(queuedLine{line: sl, appID: appID, seq: s.seq, verdict: verdict}); lostOnEviction(gone, evicted) {
 		s.dropped++
 	}
 	s.mu.Unlock()
@@ -1038,9 +1039,17 @@ type queuedLine struct {
 	verdict verdict
 }
 
+// lostOnEviction says whether a line the cap evicted counts in dropped: a line the filter
+// rejected was never owed to the client (ADR-0135 §3); any other is lost.
+func lostOnEviction(gone queuedLine, evicted bool) bool {
+	return evicted && gone.verdict != verdictRejected
+}
+
 // lineQueue is the pending buffer: a queue that drops its oldest line past the cap. Its
 // seqs are consecutive (every push takes the next one and nothing leaves from the middle),
 // which setVerdict relies on to find a line again after the lock was released.
+// discardUnjudged does remove from the middle, and is safe only because drain calls it
+// after the last setVerdict.
 type lineQueue struct {
 	buf  []queuedLine
 	head int

@@ -99,6 +99,13 @@ var buildErrors = []capability.ErrorCode{
 // hook's, the background scheduler's, and the history's own.
 var readErrors = []capability.ErrorCode{
 	capability.ErrWorkspaceUntrusted,
+	capability.ErrBuildNotFound,
+	capability.ErrWorkspaceStateUnreadable,
+}
+
+// errorsErrors are build.errors': readErrors and a bad file or pattern (ADR-0136 §3).
+var errorsErrors = []capability.ErrorCode{
+	capability.ErrWorkspaceUntrusted,
 	capability.ErrInvalidParams,
 	capability.ErrBuildNotFound,
 	capability.ErrWorkspaceStateUnreadable,
@@ -209,7 +216,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Authorize:   o.Authorize,
 		Params:      ErrorsParams{},
 		Result:      ErrorsResult{},
-		Errors:      readErrors,
+		Errors:      errorsErrors,
 		Description: "Returns a finished build's merged errors (severity, file, line, message, problem id), and its warnings on request; buildId absent means the newest build. file (a prefix), match and exclude (RE2 over the message) narrow them; search the console with artifact.search.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return errorsFor(o.History, call)
