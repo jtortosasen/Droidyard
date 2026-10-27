@@ -117,7 +117,7 @@
 - Needs: step 2; step 1 (b).
 - Not here: the read shape (step 4); `device.watchLogs` (step 5).
 - Rests on: no caller filter text reaches a device shell, level 4 (recorded argv); an older host refuses rather than ignores, level 4 in parts (strict decode, mapping, `omitempty`), level 5 at step 8 (e).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `logfilter.go`, `logscope.go`, the relay in `remote.go`/`remoteartifact.go`, `paramNames`/`jsonShape` flattening (`internal/capability`); API `0.41.0`. Every named test passes; seen failing as asked: the subject the message alone (3 assertions), the union an intersection, the forged `Start proc` trusted (rerun by the verifier: pids 3001, 4001 joined), the pass unchecked and run forward, `validate` nil on a remote id (`DEVICE_NOT_READY`), the rewrite removed, a field without `omitempty`, today's `paramNames` (`LineFilter` in the hint). Beyond the step: the pass judges newest-first, so a budget cut loses the oldest lines and the warning names the oldest time judged (`TestRunPassDirection`, `TestLogsFilterBudget`); `tagPriorities` refuses `*` and a duplicate tag. Schema diff read: `device.logs` only plus the version. `maxToolListBytes` 52,000 (51,897 B). Fixes after the verifier (Review): no `Start proc` line is trusted without the uid column; a 256-byte bound on `excludeTags`/`tagPriorities` tags.
 
 ### 4. `device.logs`: the read shape (Q4)
 
@@ -185,7 +185,7 @@
 - Needs: steps 2, 3 (the version).
 - Not here: HTTP `Range`; `file.read` search (audience human, ADR-0060).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/domain/artifacts/textsearch.go` (`SearchText`, moved from `internal/artifact`: Changes), `search.go` (the descriptor, since `0.41.0`, not lendable), `CoreTools` gains `artifact_search`; `artifact.read`'s, the logs `capture`'s, `uiDump`'s and `build.run`'s descriptions point to it. Every named test passes; `TestSearchLikeGrep`'s expectation is real `grep -n -C1 -E` output; `TestSearchLargeDurableConsole` finds the line past 17 MiB on the third call at its true number 278,529. Seen failing with lines numbered from `offset` (both tests). `tools/list` 54,324 B with step 7 (`maxToolListBytes` 55,000, 48 tools); the skill tool map, `mcp.md` and `mvp.md` updated within `liveBudget` (unchanged).
 
 ### 7. `build.errors` by file and pattern (Q7; beside steps 4–5)
 
@@ -196,7 +196,7 @@
 - Needs: steps 2, 3 (the version).
 - Not here: severity beyond `includeWarnings` (two values); module (a record carries a path, not a Gradle project).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `ErrorsParams` gains `file`, `match`, `exclude`, the result `filtered`; validated before the lookup (`readErrors` lists `REQUEST_INVALID_PARAMS`). `TestErrorsFilteredByFileAndPattern`, `TestErrorsBadPatternBeforeLookup` pass; seen failing with `file` matched as a substring. Descriptions cut to ADR-0036 §1 by the main session.
 
 ### 8. Level 5, the documents, the close
 
@@ -279,6 +279,7 @@ Delegated (owner, 2026-10-27; the owner's standing instruction to apply the reco
 | 1 | | N8 A1's equality. Nits: `events` to an old host; the 40 MiB fixture; `build.watchOutput` and ADR-0122 §7; the ADR drafts' size; where the remote branch validates | N8: per-line equality in A1. Nits taken: Q5 and step 3 say `events` keeps the host's words; 8 MiB per search call, a 20 MiB fixture; the cut cites ADR-0122 §7; the drafts cut to two bullets; `plainThen` takes `validate`, proved through `oneRemote{&hosting.Link{}}` |
 | 2 (B1, B2 only) | revise: B2 resolved; B1 in part, 2 new blocking (from B1's resolution), 3 nits | R2-B1a [bounds]: a clock read every 1,024 items does not bound time (an item is up to 32 KiB), and the zero-budget tests cannot see it. R2-B1b [concurrency]: filtering in `publishBatch` runs under `s.mu`/`pubMu`, which the reader needs; `drain` stops at a tick that rejected everything; `take`'s 500 counts scanned lines | R2-B1a: the clock read after every item; one item the uninterruptible unit (Unverified); `TestPassStopsAtTheBudget` with a per-item clock spent at item k, seen failing with the 1,024 check (step 2). R2-B1b: verdicts per queued line, judged with no lock held, written back by `seq`; `take` stops at an unjudged line and counts kept lines; the reader never filters and counts what it evicts; `drain` loops until nothing is pending; `TestWatchLogsFilterConservesLines` (a blocked matcher; delivered + rejected + `dropped` = written) (step 5) |
 | 2 | | Nits: admit the remote id in `TestLogsBadPatternRunsNothing`; `dropped`'s description; name the host's field only when it is a call key | All taken (steps 3, 5) |
+| Step verifier, steps 2–3 | proceed: 0 blocking, 2 non-blocking, 5 nits | [plan] steps 6–7 started before the verdict, in the tree, so step 3's schema was not alone; [safety] a `Start proc` line trusted from any `ActivityManager` line without the uid column (ADR-0135 §4 says the system uid). Nits: a relayed `pids: null`; `logsText` without `filter.processes`; no byte bound on `excludeTags`/`tagPriorities`; `view()` cuts pids at 64 silently; the filter compiled three times per call | Steps 3, 6, 7 committed together (Changes); without the column nothing is trusted; tags bounded at 256 bytes; `logsText` and the pids at step 4; the rest kept |
 
 No third round: R2-B1a and R2-B1b are answered in the plan with round 2's own fixes (`milestone-plan` §Writing one, item 7); the main session or the owner judges the answer.
 
@@ -287,3 +288,7 @@ No third round: R2-B1a and R2-B1b are answered in the plan with round 2's own fi
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
 
 - 2026-10-27, step 2: `MaxCallInsts` is 1,000, not 4,000, and the rule that sets it changed. The plan's rule (a 4 MiB read of the worst shape inside `FilterBudget`) gives about 400 from the benchmark (2.6 s per MiB per 1,000 instructions, `(?i)` alternation), which refuses one 512-byte literal (514 instructions) and leaves little room past the owner's case (243). A refused query sends the agent back to a terminal, the milestone's failure; ADR-0135 §2 makes time the bound, so the instruction budget only refuses what no agent plausibly writes, and a worst-shape read at 1,000 is cut at `FilterBudget` with its warning (step 3). Delegated (owner, 2026-10-27); ADR-0135 §2 already calls the values working defaults set by step 2.
+
+- 2026-10-27, steps 6–7: started beside the steps 2–3 verifier, not after it, in the milestone tree (owner, pace); the verifier read step 3's schema diff before they changed it, and steps 3, 6 and 7 are committed together, as §Parallel allows for steps that share outputs.
+- 2026-10-27, step 6: `SearchText` lives in `internal/domain/artifacts`, not `internal/artifact`: the adapters import `internal/artifact`, and it must not pull `internal/textfilter` in (`TestAdaptersImportOnlyTheCore`, `overview.md` §Adapter boundary). `artifact.UTF8Boundary` is exported for it.
+- 2026-10-27, step 3 (verifier): on a device that prints no uid column, no `Start proc` line is trusted and `ps` alone names the processes, as ADR-0135 §4 reads (the step had trusted every `ActivityManager` line there).

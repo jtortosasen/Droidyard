@@ -135,7 +135,7 @@ func ReadTextReaderAt(r io.ReaderAt, size int64, growing bool, offset int64, lim
 	// No complete line in the window: either the line is longer than the limit, or the
 	// artifact's last line has not been terminated yet.
 	if start+int64(len(win)) < size {
-		n := utf8Boundary(win)
+		n := UTF8Boundary(win)
 		page.Text = string(win[:n])
 		page.NextOffset = start + int64(n)
 		page.Truncated = true
@@ -170,9 +170,9 @@ func clampTextLimit(limit int) int {
 	return limit
 }
 
-// utf8Boundary is the longest prefix of b that ends on a UTF-8 boundary, so a cut
+// UTF8Boundary is the longest prefix of b that ends on a UTF-8 boundary, so a cut
 // never splits a rune in half.
-func utf8Boundary(b []byte) int {
+func UTF8Boundary(b []byte) int {
 	n := len(b)
 	for i := 0; i < utf8.UTFMax-1 && n > 0; i++ {
 		if r, size := utf8.DecodeLastRune(b[:n]); r != utf8.RuneError || size != 1 {

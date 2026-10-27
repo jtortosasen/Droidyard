@@ -70,7 +70,7 @@ func registerScreenshot(reg *capability.Registry, adb *ADB, store *artifact.Stor
 			}
 			return adb.screenshot(ctx, t, store, artifact.OwnerOf(call.Origin))
 		},
-	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+	}, nil, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
 		return adb.screenshotFetched(ctx, rt, store, res.(ScreenshotResult))
 	}))
 }

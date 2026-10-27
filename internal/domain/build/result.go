@@ -27,6 +27,10 @@ type AssembleParams struct {
 type ErrorsParams struct {
 	BuildID         string `json:"buildId,omitempty" jsonschema:"pattern=^op-[0-9a-f]{16}$" jsonschema_description:"The build whose errors to return; absent means the newest finished build."`
 	IncludeWarnings bool   `json:"includeWarnings,omitempty" jsonschema_description:"Also return the merged warnings. Off by default: up to 50 warning records an agent asking for its errors rarely needs."`
+	File            string `json:"file,omitempty" jsonschema:"minLength=1,maxLength=1024" jsonschema_description:"Keep records whose file starts with this, as published (\"app/src/main/java/\"); 1 to 1,024 bytes."`
+	// Match and Exclude are RE2 patterns over a record's message (internal/textfilter).
+	Match   []string `json:"match,omitempty" jsonschema_description:"At most 20 RE2 patterns over each record's message; a record passes if any matches. (?i) ignores case."`
+	Exclude []string `json:"exclude,omitempty" jsonschema_description:"At most 20 RE2 patterns over each record's message; a record any of them matches is dropped."`
 }
 
 // Request is what was asked of Gradle: the tasks, and for build.assemble the module
@@ -161,6 +165,7 @@ type ErrorsResult struct {
 	Errors    []extract.Record `json:"errors" jsonschema:"required"`
 	Warnings  []extract.Record `json:"warnings,omitempty"`
 	Truncated int              `json:"truncated,omitempty" jsonschema_description:"How many records the caps (200 errors, 50 warnings) dropped."`
+	Filtered  int              `json:"filtered,omitempty" jsonschema_description:"How many records file, match and exclude dropped, errors and warnings together; the filters apply within the caps, so truncated is unchanged."`
 	// The unrecognised fallback: the build failed and no source recognised an error.
 	Unrecognised bool     `json:"unrecognised,omitempty"`
 	RootFailures []string `json:"rootFailures,omitempty"`

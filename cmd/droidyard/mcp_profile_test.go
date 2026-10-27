@@ -27,7 +27,7 @@ var goldenPath = []string{
 	"build_lastResult", "emulator_list", "emulator_start",
 	"device_list", "device_install", "device_launch", "device_uiTree", "device_tapElement",
 	"device_inputText", "device_logs", "device_screenshot", "operation_wait", "operation_cancel",
-	"artifact_read",
+	"artifact_read", "artifact_search", // ADR-0136 §2
 }
 
 // nextStepJoins are the tools a core tool's nextStep names that D3 did not list, so
@@ -208,8 +208,8 @@ func TestDefaultListsEverything(t *testing.T) {
 		c := startShim(t, p.state, "all", args...)
 		init := c.initialize("all")
 		names, size := toolNames(t, c, 1)
-		if len(names) != 47 {
-			t.Errorf("%v lists %d tools; want 47", args, len(names))
+		if len(names) != 48 {
+			t.Errorf("%v lists %d tools; want 48", args, len(names))
 		}
 		if size > maxToolListBytes {
 			t.Errorf("%v: %d bytes", args, size)

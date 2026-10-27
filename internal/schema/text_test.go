@@ -21,6 +21,7 @@ import (
 // rendered is the set of capabilities that declare a rendering: the plan's list
 // (m1o step 5). A new one is a decision, so adding to it is a line here, deliberately.
 var rendered = []string{
+	"artifact.search", // plan m3i step 6
 	"build.assemble", "build.lastResult", "build.run",
 	"device.inputText", "device.logs", "device.recordUi", "device.stopUiRecording", "device.tapElement", "device.uiDump", "device.uiEvents", "device.uiRecordings", "device.uiTree",
 	"sdk.licenses", "sdk.packages", "sdk.profiles",

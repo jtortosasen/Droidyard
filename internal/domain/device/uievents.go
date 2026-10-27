@@ -124,7 +124,7 @@ func registerUIEvents(reg *capability.Registry, adb *ADB) {
 			}
 			return adb.uiEvents(ctx, t, p.Device, q)
 		},
-	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+	}, nil, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
 		return uiEventsRelayed(rt, res.(UIEventsResult))
 	})
 	// The parameters are checked before the host is asked: a remote id never reaches the

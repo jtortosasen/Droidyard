@@ -23,7 +23,7 @@ type UIDumpParams struct {
 // root, an app's text, so it is untrusted (ADR-0015 §1), and so is the artifact.
 type UIDumpResult struct {
 	Device     string       `json:"device" jsonschema:"required"`
-	Dump       artifact.Ref `json:"dump" jsonschema:"required" jsonschema_description:"The XML document, an ephemeral artifact. Save it with droidyard artifact cat <ref> > dump.xml; artifact.read pages it by lines."`
+	Dump       artifact.Ref `json:"dump" jsonschema:"required" jsonschema_description:"The XML document, an ephemeral artifact. Save it with droidyard artifact cat <ref> > dump.xml; artifact.read pages it, artifact.search greps it."`
 	Nodes      int          `json:"nodes" jsonschema:"required" jsonschema_description:"The number of node elements in the document."`
 	Foreground string       `json:"foreground" jsonschema:"required" untrusted:"true" jsonschema_description:"The package of the document's root: the app that owns the active window."`
 	// Warnings are adb's (client/server version mismatch) and the one-shot reader's notice
@@ -68,7 +68,7 @@ func registerUIDump(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 			}
 			return adb.uiDump(ctx, t, p, store, artifact.OwnerOf(call.Origin))
 		},
-	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+	}, nil, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
 		return adb.uiDumpFetched(ctx, rt, store, res.(UIDumpResult))
 	}))
 }

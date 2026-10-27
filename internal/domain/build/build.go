@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/domain/build/extract"
 	"github.com/jtortosasen/droidyard/internal/domain/build/gradle"
+	"github.com/jtortosasen/droidyard/internal/textfilter"
 )
 
 // The build capabilities: build.run, build.assemble, build.errors and
@@ -97,6 +99,7 @@ var buildErrors = []capability.ErrorCode{
 // hook's, the background scheduler's, and the history's own.
 var readErrors = []capability.ErrorCode{
 	capability.ErrWorkspaceUntrusted,
+	capability.ErrInvalidParams,
 	capability.ErrBuildNotFound,
 	capability.ErrWorkspaceStateUnreadable,
 }
@@ -120,7 +123,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Result:       Result{},
 		Text:         capability.TextOf(resultText),
 		Errors:       buildErrors,
-		Description:  "Runs 1 to 20 Gradle tasks and returns the finished build's compact record; a failed build is a completed result with outcome failed, never an error. Read a failure with build.errors, the console with artifact.read, and cancel with operation.cancel.",
+		Description:  "Runs 1 to 20 Gradle tasks and returns the finished build's compact record; a failed build is a completed result with outcome failed, never an error. Read a failure with build.errors, search the console with artifact.search, and cancel with operation.cancel.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			p := call.Params.(RunParams)
 			if err := checkTasks(p.Tasks); err != nil {
@@ -207,7 +210,7 @@ func registerBuilds(reg *capability.Registry, o Options) {
 		Params:      ErrorsParams{},
 		Result:      ErrorsResult{},
 		Errors:      readErrors,
-		Description: "Returns a finished build's merged errors (severity, file, line, message, problem id), and its warnings on request; buildId absent means the newest build. Read it after a failed build instead of the console.",
+		Description: "Returns a finished build's merged errors (severity, file, line, message, problem id), and its warnings on request; buildId absent means the newest build. file (a prefix), match and exclude (RE2 over the message) narrow them; search the console with artifact.search.",
 		Handler: func(ctx context.Context, call *capability.Call) (any, error) {
 			return errorsFor(o.History, call)
 		},
@@ -471,8 +474,15 @@ func errorsFor(r *Registry, call *capability.Call) (ErrorsResult, error) {
 		return ErrorsResult{}, noState()
 	}
 	p := call.Params.(ErrorsParams)
+	// Filters are validated before any build is looked up (ADR-0136 §3).
+	if len(p.File) > 1024 {
+		return ErrorsResult{}, capability.Errorf(capability.ErrInvalidParams, "file is %d bytes; at most 1024", len(p.File))
+	}
+	filter, err := textfilter.Compile(textfilter.Spec{Match: p.Match, Exclude: p.Exclude})
+	if err != nil {
+		return ErrorsResult{}, err
+	}
 	var rec record
-	var err error
 	if p.BuildID != "" {
 		// A build id is an operation id; anything else names no build of this
 		// workspace, and must never reach a path (step 7 review B3).
@@ -497,13 +507,36 @@ func errorsFor(r *Registry, call *capability.Call) (ErrorsResult, error) {
 		Tail:         rec.Tail,
 		Sources:      rec.Sources,
 	}
-	if res.Errors == nil {
-		res.Errors = []extract.Record{}
-	}
 	if p.IncludeWarnings {
 		res.Warnings = rec.Warnings
 	}
+	if p.File != "" || !filter.Empty() {
+		keep := func(r extract.Record) bool {
+			return strings.HasPrefix(r.File, p.File) && filter.Keep(r.Message)
+		}
+		var dropped int
+		res.Errors, dropped = filterRecords(rec.Errors, keep)
+		res.Filtered = dropped
+		if p.IncludeWarnings {
+			res.Warnings, dropped = filterRecords(rec.Warnings, keep)
+			res.Filtered += dropped
+		}
+	}
+	if res.Errors == nil {
+		res.Errors = []extract.Record{}
+	}
 	return res, nil
+}
+
+// filterRecords returns the records keep accepts and how many it dropped.
+func filterRecords(in []extract.Record, keep func(extract.Record) bool) ([]extract.Record, int) {
+	var out []extract.Record
+	for _, r := range in {
+		if keep(r) {
+			out = append(out, r)
+		}
+	}
+	return out, len(in) - len(out)
 }
 
 // result is the compact record every build call returns (plan m1g D10): the first five

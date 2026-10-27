@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,17 +58,25 @@ type remoteTarget struct {
 // plain marks d as part of the plain class: a peer may call it on a host (Lendable), and
 // a call whose device is a remote id is relayed to that host instead of run here. A local
 // id takes d's own authorization and handler, unchanged.
-func (a *ADB) plain(d capability.Descriptor) capability.Descriptor { return a.plainThen(d, nil) }
+func (a *ADB) plain(d capability.Descriptor) capability.Descriptor { return a.plainThen(d, nil, nil) }
 
 // plainThen is plain for a capability whose relayed result names artifacts on the host: then
 // receives the result decoded into the capability's own type, its device restored, and
-// returns what the caller gets (remoteartifact.go). A nil then is plain.
-func (a *ADB) plainThen(d capability.Descriptor, then func(ctx context.Context, rt *remoteTarget, res any) (any, error)) capability.Descriptor {
+// returns what the caller gets (remoteartifact.go). A nil then is plain. A non-nil validate
+// is the check of the call's decoded parameters: a relayed call runs it before the client's
+// own policy and before any host call, so a parameter the host would refuse costs no round
+// trip (ADR-0135 §1, §6); a local call has its own descriptor's check.
+func (a *ADB) plainThen(d capability.Descriptor, validate func(params any) error, then func(ctx context.Context, rt *remoteTarget, res any) (any, error)) capability.Descriptor {
 	d.Lendable = true
 	authorize, handler := d.Authorize, d.Handler
 	name, result, declared := d.Name, d.Result, d.Errors
 	acts := d.Occupies == capability.OccupiesAct
 	d.Authorize = func(ctx context.Context, call *capability.Call) (any, error) {
+		if _, remote := a.remoteOf(call); remote && validate != nil {
+			if err := validate(call.Params); err != nil {
+				return nil, err
+			}
+		}
 		rt, ok, err := a.authorizeRemote(call)
 		if err != nil {
 			return nil, err
@@ -202,7 +211,7 @@ func (a *ADB) relayParams(ctx context.Context, call *capability.Call, name strin
 		return nil, linkError(ctx, rt, err)
 	}
 	if resp.Error != nil {
-		return nil, a.hostError(resp.Error, declared, rt)
+		return nil, a.hostError(resp.Error, declared, rt, params)
 	}
 	if resp.Operation == nil || resp.Operation.State != capability.StateCompleted || resp.Result == nil {
 		return nil, incompatible(rt, "it answered neither a result nor an error")
@@ -276,8 +285,10 @@ func linkError(ctx context.Context, rt *remoteTarget, err error) error {
 
 // hostError maps an error the host answered with (ADR-0100 §4): a code the capability's
 // descriptor declares keeps it, with the device named as the caller named it; any other
-// is DEVICE_NOT_READY, incompatible, since this daemon cannot say what it means.
-func (a *ADB) hostError(e *capability.Error, declared []capability.ErrorCode, rt *remoteTarget) error {
+// is DEVICE_NOT_READY, incompatible, since this daemon cannot say what it means. params are
+// the parameters the call sent the host (hostParams), which let a refusal of one of them by
+// an older host say which.
+func (a *ADB) hostError(e *capability.Error, declared []capability.ErrorCode, rt *remoteTarget, params json.RawMessage) error {
 	if e.Code == capability.ErrOperationCancelled {
 		// Every cancelled operation's error: the host's side ended it (its user, or its
 		// shutdown), which is not an answer this daemon cannot read.
@@ -297,7 +308,31 @@ func (a *ADB) hostError(e *capability.Error, declared []capability.ErrorCode, rt
 		out.Message = "no device " + rt.id + " is connected"
 		out.Details = map[string]any{"online": a.onlineRemote(e, rt.remote)}
 	}
+	if e.Code == capability.ErrInvalidParams && strings.HasPrefix(e.Cause, unknownFieldPrefix) {
+		out.NextStep = olderHostStep(rt, e.Cause, params)
+	}
 	return &out
+}
+
+// unknownFieldPrefix begins the cause of a strict decode's refusal of a parameter the
+// decoder does not know: the way a host older than this daemon refuses a parameter it was
+// not built with (ADR-0135 §6).
+const unknownFieldPrefix = "json: unknown field "
+
+// olderHostStep is the nextStep for that refusal. The field is named only when it is a key
+// of the call's own parameters: the cause is the host's text, and a name in it that this
+// call never sent is not quoted.
+func olderHostStep(rt *remoteTarget, cause string, params json.RawMessage) string {
+	what := "a parameter"
+	if field, err := strconv.Unquote(strings.TrimSpace(strings.TrimPrefix(cause, unknownFieldPrefix))); err == nil {
+		var sent map[string]json.RawMessage
+		if json.Unmarshal(params, &sent) == nil {
+			if _, ok := sent[field]; ok {
+				what = strconv.Quote(field)
+			}
+		}
+	}
+	return "the host " + rt.remote + " runs an older droidyard that does not take " + what + ": update it there, or call without the parameter"
 }
 
 // named is text from the host with the device's bare serial, wherever it stands as a word,

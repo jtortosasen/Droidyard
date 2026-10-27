@@ -6,6 +6,7 @@ A session started with `--tools core` lists only the tools marked core.
 | Tool | Core | Effect | What it does |
 |---|---|---|---|
 | `artifact_read` | core | read-only | Reads an artifact by the reference another tool returned (a screenshot, a build console, shell output): an image can be resized or cropped, text is ... |
+| `artifact_search` | core | read-only | Searches a text artifact (a build console, a logs capture, shell output) with RE2 patterns, as grep -n -C does: matching lines with their numbers, ... |
 | `build_assemble` | core | changes state | Assembles one module's variant with Gradle and returns the build record, as build_run does. |
 | `build_errors` | core | read-only | Returns a finished build's merged errors (severity, file, line, message, problem id), and its warnings on request; buildId absent means the newest ... |
 | `build_lastResult` | core | read-only | Returns the newest finished build of the workspace in build_run's shape, without running anything. |

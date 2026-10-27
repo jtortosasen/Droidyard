@@ -260,7 +260,7 @@ Two practical notes:
 | `session` | `watch`, `release`, `chats` (human-only, off MCP) | 2 |
 | `hosting` | `share`, `unshare`, `watchShare`, `join` (human-only; never over MCP) | 2u |
 | `shell` | `exec` (off by default) | 1 |
-| `artifact` | `read` | 1 |
+| `artifact` | `read`, `search` | 1 |
 | `policy` | `get`, `update` (human-only; never over MCP) | 1 |
 | `agent` | `recordCommand`, `recordEdit`, `checkWrite` (human-only; never over MCP) | 2 |
 

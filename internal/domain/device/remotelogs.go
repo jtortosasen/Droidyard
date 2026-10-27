@@ -158,7 +158,7 @@ func (s *relayedLogs) start(ctx context.Context, params json.RawMessage) (WatchL
 	s.stop = stop
 	s.mu.Unlock()
 	if resp.Error != nil {
-		return WatchLogsResult{}, s.adb.hostError(resp.Error, watchLogsErrors, rt)
+		return WatchLogsResult{}, s.adb.hostError(resp.Error, watchLogsErrors, rt, params)
 	}
 	if resp.Operation == nil || resp.Operation.State != capability.StateCompleted || resp.Result == nil {
 		return WatchLogsResult{}, incompatible(rt, "it answered neither a result nor an error")

@@ -147,6 +147,18 @@ func (a *ADB) logsFrom(ctx context.Context, f hostArtifacts, rt *remoteTarget, s
 		c.Exception, c.Message = truncateUTF8(c.Exception, logsLineCap), truncateUTF8(c.Message, logsLineCap)
 		c.Causes, c.Frames = boundedText(c.Causes, logsCrashesMax), boundedText(c.Frames, logsCrashesMax)
 	}
+	// filter.processes is the host's report of the names this daemon sent, bounded as the
+	// request bounds them (ADR-0135 §6): at most 10 names of 128 bytes, 64 pids each.
+	if len(r.Filter.Processes) > logsProcessesMax {
+		r.Filter.Processes = r.Filter.Processes[:logsProcessesMax]
+	}
+	for i := range r.Filter.Processes {
+		p := &r.Filter.Processes[i]
+		p.Name = truncateUTF8(p.Name, logsProcessNameMax)
+		if len(p.PIDs) > logsProcessPIDsMax {
+			p.PIDs = p.PIDs[:logsProcessPIDsMax]
+		}
+	}
 	switch r.EmptyReason {
 	case "", "noLines", "noKnownProcess", "filtered":
 	default:

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/artifact"
 	"github.com/jtortosasen/droidyard/internal/capability"
+	"github.com/jtortosasen/droidyard/internal/textfilter"
 )
 
 // device.logs (adb-device.md §Logs; plan m1i step 2): a snapshot of the device's log,
@@ -28,6 +29,10 @@ var (
 	logsReadTimeout  = 20 * time.Second
 	logsPMTimeout    = 5 * time.Second
 	logsProbeTimeout = 5 * time.Second
+	// logsPSTimeout bounds the one `ps -A -o PID,NAME` that resolves processes by name.
+	logsPSTimeout = 5 * time.Second
+	// logsFilterBudget is how long the filter pass of one read may run (ADR-0135 §2).
+	logsFilterBudget = textfilter.FilterBudget
 )
 
 // logsReadCap is the largest logcat dump read; a var so a test can cut a read mid-line.
@@ -57,24 +62,21 @@ const (
 	logsFollowStderrCap = 64 << 10
 )
 
-// LogsParams is device.logs's parameters. Nothing here reaches a device shell: the
-// tags, the substring and the priorities are applied on the host, and `since` is parsed
-// and re-formatted by us (plan m1i R4).
+// LogsParams is device.logs's parameters. Nothing here reaches a device shell: the line
+// filter (tags, priorities, substring, patterns, process names) is applied on the host,
+// and `since` is parsed and re-formatted by us (plan m1i R4).
 type LogsParams struct {
 	Device string `json:"device" jsonschema:"required" jsonschema_description:"The serial of the device, from device.list."`
 	// ApplicationID filters to one app's lines; it must be a package name.
 	ApplicationID string `json:"applicationId,omitempty" jsonschema:"pattern=^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$" jsonschema_description:"An applicationId to filter to: its lines, its crash block. Unmatched ids are rejected before the device is touched."`
 	// Since is "launch" or a device-clock RFC 3339 timestamp.
-	Since string   `json:"since,omitempty" jsonschema_description:"Device-clock RFC 3339 start, or \"launch\" (the last device.launch of applicationId, the default when one is known)."`
-	Tags  []string `json:"tags,omitempty" jsonschema_description:"At most 20 logcat tags, matched exactly. Applied on the host: they never reach a device shell."`
-	// MinPriority is the published priority enum.
-	MinPriority string `json:"minPriority,omitempty" jsonschema:"enum=verbose,enum=debug,enum=info,enum=warn,enum=error,enum=fatal" jsonschema_description:"The lowest priority to keep: verbose, debug, info, warn, error or fatal."`
+	Since string `json:"since,omitempty" jsonschema_description:"Device-clock RFC 3339 start, or \"launch\" (the last device.launch of applicationId, the default when one is known)."`
 	// Buffers is a subset of logcat's default set.
 	Buffers []string `json:"buffers,omitempty" jsonschema:"enum=main,enum=system,enum=crash" jsonschema_description:"The log buffers to read: any of main, system, crash. Defaults to all three; with an applicationId, crash is always read."`
-	// Contains is one literal substring of the message, at most 256 bytes.
-	Contains string `json:"contains,omitempty" jsonschema_description:"A literal substring of the message, at most 256 bytes; applied on the host."`
+	// LineFilter is which lines: tags, priorities, text patterns and processes (ADR-0135).
+	LineFilter
 	// MaxLines is how many matching lines are returned inline, newest kept.
-	MaxLines int `json:"maxLines,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"How many matching lines to return inline, newest kept (1-1000, default 50). The full capture is the capture artifact."`
+	MaxLines int `json:"maxLines,omitempty" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"How many matching lines to return inline, newest kept (1-1000, default 50); the capture holds them all."`
 	// FollowMs turns the read into a bounded follow: read the log as it is written for
 	// this many milliseconds, then return what the window accumulated (plan m1i D9).
 	FollowMs int `json:"followMs,omitempty" jsonschema:"minimum=1000,maximum=60000" jsonschema_description:"Follow the log for this many milliseconds (1000-60000) and return what it accumulated, not a snapshot."`
@@ -94,6 +96,14 @@ type LogFilter struct {
 	By            string `json:"by" jsonschema:"required,enum=uid,enum=pids,enum=none" jsonschema_description:"How an app's lines were selected: uid (logcat's uid column), pids (the app's known pids), or none (no applicationId)."`
 	UID           *int   `json:"uid,omitempty" jsonschema:"nullable" jsonschema_description:"The app's uid when by is uid."`
 	PIDs          []int  `json:"pids,omitempty" jsonschema_description:"The app's pids when by is pids."`
+	// Processes states what each requested process name resolved to.
+	Processes []LogProcess `json:"processes,omitempty" jsonschema_description:"For each requested process name, the pids its lines were taken from: empty when none was found."`
+}
+
+// LogProcess is one requested process name and the pids it was resolved to.
+type LogProcess struct {
+	Name string `json:"name" jsonschema:"required"`
+	PIDs []int  `json:"pids" jsonschema:"required"`
 }
 
 // LogLine is one parsed log line. tag and message are device text (ADR-0015 §1).
@@ -125,7 +135,7 @@ type Crash struct {
 // LogCounts is what the read scanned and what survived the filter.
 type LogCounts struct {
 	Scanned  int `json:"scanned" jsonschema:"required" jsonschema_description:"Lines read from the buffers."`
-	Matched  int `json:"matched" jsonschema:"required" jsonschema_description:"Lines that survived the app filter and the tag, priority and substring filters."`
+	Matched  int `json:"matched" jsonschema:"required" jsonschema_description:"Lines that survived the scope (app, processes) and the line filter."`
 	Returned int `json:"returned" jsonschema:"required" jsonschema_description:"Lines returned inline, at most maxLines."`
 }
 
@@ -137,12 +147,12 @@ type LogsResult struct {
 	Lines   []LogLine `json:"lines" jsonschema:"required"`
 	Crashes []Crash   `json:"crashes" jsonschema:"required"`
 	Counts  LogCounts `json:"counts" jsonschema:"required"`
-	// Truncated: more lines matched than were returned, or the read was cut.
+	// Truncated: more lines matched than were returned, or the read or the filter pass was cut.
 	Truncated bool `json:"truncated" jsonschema:"required"`
 	// EmptyReason says why lines is empty (capability-api.md §Empty is a fact).
-	EmptyReason string `json:"emptyReason,omitempty" jsonschema:"enum=noLines,enum=noKnownProcess,enum=filtered" jsonschema_description:"Why there are no lines: noKnownProcess (no evidence the app ran), noLines (a process of the app is known in the window, but it logged nothing), or filtered (its lines were excluded by tag, priority or substring)."`
+	EmptyReason string `json:"emptyReason,omitempty" jsonschema:"enum=noLines,enum=noKnownProcess,enum=filtered" jsonschema_description:"Why there are no lines: noKnownProcess (no evidence the app ran, or none of the named processes was found), noLines (a process in scope is known, but it logged nothing), or filtered (its lines were excluded by the line filter)."`
 	// Capture is the full matched set as an artifact, absent when nothing matched.
-	Capture  *artifact.Ref `json:"capture,omitempty"`
+	Capture  *artifact.Ref `json:"capture,omitempty" jsonschema_description:"Every matched line, as text; search it with artifact.search (match, context) rather than paging it."`
 	Warnings []string      `json:"warnings,omitempty"`
 }
 
@@ -157,19 +167,6 @@ func (p LogsParams) validate() error {
 			return capability.Errorf(capability.ErrInvalidParams, "since %q is neither \"launch\" nor an RFC 3339 device-clock timestamp", p.Since)
 		}
 	}
-	if len(p.Tags) > logsTagsMax {
-		return capability.Errorf(capability.ErrInvalidParams, "tags lists %d entries; at most %d are allowed", len(p.Tags), logsTagsMax)
-	}
-	for _, t := range p.Tags {
-		if strings.TrimSpace(t) == "" {
-			return capability.Errorf(capability.ErrInvalidParams, "tags contains an empty tag")
-		}
-	}
-	if p.MinPriority != "" {
-		if _, ok := priorityRank[p.MinPriority]; !ok {
-			return capability.Errorf(capability.ErrInvalidParams, "minPriority %q is not one of verbose, debug, info, warn, error, fatal", p.MinPriority)
-		}
-	}
 	if len(p.Buffers) > 0 {
 		for _, b := range p.Buffers {
 			if !isLogBuffer(b) {
@@ -177,8 +174,8 @@ func (p LogsParams) validate() error {
 			}
 		}
 	}
-	if len(p.Contains) > logsContainsMax {
-		return capability.Errorf(capability.ErrInvalidParams, "contains is %d bytes; at most %d are allowed", len(p.Contains), logsContainsMax)
+	if err := p.LineFilter.validate(); err != nil {
+		return err
 	}
 	if p.MaxLines != 0 && (p.MaxLines < 1 || p.MaxLines > logsMaxLinesMax) {
 		return capability.Errorf(capability.ErrInvalidParams, "maxLines is %d; it must be between 1 and %d", p.MaxLines, logsMaxLinesMax)
@@ -209,7 +206,7 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 		Idempotent:   true,
 		Since:        "0.8.0",
 		Availability: []capability.Requirement{capability.RequiresADB},
-		Description:  "Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a capture artifact holding the full matched set. Filter by applicationId, since, tags, minPriority and contains; the filters run on the host.",
+		Description:  "Reads the device's log once as a snapshot, or follows it for followMs: structured lines, the app's crash blocks, how lines were selected, and a capture artifact holding the full matched set. Select by applicationId, processes, since, tags, excludeTags, tagPriorities, minPriority, contains, and RE2 patterns over \"tag: message\" (match, exclude); every filter runs on the host.",
 		Params:       LogsParams{},
 		Target:       func(p any) *capability.OpTarget { return deviceTarget(p.(LogsParams).Device) },
 		Result:       LogsResult{},
@@ -235,7 +232,7 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 			}
 			return adb.logs(ctx, t, p, store, artifact.OwnerOf(call.Origin))
 		},
-	}, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
+	}, func(params any) error { return params.(LogsParams).validate() }, func(ctx context.Context, rt *remoteTarget, res any) (any, error) {
 		return adb.logsFetched(ctx, rt, store, res.(LogsResult))
 	}))
 }
@@ -245,6 +242,11 @@ func registerLogs(reg *capability.Registry, adb *ADB, store *artifact.Store) {
 func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact.Store, owner string) (LogsResult, error) {
 	appFiltered := p.ApplicationID != ""
 	follow := p.FollowMs > 0
+	filter, err := p.LineFilter.compile()
+	if err != nil {
+		return LogsResult{}, err
+	}
+	procs := newProcessScope(p.Processes)
 
 	view, haveRec := appView{}, false
 	if appFiltered {
@@ -255,7 +257,6 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	// since (plan m1i D8, D9): explicit, or the mode's default. A snapshot defaults to
 	// "launch" when a launch is known; a follow defaults to the device clock read now.
 	var since time.Time
-	var err error
 	if follow {
 		since, err = a.followSince(ctx, t, p.Since, view, haveLaunch)
 	} else {
@@ -301,6 +302,17 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 
 	buffers := effectiveBuffers(p.Buffers, appFiltered)
 	res := LogsResult{Device: t.serial, Warnings: append([]string(nil), t.warnings...)}
+	if !procs.empty() {
+		// One fixed `ps` per call (ADR-0135 §4): the caller's names are matched here, on the host.
+		listed, warning, perr := a.listProcesses(ctx, t)
+		if perr != nil {
+			return LogsResult{}, perr
+		}
+		if warning != "" {
+			res.Warnings = append(res.Warnings, warning)
+		}
+		procs.addListed(listed)
+	}
 	if appFiltered && !columnPresent {
 		res.Warnings = append(res.Warnings, "the device's logcat does not print a uid column: the app's lines are matched by its known pids (device.launch, pidof and Start proc lines)")
 	}
@@ -388,12 +400,32 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 		}
 	}
 
-	matched, crashFlags := filterLines(parsed.lines, crashLines, p, byUID, uid, pidSet, appFiltered)
+	// The named processes' pids also come from the read's trusted Start proc lines.
+	if !procs.empty() {
+		for _, l := range parsed.lines {
+			if startProcTrusted(l, columnPresent) {
+				procs.addStartProc(l.message)
+			}
+		}
+	}
+
+	// Which lines are the call's (the app's, the named processes', or everyone's), and
+	// the filter pass over them. keep: oldest (plan m3i step 4) judges forward.
+	scope := logScope{lines: parsed.lines, crash: crashLines, appFiltered: appFiltered, byUID: byUID, uid: uid, pids: pidSet, procs: procs}
+	order := judgeNewestFirst
+	pass, err := runPass(ctx, parsed.lines, crashLines, scope.has, filter, order, logsFilterBudget)
+	if err != nil {
+		return LogsResult{}, err
+	}
+	matched, crashFlags := pass.lines, pass.flags
+	if pass.stopped {
+		res.Warnings = append(res.Warnings, budgetWarning(logsFilterBudget, pass.edge, order))
+	}
 
 	// Counts and the empty reason (plan m1i D4, D11).
 	res.Counts.Scanned = len(parsed.lines)
 	res.Counts.Matched = len(matched)
-	inScope := countInScope(parsed.lines, crashLines, byUID, uid, pidSet, appFiltered)
+	inScope := scope.count()
 	appSeen := haveLaunch
 	for _, c := range crashLines {
 		if c {
@@ -415,7 +447,7 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 		inline = inline[len(inline)-maxLines:]
 	}
 	res.Counts.Returned = len(inline)
-	res.Truncated = readTruncated || len(matched) > maxLines
+	res.Truncated = readTruncated || pass.stopped || len(matched) > maxLines
 	res.Lines = make([]LogLine, 0, len(inline))
 	// crashFlags is indexed like matched; the inline lines are its tail, so the flags are
 	// read at the same offset (they were once read from the start, which gave every line
@@ -440,10 +472,13 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	for _, c := range crashes {
 		res.Crashes = append(res.Crashes, Crash{PID: c.pid, Time: rfcMicro(c.at), Exception: c.exception, Message: c.message, Causes: c.causes, Frames: c.frames})
 	}
-	if len(res.Lines) == 0 {
-		res.EmptyReason = emptyReason(inScope, len(matched), appSeen, appFiltered)
+	// A pass the budget stopped says nothing about why it found nothing: truncated and the
+	// warning do (capability-api.md §Empty is a fact).
+	if len(res.Lines) == 0 && !pass.stopped {
+		res.EmptyReason = emptyReason(inScope, len(matched), appSeen, appFiltered, procs)
 	}
 	res.Filter = logFilterView(p.ApplicationID, byUID, uid, pidSet, appFiltered)
+	res.Filter.Processes = procs.view()
 
 	if len(matched) > 0 {
 		data, dropped := buildCapture(matched)
@@ -653,92 +688,6 @@ func (a *ADB) classifyCrashes(serial, app string, uid int, byUID bool, lines []l
 		blocks = blocks[len(blocks)-logsCrashesMax:]
 	}
 	return crashLine, blocks
-}
-
-// filterLines keeps the lines that are the app's — by uid, or by a known pid, or a crash
-// line — and then pass the priority, tag and substring filters. It returns the kept
-// lines and, in parallel, which of them are crash lines.
-func filterLines(lines []logLine, crashLine []bool, p LogsParams, byUID bool, uid int, pidSet map[int]bool, appFiltered bool) ([]logLine, []bool) {
-	var out []logLine
-	var flags []bool
-	for i, l := range lines {
-		inScope := !appFiltered || crashLine[i]
-		if appFiltered && !inScope {
-			if byUID {
-				inScope = l.uid == uid
-			} else {
-				inScope = pidSet[l.pid]
-			}
-		}
-		if !inScope || !passesFilters(l, p) {
-			continue
-		}
-		out = append(out, l)
-		flags = append(flags, crashLine[i])
-	}
-	return out, flags
-}
-
-// countInScope counts the lines that are the app's, before the tag, priority and
-// substring filters: it tells `filtered` from `noLines` (plan m1i D11).
-func countInScope(lines []logLine, crashLine []bool, byUID bool, uid int, pidSet map[int]bool, appFiltered bool) int {
-	n := 0
-	for i, l := range lines {
-		switch {
-		case !appFiltered:
-			n++
-		case crashLine[i]:
-			n++
-		case byUID:
-			if l.uid == uid {
-				n++
-			}
-		case pidSet[l.pid]:
-			n++
-		}
-	}
-	return n
-}
-
-// passesFilters applies the priority, exact-tag and literal-substring filters, all
-// host-side (plan m1i D4, R4).
-func passesFilters(l logLine, p LogsParams) bool {
-	if p.MinPriority != "" && priorityRank[l.priority] < priorityRank[p.MinPriority] {
-		return false
-	}
-	if len(p.Tags) > 0 {
-		found := false
-		for _, t := range p.Tags {
-			if t == l.tag {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	if p.Contains != "" && !strings.Contains(l.message, p.Contains) {
-		return false
-	}
-	return true
-}
-
-// emptyReason says why no line was returned (plan m1i D11): `filtered` when the app's
-// lines existed but a filter excluded them, `noLines` when a process of the app is known
-// but logged nothing, `noKnownProcess` otherwise.
-func emptyReason(inScope, matched int, appSeen, appFiltered bool) string {
-	switch {
-	case matched > 0:
-		return ""
-	case inScope > 0:
-		return "filtered"
-	case appFiltered && appSeen:
-		return "noLines"
-	case !appFiltered:
-		return "noLines"
-	}
-	return "noKnownProcess"
 }
 
 // logFilterView states how the lines were selected.
