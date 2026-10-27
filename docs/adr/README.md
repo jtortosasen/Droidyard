@@ -162,6 +162,7 @@ edits made before this rule and are not added to.
 | [0131](0131-sdk-provisioning-narrowings.md) | Setuid processes, the emulator's lock and a licences-only root, as step 1 found them | Accepted |
 | [0132](0132-linux-processes-the-kernel-hides.md) | On Linux, a process whose executable the kernel hides is skipped by the in-use check | Accepted |
 | [0133](0133-agents-act-by-coordinates-keys-and-system-verbs.md) | Agents act on the device by coordinates, keys and system verbs | Accepted |
+| [0134](0134-panel-by-worktree-sessions-by-folder.md) | The column shows the tab's project as its worktrees, and the sessions by folder with their client | Accepted |
 
 ## Open decisions (not yet ADRs)
 

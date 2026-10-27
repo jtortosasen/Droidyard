@@ -1,6 +1,7 @@
 # ADR-0128: The UI ships its own faces and holds every text pair to WCAG AA
 
 - Status: Accepted
+- Superseded in part by: ADR-0134 (§Decision 1)
 - Date: 2026-10-23
 - Relates to: ADR-0006, ADR-0039 §Consequences, ADR-0040 §1; [plan m2a](../plans/m2a-minimal-web-ui.md) D1, D6; [plan m2d](../plans/m2d-redesign-file-tree.md) Style C, D24; [plan m3d](../plans/m3d-graphite-facelift.md) Q1
 - Decided by the owner, 2026-10-23: the facelift's direction, Graphite Console, chosen from nine sketched directions, with distinct faces for the interface and for code, and contrast fixed in both themes. The shape below is the main session's under the owner's standing instruction to apply the recommended option, Delegated.
