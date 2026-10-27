@@ -1,6 +1,7 @@
 <script module lang="ts">
 	export type ClientKind = 'claude-code' | 'cursor' | 'cursor-agent' | 'other';
-	const NAMES: Record<ClientKind, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', 'cursor-agent': 'cursor-agent', other: 'Other' };
+	const NAMES: Record<ClientKind, string> = { 'claude-code': 'Claude', cursor: 'Cursor', 'cursor-agent': 'cursor-agent', other: 'Other' };
+	const FULL: Record<ClientKind, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', 'cursor-agent': 'cursor-agent', other: 'Other' };
 	const HUES: Record<ClientKind, string> = { 'claude-code': 'claude', cursor: 'cursor', 'cursor-agent': 'agent', other: 'other' };
 </script>
 
@@ -16,11 +17,13 @@
 		connected?: boolean;
 		running?: boolean;
 		title?: string;
+		/** Receded: an outline of its hue, for a row that is not live. */
+		quiet?: boolean;
 	}
-	let { kind, label, connected = false, running = false, title }: Props = $props();
+	let { kind, label, connected = false, running = false, title, quiet = false }: Props = $props();
 </script>
 
-<span class="tag" data-hue={HUES[kind]} {title}>
+<span class="tag" class:quiet data-hue={HUES[kind]} title={title ?? FULL[kind]}>
 	{#if running}
 		<Spinner size={9} />
 	{:else if connected}
@@ -38,7 +41,7 @@
 		gap: var(--sp-2);
 		flex: none;
 		max-width: 100%;
-		padding: 0 var(--sp-3);
+		padding: 1px var(--sp-3);
 		border-radius: 3px;
 		background: var(--soft);
 		color: var(--hue);
@@ -58,6 +61,10 @@
 	.tag[data-hue='agent'] {
 		--hue: var(--client-agent);
 		--soft: var(--client-agent-soft);
+	}
+	.tag.quiet {
+		background: transparent;
+		box-shadow: inset 0 0 0 1px var(--soft);
 	}
 	.text {
 		overflow: hidden;

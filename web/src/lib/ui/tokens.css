@@ -12,8 +12,8 @@
 	--bg-raised: #23252a;
 	--bg-hover: #2a2c32;
 	--bg-active: #32353c;
-	/* A row that is not live: quieter than the panel it sits on (ADR-0134 §4). */
-	--bg-quiet: #1b1c1f;
+	/* A row that is not live: a step lighter than the panel it sits on (ADR-0134 §4). */
+	--bg-quiet: #26282d;
 	--border: #2e3036;
 	--text: #e4e4e7;
 	--text-2: #b1b1b9;
@@ -114,7 +114,7 @@
 		--bg-raised: #ececee;
 		--bg-hover: #e4e4e8;
 		--bg-active: #d8d8de;
-		--bg-quiet: #f0f0f2;
+		--bg-quiet: #ffffff;
 		--border: #d4d4d8;
 		--text: #18181b;
 		--text-2: #52525b;

@@ -69,6 +69,7 @@
 	const treeList = $derived(treeRows(tab, rows, treesView.described, agents.rows, titlesBySession(chatsView.chats)));
 	const menu = $derived(projectMenu(rows));
 	const folders = $derived(chatFolders(chatsView.chats, agents.rows, rows, tab === null ? null : (tab.mainRoot ?? tab.root)));
+	const nested = $derived(new Set(treeList.flatMap((t) => t.sessions.map((x) => x.row.key))));
 	const worktreeName = (id: string) => rows.find((r) => r.id === id)?.name;
 
 	// The selected tree or the followed session stays in view as it moves (ADR-0134 §5).
@@ -105,7 +106,7 @@
 	{#if releaseError}
 		<p class="note bad">Release refused: {releaseError}</p>
 	{/if}
-	<Sessions {projects} {sessions} {folders} chats={chatsView} {following} {now} {connected} {worktreeName} {onchosen} onrelease={(w) => void release(w)} />
+	<Sessions {projects} {sessions} {folders} chats={chatsView} {following} {now} {connected} {worktreeName} {nested} {onchosen} onrelease={(w) => void release(w)} />
 </div>
 
 <style>

@@ -1,7 +1,5 @@
 <script lang="ts">
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
-	import Folder from '@lucide/svelte/icons/folder';
+	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import X from '@lucide/svelte/icons/x';
@@ -9,6 +7,7 @@
 	import { rootKey, type ProjectEntry, type ProjectsModel, type ProjectsView } from './projects';
 	import { heldByText, type SessionsModel } from './sessions';
 	import SessionLine from './SessionLine.svelte';
+	import Spinner from './Spinner.svelte';
 	import type { TreeRow } from './trees';
 
 	// The top of the column (ADR-0134 §1, §2): the tab's project as its trees, the project's name
@@ -41,6 +40,17 @@
 	const expanded = $derived(projectName === null || menuOpen);
 
 	const dotLabel = (t: TreeRow) => `${t.state}${t.trusted ? '' : ', not trusted'}`;
+	// A session on a tree carries the hold it has (its line says it, with Release): the tree
+	// says it only when nobody listed here does.
+	const heldBySession = (workspace: string) => trees.some((x) => x.sessions.some((s) => s.row.occupies === workspace));
+	// The tree's state in the leading slot: working, busy, connected and idle, open, closed.
+	function stateOf(t: TreeRow, working: number): { kind: 'working' | 'busy' | 'connected' | 'open' | 'closed'; word: string } {
+		if (working > 0) return { kind: 'working', word: 'working' };
+		if (!t.open) return { kind: 'closed', word: 'closed' };
+		if (t.state !== 'ready') return { kind: 'busy', word: 'busy' };
+		if (t.sessions.length > 0) return { kind: 'connected', word: 'open, sessions connected' };
+		return { kind: 'open', word: 'open' };
+	}
 	const nameOf = (id: string) => trees.find((t) => t.workspace === id)?.name;
 
 	// A tree is a selection that stays where it is: it ends any follow (ADR-0134 §5).
@@ -72,11 +82,13 @@
 </script>
 
 <section class="trees" aria-label="Project">
+	<h2>{projectName === null ? 'Projects' : 'Worktrees'}</h2>
 	<div class="head">
-		<button type="button" class="project" aria-expanded={expanded} disabled={projectName === null} onclick={() => (menuOpen = !menuOpen)}>
-			{#if expanded}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
-			<span class="pname">{projectName ?? 'Projects'}</span>
+		<button type="button" class="project" aria-expanded={expanded} aria-label="Switch project, now {projectName ?? 'none'}" disabled={projectName === null} onclick={() => (menuOpen = !menuOpen)}>
+			<span class="pname">{projectName ?? 'Choose a project'}</span>
+			{#if projectName !== null}<ChevronsUpDown size={13} />{/if}
 		</button>
+		{#if projectRoot !== null}<span class="proot" title={projectRoot}>{projectRoot}</span>{/if}
 	</div>
 
 	{#if view?.error}
@@ -142,26 +154,30 @@
 	<ul class="rows">
 		{#each trees as t (t.root)}
 			{@const working = t.sessions.filter((s) => s.row.running).length}
-			{@const held = t.holder !== undefined && t.workspace !== undefined}
+			{@const st = stateOf(t, working)}
+			{@const nestedHolder = t.workspace !== undefined && heldBySession(t.workspace)}
+			{@const held = t.holder !== undefined && t.workspace !== undefined && !nestedHolder}
+			{@const showBranch = t.branch !== undefined && t.branch !== t.name}
 			<li class="tree" data-tree={t.root}>
 				<div class="line" class:selected={t.current}>
 					<button type="button" class="pick" aria-current={t.current ? 'true' : undefined} disabled={t.gone || !!view?.opening} title={t.gone ? 'This worktree no longer exists' : t.root} onclick={() => chooseTree(t)}>
-						<span class="ico">{#if t.primary}<Folder size={14} />{:else}<GitBranch size={14} />{/if}</span>
+						<span class="ico" data-state={st.kind} title={dotLabel(t)}>
+							{#if st.kind === 'working'}<Spinner size={11} />{:else}<span class="mark"></span>{/if}
+							<span class="sr">{st.word}</span>
+						</span>
 						<span class="top">
 							<span class="name" class:closed={!t.open}>{t.name}</span>
 							{#if t.primary}<span class="primary" title="The project's main tree">primary</span>{/if}
 							{#if t.sessions.length > 0}
-								<span class="count" class:working={working > 0} title="{t.sessions.length} connected, {working} working">{t.sessions.length}</span>
-							{/if}
-							{#if !t.open || t.state !== 'ready'}
-								<span class="dot" data-state={t.open ? 'busy' : 'closed'} title={dotLabel(t)}></span>
+								<span class="count" class:working={working > 0} title="{t.sessions.length} connected, {working} working" aria-label="{t.sessions.length} {t.sessions.length === 1 ? 'session' : 'sessions'}, {working} working">{t.sessions.length}</span>
 							{/if}
 						</span>
-						{#if t.branch !== undefined || t.holder !== undefined || t.gone}
+						<!-- A branch named as its worktree says nothing new: no second line for it alone. -->
+						{#if showBranch || t.gone || (t.holder !== undefined && !nestedHolder)}
 							<span class="sub">
-								{#if t.branch !== undefined}<span class="branch" title="Branch">{t.branch}</span>{/if}
+								{#if showBranch}<span class="type" title="A linked worktree"><GitBranch size={12} /></span><span class="branch" title="Branch">{t.branch}</span>{/if}
 								{#if t.gone}<span class="gone">gone</span>{/if}
-								{#if t.holder}<span class="held" title="Another chat may not enter or write here">{heldByText(t.holder.label, t.holder.idle)}</span>{/if}
+								{#if t.holder && !nestedHolder}<span class="held" title="Another chat may not enter or write here">{heldByText(t.holder.label, t.holder.idle)}</span>{/if}
 							</span>
 						{/if}
 					</button>
@@ -182,11 +198,12 @@
 							<SessionLine
 								row={s.row}
 								title={s.title}
+								untitled={s.title === `${s.row.label} connected`}
 								kind={s.client}
 								followed={following === s.row.key}
 								{now}
 								{connected}
-								releasable={s.row.occupies !== null && s.row.occupies !== t.workspace}
+								releasable
 								worktreeName={nameOf}
 								onchoose={() => followSession(s.row.key, s.row.workspace)}
 								{onrelease}
@@ -207,12 +224,26 @@
 		min-height: 0;
 		font-size: var(--fs-base);
 	}
+	h2 {
+		padding: var(--sp-4) var(--sp-6) 0;
+	}
 	.head {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--sp-4);
-		padding: var(--sp-3) var(--sp-4) var(--sp-2) var(--sp-3);
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0;
+		padding: var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-3);
+		min-width: 0;
+	}
+	.proot {
+		max-width: 100%;
+		padding: 0 var(--sp-3);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: var(--fs-small);
+		color: var(--text-3);
 	}
 	.project {
 		display: inline-flex;
@@ -343,6 +374,29 @@
 	.ico {
 		display: inline-grid;
 		place-items: center;
+		height: calc(var(--fs-base) * var(--lh-base));
+	}
+	.mark {
+		box-sizing: border-box;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+	}
+	.ico[data-state='connected'] .mark {
+		background: var(--success);
+	}
+	.ico[data-state='open'] .mark {
+		border: 1.5px solid var(--text-3);
+	}
+	.ico[data-state='closed'] .mark {
+		background: var(--text-3);
+	}
+	.ico[data-state='busy'] .mark {
+		background: var(--warning);
+	}
+	.type {
+		display: inline-flex;
+		flex: none;
 		color: var(--text-2);
 	}
 	.top {
@@ -362,7 +416,7 @@
 		flex: none;
 		padding: 0 var(--sp-3);
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 3px;
 		color: var(--text-2);
 		font-size: var(--fs-label);
 		line-height: var(--lh-base);
@@ -390,16 +444,14 @@
 	.dot[data-state='open'] {
 		background: var(--success);
 	}
-	.dot[data-state='busy'] {
-		background: var(--warning);
-	}
 	.dot[data-state='closed'] {
 		background: var(--text-3);
 	}
 	.sub {
 		grid-column: 2;
 		display: flex;
-		gap: var(--sp-4);
+		align-items: center;
+		gap: var(--sp-3);
 		min-width: 0;
 		font-family: var(--font-mono);
 		font-size: var(--fs-small);

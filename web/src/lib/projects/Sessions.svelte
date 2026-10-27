@@ -22,10 +22,12 @@
 		now: number;
 		connected: boolean;
 		worktreeName: (workspace: string) => string | undefined;
+		/** The sessions nested on the tab's trees above: their Release is there, not repeated here. */
+		nested: ReadonlySet<string>;
 		onchosen?: () => void;
 		onrelease: (workspace: string) => void;
 	}
-	let { projects, sessions, folders, chats, following, now, connected, worktreeName, onchosen, onrelease }: Props = $props();
+	let { projects, sessions, folders, chats, following, now, connected, worktreeName, nested, onchosen, onrelease }: Props = $props();
 
 	// "N more" opened, per folder; in memory only.
 	let opened = $state.raw<ReadonlySet<string>>(new Set());
@@ -86,9 +88,12 @@
 			{@const k = f.root ?? ''}
 			{@const part = cut(f.rows, opened.has(k))}
 			<li class="folder">
-				<div class="fhead" title={f.root ?? undefined}>
-					<Folder size={14} />
+				<div class="fhead" class:current={f.current} title={f.root ?? undefined}>
+					<span class="ficon"><Folder size={14} /></span>
 					<span class="fname">{f.name}</span>
+					{#if f.rows.length > 0}
+						<span class="count" aria-label="{f.rows.length} {f.rows.length === 1 ? 'chat' : 'chats'}">{f.rows.length}</span>
+					{/if}
 					{#each f.connections as c (c.row.key)}
 						{@const holds = occupiesText(c.row, worktreeName)}
 						<ClientTag kind={c.client} label={c.row.label} connected running={c.row.running} title={holds === '' ? 'Connected to Droidyard' : `Connected to Droidyard, holds ${holds}`} />
@@ -105,29 +110,27 @@
 								followed={following === live.key}
 								{now}
 								{connected}
-								releasable
+								releasable={!nested.has(live.key)}
 								{worktreeName}
 								where={r.worktree}
 								when={agoText(now - Date.parse(r.updatedAt))}
-								wrap
 								onchoose={() => followSession(live.key, live.workspace)}
 								{onrelease}
 							/>
 						{:else}
 							<li class="chat" class:quiet={r.presence === 'not-connected'}>
 								<div class="line">
-									<button type="button" class="pick" title={r.title} onclick={() => chooseChat(r)}>
-										<span class="top">
-											<ClientTag kind={kindOf(r.tag)} />
-											<span class="title">{r.title}</span>
-											<span class="when">{agoText(now - Date.parse(r.updatedAt))}</span>
+									<button type="button" class="pick" onclick={() => chooseChat(r)}>
+										<span class="glyph">
+											{#if r.presence === 'not-connected'}<span class="ring"></span><span class="sr">not connected</span>{/if}
 										</span>
-										{#if r.worktree !== null || r.presence === 'not-connected'}
-											<span class="meta">
-												{#if r.worktree !== null}<span class="where" title="Worktree">{r.worktree}</span>{/if}
-												{#if r.presence === 'not-connected'}<span class="absent" title="No live Droidyard session: resume it in its client">not connected</span>{/if}
-											</span>
-										{/if}
+										<span class="title">{r.title}</span>
+										<span class="meta" class:withaction={r.resume !== undefined}>
+											<ClientTag kind={kindOf(r.tag)} quiet={r.presence === 'not-connected'} />
+											{#if r.worktree !== null}<span class="where" title="Worktree">{r.worktree}</span>{/if}
+											<span class="when">{agoText(now - Date.parse(r.updatedAt))}</span>
+											{#if r.presence === 'not-connected'}<span class="absent" title="No live Droidyard session: resume it in its client">not connected</span>{/if}
+										</span>
 									</button>
 									{#if r.resume !== undefined}
 										<button type="button" class="copy" title="Copy the command that resumes this chat" onclick={() => void copy(r)}>
@@ -189,9 +192,16 @@
 		flex-wrap: wrap;
 		gap: var(--sp-3);
 		padding: var(--sp-2) var(--sp-4);
-		color: var(--text-2);
-		font-size: var(--fs-small);
+		color: var(--text);
+		font-size: var(--fs-base);
 		font-weight: 600;
+	}
+	.ficon {
+		display: inline-flex;
+		color: var(--text-2);
+	}
+	.fhead.current .ficon {
+		color: var(--accent);
 	}
 	.fname {
 		min-width: 0;
@@ -199,24 +209,34 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.count {
+		flex: none;
+		min-width: 16px;
+		padding: 0 var(--sp-3);
+		border-radius: 8px;
+		background: var(--bg-active);
+		color: var(--text-2);
+		font-size: var(--fs-label);
+		font-weight: 400;
+		text-align: center;
+	}
 	.rows {
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
 	}
 	.line {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--sp-2);
+		position: relative;
 	}
+	/* The same grid as a live session's line, so every row shares one left edge. */
 	.pick {
-		flex: 1 1 0;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
+		display: grid;
+		grid-template-columns: 14px minmax(0, 1fr);
+		align-items: start;
+		gap: 1px var(--sp-4);
+		width: 100%;
 		min-height: var(--row);
-		padding: var(--sp-2) var(--sp-4);
+		padding: var(--sp-3) var(--sp-4);
 		border: 0;
 		border-radius: var(--radius-control);
 		background: transparent;
@@ -234,14 +254,20 @@
 	.quiet .pick:hover {
 		background: var(--bg-hover);
 	}
-	.top {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--sp-3);
-		min-width: 0;
+	.glyph {
+		display: inline-grid;
+		place-items: center;
+		width: 14px;
+		height: calc(var(--fs-base) * var(--lh-base));
+	}
+	.ring {
+		box-sizing: border-box;
+		width: 8px;
+		height: 8px;
+		border: 1.5px solid var(--text-3);
+		border-radius: 50%;
 	}
 	.title {
-		flex: 1 1 0;
 		min-width: 0;
 		display: -webkit-box;
 		-webkit-box-orient: vertical;
@@ -250,26 +276,28 @@
 		overflow: hidden;
 		overflow-wrap: anywhere;
 	}
-	.when {
-		flex: none;
-		font-family: var(--font-mono);
-		font-size: var(--fs-small);
-		color: var(--text-2);
-	}
 	.meta {
+		grid-column: 2;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-4);
+		flex-wrap: wrap;
+		gap: 0 var(--sp-4);
 		min-width: 0;
 		font-family: var(--font-mono);
 		font-size: var(--fs-small);
 		color: var(--text-2);
+	}
+	.meta.withaction {
+		padding-right: 44px;
 	}
 	.where {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.when {
+		flex: none;
 	}
 	.absent {
 		flex: none;
@@ -280,13 +308,26 @@
 		font-size: var(--fs-label);
 		color: var(--text-3);
 	}
+	/* Copy waits at the row's end until the row is pointed at or focused; it stays in the tab order. */
 	.copy {
-		flex: none;
+		position: absolute;
+		right: var(--sp-3);
+		bottom: var(--sp-2);
 		min-height: 0;
-		height: calc(var(--row) - 2px);
-		margin-top: var(--sp-2);
-		padding: 0 var(--sp-4);
+		height: calc(var(--row) - 6px);
+		padding: 0 var(--sp-3);
+		border: 0;
+		background: transparent;
+		color: var(--accent);
 		font-size: var(--fs-small);
+		opacity: 0;
+	}
+	.line:hover .copy,
+	.line:focus-within .copy {
+		opacity: 1;
+	}
+	.copy:hover {
+		text-decoration: underline;
 	}
 	.cmd {
 		width: 100%;
