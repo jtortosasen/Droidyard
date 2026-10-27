@@ -70,7 +70,10 @@
 - Needs: the owner's SDK images, read only.
 - Not here: a physical device; the daemon.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: 2026-10-27, scratch AVDs `m3i36` (API 36 `google_apis_playstore`) and `m3i31` (API 31 `google_apis`), the lane's adb server on port 5313, emulators 5734 and 5736, both stopped after; files in `$B/facts/`.
+  - (a) holds on both: `-b events -t 200` gave 200 lines, every one matching `logcatLineRE`'s shape (only the `--------- beginning of events` marker did not); events tags are `name:` (`I am_uid_active: 10105`, `I sysui_multi_action: [757,1964,758,4]`) or padded (`I auditd  : type=1400 …`), so the tag/message split is the main buffer's. 20 lines kept in `events36-sample.txt` for step 4's fixture. `events` stays in Q4.
+  - (b) holds on both: `ps -A -o PID,NAME` names `system_server`, `com.android.systemui`, `surfaceflinger` (not `/system/bin/surfaceflinger`), `com.android.settings`; 11,004 bytes on API 36, 7,561 on API 31, against `psOutputCap` 1 MiB. `Start proc` lines come from tag `ActivityManager`, pid = system_server's, uid column `1000` (numeric on both images, unlike `shell`), e.g. `1000 661 709 I ActivityManager: Start proc 5005:com.android.settings/1000 for content provider {…}`; names may hold `:` (`com.google.android.webview:webview_apk`). Q3's name rule stands.
+  - (c) holds on both: `log -t MULTIWINDOWS_ANTITAMPERING -p i ' x m3i-probe'` prints `I/MULTIWINDOWS_ANTITAMPERING( 5251):  x m3i-probe` in `-v time` and `shell 5251 5251 I MULTIWINDOWS_ANTITAMPERING:  x m3i-probe` in the uid format (the message keeps its leading space; the uid column prints `shell`, register row "logcat prints the uid column as a name…"). Step 8 (a)'s fixture method stands.
 
 ### 2. The pattern engine: `internal/textfilter`
 
@@ -90,7 +93,7 @@
 - Needs: nothing.
 - Not here: logcat's subject, collapsing (device-specific, steps 3–4).
 - Rests on: the filter pass of one call runs past `FilterBudget` by at most one item, whatever its patterns: level 4 (`TestPassStopsAtTheBudget`); the cost per instruction, and so one item's worst time, level 3 (the benchmark on this Mac).
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `internal/textfilter` (`textfilter.go`, `pass.go`, `select.go`, their tests, `bench_test.go`); `TestPatternBounds`, `TestPassStopsAtTheBudget`, `TestPassUsesTheRealClock`, `TestMatchExclude`, `TestSelectLikeGrepC`, `TestSelectKeepAndMax`, `TestEstimateBoundsTheProgram` pass. Seen failing: the budget counted per pattern (`both lists past the budget` compiles); the clock read every 1,024 items (every `TestPassStopsAtTheBudget` case stops at 1,024); `Select`'s merging off (3 grep-C and 8 keep/max cases). Beyond the step: a parse-tree estimate refuses a pattern past 4 × `MaxCallInsts` before its program is built (512-byte `(a{1000}|b{1000})`-style patterns compile to tens of thousands of instructions); Go's "expression too large" cannot be reached in 512 bytes (`invalid repeat count` comes first), so the test uses that message. Benchmark (Apple M3, one thread, 32 MiB of 200-byte never-matching lines), ns per MiB per 1,000 instructions: 12-way literal alternation 1.40e9, `(?i)` 2.34e9–2.62e9; `[a-z]{0,40}x` 4.2e8–4.6e8, `(?i)` 5.1e8–6.1e8; on 32 KiB lines the `(?i)` alternation 3.4e9. Linear in instructions. `MaxCallInsts` 1,000 and `FilterBudget` 5 s (Changes, 2026-10-27).
 
 ### 3. `device.logs`: the line filter, processes and the relay (Q1–Q3, Q5)
 
@@ -282,3 +285,5 @@ No third round: R2-B1a and R2-B1b are answered in the plan with round 2's own fi
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-27, step 2: `MaxCallInsts` is 1,000, not 4,000, and the rule that sets it changed. The plan's rule (a 4 MiB read of the worst shape inside `FilterBudget`) gives about 400 from the benchmark (2.6 s per MiB per 1,000 instructions, `(?i)` alternation), which refuses one 512-byte literal (514 instructions) and leaves little room past the owner's case (243). A refused query sends the agent back to a terminal, the milestone's failure; ADR-0135 §2 makes time the bound, so the instruction budget only refuses what no agent plausibly writes, and a worst-shape read at 1,000 is cut at `FilterBudget` with its warning (step 3). Delegated (owner, 2026-10-27); ADR-0135 §2 already calls the values working defaults set by step 2.
