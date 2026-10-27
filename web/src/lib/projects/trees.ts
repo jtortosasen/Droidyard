@@ -96,7 +96,8 @@ export class TreesModel {
 		try {
 			const r = await this.#client.call('workspace.describe', {}, { workspace: root });
 			if (seq !== this.#seq) return;
-			this.#view = { described: r.worktrees ?? [], error: null };
+			// No field is no linked worktree or more than 100 entries (ADR-0089 §3): it says nothing.
+			this.#view = { described: r.worktrees ?? null, error: null };
 			this.#waiting = false;
 		} catch (e) {
 			if (seq !== this.#seq) return;
@@ -133,7 +134,7 @@ export interface TreeRow {
 	trusted: boolean;
 	/** Its workspace is the tab's. */
 	current: boolean;
-	/** Listed, closed, and absent from a loaded describe: the worktree was removed or moved. */
+	/** Listed, closed, and absent from a loaded describe under its cap: the worktree was removed or moved. */
 	gone: boolean;
 	sessions: TreeSession[];
 	/** Who holds it (ADR-0094): a session of this panel, else the other chat `describe` names. */
@@ -141,6 +142,9 @@ export interface TreeRow {
 }
 
 const baseName = (root: string): string => rootKey(root).split(/[\\/]/).pop() || root;
+
+/** `describe` lists at most this many worktrees (ADR-0089 §1): a full list may leave a real one out. */
+export const DESCRIBE_CAP = 50;
 
 /**
  * The tab's project as rows: its main tree (`primary`) first, then the linked worktrees of
@@ -182,7 +186,7 @@ export function treeRows(
 			state: listed?.state ?? 'closed',
 			trusted: listed?.trusted ?? false,
 			current: listed !== undefined && listed.id === tab.id,
-			gone: !primary && listed !== undefined && !listed.open && described !== null && d === undefined,
+			gone: !primary && listed !== undefined && !listed.open && described !== null && described.length < DESCRIBE_CAP && d === undefined,
 			sessions: nested(listed?.id),
 			...(holder ? { holder } : {}),
 		};

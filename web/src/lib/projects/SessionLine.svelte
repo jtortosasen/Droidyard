@@ -100,6 +100,12 @@
 	.line:not(.selected) .pick:hover {
 		background: var(--bg-hover);
 	}
+	/* On the selection tint the tag's own fill would sink its hue under the floor (ADR-0128 §3):
+	   it recedes to an outline, as on a quiet row. */
+	.line.selected :global(.tag) {
+		background: transparent;
+		box-shadow: inset 0 0 0 1px var(--soft);
+	}
 	.glyph {
 		display: inline-grid;
 		place-items: center;

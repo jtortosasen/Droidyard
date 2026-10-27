@@ -3,7 +3,7 @@ import { ConnectionError } from '../api/client';
 import { POLL_MS, REFRESH_DELAY_MS } from './chats';
 import type { ProjectRow } from './projects';
 import type { AgentRow } from './sessions';
-import { TreesModel, treeRows, type DescribedWorktree, type TreesClient } from './trees';
+import { DESCRIBE_CAP, TreesModel, treeRows, type DescribedWorktree, type TreesClient } from './trees';
 
 const project = (id: string, root: string, over: Partial<ProjectRow> = {}): ProjectRow =>
 	({ id, name: root.split('/').pop()!, root, lastOpenedAt: '2026-10-10T10:00:00Z', state: 'ready', trusted: true, open: true, ...over }) as ProjectRow;
@@ -66,6 +66,9 @@ describe('treeRows', () => {
 			['app-o', false],
 		]);
 		expect(treeRows(main, all, null, [], new Map()).some((r) => r.gone)).toBe(false);
+		// A list at describe's cap may have left the worktree out: not gone.
+		const full = Array.from({ length: DESCRIBE_CAP }, (_, i) => wt(`/p/other-${String(i).padStart(2, '0')}`));
+		expect(treeRows(main, all, full, [], new Map()).some((r) => r.gone)).toBe(false);
 	});
 
 	// Decision (ADR-0134): a worktree workspace.watch lists shows before the next read, so
@@ -158,6 +161,16 @@ describe('TreesModel', () => {
 		await vi.advanceTimersByTimeAsync(0);
 		expect(t.calls).toEqual([['workspace.describe', '/p/app']]);
 		expect(t.model.view.described).toEqual([wt('/p/app-a')]);
+		t.model.show(null);
+	});
+
+	// Decision (ADR-0089 §3): no field is no worktree or more than 100 entries, so it says nothing
+	// about a listed one; read as an empty list, every closed worktree would read gone.
+	it('reads a describe with no worktrees field as nothing known', async () => {
+		const t = setup(() => Promise.resolve(answer()));
+		t.model.show('/p/app');
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.model.view.described).toBeNull();
 		t.model.show(null);
 	});
 

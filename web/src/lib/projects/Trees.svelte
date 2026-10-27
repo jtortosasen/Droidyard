@@ -185,9 +185,10 @@
 						{@const id = t.workspace}
 						<button type="button" class="release" title="End the occupation; the session stays where it is" disabled={!connected} onclick={() => onrelease(id)}>Release</button>
 					{/if}
-					{#if t.gone && t.workspace !== undefined}
+					<!-- Every closed listed worktree, gone or not, can leave the recents (ADR-0086). -->
+					{#if !t.open && !t.primary && t.workspace !== undefined}
 						{@const id = t.workspace}
-						<button type="button" class="remove" aria-label="Remove {t.name} from the recent projects" title="Remove from the recent projects" onclick={() => void projects.forget(id)}>
+						<button type="button" class="remove" aria-label="Remove {t.name} from the recent projects" title="Remove from the recent projects" disabled={!!view?.opening} onclick={() => void projects.forget(id)}>
 							<X size={12} />
 						</button>
 					{/if}

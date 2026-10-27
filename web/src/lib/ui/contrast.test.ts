@@ -176,6 +176,8 @@ function pairs(): Array<{ fg: string; bg: Bg; min: number }> {
 		add([c], [...BASES, '--bg-hover', '--bg-quiet'].map((b) => soft(`${c}-soft`, b)), 4.5);
 		// The receded tag of a row not live: the hue over the quiet surface itself.
 		add([c], [tok('--bg-quiet')], 4.5);
+		// The tag of the followed session's line drops its fill: the hue over the selection tint.
+		add([c], BASES.map((b) => soft('--accent-soft', b)), 4.5);
 	}
 	add(['--accent-text'], [tok('--accent')], 4.5);
 	add(['--danger-text'], [tok('--danger')], 4.5);
