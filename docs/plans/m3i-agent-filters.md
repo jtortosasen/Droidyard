@@ -167,7 +167,7 @@
 - Needs: step 3.
 - Not here: `until`, `keep`, `context`, `collapse`, `topTags`, `maxMessageBytes` on a stream (Q4); the panel's query sent to the daemon (Q2 (5)).
 - Rests on: a stream's filter never holds up the reader, costs at most `streamFilterBudget` (plus one line) per tick, and every line is delivered, rejected or counted: level 4 (`TestWatchLogsFilterConservesLines`, `TestWatchLogsFilterBudget`); a real device's rate under a heavy filter is Unverified.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `watchlogs.go` (a verdict per `queuedLine`; `judgePending` on the batcher copies at most 256 unjudged lines under `s.mu`, judges them with no lock held within `streamFilterBudget` 25 ms, writes verdicts back by `seq`; the reader never judges; `drain` judges within `FilterBudget`, counts the rest, publishes until nothing is pending), `remotelogs.go` (relays and bounds `processes` through `boundedProcesses`). `TestWatchLogsFilterConservesLines`: with the matcher blocked, `s.mu` and `pubMu` are free and `onLine` returns; at a stop 20 + 20 + 0 = 40, and with a zero drain budget 1 judged and 39 dropped; an eviction between copy-out and write-back gives 5,000 + 5,000 + 301 = 10,301. `-race -count=20` ok (8.4 s). Seen failing with the matcher under `s.mu`, a drain that judges nothing, verdicts written back by position, the pid set fixed at start, every `Start proc` trusted, the compile removed, the filter off, an eviction uncounted, the relayed params stripped. The remote subtest is in `TestRemoteArtifactsAndLogs` (the lab whose host fake adb runs Logcat children), not `TestRemoteDevices`. `tools/list` unchanged (`device_watchLogs` is not an MCP tool).
 
 ### 6. `artifact.search` (Q6; beside steps 4–5)
 

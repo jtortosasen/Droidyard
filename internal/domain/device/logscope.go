@@ -159,19 +159,19 @@ func (s *processScope) view() []LogProcess {
 }
 
 // listProcesses reads the device's process list once: `ps -A -o PID,NAME`, a fixed argv
-// that holds no caller text. A list that could not be read whole is a warning, never an
-// error: the Start proc lines of the read still name processes. Only a call that cannot go
-// on at all (cancelled, adb not runnable, the device gone) is an error.
-func (a *ADB) listProcesses(ctx context.Context, t *target) ([]deviceProc, string, error) {
+// that holds no caller text. A list that could not be read whole comes back as why, not as
+// an error: a read goes on from its Start proc lines (psWarning), a stream cannot and says
+// so. Only a call that cannot go on at all (cancelled, the runner not runnable, the device
+// gone) is an error.
+func (a *ADB) listProcesses(ctx context.Context, t *target) (rows []deviceProc, why string, err error) {
 	out, err := a.runShell(ctx, t, logsPSTimeout, psOutputCap, "shell", "ps", "-A", "-o", "PID,NAME")
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, "", cerr
 	}
 	var ce *capability.Error
 	if errors.As(err, &ce) {
-		return nil, "", err // adb could not be run, or the device is gone
+		return nil, "", err // the runner could not be run, or the device is gone
 	}
-	why := ""
 	switch {
 	case errors.Is(err, ErrTimeout):
 		why = "it did not answer in " + logsPSTimeout.String()
@@ -183,10 +183,15 @@ func (a *ADB) listProcesses(ctx context.Context, t *target) ([]deviceProc, strin
 		why = "it printed more than " + strconv.Itoa(psOutputCap>>20) + " MiB"
 	}
 	if why != "" {
-		return nil, "the process list (adb shell ps) could not be read: " + why +
-			", so the named processes are matched by the read's Start proc lines only", nil
+		return nil, why, nil
 	}
 	return parsePS(out.Stdout), "", nil
+}
+
+// psWarning is device.logs's warning for a list that could not be read.
+func psWarning(why string) string {
+	return "the process list (adb shell ps) could not be read: " + why +
+		", so the named processes are matched by the read's Start proc lines only"
 }
 
 // parsePS reads `ps -A -o PID,NAME`: one row per process, the header and anything else that

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jtortosasen/droidyard/internal/capability"
 	"github.com/jtortosasen/droidyard/internal/event"
+	"github.com/jtortosasen/droidyard/internal/textfilter"
 )
 
 // device.watchLogs (ADR-0041): a Logcat stream owned by the calling session.
@@ -19,6 +20,14 @@ import (
 // parsed lines to it with Bus.PublishTo, outside the replay ring, as file.watch does
 // (ADR-0010). One `adb logcat` child runs per stream, recorded for its life and killed
 // by its pid, never its group (ADR-0021 §Pid records; m1e R8).
+//
+// The stream takes device.logs's line filter (ADR-0135). Two goroutines share the pending
+// buffer: the reader (onLine) parses, scopes by uid and process pids, and queues each line
+// unjudged; the batcher judges the oldest unjudged lines with no lock held, within
+// streamFilterBudget of each tick, and publishes the kept ones. drain does both for what is
+// left at the stop, once they are done. So a pattern never holds up logcat's reader, and
+// every line written is delivered, rejected by the filter, or counted in `dropped`
+// (ADR-0041 §5).
 
 // TopicLogcat is the topic device.watchLogs' events carry. Like file.changes it is not
 // in events.subscribe's enum: only the subscription the call opened receives it, and it
@@ -61,6 +70,24 @@ const (
 	// streamLineOverhead is what a line costs in an event beyond its tag and message,
 	// for the byte cap.
 	streamLineOverhead = 64
+
+	// streamJudgeChunk is how many pending lines the batcher copies out for one round of
+	// judging: the span between a copy and its verdicts' write-back, in which the cap may
+	// evict lines.
+	streamJudgeChunk = 256
+)
+
+// The stream's filter budgets (ADR-0135 §2; plan m3i step 5). A stream's lines are judged
+// by the batcher, never by the reader, so the reader keeps up with logcat whatever the
+// patterns cost. The batcher spends at most streamFilterBudget (plus the line it was
+// judging) of each streamInterval on it: 25 ms of the 50 ms tick, so a heavy filter costs
+// at most half a core per stream, and the other half publishes and sleeps. What the
+// batcher cannot keep up with piles up pending and, past streamPendingCap, is dropped
+// oldest first and counted. A stopping stream's drain has streamDrainBudget for what is
+// left, then counts the rest. Variables so a test can make the budget zero.
+var (
+	streamFilterBudget = streamInterval / 2
+	streamDrainBudget  = textfilter.FilterBudget
 )
 
 // logcatStreamBuffers is the buffer set every stream reads (ADR-0041 §2).
@@ -74,6 +101,8 @@ type WatchLogsParams struct {
 	Since string `json:"since,omitempty" jsonschema_description:"Device-clock RFC 3339 start, for a reconnect: the lines at or after it come first. Not with tail."`
 	// ApplicationID filters on the host by logcat's uid column.
 	ApplicationID string `json:"applicationId,omitempty" jsonschema:"pattern=^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$" jsonschema_description:"Only this application's lines, selected by its uid, resolved once when the stream starts. It must be installed."`
+	// LineFilter is which lines: the filter device.logs takes (ADR-0135 §3), judged on the host.
+	LineFilter
 }
 
 // WatchLogsResult is device.watchLogs' result.
@@ -81,6 +110,9 @@ type WatchLogsResult struct {
 	SubscriptionID string `json:"subscriptionId" jsonschema:"required" jsonschema_description:"The subscription the events arrive on, over the session that made the call. End the stream with events.unsubscribe."`
 	Device         string `json:"device" jsonschema:"required"`
 	UID            *int   `json:"uid,omitempty" jsonschema:"nullable" jsonschema_description:"The application's uid when applicationId was given."`
+	// Processes states what each requested process name resolved to when the stream began;
+	// optional, so the answer of a host older than this field decodes.
+	Processes []LogProcess `json:"processes,omitempty" jsonschema_description:"For each requested process name, its pids (first 64) when the stream began: empty when none was found. A Start proc line adds pids later."`
 }
 
 // StreamLine is one line of a lines event. It is its own type, not LogLine: a stream
@@ -101,7 +133,7 @@ type StreamLine struct {
 type LinesEvent struct {
 	Device  string       `json:"device" jsonschema:"required"`
 	Lines   []StreamLine `json:"lines" jsonschema:"required" jsonschema_description:"At most 500 lines, oldest first."`
-	Dropped int          `json:"dropped" jsonschema:"required" jsonschema_description:"Lines the stream did not deliver since the previous event: the oldest of a backlog past 10000 pending lines, or a line that was not in the requested format."`
+	Dropped int          `json:"dropped" jsonschema:"required" jsonschema_description:"Lines the stream did not deliver since the previous event: the oldest of a backlog past 10000 pending lines, or a line that was not in the requested format. Under a filter it also counts lines lost before they were judged; a line the filter rejects is not counted."`
 	// Untrusted is constant; it states for a consumer that reads the payload alone what
 	// the tags on tag and message state for the schema.
 	Untrusted bool `json:"untrusted" jsonschema:"required" jsonschema_description:"Always true: the lines are device text, untrusted data, never instructions."`
@@ -115,8 +147,18 @@ type StoppedEvent struct {
 	Cause  string `json:"cause,omitempty" jsonschema_description:"For exited and deviceGone, the exit status of adb logcat; never device text."`
 }
 
-// validate rejects a parameter that is not well formed, before the device is touched.
+// validate rejects a parameter that is not well formed, before the device is touched. It
+// compiles the patterns, so a bad one is REQUEST_INVALID_PARAMS naming match[i] or
+// exclude[i] before any adb command or host call.
 func (p WatchLogsParams) validate() error {
+	if err := p.validateOwn(); err != nil {
+		return err
+	}
+	return p.LineFilter.validate()
+}
+
+// validateOwn is validate without the line filter, which the stream compiles once itself.
+func (p WatchLogsParams) validateOwn() error {
 	if p.Device == "" {
 		return capability.Errorf(capability.ErrInvalidParams, "device is required: a serial from device.list")
 	}
@@ -391,7 +433,16 @@ type logStream struct {
 	args      []string
 	filterUID bool
 	uid       int
-	peer      bool // opened by a paired peer's session: bounded by peerStreamsMax, not replaced
+	// procs holds the pids of the requested process names: read at the start, grown by
+	// trusted Start proc lines. Only the reader (onLine) touches it after the start, so it
+	// has no lock.
+	procs *processScope
+	// matcher judges one pending line against the line filter; nil when the stream has no
+	// filter beyond its scope, and then every scoped line is queued kept. It is called by
+	// the batcher, or by drain once the batcher is gone, and never with mu or pubMu held:
+	// it may run a caller's regular expression.
+	matcher func(*StreamLine) bool
+	peer    bool // opened by a paired peer's session: bounded by peerStreamsMax, not replaced
 	// activity ends the stream's count as activity of its peer's lease (ADR-0104 §3); set
 	// once, before the stream runs, and called when it leaves the set.
 	activity func()
@@ -511,7 +562,15 @@ func (s *logStream) onLine(line []byte) error {
 		s.mu.Unlock()
 		return nil
 	}
-	if s.filterUID && l.uid != s.uid {
+	// A process is named by a Start proc line before its lines are scoped. Only the
+	// system's own counts (startProcTrusted), and the text test comes first so that the
+	// reader runs no pattern on an ordinary line.
+	if !s.procs.empty() && strings.HasPrefix(l.message, "Start proc ") && startProcTrusted(l, withUID) {
+		s.procs.addStartProc(l.message)
+	}
+	// Scope: the application's uid joined with the named processes' pids, as device.logs
+	// takes them. Nothing here runs a caller's pattern: that is the batcher's.
+	if (s.filterUID || !s.procs.empty()) && !(s.filterUID && l.uid == s.uid) && !s.procs.has(l.pid) {
 		return nil
 	}
 	sl := StreamLine{
@@ -524,10 +583,16 @@ func (s *logStream) onLine(line []byte) error {
 			appID = id
 		}
 	}
-	// A full buffer whose oldest line waits for a package read releases the held lines
-	// rather than drop them: they go out without the field (ADR-0051).
+	// A full buffer whose oldest line is kept and waits for a package read releases the
+	// held lines rather than drop them: they go out without the field (ADR-0051). A full
+	// buffer whose oldest line is not judged yet cannot be emitted from: the reader never
+	// judges, so that line is dropped below and counted.
 	s.mu.Lock()
-	full := s.pending.full() && s.waitsLocked(s.pending.oldest())
+	full := false
+	if s.pending.full() {
+		oldest := s.pending.oldest()
+		full = oldest.verdict == verdictKept && s.waitsLocked(oldest)
+	}
 	if full {
 		s.releaseHeldLocked()
 	}
@@ -535,13 +600,20 @@ func (s *logStream) onLine(line []byte) error {
 	if full {
 		s.publishBatch()
 	}
+	// Under a filter the line waits unjudged for the batcher; without one it is kept.
+	verdict := verdictKept
+	if s.matcher != nil {
+		verdict = verdictNone
+	}
 	s.mu.Lock()
 	s.seq++
-	if s.pending.push(queuedLine{line: sl, appID: appID, seq: s.seq}) {
+	if gone, evicted := s.pending.push(queuedLine{line: sl, appID: appID, seq: s.seq, verdict: verdict}); evicted && gone.verdict != verdictRejected {
+		// A line the filter rejected was never owed to the client; any other is lost.
 		s.dropped++
 	}
 	s.mu.Unlock()
-	if appID != 0 {
+	// A line that is not judged yet asks for its package once it is kept (judgeLines).
+	if appID != 0 && verdict == verdictKept {
 		s.trackApp(appID)
 	}
 	return nil
@@ -570,14 +642,73 @@ func (s *logStream) batch(done chan struct{}) {
 			return
 		case <-t.C:
 			s.maybeRefresh() // a read the gap deferred
+			s.judgePending()
 			s.publishBatch()
 		}
 	}
 }
 
+// judgePending is the batcher's share of the filter each tick: it judges the oldest
+// unjudged lines for at most streamFilterBudget. Neither mu nor pubMu is held while a
+// pattern runs.
+func (s *logStream) judgePending() {
+	if s.matcher == nil {
+		return
+	}
+	s.judgeLines(textfilter.Pass(s.ctx, streamFilterBudget))
+}
+
+// judgeLines gives the unjudged lines their verdicts, oldest first, until none is left or
+// clock says stop (the budget is spent, or the stream's context ended); it reports
+// whether it was stopped. Each round copies a chunk of unjudged lines out under mu,
+// judges the copies with no lock held, and writes the verdicts back by seq under mu. The
+// reader pushes and evicts meanwhile: a line evicted between the copy and the write-back
+// is already counted in dropped when it was lost unjudged, and its verdict is discarded
+// (setVerdict finds no seq), so no line is counted twice or none. The clock is read after
+// every line, so one line past the budget is the most a pass can overrun it by.
+func (s *logStream) judgeLines(clock *textfilter.Checker) (stopped bool) {
+	chunk := make([]queuedLine, 0, streamJudgeChunk)
+	verdicts := make([]verdict, 0, streamJudgeChunk)
+	for {
+		s.mu.Lock()
+		chunk = s.pending.unjudged(chunk[:0], streamJudgeChunk)
+		s.mu.Unlock()
+		if len(chunk) == 0 {
+			return false
+		}
+		verdicts = verdicts[:0]
+		for i := range chunk {
+			v := verdictRejected
+			if s.matcher(&chunk[i].line) {
+				v = verdictKept
+			}
+			verdicts = append(verdicts, v)
+			if clock.Check() != textfilter.Running {
+				stopped = true
+				break
+			}
+		}
+		var asks []int
+		s.mu.Lock()
+		for i, v := range verdicts {
+			if s.pending.setVerdict(chunk[i].seq, v) && v == verdictKept && chunk[i].appID != 0 {
+				asks = append(asks, chunk[i].appID)
+			}
+		}
+		s.mu.Unlock()
+		for _, id := range asks {
+			s.trackApp(id) // a kept line wants its package
+		}
+		if stopped {
+			return true
+		}
+	}
+}
+
 // publishBatch sends one event: the next lines within the batch caps, each with its
-// package, stopping at the first line that waits for a package read, and the count of
-// lines dropped since the previous event. It reports whether anything was sent.
+// package, stopping at the first line that waits for a package read or for its verdict,
+// and the count of lines dropped since the previous event. It reports whether anything
+// was sent. It never judges: the reader calls it too.
 func (s *logStream) publishBatch() bool {
 	s.pubMu.Lock()
 	defer s.pubMu.Unlock()
@@ -599,10 +730,22 @@ func (s *logStream) publishBatch() bool {
 
 // drain sends what the reader left pending, so the lines precede the stopped event that
 // follows them. Lines held for a package read go out without it: the stream does not wait.
+// Lines not judged yet are judged here, within streamDrainBudget, and what the budget
+// leaves is counted in dropped: every line written is delivered, rejected or counted
+// (ADR-0041 §5). The reader and the batcher are done, so nothing is pushed or judged
+// meanwhile.
 func (s *logStream) drain() {
 	s.mu.Lock()
 	s.releaseHeldLocked()
 	s.mu.Unlock()
+	if s.matcher != nil {
+		// Not s.ctx: ending the stream cancelled it, and the pass would stop at once.
+		if s.judgeLines(textfilter.Pass(context.Background(), streamDrainBudget)) {
+			s.mu.Lock()
+			s.dropped += s.pending.discardUnjudged()
+			s.mu.Unlock()
+		}
+	}
 	for s.publishBatch() {
 	}
 }
@@ -649,7 +792,12 @@ func (s *logStream) stoppedByItself(out Output, err error) {
 // returns once the child runs and is recorded.
 func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error) {
 	p := call.Params.(WatchLogsParams)
-	if err := p.validate(); err != nil {
+	if err := p.validateOwn(); err != nil {
+		return nil, err
+	}
+	// Compiled before any adb command: a bad pattern starts nothing.
+	filter, err := p.LineFilter.compile()
+	if err != nil {
 		return nil, err
 	}
 	sess, err := event.SessionOf(call)
@@ -682,6 +830,29 @@ func (a *ADB) watchLogs(ctx context.Context, call *capability.Call) (any, error)
 		ending: make(chan struct{}),
 	}
 	result := WatchLogsResult{Device: t.serial}
+	if p.selects() {
+		s.matcher = func(l *StreamLine) bool {
+			return filter.passes(logLine{priority: l.Priority, tag: l.Tag, message: l.Message})
+		}
+	}
+	if len(p.Processes) > 0 {
+		// One fixed `ps` at the start (ADR-0135 §4), matched here on the host. A stream has
+		// no read of Start proc lines to fall back on, so a list it cannot read fails the
+		// start rather than yield a stream that silently selects nothing.
+		procs := newProcessScope(p.Processes)
+		listed, why, perr := a.listProcesses(ctx, t)
+		if perr != nil {
+			return nil, perr
+		}
+		if why != "" {
+			return nil, capability.NewError(ErrLogsFailed, "the device's process list could not be read").
+				WithCause("adb shell ps: " + why).
+				WithNextStep("Retry, or start the stream without processes and filter by tags or patterns.")
+		}
+		procs.addListed(listed)
+		s.procs = procs
+		result.Processes = procs.view()
+	}
 	if p.ApplicationID != "" {
 		uid, err := a.streamUID(ctx, t, p.ApplicationID)
 		if err != nil {
@@ -842,15 +1013,34 @@ func (a *ADB) streamUID(ctx context.Context, t *target, app string) (int, error)
 	return uid, nil
 }
 
-// queuedLine is a pending line with what the package lookup needs: its application id
-// (0 when it has none) and its place in the stream.
-type queuedLine struct {
-	line  StreamLine
-	appID int
-	seq   uint64
+// selects reports whether the call's filter judges lines beyond scope: any field but
+// processes, which only widen what is in scope.
+func (f LineFilter) selects() bool {
+	return len(f.Tags) > 0 || f.MinPriority != "" || f.Contains != "" || len(f.ExcludeTags) > 0 ||
+		len(f.TagPriorities) > 0 || len(f.Match) > 0 || len(f.Exclude) > 0
 }
 
-// lineQueue is the pending buffer: a queue that drops its oldest line past the cap.
+// verdict is the line filter's judgement of a pending line, written by whoever judges.
+type verdict uint8
+
+const (
+	verdictNone     verdict = iota // not judged yet
+	verdictKept                    // goes out, in its turn
+	verdictRejected                // never goes out and is not counted: the client did not ask for it
+)
+
+// queuedLine is a pending line with what the package lookup needs: its application id
+// (0 when it has none) and its place in the stream, and the filter's verdict on it.
+type queuedLine struct {
+	line    StreamLine
+	appID   int
+	seq     uint64
+	verdict verdict
+}
+
+// lineQueue is the pending buffer: a queue that drops its oldest line past the cap. Its
+// seqs are consecutive (every push takes the next one and nothing leaves from the middle),
+// which setVerdict relies on to find a line again after the lock was released.
 type lineQueue struct {
 	buf  []queuedLine
 	head int
@@ -862,12 +1052,13 @@ func (q *lineQueue) full() bool { return len(q.buf)-q.head >= streamPendingCap }
 // oldest is the next line to leave; the queue must not be empty.
 func (q *lineQueue) oldest() *queuedLine { return &q.buf[q.head] }
 
-// push appends l and reports whether the oldest line was dropped to make room.
-func (q *lineQueue) push(l queuedLine) (dropped bool) {
+// push appends l. When the queue was full it first removes the oldest line, which it
+// returns: the caller counts it, unless the filter had rejected it.
+func (q *lineQueue) push(l queuedLine) (evicted queuedLine, ok bool) {
 	if q.full() {
+		evicted, ok = q.buf[q.head], true
 		q.buf[q.head] = queuedLine{}
 		q.head++
-		dropped = true
 	}
 	// Reclaim the front once half the slice is spent, so the buffer does not grow
 	// without bound under a steady drop.
@@ -877,34 +1068,97 @@ func (q *lineQueue) push(l queuedLine) (dropped bool) {
 		q.buf, q.head = q.buf[:n], 0
 	}
 	q.buf = append(q.buf, l)
-	return dropped
+	return evicted, ok
 }
 
-// take removes and returns the oldest lines, at most maxLines and maxBytes (one line at
-// least), nil when there are none. It stops before a line for which waits is true, so a
-// line held for its package keeps the ones behind it in order, and sets each line's
-// package from pkg.
+// unjudged appends to dst a copy of the oldest lines not judged yet, at most max. Lines
+// are judged oldest first, so they are the queue's tail, but the scan does not rely on it.
+func (q *lineQueue) unjudged(dst []queuedLine, max int) []queuedLine {
+	for i := q.head; i < len(q.buf) && len(dst) < max; i++ {
+		if q.buf[i].verdict == verdictNone {
+			dst = append(dst, q.buf[i])
+		}
+	}
+	return dst
+}
+
+// setVerdict records v on the line with this seq and reports whether it is still queued:
+// a line the cap evicted since it was copied out is gone, and its verdict is discarded.
+func (q *lineQueue) setVerdict(seq uint64, v verdict) bool {
+	if q.head >= len(q.buf) {
+		return false
+	}
+	first := q.buf[q.head].seq
+	if seq < first || seq-first >= uint64(len(q.buf)-q.head) {
+		return false
+	}
+	i := q.head + int(seq-first)
+	if q.buf[i].seq != seq {
+		return false
+	}
+	q.buf[i].verdict = v
+	return true
+}
+
+// discardUnjudged removes the lines not judged yet and returns how many: what a stopping
+// stream's budget could not judge.
+func (q *lineQueue) discardUnjudged() int {
+	n, w := 0, q.head
+	for i := q.head; i < len(q.buf); i++ {
+		if q.buf[i].verdict == verdictNone {
+			n++
+			continue
+		}
+		q.buf[w] = q.buf[i]
+		w++
+	}
+	clear(q.buf[w:])
+	q.buf = q.buf[:w]
+	if q.head == len(q.buf) {
+		q.buf, q.head = q.buf[:0], 0
+	}
+	return n
+}
+
+// take removes the oldest lines and returns the kept ones among them, at most maxLines
+// kept and maxBytes (one line at least), nil when there are none. It stops before a line
+// not judged yet, and before a kept line for which waits is true, so a line held for its
+// package or its verdict keeps the ones behind it in order; rejected lines on the way are
+// removed, uncounted. It sets each line's package from pkg.
 func (q *lineQueue) take(maxLines, maxBytes int, waits func(*queuedLine) bool, pkg func(*queuedLine) string) []StreamLine {
-	n, size := 0, 0
-	for q.head+n < len(q.buf) && n < maxLines {
+	n, kept, size := 0, 0, 0
+	for q.head+n < len(q.buf) && kept < maxLines {
 		l := &q.buf[q.head+n]
-		if waits(l) {
+		if l.verdict == verdictNone {
 			break
 		}
-		size += len(l.line.Tag) + len(l.line.Message) + len(pkg(l)) + streamLineOverhead
-		if n > 0 && size > maxBytes {
-			break
+		if l.verdict == verdictKept {
+			if waits(l) {
+				break
+			}
+			size += len(l.line.Tag) + len(l.line.Message) + len(pkg(l)) + streamLineOverhead
+			if kept > 0 && size > maxBytes {
+				break
+			}
+			kept++
 		}
 		n++
 	}
 	if n == 0 {
 		return nil
 	}
-	out := make([]StreamLine, n)
-	for i := range out {
-		l := &q.buf[q.head+i]
-		out[i] = l.line
-		out[i].Package = pkg(l)
+	var out []StreamLine
+	if kept > 0 {
+		out = make([]StreamLine, 0, kept)
+		for i := 0; i < n; i++ {
+			l := &q.buf[q.head+i]
+			if l.verdict != verdictKept {
+				continue
+			}
+			sl := l.line
+			sl.Package = pkg(l)
+			out = append(out, sl)
+		}
 	}
 	clear(q.buf[q.head : q.head+n])
 	q.head += n

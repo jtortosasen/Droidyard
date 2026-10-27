@@ -160,19 +160,7 @@ func (a *ADB) logsFrom(ctx context.Context, f hostArtifacts, rt *remoteTarget, s
 	}
 	// filter.processes is the host's report of the names this daemon sent, bounded as the
 	// request bounds them (ADR-0135 §6): at most 10 names of 128 bytes, 64 pids each.
-	if len(r.Filter.Processes) > logsProcessesMax {
-		r.Filter.Processes = r.Filter.Processes[:logsProcessesMax]
-	}
-	for i := range r.Filter.Processes {
-		p := &r.Filter.Processes[i]
-		p.Name = truncateUTF8(p.Name, logsProcessNameMax)
-		if len(p.PIDs) > logsProcessPIDsMax {
-			p.PIDs = p.PIDs[:logsProcessPIDsMax]
-		}
-		if p.PIDs == nil {
-			p.PIDs = []int{} // the published array is required: a relayed null is empty
-		}
-	}
+	r.Filter.Processes = boundedProcesses(r.Filter.Processes)
 	switch r.EmptyReason {
 	case "", "noLines", "noKnownProcess", "filtered":
 	default:
@@ -203,6 +191,26 @@ func (a *ADB) logsFrom(ctx context.Context, f hostArtifacts, rt *remoteTarget, s
 	}
 	r.Capture = &ref
 	return r, nil
+}
+
+// boundedProcesses is a host's report of the process names this daemon sent, bounded as
+// the request bounds them (ADR-0135 §6): at most 10 names of 128 bytes, 64 pids each. A
+// nil list stays nil, so an older host's answer (no processes) decodes as before.
+func boundedProcesses(in []LogProcess) []LogProcess {
+	if len(in) > logsProcessesMax {
+		in = in[:logsProcessesMax]
+	}
+	for i := range in {
+		p := &in[i]
+		p.Name = truncateUTF8(p.Name, logsProcessNameMax)
+		if len(p.PIDs) > logsProcessPIDsMax {
+			p.PIDs = p.PIDs[:logsProcessPIDsMax]
+		}
+		if p.PIDs == nil {
+			p.PIDs = []int{} // the published array is required: a relayed null is empty
+		}
+	}
+	return in
 }
 
 // boundedText is at most n entries of a list of device text, each cut as a log line is.

@@ -249,7 +249,12 @@ func checkRegister(fsys fs.FS) []string {
 // three system verbs, device.systemPanel, device.forceStop and device.rotate.
 //
 // Raised by 11 (to 30,376) at milestone 3h's close: README.md's status line names 3h.
-const liveBudget = 30376
+//
+// Raised by 133 (to 30,509) at milestone 3i step 5: adb-device.md's section on the log
+// filters (why RE2 with a time budget, the `tag: message` subject, trusted Start proc lines,
+// an older host's refusal), cut from 284 words; mcp.md's and mvp.md's artifact.search lines
+// were cut to fit.
+const liveBudget = 30509
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

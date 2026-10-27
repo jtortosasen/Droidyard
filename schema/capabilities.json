@@ -8851,6 +8851,64 @@
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$",
             "description": "Only this application's lines, selected by its uid, resolved once when the stream starts. It must be installed."
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "At most 20 logcat tags, matched exactly. Applied on the host: they never reach a device shell."
+          },
+          "minPriority": {
+            "type": "string",
+            "enum": [
+              "verbose",
+              "debug",
+              "info",
+              "warn",
+              "error",
+              "fatal"
+            ],
+            "description": "The lowest priority to keep: verbose, debug, info, warn, error or fatal."
+          },
+          "contains": {
+            "type": "string",
+            "description": "A literal substring of the message, at most 256 bytes; applied on the host."
+          },
+          "excludeTags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "At most 20 tags to drop, matched exactly: a line of a listed tag never passes."
+          },
+          "tagPriorities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "At most 20 as Tag:L, L one of V D I W E F S: that tag's minimum instead of minPriority; S drops the tag."
+          },
+          "match": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "At most 20 RE2 patterns over \"tag: message\"; a line passes if any matches. (?i) ignores case; ^Tag: selects a tag."
+          },
+          "exclude": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "At most 20 RE2 patterns over \"tag: message\"; a line any of them matches is dropped."
+          },
+          "processes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "At most 10 process names as ps prints them (system_server, com.android.systemui): their lines join the scope."
           }
         },
         "additionalProperties": false,
@@ -8878,6 +8936,29 @@
                 "type": "null"
               }
             ]
+          },
+          "processes": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "pids": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "pids"
+              ]
+            },
+            "type": "array",
+            "description": "For each requested process name, its pids (first 64) when the stream began: empty when none was found. A Start proc line adds pids later."
           }
         },
         "additionalProperties": false,
@@ -8951,7 +9032,7 @@
               },
               "dropped": {
                 "type": "integer",
-                "description": "Lines the stream did not deliver since the previous event: the oldest of a backlog past 10000 pending lines, or a line that was not in the requested format."
+                "description": "Lines the stream did not deliver since the previous event: the oldest of a backlog past 10000 pending lines, or a line that was not in the requested format. Under a filter it also counts lines lost before they were judged; a line the filter rejects is not counted."
               },
               "untrusted": {
                 "type": "boolean",

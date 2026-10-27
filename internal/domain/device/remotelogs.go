@@ -176,7 +176,7 @@ func (s *relayedLogs) start(ctx context.Context, params json.RawMessage) (WatchL
 	if r.SubscriptionID == "" || len(r.SubscriptionID) > maxRelayedID {
 		return WatchLogsResult{}, incompatible(rt, "it named a subscription this version cannot use")
 	}
-	out := WatchLogsResult{}
+	out := WatchLogsResult{Processes: boundedProcesses(r.Processes)}
 	if r.UID != nil && *r.UID >= 0 {
 		out.UID = r.UID
 	}

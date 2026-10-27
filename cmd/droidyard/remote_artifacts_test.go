@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -334,6 +335,46 @@ func TestRemoteArtifactsAndLogs(t *testing.T) {
 				t.Errorf("the client's adb was asked %q for a remote device", c)
 			}
 		}
+	})
+
+	// The host filters (ADR-0135 §6): a stream with excludeTags and processes on the remote id
+	// delivers only the lines the host's own filter keeps, the client sends the host the
+	// caller's fields and filters nothing itself, and the result carries what the host's ps
+	// resolved. Seen failing with the fields dropped from the relayed call (the excluded
+	// and the other process's lines arrive, and the result has no processes).
+	t.Run("watchLogs with a filter is judged on the host", func(t *testing.T) {
+		t.Parallel()
+		lab := newArtifactsLab(t)
+		line := func(usec, pid int, tag, msg string) string {
+			return "1696118000.00000" + string(rune('0'+usec)) + " 1000 " + strconv.Itoa(pid) + " " + strconv.Itoa(pid) + " I " + tag + ": " + msg + "\n"
+		}
+		devicetest.Write(t, lab.hostDir, phone1+".log", []byte("--------- beginning of main\n"+
+			line(1, 4001, "Sys", "kept-1")+
+			line(2, 4001, "Noisy", "excluded")+
+			line(3, 6406, "App", "other-pid")+
+			line(4, 4001, "Sys", "kept-2")))
+		devicetest.Write(t, lab.hostDir, phone1+".ps.out", []byte("  PID NAME\n 4001 system_server\n 6406 com.example.app\n"))
+
+		w := wsConnect(t, lab.client)
+		w.send("l1", "device.watchLogs", "", `{"device":"`+remotePhone+`","tail":10,"excludeTags":["Noisy"],"processes":["system_server"]}`, nil)
+		early, f := w.collect("l1")
+		if f.Error != nil {
+			t.Fatalf("device.watchLogs with a filter: %+v", f.Error)
+		}
+		var r device.WatchLogsResult
+		if err := json.Unmarshal(f.Result, &r); err != nil || r.SubscriptionID == "" {
+			t.Fatalf("result %s: %v", f.Result, err)
+		}
+		want := []device.LogProcess{{Name: "system_server", PIDs: []int{4001}}}
+		if len(r.Processes) != 1 || r.Processes[0].Name != want[0].Name || len(r.Processes[0].PIDs) != 1 || r.Processes[0].PIDs[0] != 4001 {
+			t.Errorf("result processes %+v; want %+v: the host's ps, relayed", r.Processes, want)
+		}
+		if got := lab.lines(t, w, r.SubscriptionID, early, 2); strings.Join(got, ",") != "kept-1,kept-2" {
+			t.Errorf("the lines are %v; want only the host's kept-1,kept-2", got)
+		}
+		w.send("u1", "events.unsubscribe", "", `{"subscriptionId":"`+r.SubscriptionID+`"}`, nil)
+		w.collect("u1")
+		waitFor(t, "the host's logcat child to end", func() bool { return lab.host.adb.LiveStreams() == 0 })
 	})
 
 	t.Run("a subscribe the client abandons leaves nothing on the host", func(t *testing.T) {

@@ -385,12 +385,12 @@ func (a *ADB) logs(ctx context.Context, t *target, p LogsParams, store *artifact
 	res := LogsResult{Device: t.serial, Warnings: append([]string(nil), t.warnings...)}
 	if !procs.empty() {
 		// One fixed `ps` per call (ADR-0135 §4): the caller's names are matched here, on the host.
-		listed, warning, perr := a.listProcesses(ctx, t)
+		listed, why, perr := a.listProcesses(ctx, t)
 		if perr != nil {
 			return LogsResult{}, perr
 		}
-		if warning != "" {
-			res.Warnings = append(res.Warnings, warning)
+		if why != "" {
+			res.Warnings = append(res.Warnings, psWarning(why))
 		}
 		procs.addListed(listed)
 	}
