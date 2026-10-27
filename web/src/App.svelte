@@ -17,6 +17,7 @@
 	import Project from './lib/start/Project.svelte';
 	import UnsavedDialog from './lib/editor/UnsavedDialog.svelte';
 	import { UnsavedGuard, type Pending } from './lib/editor/unsaved';
+	import { tabTitle, whereTab } from './lib/start/title';
 	import Status from './lib/ui/Status.svelte';
 
 	// The token comes from the fragment `droidyard ui` opened, once; a tab without one,
@@ -182,10 +183,15 @@
 	$effect(() => {
 		if (route.view === 'none' && lands.kind === 'project') router.replace({ view: 'project', workspace: lands.workspace });
 	});
+
+	const where = $derived(whereTab(projectsView?.rows ?? [], route.view === 'project' ? route.workspace : null));
+	$effect(() => {
+		document.title = tabTitle(where);
+	});
 </script>
 
 {#snippet status()}
-	<Status {connection} {health} {healthError} />
+	<Status {connection} {health} {healthError} {where} />
 {/snippet}
 
 {#snippet sessionsToggle(column: { open: boolean; toggle: () => void; attract: number; register: (el: HTMLElement | null) => void })}
