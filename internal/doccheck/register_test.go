@@ -247,7 +247,9 @@ func checkRegister(fsys fs.FS) []string {
 //
 // Raised by 3 (to 30,365) at milestone 3g step 3: mvp.md's capability surface names the
 // three system verbs, device.systemPanel, device.forceStop and device.rotate.
-const liveBudget = 30365
+//
+// Raised by 11 (to 30,376) at milestone 3h's close: README.md's status line names 3h.
+const liveBudget = 30376
 
 // TestLiveCorpusWithinBudget keeps the live documents from growing back. A document
 // that needs more words has to say what it cuts, or the budget is raised in a change

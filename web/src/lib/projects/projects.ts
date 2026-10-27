@@ -359,68 +359,48 @@ export function landing(route: Route, view: ProjectsView, refused: boolean): Lan
 	return newest ? { kind: 'project', workspace: newest.id } : { kind: 'panel' };
 }
 
-// --- the panel by project (ADR-0083 §2) ----------------------------------------------
+// --- the project menu (ADR-0134) ------------------------------------------------------
 
 /** A root without its trailing separators, so "/a/b/" and "/a/b" are one tree. */
 export const rootKey = (root: string): string => root.replace(/[\\/]+$/, '');
 const baseName = (root: string): string => rootKey(root).split(/[\\/]/).pop() || root;
 
-/** The part of a session row the grouping reads. */
+/** The part of a session row the Git panel's grouping reads. */
 export interface GroupedSession {
 	key: string;
 	workspace: string | null;
 }
 
-export interface ProjectGroup<S extends GroupedSession> {
-	/** The main tree's root: the group's identity. */
-	key: string;
-	/** The main tree's row; null when it is not listed (the group row then stands for `root`). */
-	project: ProjectRow | null;
-	name: string;
+export interface ProjectEntry {
+	/** The main tree's workspace id; absent for a main tree known only through its worktrees (it opens by `root`). */
+	id?: string;
 	root: string;
-	/** Sessions in this project, in the main tree or in a worktree, each naming where. */
-	sessions: { session: S; where: string; workspace: string }[];
-	/** Every linked worktree of the project: the panel's rows are projects and worktrees; sessions are listed apart (ADR-0127). */
-	worktrees: ProjectRow[];
-}
-
-export interface Grouping<S extends GroupedSession> {
-	groups: ProjectGroup<S>[];
-	/** Sessions with no workspace, or one the list does not hold. */
-	loose: S[];
+	name: string;
+	open: boolean;
+	/** Closed and listed: the menu offers Remove (ADR-0086). */
+	removable: boolean;
 }
 
 /**
- * Split the rows by project (ADR-0083 §2): a row with `mainRoot` nests under the row whose
- * root that is, else under a group row for that root; no worktree is ever a top-level row.
- * Groups keep the order of their first row (rows arrive newest first). A session sits under
- * its workspace's project and names the worktree's name, or "main".
+ * The switch behind the project's name: the main trees of the listed rows, newest first
+ * (`rows` arrive so), plus one entry per main tree only its worktrees name. A linked worktree
+ * is never an entry.
  */
-export function groupProjects<S extends GroupedSession>(rows: readonly ProjectRow[], sessions: readonly S[]): Grouping<S> {
-	const groups = new Map<string, ProjectGroup<S>>();
-	const mainOf = (r: ProjectRow): string => rootKey(r.mainRoot ?? r.root);
+export function projectMenu(rows: readonly ProjectRow[]): ProjectEntry[] {
+	const listed = new Set(rows.filter((r) => r.mainRoot === undefined).map((r) => rootKey(r.root)));
+	const seen = new Set<string>();
+	const out: ProjectEntry[] = [];
 	for (const r of rows) {
-		const key = mainOf(r);
-		let g = groups.get(key);
-		if (!g) groups.set(key, (g = { key, project: null, name: baseName(key), root: key, sessions: [], worktrees: [] }));
 		if (r.mainRoot === undefined) {
-			g.project = r;
-			g.name = r.name;
-			g.root = r.root;
-		}
-	}
-	const byId = new Map(rows.map((r) => [r.id, r]));
-	const loose: S[] = [];
-	for (const s of sessions) {
-		const r = s.workspace === null ? undefined : byId.get(s.workspace);
-		if (r === undefined) {
-			loose.push(s);
+			out.push({ id: r.id, root: r.root, name: r.name, open: r.open, removable: !r.open });
 			continue;
 		}
-		groups.get(mainOf(r))!.sessions.push({ session: s, where: r.mainRoot === undefined ? 'main' : r.name, workspace: r.id });
+		const key = rootKey(r.mainRoot);
+		if (listed.has(key) || seen.has(key)) continue;
+		seen.add(key);
+		out.push({ root: r.mainRoot, name: baseName(r.mainRoot), open: false, removable: false });
 	}
-	for (const r of rows) if (r.mainRoot !== undefined) groups.get(mainOf(r))!.worktrees.push(r);
-	return { groups: [...groups.values()], loose };
+	return out;
 }
 
 /** The labels of the sessions whose workspace root is each path, for the Git panel's worktree rows (ADR-0083 §4). */

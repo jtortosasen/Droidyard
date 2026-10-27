@@ -1,6 +1,9 @@
 <script lang="ts">
+	import Folder from '@lucide/svelte/icons/folder';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import type { ConnectionState } from '../api/client';
 	import type { Result } from '../api/capabilities.gen';
+	import type { TabWhere } from '../start/title';
 	import { formatUptime, liveUptime } from './uptime';
 
 	// The connection and the daemon's health, folded into one compact line for the toolbar
@@ -9,8 +12,10 @@
 		connection: ConnectionState;
 		health: Result<'system.health'> | null;
 		healthError: string | null;
+		/** The tab's worktree; absent on the page with no project. */
+		where?: TabWhere | null;
 	}
-	let { connection, health, healthError }: Props = $props();
+	let { connection, health, healthError, where = null }: Props = $props();
 
 	// system.health answers once: the uptime shown advances from the moment it arrived.
 	let receivedAt = $state(Date.now());
@@ -24,6 +29,13 @@
 </script>
 
 <span class="status">
+	{#if where}
+		<span class="tree" title={where.tree}>
+			{#if where.primary}<Folder size={12} aria-hidden="true" />{:else}<GitBranch size={12} aria-hidden="true" />{/if}
+			<span class="name">{where.tree}</span>
+			{#if where.primary}<span class="tag">primary</span>{/if}
+		</span>
+	{/if}
 	<span class="dot" class:ok={connection === 'open'} class:bad={connection === 'unauthorized'}></span>
 	<span>{connection}</span>
 	{#if health}
@@ -56,6 +68,25 @@
 	}
 	.dot.bad {
 		background: var(--danger);
+	}
+	.tree {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--sp-2);
+		min-width: 0;
+		max-width: 24ch;
+	}
+	.tree :global(svg) {
+		flex: none;
+	}
+	.name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.tag {
+		flex: none;
+		color: var(--text-2);
 	}
 	.muted {
 		color: var(--text-2);

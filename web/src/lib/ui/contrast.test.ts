@@ -137,6 +137,9 @@ const themes = parseThemes(source);
 const ROLES = ['--text', '--text-2', '--text-3', '--accent', '--success', '--warning', '--danger'];
 const SURFACES = ['--bg-window', '--bg-panel', '--bg-raised', '--bg-hover'];
 const SOFTS = ['--warning-soft', '--danger-soft'];
+// A client's tag (ADR-0134 §6): its hue as text on its own soft background, over every surface
+// a row can sit on, and as a mark.
+const CLIENTS = ['claude', 'cursor', 'agent', 'other'].map((c) => `--client-${c}`);
 const SYN = [...themes.dark.keys()].filter((k) => k.startsWith('--syn-'));
 const LANES = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => `--lane-${i}`);
 
@@ -167,11 +170,20 @@ function pairs(): Array<{ fg: string; bg: Bg; min: number }> {
 	const BASES = ['--bg-window', '--bg-panel', '--bg-raised'];
 	add(ROLES, [...SURFACES.map(tok), tok('--bg-active'), ...BASES.map((b) => soft('--accent-soft', b))], 4.5);
 	add(ROLES, SOFTS.flatMap((s) => BASES.map((b) => soft(s, b))), 4.5);
+	// The quiet surface of a chat not connected to Droidyard: every text role is read on it.
+	add(ROLES, [tok('--bg-quiet')], 4.5);
+	for (const c of CLIENTS) {
+		add([c], [...BASES, '--bg-hover', '--bg-quiet'].map((b) => soft(`${c}-soft`, b)), 4.5);
+		// The receded tag of a row not live: the hue over the quiet surface itself.
+		add([c], [tok('--bg-quiet')], 4.5);
+		// The tag of the followed session's line drops its fill: the hue over the selection tint.
+		add([c], BASES.map((b) => soft('--accent-soft', b)), 4.5);
+	}
 	add(['--accent-text'], [tok('--accent')], 4.5);
 	add(['--danger-text'], [tok('--danger')], 4.5);
 	add(SYN, [tok('--bg-window'), tok('--bg-panel'), tok('--bg-raised'), tint('--success'), tint('--danger')], 4.5);
 	// Marks (dots, lanes, the faint role): the 3:1 of WCAG 1.4.11.
-	add(['--accent', '--success', '--warning', '--danger', '--text-3', ...LANES], [tok('--bg-window'), tok('--bg-panel'), tok('--bg-raised')], 3);
+	add(['--accent', '--success', '--warning', '--danger', '--text-3', ...LANES, ...CLIENTS], [tok('--bg-window'), tok('--bg-panel'), tok('--bg-raised'), tok('--bg-quiet')], 3);
 	return out;
 }
 

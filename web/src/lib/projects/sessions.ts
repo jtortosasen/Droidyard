@@ -16,6 +16,10 @@
 //     since the row was last selected, per tab, in memory only.
 //   - The UI follows a session and never moves it (ADR-0083 §3): `follow` names the session
 //     whose moves the selection takes; `unfollow` is a selection made from a project row.
+//     Both notify the listeners, as the panel marks the followed session (ADR-0134).
+//     `routed(workspace)` is the page's route changing: it ends the follow unless the route is
+//     the followed session's current workspace, so the follow's own navigation keeps it and
+//     any other navigation (a tab, a link, the address) ends it (ADR-0134).
 //   - A session may occupy a linked worktree and devices (ADR-0094): its row says which and
 //     whether it is idle, and the owner's Release (`release`) ends one occupation without
 //     moving the session.
@@ -177,10 +181,20 @@ export class SessionsModel {
 	/** The selection made from this session's row follows its moves; a project row's click ends it. */
 	follow(key: string): void {
 		this.#following = key;
+		this.#changed();
 	}
 
 	unfollow(): void {
+		if (this.#following === null) return;
 		this.#following = null;
+		this.#changed();
+	}
+
+	/** The route now shows `workspace` (null: none): a route that is not the followed session's own ends the follow (ADR-0134). */
+	routed(workspace: string | null): void {
+		if (this.#following === null) return;
+		if ((this.#listed.get(this.#following)?.workspace ?? null) === workspace) return;
+		this.unfollow();
 	}
 
 	get following(): string | null {
