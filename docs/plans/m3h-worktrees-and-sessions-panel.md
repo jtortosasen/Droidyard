@@ -119,7 +119,7 @@
 - Needs: steps 2, 3.
 - Not here: the final look (step 5's critique, step 6's owner); collapsing folders; a menu as a popover; Release on a folder head's tag (a worktree another project's unclaimed session holds is released after switching to that project, on its tree row, ADR-0094 §3; a device in Devices, as today).
 - Rests on: every title and name is a text node: level 3, `TestNoHTMLSinks`; level 5 at step 5.
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `ClientTag`, `SessionLine` (the one live-session row Trees and Sessions share, not in the brief), `Trees`, `Sessions`; `Projects.svelte` a thin container; the client hues and `--bg-quiet` in `tokens.css`. `contrast.test.ts` seen failing with `--client-claude` set to its own soft value in both blocks (dark: 1.34 on its soft over `--bg-panel`, 1.35 as a mark); the first light claude hue `#a14717` failed at 4.45 on raised and was darkened to `#8f3d10`. `pnpm -C web run verify` 0 (564 files, Vitest 122 / 1418); `go test ./web` ok; the autofixer gate no issues on the six files. Smoke (`/tmp/dyh.qOjvT4`, step 5's harness, headless Chrome): title `Droidyard - proj`; status bar `proj primary · open`; the column lists `proj primary 1` with `Cursor cursor-vscode connected` nested, `wt-a 1` held by claude-code with Release and its session nested, `wt-b` closed; Sessions `proj` then `other`; 0 `b` elements; no console error.
 
 ### 5. Level 5 in headless Chrome, then `impeccable` and one fix round (main session)
 

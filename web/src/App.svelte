@@ -11,6 +11,7 @@
 	import { StaleSession } from './lib/start/stale';
 	import { landing, ProjectsModel } from './lib/projects/projects';
 	import { ChatsModel } from './lib/projects/chats';
+	import { TreesModel } from './lib/projects/trees';
 	import { SessionsModel } from './lib/projects/sessions';
 	import Projects from './lib/projects/Projects.svelte';
 	import SessionsToggle from './lib/projects/SessionsToggle.svelte';
@@ -72,6 +73,7 @@
 	let projects = $state.raw<ProjectsModel | null>(null);
 	let sessions = $state.raw<SessionsModel | null>(null);
 	let chats = $state.raw<ChatsModel | null>(null);
+	let trees = $state.raw<TreesModel | null>(null);
 	let projectsView = $state.raw<ProjectsView | null>(null);
 	// `refused` (above): a `w` the daemon refused; the panel stays up with the reason until a project is chosen.
 
@@ -106,9 +108,13 @@
 			// The selection made from a session's row follows its moves (ADR-0083 §3).
 			onFollow: (id) => void list.select(id),
 			// The chats are read again a second after a session changes (ADR-0127 §Decision 4).
-			onState: () => lists.changed(),
+			onState: () => {
+				lists.changed();
+				tree.changed();
+			},
 		});
 		const lists = new ChatsModel({ call: (name, params) => c.call(name, params) });
+		const tree = new TreesModel({ call: (name, params, opts) => c.call(name, params, opts) });
 		const c = new Client({
 			url: `ws://${window.location.host}/v1/ws`,
 			token,
@@ -120,6 +126,7 @@
 				list.onConnection(s);
 				agents.onConnection(s);
 				lists.onConnection(s);
+				tree.onConnection(s);
 				if (s === 'unauthorized') forgetToken(window.sessionStorage);
 				if (s === 'open') refresh();
 			},
@@ -142,7 +149,12 @@
 		projects = list;
 		sessions = agents;
 		chats = lists;
-		const offList = list.subscribe(() => (projectsView = list.view));
+		trees = tree;
+		// A change of the project list moves the worktree rows too.
+		const offList = list.subscribe(() => {
+			projectsView = list.view;
+			tree.changed();
+		});
 		projectsView = list.view;
 		// Connect first: a call made on a client never connected is refused as closed,
 		// while one made while connecting waits for the socket.
@@ -154,6 +166,7 @@
 		lists.start();
 		return () => {
 			offList();
+			tree.show(null);
 			lists.stop();
 			agents.stop();
 			list.stop();
@@ -166,6 +179,7 @@
 			projects = null;
 			sessions = null;
 			chats = null;
+			trees = null;
 			projectsView = null;
 		};
 	});
@@ -182,6 +196,15 @@
 	// Without `w` the address takes the newest open project's id, so a reload stays on it.
 	$effect(() => {
 		if (route.view === 'none' && lands.kind === 'project') router.replace({ view: 'project', workspace: lands.workspace });
+	});
+
+	// The worktree rows read the tab's workspace by root; the followed session ends when the route leaves its workspace (ADR-0134 §5).
+	const tabRoot = $derived(projectsView?.rows.find((r) => route.view === 'project' && r.id === route.workspace)?.root ?? null);
+	$effect(() => {
+		trees?.show(tabRoot);
+	});
+	$effect(() => {
+		sessions?.routed(route.view === 'project' ? route.workspace : null);
 	});
 
 	const where = $derived(whereTab(projectsView?.rows ?? [], route.view === 'project' ? route.workspace : null));
@@ -201,8 +224,8 @@
 {/snippet}
 
 {#snippet sessionsPanel()}
-	{#if projects && sessions && chats}
-		<Projects {projects} {sessions} {chats} connected={connection === 'open'} selected={route.view === 'project' ? route.workspace : null} />
+	{#if projects && sessions && chats && trees}
+		<Projects {projects} {sessions} {chats} {trees} connected={connection === 'open'} selected={route.view === 'project' ? route.workspace : null} />
 	{/if}
 {/snippet}
 
@@ -222,7 +245,7 @@
 		<h1>Droidyard</h1>
 		<p>The daemon restarted: run <code>droidyard ui</code>.</p>
 	</main>
-{:else if client && activity && hub && projects && sessions && chats}
+{:else if client && activity && hub && projects && sessions && chats && trees}
 	{#if staleMode === 'banner'}
 		<p class="stale" role="alert">
 			The daemon restarted, so this tab can no longer save: run <code>droidyard ui</code>. Your unsaved text is still here; copy it out first.
@@ -250,7 +273,7 @@
 		<!-- No project to show: the panel itself, with recents, "Open folder..." and any reason. -->
 		<main class="solo">
 			<h1>Droidyard {@render status()}</h1>
-			<Projects {projects} {sessions} {chats} connected={connection === 'open'} selected={null} />
+			<Projects {projects} {sessions} {chats} {trees} connected={connection === 'open'} selected={null} />
 		</main>
 	{/if}
 {/if}
