@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionError } from '../api/client';
-import { agoText, chatTree, ChatsModel, clientOf, cut, POLL_MS, REFRESH_DELAY_MS, resumeCommand, sourceNotes, type Chat, type ChatsClient } from './chats';
+import { agoText, chatFolders, ChatsModel, clientOf, cut, POLL_MS, REFRESH_DELAY_MS, resumeCommand, sourceNotes, titlesBySession, type Chat, type ChatsClient } from './chats';
 import type { ProjectRow } from './projects';
 import type { AgentRow } from './sessions';
 
@@ -32,89 +32,153 @@ const live = (key: string, over: Partial<AgentRow> = {}): AgentRow => ({
 const project = (id: string, root: string, over: Partial<ProjectRow> = {}): ProjectRow =>
 	({ id, name: root.split('/').pop()!, root, lastOpenedAt: '2026-10-10T10:00:00Z', state: 'ready', trusted: true, open: true, ...over }) as ProjectRow;
 
-const flat = (tree: ReturnType<typeof chatTree>) => tree.map((c) => [c.name, c.projects.map((p) => [p.name, p.rows.map((r) => r.key)])]);
+const folderKeys = (fs: ReturnType<typeof chatFolders>) => fs.map((f) => [f.name, f.rows.map((r) => r.key), f.connections.map((c) => c.row.key)]);
 
-describe('chatTree: the order', () => {
-	// Decision (ADR-0127 §4): clients in the order Claude Code, Cursor, then Other; projects by
-	// their newest chat; chats newest first. A flat sort by name or id would fail all three.
-	it('orders clients, then projects by newest chat, then chats newest first', () => {
-		const tree = chatTree(
+describe('chatFolders: the order', () => {
+	// Decision (ADR-0134 Q1): the tab's project first whatever its age, then by newest chat,
+	// "No project" last. A newest-first sort alone would put /p/old after /p/b.
+	it("puts the tab's folder first whatever its age, then newest first, No project last", () => {
+		const folders = chatFolders(
 			[
-				chat('old', { project: '/p/a', updatedAt: '2026-10-01T00:00:00Z' }),
+				chat('old', { project: '/p/old', updatedAt: '2026-10-01T00:00:00Z' }),
 				chat('new', { project: '/p/b', updatedAt: '2026-10-09T00:00:00Z' }),
 				chat('mid', { project: '/p/b', updatedAt: '2026-10-05T00:00:00Z' }),
-				chat('cur', { client: 'cursor', store: 'cursor-agent', project: '/p/a' }),
+				chat('cur', { client: 'cursor', store: 'cursor-agent', project: '/p/c', updatedAt: '2026-10-03T00:00:00Z' }),
 			],
-			[live('peer', { name: 'laptop-link' })],
+			[live('peer', { name: 'laptop-link', label: 'laptop-link' })],
 			[],
+			'/p/old/',
 		);
-		expect(flat(tree)).toEqual([
-			[
-				'Claude Code',
-				[
-					['b', ['claude-code:new', 'claude-code:mid']],
-					['a', ['claude-code:old']],
-				],
-			],
-			['Cursor', [['a', ['cursor-agent:cur']]]],
-			['Other', [['No project', ['peer']]]],
+		expect(folderKeys(folders)).toEqual([
+			['old', ['claude-code:old'], []],
+			['b', ['claude-code:new', 'claude-code:mid'], []],
+			['c', ['cursor-agent:cur'], []],
+			['No project', [], ['peer']],
 		]);
+		expect(folders[0]!.current).toBe(true);
 	});
 });
 
-describe('chatTree: live sessions', () => {
-	// Decision (ADR-0095 §1, ADR-0127 §4): a chat that names a live session takes that row's
-	// state and no second row appears for the session.
-	it('puts a live session on its chat row and adds no row of its own', () => {
-		const s = live('s1', { running: true });
-		const tree = chatTree([chat('c1', { session: 's1' })], [s], []);
-		expect(flat(tree)).toEqual([['Claude Code', [['app', ['claude-code:c1']]]]]);
-		expect(tree[0]!.projects[0]!.rows[0]!.live).toBe(s);
-		expect(tree[0]!.projects[0]!.rows[0]!.title).toBe('title c1');
+describe('chatFolders: tags and connections', () => {
+	// Decision (ADR-0134 Q2): the client is a tag taken from the chat's store; the Cursor IDE
+	// and cursor-agent stay apart.
+	it('tags each row with its store', () => {
+		const folders = chatFolders(
+			[chat('a'), chat('b', { client: 'cursor', store: 'cursor-agent' }), chat('c', { client: 'cursor', store: 'cursor-ide' })],
+			[],
+			[],
+			null,
+		);
+		expect(Object.fromEntries(folders[0]!.rows.map((r) => [r.key, r.tag]))).toEqual({
+			'claude-code:a': 'claude-code',
+			'cursor-agent:b': 'cursor-agent',
+			'cursor-ide:c': 'cursor-ide',
+		});
 	});
 
-	// Decision (ADR-0095 §1): Cursor's connection carries no chat id, so a live Cursor session
-	// is a row of its own under Cursor and its workspace's project. `Cursor` as cursor-agent
-	// says it, in either case.
-	it('makes an unclaimed live Cursor session a row under Cursor and its project', () => {
-		const tree = chatTree([chat('c1')], [live('cs', { name: 'Cursor', label: 'Cursor', workspace: 'w1' })], [project('w1', '/p/app')]);
-		expect(flat(tree)).toEqual([
-			['Claude Code', [['app', ['claude-code:c1']]]],
-			['Cursor', [['app', ['cs']]]],
-		]);
+	// Decision (ADR-0134 Q1): a live session no chat claims is no row, and Cursor's connection
+	// carries no chat id so it is never claimed. Today's tree made it a row.
+	it('lists an unclaimed Cursor session as a connection, not a row', () => {
+		const cs = live('cs', { name: 'Cursor', label: 'Cursor', workspace: 'w1' });
+		const f = chatFolders([chat('c1', { client: 'cursor', store: 'cursor-agent' })], [cs], [project('w1', '/p/app')], null)[0]!;
+		expect(f.rows.map((r) => r.key)).toEqual(['cursor-agent:c1']);
+		expect(f.connections).toEqual([{ client: 'cursor', row: cs }]);
 		expect(clientOf('Cursor')).toBe('cursor');
 		expect(clientOf('cursor-vscode')).toBe('cursor');
 		expect(clientOf('claude-code')).toBe('claude-code');
 		expect(clientOf(null)).toBe('other');
 	});
 
-	// A worktree's session sits under the project of the main tree, not under the worktree.
-	it("places a live session of a worktree under its main tree's project", () => {
-		const rows = [project('m', '/p/app'), project('wt', '/p/app-wt', { mainRoot: '/p/app', name: 'app-wt' })];
-		const tree = chatTree([], [live('s', { workspace: 'wt' })], rows);
-		expect(tree[0]!.projects[0]).toMatchObject({ root: '/p/app', name: 'app' });
-		expect(tree[0]!.projects[0]!.rows[0]).toMatchObject({ worktree: 'app-wt', workspace: 'wt' });
+	// Decision (ADR-0095 §1): a chat that names a live session takes it and the session makes no
+	// connection of its own.
+	it('puts a claimed session on its chat row and not among the connections', () => {
+		const s = live('s1', { running: true });
+		const f = chatFolders([chat('c1', { session: 's1' })], [s], [], null)[0]!;
+		expect(f.rows[0]!.live).toBe(s);
+		expect(f.rows[0]!.presence).toBe('connected');
+		expect(f.connections).toEqual([]);
 	});
 
-	// Decision (ADR-0127 §4, ADR-0094 §3): a peer's link and a name the panel does not know sit
-	// under Other with their holds and Release; the row is the session row itself.
-	it('keeps the holds of a peer and an unknown name under Other', () => {
-		const peer = live('p1', { name: 'laptop-link', label: 'laptop-link', occupies: 'wt1', devices: ['emulator-5554'] });
-		const odd = live('o1', { name: null, label: 'agent' });
-		const tree = chatTree([], [peer, odd], []);
-		expect(tree.map((c) => c.name)).toEqual(['Other']);
-		const rows = tree[0]!.projects[0]!.rows;
-		expect(rows.map((r) => r.key).sort()).toEqual(['o1', 'p1']);
-		expect(rows.find((r) => r.key === 'p1')!.live).toMatchObject({ occupies: 'wt1', devices: ['emulator-5554'] });
+	// Decision (ADR-0134 Q2): the tab's folder has no connections (they nest on its worktrees);
+	// another project's has them. A project with a connection and no chat still has a folder.
+	it("keeps the tab's connections out of its folder and gives a chatless project a folder", () => {
+		const rows = [project('a', '/p/app'), project('b', '/p/other')];
+		const sessions = [live('sa', { workspace: 'a' }), live('sb', { workspace: 'b' })];
+		const folders = chatFolders([chat('c1', { project: '/p/app' })], sessions, rows, '/p/app');
+		expect(folderKeys(folders)).toEqual([
+			['app', ['claude-code:c1'], []],
+			['other', [], ['sb']],
+		]);
+	});
+
+	// Decision (ADR-0134 Q2): a session with no listed workspace (a peer's link, an unbound MCP
+	// session, one holding only a device) is a connection of "No project". A session of a
+	// worktree is its main tree's connection.
+	it('sends a session with no listed workspace to No project and a worktree one to its main tree', () => {
+		const rows = [project('m', '/p/app'), project('wt', '/p/app-wt', { mainRoot: '/p/app' })];
+		const sessions = [
+			live('none', { workspace: null }),
+			live('dev', { workspace: null, devices: ['emulator-5554'] }),
+			live('ghost', { workspace: 'unlisted' }),
+			live('inwt', { workspace: 'wt' }),
+		];
+		const folders = chatFolders([], sessions, rows, null);
+		expect(folderKeys(folders)).toEqual([
+			['app', [], ['inwt']],
+			['No project', [], ['none', 'dev', 'ghost']],
+		]);
 	});
 });
 
-describe('chatTree: titles', () => {
+describe('chatFolders: presence', () => {
+	const rows = [project('w1', '/p/app')];
+	const presence = (cs: Chat[], ss: AgentRow[], tab: string | null = null) => chatFolders(cs, ss, rows, tab)[0]!.rows.map((r) => r.presence);
+
+	// Decision (ADR-0134 Q2): joined is connected; a Claude Code chat nobody names is not
+	// connected; the join is never guessed for Cursor, so an unclaimed connection of its client
+	// beside it makes it unknown, and no such connection makes it not connected.
+	it('reads connected, not-connected and unknown', () => {
+		expect(presence([chat('a', { session: 's1' })], [live('s1')])).toEqual(['connected']);
+		expect(presence([chat('a')], [])).toEqual(['not-connected']);
+		const cursorChat = chat('c', { client: 'cursor', store: 'cursor-ide' });
+		const vscode = live('cv', { name: 'cursor-vscode', label: 'cursor-vscode', workspace: 'w1' });
+		expect(presence([cursorChat], [vscode])).toEqual(['unknown']);
+		expect(presence([cursorChat], [])).toEqual(['not-connected']);
+		expect(presence([cursorChat], [live('cl', { workspace: 'w1' })])).toEqual(['not-connected']); // a Claude Code session is not Cursor
+		expect(presence([chat('a')], [live('unc', { workspace: 'w1' })])).toEqual(['unknown']);
+	});
+
+	// The tab's folder lists no connections, yet its chats still read them: unknown there too.
+	it("counts the tab's unclaimed connections for presence though its folder lists none", () => {
+		const f = chatFolders([chat('a')], [live('unc', { workspace: 'w1' })], rows, '/p/app')[0]!;
+		expect(f.connections).toEqual([]);
+		expect(f.rows[0]!.presence).toBe('unknown');
+	});
+
+	// An unclaimed session in another project says nothing about this folder's chats.
+	it('does not read a connection of another project', () => {
+		const two = [project('w1', '/p/app'), project('w2', '/p/other')];
+		const f = chatFolders([chat('a')], [live('unc', { workspace: 'w2' })], two, null).find((x) => x.name === 'app')!;
+		expect(f.rows[0]!.presence).toBe('not-connected');
+	});
+});
+
+describe('titlesBySession', () => {
+	it('maps a session id to the title of the chat that names it', () => {
+		const m = titlesBySession([chat('a', { session: 's1' }), chat('b', { title: undefined, session: 's2' }), chat('c')]);
+		expect([...m]).toEqual([
+			['s1', 'title a'],
+			['s2', 'Untitled · 2026-10-10'],
+		]);
+	});
+});
+
+describe('chatFolders: titles', () => {
 	// Decision (ADR-0127 §4): a chat without a title reads "Untitled · <date>", never its id or
 	// anything else a chat holds. Falling back to the id would show a UUID where a name belongs.
 	it('reads an untitled chat as Untitled with its date, whatever its other fields hold', () => {
 		const c = chat('9f8e7d6c-1234', { title: undefined, worktree: '/p/app-wt', session: undefined });
-		const r = chatTree([c, chat('blank', { title: '   ' })], [], [])[0]!.projects[0]!.rows;
+		const r = chatFolders([c, chat('blank', { title: '   ' })], [], [], null)[0]!.rows;
 		expect(r.map((x) => x.title)).toEqual(['Untitled · 2026-10-10', 'Untitled · 2026-10-10']);
 		expect(r.map((x) => x.title).join()).not.toContain('9f8e7d6c');
 	});
@@ -123,19 +187,19 @@ describe('chatTree: titles', () => {
 	// resume command.
 	it('carries a title verbatim and keeps it out of the resume command', () => {
 		const t = `x'; rm -rf / #`;
-		const r = chatTree([chat('c1', { title: t })], [], [])[0]!.projects[0]!.rows[0]!;
+		const r = chatFolders([chat('c1', { title: t })], [], [], null)[0]!.rows[0]!;
 		expect(r.title).toBe(t);
 		expect(r.resume).toBe("cd '/p/app' && claude --resume c1");
 		expect(r.resume).not.toContain('rm -rf');
 	});
 });
 
-describe('chatTree: what a click selects', () => {
+describe('chatFolders: what a click selects', () => {
 	// Decision (ADR-0127 §4): a chat row selects its worktree's workspace, else its project's,
 	// and only an open one: it opens none.
 	it("selects the worktree's workspace, else the project's, and never a closed one", () => {
 		const rows = [project('m', '/p/app'), project('wt', '/p/app-wt', { mainRoot: '/p/app' }), project('gone', '/p/other', { open: false })];
-		const r = (c: Chat) => chatTree([c], [], rows)[0]!.projects[0]!.rows[0]!.workspace;
+		const r = (c: Chat) => chatFolders([c], [], rows, null)[0]!.rows[0]!.workspace;
 		expect(r(chat('a', { worktree: '/p/app-wt' }))).toBe('wt');
 		expect(r(chat('b'))).toBe('m');
 		expect(r(chat('c', { project: '/p/other' }))).toBeNull();

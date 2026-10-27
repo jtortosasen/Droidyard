@@ -269,6 +269,34 @@ describe('SessionsModel with session.watch', () => {
 		expect(t.moves).toEqual(['wt2']);
 	});
 
+	// Decision (ADR-0134): the panel marks the followed session, so follow and unfollow notify.
+	it('notifies the listeners on follow and unfollow', async () => {
+		const t = await watched();
+		let n = 0;
+		t.model.subscribe(() => n++);
+		t.model.follow('s1');
+		expect(n).toBe(1);
+		t.model.unfollow();
+		expect(n).toBe(2);
+	});
+
+	// Decision (ADR-0134): the follow's own navigation keeps it, any other route ends it. Without
+	// `routed` a tab or an address change would leave a session followed that the user left.
+	it('routed keeps the follow at the followed session workspace and ends it elsewhere', async () => {
+		const t = await watched();
+		await t.snapshot([{ id: 's1', name: 'a', workspace: 'wt', connectedAt: at }]);
+		t.model.follow('s1');
+		t.model.routed('wt'); // the follow's own navigation
+		expect(t.model.following).toBe('s1');
+		t.model.routed('other');
+		expect(t.model.following).toBeNull();
+		t.model.routed('wt'); // no follow: nothing happens
+		expect(t.model.following).toBeNull();
+		t.model.follow('s1');
+		t.model.routed(null);
+		expect(t.model.following).toBeNull();
+	});
+
 	// Decision (ADR-0127 §4): a session the watch reports ended leaves at once, running or not;
 	// its operations stay in Activity, under its actor label. Keeping a running one until its
 	// last operation ended would leave a row the watch no longer lists.

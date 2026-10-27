@@ -6,8 +6,8 @@
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import X from '@lucide/svelte/icons/x';
 	import { failureText } from '../build/failure';
-	import { agoText, chatTree, cut, sourceNotes, type ChatRow, type ChatsModel, type ChatsView } from './chats';
-	import { groupProjects, type ProjectsModel, type ProjectsView, type ProjectRow } from './projects';
+	import { agoText, chatFolders, cut, sourceNotes, type ChatRow, type ChatsModel, type ChatsView } from './chats';
+	import { projectMenu, rootKey, type ProjectsModel, type ProjectsView, type ProjectRow } from './projects';
 	import { duration, heldByText, holderOf, occupiesText, type AgentRow, type SessionsModel, type SessionsView } from './sessions';
 	import Spinner from './Spinner.svelte';
 
@@ -66,10 +66,14 @@
 	});
 
 	const rows = $derived(view?.rows ?? []);
-	// The panel by project (ADR-0083 §2): a worktree is never a top-level row.
-	const grouping = $derived(groupProjects(rows, agents.rows));
-	const groups = $derived(grouping.groups);
-	const tree = $derived(chatTree(chatsView.chats, agents.rows, rows));
+	// Step 3 keeps this view building on the new models; step 4 redraws it (ADR-0134).
+	const menu = $derived(projectMenu(rows));
+	const folders = $derived(chatFolders(chatsView.chats, agents.rows, rows, null));
+	const sessionsIn = (root: string) =>
+		agents.rows.filter((a) => {
+			const r = rows.find((x) => x.id === a.workspace);
+			return r !== undefined && rootKey(r.mainRoot ?? r.root) === rootKey(root);
+		});
 	const notes = $derived(sourceNotes(chatsView.sources));
 
 	// A project or worktree row: a selection that stays where it is, whatever the sessions do.
@@ -223,12 +227,13 @@
 	{/if}
 
 	<ul class="list">
-		{#each groups as g (g.key)}
-			{@const agentsHere = g.sessions}
-			{@const working = agentsHere.filter((s) => s.session.running).length}
+		{#each menu as g (rootKey(g.root))}
+			{@const agentsHere = sessionsIn(g.root)}
+			{@const working = agentsHere.filter((x) => x.running).length}
+			{@const p = rows.find((x) => x.id === g.id)}
+			{@const worktrees = rows.filter((x) => x.mainRoot !== undefined && rootKey(x.mainRoot) === rootKey(g.root))}
 			<li data-project={g.root}>
-				{#if g.project}
-					{@const p = g.project}
+				{#if p}
 					<div class="line">
 						<button
 							type="button"
@@ -259,9 +264,9 @@
 						<button type="button" class="open" disabled={view?.opening} onclick={() => openGroup(g.root)}>Open</button>
 					</div>
 				{/if}
-				{#if g.worktrees.length > 0}
+				{#if worktrees.length > 0}
 					<ul class="agents worktrees">
-						{#each g.worktrees as w (w.id)}
+						{#each worktrees as w (w.id)}
 							{@const holder = holderOf(agents.rows, w.id)}
 							<li class="line">
 								<button
@@ -305,45 +310,45 @@
 	{#if chatsView.truncated}
 		<p class="note">Still reading the chat stores; the list completes on the next refresh.</p>
 	{/if}
-	{#if chatsView.loaded && tree.length === 0}
+	{#if chatsView.loaded && folders.length === 0}
 		<p class="note">No chats yet.</p>
 	{/if}
 	<ul class="list tree">
-		{#each tree as c (c.id)}
-			<li data-client={c.id}>
-				<div class="client">{c.name}</div>
-				{#each c.projects as p (p.root ?? '')}
-					{@const k = `${c.id}|${p.root ?? ''}`}
-					{@const part = cut(p.rows, opened.has(k))}
-					<div class="project group" title={p.root ?? undefined}><Folder size={14} /> <span class="name">{p.name}</span></div>
-					<ul class="agents">
-						{#each part.shown as r (r.key)}
-							{#if r.live}
-								{@render agentRow(r.live, r.live.workspace, r.worktree, r.title)}
-							{:else}
-								<li class="line">
-									<button type="button" class="agent" title={r.title} onclick={() => chooseChat(r)}>
-										<MessageSquare size={12} />
-										<span class="label" title={r.title}>{r.title}</span>
-										<span class="state">{#if r.updatedAt !== null}<span class="when">{agoText(now - Date.parse(r.updatedAt))}</span>{/if}</span>
-										{#if r.worktree !== null}<span class="meta"><span class="where" title="Worktree">{r.worktree}</span></span>{/if}
+		{#each folders as f (f.root ?? '')}
+			{@const k = f.root ?? ''}
+			{@const part = cut(f.rows, opened.has(k))}
+			<li>
+				<div class="project group" title={f.root ?? undefined}><Folder size={14} /> <span class="name">{f.name}</span></div>
+				<ul class="agents">
+					{#each f.connections as c (c.row.key)}
+						{@render agentRow(c.row, c.row.workspace, null, `${c.row.label} connected`)}
+					{/each}
+					{#each part.shown as r (r.key)}
+						{#if r.live}
+							{@render agentRow(r.live, r.live.workspace, r.worktree, r.title)}
+						{:else}
+							<li class="line">
+								<button type="button" class="agent" title={r.title} onclick={() => chooseChat(r)}>
+									<MessageSquare size={12} />
+									<span class="label" title={r.title}>{r.title}</span>
+									<span class="state"><span class="when">{agoText(now - Date.parse(r.updatedAt))}</span></span>
+									{#if r.worktree !== null}<span class="meta"><span class="where" title="Worktree">{r.worktree}</span></span>{/if}
+								</button>
+								{#if r.resume !== undefined}
+									<button type="button" class="release" title="Copy the command that resumes this chat" onclick={() => void copy(r)}>
+										{copied === r.key ? 'Copied' : 'Copy'}
 									</button>
-									{#if r.resume !== undefined}
-										<button type="button" class="release" title="Copy the command that resumes this chat" onclick={() => void copy(r)}>
-											{copied === r.key ? 'Copied' : 'Copy'}
-										</button>
-									{/if}
-								</li>
-								{#if shownCommand?.key === r.key}
-									<li><input class="cmd" readonly aria-label="Resume command" value={shownCommand.text} onfocus={(e) => e.currentTarget.select()} /></li>
 								{/if}
+							</li>
+							{#if shownCommand?.key === r.key}
+								<li><input class="cmd" readonly aria-label="Resume command" value={shownCommand.text} onfocus={(e) => e.currentTarget.select()} /></li>
 							{/if}
-						{/each}
-						{#if part.more > 0}
-							<li><button type="button" class="agent more" onclick={() => open(k)}>{part.more} more</button></li>
 						{/if}
-					</ul>
-				{/each}
+					{/each}
+					{#if part.more > 0}
+						<li><button type="button" class="agent more" onclick={() => open(k)}>{part.more} more</button></li>
+					{/if}
+				</ul>
 			</li>
 		{/each}
 	</ul>
@@ -562,12 +567,6 @@
 		min-width: 0;
 		font-family: var(--font-mono);
 		font-size: var(--fs-small);
-		color: var(--text-2);
-	}
-	.client {
-		padding: var(--sp-2) var(--sp-4);
-		font-size: var(--fs-small);
-		font-weight: 600;
 		color: var(--text-2);
 	}
 	.when {

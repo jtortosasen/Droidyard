@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupProjects, landing, ProjectsModel, sessionsByRoot, type ProjectRow, type ProjectsClient } from './projects';
+import { landing, projectMenu, ProjectsModel, sessionsByRoot, type ProjectRow, type ProjectsClient } from './projects';
 import type { Route } from '../start/route';
 import { ConnectionError } from '../api/client';
 import { capError, FakeCalls, FakeStream, settle } from '../build/testing';
@@ -47,41 +47,40 @@ async function setup(rows: ReturnType<typeof row>[] = [], chooser: boolean | 'fa
 	return { calls, stream, model, navigated, ev, evType, shown };
 }
 
-describe('groupProjects', () => {
+describe('projectMenu', () => {
 	const r = (id: string, root: string, over: Record<string, unknown> = {}): ProjectRow => ({ ...row(id, { state: 'ready', root, name: id }), open: true, ...over }) as ProjectRow;
-	const ses = (key: string, workspace: string | null) => ({ key, workspace });
 
-	// Decision (ADR-0083 §2): worktrees nest under their main, a main whose tree is not listed
-	// gets a group row, and a worktree is never a top-level row. Rows in one flat list would
-	// show the worktrees as projects.
-	it('nests worktrees under their main, and an orphan worktree under a group row', () => {
+	// Decision (ADR-0134 Q3): the menu lists main trees, newest first; a linked worktree is
+	// never an entry; a main tree only its worktrees name is one entry with no id (it opens by
+	// root), once however many worktrees name it. A flat list of rows would list the worktrees.
+	it('lists main trees in the rows order, no worktree, and a worktree-only main once without an id', () => {
 		const rows = [
 			r('wt1', '/p/app-wt1', { mainRoot: '/p/app' }),
 			r('app', '/p/app'),
-			r('wt2', '/p/app-wt2', { mainRoot: '/p/app/' }),
-			r('lone', '/q/lone-wt', { mainRoot: '/q/lone' }),
+			r('lone1', '/q/lone-wt1', { mainRoot: '/q/lone' }),
+			r('lone2', '/q/lone-wt2', { mainRoot: '/q/lone/' }),
+			r('zed', '/z/zed', { open: false, state: 'closed' }),
 		];
-		const { groups } = groupProjects(rows, []);
-		expect(groups.map((g) => [g.root, g.project?.id ?? null, g.name, g.worktrees.map((w) => w.id)])).toEqual([
-			['/p/app', 'app', 'app', ['wt1', 'wt2']],
-			['/q/lone', null, 'lone', ['lone']],
+		expect(projectMenu(rows)).toEqual([
+			{ id: 'app', root: '/p/app', name: 'app', open: true, removable: false },
+			{ root: '/q/lone', name: 'lone', open: false, removable: false },
+			{ id: 'zed', root: '/z/zed', name: 'zed', open: false, removable: true },
 		]);
 	});
 
-	// Decision (ADR-0083 §2, ADR-0127): sessions name their worktree or "main" and count under
-	// their project; every worktree is listed, as the panel no longer draws a session under
-	// its worktree. Dropping a worktree that has a session would hide it from the panel.
-	it('puts each session under its project naming its worktree, and lists every worktree', () => {
-		const rows = [r('app', '/p/app'), r('wt1', '/p/wt1', { mainRoot: '/p/app' }), r('wt2', '/p/wt2', { mainRoot: '/p/app' })];
-		const { groups, loose } = groupProjects(rows, [ses('a', 'wt1'), ses('b', 'app'), ses('c', 'wt1'), ses('d', 'gone'), ses('e', null)]);
-		expect(groups[0]!.sessions.map((s) => [s.session.key, s.where])).toEqual([
-			['a', 'wt1'],
-			['b', 'main'],
-			['c', 'wt1'],
+	// Decision (ADR-0086): only a closed, listed main tree offers Remove; the daemon refuses an open one.
+	it('makes only a closed listed main tree removable', () => {
+		const m = projectMenu([r('a', '/p/a'), r('b', '/p/b', { open: false })]);
+		expect(m.map((e) => [e.id, e.removable])).toEqual([
+			['a', false],
+			['b', true],
 		]);
-		expect(groups[0]!.worktrees.map((w) => w.id)).toEqual(['wt1', 'wt2']);
-		expect(loose.map((s) => s.key)).toEqual(['d', 'e']);
 	});
+});
+
+describe('sessionsByRoot', () => {
+	const r = (id: string, root: string, over: Record<string, unknown> = {}): ProjectRow => ({ ...row(id, { state: 'ready', root, name: id }), open: true, ...over }) as ProjectRow;
+	const ses = (key: string, workspace: string | null) => ({ key, workspace });
 
 	// Decision (ADR-0083 §4): the Git panel names the sessions of a worktree by the root of their workspace.
 	it('lists the sessions at each root for the Git panel', () => {

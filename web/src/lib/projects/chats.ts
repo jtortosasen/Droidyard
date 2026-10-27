@@ -1,5 +1,5 @@
-// The chats of the user's assistant clients and the Sessions tree built from them (ADR-0127
-// §Decision 4). `session.chats` is a stateless read of the clients' own local stores, so the
+// The chats of the user's assistant clients and the Sessions folders built from them (ADR-0127
+// §Decision 4 as superseded in part by ADR-0134). `session.chats` is a stateless read of the clients' own local stores, so the
 // model reads it on start, one second after a `session.state` change (a burst is one call),
 // every 30 seconds while started, and once more when a lost connection opens again. A failed
 // read keeps the last list and a note.
@@ -125,10 +125,9 @@ export class ChatsModel {
 
 // --- the tree -------------------------------------------------------------------------
 
-/** The client groups of the Sessions tree, in the order they are shown. */
+/** The client a session or chat belongs to; the Sessions folders tag it (ADR-0134 Q2). */
 export type ClientId = 'claude-code' | 'cursor' | 'other';
 export const CLIENT_NAMES: Record<ClientId, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor', other: 'Other' };
-const CLIENT_ORDER: ClientId[] = ['claude-code', 'cursor', 'other'];
 
 /**
  * The client a live session's name says: `claude-code` is Claude Code, a name beginning
@@ -142,15 +141,24 @@ export function clientOf(name: string | null | undefined): ClientId {
 }
 
 export interface ChatRow {
-	/** Stable across reads: the store and the id, or the session id of a live session no chat claims. */
+	/** Stable across reads: the store and the id. */
 	key: string;
-	/** The title the client shows; "Untitled · <date>" when it has none; a live-only row reads as its session. */
+	/** The title the client shows; "Untitled · <date>" when it has none. */
 	title: string;
 	/** The linked worktree's name; null for the main tree. */
 	worktree: string | null;
-	/** The chat's last change; null for a live session no chat claims. */
-	updatedAt: string | null;
-	/** The live session connected to this chat, or the unclaimed live session itself. */
+	/** The chat's last change. */
+	updatedAt: string;
+	/** The client's store: the row's tag (ADR-0134). */
+	tag: Chat['store'];
+	/**
+	 * Whether the chat is connected to Droidyard (ADR-0134 Q2): `connected` when a live session
+	 * names it; otherwise `unknown` where an unclaimed live session of its client sits in its
+	 * folder (a Cursor connection carries no chat id, so the join is not guessed), else
+	 * `not-connected`.
+	 */
+	presence: 'connected' | 'not-connected' | 'unknown';
+	/** The live session connected to this chat. */
 	live?: AgentRow;
 	/** The command that resumes the chat in its client; absent where there is none. */
 	resume?: string;
@@ -158,17 +166,20 @@ export interface ChatRow {
 	workspace: string | null;
 }
 
-export interface ProjectNode {
+/** A live session no chat claims: the folder lists it as a connection, not as a chat. */
+export interface Connection {
+	client: ClientId;
+	row: AgentRow;
+}
+
+export interface Folder {
 	/** The project's main tree, absolute; null is "No project". */
 	root: string | null;
 	name: string;
+	/** The tab's project: first, and its connections are nested on its worktrees (`treeRows`), so `connections` is empty. */
+	current: boolean;
 	rows: ChatRow[];
-}
-
-export interface ClientNode {
-	id: ClientId;
-	name: string;
-	projects: ProjectNode[];
+	connections: Connection[];
 }
 
 const baseName = (path: string): string => rootKey(path).split(/[\\/]/).pop() || path;
@@ -191,29 +202,41 @@ function titleOf(chat: Chat): string {
 	return t ? t : `Untitled · ${chat.updatedAt.slice(0, 10)}`;
 }
 
+/** Session id → the title of the chat that names it, for the worktree rows' nested sessions (`treeRows`). */
+export function titlesBySession(chats: readonly Chat[]): Map<string, string> {
+	const out = new Map<string, string>();
+	for (const c of chats) if (c.session !== undefined) out.set(c.session, titleOf(c));
+	return out;
+}
+
 /**
- * Clients → projects → chats. A chat that names a live session takes that session's state and
- * makes no second row; a live session no chat claims is a row of its own under the client its
- * name says and its workspace's project. Projects are ordered by their newest chat (a live row
- * counts as newest), chats newest first.
+ * The Sessions folders (ADR-0134 Q1, Q2): one per project, the tab's project (`tabMain`)
+ * first, then by newest chat (a connection counts as newest: it is live), "No project" last.
+ * Chats are rows, newest first; a live session no chat claims is no row but a connection of its
+ * project's folder (not the tab's: those nest on its worktrees); a project with a connection
+ * and no chat still has a folder. A session with no listed workspace (a paired peer's link,
+ * an MCP session not yet bound) is a connection of "No project".
  */
-export function chatTree(chats: readonly Chat[], sessions: readonly AgentRow[], projects: readonly ProjectRow[]): ClientNode[] {
+export function chatFolders(chats: readonly Chat[], sessions: readonly AgentRow[], projects: readonly ProjectRow[], tabMain: string | null): Folder[] {
 	const byId = new Map(projects.map((p) => [p.id, p]));
 	const byRoot = new Map(projects.map((p) => [rootKey(p.root), p]));
 	const rowsBySession = new Map(sessions.map((s) => [s.key, s]));
+	const tabKey = tabMain === null ? null : rootKey(tabMain);
 	const claimed = new Set<string>();
 
 	interface Entry extends ChatRow {
 		time: number;
+		client: ClientId;
 	}
-	const groups = new Map<ClientId, Map<string, { node: ProjectNode; entries: Entry[] }>>();
-	const place = (client: ClientId, root: string | null, entry: Entry) => {
-		let g = groups.get(client);
-		if (!g) groups.set(client, (g = new Map()));
+	const folders = new Map<string, { folder: Folder; entries: Entry[]; unclaimed: Connection[] }>();
+	const folderFor = (root: string | null) => {
 		const key = root === null ? '' : rootKey(root);
-		let p = g.get(key);
-		if (!p) g.set(key, (p = { node: { root, name: root === null ? 'No project' : baseName(root), rows: [] }, entries: [] }));
-		p.entries.push(entry);
+		let f = folders.get(key);
+		if (!f) {
+			const current = root !== null && key === tabKey;
+			folders.set(key, (f = { folder: { root, name: root === null ? 'No project' : baseName(root), current, rows: [], connections: [] }, entries: [], unclaimed: [] }));
+		}
+		return f;
 	};
 
 	for (const c of chats) {
@@ -223,45 +246,42 @@ export function chatTree(chats: readonly Chat[], sessions: readonly AgentRow[], 
 		const main = byRoot.get(rootKey(c.project));
 		const resume = resumeCommand(c);
 		const time = Date.parse(c.updatedAt);
-		place(c.client === 'claude' ? 'claude-code' : 'cursor', c.project, {
+		folderFor(c.project).entries.push({
 			key: `${c.store}:${c.id}`,
 			title: titleOf(c),
 			worktree: c.worktree === undefined ? null : baseName(c.worktree),
 			updatedAt: c.updatedAt,
+			tag: c.store,
+			presence: live ? 'connected' : 'not-connected',
 			...(live ? { live } : {}),
 			...(resume !== undefined ? { resume } : {}),
 			workspace: wt?.open ? wt.id : main?.open ? main.id : null,
 			time: Number.isNaN(time) ? 0 : time,
+			client: c.client === 'claude' ? 'claude-code' : 'cursor',
 		});
 	}
 	for (const s of sessions) {
 		if (claimed.has(s.key)) continue;
 		const ws = s.workspace === null ? undefined : byId.get(s.workspace);
-		const root = ws === undefined ? null : (ws.mainRoot ?? ws.root);
-		place(clientOf(s.name), root, {
-			key: s.key,
-			title: s.label,
-			worktree: ws?.mainRoot === undefined ? null : ws.name,
-			updatedAt: null,
-			live: s,
-			workspace: ws?.id ?? null,
-			time: Number.MAX_SAFE_INTEGER,
-		});
+		const f = folderFor(ws === undefined ? null : (ws.mainRoot ?? ws.root));
+		f.unclaimed.push({ client: clientOf(s.name), row: s });
 	}
 
-	const out: ClientNode[] = [];
-	for (const id of CLIENT_ORDER) {
-		const g = groups.get(id);
-		if (!g) continue;
-		const nodes = [...g.values()].map((p) => {
-			p.entries.sort((a, b) => b.time - a.time);
-			p.node.rows = p.entries.map(({ time: _time, ...row }) => row);
-			return { node: p.node, newest: p.entries[0]!.time };
-		});
-		nodes.sort((a, b) => b.newest - a.newest);
-		out.push({ id, name: CLIENT_NAMES[id], projects: nodes.map((n) => n.node) });
+	const out: { folder: Folder; newest: number }[] = [];
+	for (const f of folders.values()) {
+		// A chat the join did not reach might still be that unclaimed connection (ADR-0134 Q2).
+		for (const e of f.entries) {
+			if (e.presence === 'not-connected' && f.unclaimed.some((u) => u.client === e.client)) e.presence = 'unknown';
+		}
+		f.entries.sort((a, b) => b.time - a.time);
+		f.folder.rows = f.entries.map(({ time: _time, client: _client, ...row }) => row);
+		if (!f.folder.current) f.folder.connections = f.unclaimed;
+		if (f.folder.rows.length === 0 && f.folder.connections.length === 0) continue;
+		out.push({ folder: f.folder, newest: f.folder.connections.length > 0 ? Number.MAX_SAFE_INTEGER : (f.entries[0]?.time ?? 0) });
 	}
-	return out;
+	const rank = (f: Folder) => (f.current ? 0 : f.root === null ? 2 : 1);
+	out.sort((a, b) => rank(a.folder) - rank(b.folder) || b.newest - a.newest);
+	return out.map((o) => o.folder);
 }
 
 /** Chats shown per project before "N more" (ADR-0127 §Decision 4). */

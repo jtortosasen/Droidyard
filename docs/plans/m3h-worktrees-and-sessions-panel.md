@@ -69,7 +69,7 @@
 - Needs: none.
 - Not here: no product code; the fixture script is the main session's, not committed.
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: (a) ADR-0134 with the four supersession lines and (b) the register splits with `Work` 3h, committed in `0cb7746`; `go test ./internal/doccheck` ok. (c) `pnpm -C web run verify` passes on the baseline. (d) On an isolated daemon (`/tmp/dy.4OewQd`, given through `/tmp`), `describe`'s `worktrees` is `[{"root":"/private/tmp/dy.4OewQd/wt-a","branch":"wt-a"}]` and `workspace.open` on `wt-a` returns `root` `/private/tmp/dy.4OewQd/wt-a`, `mainRoot` `/private/tmp/dy.4OewQd/proj`: byte-equal, so step 3's merge stands. No before screenshots (Changes).
 
 ### 2. The tab title names the project, the status bar the worktree
 
@@ -83,7 +83,7 @@
 - Needs: step 1. Runs beside step 3.
 - Not here: the count in the title (row 573); the Git panel (out, the owner's correction).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `title.test.ts` 4 cases; seen failing with the row's own name as `project` (2 of 4 fail: `feature-x` for `Shop`, `feature-x` for `shop`). `pnpm -C web run verify` 0 (svelte-check no warnings, Vitest 121 files / 1397 tests); the autofixer gate no issues on `App.svelte`, `Status.svelte`. The main session's review swapped the implementer's hand-drawn SVGs for `@lucide/svelte` `Folder` / `GitBranch` (the column's icons) and added `nowrap` so the name ellipsises. The bar's layout is seen at step 5.
 
 ### 3. The models: trees, menu, folders, presence, the kept selection
 
@@ -103,7 +103,7 @@
 - Needs: step 1. Runs beside step 2.
 - Not here: rendering (step 4); the main tree's branch (Scope 6'); guessing which Cursor chat a connection is (Q2).
 - Rests on: —
-- [ ] Done. Evidence:
+- [x] Done. Evidence: `trees.ts` (new) with `trees.test.ts`; `projectMenu`, `chatFolders`, `titlesBySession`, `routed` with their tests; `groupProjects` and `chatTree` gone, `Projects.svelte` adapted minimally. Seen failing, each mutation then restored: tab-first order removed (2 fail); `TreesModel`'s stale-answer guard removed; the client's name as the fallback title; `routed` always ending the follow; an unclaimed session as a chat row (6 fail); describe as the only source (7 fail); folders from chats only (3 fail); `changed()` without its debounce. `pnpm -C web run verify` 0 (Vitest 122 files / 1418 tests). Implementer's choices where the brief was silent: a loaded describe with no `worktrees` field counts as an empty list (a listed closed worktree there reads `gone`); a folder with connections and no chat sorts as newest; the tab's folder exists only when it has chats (its connections nest on its trees).
 
 ### 4. The panel
 
@@ -189,3 +189,5 @@ Delegated (the main session, under the owner's standing instruction to apply the
 ## Changes
 
 Changes after approval: date, what changed, why, and the ADR if the change touches the design.
+
+- 2026-10-27, step 1 (d): no **before** screenshots; the owner's own screenshot of the column (2026-10-27, Sessions with its three "Cursor" rows) is the before state the critique compares against. The root comparison read the row `workspace.open` returns (the row `workspace.watch` lists), not a `workspace.watch` stream.
